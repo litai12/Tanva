@@ -4,9 +4,9 @@ import { cn } from "@/lib/utils"
 // 简化版本的DropdownMenu组件
 export interface DropdownMenuProps extends React.HTMLAttributes<HTMLDivElement> {}
 
-export function DropdownMenu({ children, ...props }: DropdownMenuProps) {
-  return <div className="relative" {...props}>{children}</div>
-}
+export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, ...props }) => {
+  return <div className="relative" {...props}>{children}</div>;
+};
 
 export interface DropdownMenuTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   asChild?: boolean
@@ -32,13 +32,13 @@ export interface DropdownMenuContentProps extends React.HTMLAttributes<HTMLDivEl
   forceMount?: boolean
 }
 
-export function DropdownMenuContent({ 
+export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({ 
   children, 
   className, 
   align = 'end',
   forceMount,
   ...props 
-}: DropdownMenuContentProps) {
+}) => {
   return (
     <div 
       className={cn(
@@ -51,12 +51,12 @@ export function DropdownMenuContent({
     >
       {children}
     </div>
-  )
-}
+  );
+};
 
 export interface DropdownMenuItemProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {}
 
-export function DropdownMenuItem({ children, className, ...props }: DropdownMenuItemProps) {
+export const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({ children, className, ...props }) => {
   return (
     <button
       className={cn(
@@ -67,12 +67,12 @@ export function DropdownMenuItem({ children, className, ...props }: DropdownMenu
     >
       {children}
     </button>
-  )
-}
+  );
+};
 
 export interface DropdownMenuLabelProps extends React.HTMLAttributes<HTMLDivElement> {}
 
-export function DropdownMenuLabel({ children, className, ...props }: DropdownMenuLabelProps) {
+export const DropdownMenuLabel: React.FC<DropdownMenuLabelProps> = ({ children, className, ...props }) => {
   return (
     <div
       className={cn("px-4 py-2 text-xs font-medium text-gray-500", className)}
@@ -80,14 +80,14 @@ export function DropdownMenuLabel({ children, className, ...props }: DropdownMen
     >
       {children}
     </div>
-  )
-}
+  );
+};
 
-export function DropdownMenuSeparator({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export const DropdownMenuSeparator: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className, ...props }) => {
   return (
     <div
       className={cn("h-px bg-gray-200 my-1", className)}
       {...props}
     />
-  )
-}
+  );
+};
