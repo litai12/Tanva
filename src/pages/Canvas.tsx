@@ -4,7 +4,9 @@ import { useCanvasStore, useUIStore } from '@/stores';
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const { currentColor, strokeWidth, setGeometryData } = useCanvasStore();
+    const { 
+        gridSize 
+    } = useCanvasStore();
     const { showGrid, showAxis } = useUIStore();
 
     useEffect(() => {
@@ -13,6 +15,7 @@ const Canvas: React.FC = () => {
         // 初始化Paper.js
         paper.setup(canvasRef.current);
 
+        
         // 设置画布大小
         const canvas = canvasRef.current;
         const resizeCanvas = () => {
@@ -23,86 +26,137 @@ const Canvas: React.FC = () => {
                 paper.view.viewSize.width = canvas.width;
                 paper.view.viewSize.height = canvas.height;
                 
-                // 重新绘制网格和坐标轴
-                drawGrid();
-                drawAxis();
+                // 重新绘制专业版网格
+                createGrid(gridSize);
             }
         };
 
-        // 绘制网格
-        const drawGrid = () => {
-            // 清除现有网格
-            const existingGrid = paper.project.layers.find(layer => layer.name === 'grid');
-            if (existingGrid) {
-                existingGrid.remove();
+        // 专业版网格系统 - 支持主次网格线
+        const createGrid = (currentGridSize: number = 20) => {
+            // 保存当前活动图层
+            const previousActiveLayer = paper.project.activeLayer;
+
+            // 找到或创建网格图层
+            let gridLayer = paper.project.layers.find(l => l.name === "grid");
+            if (!gridLayer) {
+                gridLayer = new paper.Layer();
+                gridLayer.name = "grid";
+                gridLayer.sendToBack();
             }
 
-            if (!showGrid) return;
+            // 清空现有网格
+            gridLayer.removeChildren();
+            gridLayer.activate();
 
-            const gridLayer = new paper.Layer();
-            gridLayer.name = 'grid';
-
-            const gridSize = 20;
-            const viewBounds = paper.view.bounds;
-
-            // 绘制垂直线
-            for (let x = 0; x <= viewBounds.width; x += gridSize) {
-                const line = new paper.Path.Line(
-                    new paper.Point(x, 0),
-                    new paper.Point(x, viewBounds.height)
-                );
-                line.strokeColor = new paper.Color(0.9, 0.9, 0.9);
-                line.strokeWidth = 0.5;
+            // 如果网格和坐标轴都关闭，则不显示任何内容
+            if (!showGrid && !showAxis) {
+                return;
             }
 
-            // 绘制水平线
-            for (let y = 0; y <= viewBounds.height; y += gridSize) {
-                const line = new paper.Path.Line(
-                    new paper.Point(0, y),
-                    new paper.Point(viewBounds.width, y)
-                );
-                line.strokeColor = new paper.Color(0.9, 0.9, 0.9);
-                line.strokeWidth = 0.5;
+            // 获取画布尺寸
+            const width = paper.view.size.width;
+            const height = paper.view.size.height;
+
+            // 中心坐标系 - 原点在画布中心
+            const originX = width / 2;
+            const originY = height / 2;
+
+            // 创建坐标轴（如果启用）
+            if (showAxis) {
+                // Y轴（中心垂直线）
+                const yAxisLine = new paper.Path.Line({
+                    from: [originX, 0],
+                    to: [originX, height],
+                    strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴 - 完全不透明
+                    strokeWidth: 2.5,
+                    data: { isAxis: true, axis: 'Y' }
+                });
+                yAxisLine.sendToBack();
+                gridLayer.addChild(yAxisLine);
+
+                // X轴（中心水平线）
+                const xAxisLine = new paper.Path.Line({
+                    from: [0, originY],
+                    to: [width, originY],
+                    strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴 - 完全不透明
+                    strokeWidth: 2.5,
+                    data: { isAxis: true, axis: 'X' }
+                });
+                xAxisLine.sendToBack();
+                gridLayer.addChild(xAxisLine);
             }
 
+            // 创建网格线（如果启用）
+            if (showGrid) {
+                // 创建垂直网格线
+                // 向右画线
+                for (let i = showAxis ? 1 : 0; originX + i * currentGridSize <= width; i++) {
+                    const x = originX + i * currentGridSize;
+                    const isMainGrid = i % 5 === 0; // 每5条线为主网格线
+
+                    const line = new paper.Path.Line({
+                        from: [x, 0],
+                        to: [x, height],
+                        strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                        strokeWidth: isMainGrid ? 0.8 : 0.3
+                    });
+                    gridLayer.addChild(line);
+                }
+
+                // 向左画线
+                for (let i = 1; originX - i * currentGridSize >= 0; i++) {
+                    const x = originX - i * currentGridSize;
+                    const isMainGrid = i % 5 === 0;
+
+                    const line = new paper.Path.Line({
+                        from: [x, 0],
+                        to: [x, height],
+                        strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                        strokeWidth: isMainGrid ? 0.8 : 0.3
+                    });
+                    gridLayer.addChild(line);
+                }
+
+                // 创建水平网格线
+                // 向下画线
+                for (let i = showAxis ? 1 : 0; originY + i * currentGridSize <= height; i++) {
+                    const y = originY + i * currentGridSize;
+                    const isMainGrid = i % 5 === 0;
+
+                    const line = new paper.Path.Line({
+                        from: [0, y],
+                        to: [width, y],
+                        strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                        strokeWidth: isMainGrid ? 0.8 : 0.3
+                    });
+                    gridLayer.addChild(line);
+                }
+
+                // 向上画线
+                for (let i = 1; originY - i * currentGridSize >= 0; i++) {
+                    const y = originY - i * currentGridSize;
+                    const isMainGrid = i % 5 === 0;
+
+                    const line = new paper.Path.Line({
+                        from: [0, y],
+                        to: [width, y],
+                        strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                        strokeWidth: isMainGrid ? 0.8 : 0.3
+                    });
+                    gridLayer.addChild(line);
+                }
+            }
+
+            // 将网格层移到最底部
             gridLayer.sendToBack();
-        };
 
-        // 绘制坐标轴
-        const drawAxis = () => {
-            // 清除现有坐标轴
-            const existingAxis = paper.project.layers.find(layer => layer.name === 'axis');
-            if (existingAxis) {
-                existingAxis.remove();
+            // 恢复之前的活动图层
+            if (previousActiveLayer && previousActiveLayer.name &&
+                previousActiveLayer.name.startsWith('layer_')) {
+                previousActiveLayer.activate();
             }
-
-            if (!showAxis) return;
-
-            const axisLayer = new paper.Layer();
-            axisLayer.name = 'axis';
-
-            const viewBounds = paper.view.bounds;
-            const centerX = viewBounds.width / 2;
-            const centerY = viewBounds.height / 2;
-
-            // X轴
-            const xAxis = new paper.Path.Line(
-                new paper.Point(0, centerY),
-                new paper.Point(viewBounds.width, centerY)
-            );
-            xAxis.strokeColor = new paper.Color(0.5, 0.5, 0.5);
-            xAxis.strokeWidth = 1;
-
-            // Y轴
-            const yAxis = new paper.Path.Line(
-                new paper.Point(centerX, 0),
-                new paper.Point(centerX, viewBounds.height)
-            );
-            yAxis.strokeColor = new paper.Color(0.5, 0.5, 0.5);
-            yAxis.strokeWidth = 1;
-
-            axisLayer.sendToBack();
         };
+
 
         // 初始化画布
         resizeCanvas();
@@ -113,46 +167,19 @@ const Canvas: React.FC = () => {
         };
         window.addEventListener('resize', handleResize);
 
-        // 基础绘图功能
-        let currentPath: paper.Path | null = null;
-
-        const tool = new paper.Tool();
-
-        tool.onMouseDown = (event: paper.ToolEvent) => {
-            currentPath = new paper.Path();
-            currentPath.strokeColor = new paper.Color(currentColor);
-            currentPath.strokeWidth = strokeWidth;
-            currentPath.add(event.point);
-        };
-
-        tool.onMouseDrag = (event: paper.ToolEvent) => {
-            if (currentPath) {
-                currentPath.add(event.point);
-            }
-        };
-
-        tool.onMouseUp = () => {
-            if (currentPath) {
-                currentPath.simplify();
-                // 更新几何数据
-                setGeometryData({
-                    elements: paper.project.activeLayer.children.length,
-                    timestamp: Date.now()
-                });
-            }
-        };
 
         return () => {
             window.removeEventListener('resize', handleResize);
             paper.project.clear();
         };
-    }, [currentColor, strokeWidth, showGrid, showAxis, setGeometryData]);
+    }, [gridSize, showGrid, showAxis]);
 
     return (
         <div className="flex-1 relative overflow-hidden">
             <canvas
                 ref={canvasRef}
-                className="absolute inset-0 w-full h-full bg-white"
+                className="absolute inset-0 w-full h-full"
+                style={{ background: 'white' }}
             />
         </div>
     );

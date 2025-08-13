@@ -11,16 +11,17 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, ...props }
   const handleClose = () => setIsOpen(false);
   
   return (
-    <div className="relative" {...props}>
+    <div className="relative dropdown-menu-root" {...props}>
       {React.Children.map(children, (child) => {
         if (React.isValidElement(child)) {
-          if (child.props.role === 'trigger') {
+          // 使用组件类型而非 role 属性来识别组件
+          if (child.type === DropdownMenuTrigger) {
             return React.cloneElement(child as React.ReactElement, {
               onClick: handleToggle,
               ...child.props
             });
           }
-          if (child.props.role === 'content') {
+          if (child.type === DropdownMenuContent) {
             return React.cloneElement(child as React.ReactElement, {
               isOpen,
               onClose: handleClose,
@@ -39,17 +40,26 @@ export interface DropdownMenuTriggerProps extends React.ButtonHTMLAttributes<HTM
 }
 
 export const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, DropdownMenuTriggerProps>(
-  ({ children, className, ...props }, ref) => {
+  ({ children, className, asChild = false, ...props }, ref) => {
+    // 如果使用 asChild，则将 props 传递给第一个子元素
+    if (asChild && React.isValidElement(children)) {
+      return React.cloneElement(children as React.ReactElement, {
+        ...props,
+        className: cn(children.props.className, className),
+        ref
+      });
+    }
+    
+    // 否则渲染标准的 button 元素
     return (
       <button 
         ref={ref}
-        role="trigger"
         className={cn("inline-flex items-center", className)} 
         {...props}
       >
         {children}
       </button>
-    )
+    );
   }
 )
 DropdownMenuTrigger.displayName = "DropdownMenuTrigger"
@@ -74,7 +84,9 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
     const handleClickOutside = (event: MouseEvent) => {
       if (isOpen && onClose) {
         const target = event.target as Element;
-        if (!target.closest('[role="content"]') && !target.closest('[role="trigger"]')) {
+        // 检查点击是否在下拉菜单内容或触发器上
+        const dropdown = (event.target as Element).closest('.dropdown-menu-root');
+        if (!dropdown) {
           onClose();
         }
       }
@@ -90,7 +102,6 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
 
   return (
     <div 
-      role="content"
       className={cn(
         "absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50",
         align === 'start' && 'left-0 right-auto',
