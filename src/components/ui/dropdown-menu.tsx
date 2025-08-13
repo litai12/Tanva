@@ -5,7 +5,33 @@ import { cn } from "@/lib/utils"
 export interface DropdownMenuProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, ...props }) => {
-  return <div className="relative" {...props}>{children}</div>;
+  const [isOpen, setIsOpen] = React.useState(false);
+  
+  const handleToggle = () => setIsOpen(!isOpen);
+  const handleClose = () => setIsOpen(false);
+  
+  return (
+    <div className="relative" {...props}>
+      {React.Children.map(children, (child) => {
+        if (React.isValidElement(child)) {
+          if (child.props.role === 'trigger') {
+            return React.cloneElement(child as React.ReactElement, {
+              onClick: handleToggle,
+              ...child.props
+            });
+          }
+          if (child.props.role === 'content') {
+            return React.cloneElement(child as React.ReactElement, {
+              isOpen,
+              onClose: handleClose,
+              ...child.props
+            });
+          }
+        }
+        return child;
+      })}
+    </div>
+  );
 };
 
 export interface DropdownMenuTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -17,6 +43,7 @@ export const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, DropdownM
     return (
       <button 
         ref={ref}
+        role="trigger"
         className={cn("inline-flex items-center", className)} 
         {...props}
       >
@@ -30,6 +57,8 @@ DropdownMenuTrigger.displayName = "DropdownMenuTrigger"
 export interface DropdownMenuContentProps extends React.HTMLAttributes<HTMLDivElement> {
   align?: 'start' | 'center' | 'end'
   forceMount?: boolean
+  isOpen?: boolean
+  onClose?: () => void
 }
 
 export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({ 
@@ -37,12 +66,33 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   className, 
   align = 'end',
   forceMount,
+  isOpen = false,
+  onClose,
   ...props 
 }) => {
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isOpen && onClose) {
+        const target = event.target as Element;
+        if (!target.closest('[role="content"]') && !target.closest('[role="trigger"]')) {
+          onClose();
+        }
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
   return (
     <div 
+      role="content"
       className={cn(
-        "hidden absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50",
+        "absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50",
         align === 'start' && 'left-0 right-auto',
         align === 'center' && 'left-1/2 -translate-x-1/2',
         className

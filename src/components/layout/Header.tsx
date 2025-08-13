@@ -10,7 +10,7 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Minus } from 'lucide-react';
+import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus } from 'lucide-react';
 import { useUIStore } from '@/stores';
 
 const Header: React.FC = () => {
@@ -18,11 +18,9 @@ const Header: React.FC = () => {
         showLibraryPanel,
         showGrid,
         showAxis,
-        showScaleBar,
         toggleLibraryPanel,
         toggleGrid,
-        toggleAxis,
-        toggleScaleBar
+        toggleAxis
     } = useUIStore();
 
     const handleLogoClick = () => {
@@ -32,10 +30,7 @@ const Header: React.FC = () => {
 
     return (
         <header
-            className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white"
-            style={{
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
-            }}
+            className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white shadow-header"
         >
             <div className="flex h-10 w-full items-center justify-between px-3">
                 {/* Logo - 左对齐 */}

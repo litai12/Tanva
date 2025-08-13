@@ -5,7 +5,11 @@ export default {
     "./index.html"
   ],
   theme: {
-    extend: {},
+    extend: {
+      boxShadow: {
+        'header': '0 2px 8px rgba(0, 0, 0, 0.08)',
+      }
+    },
   },
   plugins: [],
 }

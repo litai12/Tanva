@@ -152,8 +152,7 @@ const Canvas: React.FC = () => {
         <div className="flex-1 relative overflow-hidden">
             <canvas
                 ref={canvasRef}
-                className="absolute inset-0 w-full h-full"
-                style={{ background: 'white' }}
+                className="absolute inset-0 w-full h-full bg-white"
             />
         </div>
     );
