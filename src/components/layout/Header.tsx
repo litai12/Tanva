@@ -10,8 +10,8 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus } from 'lucide-react';
-import { useUIStore } from '@/stores';
+import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home } from 'lucide-react';
+import { useUIStore, useCanvasStore } from '@/stores';
 
 const Header: React.FC = () => {
     const {
@@ -22,6 +22,8 @@ const Header: React.FC = () => {
         toggleGrid,
         toggleAxis
     } = useUIStore();
+    
+    const { resetView } = useCanvasStore();
 
     const handleLogoClick = () => {
         // 暂时空实现
@@ -145,6 +147,15 @@ const Header: React.FC = () => {
                             >
                                 <Plus className="mr-2 h-3 w-3" />
                                 <span>{showAxis ? '关闭坐标轴' : '开启坐标轴'}</span>
+                            </DropdownMenuItem>
+
+                            {/* 回到原点 */}
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onClick={resetView}
+                            >
+                                <Home className="mr-2 h-3 w-3" />
+                                <span>回到原点</span>
                             </DropdownMenuItem>
 
                             <DropdownMenuSeparator />
