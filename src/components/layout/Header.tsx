@@ -1,0 +1,182 @@
+import React from 'react';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Minus } from 'lucide-react';
+import { useUIStore } from '@/stores';
+
+const Header: React.FC = () => {
+    const {
+        showLibraryPanel,
+        showGrid,
+        showAxis,
+        showScaleBar,
+        toggleLibraryPanel,
+        toggleGrid,
+        toggleAxis,
+        toggleScaleBar
+    } = useUIStore();
+
+    const handleLogoClick = () => {
+        // 暂时空实现
+        console.log('Logo clicked');
+    };
+
+    return (
+        <header
+            className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white"
+            style={{
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
+            }}
+        >
+            <div className="flex h-10 w-full items-center justify-between px-3">
+                {/* Logo - 左对齐 */}
+                <div className="flex items-center space-x-2">
+                    <div
+                        className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={handleLogoClick}
+                        title="返回首页"
+                    >
+                        {/* Logo图片 */}
+                        <img
+                            src="/logo.png"
+                            alt="Logo"
+                            className="w-6 h-6 object-contain"
+                        />
+                    </div>
+                    <Badge variant="secondary" className="ml-1 text-[8px] px-0.5 py-0">
+                        Beta
+                    </Badge>
+                </div>
+
+                {/* 中间区域 - 暂时为空 */}
+                <div className="flex-1 flex justify-center">
+                    <div></div>
+                </div>
+
+                {/* 用户菜单 - 右对齐 */}
+                <div className="flex items-center space-x-2">
+                    {/* 问号帮助按钮 */}
+                    <Button variant="ghost" size="sm" className="w-6 h-6 p-0">
+                        <HelpCircle className="w-3 h-3" />
+                    </Button>
+
+                    {/* 素材库按钮 */}
+                    <Button
+                        onClick={toggleLibraryPanel}
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs flex items-center gap-1"
+                        title={showLibraryPanel ? "关闭素材库" : "打开素材库"}
+                    >
+                        <Library className="w-3 h-3" />
+                        <span>素材库</span>
+                    </Button>
+
+                    {/* 分享按钮 */}
+                    <Button
+                        variant="default"
+                        size="sm"
+                        className="h-6 px-2 bg-blue-500 hover:bg-blue-600 text-white text-xs flex items-center gap-1"
+                        onClick={() => {
+                            // 分享功能
+                            if (navigator.share) {
+                                // 使用原生分享API
+                                navigator.share({
+                                    title: '智绘画板',
+                                    text: '来体验这个智能画板应用！',
+                                    url: window.location.href
+                                }).catch(console.error);
+                            } else {
+                                // 备用方案：复制链接到剪贴板
+                                navigator.clipboard.writeText(window.location.href).then(() => {
+                                    alert('链接已复制到剪贴板！');
+                                }).catch(() => {
+                                    alert('分享链接: ' + window.location.href);
+                                });
+                            }
+                        }}
+                        title="分享"
+                    >
+                        <Share className="w-3 h-3" />
+                        <span>分享</span>
+                    </Button>
+
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="w-6 h-6 p-0">
+                                <Menu className="w-3 h-3" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-48" align="end" forceMount>
+                            <DropdownMenuLabel className="font-normal">
+                                <div className="flex flex-col space-y-1">
+                                    <p className="text-xs font-medium leading-none">
+                                        智绘用户
+                                    </p>
+                                    <p className="text-[10px] leading-none text-muted-foreground">
+                                        @user
+                                    </p>
+                                </div>
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+
+                            {/* 视图设置 */}
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                视图设置
+                            </DropdownMenuLabel>
+
+                            {/* 网格开关 */}
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onClick={toggleGrid}
+                            >
+                                <Grid3x3 className="mr-2 h-3 w-3" />
+                                <span>{showGrid ? '关闭网格' : '开启网格'}</span>
+                            </DropdownMenuItem>
+
+                            {/* 坐标轴开关 */}
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onClick={toggleAxis}
+                            >
+                                <Plus className="mr-2 h-3 w-3" />
+                                <span>{showAxis ? '关闭坐标轴' : '开启坐标轴'}</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            {/* 用户设置 */}
+                            <DropdownMenuItem className="text-xs">
+                                <User className="mr-2 h-3 w-3" />
+                                <span>个人资料</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-xs">
+                                <Settings className="mr-2 h-3 w-3" />
+                                <span>设置</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onClick={() => console.log('退出登录')}
+                            >
+                                <LogOut className="mr-2 h-3 w-3" />
+                                <span>退出登录</span>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            </div>
+        </header>
+    );
+};
+
+export default Header;

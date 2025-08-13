@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 基础重置样式 */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  background-color: #ffffff;
+  color: #1f2937;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 自定义蓝色T字母光标 */
+* {
+  cursor: url("data:image/svg+xml,%3csvg width='16' height='16' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M2 3 L14 3 M8 3 L8 13' stroke='%232563eb' stroke-width='2' stroke-linecap='round'/%3e%3c/svg%3e") 8 3, auto;
+}
