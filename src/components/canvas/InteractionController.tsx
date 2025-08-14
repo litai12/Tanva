@@ -126,6 +126,12 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('wheel', handleWheel);
+      
+      // 清理未完成的动画帧，防止内存泄漏
+      if (dragAnimationId) {
+        cancelAnimationFrame(dragAnimationId);
+        dragAnimationId = null;
+      }
     };
   }, [setPan, canvasRef]);
 

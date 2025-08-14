@@ -88,8 +88,7 @@ export const useCanvasStore = create<CanvasState>()(
 export const useCanvasUnits = () => useCanvasStore((state) => state.units);
 export const useCanvasZoom = () => useCanvasStore((state) => state.zoom);
 export const useCanvasGrid = () => useCanvasStore((state) => ({ 
-  gridSize: state.gridSize, 
-  showGrid: true // 从uiStore获取，但这里先简化
+  gridSize: state.gridSize
 }));
 export const useCanvasScale = () => useCanvasStore((state) => ({
   scaleRatio: state.scaleRatio,
