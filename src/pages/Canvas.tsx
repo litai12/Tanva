@@ -16,6 +16,122 @@ const Canvas: React.FC = () => {
     } = useCanvasStore();
     const { showGrid, showAxis } = useUIStore();
 
+    // 专业版网格系统 - 支持视口裁剪的无限网格，固定间距
+    const createGrid = (baseGridSize: number = 20) => {
+        
+        // 使用固定网格间距，通过缩放实现视觉变化
+        const currentGridSize = baseGridSize;
+        // 保存当前活动图层
+        const previousActiveLayer = paper.project.activeLayer;
+
+        // 找到或创建网格图层
+        let gridLayer = paper.project.layers.find(l => l.name === "grid");
+        if (!gridLayer) {
+            gridLayer = new paper.Layer();
+            gridLayer.name = "grid";
+            gridLayer.sendToBack();
+        }
+
+        // 清空现有网格
+        gridLayer.removeChildren();
+        gridLayer.activate();
+
+        // 如果网格和坐标轴都关闭，则不显示任何内容
+        if (!showGrid && !showAxis) {
+            return;
+        }
+
+        // 获取世界坐标系中的可视边界
+        const viewBounds = paper.view.bounds;
+        
+        // 计算网格边界，扩展一点确保完全覆盖
+        const padding = currentGridSize * 2;
+        const minX = Math.floor((viewBounds.left - padding) / currentGridSize) * currentGridSize;
+        const maxX = Math.ceil((viewBounds.right + padding) / currentGridSize) * currentGridSize;
+        const minY = Math.floor((viewBounds.top - padding) / currentGridSize) * currentGridSize;
+        const maxY = Math.ceil((viewBounds.bottom + padding) / currentGridSize) * currentGridSize;
+
+        // 创建坐标轴（如果启用）- 固定在Paper.js (0,0)点
+        if (showAxis) {
+            // Y轴（蓝色竖直线）
+            const yAxisLine = new paper.Path.Line({
+                from: [0, viewBounds.top - padding],
+                to: [0, viewBounds.bottom + padding],
+                strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴
+                strokeWidth: 2.5,
+                data: { isAxis: true, axis: 'Y' }
+            });
+            gridLayer.addChild(yAxisLine);
+
+            // X轴（红色水平线）
+            const xAxisLine = new paper.Path.Line({
+                from: [viewBounds.left - padding, 0],
+                to: [viewBounds.right + padding, 0],
+                strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴
+                strokeWidth: 2.5,
+                data: { isAxis: true, axis: 'X' }
+            });
+            gridLayer.addChild(xAxisLine);
+        }
+
+        // 创建网格线（如果启用）- 只绘制可视区域内的网格线
+        if (showGrid) {
+            // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
+            const shouldShowMinorGrid = zoom >= 0.3;
+            
+            // 创建垂直网格线
+            for (let x = minX; x <= maxX; x += currentGridSize) {
+                // 跳过轴线位置（如果显示轴线）
+                if (showAxis && x === 0) continue;
+                
+                // 计算是否为主网格线（每5条线）
+                const gridIndex = Math.round(x / currentGridSize);
+                const isMainGrid = gridIndex % 5 === 0;
+                
+                // 如果是副网格且缩放过小，则跳过
+                if (!isMainGrid && !shouldShowMinorGrid) continue;
+
+                const line = new paper.Path.Line({
+                    from: [x, minY],
+                    to: [x, maxY],
+                    strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                    strokeWidth: isMainGrid ? 0.8 : 0.3
+                });
+                gridLayer.addChild(line);
+            }
+
+            // 创建水平网格线
+            for (let y = minY; y <= maxY; y += currentGridSize) {
+                // 跳过轴线位置（如果显示轴线）
+                if (showAxis && y === 0) continue;
+                
+                // 计算是否为主网格线（每5条线）
+                const gridIndex = Math.round(y / currentGridSize);
+                const isMainGrid = gridIndex % 5 === 0;
+                
+                // 如果是副网格且缩放过小，则跳过
+                if (!isMainGrid && !shouldShowMinorGrid) continue;
+
+                const line = new paper.Path.Line({
+                    from: [minX, y],
+                    to: [maxX, y],
+                    strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                    strokeWidth: isMainGrid ? 0.8 : 0.3
+                });
+                gridLayer.addChild(line);
+            }
+        }
+
+        // 将网格层移到最底部
+        gridLayer.sendToBack();
+
+        // 恢复之前的活动图层
+        if (previousActiveLayer && previousActiveLayer.name &&
+            previousActiveLayer.name.startsWith('layer_')) {
+            previousActiveLayer.activate();
+        }
+    };
+
     useEffect(() => {
         if (!canvasRef.current) return;
 
@@ -67,120 +183,6 @@ const Canvas: React.FC = () => {
             }
         };
 
-        // 专业版网格系统 - 支持视口裁剪的无限网格，固定间距
-        const createGrid = (baseGridSize: number = 20) => {
-            // 使用固定网格间距，通过缩放实现视觉变化
-            const currentGridSize = baseGridSize;
-            // 保存当前活动图层
-            const previousActiveLayer = paper.project.activeLayer;
-
-            // 找到或创建网格图层
-            let gridLayer = paper.project.layers.find(l => l.name === "grid");
-            if (!gridLayer) {
-                gridLayer = new paper.Layer();
-                gridLayer.name = "grid";
-                gridLayer.sendToBack();
-            }
-
-            // 清空现有网格
-            gridLayer.removeChildren();
-            gridLayer.activate();
-
-            // 如果网格和坐标轴都关闭，则不显示任何内容
-            if (!showGrid && !showAxis) {
-                return;
-            }
-
-            // 获取世界坐标系中的可视边界
-            const viewBounds = paper.view.bounds;
-            
-            // 计算网格边界，扩展一点确保完全覆盖
-            const padding = currentGridSize * 2;
-            const minX = Math.floor((viewBounds.left - padding) / currentGridSize) * currentGridSize;
-            const maxX = Math.ceil((viewBounds.right + padding) / currentGridSize) * currentGridSize;
-            const minY = Math.floor((viewBounds.top - padding) / currentGridSize) * currentGridSize;
-            const maxY = Math.ceil((viewBounds.bottom + padding) / currentGridSize) * currentGridSize;
-
-            // 创建坐标轴（如果启用）- 固定在Paper.js (0,0)点
-            if (showAxis) {
-                // Y轴（蓝色竖直线）
-                const yAxisLine = new paper.Path.Line({
-                    from: [0, viewBounds.top - padding],
-                    to: [0, viewBounds.bottom + padding],
-                    strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴
-                    strokeWidth: 2.5,
-                    data: { isAxis: true, axis: 'Y' }
-                });
-                gridLayer.addChild(yAxisLine);
-
-                // X轴（红色水平线）
-                const xAxisLine = new paper.Path.Line({
-                    from: [viewBounds.left - padding, 0],
-                    to: [viewBounds.right + padding, 0],
-                    strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴
-                    strokeWidth: 2.5,
-                    data: { isAxis: true, axis: 'X' }
-                });
-                gridLayer.addChild(xAxisLine);
-            }
-
-            // 创建网格线（如果启用）- 只绘制可视区域内的网格线
-            if (showGrid) {
-                // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
-                const shouldShowMinorGrid = zoom >= 0.3;
-                
-                // 创建垂直网格线
-                for (let x = minX; x <= maxX; x += currentGridSize) {
-                    // 跳过轴线位置（如果显示轴线）
-                    if (showAxis && x === 0) continue;
-                    
-                    // 计算是否为主网格线（每5条线）
-                    const gridIndex = Math.round(x / currentGridSize);
-                    const isMainGrid = gridIndex % 5 === 0;
-                    
-                    // 如果是副网格且缩放过小，则跳过
-                    if (!isMainGrid && !shouldShowMinorGrid) continue;
-
-                    const line = new paper.Path.Line({
-                        from: [x, minY],
-                        to: [x, maxY],
-                        strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-                        strokeWidth: isMainGrid ? 0.8 : 0.3
-                    });
-                    gridLayer.addChild(line);
-                }
-
-                // 创建水平网格线
-                for (let y = minY; y <= maxY; y += currentGridSize) {
-                    // 跳过轴线位置（如果显示轴线）
-                    if (showAxis && y === 0) continue;
-                    
-                    // 计算是否为主网格线（每5条线）
-                    const gridIndex = Math.round(y / currentGridSize);
-                    const isMainGrid = gridIndex % 5 === 0;
-                    
-                    // 如果是副网格且缩放过小，则跳过
-                    if (!isMainGrid && !shouldShowMinorGrid) continue;
-
-                    const line = new paper.Path.Line({
-                        from: [minX, y],
-                        to: [maxX, y],
-                        strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-                        strokeWidth: isMainGrid ? 0.8 : 0.3
-                    });
-                    gridLayer.addChild(line);
-                }
-            }
-
-            // 将网格层移到最底部
-            gridLayer.sendToBack();
-
-            // 恢复之前的活动图层
-            if (previousActiveLayer && previousActiveLayer.name &&
-                previousActiveLayer.name.startsWith('layer_')) {
-                previousActiveLayer.activate();
-            }
-        };
 
 
         // 初始化画布
@@ -203,7 +205,7 @@ const Canvas: React.FC = () => {
         const handleMouseDown = (event: MouseEvent) => {
             // 只响应中键（button === 1）
             if (event.button === 1) {
-                event.preventDefault();
+                event.preventDefault(); // 阻止中键的默认行为（滚动）
                 isDragging = true;
                 
                 const rect = canvas.getBoundingClientRect();
@@ -232,9 +234,10 @@ const Canvas: React.FC = () => {
                 const screenDeltaX = currentScreenPoint.x - lastScreenPoint.x;
                 const screenDeltaY = currentScreenPoint.y - lastScreenPoint.y;
                 
-                // 转换为世界坐标增量（考虑当前缩放）
-                const worldDeltaX = screenDeltaX / zoom;
-                const worldDeltaY = screenDeltaY / zoom;
+                // 获取实时缩放值并转换为世界坐标增量
+                const currentState = useCanvasStore.getState();
+                const worldDeltaX = screenDeltaX / currentState.zoom;
+                const worldDeltaY = screenDeltaY / currentState.zoom;
                 
                 // 更新平移值
                 const newPanX = dragStartPanX + worldDeltaX;
@@ -271,13 +274,6 @@ const Canvas: React.FC = () => {
         canvas.addEventListener('mousemove', handleMouseMove);
         canvas.addEventListener('mouseup', handleMouseUp);
         
-        // 阻止中键的默认行为（滚动）
-        canvas.addEventListener('mousedown', (event) => {
-            if (event.button === 1) {
-                event.preventDefault();
-            }
-        });
-        
         // 明确禁用滚轮事件，防止任何缩放行为
         const preventWheel = (event: WheelEvent) => {
             event.preventDefault();
@@ -292,11 +288,17 @@ const Canvas: React.FC = () => {
             canvas.removeEventListener('mousemove', handleMouseMove);
             canvas.removeEventListener('mouseup', handleMouseUp);
             canvas.removeEventListener('wheel', preventWheel);
-            paper.project.clear();
+            
+            // 只清理网格图层，保留用户绘制的内容
+            const gridLayer = paper.project.layers.find(l => l.name === "grid");
+            if (gridLayer) {
+                gridLayer.removeChildren();
+                gridLayer.remove();
+            }
         };
     }, [gridSize, showGrid, showAxis]);
 
-    // 优化的视口变化处理 - 减少内存泄漏风险
+    // 处理视口变换和网格更新的effect
     useEffect(() => {
         if (!canvasRef.current) return;
         
@@ -306,89 +308,16 @@ const Canvas: React.FC = () => {
         matrix.translate(panX, panY);
         paper.view.matrix = matrix;
         
-        // 立即重绘网格，不使用防抖（避免拖拽时空白）
-        const redrawGrid = () => {
-            const gridLayer = paper.project.layers.find(l => l.name === "grid");
-            if (gridLayer && (showGrid || showAxis)) {
-                // 彻底清理现有对象，避免内存泄漏
-                gridLayer.removeChildren();
-                
-                // 强制垃圾回收提示
-                if (gridLayer.children.length > 0) {
-                    gridLayer.children.forEach(child => {
-                        if (child.remove) child.remove();
-                    });
-                }
-                
-                gridLayer.activate();
-                
-                const viewBounds = paper.view.bounds;
-                const padding = gridSize * 2;
-                const minX = Math.floor((viewBounds.left - padding) / gridSize) * gridSize;
-                const maxX = Math.ceil((viewBounds.right + padding) / gridSize) * gridSize;
-                const minY = Math.floor((viewBounds.top - padding) / gridSize) * gridSize;
-                const maxY = Math.ceil((viewBounds.bottom + padding) / gridSize) * gridSize;
-
-                // 坐标轴 - 使用变量存储避免内联创建
-                if (showAxis) {
-                    const yAxis = new paper.Path.Line({
-                        from: [0, viewBounds.top - padding], to: [0, viewBounds.bottom + padding],
-                        strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), strokeWidth: 2.5,
-                        data: { isAxis: true, axis: 'Y' }
-                    });
-                    const xAxis = new paper.Path.Line({
-                        from: [viewBounds.left - padding, 0], to: [viewBounds.right + padding, 0],
-                        strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), strokeWidth: 2.5,
-                        data: { isAxis: true, axis: 'X' }
-                    });
-                    gridLayer.addChild(yAxis);
-                    gridLayer.addChild(xAxis);
-                }
-
-                // 网格线 - 批量创建减少内存分配
-                if (showGrid) {
-                    const shouldShowMinorGrid = zoom >= 0.3;
-                    const gridLines = [];
-                    
-                    // 先收集所有需要创建的线段信息
-                    for (let x = minX; x <= maxX; x += gridSize) {
-                        if (showAxis && x === 0) continue;
-                        const gridIndex = Math.round(x / gridSize);
-                        const isMainGrid = gridIndex % 5 === 0;
-                        if (!isMainGrid && !shouldShowMinorGrid) continue;
-                        gridLines.push({
-                            from: [x, minY], to: [x, maxY],
-                            strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-                            strokeWidth: isMainGrid ? 0.8 : 0.3
-                        });
-                    }
-
-                    for (let y = minY; y <= maxY; y += gridSize) {
-                        if (showAxis && y === 0) continue;
-                        const gridIndex = Math.round(y / gridSize);
-                        const isMainGrid = gridIndex % 5 === 0;
-                        if (!isMainGrid && !shouldShowMinorGrid) continue;
-                        gridLines.push({
-                            from: [minX, y], to: [maxX, y],
-                            strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-                            strokeWidth: isMainGrid ? 0.8 : 0.3
-                        });
-                    }
-                    
-                    // 批量创建并添加到图层
-                    gridLines.forEach(lineConfig => {
-                        gridLayer.addChild(new paper.Path.Line(lineConfig));
-                    });
-                }
-                
-                gridLayer.sendToBack();
-            }
-        };
+        // 只有当网格图层存在时才重绘网格（避免重复创建）
+        const gridLayer = paper.project.layers.find(l => l.name === "grid");
+        if (gridLayer && (showGrid || showAxis)) {
+            // 使用防抖避免频繁重绘
+            requestAnimationFrame(() => {
+                createGrid(gridSize);
+            });
+        }
         
-        // 使用requestAnimationFrame替代setTimeout，提供更好的拖拽体验
-        requestAnimationFrame(redrawGrid);
-        
-    }, [zoom, panX, panY, gridSize, showGrid, showAxis]);
+    }, [zoom, panX, panY]);
 
     return (
         <div className="flex-1 relative overflow-hidden">
