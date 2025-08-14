@@ -60,7 +60,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         from: [0, viewBounds.top - padding],
         to: [0, viewBounds.bottom + padding],
         strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴
-        strokeWidth: 2.5,
+        strokeWidth: 1.5,
         data: { isAxis: true, axis: 'Y' }
       });
       gridLayer.addChild(yAxisLine);
@@ -70,7 +70,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         from: [viewBounds.left - padding, 0],
         to: [viewBounds.right + padding, 0],
         strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴
-        strokeWidth: 2.5,
+        strokeWidth: 1.5,
         data: { isAxis: true, axis: 'X' }
       });
       gridLayer.addChild(xAxisLine);

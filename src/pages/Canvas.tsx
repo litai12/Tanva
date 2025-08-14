@@ -3,6 +3,7 @@ import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 import GridRenderer from '@/components/canvas/GridRenderer';
 import InteractionController from '@/components/canvas/InteractionController';
 import PaperCanvasManager from '@/components/canvas/PaperCanvasManager';
+import ScaleBarRenderer from '@/components/canvas/ScaleBarRenderer';
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -31,6 +32,9 @@ const Canvas: React.FC = () => {
                 <>
                     {/* 网格渲染器 */}
                     <GridRenderer canvasRef={canvasRef} isPaperInitialized={isPaperInitialized} />
+                    
+                    {/* 比例尺渲染器 */}
+                    <ScaleBarRenderer canvasRef={canvasRef} isPaperInitialized={isPaperInitialized} />
                     
                     {/* 交互控制器 */}
                     <InteractionController canvasRef={canvasRef} />

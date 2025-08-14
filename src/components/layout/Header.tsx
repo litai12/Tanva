@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -10,8 +10,9 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home } from 'lucide-react';
+import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home, Ruler, Eye, EyeOff } from 'lucide-react';
 import { useUIStore, useCanvasStore } from '@/stores';
+import { getAllUnits, getUnitDisplayName, getScaleRatioText } from '@/lib/unitUtils';
 
 const Header: React.FC = () => {
     const {
@@ -23,7 +24,17 @@ const Header: React.FC = () => {
         toggleAxis
     } = useUIStore();
     
-    const { resetView } = useCanvasStore();
+    const { 
+        resetView,
+        units,
+        scaleRatio, 
+        zoom,
+        showScaleBar,
+        setUnits,
+        toggleScaleBar
+    } = useCanvasStore();
+
+    const [showUnitOptions, setShowUnitOptions] = useState(false);
 
     const handleLogoClick = () => {
         // 暂时空实现
@@ -156,6 +167,60 @@ const Header: React.FC = () => {
                             >
                                 <Home className="mr-2 h-3 w-3" />
                                 <span>回到原点</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            {/* 单位和比例尺设置 */}
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                单位和比例尺
+                            </DropdownMenuLabel>
+
+                            {/* 单位选择 */}
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onClick={() => setShowUnitOptions(!showUnitOptions)}
+                            >
+                                <Ruler className="mr-2 h-3 w-3" />
+                                <span>单位: {getUnitDisplayName(units)}</span>
+                            </DropdownMenuItem>
+
+                            {/* 单位选项 */}
+                            {showUnitOptions && (
+                                <>
+                                    {getAllUnits().map((unit) => (
+                                        <DropdownMenuItem
+                                            key={unit}
+                                            className="text-xs cursor-pointer ml-4"
+                                            onClick={() => {
+                                                setUnits(unit);
+                                                setShowUnitOptions(false);
+                                            }}
+                                        >
+                                            <span className={units === unit ? 'font-medium' : ''}>
+                                                {getUnitDisplayName(unit)} ({unit})
+                                            </span>
+                                        </DropdownMenuItem>
+                                    ))}
+                                </>
+                            )}
+
+                            {/* 比例尺显示开关 */}
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onClick={toggleScaleBar}
+                            >
+                                {showScaleBar ? (
+                                    <EyeOff className="mr-2 h-3 w-3" />
+                                ) : (
+                                    <Eye className="mr-2 h-3 w-3" />
+                                )}
+                                <span>{showScaleBar ? '隐藏比例尺' : '显示比例尺'}</span>
+                            </DropdownMenuItem>
+
+                            {/* 当前比例尺信息 */}
+                            <DropdownMenuItem disabled className="text-[10px] text-muted-foreground">
+                                <span>当前比例: {getScaleRatioText(scaleRatio, zoom)}</span>
                             </DropdownMenuItem>
 
                             <DropdownMenuSeparator />
