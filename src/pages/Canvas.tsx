@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore } from '@/stores';
 import ZoomIndicator from '@/components/canvas/ZoomIndicator';
@@ -7,6 +7,8 @@ import ZoomIndicator from '@/components/canvas/ZoomIndicator';
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const isDraggingRef = useRef(false); // 拖拽状态缓存
+    const zoomRef = useRef(1); // 缓存缩放值避免频繁getState
     const { 
         gridSize,
         zoom,
@@ -16,8 +18,13 @@ const Canvas: React.FC = () => {
     } = useCanvasStore();
     const { showGrid, showAxis } = useUIStore();
 
+    // 同步缓存的zoom值
+    useEffect(() => {
+        zoomRef.current = zoom;
+    }, [zoom]);
+
     // 专业版网格系统 - 支持视口裁剪的无限网格，固定间距
-    const createGrid = (baseGridSize: number = 20) => {
+    const createGrid = useCallback((baseGridSize: number = 20) => {
         
         // 使用固定网格间距，通过缩放实现视觉变化
         const currentGridSize = baseGridSize;
@@ -130,7 +137,7 @@ const Canvas: React.FC = () => {
             previousActiveLayer.name.startsWith('layer_')) {
             previousActiveLayer.activate();
         }
-    };
+    }, [zoom, showGrid, showAxis]);
 
     useEffect(() => {
         if (!canvasRef.current) return;
@@ -207,6 +214,7 @@ const Canvas: React.FC = () => {
             if (event.button === 1) {
                 event.preventDefault(); // 阻止中键的默认行为（滚动）
                 isDragging = true;
+                isDraggingRef.current = true; // 设置拖拽状态缓存
                 
                 const rect = canvas.getBoundingClientRect();
                 lastScreenPoint = {
@@ -234,10 +242,9 @@ const Canvas: React.FC = () => {
                 const screenDeltaX = currentScreenPoint.x - lastScreenPoint.x;
                 const screenDeltaY = currentScreenPoint.y - lastScreenPoint.y;
                 
-                // 获取实时缩放值并转换为世界坐标增量
-                const currentState = useCanvasStore.getState();
-                const worldDeltaX = screenDeltaX / currentState.zoom;
-                const worldDeltaY = screenDeltaY / currentState.zoom;
+                // 使用缓存的缩放值转换为世界坐标增量
+                const worldDeltaX = screenDeltaX / zoomRef.current;
+                const worldDeltaY = screenDeltaY / zoomRef.current;
                 
                 // 更新平移值
                 const newPanX = dragStartPanX + worldDeltaX;
@@ -258,6 +265,7 @@ const Canvas: React.FC = () => {
         const handleMouseUp = (event: MouseEvent) => {
             if (event.button === 1 && isDragging) {
                 isDragging = false;
+                isDraggingRef.current = false; // 清除拖拽状态缓存
                 lastScreenPoint = null;
                 canvas.style.cursor = 'default';
                 
