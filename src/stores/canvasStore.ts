@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { subscribeWithSelector } from 'zustand/middleware';
 import type { Unit } from '@/lib/unitUtils';
+import { isValidUnit } from '@/lib/unitUtils';
 
 interface CanvasState {
   // 网格系统
@@ -30,8 +32,9 @@ interface CanvasState {
 }
 
 export const useCanvasStore = create<CanvasState>()(
-  persist(
-    (set, get) => ({
+  subscribeWithSelector(
+    persist(
+      (set, get) => ({
       // 初始状态
       gridSize: 20,
       zoom: 1.0,
@@ -53,20 +56,44 @@ export const useCanvasStore = create<CanvasState>()(
       },
       resetView: () => set({ zoom: 1.0, panX: 0, panY: 0 }),
       
-      // 单位系统操作方法
-      setUnits: (units) => set({ units }),
-      setScaleRatio: (ratio) => set({ scaleRatio: Math.max(0.001, ratio) }), // 限制最小比例尺
+      // 单位系统操作方法（增强类型安全）
+      setUnits: (units) => {
+        if (!isValidUnit(units)) {
+          console.warn(`Invalid unit: ${units}. Falling back to 'm'.`);
+          return set({ units: 'm' });
+        }
+        set({ units });
+      },
+      setScaleRatio: (ratio) => {
+        const validRatio = Math.max(0.001, Math.min(1000, ratio)); // 限制范围 0.001-1000
+        set({ scaleRatio: validRatio });
+      },
       toggleScaleBar: () => set((state) => ({ showScaleBar: !state.showScaleBar })),
-    }),
-    {
-      name: 'canvas-settings', // localStorage 键名
-      // 只持久化特定的状态，不包括视口状态（zoom, panX, panY）
-      partialize: (state) => ({
-        gridSize: state.gridSize,
-        units: state.units,
-        scaleRatio: state.scaleRatio,
-        showScaleBar: state.showScaleBar,
       }),
-    }
+      {
+        name: 'canvas-settings', // localStorage 键名
+        // 只持久化特定的状态，不包括视口状态（zoom, panX, panY）
+        partialize: (state) => ({
+          gridSize: state.gridSize,
+          units: state.units,
+          scaleRatio: state.scaleRatio,
+          showScaleBar: state.showScaleBar,
+        }),
+      }
+    )
   )
 );
+
+// 性能优化：导出常用的选择器
+export const useCanvasUnits = () => useCanvasStore((state) => state.units);
+export const useCanvasZoom = () => useCanvasStore((state) => state.zoom);
+export const useCanvasGrid = () => useCanvasStore((state) => ({ 
+  gridSize: state.gridSize, 
+  showGrid: true // 从uiStore获取，但这里先简化
+}));
+export const useCanvasScale = () => useCanvasStore((state) => ({
+  scaleRatio: state.scaleRatio,
+  showScaleBar: state.showScaleBar,
+  zoom: state.zoom,
+  units: state.units
+}));
