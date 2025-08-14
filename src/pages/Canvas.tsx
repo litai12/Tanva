@@ -1,6 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore } from '@/stores';
+import ZoomIndicator from '@/components/canvas/ZoomIndicator';
+
+// 网格系统现在使用固定间距，通过Paper.js的缩放矩阵实现视觉缩放
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -9,9 +12,7 @@ const Canvas: React.FC = () => {
         zoom,
         panX,
         panY,
-        setZoom,
-        setPan,
-        panBy
+        setPan
     } = useCanvasStore();
     const { showGrid, showAxis } = useUIStore();
 
@@ -20,6 +21,14 @@ const Canvas: React.FC = () => {
 
         // 初始化Paper.js
         paper.setup(canvasRef.current);
+        
+        // 禁用Paper.js的默认交互行为
+        if (paper.view) {
+            paper.view.onMouseDown = null;
+            paper.view.onMouseDrag = null;
+            paper.view.onMouseUp = null;
+            // Paper.js可能没有onMouseWheel属性，使用其他方式禁用
+        }
 
         // 应用视口变换 - 使用Paper.js默认左上角坐标系
         const applyViewTransform = () => {
@@ -32,6 +41,8 @@ const Canvas: React.FC = () => {
         
         // 设置画布大小
         const canvas = canvasRef.current;
+        let isInitialized = false;
+        
         const resizeCanvas = () => {
             const parent = canvas.parentElement;
             if (parent) {
@@ -40,15 +51,26 @@ const Canvas: React.FC = () => {
                 paper.view.viewSize.width = canvas.width;
                 paper.view.viewSize.height = canvas.height;
                 
-                // 应用视口变换
-                applyViewTransform();
+                // 初始化时将坐标轴移动到画布中心（仅执行一次）
+                if (!isInitialized) {
+                    const centerX = canvas.width / 2;
+                    const centerY = canvas.height / 2;
+                    setPan(centerX, centerY);
+                    isInitialized = true;
+                } else {
+                    // 应用视口变换
+                    applyViewTransform();
+                }
+                
                 // 重新绘制专业版网格
                 createGrid(gridSize);
             }
         };
 
-        // 专业版网格系统 - 支持视口裁剪的无限网格
-        const createGrid = (currentGridSize: number = 20) => {
+        // 专业版网格系统 - 支持视口裁剪的无限网格，固定间距
+        const createGrid = (baseGridSize: number = 20) => {
+            // 使用固定网格间距，通过缩放实现视觉变化
+            const currentGridSize = baseGridSize;
             // 保存当前活动图层
             const previousActiveLayer = paper.project.activeLayer;
 
@@ -79,35 +101,34 @@ const Canvas: React.FC = () => {
             const minY = Math.floor((viewBounds.top - padding) / currentGridSize) * currentGridSize;
             const maxY = Math.ceil((viewBounds.bottom + padding) / currentGridSize) * currentGridSize;
 
-            // 创建坐标轴（如果启用）- 固定在世界坐标原点，跟随拖拽移动
+            // 创建坐标轴（如果启用）- 固定在Paper.js (0,0)点
             if (showAxis) {
-                // 检查Y轴是否在可视区域内
-                if (0 >= viewBounds.left && 0 <= viewBounds.right) {
-                    const yAxisLine = new paper.Path.Line({
-                        from: [0, viewBounds.top - padding],
-                        to: [0, viewBounds.bottom + padding],
-                        strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴
-                        strokeWidth: 2.5,
-                        data: { isAxis: true, axis: 'Y' }
-                    });
-                    gridLayer.addChild(yAxisLine);
-                }
+                // Y轴（蓝色竖直线）
+                const yAxisLine = new paper.Path.Line({
+                    from: [0, viewBounds.top - padding],
+                    to: [0, viewBounds.bottom + padding],
+                    strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴
+                    strokeWidth: 2.5,
+                    data: { isAxis: true, axis: 'Y' }
+                });
+                gridLayer.addChild(yAxisLine);
 
-                // 检查X轴是否在可视区域内
-                if (0 >= viewBounds.top && 0 <= viewBounds.bottom) {
-                    const xAxisLine = new paper.Path.Line({
-                        from: [viewBounds.left - padding, 0],
-                        to: [viewBounds.right + padding, 0],
-                        strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴
-                        strokeWidth: 2.5,
-                        data: { isAxis: true, axis: 'X' }
-                    });
-                    gridLayer.addChild(xAxisLine);
-                }
+                // X轴（红色水平线）
+                const xAxisLine = new paper.Path.Line({
+                    from: [viewBounds.left - padding, 0],
+                    to: [viewBounds.right + padding, 0],
+                    strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴
+                    strokeWidth: 2.5,
+                    data: { isAxis: true, axis: 'X' }
+                });
+                gridLayer.addChild(xAxisLine);
             }
 
             // 创建网格线（如果启用）- 只绘制可视区域内的网格线
             if (showGrid) {
+                // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
+                const shouldShowMinorGrid = zoom >= 0.3;
+                
                 // 创建垂直网格线
                 for (let x = minX; x <= maxX; x += currentGridSize) {
                     // 跳过轴线位置（如果显示轴线）
@@ -116,6 +137,9 @@ const Canvas: React.FC = () => {
                     // 计算是否为主网格线（每5条线）
                     const gridIndex = Math.round(x / currentGridSize);
                     const isMainGrid = gridIndex % 5 === 0;
+                    
+                    // 如果是副网格且缩放过小，则跳过
+                    if (!isMainGrid && !shouldShowMinorGrid) continue;
 
                     const line = new paper.Path.Line({
                         from: [x, minY],
@@ -134,6 +158,9 @@ const Canvas: React.FC = () => {
                     // 计算是否为主网格线（每5条线）
                     const gridIndex = Math.round(y / currentGridSize);
                     const isMainGrid = gridIndex % 5 === 0;
+                    
+                    // 如果是副网格且缩放过小，则跳过
+                    if (!isMainGrid && !shouldShowMinorGrid) continue;
 
                     const line = new paper.Path.Line({
                         from: [minX, y],
@@ -165,40 +192,39 @@ const Canvas: React.FC = () => {
         };
         window.addEventListener('resize', handleResize);
 
-        // 添加无限画布交互功能
+        // 画布交互功能 - 仅保留中键拖动
         let isDragging = false;
         let lastScreenPoint: { x: number, y: number } | null = null;
         let dragStartPanX = 0;
         let dragStartPanY = 0;
 
-        const tool = new paper.Tool();
-
-        // 鼠标按下 - 开始拖拽
-        tool.onMouseDown = (event: paper.ToolEvent) => {
-            isDragging = true;
-            // 使用屏幕坐标而非Paper.js坐标
-            const rect = canvas.getBoundingClientRect();
-            const nativeEvent = event.event as MouseEvent;
-            lastScreenPoint = {
-                x: nativeEvent.clientX - rect.left,
-                y: nativeEvent.clientY - rect.top
-            };
-            // 获取当前最新的状态值
-            const currentState = useCanvasStore.getState();
-            dragStartPanX = currentState.panX;
-            dragStartPanY = currentState.panY;
-            canvas.style.cursor = 'grabbing';
+        // 鼠标事件处理
+        const handleMouseDown = (event: MouseEvent) => {
+            // 只响应中键（button === 1）
+            if (event.button === 1) {
+                event.preventDefault();
+                isDragging = true;
+                
+                const rect = canvas.getBoundingClientRect();
+                lastScreenPoint = {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top
+                };
+                
+                // 获取当前最新的状态值
+                const currentState = useCanvasStore.getState();
+                dragStartPanX = currentState.panX;
+                dragStartPanY = currentState.panY;
+                canvas.style.cursor = 'grabbing';
+            }
         };
 
-        // 鼠标拖拽 - 平移视图（基于屏幕坐标）
-        tool.onMouseDrag = (event: paper.ToolEvent) => {
+        const handleMouseMove = (event: MouseEvent) => {
             if (isDragging && lastScreenPoint) {
-                // 获取当前屏幕坐标
                 const rect = canvas.getBoundingClientRect();
-                const nativeEvent = event.event as MouseEvent;
                 const currentScreenPoint = {
-                    x: nativeEvent.clientX - rect.left,
-                    y: nativeEvent.clientY - rect.top
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top
                 };
                 
                 // 计算屏幕坐标增量
@@ -218,54 +244,40 @@ const Canvas: React.FC = () => {
             }
         };
 
-        // 鼠标释放 - 结束拖拽
-        tool.onMouseUp = () => {
-            isDragging = false;
-            lastScreenPoint = null;
-            canvas.style.cursor = 'grab';
+        const handleMouseUp = (event: MouseEvent) => {
+            if (event.button === 1 && isDragging) {
+                isDragging = false;
+                lastScreenPoint = null;
+                canvas.style.cursor = 'default';
+            }
         };
 
-        // 鼠标悬停样式
-        canvas.style.cursor = 'grab';
-
-        // 滚轮缩放功能
-        const handleWheel = (event: WheelEvent) => {
+        // 添加事件监听器
+        canvas.addEventListener('mousedown', handleMouseDown);
+        canvas.addEventListener('mousemove', handleMouseMove);
+        canvas.addEventListener('mouseup', handleMouseUp);
+        
+        // 阻止中键的默认行为（滚动）
+        canvas.addEventListener('mousedown', (event) => {
+            if (event.button === 1) {
+                event.preventDefault();
+            }
+        });
+        
+        // 明确禁用滚轮事件，防止任何缩放行为
+        const preventWheel = (event: WheelEvent) => {
             event.preventDefault();
-            
-            // 计算缩放因子 - 更丝滑的缩放体验
-            const zoomFactor = event.deltaY > 0 ? 0.95 : 1.05;
-            const newZoom = zoom * zoomFactor;
-            
-            // 获取鼠标在画布上的位置
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = event.clientX - rect.left;
-            const mouseY = event.clientY - rect.top;
-            
-            // 转换为世界坐标
-            const worldPoint = paper.view.viewToProject(new paper.Point(mouseX, mouseY));
-            
-            // 计算缩放中心偏移
-            const scaleRatio = newZoom / zoom;
-            const offsetX = (worldPoint.x - panX) * (1 - scaleRatio);
-            const offsetY = (worldPoint.y - panY) * (1 - scaleRatio);
-            
-            // 更新缩放和平移
-            setZoom(newZoom);
-            panBy(offsetX, offsetY);
-            
-            // 应用变换和重绘
-            setTimeout(() => {
-                applyViewTransform();
-                createGrid(gridSize);
-            }, 0);
+            event.stopPropagation();
         };
-
-        canvas.addEventListener('wheel', handleWheel, { passive: false });
+        canvas.addEventListener('wheel', preventWheel, { passive: false });
 
 
         return () => {
             window.removeEventListener('resize', handleResize);
-            canvas.removeEventListener('wheel', handleWheel);
+            canvas.removeEventListener('mousedown', handleMouseDown);
+            canvas.removeEventListener('mousemove', handleMouseMove);
+            canvas.removeEventListener('mouseup', handleMouseUp);
+            canvas.removeEventListener('wheel', preventWheel);
             paper.project.clear();
         };
     }, [gridSize, showGrid, showAxis]);
@@ -280,24 +292,27 @@ const Canvas: React.FC = () => {
         matrix.translate(panX, panY);
         paper.view.matrix = matrix;
         
-        // 重新绘制网格（仅在显示时）
+        // 重新绘制网格（使用统一的createGrid函数）
         if (showGrid || showAxis) {
-            const gridLayer = paper.project.layers.find(l => l.name === "grid");
-            if (gridLayer) {
-                gridLayer.removeChildren();
-                gridLayer.activate();
-                
-                // 重新创建网格
-                const viewBounds = paper.view.bounds;
-                const padding = gridSize * 2;
-                const minX = Math.floor((viewBounds.left - padding) / gridSize) * gridSize;
-                const maxX = Math.ceil((viewBounds.right + padding) / gridSize) * gridSize;
-                const minY = Math.floor((viewBounds.top - padding) / gridSize) * gridSize;
-                const maxY = Math.ceil((viewBounds.bottom + padding) / gridSize) * gridSize;
+            // 延迟一帧确保视口变换已生效
+            requestAnimationFrame(() => {
+                const gridLayer = paper.project.layers.find(l => l.name === "grid");
+                if (gridLayer) {
+                    gridLayer.removeChildren();
+                    gridLayer.activate();
+                    
+                    // 使用固定网格间距
+                    const dynamicGridSize = gridSize;
+                    const viewBounds = paper.view.bounds;
+                    const padding = dynamicGridSize * 2;
+                    const minX = Math.floor((viewBounds.left - padding) / dynamicGridSize) * dynamicGridSize;
+                    const maxX = Math.ceil((viewBounds.right + padding) / dynamicGridSize) * dynamicGridSize;
+                    const minY = Math.floor((viewBounds.top - padding) / dynamicGridSize) * dynamicGridSize;
+                    const maxY = Math.ceil((viewBounds.bottom + padding) / dynamicGridSize) * dynamicGridSize;
 
-                // 创建坐标轴（如果启用）
-                if (showAxis) {
-                    if (0 >= viewBounds.left && 0 <= viewBounds.right) {
+                    // 创建坐标轴（如果启用）
+                    if (showAxis) {
+                        // Y轴（蓝色竖直线）
                         const yAxisLine = new paper.Path.Line({
                             from: [0, viewBounds.top - padding],
                             to: [0, viewBounds.bottom + padding],
@@ -305,9 +320,8 @@ const Canvas: React.FC = () => {
                             strokeWidth: 2.5
                         });
                         gridLayer.addChild(yAxisLine);
-                    }
 
-                    if (0 >= viewBounds.top && 0 <= viewBounds.bottom) {
+                        // X轴（红色水平线）
                         const xAxisLine = new paper.Path.Line({
                             from: [viewBounds.left - padding, 0],
                             to: [viewBounds.right + padding, 0],
@@ -316,45 +330,54 @@ const Canvas: React.FC = () => {
                         });
                         gridLayer.addChild(xAxisLine);
                     }
-                }
 
-                // 创建网格线（如果启用）
-                if (showGrid) {
-                    for (let x = minX; x <= maxX; x += gridSize) {
-                        if (showAxis && x === 0) continue;
+                    // 创建网格线（如果启用）
+                    if (showGrid) {
+                        // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
+                        const shouldShowMinorGrid = zoom >= 0.3;
                         
-                        const gridIndex = Math.round(x / gridSize);
-                        const isMainGrid = gridIndex % 5 === 0;
+                        for (let x = minX; x <= maxX; x += dynamicGridSize) {
+                            if (showAxis && x === 0) continue;
+                            
+                            const gridIndex = Math.round(x / dynamicGridSize);
+                            const isMainGrid = gridIndex % 5 === 0;
+                            
+                            // 如果是副网格且缩放过小，则跳过
+                            if (!isMainGrid && !shouldShowMinorGrid) continue;
 
-                        const line = new paper.Path.Line({
-                            from: [x, minY],
-                            to: [x, maxY],
-                            strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-                            strokeWidth: isMainGrid ? 0.8 : 0.3
-                        });
-                        gridLayer.addChild(line);
+                            const line = new paper.Path.Line({
+                                from: [x, minY],
+                                to: [x, maxY],
+                                strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                                strokeWidth: isMainGrid ? 0.8 : 0.3
+                            });
+                            gridLayer.addChild(line);
+                        }
+
+                        for (let y = minY; y <= maxY; y += dynamicGridSize) {
+                            if (showAxis && y === 0) continue;
+                            
+                            const gridIndex = Math.round(y / dynamicGridSize);
+                            const isMainGrid = gridIndex % 5 === 0;
+                            
+                            // 如果是副网格且缩放过小，则跳过
+                            if (!isMainGrid && !shouldShowMinorGrid) continue;
+
+                            const line = new paper.Path.Line({
+                                from: [minX, y],
+                                to: [maxX, y],
+                                strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
+                                strokeWidth: isMainGrid ? 0.8 : 0.3
+                            });
+                            gridLayer.addChild(line);
+                        }
                     }
-
-                    for (let y = minY; y <= maxY; y += gridSize) {
-                        if (showAxis && y === 0) continue;
-                        
-                        const gridIndex = Math.round(y / gridSize);
-                        const isMainGrid = gridIndex % 5 === 0;
-
-                        const line = new paper.Path.Line({
-                            from: [minX, y],
-                            to: [maxX, y],
-                            strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-                            strokeWidth: isMainGrid ? 0.8 : 0.3
-                        });
-                        gridLayer.addChild(line);
-                    }
+                    
+                    gridLayer.sendToBack();
                 }
-                
-                gridLayer.sendToBack();
-            }
+            });
         }
-    }, [zoom, panX, panY]);
+    }, [zoom, panX, panY, gridSize, showGrid, showAxis]);
 
     return (
         <div className="flex-1 relative overflow-hidden">
@@ -363,6 +386,7 @@ const Canvas: React.FC = () => {
                 className="absolute inset-0 w-full h-full"
                 style={{ background: 'white' }}
             />
+            <ZoomIndicator />
         </div>
     );
 };

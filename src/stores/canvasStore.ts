@@ -26,7 +26,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   
   // 设置方法
   setGridSize: (size) => set({ gridSize: size }),
-  setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(10, zoom)) }), // 限制缩放范围
+  setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(3, zoom)) }), // 限制缩放范围 10%-300%
   setPan: (x, y) => set({ panX: x, panY: y }),
   panBy: (deltaX, deltaY) => {
     const { panX, panY } = get();
