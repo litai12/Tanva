@@ -4,6 +4,8 @@ import GridRenderer from '@/components/canvas/GridRenderer';
 import InteractionController from '@/components/canvas/InteractionController';
 import PaperCanvasManager from '@/components/canvas/PaperCanvasManager';
 import ScaleBarRenderer from '@/components/canvas/ScaleBarRenderer';
+import ToolBar from '@/components/toolbar/ToolBar';
+import DrawingController from '@/components/canvas/DrawingController';
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -38,8 +40,14 @@ const Canvas: React.FC = () => {
                     
                     {/* 交互控制器 */}
                     <InteractionController canvasRef={canvasRef} />
+                    
+                    {/* 绘图控制器 */}
+                    <DrawingController canvasRef={canvasRef} />
                 </>
             )}
+            
+            {/* 工具列 */}
+            <ToolBar />
             
             {/* 缩放指示器 */}
             <ZoomIndicator />
