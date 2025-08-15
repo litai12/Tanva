@@ -44,6 +44,7 @@ const PolylineIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+
 interface ToolBarProps {
   style?: React.CSSProperties;
   showLayerPanel?: boolean;
@@ -164,17 +165,21 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <div className="relative group">
         {/* 主按钮 - 显示当前绘制模式 */}
         <Button
-          variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== 'screenshot' ? "default" : "outline"}
+          variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
           size="sm"
           className="px-2 py-2 h-8 w-8"
           onClick={() => {
-            // 如果当前是选择模式，切换到默认的绘线工具
-            if (drawMode === 'select') {
+            // 如果当前没有激活绘图工具（选择模式、橡皮擦模式或其他独立工具），切换到默认的绘线工具
+            if (drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === 'screenshot') {
               setDrawMode('free');
-              console.log('工具栏主按钮：从选择模式切换到绘线工具');
+              console.log('工具栏主按钮：切换到绘线工具');
             }
           }}
-          title={drawMode === 'select' ? '点击切换到绘线工具' : `当前工具：${drawMode === 'free' ? '绘线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`}
+          title={
+            drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === 'screenshot' 
+              ? '点击切换到绘线工具' 
+              : `当前工具：${drawMode === 'free' ? '绘线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`
+          }
         >
           {drawMode === 'free' && <LineIcon className="w-4 h-4" />}
           {drawMode === 'rect' && <Square className="w-4 h-4" />}
@@ -188,7 +193,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 ease-in-out z-[1001]">
           <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50">
             <Button
-              variant={drawMode === 'free' ? 'default' : 'outline'}
+              variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
               size="sm"
               className="px-2 py-2 h-8 w-8"
               onClick={() => setDrawMode('free')}
@@ -197,7 +202,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               <LineIcon className="w-4 h-4" />
             </Button>
             <Button
-              variant={drawMode === 'rect' ? 'default' : 'outline'}
+              variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
               size="sm"
               className="px-2 py-2 h-8 w-8"
               onClick={() => setDrawMode('rect')}
@@ -206,7 +211,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               <Square className="w-4 h-4" />
             </Button>
             <Button
-              variant={drawMode === 'circle' ? 'default' : 'outline'}
+              variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
               size="sm"
               className="px-2 py-2 h-8 w-8"
               onClick={() => setDrawMode('circle')}
@@ -215,7 +220,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               <CircleIcon className="w-4 h-4" />
             </Button>
             <Button
-              variant={drawMode === 'polyline' ? 'default' : 'outline'}
+              variant={drawMode === 'polyline' && !isEraser ? 'default' : 'outline'}
               size="sm"
               className="px-2 py-2 h-8 w-8"
               onClick={() => setDrawMode('polyline')}
@@ -291,7 +296,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={isEraser ? "default" : "outline"}
           size="sm"
           className="px-2 py-2 h-8 w-8"
-          title={isEraser ? "切换到画笔" : "切换到橡皮"}
+          title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
         >
           <Eraser className="w-4 h-4" />
         </Button>

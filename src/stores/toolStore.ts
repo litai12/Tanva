@@ -40,7 +40,12 @@ export const useToolStore = create<ToolState>()(
         // 设置方法
         setDrawMode: (mode) => {
           console.log(`🔧 切换工具模式: ${get().drawMode} -> ${mode}`);
-          set({ drawMode: mode });
+          // 切换到绘图模式时，自动关闭橡皮擦
+          if (DRAWING_TOOLS.includes(mode)) {
+            set({ drawMode: mode, isEraser: false });
+          } else {
+            set({ drawMode: mode });
+          }
         },
         
         setCurrentColor: (color) => {
@@ -53,7 +58,14 @@ export const useToolStore = create<ToolState>()(
         },
         
         toggleEraser: () => {
-          set((state) => ({ isEraser: !state.isEraser }));
+          const { isEraser } = get();
+          if (isEraser) {
+            // 如果当前是橡皮擦模式，关闭橡皮擦
+            set({ isEraser: false });
+          } else {
+            // 如果当前不是橡皮擦模式，开启橡皮擦并切换到自由绘制模式
+            set({ isEraser: true, drawMode: 'free' });
+          }
         },
         
         // 快捷切换绘图工具（循环切换）
