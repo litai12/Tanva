@@ -69,6 +69,15 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const handleSize = 8; // 控制点尺寸
   const handleOffset = -(borderWidth + handleSize / 2); // 控制点偏移
 
+  // 处理wheel事件，防止3D缩放时影响画布缩放
+  const handleWheel = useCallback((e: WheelEvent) => {
+    if (isSelected) {
+      // 当3D模型被选中时，阻止wheel事件传播到画布
+      e.stopPropagation();
+      // 允许OrbitControls处理缩放
+    }
+  }, [isSelected]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只处理左键
 
@@ -184,6 +193,18 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       };
     }
   }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+
+  // 添加wheel事件监听
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [handleWheel]);
 
   return (
     <div
