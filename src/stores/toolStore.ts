@@ -92,17 +92,44 @@ export const useToolStore = create<ToolState>()(
   )
 );
 
-// 性能优化：导出常用的选择器
+// 性能优化：导出常用的选择器 - 使用单独选择器避免引用问题
 export const useCurrentTool = () => useToolStore((state) => state.drawMode);
+export const useCurrentColor = () => useToolStore((state) => state.currentColor);
+export const useStrokeWidth = () => useToolStore((state) => state.strokeWidth);
+export const useIsEraser = () => useToolStore((state) => state.isEraser);
+
+// 单独的 action 选择器
+export const useSetDrawMode = () => useToolStore((state) => state.setDrawMode);
+export const useSetCurrentColor = () => useToolStore((state) => state.setCurrentColor);
+export const useSetStrokeWidth = () => useToolStore((state) => state.setStrokeWidth);
+export const useToggleEraser = () => useToolStore((state) => state.toggleEraser);
+export const useNextDrawingTool = () => useToolStore((state) => state.nextDrawingTool);
+
+// 保留旧的组合选择器以向后兼容，但不推荐使用
 export const useDrawingProps = () => useToolStore((state) => ({
   currentColor: state.currentColor,
   strokeWidth: state.strokeWidth,
   isEraser: state.isEraser,
-}));
+}), 
+// 使用浅比较确保对象引用稳定
+(a, b) => 
+  a.currentColor === b.currentColor &&
+  a.strokeWidth === b.strokeWidth &&
+  a.isEraser === b.isEraser
+);
+
 export const useToolActions = () => useToolStore((state) => ({
   setDrawMode: state.setDrawMode,
   setCurrentColor: state.setCurrentColor,
   setStrokeWidth: state.setStrokeWidth,
   toggleEraser: state.toggleEraser,
   nextDrawingTool: state.nextDrawingTool,
-}));
+}), 
+// 使用浅比较确保函数引用稳定
+(a, b) => 
+  a.setDrawMode === b.setDrawMode &&
+  a.setCurrentColor === b.setCurrentColor &&
+  a.setStrokeWidth === b.setStrokeWidth &&
+  a.toggleEraser === b.toggleEraser &&
+  a.nextDrawingTool === b.nextDrawingTool
+);

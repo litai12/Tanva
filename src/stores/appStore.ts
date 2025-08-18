@@ -76,17 +76,36 @@ export const useCanvasActions = () => {
     toggleAxis: uiStore.toggleAxis,
     toggleLibraryPanel: uiStore.toggleLibraryPanel,
     toggleBounds: uiStore.toggleBounds,
-  }), [canvasStore, uiStore]);
+  }), [
+    canvasStore.setGridSize,
+    canvasStore.setZoom,
+    canvasStore.setPan,
+    canvasStore.panBy,
+    canvasStore.resetView,
+    canvasStore.setUnits,
+    canvasStore.setScaleRatio,
+    canvasStore.toggleScaleBar,
+    uiStore.toggleGrid,
+    uiStore.toggleAxis,
+    uiStore.toggleLibraryPanel,
+    uiStore.toggleBounds,
+  ]);
 };
 
 // 开发工具：状态调试
 export const useStateDebug = () => {
-  const canvasState = useCanvasStore();
-  const uiState = useUIStore();
+  const canvasZoom = useCanvasStore((state) => state.zoom);
+  const canvasPan = useCanvasStore((state) => ({ panX: state.panX, panY: state.panY }));
+  const uiGrid = useUIStore((state) => ({ showGrid: state.showGrid, showAxis: state.showAxis }));
   
   return useMemo(() => ({
-    canvas: canvasState,
-    ui: uiState,
+    canvas: {
+      zoom: canvasZoom,
+      ...canvasPan,
+    },
+    ui: {
+      ...uiGrid,
+    },
     timestamp: Date.now(),
-  }), [canvasState, uiState]);
+  }), [canvasZoom, canvasPan, uiGrid]);
 };
