@@ -29,6 +29,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<string>('');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0 });
   const [initialBounds, setInitialBounds] = useState(bounds);
   const [actualImageBounds, setActualImageBounds] = useState<{x: number, y: number, width: number, height: number} | null>(null);
 
@@ -104,6 +105,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       setIsResizing(true);
       setInitialBounds(bounds);
+      setResizeStart({ x: e.clientX, y: e.clientY }); // 记录调整大小开始时的鼠标位置
       
       // 直接从控制点的data属性获取方向，避免计算错误
       const direction = (target as HTMLElement).getAttribute('data-direction');
@@ -139,36 +141,35 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const newY = e.clientY - dragStart.y;
       onMove({ x: newX, y: newY });
     } else if (isResizing && onResize && resizeDirection) {
-      const mouseX = e.clientX;
-      const mouseY = e.clientY;
+      // 计算鼠标移动的偏移量
+      const deltaX = e.clientX - resizeStart.x;
+      const deltaY = e.clientY - resizeStart.y;
       
       let newBounds = { ...initialBounds };
       
-      // 根据调整方向计算新的边界 - 对角调整
+      // 根据调整方向计算新的边界 - 使用偏移量避免跳跃
       if (resizeDirection.includes('e')) {
-        // 向右调整：鼠标X - 左边界 = 新宽度
-        newBounds.width = Math.max(100, mouseX - initialBounds.x);
+        // 向右调整：原宽度 + X偏移量
+        newBounds.width = Math.max(100, initialBounds.width + deltaX);
       }
       if (resizeDirection.includes('w')) {
-        // 向左调整：右边界 - 鼠标X = 新宽度，鼠标X = 新左边界
-        const rightEdge = initialBounds.x + initialBounds.width;
-        newBounds.width = Math.max(100, rightEdge - mouseX);
-        newBounds.x = rightEdge - newBounds.width;
+        // 向左调整：原宽度 - X偏移量，位置向左移动X偏移量
+        newBounds.width = Math.max(100, initialBounds.width - deltaX);
+        newBounds.x = initialBounds.x + (initialBounds.width - newBounds.width);
       }
       if (resizeDirection.includes('s')) {
-        // 向下调整：鼠标Y - 上边界 = 新高度
-        newBounds.height = Math.max(100, mouseY - initialBounds.y);
+        // 向下调整：原高度 + Y偏移量
+        newBounds.height = Math.max(100, initialBounds.height + deltaY);
       }
       if (resizeDirection.includes('n')) {
-        // 向上调整：下边界 - 鼠标Y = 新高度，鼠标Y = 新上边界
-        const bottomEdge = initialBounds.y + initialBounds.height;
-        newBounds.height = Math.max(100, bottomEdge - mouseY);
-        newBounds.y = bottomEdge - newBounds.height;
+        // 向上调整：原高度 - Y偏移量，位置向上移动Y偏移量
+        newBounds.height = Math.max(100, initialBounds.height - deltaY);
+        newBounds.y = initialBounds.y + (initialBounds.height - newBounds.height);
       }
       
       onResize(newBounds);
     }
-  }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize]);
+  }, [isDragging, isResizing, dragStart, resizeStart, initialBounds, resizeDirection, onMove, onResize]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
