@@ -14,15 +14,21 @@ interface Model3DViewerProps {
 // 3D模型组件
 function Model3D({ 
   modelPath, 
+  width,
+  height,
   onLoaded 
 }: { 
-  modelPath: string; 
+  modelPath: string;
+  width: number;
+  height: number;
   onLoaded?: (boundingBox: THREE.Box3) => void;
 }) {
   const meshRef = useRef<THREE.Group>(null);
   const { scene } = useGLTF(modelPath);
   const [autoScale, setAutoScale] = useState<[number, number, number]>([1, 1, 1]);
+  const [baseScaleFactor, setBaseScaleFactor] = useState<number>(1);
 
+  // 基础缩放计算（仅在模型加载时执行一次）
   useEffect(() => {
     if (meshRef.current && scene) {
       // 克隆场景以避免修改原始对象
@@ -36,12 +42,12 @@ function Model3D({
       // 将克隆的模型居中
       clonedScene.position.sub(center);
 
-      // 计算自动缩放比例，使模型适合显示区域
+      // 计算基础缩放比例，使模型适合显示区域
       const maxSize = 2.5; // 目标最大尺寸
       const maxDimension = Math.max(size.x, size.y, size.z);
       const scaleFactor = Math.min(maxSize / maxDimension, 1);
       
-      setAutoScale([scaleFactor, scaleFactor, scaleFactor]);
+      setBaseScaleFactor(scaleFactor);
 
       if (onLoaded) {
         onLoaded(box);
@@ -54,6 +60,17 @@ function Model3D({
       }
     }
   }, [scene, onLoaded]);
+
+  // 根据容器大小动态调整缩放（响应容器尺寸变化）
+  useEffect(() => {
+    // 计算容器大小比例，相对于基础大小（400x400）
+    const baseSize = 400;
+    const containerScale = Math.min(width / baseSize, height / baseSize);
+    
+    // 最终缩放 = 基础缩放 × 容器缩放
+    const finalScale = baseScaleFactor * containerScale;
+    setAutoScale([finalScale, finalScale, finalScale]);
+  }, [width, height, baseScaleFactor]);
 
   return (
     <group ref={meshRef} scale={autoScale}>
@@ -152,6 +169,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               {/* 3D模型 */}
               <Model3D 
                 modelPath={modelData.path}
+                width={width}
+                height={height}
                 onLoaded={handleModelLoaded}
               />
 
@@ -206,25 +225,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
         </>
       )}
 
-      {/* 选中状态的边框 */}
-      {isSelected && (
-        <div
-          className="border-area"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            border: '2px solid #3b82f6',
-            borderRadius: '0',
-            pointerEvents: 'all',
-            cursor: 'move',
-            zIndex: 5,
-            backgroundColor: 'transparent'
-          }}
-        />
-      )}
+      {/* 边框已移动到Model3DContainer中，与控制点使用统一坐标系 */}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
@@ -28,15 +28,15 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [initialBounds, setInitialBounds] = useState(bounds);
 
-  // 获取画布状态用于坐标转换（当前只用于响应变化，实际转换不依赖这些值）
+  // 获取画布状态用于坐标转换和响应变化
   const { zoom, panX, panY } = useCanvasStore();
 
-  // 将Paper.js世界坐标转换为屏幕坐标
-  const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
-    if (!paper.view) return paperBounds;
+  // 直接计算当前屏幕坐标 - 响应画布状态变化
+  const screenBounds = useMemo(() => {
+    if (!paper.view) return bounds;
     
-    const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
-    const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
+    const topLeft = paper.view.projectToView(new paper.Point(bounds.x, bounds.y));
+    const bottomRight = paper.view.projectToView(new paper.Point(bounds.x + bounds.width, bounds.y + bounds.height));
     
     return {
       x: topLeft.x,
@@ -44,7 +44,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       width: bottomRight.x - topLeft.x,
       height: bottomRight.y - topLeft.y
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bounds, zoom, panX, panY]); // 这些依赖项对于3D跟随画布变换是必需的
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
@@ -61,13 +62,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     };
   }, []);
 
-  // 计算当前屏幕坐标
-  const screenBounds = convertToScreenBounds(bounds);
-
-  // 计算控制点偏移量 - 考虑边框宽度和缩放
-  const borderWidth = 2; // 边框宽度
-  const handleSize = 8; // 控制点尺寸
-  const handleOffset = -(borderWidth + handleSize / 2); // 控制点偏移
+  // 计算控制点偏移量 - 与边框精确对齐
+  const handleSize = 8; // 控制点尺寸（固定屏幕像素大小）
+  // 控制点位置：边框外侧，中心对齐边框边缘
+  const handleOffset = -(handleSize / 2); // 控制点中心对齐边框边缘
 
   // 处理wheel事件，防止3D缩放时影响画布缩放
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -145,7 +143,20 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       const mouseY = e.clientY;
       
       // 先计算屏幕坐标的新边界
-      const initialScreenBounds = convertToScreenBounds(initialBounds);
+      const getInitialScreenBounds = () => {
+        if (!paper.view) return initialBounds;
+        
+        const topLeft = paper.view.projectToView(new paper.Point(initialBounds.x, initialBounds.y));
+        const bottomRight = paper.view.projectToView(new paper.Point(initialBounds.x + initialBounds.width, initialBounds.y + initialBounds.height));
+        
+        return {
+          x: topLeft.x,
+          y: topLeft.y,
+          width: bottomRight.x - topLeft.x,
+          height: bottomRight.y - topLeft.y
+        };
+      };
+      const initialScreenBounds = getInitialScreenBounds();
       const newScreenBounds = { ...initialScreenBounds };
       
       // 根据调整方向计算新的边界 - 对角调整
@@ -174,7 +185,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       const newPaperBounds = convertToPaperBounds(newScreenBounds);
       onResize(newPaperBounds);
     }
-  }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);
+  }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToPaperBounds]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -221,13 +232,34 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       }}
       onMouseDown={handleMouseDown}
     >
-      {/* 3D模型渲染器 */}
+      {/* 3D模型渲染器 - 使用屏幕坐标确保与边框和控制点对齐 */}
       <Model3DViewer
         modelData={modelData}
-        width={bounds.width}
-        height={bounds.height}
+        width={screenBounds.width}
+        height={screenBounds.height}
         isSelected={isSelected}
       />
+
+      {/* 选中状态的边框 - 与控制点使用统一坐标系 */}
+      {isSelected && (
+        <div
+          className="border-area"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            border: '2px solid #3b82f6',
+            borderRadius: '0',
+            pointerEvents: 'all',
+            cursor: 'move',
+            zIndex: 5,
+            backgroundColor: 'transparent',
+            boxSizing: 'border-box'
+          }}
+        />
+      )}
 
       {/* 选中状态的调整手柄 - 四个角点，与边框对齐 */}
       {isSelected && (
