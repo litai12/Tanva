@@ -10,14 +10,6 @@ export {
 export {
   useToolStore,
   useCurrentTool,
-  useCurrentColor,
-  useStrokeWidth,
-  useIsEraser,
-  useSetDrawMode,
-  useSetCurrentColor,
-  useSetStrokeWidth,
-  useToggleEraser,
-  useNextDrawingTool,
   useDrawingProps,
   useToolActions,
   type DrawMode
