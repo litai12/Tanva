@@ -64,6 +64,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   // 计算当前屏幕坐标
   const screenBounds = convertToScreenBounds(bounds);
 
+  // 计算控制点偏移量 - 考虑边框宽度和缩放
+  const borderWidth = 2; // 边框宽度
+  const handleSize = 8; // 控制点尺寸
+  const handleOffset = -(borderWidth + handleSize / 2); // 控制点偏移
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只处理左键
 
@@ -212,10 +217,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="nw"
             style={{
               position: 'absolute',
-              top: -3,
-              left: -3,
-              width: 8,
-              height: 8,
+              top: handleOffset,
+              left: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'nw-resize',
@@ -229,10 +234,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="ne"
             style={{
               position: 'absolute',
-              top: -3,
-              right: -3,
-              width: 8,
-              height: 8,
+              top: handleOffset,
+              right: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'ne-resize',
@@ -246,10 +251,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="sw"
             style={{
               position: 'absolute',
-              bottom: -3,
-              left: -3,
-              width: 8,
-              height: 8,
+              bottom: handleOffset,
+              left: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'sw-resize',
@@ -263,10 +268,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="se"
             style={{
               position: 'absolute',
-              bottom: -3,
-              right: -3,
-              width: 8,
-              height: 8,
+              bottom: handleOffset,
+              right: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'se-resize',

@@ -71,6 +71,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 计算当前屏幕坐标
   const screenBounds = convertToScreenBounds(bounds);
 
+  // 计算控制点偏移量 - 考虑边框宽度和缩放
+  const borderWidth = 2; // 边框宽度
+  const handleSize = 8; // 控制点尺寸
+  const handleOffset = -(borderWidth + handleSize / 2); // 控制点偏移
+
   // 计算图片在容器中的实际显示尺寸和位置
   const calculateActualImageBounds = useCallback(() => {
     if (!imageRef.current) return null;
@@ -315,10 +320,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             data-direction="nw"
             style={{
               position: 'absolute',
-              top: -3,
-              left: -3,
-              width: 8,
-              height: 8,
+              top: handleOffset,
+              left: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'nw-resize',
@@ -332,10 +337,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             data-direction="ne"
             style={{
               position: 'absolute',
-              top: -3,
-              right: -3,
-              width: 8,
-              height: 8,
+              top: handleOffset,
+              right: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'ne-resize',
@@ -349,10 +354,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             data-direction="sw"
             style={{
               position: 'absolute',
-              bottom: -3,
-              left: -3,
-              width: 8,
-              height: 8,
+              bottom: handleOffset,
+              left: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'sw-resize',
@@ -366,10 +371,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             data-direction="se"
             style={{
               position: 'absolute',
-              bottom: -3,
-              right: -3,
-              width: 8,
-              height: 8,
+              bottom: handleOffset,
+              right: handleOffset,
+              width: handleSize,
+              height: handleSize,
               backgroundColor: '#3b82f6',
               border: '1px solid white',
               cursor: 'se-resize',
