@@ -212,8 +212,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="nw"
             style={{
               position: 'absolute',
-              top: -6,
-              left: -6,
+              top: -3,
+              left: -3,
               width: 8,
               height: 8,
               backgroundColor: '#3b82f6',
@@ -229,8 +229,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="ne"
             style={{
               position: 'absolute',
-              top: -6,
-              right: -6,
+              top: -3,
+              right: -3,
               width: 8,
               height: 8,
               backgroundColor: '#3b82f6',
@@ -246,8 +246,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="sw"
             style={{
               position: 'absolute',
-              bottom: -6,
-              left: -6,
+              bottom: -3,
+              left: -3,
               width: 8,
               height: 8,
               backgroundColor: '#3b82f6',
@@ -263,8 +263,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             data-direction="se"
             style={{
               position: 'absolute',
-              bottom: -6,
-              right: -6,
+              bottom: -3,
+              right: -3,
               width: 8,
               height: 8,
               backgroundColor: '#3b82f6',
