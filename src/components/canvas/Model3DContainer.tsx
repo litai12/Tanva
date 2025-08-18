@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import paper from 'paper';
+import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
 import type { Model3DData } from '@/services/model3DUploadService';
 
 interface Model3DContainerProps {
   modelData: Model3DData;
-  bounds: { x: number; y: number; width: number; height: number };
+  bounds: { x: number; y: number; width: number; height: number }; // Paper.js世界坐标
   isSelected?: boolean;
   onSelect?: () => void;
-  onMove?: (newPosition: { x: number; y: number }) => void;
-  onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void;
+  onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
+  onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
 }
 
 const Model3DContainer: React.FC<Model3DContainerProps> = ({
@@ -25,6 +27,42 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const [resizeDirection, setResizeDirection] = useState<string>('');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [initialBounds, setInitialBounds] = useState(bounds);
+
+  // 获取画布状态用于坐标转换（当前只用于响应变化，实际转换不依赖这些值）
+  const { zoom, panX, panY } = useCanvasStore();
+
+  // 将Paper.js世界坐标转换为屏幕坐标
+  const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
+    if (!paper.view) return paperBounds;
+    
+    const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
+    const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
+    
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y
+    };
+  }, []);
+
+  // 将屏幕坐标转换为Paper.js世界坐标
+  const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
+    if (!paper.view) return screenBounds;
+    
+    const topLeft = paper.view.viewToProject(new paper.Point(screenBounds.x, screenBounds.y));
+    const bottomRight = paper.view.viewToProject(new paper.Point(screenBounds.x + screenBounds.width, screenBounds.y + screenBounds.height));
+    
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y
+    };
+  }, []);
+
+  // 计算当前屏幕坐标
+  const screenBounds = convertToScreenBounds(bounds);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只处理左键
@@ -70,7 +108,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       }
 
       setIsDragging(true);
-      setDragStart({ x: e.clientX - bounds.x, y: e.clientY - bounds.y });
+      setDragStart({ x: e.clientX - screenBounds.x, y: e.clientY - screenBounds.y });
       return;
     }
 
@@ -82,40 +120,47 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging && onMove) {
-      const newX = e.clientX - dragStart.x;
-      const newY = e.clientY - dragStart.y;
-      onMove({ x: newX, y: newY });
+      const newScreenX = e.clientX - dragStart.x;
+      const newScreenY = e.clientY - dragStart.y;
+      
+      // 转换屏幕坐标为Paper.js坐标
+      const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX, newScreenY)) : { x: newScreenX, y: newScreenY };
+      onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
       const mouseX = e.clientX;
       const mouseY = e.clientY;
       
-      let newBounds = { ...initialBounds };
+      // 先计算屏幕坐标的新边界
+      const initialScreenBounds = convertToScreenBounds(initialBounds);
+      const newScreenBounds = { ...initialScreenBounds };
       
       // 根据调整方向计算新的边界 - 对角调整
       if (resizeDirection.includes('e')) {
         // 向右调整：鼠标X - 左边界 = 新宽度
-        newBounds.width = Math.max(100, mouseX - initialBounds.x);
+        newScreenBounds.width = Math.max(100, mouseX - initialScreenBounds.x);
       }
       if (resizeDirection.includes('w')) {
         // 向左调整：右边界 - 鼠标X = 新宽度，鼠标X = 新左边界
-        const rightEdge = initialBounds.x + initialBounds.width;
-        newBounds.width = Math.max(100, rightEdge - mouseX);
-        newBounds.x = rightEdge - newBounds.width;
+        const rightEdge = initialScreenBounds.x + initialScreenBounds.width;
+        newScreenBounds.width = Math.max(100, rightEdge - mouseX);
+        newScreenBounds.x = rightEdge - newScreenBounds.width;
       }
       if (resizeDirection.includes('s')) {
         // 向下调整：鼠标Y - 上边界 = 新高度
-        newBounds.height = Math.max(100, mouseY - initialBounds.y);
+        newScreenBounds.height = Math.max(100, mouseY - initialScreenBounds.y);
       }
       if (resizeDirection.includes('n')) {
         // 向上调整：下边界 - 鼠标Y = 新高度，鼠标Y = 新上边界
-        const bottomEdge = initialBounds.y + initialBounds.height;
-        newBounds.height = Math.max(100, bottomEdge - mouseY);
-        newBounds.y = bottomEdge - newBounds.height;
+        const bottomEdge = initialScreenBounds.y + initialScreenBounds.height;
+        newScreenBounds.height = Math.max(100, bottomEdge - mouseY);
+        newScreenBounds.y = bottomEdge - newScreenBounds.height;
       }
       
-      onResize(newBounds);
+      // 转换屏幕坐标为Paper.js坐标
+      const newPaperBounds = convertToPaperBounds(newScreenBounds);
+      onResize(newPaperBounds);
     }
-  }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize]);
+  }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -140,10 +185,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       ref={containerRef}
       style={{
         position: 'absolute',
-        left: bounds.x,
-        top: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
+        left: screenBounds.x,
+        top: screenBounds.y,
+        width: screenBounds.width,
+        height: screenBounds.height,
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
         userSelect: 'none'

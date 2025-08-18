@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import paper from 'paper';
+import { useCanvasStore } from '@/stores';
 
 interface ImageData {
   id: string;
@@ -8,11 +10,11 @@ interface ImageData {
 
 interface ImageContainerProps {
   imageData: ImageData;
-  bounds: { x: number; y: number; width: number; height: number };
+  bounds: { x: number; y: number; width: number; height: number }; // Paper.js世界坐标
   isSelected?: boolean;
   onSelect?: () => void;
-  onMove?: (newPosition: { x: number; y: number }) => void;
-  onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void;
+  onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
+  onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
 }
 
 const ImageContainer: React.FC<ImageContainerProps> = ({
@@ -31,15 +33,51 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0 });
   const [initialBounds, setInitialBounds] = useState(bounds);
-  const [actualImageBounds, setActualImageBounds] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [, setActualImageBounds] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+
+  // 获取画布状态用于坐标转换
+  const { zoom, panX, panY } = useCanvasStore();
+
+  // 将Paper.js世界坐标转换为屏幕坐标
+  const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
+    if (!paper.view) return paperBounds;
+    
+    const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
+    const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
+    
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y
+    };
+  }, []);
+
+  // 将屏幕坐标转换为Paper.js世界坐标
+  const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
+    if (!paper.view) return screenBounds;
+    
+    const topLeft = paper.view.viewToProject(new paper.Point(screenBounds.x, screenBounds.y));
+    const bottomRight = paper.view.viewToProject(new paper.Point(screenBounds.x + screenBounds.width, screenBounds.y + screenBounds.height));
+    
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y
+    };
+  }, []);
+
+  // 计算当前屏幕坐标
+  const screenBounds = convertToScreenBounds(bounds);
 
   // 计算图片在容器中的实际显示尺寸和位置
   const calculateActualImageBounds = useCallback(() => {
     if (!imageRef.current) return null;
     
     const img = imageRef.current;
-    const containerWidth = bounds.width;
-    const containerHeight = bounds.height;
+    const containerWidth = screenBounds.width;
+    const containerHeight = screenBounds.height;
     
     // 获取图片的原始尺寸
     const naturalWidth = img.naturalWidth;
@@ -73,7 +111,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       width: actualWidth,
       height: actualHeight
     };
-  }, [bounds.width, bounds.height]);
+  }, [screenBounds.width, screenBounds.height]);
 
   // 当图片加载完成后计算实际边界
   const handleImageLoad = useCallback(() => {
@@ -125,7 +163,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
 
       setIsDragging(true);
-      setDragStart({ x: e.clientX - bounds.x, y: e.clientY - bounds.y });
+      setDragStart({ x: e.clientX - screenBounds.x, y: e.clientY - screenBounds.y });
       return;
     }
 
@@ -137,39 +175,46 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging && onMove) {
-      const newX = e.clientX - dragStart.x;
-      const newY = e.clientY - dragStart.y;
-      onMove({ x: newX, y: newY });
+      const newScreenX = e.clientX - dragStart.x;
+      const newScreenY = e.clientY - dragStart.y;
+      
+      // 转换屏幕坐标为Paper.js坐标
+      const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX, newScreenY)) : { x: newScreenX, y: newScreenY };
+      onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
       // 计算鼠标移动的偏移量
       const deltaX = e.clientX - resizeStart.x;
       const deltaY = e.clientY - resizeStart.y;
       
-      let newBounds = { ...initialBounds };
+      // 先计算屏幕坐标的新边界
+      const initialScreenBounds = convertToScreenBounds(initialBounds);
+      const newScreenBounds = { ...initialScreenBounds };
       
       // 根据调整方向计算新的边界 - 使用偏移量避免跳跃
       if (resizeDirection.includes('e')) {
         // 向右调整：原宽度 + X偏移量
-        newBounds.width = Math.max(100, initialBounds.width + deltaX);
+        newScreenBounds.width = Math.max(100, initialScreenBounds.width + deltaX);
       }
       if (resizeDirection.includes('w')) {
         // 向左调整：原宽度 - X偏移量，位置向左移动X偏移量
-        newBounds.width = Math.max(100, initialBounds.width - deltaX);
-        newBounds.x = initialBounds.x + (initialBounds.width - newBounds.width);
+        newScreenBounds.width = Math.max(100, initialScreenBounds.width - deltaX);
+        newScreenBounds.x = initialScreenBounds.x + (initialScreenBounds.width - newScreenBounds.width);
       }
       if (resizeDirection.includes('s')) {
         // 向下调整：原高度 + Y偏移量
-        newBounds.height = Math.max(100, initialBounds.height + deltaY);
+        newScreenBounds.height = Math.max(100, initialScreenBounds.height + deltaY);
       }
       if (resizeDirection.includes('n')) {
         // 向上调整：原高度 - Y偏移量，位置向上移动Y偏移量
-        newBounds.height = Math.max(100, initialBounds.height - deltaY);
-        newBounds.y = initialBounds.y + (initialBounds.height - newBounds.height);
+        newScreenBounds.height = Math.max(100, initialScreenBounds.height - deltaY);
+        newScreenBounds.y = initialScreenBounds.y + (initialScreenBounds.height - newScreenBounds.height);
       }
       
-      onResize(newBounds);
+      // 转换屏幕坐标为Paper.js坐标
+      const newPaperBounds = convertToPaperBounds(newScreenBounds);
+      onResize(newPaperBounds);
     }
-  }, [isDragging, isResizing, dragStart, resizeStart, initialBounds, resizeDirection, onMove, onResize]);
+  }, [isDragging, isResizing, dragStart, resizeStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
@@ -189,23 +234,23 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
 
-  // 当bounds变化时重新计算实际图片边界
+  // 当bounds或视图变化时重新计算实际图片边界
   useEffect(() => {
     if (imageRef.current && imageRef.current.complete) {
       const actualBounds = calculateActualImageBounds();
       setActualImageBounds(actualBounds);
     }
-  }, [bounds, calculateActualImageBounds]);
+  }, [bounds, zoom, panX, panY, calculateActualImageBounds]);
 
   return (
     <div
       ref={containerRef}
       style={{
         position: 'absolute',
-        left: bounds.x,
-        top: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
+        left: screenBounds.x,
+        top: screenBounds.y,
+        width: screenBounds.width,
+        height: screenBounds.height,
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
         userSelect: 'none'

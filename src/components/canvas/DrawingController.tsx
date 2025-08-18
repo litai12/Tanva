@@ -266,28 +266,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const paperBounds = placeholder.data.bounds;
     const imageId = `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // 将Paper.js坐标转换为屏幕坐标
-    const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
-    const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
+    console.log('📍 图片使用Paper.js坐标:', paperBounds);
     
-    // 获取canvas的位置偏移
-    const canvasElement = canvasRef.current;
-    const canvasRect = canvasElement ? canvasElement.getBoundingClientRect() : { left: 0, top: 0 };
-    
-    // 计算最终的屏幕坐标
-    const screenBounds = {
-      x: Math.round(topLeft.x + canvasRect.left),
-      y: Math.round(topLeft.y + canvasRect.top),
-      width: Math.round(bottomRight.x - topLeft.x),
-      height: Math.round(bottomRight.y - topLeft.y)
-    };
-    
-    console.log('📍 图片坐标转换:', {
-      paperBounds,
-      screenBounds
-    });
-    
-    // 创建图片实例
+    // 创建图片实例 - 直接使用Paper.js坐标
     const newImage = {
       id: imageId,
       imageData: {
@@ -295,7 +276,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         src: imageData,
         fileName: 'uploaded-image'
       },
-      bounds: screenBounds,
+      bounds: paperBounds, // 存储Paper.js坐标
       isSelected: true
     };
     
@@ -440,35 +421,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const paperBounds = placeholder.data.bounds;
     const modelId = `model3d_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // 将Paper.js坐标转换为屏幕坐标
-    const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
-    const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
+    console.log('📍 3D模型使用Paper.js坐标:', paperBounds);
     
-    // 获取canvas的位置偏移
-    const canvasElement = canvasRef.current;
-    const canvasRect = canvasElement ? canvasElement.getBoundingClientRect() : { left: 0, top: 0 };
-    
-    // 计算最终的屏幕坐标
-    const screenBounds = {
-      x: Math.round(topLeft.x + canvasRect.left),
-      y: Math.round(topLeft.y + canvasRect.top),
-      width: Math.round(bottomRight.x - topLeft.x),
-      height: Math.round(bottomRight.y - topLeft.y)
-    };
-    
-    console.log('📍 坐标转换:', {
-      paperBounds,
-      topLeft: topLeft,
-      bottomRight: bottomRight,
-      canvasRect: { left: canvasRect.left, top: canvasRect.top },
-      screenBounds
-    });
-    
-    // 创建3D模型实例
+    // 创建3D模型实例 - 直接使用Paper.js坐标
     const newModel3D = {
       id: modelId,
       modelData: modelData,
-      bounds: screenBounds,
+      bounds: paperBounds, // 存储Paper.js坐标
       isSelected: true
     };
     
