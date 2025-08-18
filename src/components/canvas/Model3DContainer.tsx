@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
@@ -28,15 +28,33 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [initialBounds, setInitialBounds] = useState(bounds);
 
-  // 获取画布状态用于坐标转换和响应变化
+  // 获取画布状态
   const { zoom, panX, panY } = useCanvasStore();
+  
+  // 强制重渲染的状态
+  const [, forceUpdate] = useState({});
+  const forceRerender = useCallback(() => {
+    forceUpdate({});
+  }, []);
 
-  // 直接计算当前屏幕坐标 - 响应画布状态变化
-  const screenBounds = useMemo(() => {
-    if (!paper.view) return bounds;
+  // 监听画布状态变化，在下一个动画帧重新计算以确保Paper.js矩阵已更新
+  useEffect(() => {
+    // 使用requestAnimationFrame确保在浏览器重绘前Paper.js矩阵已更新
+    const frameId = requestAnimationFrame(() => {
+      forceRerender();
+    });
     
-    const topLeft = paper.view.projectToView(new paper.Point(bounds.x, bounds.y));
-    const bottomRight = paper.view.projectToView(new paper.Point(bounds.x + bounds.width, bounds.y + bounds.height));
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [zoom, panX, panY, forceRerender]);
+
+  // 将Paper.js世界坐标转换为屏幕坐标 - 直接使用当前Paper.js状态
+  const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
+    if (!paper.view) return paperBounds;
+    
+    const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
+    const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
     
     return {
       x: topLeft.x,
@@ -44,8 +62,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       width: bottomRight.x - topLeft.x,
       height: bottomRight.y - topLeft.y
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bounds, zoom, panX, panY]); // 这些依赖项对于3D跟随画布变换是必需的
+  }, []);
+
+  // 计算当前屏幕坐标
+  const screenBounds = convertToScreenBounds(bounds);
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
@@ -60,7 +80,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       width: bottomRight.x - topLeft.x,
       height: bottomRight.y - topLeft.y
     };
-  }, []);
+  }, []); // 移除依赖，通过强制重渲染确保同步
 
   // 计算控制点偏移量 - 与边框精确对齐
   const handleSize = 8; // 控制点尺寸（固定屏幕像素大小）
@@ -142,21 +162,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       const mouseX = e.clientX;
       const mouseY = e.clientY;
       
-      // 先计算屏幕坐标的新边界
-      const getInitialScreenBounds = () => {
-        if (!paper.view) return initialBounds;
-        
-        const topLeft = paper.view.projectToView(new paper.Point(initialBounds.x, initialBounds.y));
-        const bottomRight = paper.view.projectToView(new paper.Point(initialBounds.x + initialBounds.width, initialBounds.y + initialBounds.height));
-        
-        return {
-          x: topLeft.x,
-          y: topLeft.y,
-          width: bottomRight.x - topLeft.x,
-          height: bottomRight.y - topLeft.y
-        };
-      };
-      const initialScreenBounds = getInitialScreenBounds();
+      // 先计算屏幕坐标的新边界 - 使用统一的转换函数
+      const initialScreenBounds = convertToScreenBounds(initialBounds);
       const newScreenBounds = { ...initialScreenBounds };
       
       // 根据调整方向计算新的边界 - 对角调整
@@ -185,7 +192,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       const newPaperBounds = convertToPaperBounds(newScreenBounds);
       onResize(newPaperBounds);
     }
-  }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToPaperBounds]);
+  }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
