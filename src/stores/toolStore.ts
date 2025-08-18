@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 // 工具类型定义
-export type DrawMode = 'select' | 'free' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'screenshot';
+export type DrawMode = 'select' | 'free' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | '3d-model' | 'screenshot';
 
 interface ToolState {
   // 当前激活工具

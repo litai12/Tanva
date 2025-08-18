@@ -27,12 +27,19 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 找到或创建网格图层
     let gridLayer = gridLayerRef.current;
-    if (!gridLayer || gridLayer.isDeleted) {
+    
+    // 检查图层是否还有效（存在且未被删除）
+    const isLayerValid = gridLayer && gridLayer.project === paper.project;
+    
+    if (!isLayerValid) {
       gridLayer = new paper.Layer();
       gridLayer.name = "grid";
       gridLayer.sendToBack();
       gridLayerRef.current = gridLayer;
     }
+
+    // 确保gridLayer不为null
+    if (!gridLayer) return;
 
     // 清空现有网格
     gridLayer.removeChildren();
@@ -151,7 +158,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     return () => {
       // 清理我们创建的网格图层
       const gridLayer = gridLayerRef.current;
-      if (gridLayer && !gridLayer.isDeleted) {
+      if (gridLayer && gridLayer.project) {
         gridLayer.removeChildren();
         gridLayer.remove();
         gridLayerRef.current = null;

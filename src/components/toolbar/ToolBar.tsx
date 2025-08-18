@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Type, Camera, Trash2 } from 'lucide-react';
+import { Eraser, Square, Type, Camera, Trash2, Image, Box } from 'lucide-react';
 import { useToolStore } from '@/stores';
 
 // 自定义图标组件
@@ -165,18 +165,18 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <div className="relative group">
         {/* 主按钮 - 显示当前绘制模式 */}
         <Button
-          variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
+          variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
           size="sm"
           className="px-2 py-2 h-8 w-8"
           onClick={() => {
             // 如果当前没有激活绘图工具（选择模式、橡皮擦模式或其他独立工具），切换到默认的绘线工具
-            if (drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === 'screenshot') {
+            if (drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot') {
               setDrawMode('free');
               console.log('工具栏主按钮：切换到绘线工具');
             }
           }}
           title={
-            drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === 'screenshot' 
+            drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot' 
               ? '点击切换到绘线工具' 
               : `当前工具：${drawMode === 'free' ? '绘线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`
           }
@@ -186,7 +186,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
           {drawMode === 'polyline' && <PolylineIcon className="w-4 h-4" />}
           {/* 如果是选择模式或独立工具模式，显示默认的直线图标但为非激活状态 */}
-          {(drawMode === 'select' || drawMode === 'image' || drawMode === 'text' || drawMode === 'screenshot') && <LineIcon className="w-4 h-4" />}
+          {(drawMode === 'select' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot') && <LineIcon className="w-4 h-4" />}
         </Button>
 
         {/* 悬停展开的绘制工具菜单 */}
@@ -261,7 +261,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       <Separator orientation="horizontal" className="w-8" />
 
-      {/* 独立工具按钮 - 文字、截图 */}
+      {/* 独立工具按钮 - 文字、图片、截图 */}
       <div className="flex flex-col items-center gap-2">
         {/* 文字工具 */}
         <Button
@@ -272,6 +272,28 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="添加文本"
         >
           <Type className="w-4 h-4" />
+        </Button>
+
+        {/* 图片工具 */}
+        <Button
+          variant={drawMode === 'image' ? 'default' : 'outline'}
+          size="sm"
+          className="px-2 py-2 h-8 w-8"
+          onClick={() => setDrawMode('image')}
+          title="添加图片"
+        >
+          <Image className="w-4 h-4" />
+        </Button>
+
+        {/* 3D模型工具 */}
+        <Button
+          variant={drawMode === '3d-model' ? 'default' : 'outline'}
+          size="sm"
+          className="px-2 py-2 h-8 w-8"
+          onClick={() => setDrawMode('3d-model')}
+          title="添加3D模型"
+        >
+          <Box className="w-4 h-4" />
         </Button>
 
         {/* 截图工具 */}

@@ -33,15 +33,27 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     const resizeCanvas = () => {
       const parent = canvas.parentElement;
       if (parent) {
-        canvas.width = parent.clientWidth;
-        canvas.height = parent.clientHeight;
+        // 获取设备像素比，支持高DPI屏幕
+        const pixelRatio = window.devicePixelRatio || 1;
+        const displayWidth = parent.clientWidth;
+        const displayHeight = parent.clientHeight;
+        
+        // 设置画布的实际尺寸（考虑设备像素比）
+        canvas.width = displayWidth * pixelRatio;
+        canvas.height = displayHeight * pixelRatio;
+        
+        // 设置画布的显示尺寸
+        canvas.style.width = displayWidth + 'px';
+        canvas.style.height = displayHeight + 'px';
+        
+        // 更新Paper.js视图尺寸
         paper.view.viewSize.width = canvas.width;
         paper.view.viewSize.height = canvas.height;
         
         // 初始化时将坐标轴移动到画布中心（仅执行一次）
         if (!isInitialized) {
-          const centerX = canvas.width / 2;
-          const centerY = canvas.height / 2;
+          const centerX = displayWidth / 2;
+          const centerY = displayHeight / 2;
           setPan(centerX, centerY);
           isInitialized = true;
           
