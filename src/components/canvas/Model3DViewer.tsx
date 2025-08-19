@@ -148,22 +148,26 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
             style={{ background: 'transparent' }}
           >
             <Suspense fallback={null}>
-              {/* 多重光照系统 */}
-              <ambientLight intensity={0.8} />
+              {/* 多重光照系统 - 优化亮度 */}
+              <ambientLight intensity={1.0} />
               <directionalLight 
                 position={[10, 10, 10]} 
-                intensity={1.2}
+                intensity={1.5}
                 castShadow
                 shadow-mapSize-width={2048}
                 shadow-mapSize-height={2048}
               />
               <directionalLight 
                 position={[-10, 5, 5]} 
-                intensity={0.8} 
+                intensity={1.0} 
               />
               <pointLight 
                 position={[0, 10, 0]} 
-                intensity={0.5} 
+                intensity={0.8} 
+              />
+              <pointLight 
+                position={[0, -5, 0]} 
+                intensity={0.3} 
               />
 
               {/* 3D模型 */}
