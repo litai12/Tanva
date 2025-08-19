@@ -130,8 +130,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       return; // 重要：直接返回，不执行拖拽逻辑
     }
 
-    // 判断是否点击在边框区域（不是canvas、不是控制点）
-    if (target.classList.contains('border-area') || target === containerRef.current) {
+    // 判断是否点击在边框线上（不是canvas、不是控制点）
+    if (target.classList.contains('border-line')) {
       e.preventDefault();
       e.stopPropagation();
 
@@ -234,7 +234,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         width: screenBounds.width,
         height: screenBounds.height,
         zIndex: isSelected ? 1001 : 1000,
-        cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
+        cursor: isDragging ? 'grabbing' : 'default',
         userSelect: 'none'
       }}
       onMouseDown={handleMouseDown}
@@ -247,25 +247,86 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         isSelected={isSelected}
       />
 
-      {/* 选中状态的边框 - 与控制点使用统一坐标系 */}
+      {/* 选中状态的边框线 - 四条独立边框，只在边框上响应拖拽 */}
       {isSelected && (
-        <div
-          className="border-area"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            border: '2px solid #3b82f6',
-            borderRadius: '0',
-            pointerEvents: 'all',
-            cursor: 'move',
-            zIndex: 5,
-            backgroundColor: 'transparent',
-            boxSizing: 'border-box'
-          }}
-        />
+        <>
+          {/* 顶部边框线 */}
+          <div
+            className="border-line"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '4px',
+              backgroundColor: 'transparent',
+              borderTop: '2px solid #3b82f6',
+              cursor: 'move',
+              zIndex: 10,
+              pointerEvents: 'all',
+              transition: 'border-color 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.borderTopColor = '#2563eb'}
+            onMouseLeave={(e) => e.currentTarget.style.borderTopColor = '#3b82f6'}
+          />
+          {/* 底部边框线 */}
+          <div
+            className="border-line"
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              width: '100%',
+              height: '4px',
+              backgroundColor: 'transparent',
+              borderBottom: '2px solid #3b82f6',
+              cursor: 'move',
+              zIndex: 10,
+              pointerEvents: 'all',
+              transition: 'border-color 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.borderBottomColor = '#2563eb'}
+            onMouseLeave={(e) => e.currentTarget.style.borderBottomColor = '#3b82f6'}
+          />
+          {/* 左侧边框线 */}
+          <div
+            className="border-line"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '4px',
+              height: '100%',
+              backgroundColor: 'transparent',
+              borderLeft: '2px solid #3b82f6',
+              cursor: 'move',
+              zIndex: 10,
+              pointerEvents: 'all',
+              transition: 'border-color 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.borderLeftColor = '#2563eb'}
+            onMouseLeave={(e) => e.currentTarget.style.borderLeftColor = '#3b82f6'}
+          />
+          {/* 右侧边框线 */}
+          <div
+            className="border-line"
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: '4px',
+              height: '100%',
+              backgroundColor: 'transparent',
+              borderRight: '2px solid #3b82f6',
+              cursor: 'move',
+              zIndex: 10,
+              pointerEvents: 'all',
+              transition: 'border-color 0.2s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.borderRightColor = '#2563eb'}
+            onMouseLeave={(e) => e.currentTarget.style.borderRightColor = '#3b82f6'}
+          />
+        </>
       )}
 
       {/* 选中状态的调整手柄 - 四个角点，与边框对齐 */}

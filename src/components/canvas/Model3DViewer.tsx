@@ -192,7 +192,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
                     MIDDLE: THREE.MOUSE.DOLLY,
                     RIGHT: THREE.MOUSE.ROTATE
                   }}
-                  makeDefault={false}
+                  makeDefault={true}
                 />
               )}
             </Suspense>
