@@ -124,9 +124,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const startPoint = (pathRef.current as any).startPoint;
       const rectangle = new paper.Rectangle(startPoint, point);
       
-      // 移除旧的矩形并创建新的
-      pathRef.current.remove();
-      pathRef.current = new paper.Path.Rectangle(rectangle);
+      // 优化：更新现有矩形而不是重新创建
+      if (pathRef.current instanceof paper.Path.Rectangle) {
+        // 直接更新矩形的边界
+        pathRef.current.bounds = rectangle;
+      } else {
+        // 如果类型不匹配，才重新创建
+        pathRef.current.remove();
+        pathRef.current = new paper.Path.Rectangle(rectangle);
+      }
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
       pathRef.current.fillColor = null;
@@ -157,12 +163,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const startPoint = (pathRef.current as any).startPoint;
       const radius = startPoint.getDistance(point);
       
-      // 移除旧的圆形并创建新的
-      pathRef.current.remove();
-      pathRef.current = new paper.Path.Circle({
-        center: startPoint,
-        radius: radius,
-      });
+      // 优化：更新现有圆形而不是重新创建
+      if (pathRef.current instanceof paper.Path.Circle) {
+        // 直接更新圆形的中心和半径
+        pathRef.current.position = startPoint;
+        pathRef.current.bounds = new paper.Rectangle(
+          startPoint.x - radius, 
+          startPoint.y - radius, 
+          radius * 2, 
+          radius * 2
+        );
+      } else {
+        // 如果类型不匹配，才重新创建
+        pathRef.current.remove();
+        pathRef.current = new paper.Path.Circle({
+          center: startPoint,
+          radius: radius,
+        });
+      }
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
       pathRef.current.fillColor = null;

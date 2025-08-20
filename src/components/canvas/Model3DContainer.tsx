@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
@@ -31,23 +31,37 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   // 获取画布状态
   const { zoom, panX, panY } = useCanvasStore();
   
-  // 强制重渲染的状态
-  const [, forceUpdate] = useState({});
-  const forceRerender = useCallback(() => {
-    forceUpdate({});
-  }, []);
+  // 优化的同步机制 - 使用ref跟踪更新状态，避免强制重渲染循环
+  const [renderKey, setRenderKey] = useState(0);
+  const needsUpdateRef = useRef(false);
+  const animationFrameRef = useRef<number | null>(null);
 
   // 监听画布状态变化，在下一个动画帧重新计算以确保Paper.js矩阵已更新
   useEffect(() => {
+    // 标记需要更新，但不立即触发重渲染
+    needsUpdateRef.current = true;
+    
+    // 取消之前的动画帧请求，避免重复执行
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    
     // 使用requestAnimationFrame确保在浏览器重绘前Paper.js矩阵已更新
-    const frameId = requestAnimationFrame(() => {
-      forceRerender();
+    animationFrameRef.current = requestAnimationFrame(() => {
+      if (needsUpdateRef.current) {
+        setRenderKey(prev => prev + 1);
+        needsUpdateRef.current = false;
+      }
+      animationFrameRef.current = null;
     });
     
     return () => {
-      cancelAnimationFrame(frameId);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
     };
-  }, [zoom, panX, panY, forceRerender]);
+  }, [zoom, panX, panY]); // 移除forceRerender依赖，避免循环
 
   // 将Paper.js世界坐标转换为屏幕坐标 - 直接使用当前Paper.js状态
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
@@ -64,8 +78,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     };
   }, []);
 
-  // 计算当前屏幕坐标
-  const screenBounds = convertToScreenBounds(bounds);
+  // 计算当前屏幕坐标 - renderKey确保在Paper.js矩阵更新后重新计算
+  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds, renderKey, convertToScreenBounds]);
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {

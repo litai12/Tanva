@@ -27,12 +27,62 @@ function Model3D({
   const { scene } = useGLTF(modelPath);
   const [autoScale, setAutoScale] = useState<[number, number, number]>([1, 1, 1]);
   const [baseScaleFactor, setBaseScaleFactor] = useState<number>(1);
+  const clonedSceneRef = useRef<THREE.Object3D | null>(null);
+
+  // 清理Three.js资源的工具函数
+  const disposeThreeObject = (object: THREE.Object3D) => {
+    object.traverse((child) => {
+      if (child.type === 'Mesh') {
+        const mesh = child as THREE.Mesh;
+        
+        // 清理几何体
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        
+        // 清理材质
+        if (mesh.material) {
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          materials.forEach(material => {
+            // 检查material是否有dispose方法
+            if (material && typeof material.dispose === 'function') {
+              // 清理纹理
+              const materialAny = material as any;
+              if (materialAny.map && typeof materialAny.map.dispose === 'function') {
+                materialAny.map.dispose();
+              }
+              if (materialAny.normalMap && typeof materialAny.normalMap.dispose === 'function') {
+                materialAny.normalMap.dispose();
+              }
+              if (materialAny.roughnessMap && typeof materialAny.roughnessMap.dispose === 'function') {
+                materialAny.roughnessMap.dispose();
+              }
+              if (materialAny.metalnessMap && typeof materialAny.metalnessMap.dispose === 'function') {
+                materialAny.metalnessMap.dispose();
+              }
+              // 最后清理材质
+              material.dispose();
+            }
+          });
+        }
+      }
+    });
+  };
 
   // 基础缩放计算（仅在模型加载时执行一次）
   useEffect(() => {
     if (meshRef.current && scene) {
+      // 清理之前的克隆场景
+      if (clonedSceneRef.current) {
+        disposeThreeObject(clonedSceneRef.current);
+        if (meshRef.current) {
+          meshRef.current.clear();
+        }
+      }
+
       // 克隆场景以避免修改原始对象
       const clonedScene = scene.clone();
+      clonedSceneRef.current = clonedScene;
       
       // 计算模型的包围盒
       const box = new THREE.Box3().setFromObject(clonedScene);
@@ -55,10 +105,20 @@ function Model3D({
       
       // 更新场景引用
       if (meshRef.current) {
-        meshRef.current.clear();
         meshRef.current.add(clonedScene);
       }
     }
+
+    // 组件卸载或scene变化时的清理函数
+    return () => {
+      if (clonedSceneRef.current) {
+        disposeThreeObject(clonedSceneRef.current);
+        if (meshRef.current) {
+          meshRef.current.clear();
+        }
+        clonedSceneRef.current = null;
+      }
+    };
   }, [scene, onLoaded]);
 
   // 根据容器大小动态调整缩放（响应容器尺寸变化）
@@ -98,6 +158,17 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
     const distance = maxDimension * 2;
     setCameraPosition([distance, distance, distance]);
   };
+
+  // 组件卸载时的清理
+  useEffect(() => {
+    return () => {
+      // @react-three/fiber的Canvas组件会自动处理大部分WebGL资源清理
+      // useGLTF有内置的缓存和清理机制
+      if (import.meta.env.DEV) {
+        console.log('Model3DViewer组件卸载，清理3D资源');
+      }
+    };
+  }, []);
 
 
   return (

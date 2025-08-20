@@ -239,13 +239,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
 
-  // 当bounds或视图变化时重新计算实际图片边界
+  // 当bounds或视图变化时重新计算实际图片边界 - 使用screenBounds直接依赖避免循环
   useEffect(() => {
     if (imageRef.current && imageRef.current.complete) {
       const actualBounds = calculateActualImageBounds();
       setActualImageBounds(actualBounds);
     }
-  }, [bounds, zoom, panX, panY, calculateActualImageBounds]);
+  }, [bounds, screenBounds.width, screenBounds.height, calculateActualImageBounds]);
 
   return (
     <div
