@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 
@@ -37,6 +37,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 获取画布状态用于坐标转换
   const { zoom, panX, panY } = useCanvasStore();
+  
+  // 优化的同步机制 - 使用ref跟踪更新状态，避免强制重渲染循环
+  const [renderKey, setRenderKey] = useState(0);
+  const needsUpdateRef = useRef(false);
+  const animationFrameRef = useRef<number | null>(null);
 
   // 将Paper.js世界坐标转换为屏幕坐标
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
@@ -68,8 +73,35 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     };
   }, []);
 
-  // 计算当前屏幕坐标
-  const screenBounds = convertToScreenBounds(bounds);
+  // 监听画布状态变化，在下一个动画帧重新计算以确保Paper.js矩阵已更新
+  useEffect(() => {
+    // 标记需要更新，但不立即触发重渲染
+    needsUpdateRef.current = true;
+    
+    // 取消之前的动画帧请求，避免重复执行
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    
+    // 使用requestAnimationFrame确保在浏览器重绘前Paper.js矩阵已更新
+    animationFrameRef.current = requestAnimationFrame(() => {
+      if (needsUpdateRef.current) {
+        setRenderKey(prev => prev + 1);
+        needsUpdateRef.current = false;
+      }
+      animationFrameRef.current = null;
+    });
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [zoom, panX, panY]); // 移除不必要的依赖，避免循环
+
+  // 计算当前屏幕坐标 - renderKey确保在Paper.js矩阵更新后重新计算
+  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds, renderKey, convertToScreenBounds]);
 
   // 计算控制点偏移量 - 考虑边框宽度和缩放
   const borderWidth = 2; // 边框宽度
@@ -239,13 +271,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
 
-  // 当bounds或视图变化时重新计算实际图片边界 - 使用screenBounds直接依赖避免循环
+  // 当bounds或视图变化时重新计算实际图片边界 - 使用renderKey确保同步
   useEffect(() => {
     if (imageRef.current && imageRef.current.complete) {
       const actualBounds = calculateActualImageBounds();
       setActualImageBounds(actualBounds);
     }
-  }, [bounds, screenBounds.width, screenBounds.height, calculateActualImageBounds]);
+  }, [bounds, renderKey, calculateActualImageBounds]);
 
   return (
     <div
