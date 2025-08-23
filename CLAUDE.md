@@ -1,184 +1,146 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为Claude Code (claude.ai/code) 在此代码库中工作时提供指导。
 
-## Project Overview
+## 项目概述
 
-Artboard is a professional React + TypeScript drawing application based on Paper.js. This is a refactored project migrating from the my-app codebase, focusing on clean architecture and production-ready implementation.
+Artboard是一个基于Paper.js的专业React + TypeScript绘图应用程序。专注于清洁架构和生产就绪的实现。
 
-**Migration Context**: This project is being refactored from `../my-app`, leveraging proven patterns and components to accelerate development while maintaining high code quality.
 
-**Architecture Philosophy**: Build a production-grade drawing application with proper separation of concerns, optimal performance, and extensible design patterns.
+**架构理念**：构建生产级绘图应用程序，具有适当的关注点分离、最优性能和可扩展的设计模式。
 
-## Development Commands
+## 开发命令
 
-### Primary Commands
-- `npm run dev` - Start development server
-- `npm run build` - Production build
-- `npm run lint` - ESLint code quality check
-- `npm run preview` - Preview production build
+### 主要命令
+- `npm run dev` - 启动开发服务器
+- `npm run build` - 生产构建
+- `npm run lint` - ESLint代码质量检查
+- `npm run preview` - 预览生产构建
 
-### Code Quality Requirements
-- **TypeScript strict mode** - All code must pass strict type checking
-- **ESLint compliance** - Code must pass linting without warnings
-- **Production readiness** - Code should be optimized for performance and maintainability
+### 代码质量要求
+- **TypeScript严格模式** - 所有代码必须通过严格类型检查
+- **ESLint合规** - 代码必须通过lint检查，无警告
+- **生产就绪** - 代码应针对可维护性进行优化
 
-## Architecture Guidelines
+## 架构指南
 
-### State Management - Zustand
+### 状态管理 - Zustand
 ```typescript
-// Use Zustand stores in src/stores/ directory
-- canvasStore.ts - Canvas state (zoom, pan, grid settings)
-- appStore.ts - Application state
-- uiStore.ts - UI panel visibility and settings
+// 在 src/stores/ 目录中使用 Zustand stores
+- canvasStore.ts - 画布状态（缩放、平移、网格设置）
+- appStore.ts - 应用程序状态
+- uiStore.ts - UI面板可见性和设置
 ```
 
-**Pattern**: Follow the established store patterns from my-app, ensuring clean separation and TypeScript typing.
+**模式**：确保清晰分离和TypeScript类型定义。
 
-### Component Structure
+### 组件结构
 ```
 src/
 ├── components/
-│   ├── canvas/          # Canvas-specific components
-│   ├── layout/          # Layout components
-│   └── ui/              # Reusable UI components (shadcn/ui)
-├── pages/               # Page components
-├── stores/              # Zustand state management
-├── lib/                 # Utility functions
-└── types/               # TypeScript type definitions
+│   ├── canvas/          # 画布特定组件
+│   ├── layout/          # 布局组件
+│   └── ui/              # 可重用UI组件 (shadcn/ui)
+├── pages/               # 页面组件
+├── stores/              # Zustand状态管理
+├── lib/                 # 工具函数
+└── types/               # TypeScript类型定义
 ```
 
-### Canvas System (CRITICAL MONITORING)
+### 画布系统（关键监控）
 
-**Canvas.tsx Line Count Monitoring**: Current: 49 lines
-- ⚠️ **KEEP UNDER 100 LINES** - Split into components when approaching this limit
-- Extract complex logic into custom hooks
-- Move Paper.js specific code to dedicated services/utilities
-- Create specialized canvas components for different features
+**Canvas.tsx行数监控**：当前：49行
+- ⚠️ **保持在200行以下** - 接近此限制时拆分为组件
+- 将复杂逻辑提取到自定义hooks中
+- 将Paper.js特定代码移至专门的服务/工具中
+- 为不同功能创建专用画布组件
 
-**Component Extraction Strategy**:
-1. **When Canvas.tsx > 80 lines**: Start planning component extraction
-2. **When Canvas.tsx > 100 lines**: IMMEDIATELY extract components
-3. **Target components to extract**:
-   - Grid rendering logic → `GridRenderer.tsx`
-   - Interaction handling → `InteractionController.tsx`
-   - Canvas initialization → `CanvasProvider.tsx`
-   - Tool-specific logic → `ToolController.tsx`
+**组件提取策略**：
+1. **当Canvas.tsx > 160行时**：开始规划组件提取
+2. **当Canvas.tsx > 200行时**：立即提取组件
+3. **目标提取组件**：
+   - 网格渲染逻辑 → `GridRenderer.tsx`
+   - 交互处理 → `InteractionController.tsx`
+   - 画布初始化 → `CanvasProvider.tsx`
+   - 工具特定逻辑 → `ToolController.tsx`
 
-## Migration Guidelines from my-app
+### 通用组件大小监控
 
-### Reusable Patterns to Leverage
-1. **Canvas State Management**: Adapt the proven canvas state patterns from my-app
-2. **UI Components**: Reuse shadcn/ui components and layouts
-3. **Service Architecture**: Adopt the service layer pattern for business logic
-4. **Hook Patterns**: Utilize established custom hooks for state management
+**500行文件规则**：
+- ⚠️ **任何超过500行的文件都必须拆分为更小的组件**
+- 定期监控所有组件文件的大小增长
+- 当文件接近400行时规划组件提取
+- 根据功能创建逻辑组件边界
 
-### Code Reuse Strategy
-- **Direct Migration**: Copy proven utility functions and helper classes
-- **Adapted Migration**: Modify my-app components to fit artboard's simpler scope
-- **Reference Implementation**: Use my-app as a reference for complex interactions
+## 生产质量要求
 
-### What NOT to Migrate
-- Backend-specific code (NestJS, authentication, database)
-- 3D model systems (unless specifically needed)
-- Complex AI integration (unless required for artboard features)
-- Over-engineered patterns that don't fit artboard's scope
+### 代码质量标准
+- **类型安全**：所有组件必须有适当的TypeScript类型
+- **错误处理**：对所有用户交互进行优雅的错误处理
+- **文档**：关键函数必须有JSDoc注释
+- **测试**：核心工具和hooks的单元测试
+- **性能优化**：避免使用useMemo进行不必要的性能优化，优先考虑代码可读性和简洁性
 
-## Production Quality Requirements
+### 需要监控的潜在问题
 
-### Performance Standards
-- **Canvas Operations**: Maintain 60fps during interactions
-- **Component Rendering**: Minimize unnecessary re-renders
-- **Memory Management**: Proper cleanup of Paper.js objects and event listeners
-- **Bundle Size**: Keep optimized for fast loading
+#### 1. 画布性能
+- 监控Paper.js对象创建和清理
+- 注意事件监听器中的内存泄漏
+- 确保适当的useEffect清理
 
-### Code Quality Standards
-- **Type Safety**: All components must have proper TypeScript types
-- **Error Handling**: Graceful error handling for all user interactions
-- **Documentation**: Critical functions must have JSDoc comments
-- **Testing**: Unit tests for core utilities and hooks
+#### 2. 状态管理复杂性
+- 保持Zustand存储专注且单一目的
+- 避免存储之间的循环依赖
+- 监控状态更新性能问题
 
-### Potential Issues to Monitor
+#### 3. 组件耦合
+- 在画布和UI组件之间保持松耦合
+- 确保组件可独立测试
 
-#### 1. Canvas Performance
-- Monitor Paper.js object creation and cleanup
-- Watch for memory leaks in event listeners
-- Ensure proper useEffect cleanup
+#### 4. Paper.js集成
+- Paper.js对象的适当生命周期管理
+- 坐标系统一致性
+- React和Paper.js之间的事件处理冲突
 
-#### 2. State Management Complexity
-- Keep Zustand stores focused and single-purpose
-- Avoid circular dependencies between stores
-- Monitor for state update performance issues
+## 关键技术决策
 
-#### 3. Component Coupling
-- Maintain loose coupling between canvas and UI components
-- Ensure components are testable in isolation
-- Watch for prop drilling anti-patterns
+### 画布系统
+- **Paper.js集成**：使用Paper.js实现专业2D图形功能
+- **坐标系统**：在DOM和Paper.js之间保持一致的坐标映射
+- **事件处理**：React和Paper.js事件系统的仔细分离
 
-#### 4. Paper.js Integration
-- Proper lifecycle management of Paper.js objects
-- Coordinate system consistency
-- Event handling conflicts between React and Paper.js
+### UI框架
+- **shadcn/ui**：用于一致、可访问的UI组件
+- **Tailwind CSS**：工具优先的样式方法
+- **响应式设计**：移动优先的响应式设计原则
 
-## Key Technical Decisions
+### 开发工作流
+- **热重载**：保持快速开发反馈循环
+- **类型检查**：实时TypeScript错误检测
+- **代码质量**：预提交hooks进行lint和格式化
 
-### Canvas System
-- **Paper.js Integration**: Use Paper.js for professional 2D graphics capabilities
-- **Coordinate System**: Maintain consistent coordinate mapping between DOM and Paper.js
-- **Event Handling**: Careful separation of React and Paper.js event systems
+## 路径别名
+- `@/*` 映射到 `./src/*` - 用于所有内部导入
 
-### UI Framework
-- **shadcn/ui**: Use for consistent, accessible UI components
-- **Tailwind CSS**: Utility-first styling approach
-- **Responsive Design**: Mobile-first responsive design principles
+## 文件组织原则
 
-### Development Workflow
-- **Hot Reload**: Maintain fast development feedback loop
-- **Type Checking**: Real-time TypeScript error detection
-- **Code Quality**: Pre-commit hooks for linting and formatting
+### 组件文件
+- 每个文件一个组件
+- 在同一文件中共同定位相关类型
+- 使用描述性、具体的文件名
 
-## Path Aliases
-- `@/*` maps to `./src/*` - use for all internal imports
+### 存储文件
+- 每个存储单一职责
+- 清晰的关注点分离
+- 所有状态的适当TypeScript类型定义
 
-## File Organization Principles
-
-### Component Files
-- One component per file
-- Co-locate related types in the same file
-- Use descriptive, specific file names
-
-### Store Files
-- Single responsibility per store
-- Clear separation of concerns
-- Proper TypeScript typing for all state
-
-### Utility Files
-- Pure functions where possible
-- Clear input/output typing
-- Comprehensive error handling
-
-## Integration Points with my-app
-
-### Shared Patterns
-- Zustand store architecture
-- shadcn/ui component usage
-- TypeScript configuration
-- Build tool configuration (Vite)
-
-### Reference Components
-- Use my-app's proven UI components as templates
-- Adapt interaction patterns for artboard's needs
-- Leverage established utility functions
-
-### Performance Lessons
-- Apply performance optimizations learned from my-app
-- Use proven patterns for Paper.js integration
-- Implement tested approaches for state management
+### 工具文件
+- 尽可能使用纯函数
+- 清晰的输入/输出类型定义
+- 全面的错误处理
 
 ---
 
-**Maintenance Priority**: Keep Canvas.tsx lean and focused. This is the heart of the application and must remain maintainable.
+**维护优先级**：保持Canvas.tsx精简且专注。这是应用程序的核心，必须保持可维护性。
 
-**Development Philosophy**: Production-ready code from day one. Every commit should maintain deployable quality.
-
-**Migration Strategy**: Leverage my-app's proven patterns while keeping artboard focused and lightweight.
+**开发理念**：从第一天起就是生产就绪的代码。每次提交都应保持可部署质量。

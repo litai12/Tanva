@@ -39,6 +39,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     isSelected: boolean;
   }>>([]);
   const [, setSelectedModel3DId] = useState<string | null>(null);
+  
+  // 选择工具状态
+  const [selectedPath, setSelectedPath] = useState<paper.Path | null>(null);
+  const [selectedPaths, setSelectedPaths] = useState<paper.Path[]>([]);
+  const [isSelectionDragging, setIsSelectionDragging] = useState(false);
+  const [selectionStartPoint, setSelectionStartPoint] = useState<paper.Point | null>(null);
+  const selectionBoxRef = useRef<paper.Path | null>(null);
 
   // 确保绘图图层存在并激活
   const ensureDrawingLayer = useCallback(() => {
@@ -515,6 +522,148 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleModel3DDeselect();
   }, [handleModel3DDeselect]);
 
+  // 选择路径
+  const handlePathSelect = useCallback((path: paper.Path) => {
+    // 取消之前选中的路径
+    if (selectedPath && selectedPath !== path) {
+      selectedPath.selected = false;
+      // 恢复原始样式
+      if ((selectedPath as any).originalStrokeWidth) {
+        selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
+      }
+    }
+    
+    // 选中新路径并添加视觉反馈
+    path.selected = true;
+    
+    // 保存原始线宽并增加选中时的线宽
+    if (!(path as any).originalStrokeWidth) {
+      (path as any).originalStrokeWidth = path.strokeWidth;
+    }
+    path.strokeWidth = (path as any).originalStrokeWidth + 2;
+    
+    setSelectedPath(path);
+    console.log('选择路径:', path);
+  }, [selectedPath]);
+
+  // 取消路径选择
+  const handlePathDeselect = useCallback(() => {
+    if (selectedPath) {
+      selectedPath.selected = false;
+      // 恢复原始线宽
+      if ((selectedPath as any).originalStrokeWidth) {
+        selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
+      }
+      setSelectedPath(null);
+      console.log('取消路径选择');
+    }
+  }, [selectedPath]);
+
+  // 开始选择框绘制
+  const startSelectionBox = useCallback((point: paper.Point) => {
+    setIsSelectionDragging(true);
+    setSelectionStartPoint(point);
+    
+    // 创建选择框
+    const rect = new paper.Rectangle(point, point);
+    selectionBoxRef.current = new paper.Path.Rectangle(rect);
+    selectionBoxRef.current.strokeColor = new paper.Color('#007AFF');
+    selectionBoxRef.current.strokeWidth = 1;
+    selectionBoxRef.current.dashArray = [5, 5];
+    selectionBoxRef.current.fillColor = new paper.Color(0, 122, 255, 0.1); // 半透明蓝色
+    
+    console.log('开始选择框拖拽');
+  }, []);
+
+  // 更新选择框
+  const updateSelectionBox = useCallback((currentPoint: paper.Point) => {
+    if (!isSelectionDragging || !selectionStartPoint || !selectionBoxRef.current) return;
+    
+    // 更新选择框大小
+    const rect = new paper.Rectangle(selectionStartPoint, currentPoint);
+    selectionBoxRef.current.remove();
+    selectionBoxRef.current = new paper.Path.Rectangle(rect);
+    selectionBoxRef.current.strokeColor = new paper.Color('#007AFF');
+    selectionBoxRef.current.strokeWidth = 1;
+    selectionBoxRef.current.dashArray = [5, 5];
+    selectionBoxRef.current.fillColor = new paper.Color(0, 122, 255, 0.1);
+  }, [isSelectionDragging, selectionStartPoint]);
+
+  // 完成选择框并选择框内对象
+  const finishSelectionBox = useCallback((endPoint: paper.Point) => {
+    if (!isSelectionDragging || !selectionStartPoint) return;
+    
+    // 清除选择框
+    if (selectionBoxRef.current) {
+      selectionBoxRef.current.remove();
+      selectionBoxRef.current = null;
+    }
+    
+    // 创建选择区域
+    const selectionRect = new paper.Rectangle(selectionStartPoint, endPoint);
+    const selectedPathsInBox: paper.Path[] = [];
+    
+    // 遍历绘图图层中的所有路径
+    const drawingLayer = paper.project.layers.find(layer => layer.name === "drawing");
+    if (drawingLayer) {
+      drawingLayer.children.forEach((item) => {
+        if (item instanceof paper.Path) {
+          // 检查路径是否在选择框内
+          if (selectionRect.contains(item.bounds)) {
+            selectedPathsInBox.push(item);
+          }
+        }
+      });
+    }
+    
+    // 更新选择状态
+    if (selectedPathsInBox.length > 0) {
+      // 清除之前的选择
+      selectedPaths.forEach(path => {
+        path.selected = false;
+        if ((path as any).originalStrokeWidth) {
+          path.strokeWidth = (path as any).originalStrokeWidth;
+        }
+      });
+      
+      // 选择框内的所有路径
+      selectedPathsInBox.forEach(path => {
+        path.selected = true;
+        if (!(path as any).originalStrokeWidth) {
+          (path as any).originalStrokeWidth = path.strokeWidth;
+        }
+        path.strokeWidth = (path as any).originalStrokeWidth + 2;
+      });
+      
+      setSelectedPaths(selectedPathsInBox);
+      setSelectedPath(null); // 清除单个选择
+      console.log(`选择了${selectedPathsInBox.length}个路径`);
+    }
+    
+    // 重置状态
+    setIsSelectionDragging(false);
+    setSelectionStartPoint(null);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths]);
+
+  // 清除所有选择
+  const clearAllSelections = useCallback(() => {
+    // 清除单个路径选择
+    handlePathDeselect();
+    
+    // 清除多个路径选择
+    selectedPaths.forEach(path => {
+      path.selected = false;
+      if ((path as any).originalStrokeWidth) {
+        path.strokeWidth = (path as any).originalStrokeWidth;
+      }
+    });
+    setSelectedPaths([]);
+    
+    // 清除其他选择
+    handleModel3DDeselect();
+    handleImageDeselect();
+  }, [selectedPaths, handlePathDeselect, handleModel3DDeselect, handleImageDeselect]);
+
   // 处理图片移动
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }) => {
     setImageInstances(prev => prev.map(image => 
@@ -655,22 +804,46 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 鼠标按下事件处理
     const handleMouseDown = (event: MouseEvent) => {
-      // 在选择模式下，点击空白区域取消所有选中
-      if (drawMode === 'select' && event.button === 0) {
-        handleModel3DDeselect();
-        handleImageDeselect();
-        return;
-      }
+      if (event.button !== 0) return; // 只响应左键点击
       
-      // 只在绘图模式下响应左键点击
-      if (event.button !== 0 || drawMode === 'select') return;
-
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
       
-      // 转换为 Paper.js 坐标系 - 使用 paper.view.viewToProject 进行正确的坐标转换
+      // 转换为 Paper.js 坐标系
       const point = paper.view.viewToProject(new paper.Point(x, y));
+      
+      // 在选择模式下进行点击检测
+      if (drawMode === 'select') {
+        // 使用Paper.js的hitTest进行点击检测
+        const hitResult = paper.project.hitTest(point, {
+          segments: true,
+          stroke: true,
+          fill: true,
+          tolerance: 5 / zoom // 根据缩放调整容差
+        });
+        
+        if (hitResult && hitResult.item instanceof paper.Path) {
+          // 检查路径是否在网格图层或其他背景图层中，如果是则不选择
+          const path = hitResult.item as paper.Path;
+          const pathLayer = path.layer;
+          
+          if (pathLayer && (pathLayer.name === "grid" || pathLayer.name === "background")) {
+            console.log('忽略背景/网格图层中的对象');
+            // 开始选择框拖拽
+            startSelectionBox(point);
+          } else {
+            // 点击到了有效路径，选择它
+            clearAllSelections(); // 先清除之前的选择
+            handlePathSelect(path);
+            console.log('选中路径:', path);
+          }
+        } else {
+          // 点击空白区域，开始选择框拖拽
+          startSelectionBox(point);
+        }
+        return;
+      }
 
       console.log(`🎨 开始绘制: 模式=${drawMode}, 坐标=(${x.toFixed(1)}, ${y.toFixed(1)})`);
 
@@ -708,12 +881,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 鼠标移动事件处理
     const handleMouseMove = (event: MouseEvent) => {
-      if (!isDrawingRef.current || !pathRef.current) return;
-
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
       const point = paper.view.viewToProject(new paper.Point(x, y));
+
+      // 处理选择框拖拽
+      if (drawMode === 'select' && isSelectionDragging) {
+        updateSelectionBox(point);
+        return;
+      }
+
+      if (!isDrawingRef.current || !pathRef.current) return;
 
       if (drawMode === 'free') {
         // 继续自由绘制
@@ -762,7 +941,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     // 鼠标抬起事件处理
-    const handleMouseUp = () => {
+    const handleMouseUp = (event: MouseEvent) => {
+      // 处理选择框完成
+      if (drawMode === 'select' && isSelectionDragging) {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const point = paper.view.viewToProject(new paper.Point(x, y));
+        finishSelectionBox(point);
+        return;
+      }
+
       if (isDrawingRef.current) {
         console.log(`🎨 结束绘制: 模式=${drawMode}`);
         finishDraw();
@@ -783,7 +972,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
     };
-  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect]);
+  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging]);
 
   return (
     <>
