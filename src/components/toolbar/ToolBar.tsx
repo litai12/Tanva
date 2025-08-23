@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Type, Camera, Trash2, Image, Box } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image } from 'lucide-react';
 import { useToolStore } from '@/stores';
 
 // 自定义图标组件
@@ -184,9 +184,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
           {drawMode === 'free' && <LineIcon className="w-4 h-4" />}
           {drawMode === 'rect' && <Square className="w-4 h-4" />}
           {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
-          {drawMode === 'polyline' && <PolylineIcon className="w-4 h-4" />}
           {/* 如果是选择模式或独立工具模式，显示默认的直线图标但为非激活状态 */}
-          {(drawMode === 'select' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot') && <LineIcon className="w-4 h-4" />}
+          {(drawMode === 'select' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <LineIcon className="w-4 h-4" />}
         </Button>
 
         {/* 悬停展开的绘制工具菜单 */}
@@ -219,7 +218,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
             >
               <CircleIcon className="w-4 h-4" />
             </Button>
-            <Button
+            {/* 多段线工具 - 暂时关闭 */}
+            {/* <Button
               variant={drawMode === 'polyline' && !isEraser ? 'default' : 'outline'}
               size="sm"
               className="px-2 py-2 h-8 w-8"
@@ -227,7 +227,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               title="绘制多段线"
             >
               <PolylineIcon className="w-4 h-4" />
-            </Button>
+            </Button> */}
           </div>
         </div>
       </div>
@@ -261,10 +261,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       <Separator orientation="horizontal" className="w-8" />
 
-      {/* 独立工具按钮 - 文字、图片、截图 */}
+      {/* 独立工具按钮 - 暂时只保留3D模型工具 */}
       <div className="flex flex-col items-center gap-2">
-        {/* 文字工具 */}
-        <Button
+        {/* 文字工具 - 暂时关闭 */}
+        {/* <Button
           variant={drawMode === 'text' ? 'default' : 'outline'}
           size="sm"
           className="px-2 py-2 h-8 w-8"
@@ -272,7 +272,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="添加文本"
         >
           <Type className="w-4 h-4" />
-        </Button>
+        </Button> */}
 
         {/* 图片工具 */}
         <Button
@@ -296,8 +296,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <Box className="w-4 h-4" />
         </Button>
 
-        {/* 截图工具 */}
-        <Button
+        {/* 截图工具 - 暂时关闭 */}
+        {/* <Button
           variant={drawMode === 'screenshot' ? 'default' : 'outline'}
           size="sm"
           className="px-2 py-2 h-8 w-8"
@@ -305,7 +305,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="截图工具"
         >
           <Camera className="w-4 h-4" />
-        </Button>
+        </Button> */}
       </div>
 
       <Separator orientation="horizontal" className="w-8" />
