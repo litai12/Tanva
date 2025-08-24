@@ -663,7 +663,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (item instanceof paper.Path) {
           // 检查路径是否在选择框内
           if (selectionRect.contains(item.bounds)) {
-            selectedPathsInBox.push(item);
+            // 检查是否属于占位符组（2D图片或3D模型占位符）
+            let isPlaceholder = false;
+            let currentItem: paper.Item = item;
+            
+            // 向上遍历父级查找占位符组
+            while (currentItem && currentItem.parent) {
+              const parent = currentItem.parent;
+              if (parent instanceof paper.Group && parent.data) {
+                const parentData = parent.data;
+                if (parentData.type === 'image-placeholder' || parentData.type === '3d-model-placeholder') {
+                  isPlaceholder = true;
+                  break;
+                }
+              }
+              currentItem = parent as paper.Item;
+            }
+            
+            // 只选择非占位符的路径
+            if (!isPlaceholder) {
+              selectedPathsInBox.push(item);
+            }
           }
         }
       });
@@ -982,10 +1002,34 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             // 开始选择框拖拽
             startSelectionBox(point);
           } else {
-            // 点击到了有效路径，选择它
-            clearAllSelections(); // 先清除之前的选择
-            handlePathSelect(path);
-            console.log('选中路径:', path);
+            // 检查是否属于占位符组（2D图片或3D模型占位符）
+            let isPlaceholder = false;
+            let currentItem: paper.Item = hitResult.item;
+            
+            // 向上遍历父级查找占位符组
+            while (currentItem && currentItem.parent) {
+              const parent = currentItem.parent;
+              if (parent instanceof paper.Group && parent.data) {
+                const parentData = parent.data;
+                if (parentData.type === 'image-placeholder' || parentData.type === '3d-model-placeholder') {
+                  isPlaceholder = true;
+                  console.log('忽略占位符中的对象:', parentData.type);
+                  break;
+                }
+              }
+              currentItem = parent as paper.Item;
+            }
+            
+            if (isPlaceholder) {
+              // 取消所有选择，开始选择框拖拽
+              clearAllSelections();
+              startSelectionBox(point);
+            } else {
+              // 点击到了有效路径，选择它
+              clearAllSelections(); // 先清除之前的选择
+              handlePathSelect(path);
+              console.log('选中路径:', path);
+            }
           }
         } else {
           // 点击空白区域，先取消所有选择
