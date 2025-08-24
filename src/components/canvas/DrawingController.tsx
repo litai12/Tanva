@@ -204,6 +204,48 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [currentColor, strokeWidth]);
 
+  // 开始绘制直线
+  const startLineDraw = useCallback((point: paper.Point) => {
+    ensureDrawingLayer(); // 确保在正确的图层中绘制
+    pathRef.current = new paper.Path.Line({
+      from: point,
+      to: point.add(new paper.Point(1, 0)), // 初始创建一个极短的线段
+    });
+    pathRef.current.strokeColor = new paper.Color(currentColor);
+    pathRef.current.strokeWidth = strokeWidth;
+    
+    // 保存起始点用于后续更新
+    (pathRef.current as any).startPoint = point;
+    console.log('开始绘制直线');
+  }, [ensureDrawingLayer, currentColor, strokeWidth]);
+
+  // 更新直线绘制（鼠标移动时跟随）
+  const updateLineDraw = useCallback((point: paper.Point) => {
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
+      
+      // 更新直线的终点
+      pathRef.current.segments[1].point = point;
+      
+      // 保持起始点引用和样式
+      (pathRef.current as any).startPoint = startPoint;
+    }
+  }, []);
+
+  // 完成直线绘制（第二次点击）
+  const finishLineDraw = useCallback((point: paper.Point) => {
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      // 设置最终的终点
+      pathRef.current.segments[1].point = point;
+      
+      // 清理临时引用
+      delete (pathRef.current as any).startPoint;
+      
+      console.log('完成直线绘制');
+      pathRef.current = null;
+    }
+  }, []);
+
   // 创建图片占位框
   const createImagePlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
     ensureDrawingLayer();
@@ -955,6 +997,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (drawMode === 'free') {
         // 开始自由绘制
         startFreeDraw(point);
+      } else if (drawMode === 'line') {
+        // 直线绘制模式：第一次点击开始，第二次点击完成
+        if (!pathRef.current || !(pathRef.current as any).startPoint) {
+          // 第一次点击：开始绘制直线
+          startLineDraw(point);
+          isDrawingRef.current = false; // 直线模式不使用常规的拖拽绘制
+        } else {
+          // 第二次点击：完成直线绘制
+          finishLineDraw(point);
+        }
       } else if (drawMode === 'rect') {
         // 开始绘制矩形
         startRectDraw(point);
@@ -1031,6 +1083,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
         
         canvas.style.cursor = 'default'; // 默认光标
+        return;
+      }
+
+      // 直线模式：如果正在绘制直线，跟随鼠标
+      if (drawMode === 'line' && pathRef.current && (pathRef.current as any).startPoint) {
+        updateLineDraw(point);
         return;
       }
 
@@ -1129,7 +1187,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
     };
-  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath]);
+  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startLineDraw, updateLineDraw, finishLineDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath]);
 
   return (
     <>

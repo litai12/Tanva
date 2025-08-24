@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 // 工具类型定义
-export type DrawMode = 'select' | 'free' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | '3d-model' | 'screenshot';
+export type DrawMode = 'select' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | '3d-model' | 'screenshot';
 
 interface ToolState {
   // 当前激活工具
@@ -25,7 +25,7 @@ interface ToolState {
 }
 
 // 绘图工具循环顺序
-const DRAWING_TOOLS: DrawMode[] = ['free', 'rect', 'circle', 'polyline'];
+const DRAWING_TOOLS: DrawMode[] = ['free', 'line', 'rect', 'circle', 'polyline'];
 
 export const useToolStore = create<ToolState>()(
   subscribeWithSelector(

@@ -5,9 +5,24 @@ import { Eraser, Square, Trash2, Box, Image } from 'lucide-react';
 import { useToolStore } from '@/stores';
 
 // 自定义图标组件
-const LineIcon: React.FC<{ className?: string }> = ({ className }) => (
+// 直线工具图标
+const StraightLineIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
     <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
+
+// 自由绘制图标
+const FreeDrawIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+    <path
+      d="M2 10 Q4 2 6 6 T10 4 Q12 8 14 6"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
   </svg>
 );
 
@@ -177,15 +192,16 @@ const ToolBar: React.FC<ToolBarProps> = ({
           }}
           title={
             drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot' 
-              ? '点击切换到绘线工具' 
-              : `当前工具：${drawMode === 'free' ? '绘线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`
+              ? '点击切换到自由绘制工具' 
+              : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`
           }
         >
-          {drawMode === 'free' && <LineIcon className="w-4 h-4" />}
+          {drawMode === 'free' && <FreeDrawIcon className="w-4 h-4" />}
+          {drawMode === 'line' && <StraightLineIcon className="w-4 h-4" />}
           {drawMode === 'rect' && <Square className="w-4 h-4" />}
           {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
-          {/* 如果是选择模式或独立工具模式，显示默认的直线图标但为非激活状态 */}
-          {(drawMode === 'select' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <LineIcon className="w-4 h-4" />}
+          {/* 如果是选择模式或独立工具模式，显示默认的自由绘制图标但为非激活状态 */}
+          {(drawMode === 'select' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
         </Button>
 
         {/* 悬停展开的绘制工具菜单 */}
@@ -196,9 +212,18 @@ const ToolBar: React.FC<ToolBarProps> = ({
               size="sm"
               className="px-2 py-2 h-8 w-8"
               onClick={() => setDrawMode('free')}
-              title="自由画线"
+              title="自由绘制"
             >
-              <LineIcon className="w-4 h-4" />
+              <FreeDrawIcon className="w-4 h-4" />
+            </Button>
+            <Button
+              variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
+              size="sm"
+              className="px-2 py-2 h-8 w-8"
+              onClick={() => setDrawMode('line')}
+              title="绘制直线"
+            >
+              <StraightLineIcon className="w-4 h-4" />
             </Button>
             <Button
               variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
