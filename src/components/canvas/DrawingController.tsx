@@ -977,6 +977,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           
           if (pathLayer && (pathLayer.name === "grid" || pathLayer.name === "background")) {
             console.log('忽略背景/网格图层中的对象');
+            // 取消所有选择
+            clearAllSelections();
             // 开始选择框拖拽
             startSelectionBox(point);
           } else {
@@ -986,7 +988,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             console.log('选中路径:', path);
           }
         } else {
-          // 点击空白区域，开始选择框拖拽
+          // 点击空白区域，先取消所有选择
+          clearAllSelections();
+          console.log('点击空白区域，取消所有选择');
+          
+          // 然后开始选择框拖拽
           startSelectionBox(point);
         }
         return;
