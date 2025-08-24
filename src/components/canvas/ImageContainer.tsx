@@ -12,6 +12,8 @@ interface ImageContainerProps {
   imageData: ImageData;
   bounds: { x: number; y: number; width: number; height: number }; // Paper.js世界坐标
   isSelected?: boolean;
+  drawMode?: string; // 当前绘图模式
+  isSelectionDragging?: boolean; // 是否正在拖拽选择框
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
@@ -21,6 +23,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   imageData,
   bounds,
   isSelected = false,
+  drawMode = 'select',
+  isSelectionDragging = false,
   onSelect,
   onMove,
   onResize
@@ -290,7 +294,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         height: screenBounds.height,
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
-        userSelect: 'none'
+        userSelect: 'none',
+        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none' // 选择框拖拽时也让鼠标事件穿透
       }}
       onMouseDown={handleMouseDown}
     >
