@@ -90,7 +90,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           to: [0, viewBounds.bottom + padding],
           strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴
           strokeWidth: 1.5,
-          data: { isAxis: true, axis: 'Y' }
+          data: { isAxis: true, axis: 'Y', isHelper: true }
         });
         gridLayer.addChild(axisPathsRef.current.yAxis);
       } else {
@@ -110,7 +110,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           to: [viewBounds.right + padding, 0],
           strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴
           strokeWidth: 1.5,
-          data: { isAxis: true, axis: 'X' }
+          data: { isAxis: true, axis: 'X', isHelper: true }
         });
         gridLayer.addChild(axisPathsRef.current.xAxis);
       } else {
@@ -156,7 +156,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
             from: [x, minY],
             to: [x, maxY],
             strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-            strokeWidth: isMainGrid ? 0.8 : 0.3
+            strokeWidth: isMainGrid ? 0.8 : 0.3,
+            data: { isHelper: true, type: 'grid' }
           });
         }
         gridLayer.addChild(line);
@@ -189,7 +190,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
             from: [minX, y],
             to: [maxX, y],
             strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
-            strokeWidth: isMainGrid ? 0.8 : 0.3
+            strokeWidth: isMainGrid ? 0.8 : 0.3,
+            data: { isHelper: true, type: 'grid' }
           });
         }
         gridLayer.addChild(line);

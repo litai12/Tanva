@@ -67,6 +67,7 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
 
     // 创建新的比例尺组
     const scaleBarGroup = new paper.Group();
+    scaleBarGroup.data = { isHelper: true, type: 'scalebar' };
     scaleBarGroupRef.current = scaleBarGroup;
 
     // 比例尺的位置（右下角，留出边距）
@@ -89,6 +90,7 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
     );
     mainLine.strokeColor = new paper.Color(0, 0, 0, 0.8);
     mainLine.strokeWidth = 1;
+    mainLine.data = { isHelper: true, type: 'scalebar' };
     scaleBarGroup.addChild(mainLine);
 
     // 创建左端刻度 (0 位置)
@@ -98,6 +100,7 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
     );
     leftTick.strokeColor = new paper.Color(0, 0, 0, 0.8);
     leftTick.strokeWidth = 1;
+    leftTick.data = { isHelper: true, type: 'scalebar' };
     scaleBarGroup.addChild(leftTick);
 
     // 创建右端刻度 (完整值位置)
@@ -107,6 +110,7 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
     );
     rightTick.strokeColor = new paper.Color(0, 0, 0, 0.8);
     rightTick.strokeWidth = 1;
+    rightTick.data = { isHelper: true, type: 'scalebar' };
     scaleBarGroup.addChild(rightTick);
 
     // 创建主数值的标签文本 (显示在比例尺中间位置)
@@ -116,7 +120,8 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
       fontSize: 12,
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fillColor: new paper.Color(0, 0, 0, 0.8),
-      justification: 'center'
+      justification: 'center',
+      data: { isHelper: true, type: 'scalebar' }
     });
     scaleBarGroup.addChild(labelText);
 
