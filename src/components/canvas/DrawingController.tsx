@@ -5,6 +5,7 @@ import ImageUploadComponent from './ImageUploadComponent';
 import ImageContainer from './ImageContainer';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
+import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import type { Model3DData } from '@/services/model3DUploadService';
 
 interface DrawingControllerProps {
@@ -16,8 +17,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { zoom } = useCanvasStore();
   const pathRef = useRef<paper.Path | null>(null);
   const isDrawingRef = useRef(false);
-  const drawingLayerRef = useRef<paper.Layer | null>(null);
-  
+  const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
+
   // 图片相关状态
   const [triggerImageUpload, setTriggerImageUpload] = useState(false);
   const currentPlaceholderRef = useRef<paper.Group | null>(null);
@@ -29,7 +30,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionRect?: paper.Path;
   }>>([]);
   const [, setSelectedImageId] = useState<string | null>(null);
-  
+
   // 3D模型相关状态
   const [triggerModel3DUpload, setTriggerModel3DUpload] = useState(false);
   const currentModel3DPlaceholderRef = useRef<paper.Group | null>(null);
@@ -41,14 +42,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionRect?: paper.Path;
   }>>([]);
   const [, setSelectedModel3DId] = useState<string | null>(null);
-  
+
   // 选择工具状态
   const [selectedPath, setSelectedPath] = useState<paper.Path | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<paper.Path[]>([]);
   const [isSelectionDragging, setIsSelectionDragging] = useState(false);
   const [selectionStartPoint, setSelectionStartPoint] = useState<paper.Point | null>(null);
   const selectionBoxRef = useRef<paper.Path | null>(null);
-  
+
   // 路径编辑状态
   const [isPathDragging, setIsPathDragging] = useState(false);
   const [isSegmentDragging, setIsSegmentDragging] = useState(false);
@@ -56,33 +57,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [draggedSegment, setDraggedSegment] = useState<paper.Segment | null>(null);
   const [draggedPath, setDraggedPath] = useState<paper.Path | null>(null);
 
+  // 初始化图层管理器
+  useEffect(() => {
+    if (!drawingLayerManagerRef.current) {
+      drawingLayerManagerRef.current = new DrawingLayerManager();
+    }
+    return () => {
+      if (drawingLayerManagerRef.current) {
+        drawingLayerManagerRef.current.cleanup();
+        drawingLayerManagerRef.current = null;
+      }
+    };
+  }, []);
+
   // 确保绘图图层存在并激活
   const ensureDrawingLayer = useCallback(() => {
-    let drawingLayer = drawingLayerRef.current;
-    
-    // 如果图层不存在或已被删除，创建新的绘图图层
-    if (!drawingLayer || (drawingLayer as any).isDeleted) {
-      drawingLayer = new paper.Layer();
-      drawingLayer.name = "drawing";
-      drawingLayerRef.current = drawingLayer;
-      
-      // 确保绘图图层在网格图层之上
-      const gridLayer = paper.project.layers.find(layer => layer.name === "grid");
-      if (gridLayer) {
-        drawingLayer.insertAbove(gridLayer);
-      }
+    if (!drawingLayerManagerRef.current) {
+      drawingLayerManagerRef.current = new DrawingLayerManager();
     }
-    
-    // 激活绘图图层
-    drawingLayer.activate();
-    return drawingLayer;
+    return drawingLayerManagerRef.current.ensureDrawingLayer();
   }, []);
 
   // 开始自由绘制
   const startFreeDraw = useCallback((point: paper.Point) => {
     ensureDrawingLayer(); // 确保在正确的图层中绘制
     pathRef.current = new paper.Path();
-    
+
     if (isEraser) {
       // 橡皮擦模式：红色虚线表示擦除轨迹
       pathRef.current.strokeColor = new paper.Color('#ff6b6b');
@@ -94,7 +94,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
     }
-    
+
     pathRef.current.strokeCap = 'round';
     pathRef.current.strokeJoin = 'round';
     pathRef.current.add(point);
@@ -113,7 +113,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           return; // 跳过过于接近的点
         }
       }
-      
+
       pathRef.current.add(point);
       // 移除实时平滑，避免端头残缺
       // pathRef.current.smooth();
@@ -129,7 +129,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
     pathRef.current.fillColor = null; // 确保不填充
-    
+
     // 保存起始点用于后续更新
     (pathRef.current as any).startPoint = point;
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
@@ -139,7 +139,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (pathRef.current && (pathRef.current as any).startPoint) {
       const startPoint = (pathRef.current as any).startPoint;
       const rectangle = new paper.Rectangle(startPoint, point);
-      
+
       // 优化：更新现有矩形而不是重新创建
       if (pathRef.current instanceof paper.Path.Rectangle) {
         // 直接更新矩形的边界
@@ -152,7 +152,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
       pathRef.current.fillColor = null;
-      
+
       // 保持起始点引用
       (pathRef.current as any).startPoint = startPoint;
     }
@@ -168,7 +168,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
     pathRef.current.fillColor = null; // 确保不填充
-    
+
     // 保存起始点用于后续更新
     (pathRef.current as any).startPoint = point;
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
@@ -178,15 +178,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (pathRef.current && (pathRef.current as any).startPoint) {
       const startPoint = (pathRef.current as any).startPoint;
       const radius = startPoint.getDistance(point);
-      
+
       // 优化：更新现有圆形而不是重新创建
       if (pathRef.current instanceof paper.Path.Circle) {
         // 直接更新圆形的中心和半径
         pathRef.current.position = startPoint;
         pathRef.current.bounds = new paper.Rectangle(
-          startPoint.x - radius, 
-          startPoint.y - radius, 
-          radius * 2, 
+          startPoint.x - radius,
+          startPoint.y - radius,
+          radius * 2,
           radius * 2
         );
       } else {
@@ -200,7 +200,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
       pathRef.current.fillColor = null;
-      
+
       // 保持起始点引用
       (pathRef.current as any).startPoint = startPoint;
     }
@@ -215,7 +215,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     });
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
-    
+
     // 保存起始点用于后续更新
     (pathRef.current as any).startPoint = point;
     console.log('开始绘制直线');
@@ -225,10 +225,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const updateLineDraw = useCallback((point: paper.Point) => {
     if (pathRef.current && (pathRef.current as any).startPoint) {
       const startPoint = (pathRef.current as any).startPoint;
-      
+
       // 更新直线的终点
       pathRef.current.segments[1].point = point;
-      
+
       // 保持起始点引用和样式
       (pathRef.current as any).startPoint = startPoint;
     }
@@ -239,10 +239,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (pathRef.current && (pathRef.current as any).startPoint) {
       // 设置最终的终点
       pathRef.current.segments[1].point = point;
-      
+
       // 清理临时引用
       delete (pathRef.current as any).startPoint;
-      
+
       console.log('完成直线绘制');
       pathRef.current = null;
     }
@@ -251,58 +251,58 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 创建图片占位框
   const createImagePlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
     ensureDrawingLayer();
-    
+
     // 计算占位框矩形
     const rect = new paper.Rectangle(startPoint, endPoint);
     const center = rect.center;
     const width = Math.abs(rect.width);
     const height = Math.abs(rect.height);
-    
+
     // 最小尺寸限制
     const minSize = 50;
     const finalWidth = Math.max(width, minSize);
     const finalHeight = Math.max(height, minSize);
-    
+
     // 创建占位框边框（虚线矩形）
     const placeholder = new paper.Path.Rectangle({
-      rectangle: new paper.Rectangle(center.subtract([finalWidth/2, finalHeight/2]), [finalWidth, finalHeight]),
+      rectangle: new paper.Rectangle(center.subtract([finalWidth / 2, finalHeight / 2]), [finalWidth, finalHeight]),
       strokeColor: new paper.Color('#60a5fa'), // 更柔和的蓝色边框
       strokeWidth: 2,
       dashArray: [8, 6],
       fillColor: new paper.Color(0.94, 0.97, 1, 0.8) // 淡蓝色半透明背景
     });
-    
+
     // 创建上传按钮背景（圆角矩形）
     const buttonSize = Math.min(finalWidth * 0.5, finalHeight * 0.25, 120);
     const buttonHeight = Math.min(40, finalHeight * 0.2);
-    
+
     // 创建按钮背景
     const buttonBg = new paper.Path.Rectangle({
-      rectangle: new paper.Rectangle(center.subtract([buttonSize/2, buttonHeight/2]), [buttonSize, buttonHeight]),
+      rectangle: new paper.Rectangle(center.subtract([buttonSize / 2, buttonHeight / 2]), [buttonSize, buttonHeight]),
       fillColor: new paper.Color('#3b82f6'), // 更现代的蓝色
       strokeColor: new paper.Color('#2563eb'), // 深蓝色边框
       strokeWidth: 1.5
     });
-    
+
     // 创建"+"图标（更粗更圆润）
     const iconSize = Math.min(14, buttonHeight * 0.35);
     const hLine = new paper.Path.Line({
-      from: center.subtract([iconSize/2, 0]),
-      to: center.add([iconSize/2, 0]),
+      from: center.subtract([iconSize / 2, 0]),
+      to: center.add([iconSize / 2, 0]),
       strokeColor: new paper.Color('#fff'),
       strokeWidth: 3,
       strokeCap: 'round'
     });
     const vLine = new paper.Path.Line({
-      from: center.subtract([0, iconSize/2]),
-      to: center.add([0, iconSize/2]),
+      from: center.subtract([0, iconSize / 2]),
+      to: center.add([0, iconSize / 2]),
       strokeColor: new paper.Color('#fff'),
       strokeWidth: 3,
       strokeCap: 'round'
     });
-    
+
     // 创建提示文字 - 调整位置，在按钮下方留出适当间距
-    const textY = Math.round(center.y + buttonHeight/2 + 20); // 对齐到像素边界
+    const textY = Math.round(center.y + buttonHeight / 2 + 20); // 对齐到像素边界
     const fontSize = Math.round(Math.min(14, finalWidth * 0.06, finalHeight * 0.08)); // 确保字体大小为整数
     const text = new paper.PointText({
       point: new paper.Point(Math.round(center.x), textY),
@@ -311,21 +311,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       fillColor: new paper.Color('#1e40af'), // 深蓝色文字，与按钮呼应
       justification: 'center'
     });
-    
+
     // 创建组合
     const group = new paper.Group([placeholder, buttonBg, hLine, vLine, text]);
     group.data = {
       type: 'image-placeholder',
-      bounds: { x: center.x - finalWidth/2, y: center.y - finalHeight/2, width: finalWidth, height: finalHeight }
+      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight }
     };
-    
+
     // 添加点击事件
     group.onClick = () => {
       console.log('📸 点击图片占位框，触发上传');
       currentPlaceholderRef.current = group;
       setTriggerImageUpload(true);
     };
-    
+
     return group;
   }, [ensureDrawingLayer]);
 
@@ -336,37 +336,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.error('❌ 没有找到图片占位框');
       return;
     }
-    
+
     console.log('✅ 图片上传成功，创建图片实例');
-    
+
     const paperBounds = placeholder.data.bounds;
     const imageId = `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     console.log('📍 图片使用Paper.js坐标:', paperBounds);
-    
+
     // 在Paper.js中创建透明的选择区域
     ensureDrawingLayer();
     const selectionRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
-        paperBounds.x, 
-        paperBounds.y, 
-        paperBounds.width, 
+        paperBounds.x,
+        paperBounds.y,
+        paperBounds.width,
         paperBounds.height
       ),
       fillColor: new paper.Color(0, 0, 0, 0), // 完全透明
       strokeColor: null,
       visible: false // 初始不可见，避免影响其他操作
     });
-    
+
     // 标记为图片选择区域，并设置为不响应事件
     selectionRect.data = {
       type: 'image-selection-area',
       imageId: imageId
     };
-    
+
     // 设置为不响应鼠标事件，避免阻挡其他操作
     selectionRect.locked = true;
-    
+
     // 创建图片实例 - 直接使用Paper.js坐标
     const newImage = {
       id: imageId,
@@ -379,18 +379,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       isSelected: true,
       selectionRect: selectionRect // 存储对应的Paper.js选择区域
     };
-    
+
     // 添加到图片实例数组
     setImageInstances(prev => [...prev, newImage]);
     setSelectedImageId(imageId);
-    
+
     // 删除占位框
     placeholder.remove();
     currentPlaceholderRef.current = null;
-    
+
     // 自动切换回选择模式
     setDrawMode('select');
-    
+
     console.log('✅ 图片添加到画布成功，已切换到选择模式');
   }, [setDrawMode, canvasRef]);
 
@@ -410,78 +410,78 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 创建3D模型占位框
   const create3DModelPlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
     ensureDrawingLayer();
-    
+
     // 计算占位框矩形
     const rect = new paper.Rectangle(startPoint, endPoint);
     const center = rect.center;
     const width = Math.abs(rect.width);
     const height = Math.abs(rect.height);
-    
+
     // 最小尺寸限制（3D模型需要更大的空间）
     const minSize = 80;
     const finalWidth = Math.max(width, minSize);
     const finalHeight = Math.max(height, minSize);
-    
+
     // 创建占位框边框（虚线矩形）
     const placeholder = new paper.Path.Rectangle({
-      rectangle: new paper.Rectangle(center.subtract([finalWidth/2, finalHeight/2]), [finalWidth, finalHeight]),
+      rectangle: new paper.Rectangle(center.subtract([finalWidth / 2, finalHeight / 2]), [finalWidth, finalHeight]),
       strokeColor: new paper.Color('#8b5cf6'),
       strokeWidth: 2,
       dashArray: [8, 4],
       fillColor: new paper.Color(0.95, 0.9, 1, 0.6) // 淡紫色背景
     });
-    
+
     // 创建上传按钮背景（圆角矩形）
     const buttonSize = Math.min(finalWidth * 0.6, finalHeight * 0.3, 140);
     const buttonHeight = Math.min(45, finalHeight * 0.25);
-    
+
     // 创建按钮背景
     const buttonBg = new paper.Path.Rectangle({
-      rectangle: new paper.Rectangle(center.subtract([buttonSize/2, buttonHeight/2]), [buttonSize, buttonHeight]),
+      rectangle: new paper.Rectangle(center.subtract([buttonSize / 2, buttonHeight / 2]), [buttonSize, buttonHeight]),
       fillColor: new paper.Color('#7c3aed'),
       strokeColor: new paper.Color('#6d28d9'),
       strokeWidth: 1.5
     });
-    
+
     // 创建3D立方体图标
     const iconSize = Math.min(16, buttonHeight * 0.4);
     const cubeOffset = iconSize * 0.3;
-    
+
     // 立方体前面
     const frontFace = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
-        center.subtract([iconSize/2, iconSize/2]),
+        center.subtract([iconSize / 2, iconSize / 2]),
         [iconSize, iconSize]
       ),
       fillColor: new paper.Color('#fff'),
       strokeColor: new paper.Color('#fff'),
       strokeWidth: 1
     });
-    
+
     // 立方体顶面
     const topFace = new paper.Path([
-      center.add([-iconSize/2, -iconSize/2]),
-      center.add([iconSize/2, -iconSize/2]),
-      center.add([iconSize/2 + cubeOffset, -iconSize/2 - cubeOffset]),
-      center.add([-iconSize/2 + cubeOffset, -iconSize/2 - cubeOffset])
+      center.add([-iconSize / 2, -iconSize / 2]),
+      center.add([iconSize / 2, -iconSize / 2]),
+      center.add([iconSize / 2 + cubeOffset, -iconSize / 2 - cubeOffset]),
+      center.add([-iconSize / 2 + cubeOffset, -iconSize / 2 - cubeOffset])
     ]);
     topFace.fillColor = new paper.Color('#e5e7eb');
     topFace.strokeColor = new paper.Color('#fff');
     topFace.strokeWidth = 1;
-    
+
     // 立方体右侧面
     const rightFace = new paper.Path([
-      center.add([iconSize/2, -iconSize/2]),
-      center.add([iconSize/2, iconSize/2]),
-      center.add([iconSize/2 + cubeOffset, iconSize/2 - cubeOffset]),
-      center.add([iconSize/2 + cubeOffset, -iconSize/2 - cubeOffset])
+      center.add([iconSize / 2, -iconSize / 2]),
+      center.add([iconSize / 2, iconSize / 2]),
+      center.add([iconSize / 2 + cubeOffset, iconSize / 2 - cubeOffset]),
+      center.add([iconSize / 2 + cubeOffset, -iconSize / 2 - cubeOffset])
     ]);
     rightFace.fillColor = new paper.Color('#d1d5db');
     rightFace.strokeColor = new paper.Color('#fff');
     rightFace.strokeWidth = 1;
-    
+
     // 创建提示文字 - 调整位置，在按钮下方留出适当间距
-    const textY = Math.round(center.y + buttonHeight/2 + 25);
+    const textY = Math.round(center.y + buttonHeight / 2 + 25);
     const fontSize = Math.round(Math.min(14, finalWidth * 0.06, finalHeight * 0.08));
     const text = new paper.PointText({
       point: new paper.Point(Math.round(center.x), textY),
@@ -490,21 +490,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       fillColor: new paper.Color('#6b21a8'),
       justification: 'center'
     });
-    
+
     // 创建组合
     const group = new paper.Group([placeholder, buttonBg, frontFace, topFace, rightFace, text]);
     group.data = {
       type: '3d-model-placeholder',
-      bounds: { x: center.x - finalWidth/2, y: center.y - finalHeight/2, width: finalWidth, height: finalHeight }
+      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight }
     };
-    
+
     // 添加点击事件
     group.onClick = () => {
       console.log('🎲 点击3D模型占位框，触发上传');
       currentModel3DPlaceholderRef.current = group;
       setTriggerModel3DUpload(true);
     };
-    
+
     return group;
   }, [ensureDrawingLayer]);
 
@@ -515,37 +515,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.error('❌ 没有找到3D模型占位框');
       return;
     }
-    
+
     console.log('✅ 3D模型上传成功，创建3D渲染实例:', modelData.fileName);
-    
+
     const paperBounds = placeholder.data.bounds;
     const modelId = `model3d_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     console.log('📍 3D模型使用Paper.js坐标:', paperBounds);
-    
+
     // 在Paper.js中创建透明的选择区域
     ensureDrawingLayer();
     const selectionRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
-        paperBounds.x, 
-        paperBounds.y, 
-        paperBounds.width, 
+        paperBounds.x,
+        paperBounds.y,
+        paperBounds.width,
         paperBounds.height
       ),
       fillColor: new paper.Color(0, 0, 0, 0), // 完全透明
       strokeColor: null,
       visible: false // 初始不可见，避免影响其他操作
     });
-    
+
     // 标记为3D模型选择区域，并设置为不响应事件
     selectionRect.data = {
       type: '3d-model-selection-area',
       modelId: modelId
     };
-    
+
     // 设置为不响应鼠标事件，避免阻挡其他操作
     selectionRect.locked = true;
-    
+
     // 创建3D模型实例 - 直接使用Paper.js坐标
     const newModel3D = {
       id: modelId,
@@ -554,18 +554,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       isSelected: true,
       selectionRect: selectionRect // 存储对应的Paper.js选择区域
     };
-    
+
     // 添加到3D模型实例数组
     setModel3DInstances(prev => [...prev, newModel3D]);
     setSelectedModel3DId(modelId);
-    
+
     // 删除占位框
     placeholder.remove();
     currentModel3DPlaceholderRef.current = null;
-    
+
     // 自动切换回选择模式
     setDrawMode('select');
-    
+
     console.log('✅ 3D模型添加到画布成功，已切换到选择模式');
   }, [setDrawMode, canvasRef]);
 
@@ -632,17 +632,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
       }
     }
-    
+
     // 选中新路径并启用编辑模式
     path.selected = true;
     path.fullySelected = true; // 显示所有控制点
-    
+
     // 保存原始线宽并增加选中时的线宽  
     if (!(path as any).originalStrokeWidth) {
       (path as any).originalStrokeWidth = path.strokeWidth;
     }
     path.strokeWidth = (path as any).originalStrokeWidth + 1; // 稍微加粗但不太明显
-    
+
     setSelectedPath(path);
     console.log('选择路径并启用编辑模式:', path);
     console.log('路径段数:', path.segments.length);
@@ -666,7 +666,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const startSelectionBox = useCallback((point: paper.Point) => {
     setIsSelectionDragging(true);
     setSelectionStartPoint(point);
-    
+
     // 创建选择框
     const rect = new paper.Rectangle(point, point);
     selectionBoxRef.current = new paper.Path.Rectangle(rect);
@@ -674,14 +674,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionBoxRef.current.strokeWidth = 1;
     selectionBoxRef.current.dashArray = [5, 5];
     selectionBoxRef.current.fillColor = new paper.Color(0, 122, 255, 0.1); // 半透明蓝色
-    
+
     console.log('开始选择框拖拽');
   }, []);
 
   // 更新选择框
   const updateSelectionBox = useCallback((currentPoint: paper.Point) => {
     if (!isSelectionDragging || !selectionStartPoint || !selectionBoxRef.current) return;
-    
+
     // 更新选择框大小
     const rect = new paper.Rectangle(selectionStartPoint, currentPoint);
     selectionBoxRef.current.remove();
@@ -695,21 +695,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 完成选择框并选择框内对象
   const finishSelectionBox = useCallback((endPoint: paper.Point) => {
     if (!isSelectionDragging || !selectionStartPoint) return;
-    
+
     // 清除选择框
     if (selectionBoxRef.current) {
       selectionBoxRef.current.remove();
       selectionBoxRef.current = null;
     }
-    
+
     // 创建选择区域
     const selectionRect = new paper.Rectangle(selectionStartPoint, endPoint);
     const selectedPathsInBox: paper.Path[] = [];
-    
+
     // 收集要选择的对象
     const selectedImages: string[] = [];
     const selectedModels: string[] = [];
-    
+
     // 检查图片实例是否与选择框相交
     for (const image of imageInstances) {
       const imageBounds = new paper.Rectangle(image.bounds.x, image.bounds.y, image.bounds.width, image.bounds.height);
@@ -718,7 +718,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         console.log('选择框收集图片:', image.id);
       }
     }
-    
+
     // 检查3D模型实例是否与选择框相交
     for (const model of model3DInstances) {
       const modelBounds = new paper.Rectangle(model.bounds.x, model.bounds.y, model.bounds.width, model.bounds.height);
@@ -727,7 +727,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         console.log('选择框收集3D模型:', model.id);
       }
     }
-    
+
     // 遍历绘图图层中的所有路径
     const drawingLayer = paper.project.layers.find(layer => layer.name === "drawing");
     if (drawingLayer) {
@@ -739,11 +739,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (item.data && (item.data.type === 'image-selection-area' || item.data.type === '3d-model-selection-area')) {
               return; // 跳过选择区域对象
             }
-            
+
             // 检查是否属于占位符组（2D图片或3D模型占位符）
             let isPlaceholder = false;
             let currentItem: paper.Item = item;
-            
+
             // 向上遍历父级查找占位符组
             while (currentItem && currentItem.parent) {
               const parent = currentItem.parent;
@@ -756,7 +756,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               }
               currentItem = parent as paper.Item;
             }
-            
+
             // 只选择非占位符的路径
             if (!isPlaceholder) {
               selectedPathsInBox.push(item);
@@ -765,7 +765,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       });
     }
-    
+
     // 更新选择状态
     if (selectedPathsInBox.length > 0) {
       // 清除之前的选择
@@ -775,7 +775,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           path.strokeWidth = (path as any).originalStrokeWidth;
         }
       });
-      
+
       // 选择框内的所有路径，启用编辑模式
       selectedPathsInBox.forEach(path => {
         path.selected = true;
@@ -785,12 +785,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
         path.strokeWidth = (path as any).originalStrokeWidth + 1;
       });
-      
+
       setSelectedPaths(selectedPathsInBox);
       setSelectedPath(null); // 清除单个选择
       console.log(`选择了${selectedPathsInBox.length}个路径`);
     }
-    
+
     // 处理图片和3D模型的选择（在选择框完成后）
     if (selectedImages.length > 0) {
       // 目前只支持选择单个图片，取第一个
@@ -801,7 +801,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       handleModel3DSelect(selectedModels[0]);
       console.log(`选择框选中3D模型: ${selectedModels[0]}`);
     }
-    
+
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
@@ -811,7 +811,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const clearAllSelections = useCallback(() => {
     // 清除单个路径选择
     handlePathDeselect();
-    
+
     // 清除多个路径选择
     selectedPaths.forEach(path => {
       path.selected = false;
@@ -821,7 +821,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     });
     setSelectedPaths([]);
-    
+
     // 清除其他选择
     handleModel3DDeselect();
     handleImageDeselect();
@@ -830,9 +830,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 检测鼠标位置是否在控制点上
   const getSegmentAt = useCallback((point: paper.Point, path: paper.Path): paper.Segment | null => {
     if (!path.segments) return null;
-    
+
     const tolerance = 8 / zoom; // 根据缩放调整容差
-    
+
     for (let i = 0; i < path.segments.length; i++) {
       const segment = path.segments[i];
       const distance = segment.point.getDistance(point);
@@ -854,7 +854,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 更新控制点位置
   const updateSegmentDrag = useCallback((currentPoint: paper.Point) => {
     if (!isSegmentDragging || !draggedSegment) return;
-    
+
     draggedSegment.point = currentPoint;
     console.log('更新控制点位置:', currentPoint);
   }, [isSegmentDragging, draggedSegment]);
@@ -880,7 +880,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 更新路径位置
   const updatePathDrag = useCallback((currentPoint: paper.Point) => {
     if (!isPathDragging || !draggedPath || !dragStartPoint) return;
-    
+
     const delta = currentPoint.subtract(dragStartPoint);
     draggedPath.translate(delta);
     setDragStartPoint(currentPoint);
@@ -902,7 +902,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setImageInstances(prev => prev.map(image => {
       if (image.id === imageId) {
         const newBounds = { ...image.bounds, x: newPosition.x, y: newPosition.y };
-        
+
         // 更新对应的Paper.js选择区域
         if (image.selectionRect) {
           image.selectionRect.bounds = new paper.Rectangle(
@@ -912,7 +912,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             newBounds.height
           );
         }
-        
+
         return { ...image, bounds: newBounds };
       }
       return image;
@@ -932,7 +932,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             newBounds.height
           );
         }
-        
+
         return { ...image, bounds: newBounds };
       }
       return image;
@@ -944,7 +944,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setModel3DInstances(prev => prev.map(model => {
       if (model.id === modelId) {
         const newBounds = { ...model.bounds, x: newPosition.x, y: newPosition.y };
-        
+
         // 更新对应的Paper.js选择区域
         if (model.selectionRect) {
           model.selectionRect.bounds = new paper.Rectangle(
@@ -954,7 +954,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             newBounds.height
           );
         }
-        
+
         return { ...model, bounds: newBounds };
       }
       return model;
@@ -974,7 +974,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             newBounds.height
           );
         }
-        
+
         return { ...model, bounds: newBounds };
       }
       return model;
@@ -1016,7 +1016,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 删除相交的路径
     itemsToRemove.forEach(item => item.remove());
-    
+
     console.log(`🧹 橡皮擦删除了 ${itemsToRemove.length} 个路径`);
   }, [strokeWidth]);
 
@@ -1035,13 +1035,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             pathRef.current.bounds.x + pathRef.current.bounds.width,
             pathRef.current.bounds.y + pathRef.current.bounds.height
           );
-          
+
           // 删除临时绘制的矩形
           pathRef.current.remove();
-          
+
           // 创建图片占位框
           createImagePlaceholder(startPoint, endPoint);
-          
+
           // 自动切换到选择模式
           setDrawMode('select');
         }
@@ -1053,13 +1053,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             pathRef.current.bounds.x + pathRef.current.bounds.width,
             pathRef.current.bounds.y + pathRef.current.bounds.height
           );
-          
+
           // 删除临时绘制的矩形
           pathRef.current.remove();
-          
+
           // 创建3D模型占位框
           create3DModelPlaceholder(startPoint, endPoint);
-          
+
           // 自动切换到选择模式
           setDrawMode('select');
         }
@@ -1069,10 +1069,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           pathRef.current.smooth({ type: 'geometric', factor: 0.4 });
         }
       }
-      
+
       // 清理临时引用
       delete (pathRef.current as any).startPoint;
-      
+
       console.log(`✅ 绘制完成: ${isEraser ? '橡皮擦操作' : drawMode === 'image' ? '图片占位框，已切换到选择模式' : drawMode === '3d-model' ? '3D模型占位框，已切换到选择模式' : '普通绘制'}`);
       pathRef.current = null;
     }
@@ -1086,14 +1086,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 鼠标按下事件处理
     const handleMouseDown = (event: MouseEvent) => {
       if (event.button !== 0) return; // 只响应左键点击
-      
+
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
-      
+
       // 转换为 Paper.js 坐标系
       const point = paper.view.viewToProject(new paper.Point(x, y));
-      
+
       // 在选择模式下进行点击检测
       if (drawMode === 'select') {
         // 如果有选中的路径，首先检查是否点击在控制点上
@@ -1104,20 +1104,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             startSegmentDrag(segment, point);
             return;
           }
-          
+
           // 检查是否点击在路径本身上（非控制点）
           const hitResult = paper.project.hitTest(point, {
             stroke: true,
             tolerance: 5 / zoom
           });
-          
+
           if (hitResult && hitResult.item === selectedPath) {
             // 点击在路径上，开始路径拖拽
             startPathDrag(selectedPath, point);
             return;
           }
         }
-        
+
         // 使用Paper.js的hitTest进行点击检测
         const hitResult = paper.project.hitTest(point, {
           segments: true,
@@ -1125,35 +1125,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           fill: true,
           tolerance: 5 / zoom // 根据缩放调整容差
         });
-        
+
         // 首先检查是否点击在图片或3D模型区域内
         let imageClicked = null;
         let modelClicked = null;
-        
+
         // 检查图片实例
         for (const image of imageInstances) {
-          if (point.x >= image.bounds.x && 
-              point.x <= image.bounds.x + image.bounds.width &&
-              point.y >= image.bounds.y && 
-              point.y <= image.bounds.y + image.bounds.height) {
+          if (point.x >= image.bounds.x &&
+            point.x <= image.bounds.x + image.bounds.width &&
+            point.y >= image.bounds.y &&
+            point.y <= image.bounds.y + image.bounds.height) {
             imageClicked = image.id;
             break;
           }
         }
-        
+
         // 如果没有点击图片，检查3D模型实例
         if (!imageClicked) {
           for (const model of model3DInstances) {
-            if (point.x >= model.bounds.x && 
-                point.x <= model.bounds.x + model.bounds.width &&
-                point.y >= model.bounds.y && 
-                point.y <= model.bounds.y + model.bounds.height) {
+            if (point.x >= model.bounds.x &&
+              point.x <= model.bounds.x + model.bounds.width &&
+              point.y >= model.bounds.y &&
+              point.y <= model.bounds.y + model.bounds.height) {
               modelClicked = model.id;
               break;
             }
           }
         }
-        
+
         if (imageClicked) {
           // 选中图片
           clearAllSelections();
@@ -1168,7 +1168,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 检查路径是否在网格图层或其他背景图层中，如果是则不选择
           const path = hitResult.item as paper.Path;
           const pathLayer = path.layer;
-          
+
           if (pathLayer && (pathLayer.name === "grid" || pathLayer.name === "background")) {
             console.log('忽略背景/网格图层中的对象');
             // 取消所有选择
@@ -1179,7 +1179,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             // 检查是否属于占位符组（2D图片或3D模型占位符）
             let isPlaceholder = false;
             let currentItem: paper.Item = hitResult.item;
-            
+
             // 向上遍历父级查找占位符组
             while (currentItem && currentItem.parent) {
               const parent = currentItem.parent;
@@ -1193,7 +1193,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               }
               currentItem = parent as paper.Item;
             }
-            
+
             if (isPlaceholder) {
               // 取消所有选择，开始选择框拖拽
               clearAllSelections();
@@ -1209,7 +1209,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 点击空白区域，先取消所有选择
           clearAllSelections();
           console.log('点击空白区域，取消所有选择');
-          
+
           // 然后开始选择框拖拽
           startSelectionBox(point);
         }
@@ -1274,13 +1274,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           updateSegmentDrag(point);
           return;
         }
-        
+
         // 处理路径拖拽
         if (isPathDragging) {
           updatePathDrag(point);
           return;
         }
-        
+
         // 处理选择框拖拽
         if (isSelectionDragging) {
           updateSelectionBox(point);
@@ -1294,18 +1294,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             canvas.style.cursor = 'crosshair'; // 控制点上显示十字光标
             return;
           }
-          
+
           const hitResult = paper.project.hitTest(point, {
             stroke: true,
             tolerance: 5 / zoom
           });
-          
+
           if (hitResult && hitResult.item === selectedPath) {
             canvas.style.cursor = 'move'; // 路径上显示移动光标
             return;
           }
         }
-        
+
         canvas.style.cursor = 'default'; // 默认光标
         return;
       }
@@ -1332,7 +1332,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (pathRef.current && (pathRef.current as any).startPoint) {
           const startPoint = (pathRef.current as any).startPoint;
           const rectangle = new paper.Rectangle(startPoint, point);
-          
+
           // 移除旧的矩形并创建新的
           pathRef.current.remove();
           pathRef.current = new paper.Path.Rectangle(rectangle);
@@ -1340,7 +1340,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           pathRef.current.strokeWidth = 1;
           pathRef.current.dashArray = [5, 5];
           pathRef.current.fillColor = null;
-          
+
           // 保持起始点引用
           (pathRef.current as any).startPoint = startPoint;
         }
@@ -1349,7 +1349,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (pathRef.current && (pathRef.current as any).startPoint) {
           const startPoint = (pathRef.current as any).startPoint;
           const rectangle = new paper.Rectangle(startPoint, point);
-          
+
           // 移除旧的矩形并创建新的
           pathRef.current.remove();
           pathRef.current = new paper.Path.Rectangle(rectangle);
@@ -1357,7 +1357,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           pathRef.current.strokeWidth = 2;
           pathRef.current.dashArray = [8, 4];
           pathRef.current.fillColor = null;
-          
+
           // 保持起始点引用
           (pathRef.current as any).startPoint = startPoint;
         }
@@ -1373,13 +1373,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           finishSegmentDrag();
           return;
         }
-        
+
         // 处理路径拖拽结束
         if (isPathDragging) {
           finishPathDrag();
           return;
         }
-        
+
         // 处理选择框完成
         if (isSelectionDragging) {
           const rect = canvas.getBoundingClientRect();
@@ -1437,7 +1437,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           onResize={(newBounds) => handleImageResize(image.id, newBounds)}
         />
       ))}
-      
+
       {/* 3D模型上传组件 */}
       <Model3DUploadComponent
         onModel3DUploaded={handleModel3DUploaded}

@@ -1,8 +1,8 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image } from 'lucide-react';
-import { useToolStore } from '@/stores';
+import { Eraser, Square, Trash2, Box, Image, Layers } from 'lucide-react';
+import { useToolStore, useUIStore } from '@/stores';
 
 // 自定义图标组件
 // 直线工具图标
@@ -156,11 +156,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
     toggleEraser,
   } = useToolStore();
 
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel } = useUIStore();
+
   return (
     <div
-      className={`fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-3 px-2 py-3 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50 z-[1000] transition-all duration-300 ${
-        showLayerPanel ? 'left-[295px]' : 'left-2'
-      }`}
+      className={`fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-3 px-2 py-3 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50 z-[1000] transition-all duration-300 ${showLayerPanel ? 'left-[295px]' : 'left-2'
+        }`}
       style={{
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08)'
       }}
@@ -191,8 +192,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
             }
           }}
           title={
-            drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot' 
-              ? '点击切换到自由绘制工具' 
+            drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
+              ? '点击切换到自由绘制工具'
               : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`
           }
         >
@@ -332,6 +333,19 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <Camera className="w-4 h-4" />
         </Button> */}
       </div>
+
+      <Separator orientation="horizontal" className="w-8" />
+
+      {/* 图层工具 */}
+      <Button
+        variant={isLayerPanelOpen ? 'default' : 'outline'}
+        size="sm"
+        className="px-2 py-2 h-8 w-8"
+        onClick={toggleLayerPanel}
+        title="图层面板"
+      >
+        <Layers className="w-4 h-4" />
+      </Button>
 
       <Separator orientation="horizontal" className="w-8" />
 

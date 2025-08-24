@@ -1,6 +1,6 @@
 // 基础 stores
 export { useUIStore } from './uiStore';
-export { 
+export {
   useCanvasStore,
   useCanvasUnits,
   useCanvasZoom,
@@ -14,6 +14,7 @@ export {
   useToolActions,
   type DrawMode
 } from './toolStore';
+export { useLayerStore } from './layerStore';
 
 // 性能优化的复合选择器
 export {
