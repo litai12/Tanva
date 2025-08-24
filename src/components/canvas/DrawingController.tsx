@@ -46,6 +46,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [isSelectionDragging, setIsSelectionDragging] = useState(false);
   const [selectionStartPoint, setSelectionStartPoint] = useState<paper.Point | null>(null);
   const selectionBoxRef = useRef<paper.Path | null>(null);
+  
+  // 路径编辑状态
+  const [isPathDragging, setIsPathDragging] = useState(false);
+  const [isSegmentDragging, setIsSegmentDragging] = useState(false);
+  const [dragStartPoint, setDragStartPoint] = useState<paper.Point | null>(null);
+  const [draggedSegment, setDraggedSegment] = useState<paper.Segment | null>(null);
+  const [draggedPath, setDraggedPath] = useState<paper.Path | null>(null);
 
   // 确保绘图图层存在并激活
   const ensureDrawingLayer = useCallback(() => {
@@ -522,34 +529,38 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleModel3DDeselect();
   }, [handleModel3DDeselect]);
 
-  // 选择路径
+  // 选择路径并启用编辑模式
   const handlePathSelect = useCallback((path: paper.Path) => {
     // 取消之前选中的路径
     if (selectedPath && selectedPath !== path) {
       selectedPath.selected = false;
+      selectedPath.fullySelected = false;
       // 恢复原始样式
       if ((selectedPath as any).originalStrokeWidth) {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
       }
     }
     
-    // 选中新路径并添加视觉反馈
+    // 选中新路径并启用编辑模式
     path.selected = true;
+    path.fullySelected = true; // 显示所有控制点
     
-    // 保存原始线宽并增加选中时的线宽
+    // 保存原始线宽并增加选中时的线宽  
     if (!(path as any).originalStrokeWidth) {
       (path as any).originalStrokeWidth = path.strokeWidth;
     }
-    path.strokeWidth = (path as any).originalStrokeWidth + 2;
+    path.strokeWidth = (path as any).originalStrokeWidth + 1; // 稍微加粗但不太明显
     
     setSelectedPath(path);
-    console.log('选择路径:', path);
+    console.log('选择路径并启用编辑模式:', path);
+    console.log('路径段数:', path.segments.length);
   }, [selectedPath]);
 
   // 取消路径选择
   const handlePathDeselect = useCallback(() => {
     if (selectedPath) {
       selectedPath.selected = false;
+      selectedPath.fullySelected = false;
       // 恢复原始线宽
       if ((selectedPath as any).originalStrokeWidth) {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
@@ -626,13 +637,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       });
       
-      // 选择框内的所有路径
+      // 选择框内的所有路径，启用编辑模式
       selectedPathsInBox.forEach(path => {
         path.selected = true;
+        path.fullySelected = true; // 显示所有控制点
         if (!(path as any).originalStrokeWidth) {
           (path as any).originalStrokeWidth = path.strokeWidth;
         }
-        path.strokeWidth = (path as any).originalStrokeWidth + 2;
+        path.strokeWidth = (path as any).originalStrokeWidth + 1;
       });
       
       setSelectedPaths(selectedPathsInBox);
@@ -653,6 +665,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 清除多个路径选择
     selectedPaths.forEach(path => {
       path.selected = false;
+      path.fullySelected = false;
       if ((path as any).originalStrokeWidth) {
         path.strokeWidth = (path as any).originalStrokeWidth;
       }
@@ -663,6 +676,76 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleModel3DDeselect();
     handleImageDeselect();
   }, [selectedPaths, handlePathDeselect, handleModel3DDeselect, handleImageDeselect]);
+
+  // 检测鼠标位置是否在控制点上
+  const getSegmentAt = useCallback((point: paper.Point, path: paper.Path): paper.Segment | null => {
+    if (!path.segments) return null;
+    
+    const tolerance = 8 / zoom; // 根据缩放调整容差
+    
+    for (let i = 0; i < path.segments.length; i++) {
+      const segment = path.segments[i];
+      const distance = segment.point.getDistance(point);
+      if (distance <= tolerance) {
+        return segment;
+      }
+    }
+    return null;
+  }, [zoom]);
+
+  // 开始拖拽控制点
+  const startSegmentDrag = useCallback((segment: paper.Segment, startPoint: paper.Point) => {
+    setIsSegmentDragging(true);
+    setDraggedSegment(segment);
+    setDragStartPoint(startPoint);
+    console.log('开始拖拽控制点');
+  }, []);
+
+  // 更新控制点位置
+  const updateSegmentDrag = useCallback((currentPoint: paper.Point) => {
+    if (!isSegmentDragging || !draggedSegment) return;
+    
+    draggedSegment.point = currentPoint;
+    console.log('更新控制点位置:', currentPoint);
+  }, [isSegmentDragging, draggedSegment]);
+
+  // 结束控制点拖拽
+  const finishSegmentDrag = useCallback(() => {
+    if (isSegmentDragging) {
+      setIsSegmentDragging(false);
+      setDraggedSegment(null);
+      setDragStartPoint(null);
+      console.log('结束控制点拖拽');
+    }
+  }, [isSegmentDragging]);
+
+  // 开始拖拽整个路径
+  const startPathDrag = useCallback((path: paper.Path, startPoint: paper.Point) => {
+    setIsPathDragging(true);
+    setDraggedPath(path);
+    setDragStartPoint(startPoint);
+    console.log('开始拖拽路径');
+  }, []);
+
+  // 更新路径位置
+  const updatePathDrag = useCallback((currentPoint: paper.Point) => {
+    if (!isPathDragging || !draggedPath || !dragStartPoint) return;
+    
+    const delta = currentPoint.subtract(dragStartPoint);
+    draggedPath.translate(delta);
+    setDragStartPoint(currentPoint);
+    console.log('更新路径位置');
+  }, [isPathDragging, draggedPath, dragStartPoint]);
+
+  // 结束路径拖拽
+  const finishPathDrag = useCallback(() => {
+    if (isPathDragging) {
+      setIsPathDragging(false);
+      setDraggedPath(null);
+      setDragStartPoint(null);
+      console.log('结束路径拖拽');
+    }
+  }, [isPathDragging]);
 
   // 处理图片移动
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }) => {
@@ -815,6 +898,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       
       // 在选择模式下进行点击检测
       if (drawMode === 'select') {
+        // 如果有选中的路径，首先检查是否点击在控制点上
+        if (selectedPath) {
+          const segment = getSegmentAt(point, selectedPath);
+          if (segment) {
+            // 点击在控制点上，开始控制点拖拽
+            startSegmentDrag(segment, point);
+            return;
+          }
+          
+          // 检查是否点击在路径本身上（非控制点）
+          const hitResult = paper.project.hitTest(point, {
+            stroke: true,
+            tolerance: 5 / zoom
+          });
+          
+          if (hitResult && hitResult.item === selectedPath) {
+            // 点击在路径上，开始路径拖拽
+            startPathDrag(selectedPath, point);
+            return;
+          }
+        }
+        
         // 使用Paper.js的hitTest进行点击检测
         const hitResult = paper.project.hitTest(point, {
           segments: true,
@@ -886,9 +991,46 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const y = event.clientY - rect.top;
       const point = paper.view.viewToProject(new paper.Point(x, y));
 
-      // 处理选择框拖拽
-      if (drawMode === 'select' && isSelectionDragging) {
-        updateSelectionBox(point);
+      // 在选择模式下处理各种拖拽
+      if (drawMode === 'select') {
+        // 处理控制点拖拽
+        if (isSegmentDragging) {
+          updateSegmentDrag(point);
+          return;
+        }
+        
+        // 处理路径拖拽
+        if (isPathDragging) {
+          updatePathDrag(point);
+          return;
+        }
+        
+        // 处理选择框拖拽
+        if (isSelectionDragging) {
+          updateSelectionBox(point);
+          return;
+        }
+
+        // 鼠标悬停时更改光标样式
+        if (selectedPath) {
+          const segment = getSegmentAt(point, selectedPath);
+          if (segment) {
+            canvas.style.cursor = 'crosshair'; // 控制点上显示十字光标
+            return;
+          }
+          
+          const hitResult = paper.project.hitTest(point, {
+            stroke: true,
+            tolerance: 5 / zoom
+          });
+          
+          if (hitResult && hitResult.item === selectedPath) {
+            canvas.style.cursor = 'move'; // 路径上显示移动光标
+            return;
+          }
+        }
+        
+        canvas.style.cursor = 'default'; // 默认光标
         return;
       }
 
@@ -942,14 +1084,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 鼠标抬起事件处理
     const handleMouseUp = (event: MouseEvent) => {
-      // 处理选择框完成
-      if (drawMode === 'select' && isSelectionDragging) {
-        const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        const point = paper.view.viewToProject(new paper.Point(x, y));
-        finishSelectionBox(point);
-        return;
+      // 在选择模式下处理各种拖拽结束
+      if (drawMode === 'select') {
+        // 处理控制点拖拽结束
+        if (isSegmentDragging) {
+          finishSegmentDrag();
+          return;
+        }
+        
+        // 处理路径拖拽结束
+        if (isPathDragging) {
+          finishPathDrag();
+          return;
+        }
+        
+        // 处理选择框完成
+        if (isSelectionDragging) {
+          const rect = canvas.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          const point = paper.view.viewToProject(new paper.Point(x, y));
+          finishSelectionBox(point);
+          return;
+        }
       }
 
       if (isDrawingRef.current) {
@@ -972,7 +1129,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
     };
-  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging]);
+  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath]);
 
   return (
     <>
