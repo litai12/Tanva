@@ -6,6 +6,7 @@ import type { Model3DData } from '@/services/model3DUploadService';
 
 interface Model3DContainerProps {
   modelData: Model3DData;
+  modelId: string; // 模型实例ID
   bounds: { x: number; y: number; width: number; height: number }; // Paper.js世界坐标
   isSelected?: boolean;
   visible?: boolean; // 是否可见
@@ -18,6 +19,7 @@ interface Model3DContainerProps {
 
 const Model3DContainer: React.FC<Model3DContainerProps> = ({
   modelData,
+  modelId,
   bounds,
   isSelected = false,
   visible = true,
@@ -247,7 +249,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   return (
     <div
       ref={containerRef}
-      data-model-id={modelData.id}
+      data-model-id={modelId}
       style={{
         position: 'absolute',
         left: screenBounds.x,
@@ -257,7 +259,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : 'default',
         userSelect: 'none',
-        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
+        pointerEvents: (() => {
+          const shouldBlock = (drawMode === 'select' && !isSelectionDragging) || isSelected;
+          console.log('Model3DContainer pointerEvents:', { drawMode, isSelected, isSelectionDragging, shouldBlock });
+          return shouldBlock ? 'auto' : 'none';
+        })(), // 绘制模式下让鼠标事件穿透
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}

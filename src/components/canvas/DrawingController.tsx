@@ -1675,6 +1675,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         <Model3DContainer
           key={model.id}
           modelData={model.modelData}
+          modelId={model.id}
           bounds={model.bounds}
           isSelected={model.isSelected}
           visible={model.visible}

@@ -322,27 +322,33 @@ const LayerPanel: React.FC = () => {
         }
     };
 
-        // 生成3D模型缩略图 
+    // 生成3D模型缩略图 
     const generate3DModelThumb = (modelItem: LayerItemData): string | null => {
         try {
             // 查找对应的3D模型实例
             const model3DInstances = (window as any).tanvaModel3DInstances || [];
-            const modelInstance = model3DInstances.find((model: any) => 
+            const modelInstance = model3DInstances.find((model: any) =>
                 modelItem.paperItem?.data?.modelId === model.id
             );
-            
+
+            console.log('查找3D模型实例:', {
+                paperItemModelId: modelItem.paperItem?.data?.modelId,
+                availableModels: model3DInstances.map((m: any) => ({ id: m.id, fileName: m.modelData?.fileName })),
+                foundInstance: !!modelInstance
+            });
+
             if (modelInstance?.modelData) {
                 // 尝试获取3D模型的真实缩略图
                 const realThumb = capture3DModelThumbnail(modelInstance);
                 if (realThumb) {
                     return realThumb;
                 }
-                
+
                 // 回退到SVG占位符
                 const svgThumb = createModel3DPlaceholderSVG(modelInstance.modelData.fileName || '3D模型');
                 return svgThumb;
             }
-            
+
             return null;
         } catch (e) {
             console.error('生成3D模型缩略图失败:', e);
@@ -356,14 +362,19 @@ const LayerPanel: React.FC = () => {
             // 查找对应的3D容器DOM元素
             const modelContainers = document.querySelectorAll('[data-model-id]');
             let targetContainer: Element | null = null;
-            
+
+            console.log('查找DOM容器:', {
+                searchingForId: modelInstance.id,
+                availableContainers: Array.from(modelContainers).map(c => c.getAttribute('data-model-id'))
+            });
+
             for (const container of modelContainers) {
                 if (container.getAttribute('data-model-id') === modelInstance.id) {
                     targetContainer = container;
                     break;
                 }
             }
-            
+
             if (!targetContainer) {
                 return null;
             }
@@ -384,21 +395,21 @@ const LayerPanel: React.FC = () => {
             thumbCanvas.width = 32;
             thumbCanvas.height = 32;
             const thumbCtx = thumbCanvas.getContext('2d');
-            
+
             if (!thumbCtx) {
                 return null;
             }
 
             // 设置背景为透明
             thumbCtx.clearRect(0, 0, 32, 32);
-            
+
             // 将3D渲染结果绘制到缩略图canvas，保持宽高比
             const aspectRatio = canvas.width / canvas.height;
             let drawWidth = 32;
             let drawHeight = 32;
             let offsetX = 0;
             let offsetY = 0;
-            
+
             if (aspectRatio > 1) {
                 drawHeight = 32 / aspectRatio;
                 offsetY = (32 - drawHeight) / 2;
@@ -406,12 +417,12 @@ const LayerPanel: React.FC = () => {
                 drawWidth = 32 * aspectRatio;
                 offsetX = (32 - drawWidth) / 2;
             }
-            
+
             thumbCtx.drawImage(canvas, offsetX, offsetY, drawWidth, drawHeight);
-            
+
             // 转换为base64
             return thumbCanvas.toDataURL('image/png');
-            
+
         } catch (e) {
             console.error('捕获3D模型缩略图失败:', e);
             return null;

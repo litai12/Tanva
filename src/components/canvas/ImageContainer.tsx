@@ -297,7 +297,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
         userSelect: 'none',
-        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
+        pointerEvents: (() => {
+          const shouldBlock = (drawMode === 'select' && !isSelectionDragging) || isSelected;
+          console.log('ImageContainer pointerEvents:', { drawMode, isSelected, isSelectionDragging, shouldBlock });
+          return shouldBlock ? 'auto' : 'none';
+        })(), // 绘制模式下让鼠标事件穿透
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}
