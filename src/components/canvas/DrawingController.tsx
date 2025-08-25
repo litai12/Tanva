@@ -1032,14 +1032,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }));
   }, []);
 
-    // 监听图层可见性变化事件
+  // 监听图层可见性变化事件
   useEffect(() => {
     const handleVisibilitySync = () => {
       syncVisibilityStates();
     };
 
     window.addEventListener('layerVisibilityChanged', handleVisibilitySync);
-    
+
     return () => {
       window.removeEventListener('layerVisibilityChanged', handleVisibilitySync);
     };
