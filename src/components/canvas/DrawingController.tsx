@@ -1051,6 +1051,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (image.id === imageId) {
         const newBounds = { ...image.bounds, x: newPosition.x, y: newPosition.y };
 
+        // 更新对应的Paper.js图片组
+        const imageGroup = paper.project.layers.flatMap(layer => 
+          layer.children.filter(child => 
+            child.data?.type === 'image' && child.data?.imageId === imageId
+          )
+        )[0];
+        
+        if (imageGroup) {
+          imageGroup.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+        }
+
         // 更新对应的Paper.js选择区域
         if (image.selectionRect) {
           image.selectionRect.bounds = new paper.Rectangle(
@@ -1071,6 +1087,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
     setImageInstances(prev => prev.map(image => {
       if (image.id === imageId) {
+        // 更新对应的Paper.js图片组
+        const imageGroup = paper.project.layers.flatMap(layer => 
+          layer.children.filter(child => 
+            child.data?.type === 'image' && child.data?.imageId === imageId
+          )
+        )[0];
+        
+        if (imageGroup) {
+          imageGroup.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+        }
+
         // 更新对应的Paper.js选择区域
         if (image.selectionRect) {
           image.selectionRect.bounds = new paper.Rectangle(
@@ -1093,6 +1125,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (model.id === modelId) {
         const newBounds = { ...model.bounds, x: newPosition.x, y: newPosition.y };
 
+        // 更新对应的Paper.js模型组
+        const modelGroup = paper.project.layers.flatMap(layer => 
+          layer.children.filter(child => 
+            child.data?.type === '3d-model' && child.data?.modelId === modelId
+          )
+        )[0];
+        
+        if (modelGroup) {
+          modelGroup.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+        }
+
         // 更新对应的Paper.js选择区域
         if (model.selectionRect) {
           model.selectionRect.bounds = new paper.Rectangle(
@@ -1113,6 +1161,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const handleModel3DResize = useCallback((modelId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
     setModel3DInstances(prev => prev.map(model => {
       if (model.id === modelId) {
+        // 更新对应的Paper.js模型组
+        const modelGroup = paper.project.layers.flatMap(layer => 
+          layer.children.filter(child => 
+            child.data?.type === '3d-model' && child.data?.modelId === modelId
+          )
+        )[0];
+        
+        if (modelGroup) {
+          modelGroup.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+        }
+
         // 更新对应的Paper.js选择区域
         if (model.selectionRect) {
           model.selectionRect.bounds = new paper.Rectangle(
