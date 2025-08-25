@@ -8,6 +8,7 @@ interface Model3DContainerProps {
   modelData: Model3DData;
   bounds: { x: number; y: number; width: number; height: number }; // Paper.js世界坐标
   isSelected?: boolean;
+  visible?: boolean; // 是否可见
   drawMode?: string; // 当前绘图模式
   isSelectionDragging?: boolean; // 是否正在拖拽选择框
   onSelect?: () => void;
@@ -19,6 +20,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   modelData,
   bounds,
   isSelected = false,
+  visible = true,
   drawMode = 'select',
   isSelectionDragging = false,
   onSelect,
@@ -34,7 +36,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
 
   // 获取画布状态
   const { zoom, panX, panY } = useCanvasStore();
-  
+
   // 优化的同步机制 - 使用ref跟踪更新状态，避免强制重渲染循环
   const [renderKey, setRenderKey] = useState(0);
   const needsUpdateRef = useRef(false);
@@ -44,12 +46,12 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   useEffect(() => {
     // 标记需要更新，但不立即触发重渲染
     needsUpdateRef.current = true;
-    
+
     // 取消之前的动画帧请求，避免重复执行
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
-    
+
     // 使用requestAnimationFrame确保在浏览器重绘前Paper.js矩阵已更新
     animationFrameRef.current = requestAnimationFrame(() => {
       if (needsUpdateRef.current) {
@@ -58,7 +60,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       }
       animationFrameRef.current = null;
     });
-    
+
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
@@ -70,10 +72,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   // 将Paper.js世界坐标转换为屏幕坐标 - 直接使用当前Paper.js状态
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
     if (!paper.view) return paperBounds;
-    
+
     const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
     const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
-    
+
     return {
       x: topLeft.x,
       y: topLeft.y,
@@ -88,10 +90,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
     if (!paper.view) return screenBounds;
-    
+
     const topLeft = paper.view.viewToProject(new paper.Point(screenBounds.x, screenBounds.y));
     const bottomRight = paper.view.viewToProject(new paper.Point(screenBounds.x + screenBounds.width, screenBounds.y + screenBounds.height));
-    
+
     return {
       x: topLeft.x,
       y: topLeft.y,
@@ -118,7 +120,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     if (e.button !== 0) return; // 只处理左键
 
     const target = e.target as HTMLElement;
-    
+
     // 如果点击的是Three.js canvas，不处理拖拽，让OrbitControls处理
     if (target.tagName === 'CANVAS') {
       // 仅选中模型，不开始拖拽
@@ -132,14 +134,14 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     if (target.classList.contains('resize-handle')) {
       e.preventDefault();
       e.stopPropagation();
-      
+
       if (onSelect) {
         onSelect();
       }
 
       setIsResizing(true);
       setInitialBounds(bounds);
-      
+
       // 直接从控制点的data属性获取方向，避免计算错误
       const direction = (target as HTMLElement).getAttribute('data-direction');
       if (direction) {
@@ -172,18 +174,18 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     if (isDragging && onMove) {
       const newScreenX = e.clientX - dragStart.x;
       const newScreenY = e.clientY - dragStart.y;
-      
+
       // 转换屏幕坐标为Paper.js坐标
       const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX, newScreenY)) : { x: newScreenX, y: newScreenY };
       onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
       const mouseX = e.clientX;
       const mouseY = e.clientY;
-      
+
       // 先计算屏幕坐标的新边界 - 使用统一的转换函数
       const initialScreenBounds = convertToScreenBounds(initialBounds);
       const newScreenBounds = { ...initialScreenBounds };
-      
+
       // 根据调整方向计算新的边界 - 对角调整
       if (resizeDirection.includes('e')) {
         // 向右调整：鼠标X - 左边界 = 新宽度
@@ -205,7 +207,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         newScreenBounds.height = Math.max(100, bottomEdge - mouseY);
         newScreenBounds.y = bottomEdge - newScreenBounds.height;
       }
-      
+
       // 转换屏幕坐标为Paper.js坐标
       const newPaperBounds = convertToPaperBounds(newScreenBounds);
       onResize(newPaperBounds);
@@ -254,7 +256,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : 'default',
         userSelect: 'none',
-        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none' // 选择框拖拽时也让鼠标事件穿透
+        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
+        display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}
     >

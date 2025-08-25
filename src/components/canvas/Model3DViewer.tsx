@@ -12,12 +12,12 @@ interface Model3DViewerProps {
 }
 
 // 3D模型组件
-function Model3D({ 
-  modelPath, 
+function Model3D({
+  modelPath,
   width,
   height,
-  onLoaded 
-}: { 
+  onLoaded
+}: {
   modelPath: string;
   width: number;
   height: number;
@@ -34,12 +34,12 @@ function Model3D({
     object.traverse((child) => {
       if (child.type === 'Mesh') {
         const mesh = child as THREE.Mesh;
-        
+
         // 清理几何体
         if (mesh.geometry) {
           mesh.geometry.dispose();
         }
-        
+
         // 清理材质
         if (mesh.material) {
           const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -83,7 +83,7 @@ function Model3D({
       // 克隆场景以避免修改原始对象
       const clonedScene = scene.clone();
       clonedSceneRef.current = clonedScene;
-      
+
       // 计算模型的包围盒
       const box = new THREE.Box3().setFromObject(clonedScene);
       const size = box.getSize(new THREE.Vector3());
@@ -96,13 +96,13 @@ function Model3D({
       const maxSize = 2.5; // 目标最大尺寸
       const maxDimension = Math.max(size.x, size.y, size.z);
       const scaleFactor = Math.min(maxSize / maxDimension, 1);
-      
+
       setBaseScaleFactor(scaleFactor);
 
       if (onLoaded) {
         onLoaded(box);
       }
-      
+
       // 更新场景引用
       if (meshRef.current) {
         meshRef.current.add(clonedScene);
@@ -126,7 +126,7 @@ function Model3D({
     // 计算容器大小比例，相对于基础大小（400x400）
     const baseSize = 400;
     const containerScale = Math.min(width / baseSize, height / baseSize);
-    
+
     // 最终缩放 = 基础缩放 × 容器缩放
     const finalScale = baseScaleFactor * containerScale;
     setAutoScale([finalScale, finalScale, finalScale]);
@@ -151,7 +151,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 
   const handleModelLoaded = (boundingBox: THREE.Box3) => {
     setIsLoading(false);
-    
+
     // 根据模型大小调整摄像机位置
     const size = boundingBox.getSize(new THREE.Vector3());
     const maxDimension = Math.max(size.x, size.y, size.z);
@@ -172,19 +172,19 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 
 
   return (
-    <div 
-      style={{ 
-        width, 
-        height, 
+    <div
+      style={{
+        width,
+        height,
         position: 'relative',
         border: 'none',
         borderRadius: '0',
         overflow: 'hidden',
-        backgroundColor: isSelected ? '#f8fafc' : 'transparent'
+        backgroundColor: 'transparent'
       }}
     >
       {error ? (
-        <div 
+        <div
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -204,15 +204,15 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
       ) : (
         <>
           <Canvas
-            camera={{ 
-              position: cameraPosition, 
+            camera={{
+              position: cameraPosition,
               fov: 50,
               near: 0.1,
               far: 1000
             }}
-            gl={{ 
-              alpha: true, 
-              antialias: true, 
+            gl={{
+              alpha: true,
+              antialias: true,
               preserveDrawingBuffer: true,
               powerPreference: "high-performance"
             }}
@@ -221,28 +221,28 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
             <Suspense fallback={null}>
               {/* 多重光照系统 - 优化亮度 */}
               <ambientLight intensity={1.0} />
-              <directionalLight 
-                position={[10, 10, 10]} 
+              <directionalLight
+                position={[10, 10, 10]}
                 intensity={1.5}
                 castShadow
                 shadow-mapSize-width={2048}
                 shadow-mapSize-height={2048}
               />
-              <directionalLight 
-                position={[-10, 5, 5]} 
-                intensity={1.0} 
+              <directionalLight
+                position={[-10, 5, 5]}
+                intensity={1.0}
               />
-              <pointLight 
-                position={[0, 10, 0]} 
-                intensity={0.8} 
+              <pointLight
+                position={[0, 10, 0]}
+                intensity={0.8}
               />
-              <pointLight 
-                position={[0, -5, 0]} 
-                intensity={0.3} 
+              <pointLight
+                position={[0, -5, 0]}
+                intensity={0.3}
               />
 
               {/* 3D模型 */}
-              <Model3D 
+              <Model3D
                 modelPath={modelData.path}
                 width={width}
                 height={height}
@@ -275,7 +275,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 
           {/* 加载状态 */}
           {isLoading && (
-            <div 
+            <div
               style={{
                 position: 'absolute',
                 top: 0,
@@ -285,8 +285,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: isSelected ? 'rgba(248, 250, 252, 0.9)' : 'rgba(0, 0, 0, 0.3)',
-                color: isSelected ? '#6b7280' : '#ffffff',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)', // 很淡的半透明白色
+                color: '#374151',
                 fontSize: '14px'
               }}
             >

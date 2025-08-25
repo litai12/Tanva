@@ -2,7 +2,7 @@ import React, { useRef, useCallback } from 'react';
 import { imageUploadService } from '@/services/imageUploadService';
 
 interface ImageUploadComponentProps {
-  onImageUploaded: (imageData: string) => void;
+  onImageUploaded: (imageData: string, fileName?: string) => void;
   onUploadError: (error: string) => void;
   trigger: boolean; // 外部控制触发上传
   onTriggerHandled: () => void; // 触发处理完成的回调
@@ -23,7 +23,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
 
     try {
       console.log('📸 开始处理图片:', file.name);
-      
+
       // 处理图片
       const result = await imageUploadService.processImageFile(file, {
         maxWidth: 1200,
@@ -33,7 +33,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
 
       if (result.success && result.data) {
         console.log('✅ 图片处理成功');
-        onImageUploaded(result.data);
+        onImageUploaded(result.data, file.name);
       } else {
         console.error('❌ 图片处理失败:', result.error);
         onUploadError(result.error || '图片处理失败');

@@ -365,6 +365,11 @@ const LayerPanel: React.FC = () => {
         if (item.paperItem) {
             item.paperItem.visible = !item.paperItem.visible;
             updateAllLayerItems();
+
+            // 如果是图片或3D模型，触发同步事件
+            if (item.type === 'image' || item.type === '3d-model') {
+                window.dispatchEvent(new CustomEvent('layerVisibilityChanged'));
+            }
         }
     };
 
@@ -383,7 +388,7 @@ const LayerPanel: React.FC = () => {
             if (item.type === 'image' || item.type === 'model3d') {
                 const itemData = item.paperItem.data;
                 const targetId = itemData?.imageId || itemData?.modelId;
-                
+
                 if (targetId) {
                     // 查找并删除关联的选择区域
                     paper.project.layers.forEach(layer => {
@@ -397,7 +402,7 @@ const LayerPanel: React.FC = () => {
                     });
                 }
             }
-            
+
             item.paperItem.remove();
             updateAllLayerItems();
         }

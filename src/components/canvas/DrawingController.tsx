@@ -27,6 +27,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     imageData: { id: string; src: string; fileName?: string };
     bounds: { x: number; y: number; width: number; height: number };
     isSelected: boolean;
+    visible: boolean;
     selectionRect?: paper.Path;
   }>>([]);
   const [, setSelectedImageId] = useState<string | null>(null);
@@ -39,6 +40,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     modelData: Model3DData;
     bounds: { x: number; y: number; width: number; height: number };
     isSelected: boolean;
+    visible: boolean;
     selectionRect?: paper.Path;
   }>>([]);
   const [, setSelectedModel3DId] = useState<string | null>(null);
@@ -341,7 +343,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   }, [ensureDrawingLayer]);
 
   // 处理图片上传成功
-  const handleImageUploaded = useCallback((imageData: string) => {
+  const handleImageUploaded = useCallback((imageData: string, fileName?: string) => {
     const placeholder = currentPlaceholderRef.current;
     if (!placeholder || !placeholder.data?.bounds) {
       console.error('❌ 没有找到图片占位框');
@@ -377,13 +379,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       type: 'image',
       imageId: imageId,
       customName: (() => {
-        try {
-          const fileName = imageData.split('/').pop()?.split('?')[0]; // 移除URL参数
-          return fileName?.split('.')[0] || '图片';
-        } catch {
-          return '图片';
+        // 计算现有图片数量，用于自动编号
+        const existingImages = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === 'image'
+          )
+        );
+        const nextNumber = existingImages.length + 1;
+
+        // 优先使用传递的原始文件名（去除扩展名）
+        if (fileName) {
+          const nameFromFile = fileName.split('.')[0]; // 移除扩展名
+          if (nameFromFile && nameFromFile.length > 0) {
+            return nameFromFile;
+          }
         }
-      })(), // 使用文件名作为默认名称
+
+        // 如果没有有效文件名，使用自动编号
+        return `图片 ${nextNumber}`;
+      })(), // 使用文件名或自动编号
       isHelper: false  // 不是辅助元素，显示在图层列表中
     };
 
@@ -416,10 +430,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       imageData: {
         id: imageId,
         src: imageData,
-        fileName: 'uploaded-image'
+        fileName: fileName || 'uploaded-image'
       },
       bounds: paperBounds, // 存储Paper.js坐标
       isSelected: true,
+      visible: true, // 默认可见
       selectionRect: selectionRect // 存储对应的Paper.js选择区域
     };
 
@@ -588,7 +603,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     modelGroup.data = {
       type: '3d-model',
       modelId: modelId,
-      customName: modelData.fileName?.split('.')[0] || '3D模型', // 使用文件名作为默认名称
+      customName: (() => {
+        const nameFromFile = modelData.fileName?.split('.')[0];
+        if (nameFromFile && nameFromFile.length > 0) {
+          return nameFromFile;
+        }
+
+        // 如果没有有效文件名，使用自动编号
+        const existingModels = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === '3d-model' &&
+            child.data?.customName?.match(/^3D模型\s*\d*$/)
+          )
+        );
+        const nextNumber = existingModels.length + 1;
+        return `3D模型 ${nextNumber}`;
+      })(), // 使用文件名或自动编号
       isHelper: false  // 不是辅助元素，显示在图层列表中
     };
 
@@ -621,6 +651,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       modelData: modelData,
       bounds: paperBounds, // 存储Paper.js坐标
       isSelected: true,
+      visible: true, // 默认可见
       selectionRect: selectionRect // 存储对应的Paper.js选择区域
     };
 
@@ -969,6 +1000,50 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.log('结束路径拖拽');
     }
   }, [isPathDragging]);
+
+  // 同步图片和3D模型的可见性状态
+  const syncVisibilityStates = useCallback(() => {
+    // 同步图片可见性
+    setImageInstances(prev => prev.map(image => {
+      const paperGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === image.id
+        )
+      )[0];
+
+      if (paperGroup) {
+        return { ...image, visible: paperGroup.visible };
+      }
+      return image;
+    }));
+
+    // 同步3D模型可见性
+    setModel3DInstances(prev => prev.map(model => {
+      const paperGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === '3d-model' && child.data?.modelId === model.id
+        )
+      )[0];
+
+      if (paperGroup) {
+        return { ...model, visible: paperGroup.visible };
+      }
+      return model;
+    }));
+  }, []);
+
+  // 监听图层可见性变化事件
+  useEffect(() => {
+    const handleVisibilitySync = () => {
+      syncVisibilityStates();
+    };
+
+    window.addEventListener('layerVisibilityChanged', handleVisibilitySync);
+
+    return () => {
+      window.removeEventListener('layerVisibilityChanged', handleVisibilitySync);
+    };
+  }, [syncVisibilityStates]);
 
   // 处理图片移动
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }) => {
@@ -1508,6 +1583,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           imageData={image.imageData}
           bounds={image.bounds}
           isSelected={image.isSelected}
+          visible={image.visible}
           drawMode={drawMode}
           isSelectionDragging={isSelectionDragging}
           onSelect={() => handleImageSelect(image.id)}
@@ -1531,6 +1607,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           modelData={model.modelData}
           bounds={model.bounds}
           isSelected={model.isSelected}
+          visible={model.visible}
           drawMode={drawMode}
           isSelectionDragging={isSelectionDragging}
           onSelect={() => handleModel3DSelect(model.id)}
