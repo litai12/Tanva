@@ -270,6 +270,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         width={screenBounds.width}
         height={screenBounds.height}
         isSelected={isSelected}
+        drawMode={drawMode}
       />
 
       {/* 选中状态的边框线 - 四条独立边框，只在边框上响应拖拽 */}

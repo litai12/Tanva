@@ -368,9 +368,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: null, // 无填充，避免阻挡绘制
-      strokeColor: new paper.Color(0, 0, 0, 0.1), // 极淡的边框用于图层显示
-      strokeWidth: 1,
+      fillColor: new paper.Color(1, 1, 1, 0.01), // 几乎透明，但仍然可以被选中
+      strokeColor: null,
       visible: true
     });
 
@@ -410,7 +409,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: null, // 无填充，避免阻挡hitTest
+      fillColor: new paper.Color(0, 0, 0, 0), // 完全透明
       strokeColor: null,
       visible: false // 初始不可见，避免影响其他操作
     });
@@ -594,9 +593,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: null, // 无填充，避免阻挡绘制
-      strokeColor: new paper.Color(138/255, 92/255, 246/255, 0.1), // 极淡的紫色边框用于图层显示
-      strokeWidth: 1,
+      fillColor: new paper.Color(1, 1, 1, 0.01), // 几乎透明，但仍然可以被选中
+      strokeColor: null,
       visible: true
     });
 
@@ -632,7 +630,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: null, // 无填充，避免阻挡hitTest
+      fillColor: new paper.Color(0, 0, 0, 0), // 完全透明
       strokeColor: null,
       visible: false // 初始不可见，避免影响其他操作
     });

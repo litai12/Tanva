@@ -9,6 +9,7 @@ interface Model3DViewerProps {
   width: number;
   height: number;
   isSelected?: boolean;
+  drawMode?: string;
 }
 
 // 3D模型组件
@@ -143,7 +144,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   modelData,
   width,
   height,
-  isSelected = false
+  isSelected = false,
+  drawMode = 'select'
 }) => {
   const [cameraPosition, setCameraPosition] = useState<[number, number, number]>([4, 4, 4]);
   const [isLoading, setIsLoading] = useState(true);
@@ -249,8 +251,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
                 onLoaded={handleModelLoaded}
               />
 
-              {/* 交互控制器 */}
-              {isSelected && (
+              {/* 交互控制器 - 只在选择模式下启用 */}
+              {isSelected && drawMode === 'select' && (
                 <OrbitControls
                   enablePan={false}
                   enableZoom={true}
