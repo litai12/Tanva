@@ -347,7 +347,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             height: '100%',
             border: '2px solid #3b82f6',
             borderRadius: '0',
-            pointerEvents: 'all',
+            pointerEvents: drawMode === 'select' ? 'all' : 'none', // 绘制模式下边框不阻挡事件
             cursor: 'move',
             zIndex: 5,
             backgroundColor: 'transparent'
@@ -356,7 +356,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       )}
 
       {/* 选中状态的调整手柄 - 四个角点，与3D保持一致 */}
-      {isSelected && (
+      {isSelected && drawMode === 'select' && (
         <>
           {/* 左上角 - 与边框左上角对齐 */}
           <div

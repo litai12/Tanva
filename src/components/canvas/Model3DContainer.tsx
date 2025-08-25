@@ -277,7 +277,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       />
 
       {/* 选中状态的边框线 - 四条独立边框，只在边框上响应拖拽 */}
-      {isSelected && (
+      {isSelected && drawMode === 'select' && (
         <>
           {/* 顶部边框线 */}
           <div
@@ -359,7 +359,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       )}
 
       {/* 选中状态的调整手柄 - 四个角点，与边框对齐 */}
-      {isSelected && (
+      {isSelected && drawMode === 'select' && (
         <>
           {/* 左上角 - 与边框左上角对齐 */}
           <div
