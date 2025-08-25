@@ -1301,6 +1301,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [isEraser, performErase, drawMode, createImagePlaceholder, create3DModelPlaceholder, setDrawMode]);
 
+  // 在不同模式下调整Paper画布的层级，确保绘制内容可见且可穿透3D/图片
+  useEffect(() => {
+    const canvasEl = canvasRef.current as HTMLCanvasElement | null;
+    if (!canvasEl) return;
+
+    // 绘制模式时把Paper画布提到最上层（透明背景），以便线条显示在3D/图片之上
+    // 选择模式恢复默认层级，便于选中与拖拽3D/图片
+    if (drawMode !== 'select') {
+      canvasEl.style.zIndex = '2000';
+      // 确保不会遮挡底层内容
+      if (canvasEl.style.background !== 'transparent') {
+        canvasEl.style.background = 'transparent';
+      }
+    } else {
+      canvasEl.style.zIndex = '0';
+    }
+  }, [drawMode, canvasRef]);
+
   useEffect(() => {
     if (!canvasRef.current) return;
 

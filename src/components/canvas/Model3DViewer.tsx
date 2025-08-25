@@ -216,7 +216,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               preserveDrawingBuffer: true,
               powerPreference: "high-performance"
             }}
-            style={{ background: 'transparent' }}
+            style={{ background: 'transparent', pointerEvents: 'none' }}
           >
             <Suspense fallback={null}>
               {/* 多重光照系统 - 优化亮度 */}

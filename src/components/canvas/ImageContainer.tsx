@@ -314,7 +314,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           border: 'none',
           borderRadius: '0',
           overflow: 'hidden',
-          backgroundColor: 'transparent'
+          backgroundColor: 'transparent',
+          pointerEvents: drawMode === 'select' ? 'auto' : 'none'
         }}
       >
         {/* 图片显示 */}
