@@ -322,21 +322,27 @@ const LayerPanel: React.FC = () => {
         }
     };
 
-    // 生成3D模型缩略图 
+        // 生成3D模型缩略图 
     const generate3DModelThumb = (modelItem: LayerItemData): string | null => {
         try {
             // 查找对应的3D模型实例
             const model3DInstances = (window as any).tanvaModel3DInstances || [];
-            const modelInstance = model3DInstances.find((model: any) =>
+            const modelInstance = model3DInstances.find((model: any) => 
                 modelItem.paperItem?.data?.modelId === model.id
             );
-
+            
             if (modelInstance?.modelData) {
-                // 为3D模型创建一个简单的SVG占位符作为缩略图
+                // 尝试获取3D模型的真实缩略图
+                const realThumb = capture3DModelThumbnail(modelInstance);
+                if (realThumb) {
+                    return realThumb;
+                }
+                
+                // 回退到SVG占位符
                 const svgThumb = createModel3DPlaceholderSVG(modelInstance.modelData.fileName || '3D模型');
                 return svgThumb;
             }
-
+            
             return null;
         } catch (e) {
             console.error('生成3D模型缩略图失败:', e);
@@ -344,7 +350,75 @@ const LayerPanel: React.FC = () => {
         }
     };
 
-        // 创建3D模型占位符SVG
+    // 捕获3D模型的真实缩略图
+    const capture3DModelThumbnail = (modelInstance: any): string | null => {
+        try {
+            // 查找对应的3D容器DOM元素
+            const modelContainers = document.querySelectorAll('[data-model-id]');
+            let targetContainer: Element | null = null;
+            
+            for (const container of modelContainers) {
+                if (container.getAttribute('data-model-id') === modelInstance.id) {
+                    targetContainer = container;
+                    break;
+                }
+            }
+            
+            if (!targetContainer) {
+                return null;
+            }
+
+            // 查找Three.js canvas元素
+            const canvas = targetContainer.querySelector('canvas') as HTMLCanvasElement;
+            if (!canvas) {
+                return null;
+            }
+
+            // 检查canvas是否有有效内容（宽高和像素数据）
+            if (canvas.width === 0 || canvas.height === 0) {
+                return null;
+            }
+
+            // 创建缩略图canvas
+            const thumbCanvas = document.createElement('canvas');
+            thumbCanvas.width = 32;
+            thumbCanvas.height = 32;
+            const thumbCtx = thumbCanvas.getContext('2d');
+            
+            if (!thumbCtx) {
+                return null;
+            }
+
+            // 设置背景为透明
+            thumbCtx.clearRect(0, 0, 32, 32);
+            
+            // 将3D渲染结果绘制到缩略图canvas，保持宽高比
+            const aspectRatio = canvas.width / canvas.height;
+            let drawWidth = 32;
+            let drawHeight = 32;
+            let offsetX = 0;
+            let offsetY = 0;
+            
+            if (aspectRatio > 1) {
+                drawHeight = 32 / aspectRatio;
+                offsetY = (32 - drawHeight) / 2;
+            } else {
+                drawWidth = 32 * aspectRatio;
+                offsetX = (32 - drawWidth) / 2;
+            }
+            
+            thumbCtx.drawImage(canvas, offsetX, offsetY, drawWidth, drawHeight);
+            
+            // 转换为base64
+            return thumbCanvas.toDataURL('image/png');
+            
+        } catch (e) {
+            console.error('捕获3D模型缩略图失败:', e);
+            return null;
+        }
+    };
+
+    // 创建3D模型占位符SVG
     const createModel3DPlaceholderSVG = (fileName: string): string => {
         const svg = `
             <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
@@ -355,27 +429,7 @@ const LayerPanel: React.FC = () => {
                 <text x="16" y="26" font-family="Arial, sans-serif" font-size="6" fill="#9ca3af" text-anchor="middle">3D</text>
             </svg>
         `;
-        
-        return `data:image/svg+xml;base64,${btoa(svg)}`;
-    };
 
-    // 创建混合内容占位符SVG (2D + 3D)
-    const createMixedContentSVG = (): string => {
-        const svg = `
-            <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-                <rect width="32" height="32" fill="#f3f4f6" rx="4"/>
-                <!-- 2D元素 (左侧) -->
-                <circle cx="10" cy="12" r="4" fill="#3b82f6" opacity="0.8"/>
-                <rect x="6" y="18" width="8" height="2" fill="#3b82f6" opacity="0.6"/>
-                <!-- 3D元素 (右侧) -->
-                <rect x="20" y="10" width="8" height="6" fill="#6b7280" rx="1" opacity="0.7"/>
-                <rect x="18" y="8" width="8" height="6" fill="#4b5563" rx="1" opacity="0.8"/>
-                <rect x="16" y="6" width="8" height="6" fill="#374151" rx="1"/>
-                <!-- MIX标签 -->
-                <text x="16" y="26" font-family="Arial, sans-serif" font-size="5" fill="#6b7280" text-anchor="middle" font-weight="bold">MIX</text>
-            </svg>
-        `;
-        
         return `data:image/svg+xml;base64,${btoa(svg)}`;
     };
 
@@ -394,34 +448,17 @@ const LayerPanel: React.FC = () => {
             return null; // 空图层不生成缩略图
         }
 
-                // 分析图层内容类型
-        const has2D = items.some(item => 
-            item.type === 'image' || 
-            item.type === 'path' || 
-            item.type === 'circle' || 
-            item.type === 'rectangle' || 
-            item.type === 'line'
-        );
-        const has3D = items.some(item => item.type === 'model3d');
-
-        // 如果同时包含2D和3D内容，显示混合图标
-        if (has2D && has3D) {
-            const mixedThumb = createMixedContentSVG();
-            thumbCache.current[id] = { dataUrl: mixedThumb, timestamp: now };
-            return mixedThumb;
-        }
-
         // 如果图层只有一个图片或3D模型，生成专门的缩略图
         if (items.length === 1) {
             const item = items[0];
             let customThumb: string | null = null;
-            
+
             if (item.type === 'image') {
                 customThumb = generateImageThumb(item);
             } else if (item.type === 'model3d') {
                 customThumb = generate3DModelThumb(item);
             }
-            
+
             if (customThumb) {
                 thumbCache.current[id] = { dataUrl: customThumb, timestamp: now };
                 return customThumb;
