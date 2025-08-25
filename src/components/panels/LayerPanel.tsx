@@ -302,6 +302,63 @@ const LayerPanel: React.FC = () => {
     // 缓存缩略图
     const thumbCache = useRef<Record<string, { dataUrl: string; timestamp: number }>>({});
 
+    // 生成图片缩略图
+    const generateImageThumb = (imageItem: LayerItemData): string | null => {
+        try {
+            // 查找对应的图片实例
+            const imageInstances = (window as any).tanvaImageInstances || [];
+            const imageInstance = imageInstances.find((img: any) => 
+                img.imageData?.src && imageItem.paperItem?.data?.imageId === img.id
+            );
+            
+            if (imageInstance?.imageData?.src) {
+                return imageInstance.imageData.src; // 直接返回图片数据
+            }
+            
+            return null;
+        } catch (e) {
+            console.error('生成图片缩略图失败:', e);
+            return null;
+        }
+    };
+
+    // 生成3D模型缩略图 
+    const generate3DModelThumb = (modelItem: LayerItemData): string | null => {
+        try {
+            // 查找对应的3D模型实例
+            const model3DInstances = (window as any).tanvaModel3DInstances || [];
+            const modelInstance = model3DInstances.find((model: any) => 
+                modelItem.paperItem?.data?.modelId === model.id
+            );
+            
+            if (modelInstance?.modelData) {
+                // 为3D模型创建一个简单的SVG占位符作为缩略图
+                const svgThumb = createModel3DPlaceholderSVG(modelInstance.modelData.fileName || '3D模型');
+                return svgThumb;
+            }
+            
+            return null;
+        } catch (e) {
+            console.error('生成3D模型缩略图失败:', e);
+            return null;
+        }
+    };
+
+    // 创建3D模型占位符SVG
+    const createModel3DPlaceholderSVG = (fileName: string): string => {
+        const svg = `
+            <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+                <rect width="32" height="32" fill="#f3f4f6" rx="4"/>
+                <rect x="8" y="12" width="16" height="12" fill="#6b7280" rx="2" opacity="0.7"/>
+                <rect x="6" y="10" width="16" height="12" fill="#4b5563" rx="2" opacity="0.8"/>
+                <rect x="4" y="8" width="16" height="12" fill="#374151" rx="2"/>
+                <text x="16" y="26" font-family="Arial, sans-serif" font-size="6" fill="#9ca3af" text-anchor="middle">3D</text>
+            </svg>
+        `;
+        
+        return `data:image/svg+xml;base64,${btoa(svg)}`;
+    };
+
     const getCachedThumb = (id: string): string | null => {
         const cached = thumbCache.current[id];
         const now = Date.now();
@@ -317,6 +374,24 @@ const LayerPanel: React.FC = () => {
             return null; // 空图层不生成缩略图
         }
 
+        // 如果图层只有一个图片或3D模型，生成专门的缩略图
+        if (items.length === 1) {
+            const item = items[0];
+            let customThumb: string | null = null;
+            
+            if (item.type === 'image') {
+                customThumb = generateImageThumb(item);
+            } else if (item.type === 'model3d') {
+                customThumb = generate3DModelThumb(item);
+            }
+            
+            if (customThumb) {
+                thumbCache.current[id] = { dataUrl: customThumb, timestamp: now };
+                return customThumb;
+            }
+        }
+
+        // 回退到默认的Paper.js缩略图
         const newThumb = generateLayerThumb(id);
         if (newThumb) {
             thumbCache.current[id] = { dataUrl: newThumb, timestamp: now };

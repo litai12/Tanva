@@ -1032,18 +1032,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }));
   }, []);
 
-  // 监听图层可见性变化事件
+    // 监听图层可见性变化事件
   useEffect(() => {
     const handleVisibilitySync = () => {
       syncVisibilityStates();
     };
 
     window.addEventListener('layerVisibilityChanged', handleVisibilitySync);
-
+    
     return () => {
       window.removeEventListener('layerVisibilityChanged', handleVisibilitySync);
     };
   }, [syncVisibilityStates]);
+
+  // 将图片和3D模型实例暴露给图层面板使用
+  useEffect(() => {
+    (window as any).tanvaImageInstances = imageInstances;
+    (window as any).tanvaModel3DInstances = model3DInstances;
+  }, [imageInstances, model3DInstances]);
 
   // 处理图片移动
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }) => {
