@@ -368,8 +368,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: new paper.Color(1, 1, 1, 0.01), // 几乎透明，但仍然可以被选中
-      strokeColor: null,
+      fillColor: null, // 无填充，避免阻挡绘制
+      strokeColor: new paper.Color(0, 0, 0, 0.1), // 极淡的边框用于图层显示
+      strokeWidth: 1,
       visible: true
     });
 
@@ -409,7 +410,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: new paper.Color(0, 0, 0, 0), // 完全透明
+      fillColor: null, // 无填充，避免阻挡hitTest
       strokeColor: null,
       visible: false // 初始不可见，避免影响其他操作
     });
@@ -593,8 +594,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: new paper.Color(1, 1, 1, 0.01), // 几乎透明，但仍然可以被选中
-      strokeColor: null,
+      fillColor: null, // 无填充，避免阻挡绘制
+      strokeColor: new paper.Color(138/255, 92/255, 246/255, 0.1), // 极淡的紫色边框用于图层显示
+      strokeWidth: 1,
       visible: true
     });
 
@@ -630,7 +632,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paperBounds.width,
         paperBounds.height
       ),
-      fillColor: new paper.Color(0, 0, 0, 0), // 完全透明
+      fillColor: null, // 无填充，避免阻挡hitTest
       strokeColor: null,
       visible: false // 初始不可见，避免影响其他操作
     });
@@ -1300,24 +1302,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     }
   }, [isEraser, performErase, drawMode, createImagePlaceholder, create3DModelPlaceholder, setDrawMode]);
-
-  // 在不同模式下调整Paper画布的层级，确保绘制内容可见且可穿透3D/图片
-  useEffect(() => {
-    const canvasEl = canvasRef.current as HTMLCanvasElement | null;
-    if (!canvasEl) return;
-
-    // 绘制模式时把Paper画布提到最上层（透明背景），以便线条显示在3D/图片之上
-    // 选择模式恢复默认层级，便于选中与拖拽3D/图片
-    if (drawMode !== 'select') {
-      canvasEl.style.zIndex = '2000';
-      // 确保不会遮挡底层内容
-      if (canvasEl.style.background !== 'transparent') {
-        canvasEl.style.background = 'transparent';
-      }
-    } else {
-      canvasEl.style.zIndex = '0';
-    }
-  }, [drawMode, canvasRef]);
 
   useEffect(() => {
     if (!canvasRef.current) return;

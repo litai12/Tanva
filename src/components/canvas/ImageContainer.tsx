@@ -297,11 +297,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
         userSelect: 'none',
-        pointerEvents: (() => {
-          const shouldBlock = (drawMode === 'select' && !isSelectionDragging) || isSelected;
-          console.log('ImageContainer pointerEvents:', { drawMode, isSelected, isSelectionDragging, shouldBlock });
-          return shouldBlock ? 'auto' : 'none';
-        })(), // 绘制模式下让鼠标事件穿透
+        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}
@@ -314,8 +310,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           border: 'none',
           borderRadius: '0',
           overflow: 'hidden',
-          backgroundColor: 'transparent',
-          pointerEvents: drawMode === 'select' ? 'auto' : 'none'
+          backgroundColor: 'transparent'
         }}
       >
         {/* 图片显示 */}
@@ -348,7 +343,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             height: '100%',
             border: '2px solid #3b82f6',
             borderRadius: '0',
-            pointerEvents: drawMode === 'select' ? 'all' : 'none', // 绘制模式下边框不阻挡事件
+            pointerEvents: 'all',
             cursor: 'move',
             zIndex: 5,
             backgroundColor: 'transparent'
@@ -357,7 +352,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       )}
 
       {/* 选中状态的调整手柄 - 四个角点，与3D保持一致 */}
-      {isSelected && drawMode === 'select' && (
+      {isSelected && (
         <>
           {/* 左上角 - 与边框左上角对齐 */}
           <div

@@ -259,11 +259,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         zIndex: isSelected ? 1001 : 1000,
         cursor: isDragging ? 'grabbing' : 'default',
         userSelect: 'none',
-        pointerEvents: (() => {
-          const shouldBlock = (drawMode === 'select' && !isSelectionDragging) || isSelected;
-          console.log('Model3DContainer pointerEvents:', { drawMode, isSelected, isSelectionDragging, shouldBlock });
-          return shouldBlock ? 'auto' : 'none';
-        })(), // 绘制模式下让鼠标事件穿透
+        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}
@@ -277,7 +273,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       />
 
       {/* 选中状态的边框线 - 四条独立边框，只在边框上响应拖拽 */}
-      {isSelected && drawMode === 'select' && (
+      {isSelected && (
         <>
           {/* 顶部边框线 */}
           <div
@@ -359,7 +355,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       )}
 
       {/* 选中状态的调整手柄 - 四个角点，与边框对齐 */}
-      {isSelected && drawMode === 'select' && (
+      {isSelected && (
         <>
           {/* 左上角 - 与边框左上角对齐 */}
           <div
