@@ -117,7 +117,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       pathRef.current.add(point);
       // 移除实时平滑，避免端头残缺
       // pathRef.current.smooth();
-      
+
       // 触发 Paper.js 的 change 事件以更新图层面板
       if (paper.project) {
         paper.project.emit('change');
@@ -250,7 +250,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       console.log('完成直线绘制');
       pathRef.current = null;
-      
+
       // 触发 Paper.js 的 change 事件
       if (paper.project) {
         paper.project.emit('change');
@@ -371,7 +371,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 标记为图片选择区域，并设置为不响应事件
     selectionRect.data = {
       type: 'image-selection-area',
-      imageId: imageId
+      imageId: imageId,
+      isHelper: true  // 标记为辅助元素，不显示在图层列表中
     };
 
     // 设置为不响应鼠标事件，避免阻挡其他操作
@@ -550,7 +551,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 标记为3D模型选择区域，并设置为不响应事件
     selectionRect.data = {
       type: '3d-model-selection-area',
-      modelId: modelId
+      modelId: modelId,
+      isHelper: true  // 标记为辅助元素，不显示在图层列表中
     };
 
     // 设置为不响应鼠标事件，避免阻挡其他操作
@@ -684,6 +686,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionBoxRef.current.strokeWidth = 1;
     selectionBoxRef.current.dashArray = [5, 5];
     selectionBoxRef.current.fillColor = new paper.Color(0, 122, 255, 0.1); // 半透明蓝色
+    // 标记为辅助元素，不显示在图层列表中
+    selectionBoxRef.current.data = { isHelper: true, type: 'selection-box' };
 
     console.log('开始选择框拖拽');
   }, []);
@@ -700,6 +704,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectionBoxRef.current.strokeWidth = 1;
     selectionBoxRef.current.dashArray = [5, 5];
     selectionBoxRef.current.fillColor = new paper.Color(0, 122, 255, 0.1);
+    // 标记为辅助元素，不显示在图层列表中
+    selectionBoxRef.current.data = { isHelper: true, type: 'selection-box' };
   }, [isSelectionDragging, selectionStartPoint]);
 
   // 完成选择框并选择框内对象
@@ -1085,7 +1091,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       console.log(`✅ 绘制完成: ${isEraser ? '橡皮擦操作' : drawMode === 'image' ? '图片占位框，已切换到选择模式' : drawMode === '3d-model' ? '3D模型占位框，已切换到选择模式' : '普通绘制'}`);
       pathRef.current = null;
-      
+
       // 触发 Paper.js 的 change 事件，确保图层面板更新
       if (paper.project) {
         paper.project.emit('change');

@@ -103,32 +103,32 @@ const LayerPanel: React.FC = () => {
         setLayerItems(newLayerItems);
     };
 
-      // 监听 Paper.js 的变化
-  useEffect(() => {
-    if (!paper.project || !showLayerPanel) return;
+    // 监听 Paper.js 的变化
+    useEffect(() => {
+        if (!paper.project || !showLayerPanel) return;
 
-    const handleChange = () => {
-      updateAllLayerItems();
-      setRefreshTrigger(prev => prev + 1);
-    };
+        const handleChange = () => {
+            updateAllLayerItems();
+            setRefreshTrigger(prev => prev + 1);
+        };
 
-    // 监听项目变化
-    paper.project.on('change', handleChange);
+        // 监听项目变化
+        paper.project.on('change', handleChange);
 
-    // 初始扫描
-    updateAllLayerItems();
+        // 初始扫描
+        updateAllLayerItems();
 
-    // 设置定期更新，确保新绘制的内容被捕获
-    const updateInterval = setInterval(() => {
-      updateAllLayerItems();
-      setRefreshTrigger(prev => prev + 1);
-    }, 200); // 每200ms检查一次
+        // 设置定期更新，确保新绘制的内容被捕获
+        const updateInterval = setInterval(() => {
+            updateAllLayerItems();
+            setRefreshTrigger(prev => prev + 1);
+        }, 200); // 每200ms检查一次
 
-    return () => {
-      paper.project.off('change', handleChange);
-      clearInterval(updateInterval);
-    };
-  }, [showLayerPanel, layers]);
+        return () => {
+            paper.project.off('change', handleChange);
+            clearInterval(updateInterval);
+        };
+    }, [showLayerPanel, layers]);
 
     const generateLayerThumb = (id: string): string | null => {
         try {
