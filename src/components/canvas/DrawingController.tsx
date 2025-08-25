@@ -117,6 +117,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       pathRef.current.add(point);
       // 移除实时平滑，避免端头残缺
       // pathRef.current.smooth();
+      
+      // 触发 Paper.js 的 change 事件以更新图层面板
+      if (paper.project) {
+        paper.project.emit('change');
+      }
     }
   }, [strokeWidth]);
 
@@ -245,6 +250,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       console.log('完成直线绘制');
       pathRef.current = null;
+      
+      // 触发 Paper.js 的 change 事件
+      if (paper.project) {
+        paper.project.emit('change');
+      }
     }
   }, []);
 
@@ -1075,6 +1085,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       console.log(`✅ 绘制完成: ${isEraser ? '橡皮擦操作' : drawMode === 'image' ? '图片占位框，已切换到选择模式' : drawMode === '3d-model' ? '3D模型占位框，已切换到选择模式' : '普通绘制'}`);
       pathRef.current = null;
+      
+      // 触发 Paper.js 的 change 事件，确保图层面板更新
+      if (paper.project) {
+        paper.project.emit('change');
+      }
     }
   }, [isEraser, performErase, drawMode, createImagePlaceholder, create3DModelPlaceholder, setDrawMode]);
 

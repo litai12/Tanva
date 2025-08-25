@@ -16,7 +16,7 @@ interface ScaleBarRendererProps {
 
 const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperInitialized }) => {
   const scaleBarGroupRef = useRef<paper.Group | null>(null);
-  
+
   const {
     units,
     scaleRatio,
@@ -45,13 +45,13 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
 
     // 计算比例尺的合适长度和显示值
     // 修复网格与比例尺不同步问题：使用与网格相同的坐标系统
-    
+
     // 1. 基础网格在世界坐标系中的间距（与 GridRenderer 保持一致）
     const baseGridWorldDistance = gridSize * 5; // 5个基础网格单位，与网格系统完全相同
-    
+
     // 2. 这个世界坐标距离对应的实际物理距离
     const scaleBarUnitValue = pixelsToUnit(baseGridWorldDistance, scaleRatio, units);
-    
+
     // 3. 比例尺的渲染长度直接使用世界坐标距离（与网格同步）
     const mainGridPixelLength = baseGridWorldDistance; // 直接使用世界坐标，让 Paper.js 处理视口变换
     const scaleBarData = {
@@ -74,12 +74,12 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
     const marginRight = 65; // 再向右移动5px (70 - 5 = 65)
     const marginBottom = 50; // 向下移动20px (30 + 20 = 50)
     const barLength = scaleBarData.pixelLength;
-    
+
     // 考虑视口变换的右下角定位
     // 将屏幕坐标转换为 Paper.js 世界坐标
     const screenBottomRight = new paper.Point(canvasWidth - marginRight, canvasHeight - marginBottom);
     const worldBottomRight = paper.view.viewToProject(screenBottomRight);
-    
+
     const startX = worldBottomRight.x - barLength;
     const startY = worldBottomRight.y;
 

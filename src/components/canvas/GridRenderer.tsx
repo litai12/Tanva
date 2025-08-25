@@ -11,12 +11,12 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const { gridSize, zoom, panX, panY } = useCanvasStore();
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
-  
+
   // Paper.js对象池 - 减少频繁创建/删除的性能损耗
   const pathPoolRef = useRef<paper.Path[]>([]);
-  const axisPathsRef = useRef<{ xAxis: paper.Path | null, yAxis: paper.Path | null }>({ 
-    xAxis: null, 
-    yAxis: null 
+  const axisPathsRef = useRef<{ xAxis: paper.Path | null, yAxis: paper.Path | null }>({
+    xAxis: null,
+    yAxis: null
   });
 
   // 专业版网格系统 - 支持视口裁剪的无限网格，固定间距
@@ -34,10 +34,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 找到或创建网格图层
     let gridLayer = gridLayerRef.current;
-    
+
     // 检查图层是否还有效（存在且未被删除）
     const isLayerValid = gridLayer && gridLayer.project === paper.project;
-    
+
     if (!isLayerValid) {
       gridLayer = new paper.Layer();
       gridLayer.name = "grid";
@@ -63,7 +63,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         child.visible = false;
       }
     });
-    
+
     gridLayer.activate();
 
     // 如果网格和坐标轴都关闭，则不显示任何内容
@@ -73,7 +73,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 获取世界坐标系中的可视边界
     const viewBounds = paper.view.bounds;
-    
+
     // 计算网格边界，扩展一点确保完全覆盖
     const padding = currentGridSize * 2;
     const minX = Math.floor((viewBounds.left - padding) / currentGridSize) * currentGridSize;
@@ -128,16 +128,16 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     if (showGrid) {
       // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
       const shouldShowMinorGrid = zoom >= 0.3;
-      
+
       // 创建垂直网格线
       for (let x = minX; x <= maxX; x += currentGridSize) {
         // 跳过轴线位置（如果显示轴线）
         if (showAxis && x === 0) continue;
-        
+
         // 计算是否为主网格线（每5条线）
         const gridIndex = Math.round(x / currentGridSize);
         const isMainGrid = gridIndex % 5 === 0;
-        
+
         // 如果是副网格且缩放过小，则跳过
         if (!isMainGrid && !shouldShowMinorGrid) continue;
 
@@ -167,11 +167,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       for (let y = minY; y <= maxY; y += currentGridSize) {
         // 跳过轴线位置（如果显示轴线）
         if (showAxis && y === 0) continue;
-        
+
         // 计算是否为主网格线（每5条线）
         const gridIndex = Math.round(y / currentGridSize);
         const isMainGrid = gridIndex % 5 === 0;
-        
+
         // 如果是副网格且缩放过小，则跳过
         if (!isMainGrid && !shouldShowMinorGrid) continue;
 
@@ -203,7 +203,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 恢复之前的活动图层
     if (previousActiveLayer && previousActiveLayer.name &&
-        previousActiveLayer.name.startsWith('layer_')) {
+      previousActiveLayer.name.startsWith('layer_')) {
       previousActiveLayer.activate();
     }
   }, [zoom, showGrid, showAxis]);
@@ -230,7 +230,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         }
       });
       pathPoolRef.current = [];
-      
+
       // 清理坐标轴
       if (axisPathsRef.current.xAxis) {
         axisPathsRef.current.xAxis.remove();
