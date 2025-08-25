@@ -357,7 +357,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 在Paper.js中创建图片的代表组
     ensureDrawingLayer();
-    
+
     // 创建一个矩形表示图片边界（用于显示在图层中）
     const imageRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
@@ -370,16 +370,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       strokeColor: null,
       visible: true
     });
-    
+
     // 创建图片组
     const imageGroup = new paper.Group([imageRect]);
     imageGroup.data = {
       type: 'image',
       imageId: imageId,
-      customName: imageData.split('/').pop()?.split('.')[0] || '图片', // 使用文件名作为默认名称
+      customName: (() => {
+        try {
+          const fileName = imageData.split('/').pop()?.split('?')[0]; // 移除URL参数
+          return fileName?.split('.')[0] || '图片';
+        } catch {
+          return '图片';
+        }
+      })(), // 使用文件名作为默认名称
       isHelper: false  // 不是辅助元素，显示在图层列表中
     };
-    
+
     // 创建透明的选择区域（用于交互）
     const selectionRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
@@ -562,7 +569,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 在Paper.js中创建3D模型的代表组
     ensureDrawingLayer();
-    
+
     // 创建一个矩形表示3D模型边界（用于显示在图层中）
     const modelRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
@@ -575,7 +582,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       strokeColor: null,
       visible: true
     });
-    
+
     // 创建3D模型组
     const modelGroup = new paper.Group([modelRect]);
     modelGroup.data = {
@@ -584,7 +591,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       customName: modelData.fileName?.split('.')[0] || '3D模型', // 使用文件名作为默认名称
       isHelper: false  // 不是辅助元素，显示在图层列表中
     };
-    
+
     // 创建透明的选择区域（用于交互）
     const selectionRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(

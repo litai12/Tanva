@@ -62,24 +62,24 @@ const LayerPanel: React.FC = () => {
                 } else {
                     name = `路径 ${index + 1}`;
                 }
-                  } else if (item instanceof paper.Group) {
-        if (item.data?.type === 'image') {
-          type = 'image';
-          name = `图片 ${index + 1}`;
-        } else if (item.data?.type === '3d-model') {
-          type = 'model3d';
-          name = `3D模型 ${index + 1}`;
-        } else if (item.data?.type === 'image-placeholder') {
-          // 占位符不应该显示，但以防万一
-          continue;
-        } else if (item.data?.type === 'model3d-placeholder') {
-          // 占位符不应该显示，但以防万一
-          continue;
-        } else {
-          type = 'group';
-          name = `组 ${index + 1}`;
-        }
-      }
+            } else if (item instanceof paper.Group) {
+                if (item.data?.type === 'image') {
+                    type = 'image';
+                    name = `图片 ${index + 1}`;
+                } else if (item.data?.type === '3d-model') {
+                    type = 'model3d';
+                    name = `3D模型 ${index + 1}`;
+                } else if (item.data?.type === 'image-placeholder') {
+                    // 占位符不应该显示，但以防万一
+                    return;
+                } else if (item.data?.type === 'model3d-placeholder') {
+                    // 占位符不应该显示，但以防万一
+                    return;
+                } else {
+                    type = 'group';
+                    name = `组 ${index + 1}`;
+                }
+            }
 
             // 如果图元有自定义名称，使用它
             if (item.data?.customName) {
@@ -113,9 +113,16 @@ const LayerPanel: React.FC = () => {
     useEffect(() => {
         if (!paper.project || !showLayerPanel) return;
 
+        let lastUpdateTime = 0;
+        const throttleDelay = 100; // 节流延迟
+
         const handleChange = () => {
-            updateAllLayerItems();
-            setRefreshTrigger(prev => prev + 1);
+            const now = Date.now();
+            if (now - lastUpdateTime > throttleDelay) {
+                updateAllLayerItems();
+                setRefreshTrigger(prev => prev + 1);
+                lastUpdateTime = now;
+            }
         };
 
         // 监听项目变化
@@ -124,11 +131,11 @@ const LayerPanel: React.FC = () => {
         // 初始扫描
         updateAllLayerItems();
 
-        // 设置定期更新，确保新绘制的内容被捕获
+        // 设置定期更新，但频率降低
         const updateInterval = setInterval(() => {
             updateAllLayerItems();
             setRefreshTrigger(prev => prev + 1);
-        }, 200); // 每200ms检查一次
+        }, 500); // 每500ms检查一次，减少性能开销
 
         return () => {
             paper.project.off('change', handleChange);
@@ -299,9 +306,15 @@ const LayerPanel: React.FC = () => {
         const cached = thumbCache.current[id];
         const now = Date.now();
 
-        // 缓存 500ms，更频繁的更新
-        if (cached && (now - cached.timestamp) < 500) {
+        // 缓存 1秒，避免过于频繁的生成
+        if (cached && (now - cached.timestamp) < 1000) {
             return cached.dataUrl;
+        }
+
+        // 检查是否有内容再生成缩略图
+        const items = layerItems[id] || [];
+        if (items.length === 0) {
+            return null; // 空图层不生成缩略图
         }
 
         const newThumb = generateLayerThumb(id);
@@ -366,6 +379,25 @@ const LayerPanel: React.FC = () => {
     const handleItemDelete = (item: LayerItemData, e: React.MouseEvent) => {
         e.stopPropagation();
         if (item.paperItem && window.confirm('确定要删除这个图元吗？')) {
+            // 如果是图片或3D模型组，需要额外清理
+            if (item.type === 'image' || item.type === 'model3d') {
+                const itemData = item.paperItem.data;
+                const targetId = itemData?.imageId || itemData?.modelId;
+                
+                if (targetId) {
+                    // 查找并删除关联的选择区域
+                    paper.project.layers.forEach(layer => {
+                        layer.children.forEach(child => {
+                            if (child.data?.type === 'image-selection-area' && child.data?.imageId === targetId) {
+                                child.remove();
+                            } else if (child.data?.type === '3d-model-selection-area' && child.data?.modelId === targetId) {
+                                child.remove();
+                            }
+                        });
+                    });
+                }
+            }
+            
             item.paperItem.remove();
             updateAllLayerItems();
         }
