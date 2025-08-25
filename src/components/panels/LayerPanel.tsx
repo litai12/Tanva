@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
-import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box } from 'lucide-react';
+import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
 
@@ -420,8 +420,10 @@ const LayerPanel: React.FC = () => {
                 return <Image className="w-3 h-3" />;
             case 'model3d':
                 return <Box className="w-3 h-3" />;
+            case 'path':
+                return <Pen className="w-3 h-3" />;
             default:
-                return null;
+                return <Pen className="w-3 h-3" />; // 默认使用笔图标表示路径
         }
     };
 
