@@ -1052,12 +1052,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const newBounds = { ...image.bounds, x: newPosition.x, y: newPosition.y };
 
         // 更新对应的Paper.js图片组
-        const imageGroup = paper.project.layers.flatMap(layer => 
-          layer.children.filter(child => 
+        const imageGroup = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
             child.data?.type === 'image' && child.data?.imageId === imageId
           )
         )[0];
-        
+
         if (imageGroup) {
           imageGroup.bounds = new paper.Rectangle(
             newBounds.x,
@@ -1088,12 +1088,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setImageInstances(prev => prev.map(image => {
       if (image.id === imageId) {
         // 更新对应的Paper.js图片组
-        const imageGroup = paper.project.layers.flatMap(layer => 
-          layer.children.filter(child => 
+        const imageGroup = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
             child.data?.type === 'image' && child.data?.imageId === imageId
           )
         )[0];
-        
+
         if (imageGroup) {
           imageGroup.bounds = new paper.Rectangle(
             newBounds.x,
@@ -1126,12 +1126,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const newBounds = { ...model.bounds, x: newPosition.x, y: newPosition.y };
 
         // 更新对应的Paper.js模型组
-        const modelGroup = paper.project.layers.flatMap(layer => 
-          layer.children.filter(child => 
+        const modelGroup = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
             child.data?.type === '3d-model' && child.data?.modelId === modelId
           )
         )[0];
-        
+
         if (modelGroup) {
           modelGroup.bounds = new paper.Rectangle(
             newBounds.x,
@@ -1162,12 +1162,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setModel3DInstances(prev => prev.map(model => {
       if (model.id === modelId) {
         // 更新对应的Paper.js模型组
-        const modelGroup = paper.project.layers.flatMap(layer => 
-          layer.children.filter(child => 
+        const modelGroup = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
             child.data?.type === '3d-model' && child.data?.modelId === modelId
           )
         )[0];
-        
+
         if (modelGroup) {
           modelGroup.bounds = new paper.Rectangle(
             newBounds.x,
