@@ -1,0 +1,5 @@
+[33m256bcd9[m[33m ([m[1;36mHEAD -> [m[1;32mmac[m[33m)[m fix: 统一3D模型和2D图片在画笔状态下的光标行为
+[33m054a20a[m fix: 修复绘制模式下线条无法穿越图片和3D模型的问题
+[33m5b73b98[m fix: 只在选择模式下启用3D模型的OrbitControls，避免绘制时阻挡
+[33m3ffe810[m fix: 移除图片和3D模型矩形的填充色，避免阻挡绘制hitTest
+[33maba27fd[m fix: 绘制模式穿透 - 提升Paper画布z-index，禁用3D Canvas事件，图片容器穿透
