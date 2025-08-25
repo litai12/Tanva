@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
-import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronRight, ChevronDown, Circle, Square, Minus } from 'lucide-react';
+import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
 
@@ -62,18 +62,24 @@ const LayerPanel: React.FC = () => {
                 } else {
                     name = `路径 ${index + 1}`;
                 }
-            } else if (item instanceof paper.Group) {
-                if (item.data?.type === 'image-placeholder') {
-                    type = 'image';
-                    name = `图片 ${index + 1}`;
-                } else if (item.data?.type === 'model3d-placeholder') {
-                    type = 'model3d';
-                    name = `3D模型 ${index + 1}`;
-                } else {
-                    type = 'group';
-                    name = `组 ${index + 1}`;
-                }
-            }
+                  } else if (item instanceof paper.Group) {
+        if (item.data?.type === 'image') {
+          type = 'image';
+          name = `图片 ${index + 1}`;
+        } else if (item.data?.type === '3d-model') {
+          type = 'model3d';
+          name = `3D模型 ${index + 1}`;
+        } else if (item.data?.type === 'image-placeholder') {
+          // 占位符不应该显示，但以防万一
+          continue;
+        } else if (item.data?.type === 'model3d-placeholder') {
+          // 占位符不应该显示，但以防万一
+          continue;
+        } else {
+          type = 'group';
+          name = `组 ${index + 1}`;
+        }
+      }
 
             // 如果图元有自定义名称，使用它
             if (item.data?.customName) {
@@ -373,6 +379,10 @@ const LayerPanel: React.FC = () => {
                 return <Square className="w-3 h-3" />;
             case 'line':
                 return <Minus className="w-3 h-3" />;
+            case 'image':
+                return <Image className="w-3 h-3" />;
+            case 'model3d':
+                return <Box className="w-3 h-3" />;
             default:
                 return null;
         }

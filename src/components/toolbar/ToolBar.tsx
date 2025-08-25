@@ -66,8 +66,8 @@ interface ToolBarProps {
   onClearCanvas?: () => void;
 }
 
-// 自定义垂直滑块组件
-const VerticalSlider: React.FC<{
+// 自定义水平滑块组件
+const HorizontalSlider: React.FC<{
   value: number;
   min: number;
   max: number;
@@ -88,8 +88,8 @@ const VerticalSlider: React.FC<{
     if (!sliderRef.current || disabled) return;
 
     const rect = sliderRef.current.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    const percentage = Math.max(0, Math.min(1, 1 - (y / rect.height))); // 反转，顶部为最大值
+    const x = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, x / rect.width));
     const newValue = Math.round(min + percentage * (max - min));
     onChange(newValue);
   };
@@ -116,25 +116,25 @@ const VerticalSlider: React.FC<{
     };
   }, [isDragging]);
 
-  // 计算滑块位置（从底部开始计算）
+  // 计算滑块位置
   const percentage = (value - min) / (max - min);
-  const thumbPosition = (1 - percentage) * 100; // 反转位置
+  const thumbPosition = percentage * 100;
 
   return (
     <div
       ref={sliderRef}
-      className={`relative w-2 h-20 bg-gray-200 rounded-full cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      className={`relative w-20 h-2 bg-gray-200 rounded-full cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       onMouseDown={handleMouseDown}
     >
       {/* 填充的进度条 */}
       <div
-        className="absolute bottom-0 left-0 right-0 bg-blue-500 rounded-full transition-all duration-150"
-        style={{ height: `${percentage * 100}%` }}
+        className="absolute top-0 left-0 bottom-0 bg-blue-500 rounded-full transition-all duration-150"
+        style={{ width: `${percentage * 100}%` }}
       />
       {/* 滑块圆圈 */}
       <div
-        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transform -translate-x-0.5 -translate-y-1/2 transition-all duration-150"
-        style={{ top: `${thumbPosition}%` }}
+        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transform -translate-y-0.5 -translate-x-1/2 transition-all duration-150"
+        style={{ left: `${thumbPosition}%` }}
       />
     </div>
   );
@@ -160,8 +160,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
   return (
     <div
-      className={`fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-3 px-2 py-3 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50 z-[1000] transition-all duration-300 ${showLayerPanel ? 'left-[295px]' : 'left-2'
-        }`}
+      className="fixed top-16 left-1/2 transform -translate-x-1/2 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50 z-[1000] transition-all duration-300"
       style={{
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08)'
       }}
@@ -170,7 +169,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <Button
         variant={drawMode === 'select' ? 'default' : 'outline'}
         size="sm"
-        className="px-2 py-2 h-8 w-8 mb-2"
+        className="px-2 py-2 h-8 w-8"
         onClick={() => setDrawMode('select')}
         title="选择模式"
       >
@@ -206,7 +205,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </Button>
 
         {/* 悬停展开的绘制工具菜单 */}
-        <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 ease-in-out z-[1001]">
+        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 ease-in-out z-[1001]">
           <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50">
             <Button
               variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
@@ -258,7 +257,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </div>
       </div>
 
-      <Separator orientation="horizontal" className="w-8" />
+      <Separator orientation="vertical" className="h-8" />
 
       {/* 颜色选择器 */}
       <input
@@ -270,25 +269,23 @@ const ToolBar: React.FC<ToolBarProps> = ({
       />
 
       {/* 线宽控制 */}
-      <div className="flex flex-col items-center gap-2 my-2">
-        <div className="flex flex-col items-center gap-2 w-full">
-          <VerticalSlider
-            value={strokeWidth}
-            min={1}
-            max={20}
-            onChange={setStrokeWidth}
-            disabled={isEraser}
-          />
-          <span className="text-xs text-gray-600 font-medium">
-            {strokeWidth}
-          </span>
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-600 font-medium">
+          {strokeWidth}
+        </span>
+        <HorizontalSlider
+          value={strokeWidth}
+          min={1}
+          max={20}
+          onChange={setStrokeWidth}
+          disabled={isEraser}
+        />
       </div>
 
-      <Separator orientation="horizontal" className="w-8" />
+      <Separator orientation="vertical" className="h-8" />
 
       {/* 独立工具按钮 - 暂时只保留3D模型工具 */}
-      <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-2">
         {/* 文字工具 - 暂时关闭 */}
         {/* <Button
           variant={drawMode === 'text' ? 'default' : 'outline'}
@@ -334,7 +331,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </Button> */}
       </div>
 
-      <Separator orientation="horizontal" className="w-8" />
+      <Separator orientation="vertical" className="h-8" />
 
       {/* 图层工具 */}
       <Button
@@ -347,10 +344,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Layers className="w-4 h-4" />
       </Button>
 
-      <Separator orientation="horizontal" className="w-8" />
+      <Separator orientation="vertical" className="h-8" />
 
       {/* 工具按钮 */}
-      <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-2">
         {/* 橡皮擦工具 */}
         <Button
           onClick={toggleEraser}

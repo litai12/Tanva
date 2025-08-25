@@ -326,7 +326,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const group = new paper.Group([placeholder, buttonBg, hLine, vLine, text]);
     group.data = {
       type: 'image-placeholder',
-      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight }
+      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
+      isHelper: true  // 标记为辅助元素，不显示在图层列表中
     };
 
     // 添加点击事件
@@ -354,8 +355,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     console.log('📍 图片使用Paper.js坐标:', paperBounds);
 
-    // 在Paper.js中创建透明的选择区域
+    // 在Paper.js中创建图片的代表组
     ensureDrawingLayer();
+    
+    // 创建一个矩形表示图片边界（用于显示在图层中）
+    const imageRect = new paper.Path.Rectangle({
+      rectangle: new paper.Rectangle(
+        paperBounds.x,
+        paperBounds.y,
+        paperBounds.width,
+        paperBounds.height
+      ),
+      fillColor: new paper.Color(1, 1, 1, 0.01), // 几乎透明，但仍然可以被选中
+      strokeColor: null,
+      visible: true
+    });
+    
+    // 创建图片组
+    const imageGroup = new paper.Group([imageRect]);
+    imageGroup.data = {
+      type: 'image',
+      imageId: imageId,
+      customName: imageData.split('/').pop()?.split('.')[0] || '图片', // 使用文件名作为默认名称
+      isHelper: false  // 不是辅助元素，显示在图层列表中
+    };
+    
+    // 创建透明的选择区域（用于交互）
     const selectionRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
         paperBounds.x,
@@ -506,7 +531,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const group = new paper.Group([placeholder, buttonBg, frontFace, topFace, rightFace, text]);
     group.data = {
       type: '3d-model-placeholder',
-      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight }
+      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
+      isHelper: true  // 标记为辅助元素，不显示在图层列表中
     };
 
     // 添加点击事件
@@ -534,8 +560,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     console.log('📍 3D模型使用Paper.js坐标:', paperBounds);
 
-    // 在Paper.js中创建透明的选择区域
+    // 在Paper.js中创建3D模型的代表组
     ensureDrawingLayer();
+    
+    // 创建一个矩形表示3D模型边界（用于显示在图层中）
+    const modelRect = new paper.Path.Rectangle({
+      rectangle: new paper.Rectangle(
+        paperBounds.x,
+        paperBounds.y,
+        paperBounds.width,
+        paperBounds.height
+      ),
+      fillColor: new paper.Color(1, 1, 1, 0.01), // 几乎透明，但仍然可以被选中
+      strokeColor: null,
+      visible: true
+    });
+    
+    // 创建3D模型组
+    const modelGroup = new paper.Group([modelRect]);
+    modelGroup.data = {
+      type: '3d-model',
+      modelId: modelId,
+      customName: modelData.fileName?.split('.')[0] || '3D模型', // 使用文件名作为默认名称
+      isHelper: false  // 不是辅助元素，显示在图层列表中
+    };
+    
+    // 创建透明的选择区域（用于交互）
     const selectionRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
         paperBounds.x,
