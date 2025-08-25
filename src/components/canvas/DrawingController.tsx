@@ -1306,14 +1306,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     const canvas = canvasRef.current;
 
-    // 根据绘制模式设置画布的z-index
-    // 在绘制模式下，确保Paper.js画布在最上层
-    if (drawMode !== 'select') {
-      canvas.style.zIndex = '1002'; // 高于图片和3D模型的1000/1001
-    } else {
-      canvas.style.zIndex = 'auto';
-    }
-
     // 鼠标按下事件处理
     const handleMouseDown = (event: MouseEvent) => {
       if (event.button !== 0) return; // 只响应左键点击

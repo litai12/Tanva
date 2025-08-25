@@ -9,7 +9,7 @@ interface Model3DViewerProps {
   width: number;
   height: number;
   isSelected?: boolean;
-  drawMode?: string;
+  drawMode?: string; // 当前绘图模式
 }
 
 // 3D模型组件
@@ -218,7 +218,10 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               preserveDrawingBuffer: true,
               powerPreference: "high-performance"
             }}
-            style={{ background: 'transparent' }}
+            style={{
+              background: 'transparent',
+              pointerEvents: drawMode === 'select' || isSelected ? 'auto' : 'none'
+            }}
           >
             <Suspense fallback={null}>
               {/* 多重光照系统 - 优化亮度 */}
@@ -251,8 +254,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
                 onLoaded={handleModelLoaded}
               />
 
-              {/* 交互控制器 - 只在选择模式下启用 */}
-              {isSelected && drawMode === 'select' && (
+              {/* 交互控制器 */}
+              {isSelected && (
                 <OrbitControls
                   enablePan={false}
                   enableZoom={true}

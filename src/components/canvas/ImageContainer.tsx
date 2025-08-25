@@ -165,11 +165,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // 只处理左键
 
-    // 在绘制模式下，不处理任何鼠标事件，让事件传递到Paper.js画布
-    if (drawMode !== 'select') {
-      return;
-    }
-
     const target = e.target as HTMLElement;
 
     // 如果点击的是图片本身，只选中不拖拽
