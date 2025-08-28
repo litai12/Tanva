@@ -18,6 +18,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const pathRef = useRef<paper.Path | null>(null);
   const isDrawingRef = useRef(false);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
+  
+  // 拖拽检测相关状态
+  const initialClickPointRef = useRef<paper.Point | null>(null);
+  const hasMovedRef = useRef(false);
+  const DRAG_THRESHOLD = 3; // 3像素的拖拽阈值
 
   // 图片相关状态
   const [triggerImageUpload, setTriggerImageUpload] = useState(false);
@@ -82,6 +87,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // 开始自由绘制
   const startFreeDraw = useCallback((point: paper.Point) => {
+    // 不立即创建图元，而是等待用户开始移动
+    // 只记录初始点击位置
+    initialClickPointRef.current = point;
+    hasMovedRef.current = false;
+    // 暂时不创建pathRef.current，等待移动后再创建
+  }, []);
+
+  // 实际创建图元（当确认用户在拖拽时）
+  const createFreeDrawPath = useCallback((startPoint: paper.Point) => {
     ensureDrawingLayer(); // 确保在正确的图层中绘制
     pathRef.current = new paper.Path();
 
@@ -99,11 +113,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     pathRef.current.strokeCap = 'round';
     pathRef.current.strokeJoin = 'round';
-    pathRef.current.add(point);
+    pathRef.current.add(startPoint);
   }, [ensureDrawingLayer, currentColor, strokeWidth, isEraser]);
 
   // 继续自由绘制
   const continueFreeDraw = useCallback((point: paper.Point) => {
+    // 如果还没有创建路径，检查是否超过拖拽阈值
+    if (!pathRef.current && initialClickPointRef.current && !hasMovedRef.current) {
+      const distance = initialClickPointRef.current.getDistance(point);
+      
+      if (distance >= DRAG_THRESHOLD) {
+        // 超过阈值，创建图元并开始绘制
+        hasMovedRef.current = true;
+        createFreeDrawPath(initialClickPointRef.current);
+      } else {
+        // 还没超过阈值，继续等待
+        return;
+      }
+    }
+
     if (pathRef.current) {
       // 优化：只有当新点与最后一个点距离足够远时才添加
       const lastSegment = pathRef.current.lastSegment;
@@ -125,24 +153,45 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paper.project.emit('change');
       }
     }
-  }, [strokeWidth]);
+  }, [strokeWidth, createFreeDrawPath]);
 
   // 开始绘制矩形
   const startRectDraw = useCallback((point: paper.Point) => {
+    // 不立即创建图元，等待用户开始移动
+    initialClickPointRef.current = point;
+    hasMovedRef.current = false;
+  }, []);
+
+  // 实际创建矩形图元（当确认用户在拖拽时）
+  const createRectPath = useCallback((startPoint: paper.Point) => {
     ensureDrawingLayer(); // 确保在正确的图层中绘制
     // 创建一个最小的矩形，使用 Rectangle 构造函数
-    const rectangle = new paper.Rectangle(point, point.add(new paper.Point(1, 1)));
+    const rectangle = new paper.Rectangle(startPoint, startPoint.add(new paper.Point(1, 1)));
     pathRef.current = new paper.Path.Rectangle(rectangle);
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
     pathRef.current.fillColor = null; // 确保不填充
 
     // 保存起始点用于后续更新
-    (pathRef.current as any).startPoint = point;
+    (pathRef.current as any).startPoint = startPoint;
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
 
   // 更新矩形绘制
   const updateRectDraw = useCallback((point: paper.Point) => {
+    // 如果还没有创建路径，检查是否超过拖拽阈值
+    if (!pathRef.current && initialClickPointRef.current && !hasMovedRef.current) {
+      const distance = initialClickPointRef.current.getDistance(point);
+      
+      if (distance >= DRAG_THRESHOLD) {
+        // 超过阈值，创建图元并开始绘制
+        hasMovedRef.current = true;
+        createRectPath(initialClickPointRef.current);
+      } else {
+        // 还没超过阈值，继续等待
+        return;
+      }
+    }
+
     if (pathRef.current && (pathRef.current as any).startPoint) {
       const startPoint = (pathRef.current as any).startPoint;
       const rectangle = new paper.Rectangle(startPoint, point);
@@ -163,13 +212,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 保持起始点引用
       (pathRef.current as any).startPoint = startPoint;
     }
-  }, [currentColor, strokeWidth]);
+  }, [currentColor, strokeWidth, createRectPath]);
 
   // 开始绘制圆形
   const startCircleDraw = useCallback((point: paper.Point) => {
+    // 不立即创建图元，等待用户开始移动
+    initialClickPointRef.current = point;
+    hasMovedRef.current = false;
+  }, []);
+
+  // 实际创建圆形图元（当确认用户在拖拽时）
+  const createCirclePath = useCallback((startPoint: paper.Point) => {
     ensureDrawingLayer(); // 确保在正确的图层中绘制
     pathRef.current = new paper.Path.Circle({
-      center: point,
+      center: startPoint,
       radius: 1,
     });
     pathRef.current.strokeColor = new paper.Color(currentColor);
@@ -177,11 +233,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     pathRef.current.fillColor = null; // 确保不填充
 
     // 保存起始点用于后续更新
-    (pathRef.current as any).startPoint = point;
+    (pathRef.current as any).startPoint = startPoint;
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
 
   // 更新圆形绘制
   const updateCircleDraw = useCallback((point: paper.Point) => {
+    // 如果还没有创建路径，检查是否超过拖拽阈值
+    if (!pathRef.current && initialClickPointRef.current && !hasMovedRef.current) {
+      const distance = initialClickPointRef.current.getDistance(point);
+      
+      if (distance >= DRAG_THRESHOLD) {
+        // 超过阈值，创建图元并开始绘制
+        hasMovedRef.current = true;
+        createCirclePath(initialClickPointRef.current);
+      } else {
+        // 还没超过阈值，继续等待
+        return;
+      }
+    }
+
     if (pathRef.current && (pathRef.current as any).startPoint) {
       const startPoint = (pathRef.current as any).startPoint;
       const radius = startPoint.getDistance(point);
@@ -211,22 +281,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 保持起始点引用
       (pathRef.current as any).startPoint = startPoint;
     }
-  }, [currentColor, strokeWidth]);
+  }, [currentColor, strokeWidth, createCirclePath]);
 
-  // 开始绘制直线
-  const startLineDraw = useCallback((point: paper.Point) => {
+  // 创建直线路径（延迟创建）
+  const createLinePath = useCallback((startPoint: paper.Point) => {
     ensureDrawingLayer(); // 确保在正确的图层中绘制
     pathRef.current = new paper.Path.Line({
-      from: point,
-      to: point.add(new paper.Point(1, 0)), // 初始创建一个极短的线段
+      from: startPoint,
+      to: startPoint.add(new paper.Point(1, 0)), // 初始创建一个极短的线段
     });
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
 
     // 保存起始点用于后续更新
-    (pathRef.current as any).startPoint = point;
-    console.log('开始绘制直线');
+    (pathRef.current as any).startPoint = startPoint;
+    console.log('创建直线路径');
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
+
+  // 开始绘制直线（仅记录起始位置）
+  const startLineDraw = useCallback((_point: paper.Point) => {
+    // 仅记录起始位置，不立即创建路径
+    console.log('直线工具激活，等待拖拽');
+  }, []);
 
   // 更新直线绘制（鼠标移动时跟随）
   const updateLineDraw = useCallback((point: paper.Point) => {
@@ -1240,6 +1316,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // 完成绘制
   const finishDraw = useCallback(() => {
+    // 处理画线类工具的特殊情况：如果用户只是点击而没有拖拽，清理状态
+    if ((drawMode === 'free' || drawMode === 'rect' || drawMode === 'circle') && !pathRef.current && initialClickPointRef.current) {
+      // 用户只是点击了但没有拖拽，清理状态
+      initialClickPointRef.current = null;
+      hasMovedRef.current = false;
+      isDrawingRef.current = false;
+      return;
+    }
+
     if (pathRef.current) {
       // 如果是橡皮擦模式，执行擦除操作然后删除橡皮擦路径
       if (isEraser) {
@@ -1299,6 +1384,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         paper.project.emit('change');
       }
     }
+
+    // 清理所有绘制状态
+    isDrawingRef.current = false;
+    initialClickPointRef.current = null;
+    hasMovedRef.current = false;
   }, [isEraser, performErase, drawMode, createImagePlaceholder, create3DModelPlaceholder, setDrawMode]);
 
   useEffect(() => {
@@ -1447,9 +1537,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       } else if (drawMode === 'line') {
         // 直线绘制模式：第一次点击开始，第二次点击完成
         if (!pathRef.current || !(pathRef.current as any).startPoint) {
-          // 第一次点击：开始绘制直线
+          // 第一次点击：开始绘制直线（仅记录起始位置）
+          initialClickPointRef.current = point;
+          hasMovedRef.current = false;
           startLineDraw(point);
-          isDrawingRef.current = false; // 直线模式不使用常规的拖拽绘制
+          // 直线模式使用拖拽检测机制
         } else {
           // 第二次点击：完成直线绘制
           finishLineDraw(point);
@@ -1533,9 +1625,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
-      // 直线模式：如果正在绘制直线，跟随鼠标
-      if (drawMode === 'line' && pathRef.current && (pathRef.current as any).startPoint) {
-        updateLineDraw(point);
+      // 直线模式：检查拖拽阈值或跟随鼠标
+      if (drawMode === 'line') {
+        // 如果有初始点击位置且未移动，检查阈值
+        if (initialClickPointRef.current && !hasMovedRef.current) {
+          const distance = initialClickPointRef.current.getDistance(point);
+          if (distance >= DRAG_THRESHOLD) {
+            hasMovedRef.current = true;
+            createLinePath(initialClickPointRef.current);
+          }
+        }
+        // 如果正在绘制直线，跟随鼠标
+        if (pathRef.current && (pathRef.current as any).startPoint) {
+          updateLineDraw(point);
+        }
         return;
       }
 
@@ -1614,6 +1717,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       }
 
+      // 直线模式：如果只是点击没有拖拽，重置状态
+      if (drawMode === 'line' && initialClickPointRef.current && !hasMovedRef.current) {
+        initialClickPointRef.current = null;
+        hasMovedRef.current = false;
+        return;
+      }
+
       if (isDrawingRef.current) {
         console.log(`🎨 结束绘制: 模式=${drawMode}`);
         finishDraw();
@@ -1634,7 +1744,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
     };
-  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startLineDraw, updateLineDraw, finishLineDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath, imageInstances, model3DInstances, handleImageSelect, handleModel3DSelect]);
+  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, createFreeDrawPath, startLineDraw, updateLineDraw, finishLineDraw, createLinePath, startRectDraw, updateRectDraw, createRectPath, startCircleDraw, updateCircleDraw, createCirclePath, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath, imageInstances, model3DInstances, handleImageSelect, handleModel3DSelect]);
 
   // 监听图层面板的选择事件
   useEffect(() => {
