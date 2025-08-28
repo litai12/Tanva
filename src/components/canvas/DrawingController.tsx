@@ -1636,6 +1636,44 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startLineDraw, updateLineDraw, finishLineDraw, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath, imageInstances, model3DInstances, handleImageSelect, handleModel3DSelect]);
 
+  // 监听图层面板的选择事件
+  useEffect(() => {
+    const handleLayerItemSelected = (event: CustomEvent) => {
+      const { item, type, itemId } = event.detail;
+      
+      console.log('收到图层面板选择事件:', type, itemId);
+      
+      // 清除之前的所有选择
+      clearAllSelections();
+      
+      // 根据类型进行相应的选择处理
+      if (type === 'image') {
+        // 对于图片，查找对应的imageId并选择
+        const imageData = item.data;
+        if (imageData?.imageId) {
+          handleImageSelect(imageData.imageId);
+        }
+      } else if (type === 'model3d') {
+        // 对于3D模型，查找对应的modelId并选择
+        const modelData = item.data;
+        if (modelData?.modelId) {
+          handleModel3DSelect(modelData.modelId);
+        }
+      } else if (item instanceof paper.Path) {
+        // 对于路径，使用统一的路径选择逻辑
+        handlePathSelect(item);
+      }
+    };
+
+    // 添加事件监听器
+    window.addEventListener('layerItemSelected', handleLayerItemSelected as EventListener);
+
+    return () => {
+      // 清理事件监听器
+      window.removeEventListener('layerItemSelected', handleLayerItemSelected as EventListener);
+    };
+  }, [clearAllSelections, handleImageSelect, handleModel3DSelect, handlePathSelect]);
+
   return (
     <>
       {/* 图片上传组件 */}

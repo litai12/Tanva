@@ -23,6 +23,62 @@ const LayerPanel: React.FC = () => {
     const [editingName, setEditingName] = useState<string>('');
     const [dragOverPosition, setDragOverPosition] = useState<'above' | 'below'>('above');
     const [indicatorY, setIndicatorY] = useState<number | null>(null);
+    const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+    const [itemIndicatorY, setItemIndicatorY] = useState<number | null>(null);
+    const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
+    const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+
+    // 预测图元重排序后的实际位置，用于指示线显示
+    const predictItemInsertPosition = (sourceItemId: string, targetItemId: string, placeAbove: boolean) => {
+        // 获取图层ID
+        const targetLayerId = targetItemId.split('_item_')[0];
+        const items = layerItems[targetLayerId] || [];
+        
+        if (items.length === 0) return -1;
+        
+        const sourceItem = Object.values(layerItems).flat().find(item => item.id === sourceItemId);
+        const targetItem = items.find(item => item.id === targetItemId);
+        
+        if (!sourceItem || !targetItem) return -1;
+        
+        // 在Paper.js中，顺序是相反的（显示时已反转）
+        // placeAbove=true意味着在视觉上放在上方，但在Paper.js中是insertBelow
+        const targetIndex = items.findIndex(item => item.id === targetItemId);
+        
+        // 现在插入逻辑已修正，预测最终的显示位置
+        // 注意：由于scanLayerItems中对items进行了reverse()，
+        // insertAbove实际上会让元素在列表中显示在上方
+        if (placeAbove) {
+            return targetIndex; // insertAbove：放在目标项上方（在列表中显示在上面）
+        } else {
+            return targetIndex + 1; // insertBelow：放在目标项下方（在列表中显示在下面）
+        }
+    };
+
+    // 预测图层重排序后的实际位置，用于指示线显示
+    const predictInsertPosition = (sourceId: string, targetId: string, placeAbove: boolean) => {
+        const sourceIndex = layers.findIndex(l => l.id === sourceId);
+        const targetIndex = layers.findIndex(l => l.id === targetId);
+        
+        if (sourceIndex === -1 || targetIndex === -1) return -1;
+        
+        // 完全复制 reorderLayer 的逻辑
+        // 注意：targetIndex 是原始数组中的位置，但插入操作发生在移除源元素后的数组中
+        let insertIndex = targetIndex;
+        if (sourceIndex < targetIndex) {
+            // 源在目标前：移除源元素后，原本在 targetIndex 的元素现在在 targetIndex-1
+            // placeAbove=true: 插入到 targetIndex-1 位置（目标元素前）
+            // placeAbove=false: 插入到 targetIndex 位置（目标元素后）
+            insertIndex = placeAbove ? targetIndex - 1 : targetIndex;
+        } else {
+            // 源在目标后或相同：移除源元素不影响目标元素位置
+            // placeAbove=true: 插入到 targetIndex 位置（目标元素前）
+            // placeAbove=false: 插入到 targetIndex+1 位置（目标元素后）
+            insertIndex = placeAbove ? targetIndex : targetIndex + 1;
+        }
+        
+        return insertIndex;
+    };
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set());
     const [layerItems, setLayerItems] = useState<Record<string, LayerItemData[]>>({});
@@ -39,36 +95,35 @@ const LayerPanel: React.FC = () => {
         if (!layer) return [];
 
         const items: LayerItemData[] = [];
+        
+        // 获取所有非辅助元素，并反转顺序
+        // Paper.js中后面的元素渲染在上方，所以我们需要反转来匹配图层面板的顺序
+        const validItems = layer.children.filter(item => 
+            !item.data?.isHelper && 
+            item.data?.type !== 'grid' && 
+            item.data?.type !== 'scalebar'
+        ).reverse();
 
-        layer.children.forEach((item, index) => {
-            // 跳过辅助元素
-            if (item.data?.isHelper || item.data?.type === 'grid' || item.data?.type === 'scalebar') {
-                return;
-            }
-
+        validItems.forEach((item, index) => {
             let type: LayerItemData['type'] = 'path';
-            let name = `图元 ${index + 1}`;
+            let name = '未命名图元';
 
+            // 确定图元类型
             if (item instanceof paper.Path) {
                 if (item instanceof paper.Path.Circle) {
                     type = 'circle';
-                    name = `圆形 ${index + 1}`;
                 } else if (item instanceof paper.Path.Rectangle) {
                     type = 'rectangle';
-                    name = `矩形 ${index + 1}`;
                 } else if (item instanceof paper.Path.Line) {
                     type = 'line';
-                    name = `直线 ${index + 1}`;
                 } else {
-                    name = `路径 ${index + 1}`;
+                    type = 'path';
                 }
             } else if (item instanceof paper.Group) {
                 if (item.data?.type === 'image') {
                     type = 'image';
-                    name = `图片 ${index + 1}`;
                 } else if (item.data?.type === '3d-model') {
                     type = 'model3d';
-                    name = `3D模型 ${index + 1}`;
                 } else if (item.data?.type === 'image-placeholder') {
                     // 占位符不应该显示，但以防万一
                     return;
@@ -77,13 +132,68 @@ const LayerPanel: React.FC = () => {
                     return;
                 } else {
                     type = 'group';
-                    name = `组 ${index + 1}`;
                 }
             }
 
-            // 如果图元有自定义名称，使用它
+            // 优先使用已有的自定义名称
             if (item.data?.customName) {
                 name = item.data.customName;
+            } else {
+                // 如果没有自定义名称，为图元分配一个稳定的名称
+                // 使用图元的Paper.js ID来生成一个稳定但友好的名称
+                const typeNames = {
+                    'circle': '圆形',
+                    'rectangle': '矩形', 
+                    'line': '直线',
+                    'path': '路径',
+                    'image': '图片',
+                    'model3d': '3D模型',
+                    'group': '组'
+                };
+                
+                const baseName = typeNames[type] || '图元';
+                
+                // 查找同类型图元中已有的最大编号，分配下一个编号
+                const sameTypeItems = validItems.filter(otherItem => {
+                    // 确定其他图元的类型
+                    let otherType = 'path';
+                    if (otherItem instanceof paper.Path) {
+                        if (otherItem instanceof paper.Path.Circle) otherType = 'circle';
+                        else if (otherItem instanceof paper.Path.Rectangle) otherType = 'rectangle';
+                        else if (otherItem instanceof paper.Path.Line) otherType = 'line';
+                        else otherType = 'path';
+                    } else if (otherItem instanceof paper.Group) {
+                        if (otherItem.data?.type === 'image') otherType = 'image';
+                        else if (otherItem.data?.type === '3d-model') otherType = 'model3d';
+                        else otherType = 'group';
+                    }
+                    
+                    return otherType === type && otherItem.data?.customName;
+                });
+                
+                // 找出已有名称中的最大编号
+                let maxNumber = 0;
+                sameTypeItems.forEach(otherItem => {
+                    const existingName = otherItem.data?.customName;
+                    if (existingName) {
+                        // 匹配 "类型 数字" 格式的名称
+                        const match = existingName.match(new RegExp(`^${baseName}\\s*(\\d+)?$`));
+                        if (match) {
+                            const num = match[1] ? parseInt(match[1], 10) : 1;
+                            maxNumber = Math.max(maxNumber, num);
+                        }
+                    }
+                });
+                
+                // 分配下一个编号
+                const nextNumber = maxNumber + 1;
+                name = nextNumber === 1 ? baseName : `${baseName} ${nextNumber}`;
+                
+                // 将名称保存到图元的data中
+                if (!item.data) {
+                    item.data = {};
+                }
+                item.data.customName = name;
             }
 
             items.push({
@@ -513,10 +623,18 @@ const LayerPanel: React.FC = () => {
 
     const handleItemClick = (item: LayerItemData, layerId: string) => {
         setSelectedItemId(item.id);
-        // 选中对应的 Paper.js 图元
+        
+        // 通过事件通知DrawingController进行统一的选择处理
         if (item.paperItem) {
-            paper.project.deselectAll();
-            item.paperItem.selected = true;
+            // 发送自定义事件到DrawingController
+            const event = new CustomEvent('layerItemSelected', {
+                detail: {
+                    item: item.paperItem,
+                    type: item.type,
+                    itemId: item.id
+                }
+            });
+            window.dispatchEvent(event);
         }
     };
 
@@ -566,6 +684,74 @@ const LayerPanel: React.FC = () => {
             item.paperItem.remove();
             updateAllLayerItems();
         }
+    };
+
+    // 图元重排序处理
+    const handleItemReorder = (sourceItemId: string, targetItemId: string, placeAbove: boolean) => {
+        // 解析图元ID获取Paper.js对象信息
+        const sourceItem = Object.values(layerItems).flat().find(item => item.id === sourceItemId);
+        const targetItem = Object.values(layerItems).flat().find(item => item.id === targetItemId);
+        
+        if (!sourceItem?.paperItem || !targetItem?.paperItem) {
+            console.warn('无法找到对应的Paper.js对象');
+            return;
+        }
+
+        // 获取源和目标的图层
+        const sourceLayerId = sourceItemId.split('_item_')[0];
+        const targetLayerId = targetItemId.split('_item_')[0];
+
+        // 如果是跨图层移动
+        if (sourceLayerId !== targetLayerId) {
+            const targetLayer = paper.project.layers.find(l => l.name === `layer_${targetLayerId}`);
+            if (targetLayer) {
+                // 移除源图元并添加到目标图层
+                const clonedItem = sourceItem.paperItem.clone();
+                sourceItem.paperItem.remove();
+                targetLayer.addChild(clonedItem);
+                
+                // 调整在目标图层中的位置
+                if (placeAbove) {
+                    clonedItem.insertAbove(targetItem.paperItem); // 修正：placeAbove应该使用insertAbove
+                } else {
+                    clonedItem.insertBelow(targetItem.paperItem); // 修正：placeBelow应该使用insertBelow
+                }
+            }
+        } else {
+            // 同一图层内重排序
+            if (placeAbove) {
+                sourceItem.paperItem.insertAbove(targetItem.paperItem); // 修正：placeAbove应该使用insertAbove
+            } else {
+                sourceItem.paperItem.insertBelow(targetItem.paperItem); // 修正：placeBelow应该使用insertBelow
+            }
+        }
+
+        // 更新图层项数据
+        updateAllLayerItems();
+    };
+
+    // 图元移动到指定图层
+    const handleItemMoveToLayer = (sourceItemId: string, targetLayerId: string) => {
+        const sourceItem = Object.values(layerItems).flat().find(item => item.id === sourceItemId);
+        
+        if (!sourceItem?.paperItem) {
+            console.warn('无法找到对应的Paper.js对象');
+            return;
+        }
+
+        const targetLayer = paper.project.layers.find(l => l.name === `layer_${targetLayerId}`);
+        if (!targetLayer) {
+            console.warn('无法找到目标图层');
+            return;
+        }
+
+        // 克隆图元并移动到目标图层的最顶层
+        const clonedItem = sourceItem.paperItem.clone();
+        sourceItem.paperItem.remove();
+        targetLayer.addChild(clonedItem);
+        
+        // 更新图层项数据
+        updateAllLayerItems();
     };
 
     const getItemIcon = (type: LayerItemData['type']) => {
@@ -652,7 +838,87 @@ const LayerPanel: React.FC = () => {
 
             {/* 图层列表 */}
             <div className="flex-1 overflow-y-auto">
-                <div ref={containerRef} className="relative p-3 space-y-2">
+                <div 
+                    ref={containerRef} 
+                    className="relative p-3 space-y-2"
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        
+                        // 计算是否在列表的边界区域
+                        const rect = containerRef.current?.getBoundingClientRect();
+                        if (!rect) return;
+                        
+                        const y = e.clientY;
+                        const topBoundary = rect.top + 12; // padding + 一些余量
+                        const bottomBoundary = rect.bottom - 12;
+                        
+                        // 检查是否有图层
+                        if (layers.length === 0) return;
+                        
+                        if (y < topBoundary) {
+                            // 拖拽到列表顶部 - 放在第一个图层之前
+                            setDragOverPosition('above');
+                            setIndicatorY(12); // 距离容器顶部的边距
+                            console.log('边界拖拽：移动到顶部');
+                        } else if (y > bottomBoundary) {
+                            // 拖拽到列表底部 - 放在最后一个图层之后
+                            setDragOverPosition('below');
+                            // 找到最后一个图层元素（不是指示器元素）
+                            const layerElements = Array.from(containerRef.current?.children || []).filter(child => 
+                                !child.className.includes('absolute') // 过滤掉指示线元素
+                            ) as HTMLElement[];
+                            const lastLayerElement = layerElements[layerElements.length - 1];
+                            if (lastLayerElement) {
+                                const lastRect = lastLayerElement.getBoundingClientRect();
+                                const containerY = lastRect.bottom - rect.top + containerRef.current.scrollTop + 4;
+                                setIndicatorY(containerY);
+                                console.log('边界拖拽：移动到底部', containerY);
+                            }
+                        }
+                    }}
+                    onDragLeave={(e) => {
+                        // 只有当鼠标完全离开容器时才清除指示器
+                        const rect = containerRef.current?.getBoundingClientRect();
+                        if (!rect) return;
+                        
+                        if (e.clientX < rect.left || e.clientX > rect.right || 
+                            e.clientY < rect.top || e.clientY > rect.bottom) {
+                            setIndicatorY(null);
+                            setItemIndicatorY(null);
+                        }
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        const layerId = e.dataTransfer.getData('text/layer-id');
+                        const itemId = e.dataTransfer.getData('text/item-id');
+                        
+                        if (layerId && layers.length > 0) {
+                            // 计算拖拽位置
+                            const rect = containerRef.current?.getBoundingClientRect();
+                            if (!rect) return;
+                            
+                            const y = e.clientY;
+                            const topBoundary = rect.top + 12;
+                            const bottomBoundary = rect.bottom - 12;
+                            
+                            if (y < topBoundary) {
+                                // 移动到第一个图层之前
+                                reorderLayer(layerId, layers[0].id, true);
+                                console.log('执行边界拖拽：移动到顶部');
+                            } else if (y > bottomBoundary) {
+                                // 移动到最后一个图层之后
+                                reorderLayer(layerId, layers[layers.length - 1].id, false);
+                                console.log('执行边界拖拽：移动到底部');
+                            }
+                        }
+                        
+                        setIndicatorY(null);
+                        setItemIndicatorY(null);
+                        setDraggedLayerId(null);
+                        setDraggedItemId(null);
+                    }}
+                >
                     {layers.map(layer => {
                         const isExpanded = expandedLayers.has(layer.id);
                         const items = layerItems[layer.id] || [];
@@ -668,27 +934,82 @@ const LayerPanel: React.FC = () => {
                                         e.dataTransfer.setData('text/layer-id', layer.id);
                                         e.dataTransfer.effectAllowed = 'move';
                                         setDragOverPosition('above');
+                                        setDraggedLayerId(layer.id); // 保存拖拽源
                                     }}
                                     onDragOver={(e) => {
                                         e.preventDefault();
+                                        e.stopPropagation(); // 防止冒泡到容器级别的边界检测
                                         e.dataTransfer.dropEffect = 'move';
                                         const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
                                         const middle = rect.top + rect.height / 2;
                                         const pos: 'above' | 'below' = e.clientY < middle ? 'above' : 'below';
                                         setDragOverPosition(pos);
-                                        if (containerRef.current) {
+                                        
+                                        // 如果有拖拽源信息，预测实际插入位置
+                                        if (containerRef.current && draggedLayerId) {
                                             const cRect = containerRef.current.getBoundingClientRect();
-                                            const edge = pos === 'above' ? rect.top : rect.bottom;
-                                            const y = edge - cRect.top + containerRef.current.scrollTop;
-                                            setIndicatorY(y);
+                                            const actualInsertIndex = predictInsertPosition(draggedLayerId, layer.id, pos === 'above');
+                                            
+                                            if (actualInsertIndex >= 0 && actualInsertIndex <= layers.length) {
+                                                // 根据实际插入位置计算指示线位置
+                                                let edge: number;
+                                                // 获取所有图层元素（排除指示线元素）
+                                                const layerElements = Array.from(containerRef.current.children).filter(child => 
+                                                    !child.className.includes('absolute')
+                                                ) as HTMLElement[];
+                                                
+                                                if (actualInsertIndex === 0) {
+                                                    // 插入到第一个位置，指示线在第一个元素上方
+                                                    const firstLayerElement = layerElements[0];
+                                                    if (firstLayerElement) {
+                                                        const firstRect = firstLayerElement.getBoundingClientRect();
+                                                        edge = firstRect.top - 4;
+                                                    } else {
+                                                        edge = rect.top - 4;
+                                                    }
+                                                } else if (actualInsertIndex === layers.length) {
+                                                    // 插入到最后位置，指示线在最后一个元素下方
+                                                    const lastLayerElement = layerElements[layerElements.length - 1];
+                                                    if (lastLayerElement) {
+                                                        const lastRect = lastLayerElement.getBoundingClientRect();
+                                                        edge = lastRect.bottom + 4;
+                                                    } else {
+                                                        edge = rect.bottom + 4;
+                                                    }
+                                                } else {
+                                                    // 插入到中间位置：参考边界拖拽的简单做法
+                                                    const targetLayerElement = layerElements[actualInsertIndex - 1];
+                                                    if (targetLayerElement) {
+                                                        const targetRect = targetLayerElement.getBoundingClientRect();
+                                                        // 简单地在目标元素下方加上间距的一半(space-y-2 = 8px，所以是4px)
+                                                        edge = targetRect.bottom + 4;
+                                                    } else {
+                                                        edge = rect.bottom + 4;
+                                                    }
+                                                }
+                                                const y = edge - cRect.top + containerRef.current.scrollTop;
+                                                setIndicatorY(y);
+                                            }
                                         }
                                     }}
-                                    onDragLeave={() => { setIndicatorY(null); }}
+                                    onDragLeave={() => { 
+                                        setIndicatorY(null); 
+                                    }}
                                     onDrop={(e) => {
                                         e.preventDefault();
-                                        const sourceId = e.dataTransfer.getData('text/layer-id');
-                                        if (sourceId) reorderLayer(sourceId, layer.id, dragOverPosition === 'above');
+                                        const layerId = e.dataTransfer.getData('text/layer-id');
+                                        const itemId = e.dataTransfer.getData('text/item-id');
+                                        
+                                        if (layerId) {
+                                            // 图层拖拽
+                                            reorderLayer(layerId, layer.id, dragOverPosition === 'above');
+                                        } else if (itemId) {
+                                            // 图元拖拽到图层（移动到目标图层的最顶层）
+                                            handleItemMoveToLayer(itemId, layer.id);
+                                        }
                                         setIndicatorY(null);
+                                        setDraggedLayerId(null); // 清理拖拽源
+                                        setDraggedItemId(null); // 清理图元拖拽状态
                                     }}
                                 >
                                     {/* 展开/折叠按钮 */}
@@ -790,7 +1111,64 @@ const LayerPanel: React.FC = () => {
 
                                 {/* 图层内的图元列表 */}
                                 {isExpanded && items.length > 0 && (
-                                    <div className="ml-6 mt-1 space-y-1">
+                                    <div 
+                                        className="ml-6 mt-1 space-y-1"
+                                        onDragOver={(e) => {
+                                            // 只处理图元拖拽
+                                            const itemId = e.dataTransfer.getData('text/item-id');
+                                            if (!itemId) return;
+                                            
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            e.dataTransfer.dropEffect = 'move';
+                                            
+                                            // 计算是否在图元列表的边界区域
+                                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                            const y = e.clientY;
+                                            const topBoundary = rect.top + 4; // 一些余量
+                                            const bottomBoundary = rect.bottom - 4;
+                                            
+                                            if (containerRef.current) {
+                                                const cRect = containerRef.current.getBoundingClientRect();
+                                                
+                                                if (y < topBoundary) {
+                                                    // 拖拽到图元列表顶部 - 放在第一个图元之前
+                                                    setDragOverPosition('above');
+                                                    const edgeY = rect.top - 2 - cRect.top + containerRef.current.scrollTop;
+                                                    setItemIndicatorY(edgeY);
+                                                } else if (y > bottomBoundary) {
+                                                    // 拖拽到图元列表底部 - 放在最后一个图元之后
+                                                    setDragOverPosition('below');
+                                                    const edgeY = rect.bottom + 2 - cRect.top + containerRef.current.scrollTop;
+                                                    setItemIndicatorY(edgeY);
+                                                }
+                                            }
+                                        }}
+                                        onDrop={(e) => {
+                                            const sourceId = e.dataTransfer.getData('text/item-id');
+                                            if (!sourceId || items.length === 0) return;
+                                            
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            
+                                            // 计算拖拽位置
+                                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                            const y = e.clientY;
+                                            const topBoundary = rect.top + 4;
+                                            const bottomBoundary = rect.bottom - 4;
+                                            
+                                            if (y < topBoundary) {
+                                                // 移动到第一个图元之前
+                                                handleItemReorder(sourceId, items[0].id, true);
+                                            } else if (y > bottomBoundary) {
+                                                // 移动到最后一个图元之后
+                                                handleItemReorder(sourceId, items[items.length - 1].id, false);
+                                            }
+                                            
+                                            setItemIndicatorY(null);
+                                            setDraggedItemId(null); // 清理拖拽状态
+                                        }}
+                                    >
                                         {items.map(item => (
                                             <div
                                                 key={item.id}
@@ -800,6 +1178,84 @@ const LayerPanel: React.FC = () => {
                                                 onDoubleClick={(e) => {
                                                     e.stopPropagation();
                                                     startEditing(item.id, item.name);
+                                                }}
+                                                draggable
+                                                onDragStart={(e) => {
+                                                    e.dataTransfer.setData('text/item-id', item.id);
+                                                    e.dataTransfer.effectAllowed = 'move';
+                                                    setDragOverPosition('above');
+                                                    setDraggedItemId(item.id); // 保存拖拽的图元ID
+                                                }}
+                                                onDragOver={(e) => {
+                                                    e.preventDefault();
+                                                    e.dataTransfer.dropEffect = 'move';
+                                                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                                                    const middle = rect.top + rect.height / 2;
+                                                    const pos: 'above' | 'below' = e.clientY < middle ? 'above' : 'below';
+                                                    setDragOverPosition(pos);
+                                                    setDragOverItemId(item.id);
+                                                    
+                                                    if (containerRef.current && draggedItemId) {
+                                                        const cRect = containerRef.current.getBoundingClientRect();
+                                                        // 使用预测函数确定实际插入位置
+                                                        const actualInsertIndex = predictItemInsertPosition(draggedItemId, item.id, pos === 'above');
+                                                        
+                                                        if (actualInsertIndex >= 0 && actualInsertIndex <= items.length) {
+                                                            // 根据预测的实际插入位置计算指示线位置
+                                                            // 指示线应该显示在两个图元之间的中间位置
+                                                            const itemElements = Array.from(e.currentTarget.parentElement?.children || []).filter(child => 
+                                                                child.tagName === 'DIV' && !child.className.includes('absolute')
+                                                            ) as HTMLElement[];
+                                                            
+                                                            let edge: number;
+                                                            if (actualInsertIndex === 0) {
+                                                                // 插入到第一个位置：指示线在第一个元素上方
+                                                                const firstElement = itemElements[0];
+                                                                if (firstElement) {
+                                                                    const firstRect = firstElement.getBoundingClientRect();
+                                                                    edge = firstRect.top - 2;
+                                                                } else {
+                                                                    edge = rect.top - 2;
+                                                                }
+                                                            } else if (actualInsertIndex === items.length) {
+                                                                // 插入到最后一个位置：指示线在最后一个元素下方
+                                                                const lastElement = itemElements[itemElements.length - 1];
+                                                                if (lastElement) {
+                                                                    const lastRect = lastElement.getBoundingClientRect();
+                                                                    edge = lastRect.bottom + 2;
+                                                                } else {
+                                                                    edge = rect.bottom + 2;
+                                                                }
+                                                            } else {
+                                                                // 插入到中间位置：参考图层的简单做法
+                                                                const targetElement = itemElements[actualInsertIndex - 1];
+                                                                if (targetElement) {
+                                                                    const targetRect = targetElement.getBoundingClientRect();
+                                                                    // 简单地在目标元素下方加上间距的一半(space-y-1 = 4px，所以是2px)
+                                                                    edge = targetRect.bottom + 2;
+                                                                } else {
+                                                                    edge = pos === 'above' ? rect.top - 2 : rect.bottom + 2;
+                                                                }
+                                                            }
+                                                            const y = edge - cRect.top + containerRef.current.scrollTop;
+                                                            setItemIndicatorY(y);
+                                                        }
+                                                    }
+                                                }}
+                                                onDragLeave={() => { 
+                                                    setItemIndicatorY(null); 
+                                                    setDragOverItemId(null);
+                                                }}
+                                                onDrop={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    const sourceId = e.dataTransfer.getData('text/item-id');
+                                                    if (sourceId && sourceId !== item.id) {
+                                                        handleItemReorder(sourceId, item.id, dragOverPosition === 'above');
+                                                    }
+                                                    setItemIndicatorY(null);
+                                                    setDragOverItemId(null);
+                                                    setDraggedItemId(null); // 清理拖拽状态
                                                 }}
                                             >
                                                 {/* 图元图标 */}
@@ -876,6 +1332,9 @@ const LayerPanel: React.FC = () => {
 
                     {indicatorY !== null && (
                         <div className={indicatorClass} style={{ top: indicatorY }} />
+                    )}
+                    {itemIndicatorY !== null && (
+                        <div className={indicatorClass} style={{ top: itemIndicatorY }} />
                     )}
                 </div>
             </div>
