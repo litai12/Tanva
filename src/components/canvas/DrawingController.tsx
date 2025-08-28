@@ -1508,54 +1508,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         )[0];
 
         if (imageGroup && imageGroup instanceof paper.Group) {
-          // 更新整个组的位置
+          // 直接设置组的新位置，所有子元素会一起移动
           imageGroup.position = new paper.Point(
-            newBounds.x + newBounds.width / 2,
-            newBounds.y + newBounds.height / 2
+            newPosition.x + image.bounds.width / 2,
+            newPosition.y + image.bounds.height / 2
           );
-          
-          // 更新组内的子元素
-          imageGroup.children.forEach(child => {
-            if (child instanceof paper.Raster) {
-              // 直接更新Raster的边界（不保持比例，填充整个框）
-              child.bounds = new paper.Rectangle(
-                newBounds.x,
-                newBounds.y,
-                newBounds.width,
-                newBounds.height
-              );
-            } else if (child instanceof paper.Path && !child.data?.isSelectionBorder && !child.data?.isResizeHandle) {
-              // 更新交互矩形
-              child.bounds = new paper.Rectangle(
-                newBounds.x,
-                newBounds.y,
-                newBounds.width,
-                newBounds.height
-              );
-            } else if (child.data?.isSelectionBorder) {
-              // 更新选择框
-              child.bounds = new paper.Rectangle(
-                newBounds.x,
-                newBounds.y,
-                newBounds.width,
-                newBounds.height
-              );
-            } else if (child.data?.isResizeHandle) {
-              // 更新控制点位置
-              const handleSize = 8;
-              const direction = child.data.direction;
-              
-              if (direction === 'nw') {
-                child.position = new paper.Point(newBounds.x, newBounds.y);
-              } else if (direction === 'ne') {
-                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y);
-              } else if (direction === 'sw') {
-                child.position = new paper.Point(newBounds.x, newBounds.y + newBounds.height);
-              } else if (direction === 'se') {
-                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y + newBounds.height);
-              }
-            }
-          });
         }
 
         // 更新对应的Paper.js选择区域
@@ -1586,52 +1543,70 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         )[0];
 
         if (imageGroup && imageGroup instanceof paper.Group) {
-          // 更新整个组的位置
-          imageGroup.position = new paper.Point(
-            newBounds.x + newBounds.width / 2,
-            newBounds.y + newBounds.height / 2
-          );
+          // 找到所有需要更新的子元素
+          const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+          const interactRect = imageGroup.children.find(child => 
+            child instanceof paper.Path && !child.data?.isSelectionBorder && !child.data?.isResizeHandle
+          ) as paper.Path;
+          const selectionBorder = imageGroup.children.find(child => 
+            child.data?.isSelectionBorder
+          ) as paper.Path;
+          const resizeHandles = imageGroup.children.filter(child => 
+            child.data?.isResizeHandle
+          ) as paper.Path[];
           
-          // 更新组内的子元素
-          imageGroup.children.forEach(child => {
-            if (child instanceof paper.Raster) {
-              // 直接更新Raster的边界（不保持比例，填充整个框）
-              child.bounds = new paper.Rectangle(
+          // 直接更新各个元素的位置，不依赖Group的自动管理
+          if (raster) {
+            raster.bounds = new paper.Rectangle(
+              newBounds.x,
+              newBounds.y,
+              newBounds.width,
+              newBounds.height
+            );
+          }
+          
+          if (interactRect) {
+            interactRect.bounds = new paper.Rectangle(
+              newBounds.x,
+              newBounds.y,
+              newBounds.width,
+              newBounds.height
+            );
+          }
+          
+          if (selectionBorder) {
+            selectionBorder.bounds = new paper.Rectangle(
+              newBounds.x,
+              newBounds.y,
+              newBounds.width,
+              newBounds.height
+            );
+          }
+          
+          // 更新控制点位置
+          const handleSize = 8;
+          resizeHandles.forEach(handle => {
+            const direction = handle.data?.direction;
+            if (direction === 'nw') {
+              handle.position = new paper.Point(
                 newBounds.x,
-                newBounds.y,
-                newBounds.width,
-                newBounds.height
+                newBounds.y
               );
-            } else if (child instanceof paper.Path && !child.data?.isSelectionBorder && !child.data?.isResizeHandle) {
-              // 更新交互矩形
-              child.bounds = new paper.Rectangle(
+            } else if (direction === 'ne') {
+              handle.position = new paper.Point(
+                newBounds.x + newBounds.width,
+                newBounds.y
+              );
+            } else if (direction === 'sw') {
+              handle.position = new paper.Point(
                 newBounds.x,
-                newBounds.y,
-                newBounds.width,
-                newBounds.height
+                newBounds.y + newBounds.height
               );
-            } else if (child.data?.isSelectionBorder) {
-              // 更新选择框
-              child.bounds = new paper.Rectangle(
-                newBounds.x,
-                newBounds.y,
-                newBounds.width,
-                newBounds.height
+            } else if (direction === 'se') {
+              handle.position = new paper.Point(
+                newBounds.x + newBounds.width,
+                newBounds.y + newBounds.height
               );
-            } else if (child.data?.isResizeHandle) {
-              // 更新控制点位置
-              const handleSize = 8;
-              const direction = child.data.direction;
-              
-              if (direction === 'nw') {
-                child.position = new paper.Point(newBounds.x, newBounds.y);
-              } else if (direction === 'ne') {
-                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y);
-              } else if (direction === 'sw') {
-                child.position = new paper.Point(newBounds.x, newBounds.y + newBounds.height);
-              } else if (direction === 'se') {
-                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y + newBounds.height);
-              }
             }
           });
         }
@@ -1879,10 +1854,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           )[0];
           
           if (imageGroup) {
+            // 获取实际的图片边界（Raster的边界），而不是整个组的边界
+            const raster = imageGroup.children.find(child => child instanceof paper.Raster);
+            const actualBounds = raster ? raster.bounds.clone() : imageGroup.bounds.clone();
+            
             setIsImageResizing(true);
             setResizeImageId(imageId);
             setResizeDirection(direction);
-            setResizeStartBounds(imageGroup.bounds.clone());
+            setResizeStartBounds(actualBounds);
             setResizeStartPoint(point);
           }
           return;
