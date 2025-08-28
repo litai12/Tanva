@@ -850,8 +850,8 @@ const LayerPanel: React.FC = () => {
                         if (!rect) return;
                         
                         const y = e.clientY;
-                        const topBoundary = rect.top + 12; // padding + 一些余量
-                        const bottomBoundary = rect.bottom - 12;
+                        const topBoundary = rect.top + 8; // 减小边界检测区域，避免与图层元素冲突
+                        const bottomBoundary = rect.bottom - 8;
                         
                         // 检查是否有图层
                         if (layers.length === 0) return;
@@ -859,21 +859,41 @@ const LayerPanel: React.FC = () => {
                         if (y < topBoundary) {
                             // 拖拽到列表顶部 - 放在第一个图层之前
                             setDragOverPosition('above');
-                            setIndicatorY(12); // 距离容器顶部的边距
+                            // 使用与图层元素相同的计算逻辑
+                            const containerPadding = 12; // p-3 = 12px
+                            if (layers.length > 0) {
+                                // 如果有图层，计算到第一个图层的中间位置
+                                const layerElements = Array.from(containerRef.current?.children || []).filter(child => 
+                                    !child.className.includes('absolute')
+                                ) as HTMLElement[];
+                                const firstLayerElement = layerElements[0];
+                                if (firstLayerElement) {
+                                    const firstRect = firstLayerElement.getBoundingClientRect();
+                                    const cRect = containerRef.current.getBoundingClientRect();
+                                    const edge = cRect.top + containerPadding + (firstRect.top - cRect.top - containerPadding) / 2 - 10;
+                                    setIndicatorY(edge - cRect.top + containerRef.current.scrollTop);
+                                } else {
+                                    setIndicatorY(containerPadding / 2 - 10);
+                                }
+                            } else {
+                                setIndicatorY(containerPadding / 2 - 10);
+                            }
                             console.log('边界拖拽：移动到顶部');
                         } else if (y > bottomBoundary) {
                             // 拖拽到列表底部 - 放在最后一个图层之后
                             setDragOverPosition('below');
-                            // 找到最后一个图层元素（不是指示器元素）
+                            // 使用与图层元素相同的计算逻辑
                             const layerElements = Array.from(containerRef.current?.children || []).filter(child => 
                                 !child.className.includes('absolute') // 过滤掉指示线元素
                             ) as HTMLElement[];
                             const lastLayerElement = layerElements[layerElements.length - 1];
                             if (lastLayerElement) {
                                 const lastRect = lastLayerElement.getBoundingClientRect();
-                                const containerY = lastRect.bottom - rect.top + containerRef.current.scrollTop + 4;
-                                setIndicatorY(containerY);
-                                console.log('边界拖拽：移动到底部', containerY);
+                                const cRect = containerRef.current.getBoundingClientRect();
+                                const containerPadding = 12; // p-3 = 12px
+                                const edge = lastRect.bottom + (cRect.bottom - lastRect.bottom - containerPadding) / 2 - 10;
+                                setIndicatorY(edge - cRect.top + containerRef.current.scrollTop);
+                                console.log('边界拖拽：移动到底部');
                             }
                         }
                     }}
@@ -899,8 +919,8 @@ const LayerPanel: React.FC = () => {
                             if (!rect) return;
                             
                             const y = e.clientY;
-                            const topBoundary = rect.top + 12;
-                            const bottomBoundary = rect.bottom - 12;
+                            const topBoundary = rect.top + 8;
+                            const bottomBoundary = rect.bottom - 8;
                             
                             if (y < topBoundary) {
                                 // 移动到第一个图层之前
