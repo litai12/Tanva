@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import paper from 'paper';
-import { useToolStore, useCanvasStore } from '@/stores';
+import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import ImageUploadComponent from './ImageUploadComponent';
 import ImageContainer from './ImageContainer';
 import Model3DUploadComponent from './Model3DUploadComponent';
@@ -15,6 +15,7 @@ interface DrawingControllerProps {
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
+  const { layers } = useLayerStore();
   const pathRef = useRef<paper.Path | null>(null);
   const isDrawingRef = useRef(false);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
@@ -33,6 +34,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     bounds: { x: number; y: number; width: number; height: number };
     isSelected: boolean;
     visible: boolean;
+    layerId?: string;
     selectionRect?: paper.Path;
   }>>([]);
   const [, setSelectedImageId] = useState<string | null>(null);
@@ -63,6 +65,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [dragStartPoint, setDragStartPoint] = useState<paper.Point | null>(null);
   const [draggedSegment, setDraggedSegment] = useState<paper.Segment | null>(null);
   const [draggedPath, setDraggedPath] = useState<paper.Path | null>(null);
+  
+  // 图像调整大小状态
+  const [isImageResizing, setIsImageResizing] = useState(false);
+  const [resizeImageId, setResizeImageId] = useState<string | null>(null);
+  const [resizeDirection, setResizeDirection] = useState<string | null>(null);
+  const [resizeStartBounds, setResizeStartBounds] = useState<paper.Rectangle | null>(null);
+  const [resizeStartPoint, setResizeStartPoint] = useState<paper.Point | null>(null);
+  
+  // 图像拖拽状态
+  const [isImageDragging, setIsImageDragging] = useState(false);
+  const [dragImageId, setDragImageId] = useState<string | null>(null);
+  const [imageDragStartPoint, setImageDragStartPoint] = useState<paper.Point | null>(null);
+  const [imageDragStartBounds, setImageDragStartBounds] = useState<{ x: number; y: number } | null>(null);
 
   // 初始化图层管理器
   useEffect(() => {
@@ -436,7 +451,154 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 在Paper.js中创建图片的代表组
     ensureDrawingLayer();
 
-    // 创建一个矩形表示图片边界（用于显示在图层中）
+    // 创建Paper.js的Raster对象来显示图片
+    const raster = new paper.Raster({
+      source: imageData
+    });
+
+    // 等待图片加载完成后设置位置
+    raster.onLoad = () => {
+      // 存储原始尺寸信息
+      const originalWidth = raster.width;
+      const originalHeight = raster.height;
+      const aspectRatio = originalWidth / originalHeight;
+      
+      raster.data = {
+        originalWidth: originalWidth,
+        originalHeight: originalHeight,
+        aspectRatio: aspectRatio
+      };
+      
+      // 根据占位框和图片比例，计算保持比例的实际大小
+      const boxAspectRatio = paperBounds.width / paperBounds.height;
+      let finalBounds;
+      
+      if (aspectRatio > boxAspectRatio) {
+        // 图片更宽，以宽度为准
+        const newWidth = paperBounds.width;
+        const newHeight = newWidth / aspectRatio;
+        const yOffset = (paperBounds.height - newHeight) / 2;
+        
+        finalBounds = new paper.Rectangle(
+          paperBounds.x,
+          paperBounds.y + yOffset,
+          newWidth,
+          newHeight
+        );
+      } else {
+        // 图片更高，以高度为准
+        const newHeight = paperBounds.height;
+        const newWidth = newHeight * aspectRatio;
+        const xOffset = (paperBounds.width - newWidth) / 2;
+        
+        finalBounds = new paper.Rectangle(
+          paperBounds.x + xOffset,
+          paperBounds.y,
+          newWidth,
+          newHeight
+        );
+      }
+      
+      // 设置图片边界（保持比例）
+      raster.bounds = finalBounds;
+      
+      // 更新交互矩形以匹配实际图片边界
+      const parentGroup = raster.parent;
+      if (parentGroup && parentGroup instanceof paper.Group) {
+        parentGroup.children.forEach(child => {
+          if (child instanceof paper.Path && !child.data?.isSelectionBorder && !child.data?.isResizeHandle) {
+            child.bounds = finalBounds;
+          }
+        });
+      }
+      
+      // 更新图片实例的边界信息
+      setImageInstances(prev => prev.map(img => {
+        if (img.id === imageId) {
+          return {
+            ...img,
+            bounds: {
+              x: finalBounds.x,
+              y: finalBounds.y,
+              width: finalBounds.width,
+              height: finalBounds.height
+            }
+          };
+        }
+        return img;
+      }));
+      
+      // 图片加载完成后，为选中的图片添加选择框和控制点
+      if (parentGroup && parentGroup instanceof paper.Group) {
+        // 添加选择框
+        const selectionBorder = new paper.Path.Rectangle({
+          rectangle: finalBounds,
+          strokeColor: new paper.Color('#3b82f6'),
+          strokeWidth: 2,
+          fillColor: null,
+          selected: false
+        });
+        selectionBorder.data = { isSelectionBorder: true };
+        parentGroup.addChild(selectionBorder);
+        
+        // 添加四个角的调整控制点
+        const handleSize = 8;
+        const handleColor = new paper.Color('#3b82f6');
+        
+        // 左上角
+        const nwHandle = new paper.Path.Rectangle({
+          point: [finalBounds.left - handleSize/2, finalBounds.top - handleSize/2],
+          size: [handleSize, handleSize],
+          fillColor: handleColor,
+          strokeColor: 'white',
+          strokeWidth: 1,
+          selected: false
+        });
+        nwHandle.data = { isResizeHandle: true, direction: 'nw', imageId: imageId };
+        parentGroup.addChild(nwHandle);
+        
+        // 右上角
+        const neHandle = new paper.Path.Rectangle({
+          point: [finalBounds.right - handleSize/2, finalBounds.top - handleSize/2],
+          size: [handleSize, handleSize],
+          fillColor: handleColor,
+          strokeColor: 'white',
+          strokeWidth: 1,
+          selected: false
+        });
+        neHandle.data = { isResizeHandle: true, direction: 'ne', imageId: imageId };
+        parentGroup.addChild(neHandle);
+        
+        // 左下角
+        const swHandle = new paper.Path.Rectangle({
+          point: [finalBounds.left - handleSize/2, finalBounds.bottom - handleSize/2],
+          size: [handleSize, handleSize],
+          fillColor: handleColor,
+          strokeColor: 'white',
+          strokeWidth: 1,
+          selected: false
+        });
+        swHandle.data = { isResizeHandle: true, direction: 'sw', imageId: imageId };
+        parentGroup.addChild(swHandle);
+        
+        // 右下角
+        const seHandle = new paper.Path.Rectangle({
+          point: [finalBounds.right - handleSize/2, finalBounds.bottom - handleSize/2],
+          size: [handleSize, handleSize],
+          fillColor: handleColor,
+          strokeColor: 'white',
+          strokeWidth: 1,
+          selected: false
+        });
+        seHandle.data = { isResizeHandle: true, direction: 'se', imageId: imageId };
+        parentGroup.addChild(seHandle);
+      }
+      
+      paper.view.update();
+    };
+
+    // 创建一个透明矩形用于交互（选择、拖拽等）
+    // 初始使用占位框大小，等图片加载后再更新
     const imageRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
         paperBounds.x,
@@ -449,8 +611,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       visible: true
     });
 
-    // 创建图片组
-    const imageGroup = new paper.Group([imageRect]);
+    // 创建图片组，包含栅格图像和交互矩形
+    const imageGroup = new paper.Group([raster, imageRect]);
+    
+    // 强制Paper.js重新渲染
+    paper.view.update();
     imageGroup.data = {
       type: 'image',
       imageId: imageId,
@@ -500,6 +665,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 设置为不响应鼠标事件，避免阻挡其他操作
     selectionRect.locked = true;
 
+    // 获取图片所属的图层ID（从Paper.js图像组的图层名称中提取）
+    const getLayerIdFromGroup = () => {
+      const layer = imageGroup.layer;
+      if (layer && layer.name && layer.name.startsWith('layer_')) {
+        return layer.name.replace('layer_', '');
+      }
+      return undefined;
+    };
+
     // 创建图片实例 - 直接使用Paper.js坐标
     const newImage = {
       id: imageId,
@@ -511,12 +685,34 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       bounds: paperBounds, // 存储Paper.js坐标
       isSelected: true,
       visible: true, // 默认可见
+      layerId: getLayerIdFromGroup(), // 关联到所属图层
       selectionRect: selectionRect // 存储对应的Paper.js选择区域
     };
 
+    // 先清除其他图片的选择状态
+    setImageInstances(prev => prev.map(img => ({ ...img, isSelected: false })));
+    setSelectedImageId(null);
+    
+    // 清除Paper.js中的所有选择框和控制点
+    paper.project?.layers?.forEach(layer => {
+      const itemsToRemove: paper.Item[] = [];
+      layer.children.forEach(child => {
+        if (child.data?.type === 'image' && child instanceof paper.Group) {
+          child.children.forEach(subChild => {
+            if (subChild.data?.isSelectionBorder || subChild.data?.isResizeHandle) {
+              itemsToRemove.push(subChild);
+            }
+          });
+        }
+      });
+      itemsToRemove.forEach(item => item.remove());
+    });
+    
     // 添加到图片实例数组
     setImageInstances(prev => [...prev, newImage]);
     setSelectedImageId(imageId);
+    
+    // 注意：选择框和控制点将在图片加载完成后在 raster.onLoad 回调中添加
 
     // 删除占位框
     placeholder.remove();
@@ -525,7 +721,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 自动切换回选择模式
     setDrawMode('select');
 
-    console.log('✅ 图片添加到画布成功，已切换到选择模式');
+    console.log('✅ 图片添加到画布成功，已切换到选择模式并选中');
   }, [setDrawMode, canvasRef]);
 
   // 处理图片上传错误
@@ -773,6 +969,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       ...image,
       isSelected: false
     })));
+    
+    // 移除所有图像的选择框和控制点
+    paper.project?.layers?.forEach(layer => {
+      // 创建一个要删除的项目列表
+      const itemsToRemove: paper.Item[] = [];
+      
+      // 遍历所有子元素
+      layer.children.forEach(child => {
+        // 处理图像组
+        if (child.data?.type === 'image' && child instanceof paper.Group) {
+          // 遍历图像组的所有子元素
+          child.children.forEach(subChild => {
+            if (subChild.data?.isSelectionBorder || subChild.data?.isResizeHandle) {
+              itemsToRemove.push(subChild);
+            }
+          });
+        }
+        // 也检查是否有孤立的控制点（可能因为某些原因未被正确分组）
+        else if (child.data?.isResizeHandle) {
+          itemsToRemove.push(child);
+        }
+      });
+      
+      // 删除所有标记的项目
+      itemsToRemove.forEach(item => {
+        item.remove();
+      });
+    });
+    
+    // 强制Paper.js更新视图
+    paper.view?.update();
   }, []);
 
   // 处理3D模型选中
@@ -793,6 +1020,104 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       ...image,
       isSelected: image.id === imageId
     })));
+    
+    // 在Paper.js中为选中的图像添加选择框和控制点
+    const imageGroup = paper.project.layers.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0];
+    
+    if (imageGroup && imageGroup instanceof paper.Group) {
+      // 移除之前的选择框和控制点
+      imageGroup.children.forEach(child => {
+        if (child.data?.isSelectionBorder || child.data?.isResizeHandle) {
+          child.remove();
+        }
+      });
+      
+      // 计算实际的图像边界（排除控制点和选择框）
+      let imageBounds = null;
+      imageGroup.children.forEach(child => {
+        if (child instanceof paper.Raster || 
+            (child instanceof paper.Path && !child.data?.isSelectionBorder && !child.data?.isResizeHandle)) {
+          if (!imageBounds) {
+            imageBounds = child.bounds.clone();
+          } else {
+            imageBounds = imageBounds.unite(child.bounds);
+          }
+        }
+      });
+      
+      if (!imageBounds) {
+        imageBounds = imageGroup.bounds;
+      }
+      
+      // 添加新的选择框
+      const selectionBorder = new paper.Path.Rectangle({
+        rectangle: imageBounds,
+        strokeColor: new paper.Color('#3b82f6'),
+        strokeWidth: 2,
+        fillColor: null,
+        selected: false
+      });
+      selectionBorder.data = { isSelectionBorder: true };
+      imageGroup.addChild(selectionBorder);
+      
+      // 添加四个角的调整控制点
+      const handleSize = 8;
+      const handleColor = new paper.Color('#3b82f6');
+      const bounds = imageBounds;
+      
+      // 左上角
+      const nwHandle = new paper.Path.Rectangle({
+        point: [bounds.left - handleSize/2, bounds.top - handleSize/2],
+        size: [handleSize, handleSize],
+        fillColor: handleColor,
+        strokeColor: 'white',
+        strokeWidth: 1,
+        selected: false
+      });
+      nwHandle.data = { isResizeHandle: true, direction: 'nw', imageId: imageId };
+      imageGroup.addChild(nwHandle);
+      
+      // 右上角
+      const neHandle = new paper.Path.Rectangle({
+        point: [bounds.right - handleSize/2, bounds.top - handleSize/2],
+        size: [handleSize, handleSize],
+        fillColor: handleColor,
+        strokeColor: 'white',
+        strokeWidth: 1,
+        selected: false
+      });
+      neHandle.data = { isResizeHandle: true, direction: 'ne', imageId: imageId };
+      imageGroup.addChild(neHandle);
+      
+      // 左下角
+      const swHandle = new paper.Path.Rectangle({
+        point: [bounds.left - handleSize/2, bounds.bottom - handleSize/2],
+        size: [handleSize, handleSize],
+        fillColor: handleColor,
+        strokeColor: 'white',
+        strokeWidth: 1,
+        selected: false
+      });
+      swHandle.data = { isResizeHandle: true, direction: 'sw', imageId: imageId };
+      imageGroup.addChild(swHandle);
+      
+      // 右下角
+      const seHandle = new paper.Path.Rectangle({
+        point: [bounds.right - handleSize/2, bounds.bottom - handleSize/2],
+        size: [handleSize, handleSize],
+        fillColor: handleColor,
+        strokeColor: 'white',
+        strokeWidth: 1,
+        selected: false
+      });
+      seHandle.data = { isResizeHandle: true, direction: 'se', imageId: imageId };
+      imageGroup.addChild(seHandle);
+    }
+    
     // 取消3D模型选中
     handleModel3DDeselect();
   }, [handleModel3DDeselect]);
@@ -1127,6 +1452,48 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     (window as any).tanvaModel3DInstances = model3DInstances;
   }, [imageInstances, model3DInstances]);
 
+  // 监听图层顺序变化并更新图像的layerId
+  useEffect(() => {
+    // 更新所有图像实例的layerId（如果它们的Paper.js组在不同图层）
+    const updateImageLayerIds = () => {
+      setImageInstances(prev => prev.map(image => {
+        // 查找对应的Paper.js图像组
+        const imageGroup = paper.project?.layers?.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === 'image' && 
+            child.data?.imageId === image.id
+          )
+        )[0];
+
+        if (imageGroup && imageGroup.layer) {
+          const layerName = imageGroup.layer.name;
+          if (layerName && layerName.startsWith('layer_')) {
+            const newLayerId = layerName.replace('layer_', '');
+            if (newLayerId !== image.layerId) {
+              return { ...image, layerId: newLayerId };
+            }
+          }
+        }
+        return image;
+      }));
+    };
+
+    // 监听图层变化事件
+    const handleLayerOrderChanged = () => {
+      updateImageLayerIds();
+    };
+
+    window.addEventListener('layerOrderChanged', handleLayerOrderChanged);
+
+    // 也定期检查以确保同步
+    const intervalId = setInterval(updateImageLayerIds, 1000);
+
+    return () => {
+      window.removeEventListener('layerOrderChanged', handleLayerOrderChanged);
+      clearInterval(intervalId);
+    };
+  }, []);
+
   // 处理图片移动
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }) => {
     setImageInstances(prev => prev.map(image => {
@@ -1140,13 +1507,55 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           )
         )[0];
 
-        if (imageGroup) {
-          imageGroup.bounds = new paper.Rectangle(
-            newBounds.x,
-            newBounds.y,
-            newBounds.width,
-            newBounds.height
+        if (imageGroup && imageGroup instanceof paper.Group) {
+          // 更新整个组的位置
+          imageGroup.position = new paper.Point(
+            newBounds.x + newBounds.width / 2,
+            newBounds.y + newBounds.height / 2
           );
+          
+          // 更新组内的子元素
+          imageGroup.children.forEach(child => {
+            if (child instanceof paper.Raster) {
+              // 直接更新Raster的边界（不保持比例，填充整个框）
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else if (child instanceof paper.Path && !child.data?.isSelectionBorder && !child.data?.isResizeHandle) {
+              // 更新交互矩形
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else if (child.data?.isSelectionBorder) {
+              // 更新选择框
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else if (child.data?.isResizeHandle) {
+              // 更新控制点位置
+              const handleSize = 8;
+              const direction = child.data.direction;
+              
+              if (direction === 'nw') {
+                child.position = new paper.Point(newBounds.x, newBounds.y);
+              } else if (direction === 'ne') {
+                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y);
+              } else if (direction === 'sw') {
+                child.position = new paper.Point(newBounds.x, newBounds.y + newBounds.height);
+              } else if (direction === 'se') {
+                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y + newBounds.height);
+              }
+            }
+          });
         }
 
         // 更新对应的Paper.js选择区域
@@ -1176,13 +1585,55 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           )
         )[0];
 
-        if (imageGroup) {
-          imageGroup.bounds = new paper.Rectangle(
-            newBounds.x,
-            newBounds.y,
-            newBounds.width,
-            newBounds.height
+        if (imageGroup && imageGroup instanceof paper.Group) {
+          // 更新整个组的位置
+          imageGroup.position = new paper.Point(
+            newBounds.x + newBounds.width / 2,
+            newBounds.y + newBounds.height / 2
           );
+          
+          // 更新组内的子元素
+          imageGroup.children.forEach(child => {
+            if (child instanceof paper.Raster) {
+              // 直接更新Raster的边界（不保持比例，填充整个框）
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else if (child instanceof paper.Path && !child.data?.isSelectionBorder && !child.data?.isResizeHandle) {
+              // 更新交互矩形
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else if (child.data?.isSelectionBorder) {
+              // 更新选择框
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else if (child.data?.isResizeHandle) {
+              // 更新控制点位置
+              const handleSize = 8;
+              const direction = child.data.direction;
+              
+              if (direction === 'nw') {
+                child.position = new paper.Point(newBounds.x, newBounds.y);
+              } else if (direction === 'ne') {
+                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y);
+              } else if (direction === 'sw') {
+                child.position = new paper.Point(newBounds.x, newBounds.y + newBounds.height);
+              } else if (direction === 'se') {
+                child.position = new paper.Point(newBounds.x + newBounds.width, newBounds.y + newBounds.height);
+              }
+            }
+          });
         }
 
         // 更新对应的Paper.js选择区域
@@ -1277,7 +1728,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // 橡皮擦功能 - 删除与橡皮擦路径相交的绘图内容
   const performErase = useCallback((eraserPath: paper.Path) => {
-    const drawingLayer = drawingLayerRef.current;
+    const drawingLayer = ensureDrawingLayer();
     if (!drawingLayer) return;
 
     // 获取橡皮擦路径的边界
@@ -1312,7 +1763,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     itemsToRemove.forEach(item => item.remove());
 
     console.log(`🧹 橡皮擦删除了 ${itemsToRemove.length} 个路径`);
-  }, [strokeWidth]);
+  }, [strokeWidth, ensureDrawingLayer]);
 
   // 完成绘制
   const finishDraw = useCallback(() => {
@@ -1409,7 +1860,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       // 在选择模式下进行点击检测
       if (drawMode === 'select') {
-        // 如果有选中的路径，首先检查是否点击在控制点上
+        // 首先检查是否点击在图像的调整控制点上
+        const resizeHandleHit = paper.project.hitTest(point, {
+          fill: true,
+          tolerance: 5 / zoom
+        });
+        
+        if (resizeHandleHit && resizeHandleHit.item.data?.isResizeHandle) {
+          // 开始图像调整大小
+          const imageId = resizeHandleHit.item.data.imageId;
+          const direction = resizeHandleHit.item.data.direction;
+          
+          // 获取图像组
+          const imageGroup = paper.project.layers.flatMap(layer =>
+            layer.children.filter(child =>
+              child.data?.type === 'image' && child.data?.imageId === imageId
+            )
+          )[0];
+          
+          if (imageGroup) {
+            setIsImageResizing(true);
+            setResizeImageId(imageId);
+            setResizeDirection(direction);
+            setResizeStartBounds(imageGroup.bounds.clone());
+            setResizeStartPoint(point);
+          }
+          return;
+        }
+        
+        // 如果有选中的路径，检查是否点击在控制点上
         if (selectedPath) {
           const segment = getSegmentAt(point, selectedPath);
           if (segment) {
@@ -1419,12 +1898,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
           // 检查是否点击在路径本身上（非控制点）
-          const hitResult = paper.project.hitTest(point, {
+          const pathHitResult = paper.project.hitTest(point, {
             stroke: true,
             tolerance: 5 / zoom
           });
 
-          if (hitResult && hitResult.item === selectedPath) {
+          if (pathHitResult && pathHitResult.item === selectedPath) {
             // 点击在路径上，开始路径拖拽
             startPathDrag(selectedPath, point);
             return;
@@ -1450,6 +1929,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             point.y >= image.bounds.y &&
             point.y <= image.bounds.y + image.bounds.height) {
             imageClicked = image.id;
+            // 如果点击的是已选中的图像，准备开始拖拽
+            if (image.isSelected) {
+              setIsImageDragging(true);
+              setDragImageId(image.id);
+              setImageDragStartPoint(point);
+              setImageDragStartBounds({ x: image.bounds.x, y: image.bounds.y });
+            }
             break;
           }
         }
@@ -1468,10 +1954,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
 
         if (imageClicked) {
-          // 选中图片
-          clearAllSelections();
-          handleImageSelect(imageClicked);
-          console.log('选中图片:', imageClicked);
+          // 如果图片未选中，先选中它
+          const clickedImage = imageInstances.find(img => img.id === imageClicked);
+          if (!clickedImage?.isSelected) {
+            clearAllSelections();
+            handleImageSelect(imageClicked);
+            console.log('选中图片:', imageClicked);
+          }
+          // 如果已经选中，拖拽状态已经在上面设置
         } else if (modelClicked) {
           // 选中3D模型
           clearAllSelections();
@@ -1595,6 +2085,149 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           updatePathDrag(point);
           return;
         }
+        
+        // 处理图像拖拽
+        if (isImageDragging && dragImageId && imageDragStartPoint && imageDragStartBounds) {
+          const deltaX = point.x - imageDragStartPoint.x;
+          const deltaY = point.y - imageDragStartPoint.y;
+          
+          // 更新图像位置
+          handleImageMove(dragImageId, {
+            x: imageDragStartBounds.x + deltaX,
+            y: imageDragStartBounds.y + deltaY
+          });
+          
+          // 强制Paper.js重新渲染
+          paper.view.update();
+          return;
+        }
+        
+        // 处理图像调整大小
+        if (isImageResizing && resizeImageId && resizeDirection && resizeStartBounds && resizeStartPoint) {
+          // 获取原始宽高比
+          const aspectRatio = resizeStartBounds.width / resizeStartBounds.height;
+          
+          let newBounds = resizeStartBounds.clone();
+          
+          // 根据拖拽方向调整边界，保持宽高比
+          // 使用更精确的方式：让控制点跟随鼠标，同时保持宽高比
+          
+          if (resizeDirection === 'se') {
+            // 右下角：鼠标位置决定新的右下角
+            const newWidth = point.x - resizeStartBounds.x;
+            const newHeight = point.y - resizeStartBounds.y;
+            
+            // 选择能保持宽高比且最接近鼠标的尺寸
+            const widthBasedHeight = newWidth / aspectRatio;
+            const heightBasedWidth = newHeight * aspectRatio;
+            
+            // 计算哪种方式更接近鼠标位置
+            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
+            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            
+            if (distanceUsingWidth < distanceUsingHeight) {
+              newBounds.width = newWidth;
+              newBounds.height = widthBasedHeight;
+            } else {
+              newBounds.width = heightBasedWidth;
+              newBounds.height = newHeight;
+            }
+            
+          } else if (resizeDirection === 'nw') {
+            // 左上角：鼠标位置决定新的左上角
+            const newWidth = resizeStartBounds.right - point.x;
+            const newHeight = resizeStartBounds.bottom - point.y;
+            
+            const widthBasedHeight = newWidth / aspectRatio;
+            const heightBasedWidth = newHeight * aspectRatio;
+            
+            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
+            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            
+            if (distanceUsingWidth < distanceUsingHeight) {
+              newBounds.width = newWidth;
+              newBounds.height = widthBasedHeight;
+              newBounds.x = resizeStartBounds.right - newWidth;
+              newBounds.y = resizeStartBounds.bottom - widthBasedHeight;
+            } else {
+              newBounds.width = heightBasedWidth;
+              newBounds.height = newHeight;
+              newBounds.x = resizeStartBounds.right - heightBasedWidth;
+              newBounds.y = resizeStartBounds.bottom - newHeight;
+            }
+            
+          } else if (resizeDirection === 'ne') {
+            // 右上角：X向右扩展，Y向上扩展
+            const newWidth = point.x - resizeStartBounds.x;
+            const newHeight = resizeStartBounds.bottom - point.y;
+            
+            const widthBasedHeight = newWidth / aspectRatio;
+            const heightBasedWidth = newHeight * aspectRatio;
+            
+            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
+            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            
+            if (distanceUsingWidth < distanceUsingHeight) {
+              newBounds.width = newWidth;
+              newBounds.height = widthBasedHeight;
+              newBounds.y = resizeStartBounds.bottom - widthBasedHeight;
+            } else {
+              newBounds.width = heightBasedWidth;
+              newBounds.height = newHeight;
+              newBounds.y = resizeStartBounds.bottom - newHeight;
+            }
+            
+          } else if (resizeDirection === 'sw') {
+            // 左下角：X向左扩展，Y向下扩展
+            const newWidth = resizeStartBounds.right - point.x;
+            const newHeight = point.y - resizeStartBounds.y;
+            
+            const widthBasedHeight = newWidth / aspectRatio;
+            const heightBasedWidth = newHeight * aspectRatio;
+            
+            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
+            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            
+            if (distanceUsingWidth < distanceUsingHeight) {
+              newBounds.width = newWidth;
+              newBounds.height = widthBasedHeight;
+              newBounds.x = resizeStartBounds.right - newWidth;
+            } else {
+              newBounds.width = heightBasedWidth;
+              newBounds.height = newHeight;
+              newBounds.x = resizeStartBounds.right - heightBasedWidth;
+            }
+          }
+          
+          // 限制最小尺寸
+          if (newBounds.width < 50) {
+            newBounds.width = 50;
+            newBounds.height = 50 / aspectRatio;
+            
+            // 调整位置以保持固定角
+            if (resizeDirection === 'nw') {
+              newBounds.x = resizeStartBounds.right - newBounds.width;
+              newBounds.y = resizeStartBounds.bottom - newBounds.height;
+            } else if (resizeDirection === 'ne') {
+              newBounds.y = resizeStartBounds.bottom - newBounds.height;
+            } else if (resizeDirection === 'sw') {
+              newBounds.x = resizeStartBounds.right - newBounds.width;
+            }
+          }
+          
+          // 更新图像边界
+          handleImageResize(resizeImageId, {
+            x: newBounds.x,
+            y: newBounds.y,
+            width: newBounds.width,
+            height: newBounds.height
+          });
+          
+          // 强制Paper.js重新渲染
+          paper.view.update();
+          
+          return;
+        }
 
         // 处理选择框拖拽
         if (isSelectionDragging) {
@@ -1603,6 +2236,34 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
 
         // 鼠标悬停时更改光标样式
+        // 首先检查是否悬停在图像调整控制点上
+        const hoverHit = paper.project.hitTest(point, {
+          fill: true,
+          tolerance: 5 / zoom
+        });
+        
+        if (hoverHit && hoverHit.item.data?.isResizeHandle) {
+          const direction = hoverHit.item.data.direction;
+          if (direction === 'nw' || direction === 'se') {
+            canvas.style.cursor = 'nwse-resize';
+          } else if (direction === 'ne' || direction === 'sw') {
+            canvas.style.cursor = 'nesw-resize';
+          }
+          return;
+        }
+        
+        // 检查是否悬停在已选中的图像上
+        for (const image of imageInstances) {
+          if (image.isSelected &&
+              point.x >= image.bounds.x &&
+              point.x <= image.bounds.x + image.bounds.width &&
+              point.y >= image.bounds.y &&
+              point.y <= image.bounds.y + image.bounds.height) {
+            canvas.style.cursor = 'move';
+            return;
+          }
+        }
+        
         if (selectedPath) {
           const segment = getSegmentAt(point, selectedPath);
           if (segment) {
@@ -1642,8 +2303,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
-      if (!isDrawingRef.current || !pathRef.current) return;
+      // 检查是否正在绘制
+      if (!isDrawingRef.current) return;
 
+      // 对于自由绘制模式，pathRef.current 可能还未创建（延迟创建机制）
       if (drawMode === 'free') {
         // 继续自由绘制
         continueFreeDraw(point);
@@ -1653,7 +2316,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       } else if (drawMode === 'circle') {
         // 更新圆形
         updateCircleDraw(point);
-      } else if (drawMode === 'image') {
+      } else if (drawMode === 'image' && pathRef.current) {
         // 更新图片占位框
         if (pathRef.current && (pathRef.current as any).startPoint) {
           const startPoint = (pathRef.current as any).startPoint;
@@ -1670,7 +2333,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 保持起始点引用
           (pathRef.current as any).startPoint = startPoint;
         }
-      } else if (drawMode === '3d-model') {
+      } else if (drawMode === '3d-model' && pathRef.current) {
         // 更新3D模型占位框
         if (pathRef.current && (pathRef.current as any).startPoint) {
           const startPoint = (pathRef.current as any).startPoint;
@@ -1703,6 +2366,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 处理路径拖拽结束
         if (isPathDragging) {
           finishPathDrag();
+          return;
+        }
+        
+        // 处理图像拖拽结束
+        if (isImageDragging) {
+          setIsImageDragging(false);
+          setDragImageId(null);
+          setImageDragStartPoint(null);
+          setImageDragStartBounds(null);
+          return;
+        }
+        
+        // 处理图像调整大小结束
+        if (isImageResizing) {
+          setIsImageResizing(false);
+          setResizeImageId(null);
+          setResizeDirection(null);
+          setResizeStartBounds(null);
+          setResizeStartPoint(null);
+          // 不需要重新选择，控制点已经在拖动过程中更新了
           return;
         }
 
@@ -1744,7 +2427,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
     };
-  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, createFreeDrawPath, startLineDraw, updateLineDraw, finishLineDraw, createLinePath, startRectDraw, updateRectDraw, createRectPath, startCircleDraw, updateCircleDraw, createCirclePath, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath, imageInstances, model3DInstances, handleImageSelect, handleModel3DSelect]);
+  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, createFreeDrawPath, startLineDraw, updateLineDraw, finishLineDraw, createLinePath, startRectDraw, updateRectDraw, createRectPath, startCircleDraw, updateCircleDraw, createCirclePath, finishDraw, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath, imageInstances, model3DInstances, handleImageSelect, handleModel3DSelect, isImageDragging, dragImageId, imageDragStartPoint, imageDragStartBounds, handleImageMove, handleImageResize, isImageResizing, resizeImageId, resizeDirection, resizeStartBounds, resizeStartPoint]);
 
   // 监听图层面板的选择事件
   useEffect(() => {
@@ -1794,21 +2477,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onTriggerHandled={handleUploadTriggerHandled}
       />
 
-      {/* 图片渲染实例 */}
-      {imageInstances.map((image) => (
-        <ImageContainer
-          key={image.id}
-          imageData={image.imageData}
-          bounds={image.bounds}
-          isSelected={image.isSelected}
-          visible={image.visible}
-          drawMode={drawMode}
-          isSelectionDragging={isSelectionDragging}
-          onSelect={() => handleImageSelect(image.id)}
-          onMove={(newPosition) => handleImageMove(image.id, newPosition)}
-          onResize={(newBounds) => handleImageResize(image.id, newBounds)}
-        />
-      ))}
+      {/* 图片现在完全在Paper.js中渲染和管理，不再需要React组件 */}
 
       {/* 3D模型上传组件 */}
       <Model3DUploadComponent

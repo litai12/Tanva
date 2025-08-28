@@ -15,6 +15,7 @@ interface ImageContainerProps {
   visible?: boolean; // 是否可见
   drawMode?: string; // 当前绘图模式
   isSelectionDragging?: boolean; // 是否正在拖拽选择框
+  layerIndex?: number; // 图层索引，用于计算z-index
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
@@ -27,6 +28,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   visible = true,
   drawMode = 'select',
   isSelectionDragging = false,
+  layerIndex = 0,
   onSelect,
   onMove,
   onResize
@@ -294,7 +296,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         top: screenBounds.y,
         width: screenBounds.width,
         height: screenBounds.height,
-        zIndex: isSelected ? 1001 : 1000,
+        zIndex: 1000 + layerIndex * 10 + (isSelected ? 1 : 0),
         cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
         userSelect: 'none',
         pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
@@ -302,7 +304,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }}
       onMouseDown={handleMouseDown}
     >
-      {/* 图片容器 - 内层处理overflow */}
+      {/* 透明的交互区域 - 图像现在在Paper.js canvas中渲染 */}
       <div
         style={{
           width: '100%',
@@ -310,26 +312,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           border: 'none',
           borderRadius: '0',
           overflow: 'hidden',
-          backgroundColor: 'transparent'
+          backgroundColor: 'transparent',
+          pointerEvents: isSelected ? 'auto' : 'none'
         }}
-      >
-        {/* 图片显示 */}
-        <img
-          ref={imageRef}
-          src={imageData.src}
-          alt={imageData.fileName || 'Uploaded image'}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-            display: 'block',
-            userSelect: 'none',
-            pointerEvents: 'none'
-          }}
-          draggable={false}
-          onLoad={handleImageLoad}
-        />
-      </div>
+      />
 
       {/* 选中状态的边框 - 覆盖整个容器，与3D保持一致 */}
       {isSelected && (

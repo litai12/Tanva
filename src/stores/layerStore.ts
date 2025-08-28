@@ -192,6 +192,9 @@ export const useLayerStore = create<LayerState>((set, get) => ({
             if (paperLayer && targetLayer) {
                 paperLayer.insertAbove(targetLayer);
             }
+            
+            // 触发图层顺序变化事件
+            window.dispatchEvent(new CustomEvent('layerOrderChanged'));
         }
     },
 
@@ -209,6 +212,9 @@ export const useLayerStore = create<LayerState>((set, get) => ({
             if (paperLayer && targetLayer) {
                 paperLayer.insertBelow(targetLayer);
             }
+            
+            // 触发图层顺序变化事件
+            window.dispatchEvent(new CustomEvent('layerOrderChanged'));
         }
     },
 
@@ -244,6 +250,9 @@ export const useLayerStore = create<LayerState>((set, get) => ({
                 sourceLayer.insertBelow(targetLayer);
             }
         }
+        
+        // 触发图层顺序变化事件
+        window.dispatchEvent(new CustomEvent('layerOrderChanged'));
     },
 
     ensureActiveLayer: () => {
