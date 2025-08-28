@@ -959,29 +959,38 @@ const LayerPanel: React.FC = () => {
                                                 ) as HTMLElement[];
                                                 
                                                 if (actualInsertIndex === 0) {
-                                                    // 插入到第一个位置，指示线在第一个元素上方
+                                                    // 插入到第一个位置，指示线在容器顶部padding区域的中心
                                                     const firstLayerElement = layerElements[0];
                                                     if (firstLayerElement) {
                                                         const firstRect = firstLayerElement.getBoundingClientRect();
-                                                        edge = firstRect.top - 4;
+                                                        const containerPadding = 12; // p-3 = 12px
+                                                        // 计算容器顶部到第一个元素之间空白区域的中心，向上偏移10px
+                                                        edge = cRect.top + containerPadding + (firstRect.top - cRect.top - containerPadding) / 2 - 10;
                                                     } else {
-                                                        edge = rect.top - 4;
+                                                        edge = cRect.top + 6 - 10; // padding中心，向上偏移10px
                                                     }
                                                 } else if (actualInsertIndex === layers.length) {
-                                                    // 插入到最后位置，指示线在最后一个元素下方
+                                                    // 插入到最后位置，指示线在最后一个元素到容器底部的中心
                                                     const lastLayerElement = layerElements[layerElements.length - 1];
                                                     if (lastLayerElement) {
                                                         const lastRect = lastLayerElement.getBoundingClientRect();
-                                                        edge = lastRect.bottom + 4;
+                                                        const containerPadding = 12; // p-3 = 12px
+                                                        // 计算最后一个元素到容器底部空白区域的中心，向上偏移10px
+                                                        edge = lastRect.bottom + (cRect.bottom - lastRect.bottom - containerPadding) / 2 - 10;
                                                     } else {
-                                                        edge = rect.bottom + 4;
+                                                        edge = cRect.bottom - 6 - 10; // padding中心，向上偏移10px
                                                     }
                                                 } else {
-                                                    // 插入到中间位置：参考边界拖拽的简单做法
-                                                    const targetLayerElement = layerElements[actualInsertIndex - 1];
-                                                    if (targetLayerElement) {
-                                                        const targetRect = targetLayerElement.getBoundingClientRect();
-                                                        // 简单地在目标元素下方加上间距的一半(space-y-2 = 8px，所以是4px)
+                                                    // 插入到中间位置：计算两个图层框之间空白区域的正中间
+                                                    const prevLayerElement = layerElements[actualInsertIndex - 1];
+                                                    const nextLayerElement = layerElements[actualInsertIndex];
+                                                    if (prevLayerElement && nextLayerElement) {
+                                                        const prevRect = prevLayerElement.getBoundingClientRect();
+                                                        const nextRect = nextLayerElement.getBoundingClientRect();
+                                                        // 计算两个图层框之间空白区域的正中间，向上偏移10px
+                                                        edge = prevRect.bottom + (nextRect.top - prevRect.bottom) / 2 - 10;
+                                                    } else if (prevLayerElement) {
+                                                        const targetRect = prevLayerElement.getBoundingClientRect();
                                                         edge = targetRect.bottom + 4;
                                                     } else {
                                                         edge = rect.bottom + 4;
@@ -1209,29 +1218,39 @@ const LayerPanel: React.FC = () => {
                                                             
                                                             let edge: number;
                                                             if (actualInsertIndex === 0) {
-                                                                // 插入到第一个位置：指示线在第一个元素上方
+                                                                // 插入到第一个位置：指示线在图元容器顶部到第一个元素之间的中心
                                                                 const firstElement = itemElements[0];
                                                                 if (firstElement) {
                                                                     const firstRect = firstElement.getBoundingClientRect();
-                                                                    edge = firstRect.top - 2;
+                                                                    const itemContainerRect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+                                                                    const marginTop = 4; // mt-1 = 4px
+                                                                    // 计算图元容器顶部到第一个图元之间空白区域的中心，向上偏移10px
+                                                                    edge = itemContainerRect.top + marginTop + (firstRect.top - itemContainerRect.top - marginTop) / 2 - 10;
                                                                 } else {
-                                                                    edge = rect.top - 2;
+                                                                    edge = rect.top - 10;
                                                                 }
                                                             } else if (actualInsertIndex === items.length) {
-                                                                // 插入到最后一个位置：指示线在最后一个元素下方
+                                                                // 插入到最后一个位置：指示线在最后一个元素到容器底部的中心
                                                                 const lastElement = itemElements[itemElements.length - 1];
                                                                 if (lastElement) {
                                                                     const lastRect = lastElement.getBoundingClientRect();
-                                                                    edge = lastRect.bottom + 2;
+                                                                    const itemContainerRect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+                                                                    // 图元容器没有底部padding，所以直接计算到容器底部，向上偏移10px
+                                                                    edge = lastRect.bottom + (itemContainerRect.bottom - lastRect.bottom) / 2 - 10;
                                                                 } else {
-                                                                    edge = rect.bottom + 2;
+                                                                    edge = rect.bottom - 10;
                                                                 }
                                                             } else {
-                                                                // 插入到中间位置：参考图层的简单做法
-                                                                const targetElement = itemElements[actualInsertIndex - 1];
-                                                                if (targetElement) {
-                                                                    const targetRect = targetElement.getBoundingClientRect();
-                                                                    // 简单地在目标元素下方加上间距的一半(space-y-1 = 4px，所以是2px)
+                                                                // 插入到中间位置：计算两个图元框之间空白区域的正中间
+                                                                const prevElement = itemElements[actualInsertIndex - 1];
+                                                                const nextElement = itemElements[actualInsertIndex];
+                                                                if (prevElement && nextElement) {
+                                                                    const prevRect = prevElement.getBoundingClientRect();
+                                                                    const nextRect = nextElement.getBoundingClientRect();
+                                                                    // 计算两个图元框之间空白区域的正中间，向上偏移10px
+                                                                    edge = prevRect.bottom + (nextRect.top - prevRect.bottom) / 2 - 10;
+                                                                } else if (prevElement) {
+                                                                    const targetRect = prevElement.getBoundingClientRect();
                                                                     edge = targetRect.bottom + 2;
                                                                 } else {
                                                                     edge = pos === 'above' ? rect.top - 2 : rect.bottom + 2;
