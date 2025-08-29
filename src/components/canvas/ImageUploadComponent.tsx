@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import React, { useRef, useCallback } from 'react';
 import { imageUploadService } from '@/services/imageUploadService';
 
@@ -22,7 +23,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
     if (!file) return;
 
     try {
-      console.log('📸 开始处理图片:', file.name);
+      logger.upload('📸 开始处理图片:', file.name);
 
       // 处理图片
       const result = await imageUploadService.processImageFile(file, {
@@ -32,7 +33,7 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       });
 
       if (result.success && result.data) {
-        console.log('✅ 图片处理成功');
+        logger.upload('✅ 图片处理成功');
         onImageUploaded(result.data, file.name);
       } else {
         console.error('❌ 图片处理失败:', result.error);

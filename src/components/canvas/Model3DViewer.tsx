@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import React, { useRef, useEffect, useState, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
@@ -167,7 +168,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
       // @react-three/fiber的Canvas组件会自动处理大部分WebGL资源清理
       // useGLTF有内置的缓存和清理机制
       if (import.meta.env.DEV) {
-        console.log('Model3DViewer组件卸载，清理3D资源');
+        logger.debug('Model3DViewer组件卸载，清理3D资源');
       }
     };
   }, []);

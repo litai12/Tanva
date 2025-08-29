@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 /**
  * 3D模型文件上传服务
  * 支持GLB格式的3D模型处理和上传
@@ -50,7 +51,7 @@ class Model3DUploadService {
         };
       }
 
-      console.log('🎲 开始处理3D模型文件:', file.name, `(${(file.size / 1024 / 1024).toFixed(2)}MB)`);
+      logger.upload('🎲 开始处理3D模型文件:', file.name, `(${(file.size / 1024 / 1024).toFixed(2)}MB)`);
 
       const dataUrl = await this.fileToDataURL(file);
       const format = this.getFileFormat(file.name);

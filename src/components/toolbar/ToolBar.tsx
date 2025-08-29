@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Eraser, Square, Trash2, Box, Image, Layers } from 'lucide-react';
 import { useToolStore, useUIStore } from '@/stores';
+import { logger } from '@/utils/logger';
 
 // 自定义图标组件
 // 直线工具图标
@@ -211,7 +212,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             // 如果当前没有激活绘图工具（选择模式、橡皮擦模式或其他独立工具），切换到默认的绘线工具
             if (drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot') {
               setDrawMode('free');
-              console.log('工具栏主按钮：切换到绘线工具');
+              logger.tool('工具栏主按钮：切换到绘线工具');
             }
           }}
           title={

@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
@@ -441,7 +442,7 @@ const LayerPanel: React.FC = () => {
                 modelItem.paperItem?.data?.modelId === model.id
             );
 
-            console.log('查找3D模型实例:', {
+            logger.debug('查找3D模型实例:', {
                 paperItemModelId: modelItem.paperItem?.data?.modelId,
                 availableModels: model3DInstances.map((m: any) => ({ id: m.id, fileName: m.modelData?.fileName })),
                 foundInstance: !!modelInstance
@@ -473,7 +474,7 @@ const LayerPanel: React.FC = () => {
             const modelContainers = document.querySelectorAll('[data-model-id]');
             let targetContainer: Element | null = null;
 
-            console.log('查找DOM容器:', {
+            logger.debug('查找DOM容器:', {
                 searchingForId: modelInstance.id,
                 availableContainers: Array.from(modelContainers).map(c => c.getAttribute('data-model-id'))
             });
@@ -878,7 +879,7 @@ const LayerPanel: React.FC = () => {
                             } else {
                                 setIndicatorY(containerPadding / 2 - 10);
                             }
-                            console.log('边界拖拽：移动到顶部');
+                            logger.debug('边界拖拽：移动到顶部');
                         } else if (y > bottomBoundary) {
                             // 拖拽到列表底部 - 放在最后一个图层之后
                             setDragOverPosition('below');
@@ -893,7 +894,7 @@ const LayerPanel: React.FC = () => {
                                 const containerPadding = 12; // p-3 = 12px
                                 const edge = lastRect.bottom + (cRect.bottom - lastRect.bottom - containerPadding) / 2 - 10;
                                 setIndicatorY(edge - cRect.top + containerRef.current.scrollTop);
-                                console.log('边界拖拽：移动到底部');
+                                logger.debug('边界拖拽：移动到底部');
                             }
                         }
                     }}
@@ -925,11 +926,11 @@ const LayerPanel: React.FC = () => {
                             if (y < topBoundary) {
                                 // 移动到第一个图层之前
                                 reorderLayer(layerId, layers[0].id, true);
-                                console.log('执行边界拖拽：移动到顶部');
+                                logger.debug('执行边界拖拽：移动到顶部');
                             } else if (y > bottomBoundary) {
                                 // 移动到最后一个图层之后
                                 reorderLayer(layerId, layers[layers.length - 1].id, false);
-                                console.log('执行边界拖拽：移动到底部');
+                                logger.debug('执行边界拖拽：移动到底部');
                             }
                         }
                         

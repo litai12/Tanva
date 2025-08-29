@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import React, { useRef, useCallback } from 'react';
 import { model3DUploadService } from '@/services/model3DUploadService';
 import type { Model3DData } from '@/services/model3DUploadService';
@@ -23,7 +24,7 @@ const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
     if (!file) return;
 
     try {
-      console.log('🎲 开始处理3D模型文件:', file.name);
+      logger.debug('🎲 开始处理3D模型文件:', file.name);
       
       // 处理3D模型文件
       const result = await model3DUploadService.processModel3DFile(file);
@@ -31,7 +32,7 @@ const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
       if (result.success) {
         const modelData = model3DUploadService.createModel3DData(result);
         if (modelData) {
-          console.log('✅ 3D模型处理成功:', modelData.fileName);
+          logger.debug('✅ 3D模型处理成功:', modelData.fileName);
           onModel3DUploaded(modelData);
         } else {
           console.error('❌ 3D模型数据创建失败');

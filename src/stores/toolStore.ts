@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { logger } from '@/utils/logger';
 
 // 工具类型定义
 export type DrawMode = 'select' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | '3d-model' | 'screenshot';
@@ -39,7 +40,7 @@ export const useToolStore = create<ToolState>()(
         
         // 设置方法
         setDrawMode: (mode) => {
-          console.log(`🔧 切换工具模式: ${get().drawMode} -> ${mode}`);
+          logger.debug(`🔧 切换工具模式: ${get().drawMode} -> ${mode}`);
           // 切换到绘图模式时，自动关闭橡皮擦
           if (DRAWING_TOOLS.includes(mode)) {
             set({ drawMode: mode, isEraser: false });
@@ -75,7 +76,7 @@ export const useToolStore = create<ToolState>()(
           const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % DRAWING_TOOLS.length;
           const nextMode = DRAWING_TOOLS[nextIndex];
           
-          console.log(`🔄 循环切换绘图工具: ${drawMode} -> ${nextMode}`);
+          logger.debug(`🔄 循环切换绘图工具: ${drawMode} -> ${nextMode}`);
           set({ drawMode: nextMode });
         },
       }),

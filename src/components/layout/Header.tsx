@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import React, { useState } from 'react';
 import {
     DropdownMenu,
@@ -38,7 +39,7 @@ const Header: React.FC = () => {
 
     const handleLogoClick = () => {
         // 暂时空实现
-        console.log('Logo clicked');
+        logger.debug('Logo clicked');
     };
 
     return (
@@ -237,7 +238,7 @@ const Header: React.FC = () => {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 className="text-xs cursor-pointer"
-                                onClick={() => console.log('退出登录')}
+                                onClick={() => logger.debug('退出登录')}
                             >
                                 <LogOut className="mr-2 h-3 w-3" />
                                 <span>退出登录</span>

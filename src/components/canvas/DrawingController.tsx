@@ -6,7 +6,9 @@ import ImageContainer from './ImageContainer';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
+import { logger } from '@/utils/logger';
 import type { Model3DData } from '@/services/model3DUploadService';
+import type { ExtendedPath, PaperItemData } from '@/types/paper';
 
 interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -16,7 +18,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
   const { layers } = useLayerStore();
-  const pathRef = useRef<paper.Path | null>(null);
+  const pathRef = useRef<ExtendedPath | null>(null);
   const isDrawingRef = useRef(false);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   
@@ -188,7 +190,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     pathRef.current.fillColor = null; // 确保不填充
 
     // 保存起始点用于后续更新
-    (pathRef.current as any).startPoint = startPoint;
+    if (pathRef.current) pathRef.current.startPoint = startPoint;
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
 
   // 更新矩形绘制
@@ -207,8 +209,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     }
 
-    if (pathRef.current && (pathRef.current as any).startPoint) {
-      const startPoint = (pathRef.current as any).startPoint;
+    if (pathRef.current?.startPoint) {
+      const startPoint = pathRef.current?.startPoint;
       const rectangle = new paper.Rectangle(startPoint, point);
 
       // 优化：更新现有矩形而不是重新创建
@@ -225,7 +227,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       pathRef.current.fillColor = null;
 
       // 保持起始点引用
-      (pathRef.current as any).startPoint = startPoint;
+      if (pathRef.current) pathRef.current.startPoint = startPoint;
     }
   }, [currentColor, strokeWidth, createRectPath]);
 
@@ -248,7 +250,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     pathRef.current.fillColor = null; // 确保不填充
 
     // 保存起始点用于后续更新
-    (pathRef.current as any).startPoint = startPoint;
+    if (pathRef.current) pathRef.current.startPoint = startPoint;
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
 
   // 更新圆形绘制
@@ -267,8 +269,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
     }
 
-    if (pathRef.current && (pathRef.current as any).startPoint) {
-      const startPoint = (pathRef.current as any).startPoint;
+    if (pathRef.current?.startPoint) {
+      const startPoint = pathRef.current?.startPoint;
       const radius = startPoint.getDistance(point);
 
       // 优化：更新现有圆形而不是重新创建
@@ -294,7 +296,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       pathRef.current.fillColor = null;
 
       // 保持起始点引用
-      (pathRef.current as any).startPoint = startPoint;
+      if (pathRef.current) pathRef.current.startPoint = startPoint;
     }
   }, [currentColor, strokeWidth, createCirclePath]);
 
@@ -309,39 +311,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     pathRef.current.strokeWidth = strokeWidth;
 
     // 保存起始点用于后续更新
-    (pathRef.current as any).startPoint = startPoint;
-    console.log('创建直线路径');
+    if (pathRef.current) pathRef.current.startPoint = startPoint;
+    logger.debug('创建直线路径');
   }, [ensureDrawingLayer, currentColor, strokeWidth]);
 
   // 开始绘制直线（仅记录起始位置）
   const startLineDraw = useCallback((_point: paper.Point) => {
     // 仅记录起始位置，不立即创建路径
-    console.log('直线工具激活，等待拖拽');
+    logger.debug('直线工具激活，等待拖拽');
   }, []);
 
   // 更新直线绘制（鼠标移动时跟随）
   const updateLineDraw = useCallback((point: paper.Point) => {
-    if (pathRef.current && (pathRef.current as any).startPoint) {
-      const startPoint = (pathRef.current as any).startPoint;
+    if (pathRef.current?.startPoint) {
+      const startPoint = pathRef.current?.startPoint;
 
       // 更新直线的终点
       pathRef.current.segments[1].point = point;
 
       // 保持起始点引用和样式
-      (pathRef.current as any).startPoint = startPoint;
+      if (pathRef.current) pathRef.current.startPoint = startPoint;
     }
   }, []);
 
   // 完成直线绘制（第二次点击）
   const finishLineDraw = useCallback((point: paper.Point) => {
-    if (pathRef.current && (pathRef.current as any).startPoint) {
+    if (pathRef.current?.startPoint) {
       // 设置最终的终点
       pathRef.current.segments[1].point = point;
 
       // 清理临时引用
-      delete (pathRef.current as any).startPoint;
+      if (pathRef.current) delete pathRef.current.startPoint;
 
-      console.log('完成直线绘制');
+      logger.drawing('完成直线绘制');
       pathRef.current = null;
 
       // 触发 Paper.js 的 change 事件
@@ -425,7 +427,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 添加点击事件
     group.onClick = () => {
-      console.log('📸 点击图片占位框，触发上传');
+      logger.upload('📸 点击图片占位框，触发上传');
       currentPlaceholderRef.current = group;
       setTriggerImageUpload(true);
     };
@@ -441,12 +443,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       return;
     }
 
-    console.log('✅ 图片上传成功，创建图片实例');
+    logger.upload('✅ 图片上传成功，创建图片实例');
 
     const paperBounds = placeholder.data.bounds;
     const imageId = `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    console.log('📍 图片使用Paper.js坐标:', paperBounds);
+    logger.upload('📍 图片使用Paper.js坐标:', paperBounds);
 
     // 在Paper.js中创建图片的代表组
     ensureDrawingLayer();
@@ -721,7 +723,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 自动切换回选择模式
     setDrawMode('select');
 
-    console.log('✅ 图片添加到画布成功，已切换到选择模式并选中');
+    logger.upload('✅ 图片添加到画布成功，已切换到选择模式并选中');
   }, [setDrawMode, canvasRef]);
 
   // 处理图片上传错误
@@ -831,7 +833,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 添加点击事件
     group.onClick = () => {
-      console.log('🎲 点击3D模型占位框，触发上传');
+      logger.upload('🎲 点击3D模型占位框，触发上传');
       currentModel3DPlaceholderRef.current = group;
       setTriggerModel3DUpload(true);
     };
@@ -847,12 +849,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       return;
     }
 
-    console.log('✅ 3D模型上传成功，创建3D渲染实例:', modelData.fileName);
+    logger.upload('✅ 3D模型上传成功，创建3D渲染实例:', modelData.fileName);
 
     const paperBounds = placeholder.data.bounds;
     const modelId = `model3d_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    console.log('📍 3D模型使用Paper.js坐标:', paperBounds);
+    logger.upload('📍 3D模型使用Paper.js坐标:', paperBounds);
 
     // 在Paper.js中创建3D模型的代表组
     ensureDrawingLayer();
@@ -938,7 +940,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 自动切换回选择模式
     setDrawMode('select');
 
-    console.log('✅ 3D模型添加到画布成功，已切换到选择模式');
+    logger.upload('✅ 3D模型添加到画布成功，已切换到选择模式');
   }, [setDrawMode, canvasRef]);
 
   // 处理3D模型上传错误
@@ -1145,8 +1147,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     path.strokeWidth = (path as any).originalStrokeWidth + 1; // 稍微加粗但不太明显
 
     setSelectedPath(path);
-    console.log('选择路径并启用编辑模式:', path);
-    console.log('路径段数:', path.segments.length);
+    logger.debug('选择路径并启用编辑模式:', path);
+    logger.debug('路径段数:', path.segments.length);
   }, [selectedPath]);
 
   // 取消路径选择
@@ -1159,7 +1161,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
       }
       setSelectedPath(null);
-      console.log('取消路径选择');
+      logger.debug('取消路径选择');
     }
   }, [selectedPath]);
 
@@ -1178,7 +1180,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 标记为辅助元素，不显示在图层列表中
     selectionBoxRef.current.data = { isHelper: true, type: 'selection-box' };
 
-    console.log('开始选择框拖拽');
+    logger.debug('开始选择框拖拽');
   }, []);
 
   // 更新选择框
@@ -1220,7 +1222,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const imageBounds = new paper.Rectangle(image.bounds.x, image.bounds.y, image.bounds.width, image.bounds.height);
       if (selectionRect.intersects(imageBounds)) {
         selectedImages.push(image.id);
-        console.log('选择框收集图片:', image.id);
+        logger.upload('选择框收集图片:', image.id);
       }
     }
 
@@ -1229,7 +1231,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const modelBounds = new paper.Rectangle(model.bounds.x, model.bounds.y, model.bounds.width, model.bounds.height);
       if (selectionRect.intersects(modelBounds)) {
         selectedModels.push(model.id);
-        console.log('选择框收集3D模型:', model.id);
+        logger.upload('选择框收集3D模型:', model.id);
       }
     }
 
@@ -1293,18 +1295,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       setSelectedPaths(selectedPathsInBox);
       setSelectedPath(null); // 清除单个选择
-      console.log(`选择了${selectedPathsInBox.length}个路径`);
+      logger.debug(`选择了${selectedPathsInBox.length}个路径`);
     }
 
     // 处理图片和3D模型的选择（在选择框完成后）
     if (selectedImages.length > 0) {
       // 目前只支持选择单个图片，取第一个
       handleImageSelect(selectedImages[0]);
-      console.log(`选择框选中图片: ${selectedImages[0]}`);
+      logger.upload(`选择框选中图片: ${selectedImages[0]}`);
     } else if (selectedModels.length > 0) {
       // 目前只支持选择单个3D模型，取第一个
       handleModel3DSelect(selectedModels[0]);
-      console.log(`选择框选中3D模型: ${selectedModels[0]}`);
+      logger.upload(`选择框选中3D模型: ${selectedModels[0]}`);
     }
 
     // 重置状态
@@ -1353,7 +1355,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setIsSegmentDragging(true);
     setDraggedSegment(segment);
     setDragStartPoint(startPoint);
-    console.log('开始拖拽控制点');
+    logger.debug('开始拖拽控制点');
   }, []);
 
   // 更新控制点位置
@@ -1361,7 +1363,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (!isSegmentDragging || !draggedSegment) return;
 
     draggedSegment.point = currentPoint;
-    console.log('更新控制点位置:', currentPoint);
+    logger.debug('更新控制点位置:', currentPoint);
   }, [isSegmentDragging, draggedSegment]);
 
   // 结束控制点拖拽
@@ -1370,7 +1372,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       setIsSegmentDragging(false);
       setDraggedSegment(null);
       setDragStartPoint(null);
-      console.log('结束控制点拖拽');
+      logger.debug('结束控制点拖拽');
     }
   }, [isSegmentDragging]);
 
@@ -1379,7 +1381,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setIsPathDragging(true);
     setDraggedPath(path);
     setDragStartPoint(startPoint);
-    console.log('开始拖拽路径');
+    logger.debug('开始拖拽路径');
   }, []);
 
   // 更新路径位置
@@ -1389,7 +1391,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const delta = currentPoint.subtract(dragStartPoint);
     draggedPath.translate(delta);
     setDragStartPoint(currentPoint);
-    console.log('更新路径位置');
+    logger.debug('更新路径位置');
   }, [isPathDragging, draggedPath, dragStartPoint]);
 
   // 结束路径拖拽
@@ -1398,7 +1400,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       setIsPathDragging(false);
       setDraggedPath(null);
       setDragStartPoint(null);
-      console.log('结束路径拖拽');
+      logger.debug('结束路径拖拽');
     }
   }, [isPathDragging]);
 
@@ -1737,7 +1739,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 删除相交的路径
     itemsToRemove.forEach(item => item.remove());
 
-    console.log(`🧹 橡皮擦删除了 ${itemsToRemove.length} 个路径`);
+    logger.debug(`🧹 橡皮擦删除了 ${itemsToRemove.length} 个路径`);
   }, [strokeWidth, ensureDrawingLayer]);
 
   // 完成绘制
@@ -1758,7 +1760,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         pathRef.current.remove(); // 删除橡皮擦路径本身
       } else if (drawMode === 'image') {
         // 图片模式：创建占位框
-        const startPoint = (pathRef.current as any).startPoint;
+        const startPoint = pathRef.current?.startPoint;
         if (startPoint) {
           const endPoint = new paper.Point(
             pathRef.current.bounds.x + pathRef.current.bounds.width,
@@ -1776,7 +1778,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       } else if (drawMode === '3d-model') {
         // 3D模型模式：创建占位框
-        const startPoint = (pathRef.current as any).startPoint;
+        const startPoint = pathRef.current?.startPoint;
         if (startPoint) {
           const endPoint = new paper.Point(
             pathRef.current.bounds.x + pathRef.current.bounds.width,
@@ -1800,9 +1802,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       // 清理临时引用
-      delete (pathRef.current as any).startPoint;
+      if (pathRef.current) delete pathRef.current.startPoint;
 
-      console.log(`✅ 绘制完成: ${isEraser ? '橡皮擦操作' : drawMode === 'image' ? '图片占位框，已切换到选择模式' : drawMode === '3d-model' ? '3D模型占位框，已切换到选择模式' : '普通绘制'}`);
+      logger.drawing(`绘制完成: ${isEraser ? '橡皮擦操作' : drawMode === 'image' ? '图片占位框，已切换到选择模式' : drawMode === '3d-model' ? '3D模型占位框，已切换到选择模式' : '普通绘制'}`);
       pathRef.current = null;
 
       // 触发 Paper.js 的 change 事件，确保图层面板更新
@@ -1938,21 +1940,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           if (!clickedImage?.isSelected) {
             clearAllSelections();
             handleImageSelect(imageClicked);
-            console.log('选中图片:', imageClicked);
+            logger.upload('选中图片:', imageClicked);
           }
           // 如果已经选中，拖拽状态已经在上面设置
         } else if (modelClicked) {
           // 选中3D模型
           clearAllSelections();
           handleModel3DSelect(modelClicked);
-          console.log('选中3D模型:', modelClicked);
+          logger.upload('选中3D模型:', modelClicked);
         } else if (hitResult && hitResult.item instanceof paper.Path) {
           // 检查路径是否在网格图层或其他背景图层中，如果是则不选择
           const path = hitResult.item as paper.Path;
           const pathLayer = path.layer;
 
           if (pathLayer && (pathLayer.name === "grid" || pathLayer.name === "background")) {
-            console.log('忽略背景/网格图层中的对象');
+            logger.debug('忽略背景/网格图层中的对象');
             // 取消所有选择
             clearAllSelections();
             // 开始选择框拖拽
@@ -1969,7 +1971,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 const parentData = parent.data;
                 if (parentData.type === 'image-placeholder' || parentData.type === '3d-model-placeholder') {
                   isPlaceholder = true;
-                  console.log('忽略占位符中的对象:', parentData.type);
+                  logger.debug('忽略占位符中的对象:', parentData.type);
                   break;
                 }
               }
@@ -1984,13 +1986,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               // 点击到了有效路径，选择它
               clearAllSelections(); // 先清除之前的选择
               handlePathSelect(path);
-              console.log('选中路径:', path);
+              logger.debug('选中路径:', path);
             }
           }
         } else {
           // 点击空白区域，先取消所有选择
           clearAllSelections();
-          console.log('点击空白区域，取消所有选择');
+          logger.debug('点击空白区域，取消所有选择');
 
           // 然后开始选择框拖拽
           startSelectionBox(point);
@@ -1998,14 +2000,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
-      console.log(`🎨 开始绘制: 模式=${drawMode}, 坐标=(${x.toFixed(1)}, ${y.toFixed(1)})`);
+      logger.drawing(`开始绘制: 模式=${drawMode}, 坐标=(${x.toFixed(1)}, ${y.toFixed(1)})`);
 
       if (drawMode === 'free') {
         // 开始自由绘制
         startFreeDraw(point);
       } else if (drawMode === 'line') {
         // 直线绘制模式：第一次点击开始，第二次点击完成
-        if (!pathRef.current || !(pathRef.current as any).startPoint) {
+        if (!pathRef.current?.startPoint) {
           // 第一次点击：开始绘制直线（仅记录起始位置）
           initialClickPointRef.current = point;
           hasMovedRef.current = false;
@@ -2029,7 +2031,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         pathRef.current.strokeWidth = 1;
         pathRef.current.dashArray = [5, 5];
         pathRef.current.fillColor = null;
-        (pathRef.current as any).startPoint = point;
+        if (pathRef.current) pathRef.current.startPoint = point;
       } else if (drawMode === '3d-model') {
         // 开始创建3D模型占位框
         const rect = new paper.Rectangle(point, point.add(new paper.Point(1, 1)));
@@ -2038,7 +2040,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         pathRef.current.strokeWidth = 2;
         pathRef.current.dashArray = [8, 4];
         pathRef.current.fillColor = null;
-        (pathRef.current as any).startPoint = point;
+        if (pathRef.current) pathRef.current.startPoint = point;
       }
 
       isDrawingRef.current = true;
@@ -2243,7 +2245,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
         }
         // 如果正在绘制直线，跟随鼠标
-        if (pathRef.current && (pathRef.current as any).startPoint) {
+        if (pathRef.current?.startPoint) {
           updateLineDraw(point);
         }
         return;
@@ -2264,8 +2266,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         updateCircleDraw(point);
       } else if (drawMode === 'image' && pathRef.current) {
         // 更新图片占位框
-        if (pathRef.current && (pathRef.current as any).startPoint) {
-          const startPoint = (pathRef.current as any).startPoint;
+        if (pathRef.current?.startPoint) {
+          const startPoint = pathRef.current?.startPoint;
           const rectangle = new paper.Rectangle(startPoint, point);
 
           // 移除旧的矩形并创建新的
@@ -2277,12 +2279,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           pathRef.current.fillColor = null;
 
           // 保持起始点引用
-          (pathRef.current as any).startPoint = startPoint;
+          if (pathRef.current) pathRef.current.startPoint = startPoint;
         }
       } else if (drawMode === '3d-model' && pathRef.current) {
         // 更新3D模型占位框
-        if (pathRef.current && (pathRef.current as any).startPoint) {
-          const startPoint = (pathRef.current as any).startPoint;
+        if (pathRef.current?.startPoint) {
+          const startPoint = pathRef.current?.startPoint;
           const rectangle = new paper.Rectangle(startPoint, point);
 
           // 移除旧的矩形并创建新的
@@ -2294,7 +2296,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           pathRef.current.fillColor = null;
 
           // 保持起始点引用
-          (pathRef.current as any).startPoint = startPoint;
+          if (pathRef.current) pathRef.current.startPoint = startPoint;
         }
       }
     };
@@ -2349,7 +2351,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 绘图模式：如果只是点击没有拖拽，切换到选择模式
       if ((drawMode === 'line' || drawMode === 'free' || drawMode === 'rect' || drawMode === 'circle') 
           && initialClickPointRef.current && !hasMovedRef.current) {
-        console.log(`🎨 ${drawMode}模式没有触发移动，切换到选择模式`);
+        logger.debug(`🎨 ${drawMode}模式没有触发移动，切换到选择模式`);
         initialClickPointRef.current = null;
         hasMovedRef.current = false;
         // 切换到选择模式
@@ -2358,7 +2360,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       if (isDrawingRef.current) {
-        console.log(`🎨 结束绘制: 模式=${drawMode}`);
+        logger.drawing(`结束绘制: 模式=${drawMode}`);
         finishDraw();
       }
       isDrawingRef.current = false;
@@ -2384,7 +2386,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleLayerItemSelected = (event: CustomEvent) => {
       const { item, type, itemId } = event.detail;
       
-      console.log('收到图层面板选择事件:', type, itemId);
+      logger.debug('收到图层面板选择事件:', type, itemId);
       
       // 清除之前的所有选择
       clearAllSelections();
