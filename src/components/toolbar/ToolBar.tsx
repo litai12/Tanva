@@ -296,7 +296,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       {/* 线宽控制 */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-600 font-medium">
+        <span className="text-xs text-gray-600 font-medium w-4 text-right tabular-nums">
           {strokeWidth}
         </span>
         <HorizontalSlider
