@@ -2346,10 +2346,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       }
 
-      // 直线模式：如果只是点击没有拖拽，重置状态
-      if (drawMode === 'line' && initialClickPointRef.current && !hasMovedRef.current) {
+      // 绘图模式：如果只是点击没有拖拽，切换到选择模式
+      if ((drawMode === 'line' || drawMode === 'free' || drawMode === 'rect' || drawMode === 'circle') 
+          && initialClickPointRef.current && !hasMovedRef.current) {
+        console.log(`🎨 ${drawMode}模式没有触发移动，切换到选择模式`);
         initialClickPointRef.current = null;
         hasMovedRef.current = false;
+        // 切换到选择模式
+        setDrawMode('select');
         return;
       }
 

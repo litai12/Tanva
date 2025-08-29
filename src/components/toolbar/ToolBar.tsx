@@ -176,8 +176,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <DashedSelectIcon className="w-4 h-4" />
       </Button>
 
-      {/* 绘制工具分组 - 悬停展开 */}
-      <div className="relative group">
+      {/* 绘制工具分组 - 激活时固定显示 */}
+      <div className="relative">
         {/* 主按钮 - 显示当前绘制模式 */}
         <Button
           variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
@@ -204,57 +204,59 @@ const ToolBar: React.FC<ToolBarProps> = ({
           {(drawMode === 'select' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
         </Button>
 
-        {/* 悬停展开的绘制工具菜单 */}
-        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 ease-in-out z-[1001]">
-          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50">
-            <Button
-              variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
-              size="sm"
-              className="px-2 py-2 h-8 w-8"
-              onClick={() => setDrawMode('free')}
-              title="自由绘制"
-            >
-              <FreeDrawIcon className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
-              size="sm"
-              className="px-2 py-2 h-8 w-8"
-              onClick={() => setDrawMode('line')}
-              title="绘制直线"
-            >
-              <StraightLineIcon className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
-              size="sm"
-              className="px-2 py-2 h-8 w-8"
-              onClick={() => setDrawMode('rect')}
-              title="绘制矩形"
-            >
-              <Square className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
-              size="sm"
-              className="px-2 py-2 h-8 w-8"
-              onClick={() => setDrawMode('circle')}
-              title="绘制圆形"
-            >
-              <CircleIcon className="w-4 h-4" />
-            </Button>
-            {/* 多段线工具 - 暂时关闭 */}
-            {/* <Button
-              variant={drawMode === 'polyline' && !isEraser ? 'default' : 'outline'}
-              size="sm"
-              className="px-2 py-2 h-8 w-8"
-              onClick={() => setDrawMode('polyline')}
-              title="绘制多段线"
-            >
-              <PolylineIcon className="w-4 h-4" />
-            </Button> */}
+        {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
+        {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
+          <div className="absolute top-full left-0 mt-3 transition-all duration-200 ease-in-out z-[1001]">
+            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50">
+              <Button
+                variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
+                size="sm"
+                className="px-2 py-2 h-8 w-8"
+                onClick={() => setDrawMode('free')}
+                title="自由绘制"
+              >
+                <FreeDrawIcon className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
+                size="sm"
+                className="px-2 py-2 h-8 w-8"
+                onClick={() => setDrawMode('line')}
+                title="绘制直线"
+              >
+                <StraightLineIcon className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
+                size="sm"
+                className="px-2 py-2 h-8 w-8"
+                onClick={() => setDrawMode('rect')}
+                title="绘制矩形"
+              >
+                <Square className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
+                size="sm"
+                className="px-2 py-2 h-8 w-8"
+                onClick={() => setDrawMode('circle')}
+                title="绘制圆形"
+              >
+                <CircleIcon className="w-4 h-4" />
+              </Button>
+              {/* 多段线工具 - 暂时关闭 */}
+              {/* <Button
+                variant={drawMode === 'polyline' && !isEraser ? 'default' : 'outline'}
+                size="sm"
+                className="px-2 py-2 h-8 w-8"
+                onClick={() => setDrawMode('polyline')}
+                title="绘制多段线"
+              >
+                <PolylineIcon className="w-4 h-4" />
+              </Button> */}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <Separator orientation="vertical" className="h-8" />
