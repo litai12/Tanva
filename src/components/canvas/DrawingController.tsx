@@ -2092,106 +2092,73 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 使用更精确的方式：让控制点跟随鼠标，同时保持宽高比
           
           if (resizeDirection === 'se') {
-            // 右下角：鼠标位置决定新的右下角
-            const newWidth = point.x - resizeStartBounds.x;
-            const newHeight = point.y - resizeStartBounds.y;
+            // 右下角：计算鼠标到左上角的向量
+            const dx = point.x - resizeStartBounds.x;
+            const dy = point.y - resizeStartBounds.y;
             
-            // 选择能保持宽高比且最接近鼠标的尺寸
-            const widthBasedHeight = newWidth / aspectRatio;
-            const heightBasedWidth = newHeight * aspectRatio;
+            // 将鼠标位置投影到保持宽高比的对角线上
+            // 对角线方向向量: (1, 1/aspectRatio)
+            const diagonalX = 1;
+            const diagonalY = 1 / aspectRatio;
             
-            // 计算哪种方式更接近鼠标位置
-            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
-            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            // 计算投影长度
+            const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
             
-            if (distanceUsingWidth < distanceUsingHeight) {
-              newBounds.width = newWidth;
-              newBounds.height = widthBasedHeight;
-            } else {
-              newBounds.width = heightBasedWidth;
-              newBounds.height = newHeight;
-            }
+            // 计算新的宽高
+            newBounds.width = Math.max(50, projectionLength * diagonalX);
+            newBounds.height = newBounds.width / aspectRatio;
             
           } else if (resizeDirection === 'nw') {
-            // 左上角：鼠标位置决定新的左上角
-            const newWidth = resizeStartBounds.right - point.x;
-            const newHeight = resizeStartBounds.bottom - point.y;
+            // 左上角：计算鼠标到右下角的向量
+            const dx = resizeStartBounds.right - point.x;
+            const dy = resizeStartBounds.bottom - point.y;
             
-            const widthBasedHeight = newWidth / aspectRatio;
-            const heightBasedWidth = newHeight * aspectRatio;
+            // 将鼠标位置投影到保持宽高比的对角线上
+            const diagonalX = 1;
+            const diagonalY = 1 / aspectRatio;
             
-            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
-            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            // 计算投影长度
+            const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
             
-            if (distanceUsingWidth < distanceUsingHeight) {
-              newBounds.width = newWidth;
-              newBounds.height = widthBasedHeight;
-              newBounds.x = resizeStartBounds.right - newWidth;
-              newBounds.y = resizeStartBounds.bottom - widthBasedHeight;
-            } else {
-              newBounds.width = heightBasedWidth;
-              newBounds.height = newHeight;
-              newBounds.x = resizeStartBounds.right - heightBasedWidth;
-              newBounds.y = resizeStartBounds.bottom - newHeight;
-            }
+            // 计算新的宽高
+            newBounds.width = Math.max(50, projectionLength * diagonalX);
+            newBounds.height = newBounds.width / aspectRatio;
+            newBounds.x = resizeStartBounds.right - newBounds.width;
+            newBounds.y = resizeStartBounds.bottom - newBounds.height;
             
           } else if (resizeDirection === 'ne') {
-            // 右上角：X向右扩展，Y向上扩展
-            const newWidth = point.x - resizeStartBounds.x;
-            const newHeight = resizeStartBounds.bottom - point.y;
+            // 右上角：计算鼠标到左下角的向量
+            const dx = point.x - resizeStartBounds.x;
+            const dy = resizeStartBounds.bottom - point.y;
             
-            const widthBasedHeight = newWidth / aspectRatio;
-            const heightBasedWidth = newHeight * aspectRatio;
+            // 将鼠标位置投影到保持宽高比的对角线上
+            const diagonalX = 1;
+            const diagonalY = 1 / aspectRatio;
             
-            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
-            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            // 计算投影长度
+            const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
             
-            if (distanceUsingWidth < distanceUsingHeight) {
-              newBounds.width = newWidth;
-              newBounds.height = widthBasedHeight;
-              newBounds.y = resizeStartBounds.bottom - widthBasedHeight;
-            } else {
-              newBounds.width = heightBasedWidth;
-              newBounds.height = newHeight;
-              newBounds.y = resizeStartBounds.bottom - newHeight;
-            }
+            // 计算新的宽高
+            newBounds.width = Math.max(50, projectionLength * diagonalX);
+            newBounds.height = newBounds.width / aspectRatio;
+            newBounds.y = resizeStartBounds.bottom - newBounds.height;
             
           } else if (resizeDirection === 'sw') {
-            // 左下角：X向左扩展，Y向下扩展
-            const newWidth = resizeStartBounds.right - point.x;
-            const newHeight = point.y - resizeStartBounds.y;
+            // 左下角：计算鼠标到右上角的向量
+            const dx = resizeStartBounds.right - point.x;
+            const dy = point.y - resizeStartBounds.y;
             
-            const widthBasedHeight = newWidth / aspectRatio;
-            const heightBasedWidth = newHeight * aspectRatio;
+            // 将鼠标位置投影到保持宽高比的对角线上
+            const diagonalX = 1;
+            const diagonalY = 1 / aspectRatio;
             
-            const distanceUsingWidth = Math.abs(widthBasedHeight - newHeight);
-            const distanceUsingHeight = Math.abs(heightBasedWidth - newWidth);
+            // 计算投影长度
+            const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
             
-            if (distanceUsingWidth < distanceUsingHeight) {
-              newBounds.width = newWidth;
-              newBounds.height = widthBasedHeight;
-              newBounds.x = resizeStartBounds.right - newWidth;
-            } else {
-              newBounds.width = heightBasedWidth;
-              newBounds.height = newHeight;
-              newBounds.x = resizeStartBounds.right - heightBasedWidth;
-            }
-          }
-          
-          // 限制最小尺寸
-          if (newBounds.width < 50) {
-            newBounds.width = 50;
-            newBounds.height = 50 / aspectRatio;
-            
-            // 调整位置以保持固定角
-            if (resizeDirection === 'nw') {
-              newBounds.x = resizeStartBounds.right - newBounds.width;
-              newBounds.y = resizeStartBounds.bottom - newBounds.height;
-            } else if (resizeDirection === 'ne') {
-              newBounds.y = resizeStartBounds.bottom - newBounds.height;
-            } else if (resizeDirection === 'sw') {
-              newBounds.x = resizeStartBounds.right - newBounds.width;
-            }
+            // 计算新的宽高
+            newBounds.width = Math.max(50, projectionLength * diagonalX);
+            newBounds.height = newBounds.width / aspectRatio;
+            newBounds.x = resizeStartBounds.right - newBounds.width;
           }
           
           // 更新图像边界
