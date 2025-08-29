@@ -59,6 +59,30 @@ const PolylineIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+// 带蓝色加号的图片图标
+const ImageWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Image className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// 带蓝色加号的3D模型图标
+const BoxWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Box className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
 
 interface ToolBarProps {
   style?: React.CSSProperties;
@@ -307,7 +331,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           onClick={() => setDrawMode('image')}
           title="添加图片"
         >
-          <Image className="w-4 h-4" />
+          <ImageWithPlusIcon className="w-4 h-4" />
         </Button>
 
         {/* 3D模型工具 */}
@@ -318,7 +342,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           onClick={() => setDrawMode('3d-model')}
           title="添加3D模型"
         >
-          <Box className="w-4 h-4" />
+          <BoxWithPlusIcon className="w-4 h-4" />
         </Button>
 
         {/* 截图工具 - 暂时关闭 */}
