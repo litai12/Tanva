@@ -1,0 +1,557 @@
+/**
+ * 2D图片工具Hook
+ * 处理图片上传、占位框创建、图片实例管理、选择、移动和调整大小等功能
+ */
+
+import { useCallback, useRef, useState } from 'react';
+import paper from 'paper';
+import { logger } from '@/utils/logger';
+import type { 
+  ImageInstance, 
+  ImageDragState, 
+  ImageResizeState, 
+  ImageToolEventHandlers,
+  DrawingContext 
+} from '@/types/canvas';
+
+interface UseImageToolProps {
+  context: DrawingContext;
+  canvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  eventHandlers?: ImageToolEventHandlers;
+}
+
+export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImageToolProps) => {
+  const { ensureDrawingLayer, zoom } = context;
+
+  // 图片相关状态
+  const [triggerImageUpload, setTriggerImageUpload] = useState(false);
+  const currentPlaceholderRef = useRef<paper.Group | null>(null);
+  const [imageInstances, setImageInstances] = useState<ImageInstance[]>([]);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+
+  // 图片拖拽状态
+  const [imageDragState, setImageDragState] = useState<ImageDragState>({
+    isImageDragging: false,
+    dragImageId: null,
+    imageDragStartPoint: null,
+    imageDragStartBounds: null,
+  });
+
+  // 图片调整大小状态
+  const [imageResizeState, setImageResizeState] = useState<ImageResizeState>({
+    isImageResizing: false,
+    resizeImageId: null,
+    resizeDirection: null,
+    resizeStartBounds: null,
+    resizeStartPoint: null,
+  });
+
+  // ========== 创建图片占位框 ==========
+  const createImagePlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
+    ensureDrawingLayer();
+
+    // 计算占位框矩形
+    const rect = new paper.Rectangle(startPoint, endPoint);
+    const center = rect.center;
+    const width = Math.abs(rect.width);
+    const height = Math.abs(rect.height);
+
+    // 最小尺寸限制
+    const minSize = 50;
+    const finalWidth = Math.max(width, minSize);
+    const finalHeight = Math.max(height, minSize);
+
+    // 创建占位框边框（虚线矩形）
+    const placeholder = new paper.Path.Rectangle({
+      rectangle: new paper.Rectangle(center.subtract([finalWidth / 2, finalHeight / 2]), [finalWidth, finalHeight]),
+      strokeColor: new paper.Color('#60a5fa'), // 更柔和的蓝色边框
+      strokeWidth: 2,
+      dashArray: [8, 6],
+      fillColor: new paper.Color(0.94, 0.97, 1, 0.8) // 淡蓝色半透明背景
+    });
+
+    // 创建上传按钮背景（圆角矩形）
+    const buttonSize = Math.min(finalWidth * 0.5, finalHeight * 0.25, 120);
+    const buttonHeight = Math.min(40, finalHeight * 0.2);
+
+    // 创建按钮背景
+    const buttonBg = new paper.Path.Rectangle({
+      rectangle: new paper.Rectangle(center.subtract([buttonSize / 2, buttonHeight / 2]), [buttonSize, buttonHeight]),
+      fillColor: new paper.Color('#3b82f6'), // 更现代的蓝色
+      strokeColor: new paper.Color('#2563eb'), // 深蓝色边框
+      strokeWidth: 1.5
+    });
+
+    // 创建"+"图标（更粗更圆润）
+    const iconSize = Math.min(14, buttonHeight * 0.35);
+    const hLine = new paper.Path.Line({
+      from: center.subtract([iconSize / 2, 0]),
+      to: center.add([iconSize / 2, 0]),
+      strokeColor: new paper.Color('#fff'),
+      strokeWidth: 3,
+      strokeCap: 'round'
+    });
+    const vLine = new paper.Path.Line({
+      from: center.subtract([0, iconSize / 2]),
+      to: center.add([0, iconSize / 2]),
+      strokeColor: new paper.Color('#fff'),
+      strokeWidth: 3,
+      strokeCap: 'round'
+    });
+
+    // 创建提示文字 - 调整位置，在按钮下方留出适当间距
+    const textY = Math.round(center.y + buttonHeight / 2 + 20); // 对齐到像素边界
+    const fontSize = Math.round(Math.min(14, finalWidth * 0.06, finalHeight * 0.08)); // 确保字体大小为整数
+    const text = new paper.PointText({
+      point: new paper.Point(Math.round(center.x), textY),
+      content: '点击上传图片',
+      fontSize: fontSize,
+      fillColor: new paper.Color('#1e40af'), // 深蓝色文字，与按钮呼应
+      justification: 'center'
+    });
+
+    // 创建组合
+    const group = new paper.Group([placeholder, buttonBg, hLine, vLine, text]);
+    group.data = {
+      type: 'image-placeholder',
+      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
+      isHelper: true  // 标记为辅助元素，不显示在图层列表中
+    };
+
+    // 添加点击事件
+    group.onClick = () => {
+      logger.upload('📸 点击图片占位框，触发上传');
+      currentPlaceholderRef.current = group;
+      setTriggerImageUpload(true);
+    };
+
+    return group;
+  }, [ensureDrawingLayer]);
+
+  // ========== 处理图片上传成功 ==========
+  const handleImageUploaded = useCallback((imageData: string, fileName?: string) => {
+    const placeholder = currentPlaceholderRef.current;
+    if (!placeholder || !placeholder.data?.bounds) {
+      logger.error('没有找到图片占位框');
+      return;
+    }
+
+    logger.upload('✅ 图片上传成功，创建图片实例');
+
+    const paperBounds = placeholder.data.bounds;
+    const imageId = `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    logger.upload('📍 图片使用Paper.js坐标:', paperBounds);
+
+    // 在Paper.js中创建图片的代表组
+    ensureDrawingLayer();
+
+    // 创建Paper.js的Raster对象来显示图片
+    const raster = new paper.Raster({
+      source: imageData
+    });
+
+    // 等待图片加载完成后设置位置
+    raster.onLoad = () => {
+      // 存储原始尺寸信息
+      const originalWidth = raster.width;
+      const originalHeight = raster.height;
+      const aspectRatio = originalWidth / originalHeight;
+      
+      raster.data = {
+        originalWidth: originalWidth,
+        originalHeight: originalHeight,
+        aspectRatio: aspectRatio
+      };
+      
+      // 根据占位框和图片比例，计算保持比例的实际大小
+      const boxAspectRatio = paperBounds.width / paperBounds.height;
+      let finalBounds;
+      
+      if (aspectRatio > boxAspectRatio) {
+        // 图片更宽，以宽度为准
+        const newWidth = paperBounds.width;
+        const newHeight = newWidth / aspectRatio;
+        const yOffset = (paperBounds.height - newHeight) / 2;
+        
+        finalBounds = new paper.Rectangle(
+          paperBounds.x,
+          paperBounds.y + yOffset,
+          newWidth,
+          newHeight
+        );
+      } else {
+        // 图片更高，以高度为准
+        const newHeight = paperBounds.height;
+        const newWidth = newHeight * aspectRatio;
+        const xOffset = (paperBounds.width - newWidth) / 2;
+        
+        finalBounds = new paper.Rectangle(
+          paperBounds.x + xOffset,
+          paperBounds.y,
+          newWidth,
+          newHeight
+        );
+      }
+      
+      // 设置图片边界（保持比例）
+      raster.bounds = finalBounds;
+      
+      // 添加选择框和控制点
+      addImageSelectionElements(raster, finalBounds, imageId);
+      
+      paper.view.update();
+    };
+
+    // 创建一个透明矩形用于交互
+    const imageRect = new paper.Path.Rectangle({
+      rectangle: new paper.Rectangle(
+        paperBounds.x,
+        paperBounds.y,
+        paperBounds.width,
+        paperBounds.height
+      ),
+      fillColor: null,
+      strokeColor: null
+    });
+
+    // 创建Paper.js组来包含所有相关元素
+    const imageGroup = new paper.Group([imageRect, raster]);
+    imageGroup.data = {
+      type: 'image',
+      imageId: imageId,
+      isHelper: false
+    };
+
+    // 创建图片实例
+    const newImageInstance: ImageInstance = {
+      id: imageId,
+      imageData: {
+        id: imageId,
+        src: imageData,
+        fileName: fileName
+      },
+      bounds: {
+        x: paperBounds.x,
+        y: paperBounds.y,
+        width: paperBounds.width,
+        height: paperBounds.height
+      },
+      isSelected: false,  // 默认不选中，避免显示选择框
+      visible: true,
+      layerId: paper.project.activeLayer.name
+    };
+
+    setImageInstances(prev => [...prev, newImageInstance]);
+    // 不默认选中，让用户需要时再点击选择
+    // setSelectedImageId(imageId);
+    // eventHandlers.onImageSelect?.(imageId);
+
+    // 清理占位框
+    placeholder.remove();
+    currentPlaceholderRef.current = null;
+
+    logger.upload('🖼️ 图片实例创建完成:', imageId);
+  }, [ensureDrawingLayer, eventHandlers.onImageSelect]);
+
+  // ========== 添加图片选择元素 ==========
+  const addImageSelectionElements = useCallback((raster: paper.Raster, bounds: paper.Rectangle, imageId: string) => {
+    const parentGroup = raster.parent;
+    if (!(parentGroup instanceof paper.Group)) return;
+
+    // 添加选择框（默认隐藏）
+    const selectionBorder = new paper.Path.Rectangle({
+      rectangle: bounds,
+      strokeColor: new paper.Color('#3b82f6'),
+      strokeWidth: 2,
+      fillColor: null,
+      selected: false,
+      visible: false  // 默认隐藏选择框
+    });
+    selectionBorder.data = { 
+      isSelectionBorder: true,
+      isHelper: true  // 标记为辅助元素
+    };
+    parentGroup.addChild(selectionBorder);
+    
+    // 添加四个角的调整控制点
+    const handleSize = 8;
+    const handleColor = new paper.Color('#3b82f6');
+    
+    // 创建调整控制点
+    const handles = [
+      { direction: 'nw', position: [bounds.left, bounds.top] },
+      { direction: 'ne', position: [bounds.right, bounds.top] },
+      { direction: 'sw', position: [bounds.left, bounds.bottom] },
+      { direction: 'se', position: [bounds.right, bounds.bottom] }
+    ];
+
+    handles.forEach(({ direction, position }) => {
+      const handle = new paper.Path.Rectangle({
+        point: [position[0] - handleSize/2, position[1] - handleSize/2],
+        size: [handleSize, handleSize],
+        fillColor: handleColor,
+        strokeColor: 'white',
+        strokeWidth: 1,
+        selected: false,
+        visible: false  // 默认隐藏控制点
+      });
+      handle.data = { 
+        isResizeHandle: true, 
+        direction, 
+        imageId,
+        isHelper: true  // 标记为辅助元素
+      };
+      parentGroup.addChild(handle);
+    });
+  }, []);
+
+  // ========== 图片选择/取消选择 ==========
+  const handleImageSelect = useCallback((imageId: string) => {
+    setSelectedImageId(imageId);
+    setImageInstances(prev => prev.map(img => {
+      const isSelected = img.id === imageId;
+      
+      // 控制选择框和控制点的可见性
+      const imageGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === img.id
+        )
+      )[0];
+
+      if (imageGroup instanceof paper.Group) {
+        imageGroup.children.forEach(child => {
+          if (child.data?.isSelectionBorder || child.data?.isResizeHandle) {
+            child.visible = isSelected;
+          }
+        });
+        paper.view.update();
+      }
+      
+      return {
+        ...img,
+        isSelected
+      };
+    }));
+    eventHandlers.onImageSelect?.(imageId);
+  }, [eventHandlers.onImageSelect]);
+
+  const handleImageDeselect = useCallback(() => {
+    setSelectedImageId(null);
+    setImageInstances(prev => prev.map(img => {
+      // 隐藏所有图片的选择框和控制点
+      const imageGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === img.id
+        )
+      )[0];
+
+      if (imageGroup instanceof paper.Group) {
+        imageGroup.children.forEach(child => {
+          if (child.data?.isSelectionBorder || child.data?.isResizeHandle) {
+            child.visible = false;
+          }
+        });
+        paper.view.update();
+      }
+      
+      return {
+        ...img,
+        isSelected: false
+      };
+    }));
+    eventHandlers.onImageDeselect?.();
+  }, [eventHandlers.onImageDeselect]);
+
+  // ========== 图片移动 ==========
+  const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
+    setImageInstances(prev => prev.map(img => {
+      if (img.id === imageId) {
+        // 只有在不跳过Paper.js更新时才更新Paper.js元素
+        // 这避免了在拖拽过程中的重复更新
+        if (!skipPaperUpdate) {
+          const imageGroup = paper.project.layers.flatMap(layer =>
+            layer.children.filter(child =>
+              child.data?.type === 'image' && child.data?.imageId === imageId
+            )
+          )[0];
+
+          if (imageGroup instanceof paper.Group) {
+            // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
+            imageGroup.children.forEach(child => {
+              if (child instanceof paper.Raster) {
+                // 保持原始尺寸，只改变位置
+                const newCenter = new paper.Point(
+                  newPosition.x + img.bounds.width / 2,
+                  newPosition.y + img.bounds.height / 2
+                );
+                child.position = newCenter;
+              } else if (child.data?.isSelectionBorder) {
+                // 设置选择框的绝对位置和尺寸
+                child.bounds = new paper.Rectangle(
+                  newPosition.x,
+                  newPosition.y,
+                  img.bounds.width,
+                  img.bounds.height
+                );
+              } else if (child.data?.isResizeHandle) {
+                // 重新定位控制点到绝对位置
+                const direction = child.data.direction;
+                let handlePosition;
+                
+                switch (direction) {
+                  case 'nw':
+                    handlePosition = [newPosition.x, newPosition.y];
+                    break;
+                  case 'ne':
+                    handlePosition = [newPosition.x + img.bounds.width, newPosition.y];
+                    break;
+                  case 'sw':
+                    handlePosition = [newPosition.x, newPosition.y + img.bounds.height];
+                    break;
+                  case 'se':
+                    handlePosition = [newPosition.x + img.bounds.width, newPosition.y + img.bounds.height];
+                    break;
+                  default:
+                    handlePosition = [newPosition.x, newPosition.y];
+                }
+                
+                child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+              }
+            });
+            
+            paper.view.update();
+          }
+        }
+
+        return {
+          ...img,
+          bounds: {
+            ...img.bounds,
+            x: newPosition.x,
+            y: newPosition.y
+          }
+        };
+      }
+      return img;
+    }));
+    eventHandlers.onImageMove?.(imageId, newPosition);
+  }, [eventHandlers.onImageMove]);
+
+  // ========== 图片调整大小 ==========
+  const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
+    setImageInstances(prev => prev.map(img => {
+      if (img.id === imageId) {
+        // 更新Paper.js中对应的图片组和元素
+        const imageGroup = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === 'image' && child.data?.imageId === imageId
+          )
+        )[0];
+
+        if (imageGroup instanceof paper.Group) {
+          // 找到图片Raster元素并调整大小和位置
+          const raster = imageGroup.children.find(child => child instanceof paper.Raster);
+          if (raster) {
+            const newRect = new paper.Rectangle(
+              newBounds.x,
+              newBounds.y,
+              newBounds.width,
+              newBounds.height
+            );
+            raster.bounds = newRect;
+          }
+
+          // 更新选择框和控制点
+          imageGroup.children.forEach(child => {
+            if (child.data?.isSelectionBorder) {
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else if (child.data?.isResizeHandle) {
+              // 重新定位控制点
+              const direction = child.data.direction;
+              const handleSize = 8;
+              let handlePosition;
+              
+              switch (direction) {
+                case 'nw':
+                  handlePosition = [newBounds.x, newBounds.y];
+                  break;
+                case 'ne':
+                  handlePosition = [newBounds.x + newBounds.width, newBounds.y];
+                  break;
+                case 'sw':
+                  handlePosition = [newBounds.x, newBounds.y + newBounds.height];
+                  break;
+                case 'se':
+                  handlePosition = [newBounds.x + newBounds.width, newBounds.y + newBounds.height];
+                  break;
+                default:
+                  handlePosition = [newBounds.x, newBounds.y];
+              }
+              
+              child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+            }
+          });
+          
+          paper.view.update();
+        }
+
+        return {
+          ...img,
+          bounds: newBounds
+        };
+      }
+      return img;
+    }));
+    eventHandlers.onImageResize?.(imageId, newBounds);
+  }, [eventHandlers.onImageResize]);
+
+  // ========== 图片上传错误处理 ==========
+  const handleImageUploadError = useCallback((error: string) => {
+    logger.error('图片上传失败:', error);
+    currentPlaceholderRef.current = null;
+  }, []);
+
+  // ========== 处理上传触发完成 ==========
+  const handleUploadTriggerHandled = useCallback(() => {
+    setTriggerImageUpload(false);
+  }, []);
+
+  return {
+    // 状态
+    imageInstances,
+    selectedImageId,
+    triggerImageUpload,
+    imageDragState,
+    imageResizeState,
+
+    // 占位框相关
+    createImagePlaceholder,
+    currentPlaceholderRef,
+
+    // 图片上传处理
+    handleImageUploaded,
+    handleImageUploadError,
+    handleUploadTriggerHandled,
+
+    // 图片选择
+    handleImageSelect,
+    handleImageDeselect,
+
+    // 图片移动和调整大小
+    handleImageMove,
+    handleImageResize,
+
+    // 状态设置器（用于外部直接控制）
+    setImageInstances,
+    setSelectedImageId,
+    setTriggerImageUpload,
+    setImageDragState,
+    setImageResizeState,
+  };
+};

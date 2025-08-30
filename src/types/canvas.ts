@@ -1,0 +1,81 @@
+/**
+ * 画布相关的类型定义
+ * 用于图片工具、3D模型工具等功能的类型约束
+ */
+
+import paper from 'paper';
+import type { Model3DData } from '@/services/model3DUploadService';
+
+// 2D图片实例类型
+export interface ImageInstance {
+  id: string;
+  imageData: {
+    id: string;
+    src: string;
+    fileName?: string;
+  };
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  isSelected: boolean;
+  visible: boolean;
+  layerId?: string;
+  selectionRect?: paper.Path;
+}
+
+// 3D模型实例类型
+export interface Model3DInstance {
+  id: string;
+  modelData: Model3DData;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  isSelected: boolean;
+  visible: boolean;
+  selectionRect?: paper.Path;
+}
+
+// 图片拖拽状态类型
+export interface ImageDragState {
+  isImageDragging: boolean;
+  dragImageId: string | null;
+  imageDragStartPoint: paper.Point | null;
+  imageDragStartBounds: { x: number; y: number } | null;
+}
+
+// 图片调整大小状态类型
+export interface ImageResizeState {
+  isImageResizing: boolean;
+  resizeImageId: string | null;
+  resizeDirection: string | null;
+  resizeStartBounds: paper.Rectangle | null;
+  resizeStartPoint: paper.Point | null;
+}
+
+// 图片工具事件处理器类型
+export interface ImageToolEventHandlers {
+  onImageSelect?: (imageId: string) => void;
+  onImageDeselect?: () => void;
+  onImageMove?: (imageId: string, newPosition: { x: number; y: number }) => void;
+  onImageResize?: (imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;
+}
+
+// 3D模型工具事件处理器类型
+export interface Model3DToolEventHandlers {
+  onModel3DSelect?: (modelId: string) => void;
+  onModel3DDeselect?: () => void;
+  onModel3DMove?: (modelId: string, newPosition: { x: number; y: number }) => void;
+  onModel3DResize?: (modelId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;
+}
+
+// 绘图上下文类型（用于在hooks间共享绘图相关的基础功能）
+export interface DrawingContext {
+  ensureDrawingLayer: () => paper.Layer;
+  zoom: number;
+}
