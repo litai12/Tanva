@@ -2,13 +2,11 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import paper from 'paper';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import ImageUploadComponent from './ImageUploadComponent';
-import ImageContainer from './ImageContainer';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { logger } from '@/utils/logger';
-import type { Model3DData } from '@/services/model3DUploadService';
-import type { ExtendedPath, PaperItemData } from '@/types/paper';
+import type { ExtendedPath } from '@/types/paper';
 
 // 导入新的hooks
 import { useImageTool } from './hooks/useImageTool';
@@ -23,7 +21,6 @@ interface DrawingControllerProps {
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
-  const { layers } = useLayerStore();
   const pathRef = useRef<ExtendedPath | null>(null);
   const isDrawingRef = useRef(false);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
@@ -115,23 +112,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const {
     startFreeDraw,
     continueFreeDraw,
-    createFreeDrawPath,
     startRectDraw,
     updateRectDraw,
-    createRectPath,
     startCircleDraw,
     updateCircleDraw,
-    createCirclePath,
     startLineDraw,
     updateLineDraw,
     finishLineDraw,
     createLinePath,
+    startImageDraw,
+    updateImageDraw,
+    start3DModelDraw,
+    update3DModelDraw,
     finishDraw: drawingFinishDraw,
     pathRef: drawingPathRef,
     isDrawingRef: drawingIsDrawingRef,
     initialClickPoint,
-    hasMoved,
-    setDrawingState
+    hasMoved
   } = drawingTools;
 
   // 同步hook的pathRef和isDrawingRef到组件级别的ref
@@ -142,17 +139,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 
 
-  // Use the 3D model hook's create placeholder function
-  const create3DModelPlaceholder = model3DTool.create3DModelPlaceholder;
-
-  // Use the 3D model hook's upload handler
-  const handleModel3DUploaded = model3DTool.handleModel3DUploaded;
-
-  // Use the 3D model hook's upload error handler
-  const handleModel3DUploadError = model3DTool.handleModel3DUploadError;
-
-  // Use the 3D model hook's upload trigger handler
-  const handleModel3DUploadTriggerHandled = model3DTool.handleModel3DUploadTriggerHandled;
+  // 这些函数直接在组件中使用，不需要重新赋值
 
   // Use the 3D model hook's deselect handler
   const handleModel3DDeselect = model3DTool.handleModel3DDeselect;
@@ -874,22 +861,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         startCircleDraw(point);
       } else if (drawMode === 'image') {
         // 开始创建图片占位框
-        const rect = new paper.Rectangle(point, point.add(new paper.Point(1, 1)));
-        pathRef.current = new paper.Path.Rectangle(rect);
-        pathRef.current.strokeColor = new paper.Color('#999');
-        pathRef.current.strokeWidth = 1;
-        pathRef.current.dashArray = [5, 5];
-        pathRef.current.fillColor = null;
-        if (pathRef.current) pathRef.current.startPoint = point;
+        startImageDraw(point);
       } else if (drawMode === '3d-model') {
         // 开始创建3D模型占位框
-        const rect = new paper.Rectangle(point, point.add(new paper.Point(1, 1)));
-        pathRef.current = new paper.Path.Rectangle(rect);
-        pathRef.current.strokeColor = new paper.Color('#8b5cf6');
-        pathRef.current.strokeWidth = 2;
-        pathRef.current.dashArray = [8, 4];
-        pathRef.current.fillColor = null;
-        if (pathRef.current) pathRef.current.startPoint = point;
+        start3DModelDraw(point);
       }
 
       isDrawingRef.current = true;
@@ -921,67 +896,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const deltaX = point.x - imageTool.imageDragState.imageDragStartPoint.x;
           const deltaY = point.y - imageTool.imageDragState.imageDragStartPoint.y;
           
-          // 直接更新Paper.js中的图片组位置
-          const imageGroup = paper.project.layers.flatMap(layer =>
-            layer.children.filter(child =>
-              child.data?.type === 'image' && child.data?.imageId === imageTool.imageDragState.dragImageId
-            )
-          )[0];
-
-          if (imageGroup instanceof paper.Group) {
-            const newX = imageTool.imageDragState.imageDragStartBounds.x + deltaX;
-            const newY = imageTool.imageDragState.imageDragStartBounds.y + deltaY;
-            
-            // 获取当前图片实例信息以获得尺寸
-            const currentImage = imageTool.imageInstances.find(img => img.id === imageTool.imageDragState.dragImageId);
-            if (currentImage) {
-              // 更新组内所有子元素的位置
-              imageGroup.children.forEach(child => {
-                if (child instanceof paper.Raster) {
-                  // 设置图片中心位置
-                  const newCenter = new paper.Point(
-                    newX + currentImage.bounds.width / 2,
-                    newY + currentImage.bounds.height / 2
-                  );
-                  child.position = newCenter;
-                } else if (child.data?.isSelectionBorder) {
-                  // 设置选择框位置
-                  child.bounds = new paper.Rectangle(
-                    newX,
-                    newY,
-                    currentImage.bounds.width,
-                    currentImage.bounds.height
-                  );
-                } else if (child.data?.isResizeHandle) {
-                  // 重新定位控制点
-                  const direction = child.data.direction;
-                  let handlePosition;
-                  
-                  switch (direction) {
-                    case 'nw':
-                      handlePosition = [newX, newY];
-                      break;
-                    case 'ne':
-                      handlePosition = [newX + currentImage.bounds.width, newY];
-                      break;
-                    case 'sw':
-                      handlePosition = [newX, newY + currentImage.bounds.height];
-                      break;
-                    case 'se':
-                      handlePosition = [newX + currentImage.bounds.width, newY + currentImage.bounds.height];
-                      break;
-                    default:
-                      handlePosition = [newX, newY];
-                  }
-                  
-                  child.position = new paper.Point(handlePosition[0], handlePosition[1]);
-                }
-              });
-            }
-          }
+          const newPosition = {
+            x: imageTool.imageDragState.imageDragStartBounds.x + deltaX,
+            y: imageTool.imageDragState.imageDragStartBounds.y + deltaY
+          };
           
-          // 强制Paper.js重新渲染
-          paper.view.update();
+          // 直接调用handleImageMove，不跳过Paper.js更新
+          handleImageMove(imageTool.imageDragState.dragImageId, newPosition, false);
           return;
         }
         
@@ -1166,40 +1087,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       } else if (drawMode === 'circle') {
         // 更新圆形
         updateCircleDraw(point);
-      } else if (drawMode === 'image' && pathRef.current) {
+      } else if (drawMode === 'image') {
         // 更新图片占位框
-        if (pathRef.current?.startPoint) {
-          const startPoint = pathRef.current?.startPoint;
-          const rectangle = new paper.Rectangle(startPoint, point);
-
-          // 移除旧的矩形并创建新的
-          pathRef.current.remove();
-          pathRef.current = new paper.Path.Rectangle(rectangle);
-          pathRef.current.strokeColor = new paper.Color('#999');
-          pathRef.current.strokeWidth = 1;
-          pathRef.current.dashArray = [5, 5];
-          pathRef.current.fillColor = null;
-
-          // 保持起始点引用
-          if (pathRef.current) pathRef.current.startPoint = startPoint;
-        }
-      } else if (drawMode === '3d-model' && pathRef.current) {
+        updateImageDraw(point);
+      } else if (drawMode === '3d-model') {
         // 更新3D模型占位框
-        if (pathRef.current?.startPoint) {
-          const startPoint = pathRef.current?.startPoint;
-          const rectangle = new paper.Rectangle(startPoint, point);
-
-          // 移除旧的矩形并创建新的
-          pathRef.current.remove();
-          pathRef.current = new paper.Path.Rectangle(rectangle);
-          pathRef.current.strokeColor = new paper.Color('#8b5cf6');
-          pathRef.current.strokeWidth = 2;
-          pathRef.current.dashArray = [8, 4];
-          pathRef.current.fillColor = null;
-
-          // 保持起始点引用
-          if (pathRef.current) pathRef.current.startPoint = startPoint;
-        }
+        update3DModelDraw(point);
       }
     };
 
@@ -1220,25 +1113,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
         
         // 处理图像拖拽结束
-        if (imageTool.imageDragState.isImageDragging && imageTool.imageDragState.dragImageId && imageTool.imageDragState.imageDragStartPoint && imageTool.imageDragState.imageDragStartBounds) {
-          // 计算最终位置
-          const rect = canvas.getBoundingClientRect();
-          const x = event.clientX - rect.left;
-          const y = event.clientY - rect.top;
-          const point = paper.view.viewToProject(new paper.Point(x, y));
-          
-          const deltaX = point.x - imageTool.imageDragState.imageDragStartPoint.x;
-          const deltaY = point.y - imageTool.imageDragState.imageDragStartPoint.y;
-          
-          const finalPosition = {
-            x: imageTool.imageDragState.imageDragStartBounds.x + deltaX,
-            y: imageTool.imageDragState.imageDragStartBounds.y + deltaY
-          };
-          
-          // 同步更新React状态（跳过Paper.js更新，因为Paper.js已经在拖拽过程中更新了）
-          handleImageMove(imageTool.imageDragState.dragImageId, finalPosition, true);
-          
-          // 结束拖拽状态
+        if (imageTool.imageDragState.isImageDragging) {
+          // 结束拖拽状态（不需要再次更新位置，因为mousemove中已经实时更新了）
           imageTool.setImageDragState({
             isImageDragging: false,
             dragImageId: null,
@@ -1273,7 +1149,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       // 对于绘图模式，只有在实际开始绘制或有移动时才调用 finishDraw
-      if (drawMode === 'line' || drawMode === 'free' || drawMode === 'rect' || drawMode === 'circle') {
+      if (drawMode === 'line' || drawMode === 'free' || drawMode === 'rect' || drawMode === 'circle' || drawMode === 'image' || drawMode === '3d-model') {
         // 只有在实际有绘制活动时才调用finishDraw
         if (isDrawingRef.current || pathRef.current || hasMoved || initialClickPoint) {
           logger.debug(`🎨 ${drawMode}模式结束，交给finishDraw处理`);
@@ -1299,7 +1175,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
     };
-  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, createFreeDrawPath, startLineDraw, updateLineDraw, finishLineDraw, createLinePath, startRectDraw, updateRectDraw, createRectPath, startCircleDraw, updateCircleDraw, createCirclePath, drawingFinishDraw, performErase, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath, imageTool.imageInstances, model3DTool.model3DInstances, handleImageSelect, handleModel3DSelect, imageTool.imageDragState.isImageDragging, imageTool.imageDragState.dragImageId, imageTool.imageDragState.imageDragStartPoint, imageTool.imageDragState.imageDragStartBounds, handleImageMove, handleImageResize, imageTool.imageResizeState.isImageResizing, imageTool.imageResizeState.resizeImageId, imageTool.imageResizeState.resizeDirection, imageTool.imageResizeState.resizeStartBounds, imageTool.imageResizeState.resizeStartPoint, imageTool.createImagePlaceholder, model3DTool.create3DModelPlaceholder, setDrawMode, initialClickPoint, hasMoved]);
+  }, [canvasRef, drawMode, currentColor, strokeWidth, isEraser, zoom, startFreeDraw, continueFreeDraw, startLineDraw, updateLineDraw, finishLineDraw, createLinePath, startRectDraw, updateRectDraw, startCircleDraw, updateCircleDraw, startImageDraw, updateImageDraw, start3DModelDraw, update3DModelDraw, drawingFinishDraw, performErase, handleModel3DDeselect, handleImageDeselect, handlePathSelect, handlePathDeselect, startSelectionBox, updateSelectionBox, finishSelectionBox, clearAllSelections, isSelectionDragging, getSegmentAt, startSegmentDrag, updateSegmentDrag, finishSegmentDrag, startPathDrag, updatePathDrag, finishPathDrag, isSegmentDragging, isPathDragging, selectedPath, imageTool.imageInstances, model3DTool.model3DInstances, handleImageSelect, handleModel3DSelect, imageTool.imageDragState.isImageDragging, imageTool.imageDragState.dragImageId, imageTool.imageDragState.imageDragStartPoint, imageTool.imageDragState.imageDragStartBounds, handleImageMove, handleImageResize, imageTool.imageResizeState.isImageResizing, imageTool.imageResizeState.resizeImageId, imageTool.imageResizeState.resizeDirection, imageTool.imageResizeState.resizeStartBounds, imageTool.imageResizeState.resizeStartPoint, imageTool.createImagePlaceholder, model3DTool.create3DModelPlaceholder, setDrawMode, initialClickPoint, hasMoved]);
 
   // 监听图层面板的选择事件
   useEffect(() => {

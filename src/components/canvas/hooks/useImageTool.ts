@@ -200,6 +200,19 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       // 添加选择框和控制点
       addImageSelectionElements(raster, finalBounds, imageId);
       
+      // 更新React状态中的bounds为实际尺寸
+      setImageInstances(prev => prev.map(img => 
+        img.id === imageId ? {
+          ...img,
+          bounds: {
+            x: finalBounds.x,
+            y: finalBounds.y,
+            width: finalBounds.width,
+            height: finalBounds.height
+          }
+        } : img
+      ));
+      
       paper.view.update();
     };
 
@@ -377,50 +390,60 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           )[0];
 
           if (imageGroup instanceof paper.Group) {
-            // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
-            imageGroup.children.forEach(child => {
-              if (child instanceof paper.Raster) {
-                // 保持原始尺寸，只改变位置
-                const newCenter = new paper.Point(
-                  newPosition.x + img.bounds.width / 2,
-                  newPosition.y + img.bounds.height / 2
-                );
-                child.position = newCenter;
-              } else if (child.data?.isSelectionBorder) {
-                // 设置选择框的绝对位置和尺寸
-                child.bounds = new paper.Rectangle(
-                  newPosition.x,
-                  newPosition.y,
-                  img.bounds.width,
-                  img.bounds.height
-                );
-              } else if (child.data?.isResizeHandle) {
-                // 重新定位控制点到绝对位置
-                const direction = child.data.direction;
-                let handlePosition;
-                
-                switch (direction) {
-                  case 'nw':
-                    handlePosition = [newPosition.x, newPosition.y];
-                    break;
-                  case 'ne':
-                    handlePosition = [newPosition.x + img.bounds.width, newPosition.y];
-                    break;
-                  case 'sw':
-                    handlePosition = [newPosition.x, newPosition.y + img.bounds.height];
-                    break;
-                  case 'se':
-                    handlePosition = [newPosition.x + img.bounds.width, newPosition.y + img.bounds.height];
-                    break;
-                  default:
-                    handlePosition = [newPosition.x, newPosition.y];
-                }
-                
-                child.position = new paper.Point(handlePosition[0], handlePosition[1]);
-              }
-            });
+            // 获取实际的Raster对象来获取真实尺寸
+            const raster = imageGroup.children.find(child => child instanceof paper.Raster);
+            const actualBounds = raster ? raster.bounds : null;
             
-            paper.view.update();
+            if (actualBounds) {
+              // 使用实际的图片尺寸而不是React状态中的尺寸
+              const actualWidth = actualBounds.width;
+              const actualHeight = actualBounds.height;
+              
+              // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
+              imageGroup.children.forEach(child => {
+                if (child instanceof paper.Raster) {
+                  // 保持原始尺寸，只改变位置
+                  const newCenter = new paper.Point(
+                    newPosition.x + actualWidth / 2,
+                    newPosition.y + actualHeight / 2
+                  );
+                  child.position = newCenter;
+                } else if (child.data?.isSelectionBorder) {
+                  // 设置选择框的绝对位置和尺寸（使用实际图片尺寸）
+                  child.bounds = new paper.Rectangle(
+                    newPosition.x,
+                    newPosition.y,
+                    actualWidth,
+                    actualHeight
+                  );
+                } else if (child.data?.isResizeHandle) {
+                  // 重新定位控制点到绝对位置（使用实际图片尺寸）
+                  const direction = child.data.direction;
+                  let handlePosition;
+                  
+                  switch (direction) {
+                    case 'nw':
+                      handlePosition = [newPosition.x, newPosition.y];
+                      break;
+                    case 'ne':
+                      handlePosition = [newPosition.x + actualWidth, newPosition.y];
+                      break;
+                    case 'sw':
+                      handlePosition = [newPosition.x, newPosition.y + actualHeight];
+                      break;
+                    case 'se':
+                      handlePosition = [newPosition.x + actualWidth, newPosition.y + actualHeight];
+                      break;
+                    default:
+                      handlePosition = [newPosition.x, newPosition.y];
+                  }
+                  
+                  child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+                }
+              });
+              
+              paper.view.update();
+            }
           }
         }
 

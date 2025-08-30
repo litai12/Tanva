@@ -288,6 +288,146 @@ export const useDrawingTools = ({
     }
   }, [currentColor, strokeWidth, createCirclePath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
 
+  // ========== 图片占位框绘制功能 ==========
+
+  // 开始绘制图片占位框
+  const startImageDraw = useCallback((point: paper.Point) => {
+    hasMovedRef.current = false; // 重置移动状态
+    setDrawingState(prev => ({
+      ...prev,
+      initialClickPoint: point,
+      hasMoved: false
+    }));
+    eventHandlers.onDrawStart?.('image');
+  }, [eventHandlers.onDrawStart]);
+
+  // 实际创建图片占位框路径（当确认用户在拖拽时）
+  const createImagePath = useCallback((startPoint: paper.Point) => {
+    ensureDrawingLayer(); // 确保在正确的图层中绘制
+    const rect = new paper.Rectangle(startPoint, startPoint.add(new paper.Point(1, 1)));
+    pathRef.current = new paper.Path.Rectangle(rect);
+    pathRef.current.strokeColor = new paper.Color('#999');
+    pathRef.current.strokeWidth = 1;
+    pathRef.current.dashArray = [5, 5];
+    pathRef.current.fillColor = null;
+
+    // 保存起始点用于后续更新
+    if (pathRef.current) pathRef.current.startPoint = startPoint;
+
+    setDrawingState(prev => ({
+      ...prev,
+      currentPath: pathRef.current,
+      isDrawing: true
+    }));
+    isDrawingRef.current = true;
+    
+    eventHandlers.onPathCreate?.(pathRef.current);
+  }, [ensureDrawingLayer, eventHandlers.onPathCreate]);
+
+  // 更新图片占位框绘制
+  const updateImageDraw = useCallback((point: paper.Point) => {
+    // 如果还没有创建路径，检查是否超过拖拽阈值
+    if (!pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
+      const distance = drawingState.initialClickPoint.getDistance(point);
+      
+      if (distance >= drawingState.dragThreshold) {
+        // 超过阈值，创建图元并开始绘制
+        hasMovedRef.current = true; // 立即设置移动状态
+        setDrawingState(prev => ({ ...prev, hasMoved: true }));
+        createImagePath(drawingState.initialClickPoint);
+      } else {
+        // 还没超过阈值，继续等待
+        return;
+      }
+    }
+
+    if (pathRef.current?.startPoint) {
+      const startPoint = pathRef.current?.startPoint;
+      const rectangle = new paper.Rectangle(startPoint, point);
+
+      // 移除旧的矩形并创建新的
+      pathRef.current.remove();
+      pathRef.current = new paper.Path.Rectangle(rectangle);
+      pathRef.current.strokeColor = new paper.Color('#999');
+      pathRef.current.strokeWidth = 1;
+      pathRef.current.dashArray = [5, 5];
+      pathRef.current.fillColor = null;
+
+      // 保持起始点引用
+      if (pathRef.current) pathRef.current.startPoint = startPoint;
+    }
+  }, [createImagePath, drawingState.initialClickPoint, drawingState.dragThreshold]);
+
+  // ========== 3D模型占位框绘制功能 ==========
+
+  // 开始绘制3D模型占位框
+  const start3DModelDraw = useCallback((point: paper.Point) => {
+    hasMovedRef.current = false; // 重置移动状态
+    setDrawingState(prev => ({
+      ...prev,
+      initialClickPoint: point,
+      hasMoved: false
+    }));
+    eventHandlers.onDrawStart?.('3d-model');
+  }, [eventHandlers.onDrawStart]);
+
+  // 实际创建3D模型占位框路径（当确认用户在拖拽时）
+  const create3DModelPath = useCallback((startPoint: paper.Point) => {
+    ensureDrawingLayer(); // 确保在正确的图层中绘制
+    const rect = new paper.Rectangle(startPoint, startPoint.add(new paper.Point(1, 1)));
+    pathRef.current = new paper.Path.Rectangle(rect);
+    pathRef.current.strokeColor = new paper.Color('#8b5cf6');
+    pathRef.current.strokeWidth = 2;
+    pathRef.current.dashArray = [8, 4];
+    pathRef.current.fillColor = null;
+
+    // 保存起始点用于后续更新
+    if (pathRef.current) pathRef.current.startPoint = startPoint;
+
+    setDrawingState(prev => ({
+      ...prev,
+      currentPath: pathRef.current,
+      isDrawing: true
+    }));
+    isDrawingRef.current = true;
+    
+    eventHandlers.onPathCreate?.(pathRef.current);
+  }, [ensureDrawingLayer, eventHandlers.onPathCreate]);
+
+  // 更新3D模型占位框绘制
+  const update3DModelDraw = useCallback((point: paper.Point) => {
+    // 如果还没有创建路径，检查是否超过拖拽阈值
+    if (!pathRef.current && drawingState.initialClickPoint && !hasMovedRef.current) {
+      const distance = drawingState.initialClickPoint.getDistance(point);
+      
+      if (distance >= drawingState.dragThreshold) {
+        // 超过阈值，创建图元并开始绘制
+        hasMovedRef.current = true; // 立即设置移动状态
+        setDrawingState(prev => ({ ...prev, hasMoved: true }));
+        create3DModelPath(drawingState.initialClickPoint);
+      } else {
+        // 还没超过阈值，继续等待
+        return;
+      }
+    }
+
+    if (pathRef.current?.startPoint) {
+      const startPoint = pathRef.current?.startPoint;
+      const rectangle = new paper.Rectangle(startPoint, point);
+
+      // 移除旧的矩形并创建新的
+      pathRef.current.remove();
+      pathRef.current = new paper.Path.Rectangle(rectangle);
+      pathRef.current.strokeColor = new paper.Color('#8b5cf6');
+      pathRef.current.strokeWidth = 2;
+      pathRef.current.dashArray = [8, 4];
+      pathRef.current.fillColor = null;
+
+      // 保持起始点引用
+      if (pathRef.current) pathRef.current.startPoint = startPoint;
+    }
+  }, [create3DModelPath, drawingState.initialClickPoint, drawingState.dragThreshold]);
+
   // ========== 直线绘制功能 ==========
 
   // 创建直线路径（延迟创建）
@@ -499,6 +639,16 @@ export const useDrawingTools = ({
     updateLineDraw,
     finishLineDraw,
     createLinePath,
+
+    // 图片占位框绘制
+    startImageDraw,
+    updateImageDraw,
+    createImagePath,
+
+    // 3D模型占位框绘制
+    start3DModelDraw,
+    update3DModelDraw,
+    create3DModelPath,
 
     // 通用
     finishDraw,
