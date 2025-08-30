@@ -74,6 +74,23 @@ export interface Model3DToolEventHandlers {
   onModel3DResize?: (modelId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;
 }
 
+// 绘图工具状态类型
+export interface DrawingToolState {
+  currentPath: paper.Path | null;
+  isDrawing: boolean;
+  initialClickPoint: paper.Point | null;
+  hasMoved: boolean;
+  dragThreshold: number;
+}
+
+// 绘图工具事件处理器类型
+export interface DrawingToolEventHandlers {
+  onPathCreate?: (path: paper.Path) => void;
+  onPathComplete?: (path: paper.Path) => void;
+  onDrawStart?: (drawMode: string) => void;
+  onDrawEnd?: (drawMode: string) => void;
+}
+
 // 绘图上下文类型（用于在hooks间共享绘图相关的基础功能）
 export interface DrawingContext {
   ensureDrawingLayer: () => paper.Layer;

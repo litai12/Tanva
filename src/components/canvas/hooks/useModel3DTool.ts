@@ -12,12 +12,13 @@ import type {
   DrawingContext 
 } from '@/types/canvas';
 import type { Model3DData } from '@/services/model3DUploadService';
+import type { DrawMode } from '@/stores/toolStore';
 
 interface UseModel3DToolProps {
   context: DrawingContext;
   canvasRef?: React.RefObject<HTMLCanvasElement | null>;
   eventHandlers?: Model3DToolEventHandlers;
-  setDrawMode?: (mode: string) => void;
+  setDrawMode?: (mode: DrawMode) => void;
 }
 
 export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDrawMode }: UseModel3DToolProps) => {
