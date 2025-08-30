@@ -3,8 +3,9 @@
  * 用于图片工具、3D模型工具等功能的类型约束
  */
 
-import paper from 'paper';
+import type { ExtendedPath } from './paper';
 import type { Model3DData } from '@/services/model3DUploadService';
+import paper from 'paper';
 
 // 2D图片实例类型
 export interface ImageInstance {
@@ -76,7 +77,7 @@ export interface Model3DToolEventHandlers {
 
 // 绘图工具状态类型
 export interface DrawingToolState {
-  currentPath: paper.Path | null;
+  currentPath: ExtendedPath | null;
   isDrawing: boolean;
   initialClickPoint: paper.Point | null;
   hasMoved: boolean;
@@ -85,8 +86,8 @@ export interface DrawingToolState {
 
 // 绘图工具事件处理器类型
 export interface DrawingToolEventHandlers {
-  onPathCreate?: (path: paper.Path) => void;
-  onPathComplete?: (path: paper.Path) => void;
+  onPathCreate?: (path: ExtendedPath) => void;
+  onPathComplete?: (path: ExtendedPath) => void;
   onDrawStart?: (drawMode: string) => void;
   onDrawEnd?: (drawMode: string) => void;
 }

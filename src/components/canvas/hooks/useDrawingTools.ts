@@ -120,8 +120,8 @@ export const useDrawingTools = ({
       pathRef.current.add(point);
 
       // 触发 Paper.js 的 change 事件以更新图层面板
-      if (paper.project) {
-        paper.project.emit('change');
+      if (paper.project && (paper.project as any).emit) {
+        (paper.project as any).emit('change');
       }
     }
   }, [strokeWidth, createFreeDrawPath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
@@ -180,8 +180,8 @@ export const useDrawingTools = ({
       }
     }
 
-    if (pathRef.current?.startPoint) {
-      const startPoint = pathRef.current?.startPoint;
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
       const rectangle = new paper.Rectangle(startPoint, point);
 
       // 优化：更新现有矩形而不是重新创建
@@ -198,7 +198,7 @@ export const useDrawingTools = ({
       pathRef.current.fillColor = null;
 
       // 保持起始点引用
-      if (pathRef.current) pathRef.current.startPoint = startPoint;
+      if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
   }, [currentColor, strokeWidth, createRectPath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
 
@@ -257,8 +257,8 @@ export const useDrawingTools = ({
       }
     }
 
-    if (pathRef.current?.startPoint) {
-      const startPoint = pathRef.current?.startPoint;
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
       const radius = startPoint.getDistance(point);
 
       // 优化：更新现有圆形而不是重新创建
@@ -284,7 +284,7 @@ export const useDrawingTools = ({
       pathRef.current.fillColor = null;
 
       // 保持起始点引用
-      if (pathRef.current) pathRef.current.startPoint = startPoint;
+      if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
   }, [currentColor, strokeWidth, createCirclePath, drawingState.initialClickPoint, drawingState.hasMoved, drawingState.dragThreshold]);
 
@@ -341,8 +341,8 @@ export const useDrawingTools = ({
       }
     }
 
-    if (pathRef.current?.startPoint) {
-      const startPoint = pathRef.current?.startPoint;
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
       const rectangle = new paper.Rectangle(startPoint, point);
 
       // 移除旧的矩形并创建新的
@@ -354,7 +354,7 @@ export const useDrawingTools = ({
       pathRef.current.fillColor = null;
 
       // 保持起始点引用
-      if (pathRef.current) pathRef.current.startPoint = startPoint;
+      if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
   }, [createImagePath, drawingState.initialClickPoint, drawingState.dragThreshold]);
 
@@ -411,8 +411,8 @@ export const useDrawingTools = ({
       }
     }
 
-    if (pathRef.current?.startPoint) {
-      const startPoint = pathRef.current?.startPoint;
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
       const rectangle = new paper.Rectangle(startPoint, point);
 
       // 移除旧的矩形并创建新的
@@ -424,7 +424,7 @@ export const useDrawingTools = ({
       pathRef.current.fillColor = null;
 
       // 保持起始点引用
-      if (pathRef.current) pathRef.current.startPoint = startPoint;
+      if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
   }, [create3DModelPath, drawingState.initialClickPoint, drawingState.dragThreshold]);
 
@@ -463,8 +463,8 @@ export const useDrawingTools = ({
 
   // 更新直线绘制（鼠标移动时跟随）
   const updateLineDraw = useCallback((point: paper.Point) => {
-    if (pathRef.current?.startPoint) {
-      const startPoint = pathRef.current?.startPoint;
+    if (pathRef.current && (pathRef.current as any).startPoint) {
+      const startPoint = (pathRef.current as any).startPoint;
 
       // 更新直线的终点
       pathRef.current.segments[1].point = point;
@@ -497,8 +497,8 @@ export const useDrawingTools = ({
       }));
 
       // 触发 Paper.js 的 change 事件
-      if (paper.project) {
-        paper.project.emit('change');
+      if (paper.project && (paper.project as any).emit) {
+        (paper.project as any).emit('change');
       }
 
       eventHandlers.onPathComplete?.(completedPath);
@@ -536,7 +536,7 @@ export const useDrawingTools = ({
     if (pathRef.current) {
       // 如果是橡皮擦模式，执行擦除操作然后删除橡皮擦路径
       if (isEraser && performErase) {
-        performErase(pathRef.current);
+        performErase(pathRef.current as any);
         pathRef.current.remove(); // 删除橡皮擦路径本身
       } else if (drawMode === 'image' && createImagePlaceholder && setDrawMode) {
         // 图片模式：创建占位框
@@ -588,8 +588,8 @@ export const useDrawingTools = ({
       }
 
       // 触发 Paper.js 的 change 事件
-      if (paper.project) {
-        paper.project.emit('change');
+      if (paper.project && (paper.project as any).emit) {
+        (paper.project as any).emit('change');
       }
     }
 

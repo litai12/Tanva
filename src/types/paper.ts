@@ -6,7 +6,7 @@
 import paper from 'paper';
 
 // 扩展Paper.js Path类型
-export interface ExtendedPath extends paper.Path {
+export interface ExtendedPath extends Omit<paper.Path, 'data'> {
   startPoint?: paper.Point;
   data?: PaperItemData;
 }
@@ -38,17 +38,17 @@ export interface PaperMouseEvent extends paper.MouseEvent {
 }
 
 // 分组项目类型
-export interface ExtendedGroup extends paper.Group {
+export interface ExtendedGroup extends Omit<paper.Group, 'data'> {
   data?: PaperItemData;
 }
 
 // 栅格图像类型
-export interface ExtendedRaster extends paper.Raster {
+export interface ExtendedRaster extends Omit<paper.Raster, 'data'> {
   data?: PaperItemData;
 }
 
 // 文本类型
-export interface ExtendedPointText extends paper.PointText {
+export interface ExtendedPointText extends Omit<paper.PointText, 'data'> {
   data?: PaperItemData;
 }
 
