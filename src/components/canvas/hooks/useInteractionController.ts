@@ -174,7 +174,7 @@ export const useInteractionController = ({
       drawingTools.startFreeDraw(point);
     } else if (drawMode === 'line') {
       // 直线绘制模式：第一次点击开始，第二次点击完成
-      if (!drawingTools.pathRef.current?.startPoint) {
+      if (!drawingTools.pathRef.current || !(drawingTools.pathRef.current as any).startPoint) {
         drawingTools.startLineDraw(point);
       } else {
         drawingTools.finishLineDraw(point);
@@ -263,14 +263,14 @@ export const useInteractionController = ({
     
     // 直线模式：检查拖拽阈值或跟随鼠标
     if (drawMode === 'line') {
-      if (drawingTools.initialClickPoint && !drawingTools.hasMoved) {
+      if (drawingTools.initialClickPoint && !drawingTools.hasMoved && !drawingTools.pathRef.current) {
         const distance = drawingTools.initialClickPoint.getDistance(point);
         if (distance >= DRAG_THRESHOLD) {
           drawingTools.createLinePath(drawingTools.initialClickPoint);
         }
       }
       
-      if (drawingTools.pathRef.current?.startPoint) {
+      if (drawingTools.pathRef.current && (drawingTools.pathRef.current as any).startPoint) {
         drawingTools.updateLineDraw(point);
       }
       return;

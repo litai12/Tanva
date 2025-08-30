@@ -441,12 +441,15 @@ export const useDrawingTools = ({
     pathRef.current.strokeWidth = strokeWidth;
 
     // 保存起始点用于后续更新
-    if (pathRef.current) pathRef.current.startPoint = startPoint;
+    if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
 
+    // 更新移动状态
+    hasMovedRef.current = true;
     setDrawingState(prev => ({
       ...prev,
       currentPath: pathRef.current,
-      isDrawing: true
+      isDrawing: true,
+      hasMoved: true
     }));
     isDrawingRef.current = true;
     
@@ -455,8 +458,14 @@ export const useDrawingTools = ({
   }, [ensureDrawingLayer, currentColor, strokeWidth, eventHandlers.onPathCreate]);
 
   // 开始绘制直线（仅记录起始位置）
-  const startLineDraw = useCallback((_point: paper.Point) => {
-    // 仅记录起始位置，不立即创建路径
+  const startLineDraw = useCallback((point: paper.Point) => {
+    // 记录起始位置，等待拖拽阈值触发或第二次点击
+    hasMovedRef.current = false; // 重置移动状态
+    setDrawingState(prev => ({
+      ...prev,
+      initialClickPoint: point,
+      hasMoved: false
+    }));
     logger.debug('直线工具激活，等待拖拽');
     eventHandlers.onDrawStart?.('line');
   }, [eventHandlers.onDrawStart]);
@@ -470,18 +479,18 @@ export const useDrawingTools = ({
       pathRef.current.segments[1].point = point;
 
       // 保持起始点引用和样式
-      if (pathRef.current) pathRef.current.startPoint = startPoint;
+      if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
     }
   }, []);
 
   // 完成直线绘制（第二次点击）
   const finishLineDraw = useCallback((point: paper.Point) => {
-    if (pathRef.current?.startPoint) {
+    if (pathRef.current && (pathRef.current as any).startPoint) {
       // 设置最终的终点
       pathRef.current.segments[1].point = point;
 
       // 清理临时引用
-      if (pathRef.current) delete pathRef.current.startPoint;
+      if (pathRef.current) delete (pathRef.current as any).startPoint;
 
       logger.drawing('完成直线绘制');
       const completedPath = pathRef.current;
