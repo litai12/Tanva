@@ -108,8 +108,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     };
   }, [zoom, panX, panY]); // 移除不必要的依赖，避免循环
 
-  // 直接计算屏幕坐标，避免useMemo的缓存开销
-  const screenBounds = convertToScreenBounds(bounds);
+  // 缓存屏幕坐标计算，但只依赖bounds变化
+  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds]);
 
   // 计算控制点偏移量 - 考虑边框宽度和缩放
   const borderWidth = 2; // 边框宽度
@@ -189,6 +189,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       setIsResizing(true);
       setInitialBounds(bounds);
       setResizeStart({ x: e.clientX, y: e.clientY }); // 记录调整大小开始时的鼠标位置
+      
+      // 缓存初始屏幕边界，避免调整时重复计算
+      initialScreenBoundsRef.current = convertToScreenBounds(bounds);
 
       // 直接从控制点的data属性获取方向，避免计算错误
       const direction = (target as HTMLElement).getAttribute('data-direction');
@@ -220,7 +223,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 节流控制 - 限制调整频率
   const lastResizeTime = useRef<number>(0);
-  const RESIZE_THROTTLE = 32; // 约30fps，比60fps更稳定
+  const RESIZE_THROTTLE = 16; // 回到60fps，但优化其他方面
+  
+  // 缓存初始屏幕边界，避免调整时重复计算
+  const initialScreenBoundsRef = useRef<{x: number; y: number; width: number; height: number} | null>(null);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging && onMove) {
@@ -241,8 +247,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const deltaX = e.clientX - resizeStart.x;
       const deltaY = e.clientY - resizeStart.y;
 
-      // 先计算屏幕坐标的新边界
-      const initialScreenBounds = convertToScreenBounds(initialBounds);
+      // 使用缓存的初始屏幕边界
+      const initialScreenBounds = initialScreenBoundsRef.current || convertToScreenBounds(initialBounds);
       const newScreenBounds = { ...initialScreenBounds };
 
       // 根据调整方向计算新的边界 - 使用偏移量避免跳跃

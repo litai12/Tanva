@@ -86,8 +86,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     };
   }, []);
 
-  // 直接计算屏幕坐标，避免useMemo的缓存开销
-  const screenBounds = convertToScreenBounds(bounds);
+  // 缓存屏幕坐标计算，但只依赖bounds变化
+  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds]);
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
@@ -174,7 +174,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
 
   // 节流控制
   const lastResizeTime = useRef<number>(0);
-  const RESIZE_THROTTLE = 32; // 约30fps
+  const RESIZE_THROTTLE = 16; // 约60fps
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging && onMove) {

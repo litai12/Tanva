@@ -461,78 +461,74 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     eventHandlers.onImageMove?.(imageId, newPosition);
   }, [eventHandlers.onImageMove]);
 
+  // 直接更新，避免复杂的节流逻辑
+
   // ========== 图片调整大小 ==========
   const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
+    // 立即更新Paper.js对象，不等待React状态
+    const imageGroup = paper.project.layers.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0];
+
+    if (imageGroup instanceof paper.Group) {
+      // 找到图片Raster元素并调整大小和位置
+      const raster = imageGroup.children.find(child => child instanceof paper.Raster);
+      if (raster && raster.data?.originalWidth && raster.data?.originalHeight) {
+        // 计算缩放比例，保持图片质量
+        const scaleX = newBounds.width / raster.data.originalWidth;
+        const scaleY = newBounds.height / raster.data.originalHeight;
+        
+        // 直接设置bounds，避免scale操作的闪烁
+        raster.bounds = new paper.Rectangle(
+          newBounds.x,
+          newBounds.y,
+          newBounds.width,
+          newBounds.height
+        );
+      }
+
+      // 更新选择框和控制点
+      imageGroup.children.forEach(child => {
+        if (child.data?.isSelectionBorder) {
+          child.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+        } else if (child.data?.isResizeHandle) {
+          // 重新定位控制点
+          const direction = child.data.direction;
+          let handlePosition;
+          
+          switch (direction) {
+            case 'nw':
+              handlePosition = [newBounds.x, newBounds.y];
+              break;
+            case 'ne':
+              handlePosition = [newBounds.x + newBounds.width, newBounds.y];
+              break;
+            case 'sw':
+              handlePosition = [newBounds.x, newBounds.y + newBounds.height];
+              break;
+            case 'se':
+              handlePosition = [newBounds.x + newBounds.width, newBounds.y + newBounds.height];
+              break;
+            default:
+              handlePosition = [newBounds.x, newBounds.y];
+          }
+          
+          child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+        }
+      });
+    }
+
+    // 简化React状态更新
     setImageInstances(prev => prev.map(img => {
       if (img.id === imageId) {
-        // 批量更新Paper.js对象，减少查找次数
-        const imageGroup = paper.project.layers.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId === imageId
-          )
-        )[0];
-
-        if (imageGroup instanceof paper.Group) {
-          // 找到图片Raster元素并调整大小和位置
-          const raster = imageGroup.children.find(child => child instanceof paper.Raster);
-          if (raster && raster.data?.originalWidth && raster.data?.originalHeight) {
-            // 计算缩放比例，保持图片质量
-            const scaleX = newBounds.width / raster.data.originalWidth;
-            const scaleY = newBounds.height / raster.data.originalHeight;
-            
-            // 重置到原始大小再缩放，避免累积缩放
-            raster.scale(1 / raster.scaling.x, 1 / raster.scaling.y);
-            raster.scale(scaleX, scaleY);
-            
-            // 设置位置
-            const centerX = newBounds.x + newBounds.width / 2;
-            const centerY = newBounds.y + newBounds.height / 2;
-            raster.position = new paper.Point(centerX, centerY);
-          }
-
-          // 更新选择框和控制点
-          imageGroup.children.forEach(child => {
-            if (child.data?.isSelectionBorder) {
-              child.bounds = new paper.Rectangle(
-                newBounds.x,
-                newBounds.y,
-                newBounds.width,
-                newBounds.height
-              );
-            } else if (child.data?.isResizeHandle) {
-              // 重新定位控制点
-              const direction = child.data.direction;
-              const handleSize = 8;
-              let handlePosition;
-              
-              switch (direction) {
-                case 'nw':
-                  handlePosition = [newBounds.x, newBounds.y];
-                  break;
-                case 'ne':
-                  handlePosition = [newBounds.x + newBounds.width, newBounds.y];
-                  break;
-                case 'sw':
-                  handlePosition = [newBounds.x, newBounds.y + newBounds.height];
-                  break;
-                case 'se':
-                  handlePosition = [newBounds.x + newBounds.width, newBounds.y + newBounds.height];
-                  break;
-                default:
-                  handlePosition = [newBounds.x, newBounds.y];
-              }
-              
-              child.position = new paper.Point(handlePosition[0], handlePosition[1]);
-            }
-          });
-          
-          paper.view.update();
-        }
-
-        return {
-          ...img,
-          bounds: newBounds
-        };
+        return { ...img, bounds: newBounds };
       }
       return img;
     }));
