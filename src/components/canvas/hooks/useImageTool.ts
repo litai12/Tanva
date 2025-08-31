@@ -465,7 +465,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
     setImageInstances(prev => prev.map(img => {
       if (img.id === imageId) {
-        // 更新Paper.js中对应的图片组和元素
+        // 批量更新Paper.js对象，减少查找次数
         const imageGroup = paper.project.layers.flatMap(layer =>
           layer.children.filter(child =>
             child.data?.type === 'image' && child.data?.imageId === imageId
@@ -475,14 +475,19 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         if (imageGroup instanceof paper.Group) {
           // 找到图片Raster元素并调整大小和位置
           const raster = imageGroup.children.find(child => child instanceof paper.Raster);
-          if (raster) {
-            const newRect = new paper.Rectangle(
-              newBounds.x,
-              newBounds.y,
-              newBounds.width,
-              newBounds.height
-            );
-            raster.bounds = newRect;
+          if (raster && raster.data?.originalWidth && raster.data?.originalHeight) {
+            // 计算缩放比例，保持图片质量
+            const scaleX = newBounds.width / raster.data.originalWidth;
+            const scaleY = newBounds.height / raster.data.originalHeight;
+            
+            // 重置到原始大小再缩放，避免累积缩放
+            raster.scale(1 / raster.scaling.x, 1 / raster.scaling.y);
+            raster.scale(scaleX, scaleY);
+            
+            // 设置位置
+            const centerX = newBounds.x + newBounds.width / 2;
+            const centerY = newBounds.y + newBounds.height / 2;
+            raster.position = new paper.Point(centerX, centerY);
           }
 
           // 更新选择框和控制点

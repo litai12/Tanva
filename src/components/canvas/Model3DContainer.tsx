@@ -86,8 +86,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     };
   }, []);
 
-  // 计算当前屏幕坐标 - renderKey确保在Paper.js矩阵更新后重新计算
-  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds, renderKey, convertToScreenBounds]);
+  // 直接计算屏幕坐标，避免useMemo的缓存开销
+  const screenBounds = convertToScreenBounds(bounds);
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
@@ -172,6 +172,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     }
   };
 
+  // 节流控制
+  const lastResizeTime = useRef<number>(0);
+  const RESIZE_THROTTLE = 32; // 约30fps
+
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging && onMove) {
       const newScreenX = e.clientX - dragStart.x;
@@ -181,6 +185,12 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX, newScreenY)) : { x: newScreenX, y: newScreenY };
       onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
+      const now = Date.now();
+      if (now - lastResizeTime.current < RESIZE_THROTTLE) {
+        return;
+      }
+      lastResizeTime.current = now;
+      
       const mouseX = e.clientX;
       const mouseY = e.clientY;
 

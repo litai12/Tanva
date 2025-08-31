@@ -108,8 +108,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     };
   }, [zoom, panX, panY]); // 移除不必要的依赖，避免循环
 
-  // 计算当前屏幕坐标 - renderKey确保在Paper.js矩阵更新后重新计算
-  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds, renderKey, convertToScreenBounds]);
+  // 直接计算屏幕坐标，避免useMemo的缓存开销
+  const screenBounds = convertToScreenBounds(bounds);
 
   // 计算控制点偏移量 - 考虑边框宽度和缩放
   const borderWidth = 2; // 边框宽度
@@ -218,6 +218,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   };
 
+  // 节流控制 - 限制调整频率
+  const lastResizeTime = useRef<number>(0);
+  const RESIZE_THROTTLE = 32; // 约30fps，比60fps更稳定
+
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (isDragging && onMove) {
       const newScreenX = e.clientX - dragStart.x;
@@ -227,6 +231,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX, newScreenY)) : { x: newScreenX, y: newScreenY };
       onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
+      const now = Date.now();
+      if (now - lastResizeTime.current < RESIZE_THROTTLE) {
+        return; // 跳过太频繁的调整
+      }
+      lastResizeTime.current = now;
+      
       // 计算鼠标移动的偏移量
       const deltaX = e.clientX - resizeStart.x;
       const deltaY = e.clientY - resizeStart.y;

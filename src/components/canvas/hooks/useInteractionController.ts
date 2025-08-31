@@ -481,8 +481,7 @@ export const useInteractionController = ({
       height: newBounds.height
     });
     
-    // 强制Paper.js重新渲染
-    paper.view.update();
+    // 不强制更新Paper.js视图，让它自然渲染
   }, [imageTool]);
 
   // 更新鼠标光标样式
