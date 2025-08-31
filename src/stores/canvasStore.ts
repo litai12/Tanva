@@ -4,9 +4,18 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
 
+// 网格样式枚举
+export const GridStyle = {
+  LINES: 'lines',    // 线条网格
+  DOTS: 'dots'       // 点阵网格
+} as const;
+
+export type GridStyle = typeof GridStyle[keyof typeof GridStyle];
+
 interface CanvasState {
   // 网格系统
   gridSize: number;
+  gridStyle: GridStyle;
   
   // 视口状态
   zoom: number;
@@ -20,6 +29,7 @@ interface CanvasState {
   
   // 操作方法
   setGridSize: (size: number) => void;
+  setGridStyle: (style: GridStyle) => void;
   setZoom: (zoom: number) => void;
   setPan: (x: number, y: number) => void;
   panBy: (deltaX: number, deltaY: number) => void;
@@ -37,6 +47,7 @@ export const useCanvasStore = create<CanvasState>()(
       (set, get) => ({
       // 初始状态
       gridSize: 20,
+      gridStyle: GridStyle.LINES, // 默认使用线条网格
       zoom: 1.0,
       panX: 0,
       panY: 0,
@@ -48,6 +59,7 @@ export const useCanvasStore = create<CanvasState>()(
       
       // 设置方法
       setGridSize: (size) => set({ gridSize: size }),
+      setGridStyle: (style) => set({ gridStyle: style }),
       setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(3, zoom)) }), // 限制缩放范围 10%-300%
       setPan: (x, y) => set({ panX: x, panY: y }),
       panBy: (deltaX, deltaY) => {
@@ -75,6 +87,7 @@ export const useCanvasStore = create<CanvasState>()(
         // 只持久化特定的状态，不包括视口状态（zoom, panX, panY）
         partialize: (state) => ({
           gridSize: state.gridSize,
+          gridStyle: state.gridStyle,
           units: state.units,
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,
@@ -88,7 +101,8 @@ export const useCanvasStore = create<CanvasState>()(
 export const useCanvasUnits = () => useCanvasStore((state) => state.units);
 export const useCanvasZoom = () => useCanvasStore((state) => state.zoom);
 export const useCanvasGrid = () => useCanvasStore((state) => ({ 
-  gridSize: state.gridSize
+  gridSize: state.gridSize,
+  gridStyle: state.gridStyle
 }));
 export const useCanvasScale = () => useCanvasStore((state) => ({
   scaleRatio: state.scaleRatio,

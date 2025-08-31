@@ -28,7 +28,7 @@ export const useUIStore = create<UIState>((set) => ({
   showLibraryPanel: false,
   showLayerPanel: false,
   showGrid: true,
-  showAxis: true,
+  showAxis: false,
   showBounds: false,
 
   // 切换方法

@@ -11,8 +11,8 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home, Ruler, Eye, EyeOff } from 'lucide-react';
-import { useUIStore, useCanvasStore } from '@/stores';
+import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home, Ruler, Eye, EyeOff, Dot } from 'lucide-react';
+import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
 import { getAllUnits, getUnitDisplayName, getScaleRatioText } from '@/lib/unitUtils';
 
 const Header: React.FC = () => {
@@ -31,7 +31,9 @@ const Header: React.FC = () => {
         scaleRatio, 
         zoom,
         showScaleBar,
+        gridStyle,
         setUnits,
+        setGridStyle,
         toggleScaleBar
     } = useCanvasStore();
 
@@ -151,6 +153,21 @@ const Header: React.FC = () => {
                                 <Grid3x3 className="mr-2 h-3 w-3" />
                                 <span>{showGrid ? '关闭网格' : '开启网格'}</span>
                             </DropdownMenuItem>
+
+                            {/* 网格样式切换 */}
+                            {showGrid && (
+                                <DropdownMenuItem
+                                    className="text-xs cursor-pointer ml-4"
+                                    onClick={() => setGridStyle(gridStyle === GridStyle.LINES ? GridStyle.DOTS : GridStyle.LINES)}
+                                >
+                                    {gridStyle === GridStyle.LINES ? (
+                                        <Dot className="mr-2 h-3 w-3" />
+                                    ) : (
+                                        <Grid3x3 className="mr-2 h-3 w-3" />
+                                    )}
+                                    <span>{gridStyle === GridStyle.LINES ? '切换到点阵' : '切换到线条'}</span>
+                                </DropdownMenuItem>
+                            )}
 
                             {/* 坐标轴开关 */}
                             <DropdownMenuItem

@@ -5,7 +5,8 @@ export {
   useCanvasUnits,
   useCanvasZoom,
   useCanvasGrid,
-  useCanvasScale
+  useCanvasScale,
+  GridStyle
 } from './canvasStore';
 export {
   useToolStore,
