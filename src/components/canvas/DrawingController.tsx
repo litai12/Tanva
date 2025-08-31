@@ -1,10 +1,12 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import paper from 'paper';
 import { useToolStore, useCanvasStore } from '@/stores';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
+import { AutoScreenshotService } from '@/services/AutoScreenshotService';
+import { logger } from '@/utils/logger';
 
 // 导入新的hooks
 import { useImageTool } from './hooks/useImageTool';
@@ -108,6 +110,54 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     context: drawingContext,
     strokeWidth
   });
+
+  // ========== 截图功能处理 ==========
+  const handleScreenshot = useCallback(async () => {
+    try {
+      logger.debug('🖼️ 用户触发截图...');
+      
+      // 延迟一点，确保UI状态稳定
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // 调试信息
+      console.log('截图前的状态:', {
+        imageCount: imageTool.imageInstances.length,
+        model3DCount: model3DTool.model3DInstances.length,
+        images: imageTool.imageInstances,
+        models: model3DTool.model3DInstances
+      });
+
+      const result = await AutoScreenshotService.quickScreenshot(
+        imageTool.imageInstances,
+        model3DTool.model3DInstances
+      );
+
+      if (result.success) {
+        logger.debug('✅ 截图成功生成:', result.filename);
+        console.log('截图成功！文件已下载:', result.filename);
+      } else {
+        logger.error('❌ 截图失败:', result.error);
+        console.error('截图失败:', result.error);
+        alert(`截图失败: ${result.error}`);
+      }
+      
+    } catch (error) {
+      logger.error('截图过程出错:', error);
+      console.error('截图过程出错:', error);
+      alert('截图失败，请重试');
+    } finally {
+      // 无论成功失败，都切换回选择模式
+      setDrawMode('select');
+    }
+  }, [imageTool.imageInstances, model3DTool.model3DInstances, setDrawMode]);
+
+  // 监听截图工具的激活
+  useEffect(() => {
+    if (drawMode === 'screenshot') {
+      // 当选择截图工具时，立即执行截图
+      handleScreenshot();
+    }
+  }, [drawMode, handleScreenshot]);
 
   // ========== 初始化交互控制器Hook ==========
   useInteractionController({

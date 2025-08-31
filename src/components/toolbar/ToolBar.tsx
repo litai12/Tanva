@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera } from 'lucide-react';
 import { useToolStore, useUIStore } from '@/stores';
 import { logger } from '@/utils/logger';
 
@@ -346,16 +346,16 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <BoxWithPlusIcon className="w-4 h-4" />
         </Button>
 
-        {/* 截图工具 - 暂时关闭 */}
-        {/* <Button
+        {/* 截图工具 */}
+        <Button
           variant={drawMode === 'screenshot' ? 'default' : 'outline'}
           size="sm"
           className="px-2 py-2 h-8 w-8"
           onClick={() => setDrawMode('screenshot')}
-          title="截图工具"
+          title="一键截图 - 自动包含所有元素"
         >
           <Camera className="w-4 h-4" />
-        </Button> */}
+        </Button>
       </div>
 
       <Separator orientation="vertical" className="h-8" />
