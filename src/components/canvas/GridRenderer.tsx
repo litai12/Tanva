@@ -14,7 +14,9 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
   // Paper.js对象池 - 减少频繁创建/删除的性能损耗
   const pathPoolRef = useRef<paper.Path[]>([]);
-  const dotPoolRef = useRef<paper.Path.Circle[]>([]); // 点阵对象池
+  const dotPoolRef = useRef<paper.Path.Circle[]>([]); // 点阵对象池（增加容量）
+  const dotPoolMainRef = useRef<paper.Path.Circle[]>([]); // 主网格点对象池
+  const dotPoolMinorRef = useRef<paper.Path.Circle[]>([]); // 副网格点对象池
   const axisPathsRef = useRef<{ xAxis: paper.Path | null, yAxis: paper.Path | null }>({
     xAxis: null,
     yAxis: null
@@ -53,17 +55,23 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const existingPaths = gridLayer.children.slice(); // 复制数组避免修改过程中的问题
     existingPaths.forEach((child) => {
       if (child instanceof paper.Path && !child.data?.isAxis) {
-        // 将网格对象回收到对应的对象池
-        child.remove();
+        // 将网格对象回收到对应的对象池，但不要remove
+        child.visible = false;
+        child.remove(); // 从图层中移除，但不销毁对象
+        
         if (child.data?.type === 'grid-dot' && child instanceof paper.Path.Circle) {
-          // 回收点阵到点阵对象池
-          if (dotPoolRef.current.length < 100) {
-            child.visible = false;
-            dotPoolRef.current.push(child as paper.Path.Circle);
+          // 根据点的类型回收到不同的对象池
+          if (child.data?.isMainGrid) {
+            if (dotPoolMainRef.current.length < 500) {
+              dotPoolMainRef.current.push(child as paper.Path.Circle);
+            }
+          } else {
+            if (dotPoolMinorRef.current.length < 2000) {
+              dotPoolMinorRef.current.push(child as paper.Path.Circle);
+            }
           }
-        } else if (pathPoolRef.current.length < 100) {
-          // 回收线条到线条对象池
-          child.visible = false;
+        } else if (pathPoolRef.current.length < 100 && !(child instanceof paper.Path.Circle)) {
+          // 回收线条到线条对象池 - 确保不是圆形对象
           pathPoolRef.current.push(child as paper.Path);
         }
       } else if (child.data?.isAxis) {
@@ -156,14 +164,19 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
         // 从对象池获取路径或创建新的
         let line = pathPoolRef.current.pop();
-        if (line) {
-          // 复用现有路径
+        if (line && !(line instanceof paper.Path.Circle)) {
+          // 复用现有路径 - 确保正确重置
           line.segments[0].point = new paper.Point(x, minY);
           line.segments[1].point = new paper.Point(x, maxY);
           line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15);
           line.strokeWidth = isMainGrid ? 0.8 : 0.3;
           line.visible = true;
+          line.data = { isHelper: true, type: 'grid' }; // 重置data
         } else {
+          // 如果取出的是圆形对象，放回对象池
+          if (line instanceof paper.Path.Circle) {
+            pathPoolRef.current.push(line);
+          }
           // 创建新路径
           line = new paper.Path.Line({
             from: [x, minY],
@@ -190,14 +203,19 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
         // 从对象池获取路径或创建新的
         let line = pathPoolRef.current.pop();
-        if (line) {
-          // 复用现有路径
+        if (line && !(line instanceof paper.Path.Circle)) {
+          // 复用现有路径 - 确保正确重置
           line.segments[0].point = new paper.Point(minX, y);
           line.segments[1].point = new paper.Point(maxX, y);
           line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15);
           line.strokeWidth = isMainGrid ? 0.8 : 0.3;
           line.visible = true;
+          line.data = { isHelper: true, type: 'grid' }; // 重置data
         } else {
+          // 如果取出的是圆形对象，放回对象池
+          if (line instanceof paper.Path.Circle) {
+            pathPoolRef.current.push(line);
+          }
           // 创建新路径
           line = new paper.Path.Line({
             from: [minX, y],
@@ -222,46 +240,63 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     }
   }, [zoom, showGrid, showAxis, gridStyle]);
 
-  // 创建点阵网格的函数
+  // 优化后的点阵网格创建函数 - 大幅提升性能
   const createDotGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, zoom: number, gridLayer: paper.Layer) => {
     // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
     const shouldShowMinorGrid = zoom >= 0.3;
 
-    // 创建点阵网格
-    for (let x = minX; x <= maxX; x += currentGridSize) {
-      for (let y = minY; y <= maxY; y += currentGridSize) {
-        // 跳过轴线位置（如果显示轴线）
-        if ((showAxis && x === 0) || (showAxis && y === 0)) continue;
+    // 性能优化：限制最大网格数量，避免创建过多对象
+    const maxDotsPerAxis = Math.max(100, Math.min(500, Math.ceil(1000 / zoom)));
+    const actualGridSize = Math.max(currentGridSize, (maxX - minX) / maxDotsPerAxis);
 
-        // 计算是否为主网格点（每5个点）
-        const xIndex = Math.round(x / currentGridSize);
-        const yIndex = Math.round(y / currentGridSize);
+    // 预计算常用值
+    const mainGridOpacity = 0.4;
+    const minorGridOpacity = 0.3;
+    const mainDotRadius = 1.2;
+    const minorDotRadius = 0.8;
+
+    // 创建点阵网格 - 优化的双循环
+    for (let x = minX; x <= maxX; x += actualGridSize) {
+      for (let y = minY; y <= maxY; y += actualGridSize) {
+        // 跳过轴线位置（如果显示轴线）
+        if ((showAxis && Math.abs(x) < actualGridSize/2) || (showAxis && Math.abs(y) < actualGridSize/2)) continue;
+
+        // 计算是否为主网格点（每5个点）- 优化计算
+        const xIndex = Math.round(x / actualGridSize);
+        const yIndex = Math.round(y / actualGridSize);
         const isMainGrid = (xIndex % 5 === 0) && (yIndex % 5 === 0);
 
         // 如果是副网格且缩放过小，则跳过
         if (!isMainGrid && !shouldShowMinorGrid) continue;
 
-        // 计算点的大小 - 主网格点更大
-        const dotRadius = isMainGrid ? 1.2 : 0.8;
-
-        // 从对象池获取圆点或创建新的
-        let dot = dotPoolRef.current.pop();
+        // 从对应的对象池获取圆点
+        const dotPool = isMainGrid ? dotPoolMainRef.current : dotPoolMinorRef.current;
+        let dot = dotPool.pop();
+        
         if (dot) {
-          // 复用现有圆点
+          // 复用现有圆点 - 避免缩放操作，直接设置属性
           dot.position = new paper.Point(x, y);
-          // 重新设置圆点大小，先重置到原始大小再缩放
-          const currentRadius = dot.bounds.width / 2;
-          const scaleFactor = dotRadius / currentRadius;
-          dot.scale(scaleFactor);
-          dot.fillColor = new paper.Color(0, 0, 0, isMainGrid ? 0.4 : 0.3);
+          dot.fillColor = new paper.Color(0, 0, 0, isMainGrid ? mainGridOpacity : minorGridOpacity);
           dot.visible = true;
+          
+          // 只在半径不匹配时才调整大小
+          const expectedRadius = isMainGrid ? mainDotRadius : minorDotRadius;
+          const currentRadius = dot.bounds.width / 2;
+          if (Math.abs(currentRadius - expectedRadius) > 0.1) {
+            const scaleFactor = expectedRadius / currentRadius;
+            dot.scale(scaleFactor);
+          }
         } else {
-          // 创建新圆点
+          // 创建新圆点 - 减少data对象的属性
           dot = new paper.Path.Circle({
             center: [x, y],
-            radius: dotRadius,
-            fillColor: new paper.Color(0, 0, 0, isMainGrid ? 0.4 : 0.3),
-            data: { isHelper: true, type: 'grid-dot' }
+            radius: isMainGrid ? mainDotRadius : minorDotRadius,
+            fillColor: new paper.Color(0, 0, 0, isMainGrid ? mainGridOpacity : minorGridOpacity),
+            data: { 
+              isHelper: true, 
+              type: 'grid-dot',
+              isMainGrid: isMainGrid
+            }
           });
         }
         gridLayer.addChild(dot);
@@ -273,13 +308,16 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   useEffect(() => {
     if (!isPaperInitialized || !canvasRef.current) return;
     if (showGrid || showAxis) {
-      // 暂时关闭防抖，直接重绘提升触控板响应性
-      createGrid(gridSize);
-      // TODO: 如需要可重新启用防抖机制
-      // const timeoutId = setTimeout(() => createGrid(gridSize), 16);
-      // return () => clearTimeout(timeoutId);
+      // 针对点阵样式使用防抖，提升性能
+      if (gridStyle === GridStyle.DOTS) {
+        const timeoutId = setTimeout(() => createGrid(gridSize), 32); // 点阵使用较长防抖
+        return () => clearTimeout(timeoutId);
+      } else {
+        // 线条网格直接重绘，保持触控板响应性
+        createGrid(gridSize);
+      }
     }
-  }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, panX, panY]); // 添加gridStyle依赖
+  }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, panX, panY]);
 
   // 清理函数
   useEffect(() => {
@@ -299,6 +337,22 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         }
       });
       dotPoolRef.current = [];
+      
+      // 清理主网格点对象池
+      dotPoolMainRef.current.forEach(dot => {
+        if (dot && dot.remove) {
+          dot.remove();
+        }
+      });
+      dotPoolMainRef.current = [];
+      
+      // 清理副网格点对象池
+      dotPoolMinorRef.current.forEach(dot => {
+        if (dot && dot.remove) {
+          dot.remove();
+        }
+      });
+      dotPoolMinorRef.current = [];
 
       // 清理坐标轴
       if (axisPathsRef.current.xAxis) {
