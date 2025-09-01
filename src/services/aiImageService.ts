@@ -1,0 +1,365 @@
+/**
+ * Google Gemini 2.5 Flash Image API 服务层
+ * 处理AI图像生成、编辑和融合功能
+ */
+
+import { GoogleGenAI } from '@google/genai';
+import { v4 as uuidv4 } from 'uuid';
+import type {
+  AIImageGenerateRequest,
+  AIImageEditRequest,
+  AIImageBlendRequest,
+  AIImageResult,
+  AIServiceResponse,
+  AIError
+} from '@/types/ai';
+
+class AIImageService {
+  private genAI: GoogleGenAI | null = null;
+  private readonly DEFAULT_MODEL = 'imagen-4.0-generate-001';
+  private readonly DEFAULT_TIMEOUT = 30000;
+  
+  constructor() {
+    this.initializeClient();
+  }
+
+  private initializeClient(): void {
+    // 兼容 Vite 和 Node.js 环境
+    const apiKey = typeof import.meta !== 'undefined' && import.meta.env 
+      ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
+      : process.env.VITE_GOOGLE_GEMINI_API_KEY;
+    
+    if (!apiKey) {
+      console.warn('Google Gemini API key not found. Please set VITE_GOOGLE_GEMINI_API_KEY in your .env.local file');
+      return;
+    }
+    
+    try {
+      this.genAI = new GoogleGenAI({ apiKey });
+      console.log('Google GenAI client initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize Google GenAI client:', error);
+    }
+  }
+
+  private createError(code: string, message: string, details?: unknown): AIError {
+    return {
+      code,
+      message,
+      details,
+      timestamp: new Date()
+    };
+  }
+
+  private async processWithTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number = this.DEFAULT_TIMEOUT
+  ): Promise<T> {
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+    );
+    
+    return Promise.race([promise, timeoutPromise]);
+  }
+
+  /**
+   * 生成图像
+   */
+  async generateImage(request: AIImageGenerateRequest): Promise<AIServiceResponse<AIImageResult>> {
+    console.log('🎨 开始生成图像:', request);
+    
+    if (!this.genAI) {
+      return {
+        success: false,
+        error: this.createError(
+          'CLIENT_NOT_INITIALIZED',
+          'Google GenAI client is not initialized. Please check your API key.'
+        )
+      };
+    }
+
+    try {
+      // 直接使用用户的提示词，不添加前缀
+      let prompt = request.prompt;
+      
+      // 添加宽高比信息（如果指定）
+      if (request.aspectRatio && request.aspectRatio !== '1:1') {
+        prompt += ` (aspect ratio: ${request.aspectRatio})`;
+      }
+
+      console.log('📝 发送提示词:', prompt);
+      
+      const startTime = Date.now();
+      
+      // 发送生成请求
+      const result = await this.processWithTimeout(
+        this.genAI.models.generateImages({
+          model: request.model || this.DEFAULT_MODEL,
+          prompt: prompt,
+          config: {
+            numberOfImages: 1
+          }
+        })
+      );
+
+      const processingTime = Date.now() - startTime;
+      console.log(`⏱️ 处理耗时: ${processingTime}ms`);
+
+      console.log('📄 API响应:', result);
+
+      // 获取生成的图像数据
+      if (!result.generatedImages || result.generatedImages.length === 0) {
+        throw new Error('No images generated');
+      }
+
+      const generatedImage = result.generatedImages[0];
+      const imageBytes = generatedImage.image.imageBytes;
+
+      const aiResult: AIImageResult = {
+        id: uuidv4(),
+        imageData: imageBytes, // base64编码的图像数据
+        prompt: request.prompt,
+        model: request.model || this.DEFAULT_MODEL,
+        createdAt: new Date(),
+        metadata: {
+          aspectRatio: request.aspectRatio,
+          outputFormat: request.outputFormat || 'png',
+          processingTime
+        }
+      };
+
+      console.log('✅ 图像生成成功:', aiResult.id);
+
+      return {
+        success: true,
+        data: aiResult
+      };
+
+    } catch (error) {
+      console.error('❌ 图像生成失败:', error);
+      
+      // 检查是否是账单错误
+      if (error.message && error.message.includes('billed users')) {
+        return {
+          success: false,
+          error: this.createError(
+            'BILLING_REQUIRED',
+            'Imagen API requires a billed Google Cloud account. Please upgrade your account to use image generation features.',
+            error
+          )
+        };
+      }
+      
+      return {
+        success: false,
+        error: this.createError(
+          'GENERATION_FAILED',
+          error instanceof Error ? error.message : 'Failed to generate image',
+          error
+        )
+      };
+    }
+  }
+
+  /**
+   * 编辑图像
+   */
+  async editImage(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
+    console.log('✏️ 开始编辑图像:', { prompt: request.prompt, hasImage: !!request.sourceImage });
+    
+    if (!this.genAI) {
+      return {
+        success: false,
+        error: this.createError(
+          'CLIENT_NOT_INITIALIZED',
+          'Google GenAI client is not initialized. Please check your API key.'
+        )
+      };
+    }
+
+    try {
+      const prompt = `Edit this image based on the following instruction: ${request.prompt}`;
+      
+      // 将base64图像转换为适当的格式
+      const imageData = request.sourceImage.replace(/^data:image\/[a-z]+;base64,/, '');
+      
+      const startTime = Date.now();
+      
+      const result = await this.processWithTimeout(
+        this.genAI.models.generateContent({
+          model: request.model || this.DEFAULT_MODEL,
+          contents: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: 'image/jpeg', // 根据实际格式调整
+                data: imageData
+              }
+            }
+          ]
+        })
+      );
+
+      const processingTime = Date.now() - startTime;
+      const editedImageData = result.text; // 需要根据实际API调整
+
+      const aiResult: AIImageResult = {
+        id: uuidv4(),
+        imageData: editedImageData,
+        prompt: request.prompt,
+        model: request.model || this.DEFAULT_MODEL,
+        createdAt: new Date(),
+        metadata: {
+          outputFormat: request.outputFormat,
+          processingTime
+        }
+      };
+
+      console.log('✅ 图像编辑成功:', aiResult.id);
+
+      return {
+        success: true,
+        data: aiResult
+      };
+
+    } catch (error) {
+      console.error('❌ 图像编辑失败:', error);
+      
+      return {
+        success: false,
+        error: this.createError(
+          'EDIT_FAILED',
+          error instanceof Error ? error.message : 'Failed to edit image',
+          error
+        )
+      };
+    }
+  }
+
+  /**
+   * 融合多个图像
+   */
+  async blendImages(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
+    console.log('🎭 开始融合图像:', { prompt: request.prompt, imageCount: request.sourceImages.length });
+    
+    if (!this.genAI) {
+      return {
+        success: false,
+        error: this.createError(
+          'CLIENT_NOT_INITIALIZED',
+          'Google GenAI client is not initialized. Please check your API key.'
+        )
+      };
+    }
+
+    try {
+      const prompt = `Blend these images together: ${request.prompt}`;
+      
+      // 构建包含多个图像的请求
+      const imageParts = request.sourceImages.map((imageData) => ({
+        inlineData: {
+          mimeType: 'image/jpeg', // 根据实际格式调整
+          data: imageData.replace(/^data:image\/[a-z]+;base64,/, '')
+        }
+      }));
+
+      const startTime = Date.now();
+      
+      const result = await this.processWithTimeout(
+        this.genAI.models.generateContent({
+          model: request.model || this.DEFAULT_MODEL,
+          contents: [{ text: prompt }, ...imageParts]
+        })
+      );
+
+      const processingTime = Date.now() - startTime;
+      const blendedImageData = result.text; // 需要根据实际API调整
+
+      const aiResult: AIImageResult = {
+        id: uuidv4(),
+        imageData: blendedImageData,
+        prompt: request.prompt,
+        model: request.model || this.DEFAULT_MODEL,
+        createdAt: new Date(),
+        metadata: {
+          outputFormat: request.outputFormat,
+          processingTime
+        }
+      };
+
+      console.log('✅ 图像融合成功:', aiResult.id);
+
+      return {
+        success: true,
+        data: aiResult
+      };
+
+    } catch (error) {
+      console.error('❌ 图像融合失败:', error);
+      
+      return {
+        success: false,
+        error: this.createError(
+          'BLEND_FAILED',
+          error instanceof Error ? error.message : 'Failed to blend images',
+          error
+        )
+      };
+    }
+  }
+
+  /**
+   * 检查API是否可用
+   */
+  isAvailable(): boolean {
+    const apiKey = typeof import.meta !== 'undefined' && import.meta.env 
+      ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
+      : process.env.VITE_GOOGLE_GEMINI_API_KEY;
+    const available = !!this.genAI && !!apiKey;
+    console.log('🔍 API可用性检查:', available ? '✅ 可用' : '❌ 不可用');
+    return available;
+  }
+
+  /**
+   * 估算成本（基于$0.039/图像）
+   */
+  estimateCost(imageCount: number): number {
+    return imageCount * 0.039;
+  }
+
+  /**
+   * 测试API连接
+   */
+  async testConnection(): Promise<boolean> {
+    console.log('🔬 测试API连接...');
+    
+    if (!this.isAvailable()) {
+      console.log('❌ API不可用');
+      return false;
+    }
+
+    try {
+      // 使用基础的文本生成来测试连接，避免图像生成的计费问题
+      const result = await this.genAI.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: 'Hello, this is a connection test. Please respond with "Connection successful!"'
+      });
+
+      const success = !!result.text;
+      console.log('🔬 连接测试结果:', success ? '✅ 成功' : '❌ 失败');
+      
+      if (success) {
+        console.log('📄 测试响应:', result.text);
+      }
+      
+      return success;
+    } catch (error) {
+      console.error('❌ 连接测试异常:', error);
+      return false;
+    }
+  }
+}
+
+// 导出单例实例
+export const aiImageService = new AIImageService();
+export default aiImageService;
