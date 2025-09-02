@@ -9,15 +9,15 @@ import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import { useLayerStore } from '@/stores';
-import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';
+// import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // 不再需要，改用快速上传逻辑
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
     const ensureActiveLayer = useLayerStore(state => state.ensureActiveLayer);
 
-    // 使用AI图像显示hook
-    useAIImageDisplay();
+    // AI图像现在通过快速上传工具处理，不需要单独的hook
+    // useAIImageDisplay();
 
     const handlePaperInitialized = () => {
         setIsPaperInitialized(true);

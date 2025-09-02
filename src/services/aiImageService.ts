@@ -18,22 +18,22 @@ class AIImageService {
   private genAI: GoogleGenAI | null = null;
   private readonly DEFAULT_MODEL = 'imagen-4.0-generate-001';
   private readonly DEFAULT_TIMEOUT = 30000;
-  
+
   constructor() {
     this.initializeClient();
   }
 
   private initializeClient(): void {
     // 兼容 Vite 和 Node.js 环境
-    const apiKey = typeof import.meta !== 'undefined' && import.meta.env 
-      ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
-      : process.env.VITE_GOOGLE_GEMINI_API_KEY;
-    
+    const apiKey = typeof import.meta !== 'undefined' && import.meta.env
+      ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY || 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw'
+      : process.env.VITE_GOOGLE_GEMINI_API_KEY || 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw';
+
     if (!apiKey) {
       console.warn('Google Gemini API key not found. Please set VITE_GOOGLE_GEMINI_API_KEY in your .env.local file');
       return;
     }
-    
+
     try {
       this.genAI = new GoogleGenAI({ apiKey });
       console.log('Google GenAI client initialized successfully');
@@ -58,7 +58,7 @@ class AIImageService {
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
     );
-    
+
     return Promise.race([promise, timeoutPromise]);
   }
 
@@ -67,7 +67,7 @@ class AIImageService {
    */
   async generateImage(request: AIImageGenerateRequest): Promise<AIServiceResponse<AIImageResult>> {
     console.log('🎨 开始生成图像:', request);
-    
+
     if (!this.genAI) {
       return {
         success: false,
@@ -81,16 +81,16 @@ class AIImageService {
     try {
       // 直接使用用户的提示词，不添加前缀
       let prompt = request.prompt;
-      
+
       // 添加宽高比信息（如果指定）
       if (request.aspectRatio && request.aspectRatio !== '1:1') {
         prompt += ` (aspect ratio: ${request.aspectRatio})`;
       }
 
       console.log('📝 发送提示词:', prompt);
-      
+
       const startTime = Date.now();
-      
+
       // 发送生成请求
       const result = await this.processWithTimeout(
         this.genAI.models.generateImages({
@@ -137,7 +137,7 @@ class AIImageService {
 
     } catch (error) {
       console.error('❌ 图像生成失败:', error);
-      
+
       // 检查是否是账单错误
       if (error.message && error.message.includes('billed users')) {
         return {
@@ -149,7 +149,7 @@ class AIImageService {
           )
         };
       }
-      
+
       return {
         success: false,
         error: this.createError(
@@ -166,7 +166,7 @@ class AIImageService {
    */
   async editImage(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
     console.log('✏️ 开始编辑图像:', { prompt: request.prompt, hasImage: !!request.sourceImage });
-    
+
     if (!this.genAI) {
       return {
         success: false,
@@ -179,12 +179,12 @@ class AIImageService {
 
     try {
       const prompt = `Edit this image based on the following instruction: ${request.prompt}`;
-      
+
       // 将base64图像转换为适当的格式
       const imageData = request.sourceImage.replace(/^data:image\/[a-z]+;base64,/, '');
-      
+
       const startTime = Date.now();
-      
+
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: request.model || this.DEFAULT_MODEL,
@@ -224,7 +224,7 @@ class AIImageService {
 
     } catch (error) {
       console.error('❌ 图像编辑失败:', error);
-      
+
       return {
         success: false,
         error: this.createError(
@@ -241,7 +241,7 @@ class AIImageService {
    */
   async blendImages(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
     console.log('🎭 开始融合图像:', { prompt: request.prompt, imageCount: request.sourceImages.length });
-    
+
     if (!this.genAI) {
       return {
         success: false,
@@ -254,7 +254,7 @@ class AIImageService {
 
     try {
       const prompt = `Blend these images together: ${request.prompt}`;
-      
+
       // 构建包含多个图像的请求
       const imageParts = request.sourceImages.map((imageData) => ({
         inlineData: {
@@ -264,7 +264,7 @@ class AIImageService {
       }));
 
       const startTime = Date.now();
-      
+
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: request.model || this.DEFAULT_MODEL,
@@ -296,7 +296,7 @@ class AIImageService {
 
     } catch (error) {
       console.error('❌ 图像融合失败:', error);
-      
+
       return {
         success: false,
         error: this.createError(
@@ -312,7 +312,7 @@ class AIImageService {
    * 检查API是否可用
    */
   isAvailable(): boolean {
-    const apiKey = typeof import.meta !== 'undefined' && import.meta.env 
+    const apiKey = typeof import.meta !== 'undefined' && import.meta.env
       ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
       : process.env.VITE_GOOGLE_GEMINI_API_KEY;
     const available = !!this.genAI && !!apiKey;
@@ -332,7 +332,7 @@ class AIImageService {
    */
   async testConnection(): Promise<boolean> {
     console.log('🔬 测试API连接...');
-    
+
     if (!this.isAvailable()) {
       console.log('❌ API不可用');
       return false;
@@ -347,11 +347,11 @@ class AIImageService {
 
       const success = !!result.text;
       console.log('🔬 连接测试结果:', success ? '✅ 成功' : '❌ 失败');
-      
+
       if (success) {
         console.log('📄 测试响应:', result.text);
       }
-      
+
       return success;
     } catch (error) {
       console.error('❌ 连接测试异常:', error);

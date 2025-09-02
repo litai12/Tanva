@@ -90,10 +90,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     const handleQuickImageAdded = (event: CustomEvent) => {
       const imageInstance = event.detail;
+      console.log('🎪 [DEBUG] DrawingController收到quickImageAdded事件:', imageInstance);
+
       if (imageInstance) {
         // 添加到图片实例管理
         imageTool.setImageInstances(prev => [...prev, imageInstance]);
         logger.upload('快速上传的图片已添加到实例管理');
+        console.log('✅ [DEBUG] 图片实例已添加到imageTool管理');
       }
     };
 
@@ -103,6 +106,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       window.removeEventListener('quickImageAdded', handleQuickImageAdded as EventListener);
     };
   }, [imageTool]);
+
+  // ========== 监听AI生成图片的快速上传触发事件 ==========
+  useEffect(() => {
+    const handleTriggerQuickUpload = (event: CustomEvent) => {
+      const { imageData, fileName } = event.detail;
+      console.log('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { fileName });
+
+      if (imageData && quickImageUpload.handleQuickImageUploaded) {
+        // 直接调用快速上传的处理函数
+        quickImageUpload.handleQuickImageUploaded(imageData, fileName);
+        console.log('✅ [DEBUG] 已调用快速上传处理函数');
+      }
+    };
+
+    window.addEventListener('triggerQuickImageUpload', handleTriggerQuickUpload as EventListener);
+
+    return () => {
+      window.removeEventListener('triggerQuickImageUpload', handleTriggerQuickUpload as EventListener);
+    };
+  }, [quickImageUpload]);
+
+
 
   // ========== 初始化3D模型工具Hook ==========
   const model3DTool = useModel3DTool({

@@ -8,15 +8,45 @@ import paper from 'paper';
 import type { AIImageResult } from '@/types/ai';
 
 export const useAIImageDisplay = () => {
-  
-  // 在画布中央显示AI生成的图像（原始分辨率）
-  const displayImageOnCanvas = useCallback((aiResult: AIImageResult) => {
-    console.log('🖼️ 开始在画布中显示AI生成图像（原始分辨率）:', aiResult.id);
 
-    if (!paper.project || !paper.project.activeLayer) {
-      console.error('❌ Paper.js项目或活动图层未初始化');
+  // 在画布中央显示AI生成的图像（原始分辨率）
+  const displayImageOnCanvas = useCallback((aiResult: AIImageResult, retryCount: number = 0) => {
+    console.log('🖼️ [DEBUG] displayImageOnCanvas被调用，参数:', {
+      aiResultId: aiResult.id,
+      prompt: aiResult.prompt,
+      imageDataLength: aiResult.imageData?.length,
+      paperProject: !!paper.project,
+      paperActiveLayer: !!paper.project?.activeLayer,
+      paperLayers: paper.project?.layers?.length || 0
+    });
+
+    // 确保Paper.js已初始化
+    if (!paper.project) {
+      if (retryCount < 10) {  // 最多重试10次
+        console.error(`❌ Paper.js项目未初始化，第${retryCount + 1}次重试，延迟500ms...`);
+        setTimeout(() => {
+          displayImageOnCanvas(aiResult, retryCount + 1);
+        }, 500);
+      } else {
+        console.error('❌ Paper.js项目初始化失败，已达最大重试次数');
+      }
       return;
     }
+
+    // 确保有活动图层
+    if (!paper.project.activeLayer) {
+      console.log('⚠️ 没有活动图层，尝试创建或激活默认图层...');
+      if (paper.project.layers && paper.project.layers.length > 0) {
+        paper.project.layers[0].activate();
+        console.log('✅ 已激活第一个图层');
+      } else {
+        const newLayer = new paper.Layer();
+        newLayer.activate();
+        console.log('✅ 已创建并激活新图层');
+      }
+    }
+
+    console.log('✅ Paper.js环境检查通过，开始处理图片...');
 
     try {
       // 构建完整的图像数据URL
@@ -25,45 +55,61 @@ export const useAIImageDisplay = () => {
 
       // 创建新的图像元素用于加载
       const img = new Image();
-      
+
       img.onload = () => {
+        console.log('📷 [DEBUG] HTML Image加载完成，开始创建Paper.js Raster...');
         try {
-          // 创建Paper.js Raster对象，初始隐藏避免闪烁
+          // 创建Paper.js Raster对象
           const raster = new paper.Raster({
             source: img,
-            visible: false
+            position: new paper.Point(0, 0)  // 直接设置位置
           });
 
-          // 等待一帧让图片完全加载
-          setTimeout(() => {
+          console.log('🎨 [DEBUG] Paper.js Raster创建完成，等待onLoad...');
+
+          // 在onLoad回调中处理图片
+          raster.onLoad = () => {
+            console.log('🎯 [DEBUG] Paper.js Raster.onLoad触发，开始处理图片...');
             // 存储原始尺寸信息
             const originalWidth = raster.width;
             const originalHeight = raster.height;
             const aspectRatio = originalWidth / originalHeight;
 
-            // 设置图像数据属性
-            raster.data = {
-              type: 'ai-generated-image',
-              aiResultId: aiResult.id,
-              prompt: aiResult.prompt,
-              model: aiResult.model,
-              createdAt: aiResult.createdAt,
-              metadata: aiResult.metadata,
-              originalWidth,
-              originalHeight,
-              aspectRatio
-            };
+            // 限制最大显示尺寸为400px（与快速上传工具一致）
+            const maxSize = 400;
+            let displayWidth = originalWidth;
+            let displayHeight = originalHeight;
 
-            // 将图片放置在画布中央，保持原始分辨率
-            raster.position = paper.view.center;
-            
-            // 现在显示图片
-            raster.visible = true;
+            if (originalWidth > maxSize || originalHeight > maxSize) {
+              const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
+              displayWidth = originalWidth * scale;
+              displayHeight = originalHeight * scale;
+            }
+
+            // 设置显示尺寸（与快速上传工具一致）
+            raster.size = new paper.Size(displayWidth, displayHeight);
+
+            // 确保位置在坐标原点
+            raster.position = new paper.Point(0, 0);
+
+            // 生成唯一ID
+            const imageId = `ai_${aiResult.id}`;
+
+            // 设置图像数据属性（与快速上传工具一致）
+            raster.data = {
+              type: 'image',
+              imageId: imageId,
+              originalWidth: originalWidth,
+              originalHeight: originalHeight,
+              fileName: `ai_generated_${aiResult.prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`,
+              uploadMethod: 'ai-generated',
+              aspectRatio: aspectRatio
+            };
 
             // 获取当前视图信息
             const viewBounds = paper.view.bounds;
             const viewCenter = paper.view.center;
-            
+
             console.log('📐 视图信息:', {
               viewBounds: {
                 x: viewBounds.x,
@@ -72,16 +118,16 @@ export const useAIImageDisplay = () => {
                 height: viewBounds.height
               },
               viewCenter: { x: viewCenter.x, y: viewCenter.y },
-              originalImageSize: { 
-                width: originalWidth, 
-                height: originalHeight 
+              originalImageSize: {
+                width: originalWidth,
+                height: originalHeight
               }
             });
 
             console.log('🎯 保持图像原始分辨率:', {
-              originalSize: { 
-                width: originalWidth, 
-                height: originalHeight 
+              originalSize: {
+                width: originalWidth,
+                height: originalHeight
               },
               imageNaturalSize: {
                 width: img.naturalWidth,
@@ -89,18 +135,64 @@ export const useAIImageDisplay = () => {
               }
             });
 
-            // 创建一个透明矩形用于交互（使用原始尺寸和位置）
+            // 创建选择边框（默认隐藏，与2D上传工具一致）
+            const selectionBorder = new paper.Path.Rectangle({
+              rectangle: raster.bounds,
+              strokeColor: new paper.Color('#3b82f6'),
+              strokeWidth: 2,
+              fillColor: null,
+              selected: false,
+              visible: false  // 默认隐藏
+            });
+            selectionBorder.data = {
+              isSelectionBorder: true,
+              isHelper: true
+            };
+
+            // 添加四个角的调整控制点（默认隐藏）
+            const handleSize = 8;
+            const handleColor = new paper.Color('#3b82f6');
+            const bounds = raster.bounds;
+
+            const handles = [
+              { direction: 'nw', position: [bounds.left, bounds.top] },
+              { direction: 'ne', position: [bounds.right, bounds.top] },
+              { direction: 'sw', position: [bounds.left, bounds.bottom] },
+              { direction: 'se', position: [bounds.right, bounds.bottom] }
+            ];
+
+            const handleElements: paper.Path[] = [];
+            handles.forEach(({ direction, position }) => {
+              const handle = new paper.Path.Rectangle({
+                point: [position[0] - handleSize / 2, position[1] - handleSize / 2],
+                size: [handleSize, handleSize],
+                fillColor: handleColor,
+                strokeColor: 'white',
+                strokeWidth: 1,
+                selected: false,
+                visible: false  // 默认隐藏
+              });
+              handle.data = {
+                isResizeHandle: true,
+                direction,
+                imageId: `ai_${aiResult.id}`,
+                isHelper: true
+              };
+              handleElements.push(handle);
+            });
+
+            // 创建透明矩形用于交互
             const imageRect = new paper.Path.Rectangle({
               rectangle: raster.bounds,
               fillColor: null,
               strokeColor: null
             });
 
-            // 创建Paper.js组来包含所有相关元素
-            const imageGroup = new paper.Group([imageRect, raster]);
+            // 创建Paper.js组来包含所有相关元素（与快速上传工具一致的顺序）
+            const imageGroup = new paper.Group([imageRect, raster, selectionBorder, ...handleElements]);
             imageGroup.data = {
-              type: 'ai-generated-image',
-              aiResultId: aiResult.id,
+              type: 'image',
+              imageId: imageId,
               isHelper: false
             };
 
@@ -117,6 +209,7 @@ export const useAIImageDisplay = () => {
 
             // 添加到活动图层
             paper.project.activeLayer.addChild(imageGroup);
+            console.log('📋 [DEBUG] 图片组已添加到活动图层');
 
             // 创建临时高亮边框以帮助用户找到图像
             const highlightBorder = new paper.Path.Rectangle({
@@ -142,7 +235,7 @@ export const useAIImageDisplay = () => {
 
             // 强制更新视图多次确保渲染
             paper.view.update();
-            
+
             // 延迟移除高亮边框
             setTimeout(() => {
               if (highlightBorder && highlightBorder.parent) {
@@ -155,7 +248,7 @@ export const useAIImageDisplay = () => {
             const currentZoom = paper.view.zoom;
             const imageSize = Math.max(originalWidth, originalHeight);
             const viewSize = Math.min(viewBounds.width, viewBounds.height);
-            
+
             // 如果图像比视图大很多，适当缩小视图以显示完整图像
             if (imageSize > viewSize * 0.8) {
               const suggestedZoom = (viewSize * 0.8) / imageSize * currentZoom;
@@ -178,11 +271,11 @@ export const useAIImageDisplay = () => {
               bounds: raster.bounds,
               originalResolution: true,
               highlighted: true,
-              message: '🔍 图像已放置在画布中央（保持原始分辨率），带有3秒红色高亮边框帮助定位'
+              message: '🔍 图像已放置在坐标原点(0,0)，带有3秒红色高亮边框帮助定位'
             });
-            
+
             // 向用户显示友好提示
-            console.info('🎨 AI图像已生成并自动添加到画布！\n✅ 已自动下载到本地\n🎯 图像保持原始分辨率显示在画布中央');
+            console.info('🎨 AI图像已生成并自动添加到画布！\n✅ 已自动下载到本地\n🎯 图像已放置在坐标原点(0,0)');
 
             // 触发图像添加完成事件
             window.dispatchEvent(new CustomEvent('aiImageDisplayed', {
@@ -193,7 +286,34 @@ export const useAIImageDisplay = () => {
               }
             }));
 
-          }, 50); // 延迟50ms确保图片加载完成
+            // 按照快速上传工具的格式创建图像实例
+            const newImageInstance = {
+              id: imageId,
+              imageData: {
+                id: imageId,
+                src: imageDataUrl,
+                fileName: `ai_generated_${aiResult.prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`
+              },
+              bounds: {
+                x: raster.bounds.x,
+                y: raster.bounds.y,
+                width: raster.bounds.width,
+                height: raster.bounds.height
+              },
+              isSelected: false,
+              visible: true,
+              layerId: paper.project.activeLayer.name
+            };
+
+            // 使用与快速上传工具相同的事件名
+            console.log('🎪 [DEBUG] 触发quickImageAdded事件，数据:', newImageInstance);
+            window.dispatchEvent(new CustomEvent('quickImageAdded', {
+              detail: newImageInstance
+            }));
+
+            // 强制更新视图
+            paper.view.update();
+          }; // raster.onLoad结束
 
         } catch (error) {
           console.error('❌ 创建Paper.js图像对象失败:', error);
@@ -227,17 +347,20 @@ export const useAIImageDisplay = () => {
       paperProject: !!paper.project,
       paperActiveLayer: !!paper.project?.activeLayer
     });
-    
-    // 延迟一下确保Paper.js准备就绪
+
+    console.log('🚀 开始调用displayImageOnCanvas...');
+
+    // 增加延迟时间，确保Paper.js完全准备就绪
     setTimeout(() => {
+      console.log('⏰ 延迟1000ms后开始显示图片...');
       displayImageOnCanvas(aiResult);
-    }, 100);
+    }, 1000);  // 增加到1秒延迟
   }, [displayImageOnCanvas]);
 
   // 注册事件监听器
   useEffect(() => {
     window.addEventListener('aiImageGenerated', handleAIImageGenerated as EventListener);
-    
+
     return () => {
       window.removeEventListener('aiImageGenerated', handleAIImageGenerated as EventListener);
     };
@@ -255,7 +378,7 @@ export const useAIImageDisplay = () => {
     }
 
     const aiImages = paper.project.activeLayer.children.filter(
-      (item: paper.Item) => item.data && item.data.type === 'ai-generated-image'
+      (item: paper.Item) => item.data && item.data.type === 'image' && item.data.uploadMethod === 'ai-generated'
     );
 
     aiImages.forEach((item: paper.Item) => item.remove());
@@ -271,7 +394,7 @@ export const useAIImageDisplay = () => {
     }
 
     return paper.project.activeLayer.children.filter(
-      (item: paper.Item) => item.data && item.data.type === 'ai-generated-image'
+      (item: paper.Item) => item.data && item.data.type === 'image' && item.data.uploadMethod === 'ai-generated'
     );
   }, []);
 
