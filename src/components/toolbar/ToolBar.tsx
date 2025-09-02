@@ -1,8 +1,9 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2 } from 'lucide-react';
 import { useToolStore, useUIStore } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
 
 // 自定义图标组件
@@ -182,6 +183,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
   } = useToolStore();
 
   const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel } = useUIStore();
+  const { toggleDialog, isVisible: isAIDialogVisible } = useAIChatStore();
 
   return (
     <div
@@ -355,6 +357,17 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="一键截图 - 自动包含所有元素"
         >
           <Camera className="w-4 h-4" />
+        </Button>
+
+        {/* AI生图工具 */}
+        <Button
+          variant={isAIDialogVisible ? 'default' : 'outline'}
+          size="sm"
+          className="px-2 py-2 h-8 w-8"
+          onClick={toggleDialog}
+          title="AI图像生成 - 自动下载并添加到画布"
+        >
+          <Wand2 className="w-4 h-4" />
         </Button>
       </div>
 

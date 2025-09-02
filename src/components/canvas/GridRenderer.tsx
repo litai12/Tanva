@@ -70,8 +70,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
               dotPoolMinorRef.current.push(child as paper.Path.Circle);
             }
           }
-        } else if (pathPoolRef.current.length < 100 && !(child instanceof paper.Path.Circle)) {
-          // 回收线条到线条对象池 - 确保不是圆形对象
+        } else if (child.data?.type === 'grid' && pathPoolRef.current.length < 100 && !(child instanceof paper.Path.Circle)) {
+          // 回收线条到线条对象池 - 确保不是圆形对象且是网格线类型
           pathPoolRef.current.push(child as paper.Path);
         }
       } else if (child.data?.isAxis) {
@@ -162,10 +162,28 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         // 如果是副网格且缩放过小，则跳过
         if (!isMainGrid && !shouldShowMinorGrid) continue;
 
-        // 从对象池获取路径或创建新的
-        let line = pathPoolRef.current.pop();
-        if (line && !(line instanceof paper.Path.Circle)) {
+        // 从对象池获取路径或创建新的 - 垂直线
+        let line: paper.Path;
+        let poolItem = pathPoolRef.current.pop();
+        
+        // 循环检查直到找到合适的线条对象或者池为空
+        while (poolItem && poolItem instanceof paper.Path.Circle) {
+          // 如果取出圆形对象，放回适当的对象池
+          if (poolItem.data?.isMainGrid) {
+            if (dotPoolMainRef.current.length < 500) {
+              dotPoolMainRef.current.push(poolItem);
+            }
+          } else {
+            if (dotPoolMinorRef.current.length < 2000) {
+              dotPoolMinorRef.current.push(poolItem);
+            }
+          }
+          poolItem = pathPoolRef.current.pop();
+        }
+        
+        if (poolItem && !(poolItem instanceof paper.Path.Circle)) {
           // 复用现有路径 - 确保正确重置
+          line = poolItem;
           line.segments[0].point = new paper.Point(x, minY);
           line.segments[1].point = new paper.Point(x, maxY);
           line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15);
@@ -173,10 +191,6 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           line.visible = true;
           line.data = { isHelper: true, type: 'grid' }; // 重置data
         } else {
-          // 如果取出的是圆形对象，放回对象池
-          if (line instanceof paper.Path.Circle) {
-            pathPoolRef.current.push(line);
-          }
           // 创建新路径
           line = new paper.Path.Line({
             from: [x, minY],
@@ -201,10 +215,28 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         // 如果是副网格且缩放过小，则跳过
         if (!isMainGrid && !shouldShowMinorGrid) continue;
 
-        // 从对象池获取路径或创建新的
-        let line = pathPoolRef.current.pop();
-        if (line && !(line instanceof paper.Path.Circle)) {
+        // 从对象池获取路径或创建新的 - 水平线
+        let line: paper.Path;
+        let poolItem = pathPoolRef.current.pop();
+        
+        // 循环检查直到找到合适的线条对象或者池为空
+        while (poolItem && poolItem instanceof paper.Path.Circle) {
+          // 如果取出圆形对象，放回适当的对象池
+          if (poolItem.data?.isMainGrid) {
+            if (dotPoolMainRef.current.length < 500) {
+              dotPoolMainRef.current.push(poolItem);
+            }
+          } else {
+            if (dotPoolMinorRef.current.length < 2000) {
+              dotPoolMinorRef.current.push(poolItem);
+            }
+          }
+          poolItem = pathPoolRef.current.pop();
+        }
+        
+        if (poolItem && !(poolItem instanceof paper.Path.Circle)) {
           // 复用现有路径 - 确保正确重置
+          line = poolItem;
           line.segments[0].point = new paper.Point(minX, y);
           line.segments[1].point = new paper.Point(maxX, y);
           line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15);
@@ -212,10 +244,6 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           line.visible = true;
           line.data = { isHelper: true, type: 'grid' }; // 重置data
         } else {
-          // 如果取出的是圆形对象，放回对象池
-          if (line instanceof paper.Path.Circle) {
-            pathPoolRef.current.push(line);
-          }
           // 创建新路径
           line = new paper.Path.Line({
             from: [minX, y],

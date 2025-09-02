@@ -16,6 +16,7 @@ export {
   type DrawMode
 } from './toolStore';
 export { useLayerStore } from './layerStore';
+export { useAIChatStore } from './aiChatStore';
 
 // 性能优化的复合选择器
 export {

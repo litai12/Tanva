@@ -7,12 +7,17 @@ import ScaleBarRenderer from '@/components/canvas/ScaleBarRenderer';
 import ToolBar from '@/components/toolbar/ToolBar';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
+import AIChatDialog from '@/components/chat/AIChatDialog';
 import { useLayerStore } from '@/stores';
+import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';
 
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
     const ensureActiveLayer = useLayerStore(state => state.ensureActiveLayer);
+    
+    // 使用AI图像显示hook
+    useAIImageDisplay();
 
     const handlePaperInitialized = () => {
         setIsPaperInitialized(true);
@@ -64,6 +69,9 @@ const Canvas: React.FC = () => {
 
             {/* 图层面板 */}
             <LayerPanel />
+
+            {/* AI对话框 */}
+            <AIChatDialog />
         </div>
     );
 };
