@@ -4,23 +4,23 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { logger } from '@/utils/logger';
 
 // 工具类型定义
-export type DrawMode = 'select' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | '3d-model' | 'screenshot';
+export type DrawMode = 'select' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'quick-image' | '3d-model' | 'screenshot';
 
 interface ToolState {
   // 当前激活工具
   drawMode: DrawMode;
-  
+
   // 绘图属性
   currentColor: string;
   strokeWidth: number;
   isEraser: boolean;
-  
+
   // 操作方法
   setDrawMode: (mode: DrawMode) => void;
   setCurrentColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
   toggleEraser: () => void;
-  
+
   // 快捷切换工具
   nextDrawingTool: () => void;
 }
@@ -37,7 +37,7 @@ export const useToolStore = create<ToolState>()(
         currentColor: '#000000',
         strokeWidth: 2,
         isEraser: false,
-        
+
         // 设置方法
         setDrawMode: (mode) => {
           logger.debug(`🔧 切换工具模式: ${get().drawMode} -> ${mode}`);
@@ -48,16 +48,16 @@ export const useToolStore = create<ToolState>()(
             set({ drawMode: mode });
           }
         },
-        
+
         setCurrentColor: (color) => {
           set({ currentColor: color });
         },
-        
+
         setStrokeWidth: (width) => {
           const validWidth = Math.max(1, Math.min(20, width)); // 限制范围 1-20
           set({ strokeWidth: validWidth });
         },
-        
+
         toggleEraser: () => {
           const { isEraser } = get();
           if (isEraser) {
@@ -68,14 +68,14 @@ export const useToolStore = create<ToolState>()(
             set({ isEraser: true, drawMode: 'free' });
           }
         },
-        
+
         // 快捷切换绘图工具（循环切换）
         nextDrawingTool: () => {
           const { drawMode } = get();
           const currentIndex = DRAWING_TOOLS.indexOf(drawMode);
           const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % DRAWING_TOOLS.length;
           const nextMode = DRAWING_TOOLS[nextIndex];
-          
+
           logger.debug(`🔄 循环切换绘图工具: ${drawMode} -> ${nextMode}`);
           set({ drawMode: nextMode });
         },

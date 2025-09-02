@@ -15,7 +15,7 @@ const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
     const ensureActiveLayer = useLayerStore(state => state.ensureActiveLayer);
-    
+
     // 使用AI图像显示hook
     useAIImageDisplay();
 

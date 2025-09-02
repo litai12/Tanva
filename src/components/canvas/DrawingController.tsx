@@ -16,6 +16,7 @@ import { useSelectionTool } from './hooks/useSelectionTool';
 import { usePathEditor } from './hooks/usePathEditor';
 import { useEraserTool } from './hooks/useEraserTool';
 import { useInteractionController } from './hooks/useInteractionController';
+import { useQuickImageUpload } from './hooks/useQuickImageUpload';
 import type { DrawingContext } from '@/types/canvas';
 
 interface DrawingControllerProps {
@@ -26,6 +27,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
+  const lastDrawModeRef = useRef<string>(drawMode);
 
   // 初始化图层管理器
   useEffect(() => {
@@ -63,6 +65,44 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       onImageDeselect: () => console.log('取消图片选择')
     }
   });
+
+  // ========== 初始化快速图片上传Hook ==========
+  const quickImageUpload = useQuickImageUpload({
+    context: drawingContext,
+    canvasRef
+  });
+
+  // ========== 监听drawMode变化，处理快速上传 ==========
+  useEffect(() => {
+    // 只在drawMode变化时触发，避免重复触发
+    if (drawMode === 'quick-image' && lastDrawModeRef.current !== 'quick-image') {
+      logger.tool('触发快速图片上传');
+      quickImageUpload.triggerQuickImageUpload();
+      // 触发后立即切换回选择模式
+      setTimeout(() => {
+        setDrawMode('select');
+      }, 100);
+    }
+    lastDrawModeRef.current = drawMode;
+  }, [drawMode, quickImageUpload, setDrawMode]);
+
+  // ========== 监听快速上传的图片并添加到实例管理 ==========
+  useEffect(() => {
+    const handleQuickImageAdded = (event: CustomEvent) => {
+      const imageInstance = event.detail;
+      if (imageInstance) {
+        // 添加到图片实例管理
+        imageTool.setImageInstances(prev => [...prev, imageInstance]);
+        logger.upload('快速上传的图片已添加到实例管理');
+      }
+    };
+
+    window.addEventListener('quickImageAdded', handleQuickImageAdded as EventListener);
+
+    return () => {
+      window.removeEventListener('quickImageAdded', handleQuickImageAdded as EventListener);
+    };
+  }, [imageTool]);
 
   // ========== 初始化3D模型工具Hook ==========
   const model3DTool = useModel3DTool({
@@ -115,10 +155,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const handleScreenshot = useCallback(async () => {
     try {
       logger.debug('🖼️ 用户触发截图...');
-      
+
       // 延迟一点，确保UI状态稳定
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       // 调试信息
       console.log('截图前的状态:', {
         imageCount: imageTool.imageInstances.length,
@@ -140,7 +180,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         console.error('截图失败:', result.error);
         alert(`截图失败: ${result.error}`);
       }
-      
+
     } catch (error) {
       logger.error('截图过程出错:', error);
       console.error('截图过程出错:', error);
@@ -229,7 +269,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       imageTool.setImageInstances(prev => prev.map(image => {
         const imageGroup = paper.project?.layers?.flatMap(layer =>
           layer.children.filter(child =>
-            child.data?.type === 'image' && 
+            child.data?.type === 'image' &&
             child.data?.imageId === image.id
           )
         )[0];
@@ -267,12 +307,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     const handleLayerItemSelected = (event: CustomEvent) => {
       const { item, type, itemId } = event.detail;
-      
+
       console.log('收到图层面板选择事件:', type, itemId);
-      
+
       // 清除之前的所有选择
       selectionTool.clearAllSelections();
-      
+
       // 根据类型进行相应的选择处理
       if (type === 'image') {
         const imageData = item.data;
@@ -306,6 +346,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onUploadError={imageTool.handleImageUploadError}
         trigger={imageTool.triggerImageUpload}
         onTriggerHandled={imageTool.handleUploadTriggerHandled}
+      />
+
+      {/* 快速图片上传组件（居中） */}
+      <ImageUploadComponent
+        onImageUploaded={quickImageUpload.handleQuickImageUploaded}
+        onUploadError={quickImageUpload.handleQuickUploadError}
+        trigger={quickImageUpload.triggerQuickUpload}
+        onTriggerHandled={quickImageUpload.handleQuickUploadTriggerHandled}
       />
 
       {/* 3D模型上传组件 */}

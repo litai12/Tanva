@@ -73,6 +73,18 @@ const ImageWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
   </div>
 );
 
+// 快速图片上传图标（带绿色加号，表示快速添加）
+const QuickImageIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Image className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
 // 带蓝色加号的3D模型图标
 const BoxWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
   <div className="relative">
@@ -335,6 +347,17 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="添加图片"
         >
           <ImageWithPlusIcon className="w-4 h-4" />
+        </Button>
+
+        {/* 快速图片上传工具（居中） */}
+        <Button
+          variant={drawMode === 'quick-image' ? 'default' : 'outline'}
+          size="sm"
+          className="px-2 py-2 h-8 w-8"
+          onClick={() => setDrawMode('quick-image')}
+          title="快速上传图片（自动居中）"
+        >
+          <QuickImageIcon className="w-4 h-4" />
         </Button>
 
         {/* 3D模型工具 */}
