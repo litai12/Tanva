@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { Send, X, Wand2, AlertCircle } from 'lucide-react';
+import { Send, Wand2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const AIChatDialog: React.FC = () => {
@@ -24,7 +24,8 @@ const AIChatDialog: React.FC = () => {
   } = useAIChatStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   // 自动聚焦到输入框
   useEffect(() => {
@@ -33,6 +34,20 @@ const AIChatDialog: React.FC = () => {
     }
   }, [isVisible]);
 
+
+
+  // 对话框获得焦点时显示聊天历史记录
+  const handleDialogFocus = () => {
+    if (messages.length > 0) {
+      setShowHistory(true);
+    }
+  };
+
+  // 对话框失去焦点时隐藏历史记录
+  const handleDialogBlur = () => {
+    setShowHistory(false);
+  };
+
   // 处理发送
   const handleSend = async () => {
     const trimmedInput = currentInput.trim();
@@ -40,7 +55,6 @@ const AIChatDialog: React.FC = () => {
 
     await generateImage(trimmedInput);
     clearInput();
-    setIsExpanded(false);
   };
 
   // 处理键盘事件
@@ -56,10 +70,6 @@ const AIChatDialog: React.FC = () => {
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setCurrentInput(e.target.value);
-    
-    // 根据内容长度自动展开
-    const hasContent = e.target.value.trim().length > 0;
-    setIsExpanded(hasContent || generationStatus.isGenerating);
   };
 
   // 如果对话框不可见，不渲染
@@ -70,34 +80,18 @@ const AIChatDialog: React.FC = () => {
 
   return (
     <div className="fixed bottom-5 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-2xl px-4">
-      <div className={cn(
-        "bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200/50 transition-all duration-300 ease-out",
-        isExpanded ? "pb-4" : "pb-2"
-      )}>
-        
-        {/* 头部区域 */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-2">
-          <div className="flex items-center gap-2">
-            <Wand2 className="h-5 w-5 text-purple-600" />
-            <span className="text-sm font-medium text-gray-700">AI图像生成</span>
-            {generationStatus.isGenerating && (
-              <LoadingSpinner size="sm" className="text-purple-600" />
-            )}
-          </div>
-          
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 rounded-full hover:bg-gray-100"
-            onClick={hideDialog}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+      <div
+        ref={dialogRef}
+        className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200/50 transition-all duration-300 ease-out p-4 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300"
+        tabIndex={0}
+        onFocus={handleDialogFocus}
+        onBlur={handleDialogBlur}
+      >
+
 
         {/* 进度条 */}
         {showProgress && (
-          <div className="px-4 pb-2">
+          <div className="mb-4">
             <div className="w-full bg-gray-200 rounded-full h-1.5">
               <div
                 className="bg-purple-600 h-1.5 rounded-full transition-all duration-500 ease-out"
@@ -111,7 +105,7 @@ const AIChatDialog: React.FC = () => {
         )}
 
         {/* 输入区域 */}
-        <div className="px-4">
+        <div onClick={(e) => e.stopPropagation()}>
           <div className="relative">
             <Textarea
               ref={textareaRef}
@@ -124,46 +118,35 @@ const AIChatDialog: React.FC = () => {
                 "resize-none pr-12 min-h-[60px] transition-all duration-200",
                 generationStatus.isGenerating && "opacity-75"
               )}
-              rows={isExpanded ? 3 : 1}
+              rows={showHistory ? 3 : 1}
             />
-            
+
             {/* 发送按钮 */}
             <Button
               onClick={handleSend}
               disabled={!canSend}
               size="sm"
               className={cn(
-                "absolute right-2 bottom-2 h-8 w-8 p-0 rounded-full transition-all duration-200",
-                canSend 
-                  ? "bg-purple-600 hover:bg-purple-700 text-white" 
+                "absolute right-2 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                canSend
+                  ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow-md"
                   : "bg-gray-200 text-gray-400 cursor-not-allowed"
               )}
             >
               {generationStatus.isGenerating ? (
                 <LoadingSpinner size="sm" />
               ) : (
-                <Send className="h-4 w-4" />
+                <Send className="h-3.5 w-3.5" />
               )}
             </Button>
           </div>
         </div>
 
-        {/* 成功提示 */}
-        {generationStatus.progress === 100 && !generationStatus.isGenerating && !generationStatus.error && (
-          <div className="px-4 pt-2">
-            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <div className="h-4 w-4 text-green-600 flex-shrink-0">✅</div>
-              <div className="flex-1 text-sm text-green-800">
-                <div className="font-medium">图像已生成！</div>
-                <div className="text-xs mt-1">已自动下载到本地并添加到画布中央（原始分辨率）</div>
-              </div>
-            </div>
-          </div>
-        )}
+
 
         {/* 错误提示 */}
         {generationStatus.error && (
-          <div className="px-4 pt-2">
+          <div className="mt-4">
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
               <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
               <span className="text-sm text-red-800">{generationStatus.error}</span>
@@ -171,39 +154,91 @@ const AIChatDialog: React.FC = () => {
           </div>
         )}
 
-        {/* 消息历史（展开时显示最近的消息） */}
-        {isExpanded && messages.length > 0 && (
-          <div className="px-4 pt-3 max-h-32 overflow-y-auto">
+        {/* 消息历史（点击对话框时显示） */}
+        {showHistory && messages.length > 0 && (
+          <div
+            className="mt-4 max-h-48 overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#d1d5db #f3f4f6'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="space-y-2">
-              {messages.slice(-3).map((message) => (
+              <div className="mb-3">
+                <span className="text-xs text-gray-500 font-medium">聊天历史记录</span>
+                <div className="text-xs text-gray-400 mt-1">点击其他区域收起</div>
+              </div>
+              {messages.slice(-5).map((message) => (
                 <div
                   key={message.id}
                   className={cn(
-                    "text-xs p-2 rounded-lg",
-                    message.type === 'user' && "bg-blue-50 text-blue-800 ml-8",
-                    message.type === 'ai' && "bg-green-50 text-green-800 mr-8",
+                    "p-3 rounded-lg transition-colors",
+                    message.type === 'user' && "bg-blue-50 text-blue-800 ml-4",
+                    message.type === 'ai' && "bg-green-50 text-green-800 mr-4",
                     message.type === 'error' && "bg-red-50 text-red-800"
                   )}
                 >
-                  <div className="flex items-center gap-1">
-                    <span className="font-medium">
-                      {message.type === 'user' ? '你' : message.type === 'ai' ? 'AI' : '错误'}:
-                    </span>
-                    <span>{message.content}</span>
-                  </div>
+                  {/* 如果有图像，使用左右布局 */}
+                  {message.imageData ? (
+                    <div className="flex gap-3 items-start">
+                      {/* 左边：图像 */}
+                      <div className="flex-shrink-0">
+                        <img
+                          src={`data:image/png;base64,${message.imageData}`}
+                          alt="AI生成的图像"
+                          className="w-20 h-20 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // 可以在这里添加图像预览功能
+                            console.log('点击查看大图');
+                          }}
+                          title="点击查看大图"
+                        />
+                      </div>
+
+                      {/* 右边：文字内容 */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-medium text-xs">
+                            {message.type === 'user' ? '你' : message.type === 'ai' ? 'AI' : '错误'}
+                          </span>
+                          <span className="text-gray-400 text-xs">
+                            {message.timestamp.toLocaleTimeString('zh-CN', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                        <div className="text-sm leading-relaxed text-gray-700 break-words">
+                          {message.content}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 没有图像时使用原来的纵向布局 */
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-xs">
+                          {message.type === 'user' ? '你' : message.type === 'ai' ? 'AI' : '错误'}
+                        </span>
+                        <span className="text-gray-400 text-xs">
+                          {message.timestamp.toLocaleTimeString('zh-CN', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                      <div className="text-sm">{message.content}</div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* 底部提示 */}
-        <div className="px-4 pt-2">
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>按 Enter 发送，Shift + Enter 换行</span>
-            <span>生成一张图像约 $0.039</span>
-          </div>
-        </div>
+
       </div>
     </div>
   );

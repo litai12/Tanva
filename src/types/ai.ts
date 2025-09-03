@@ -1,5 +1,6 @@
 /**
- * Google Gemini 2.5 Flash Image API 相关类型定义
+ * Google Gemini 2.5 Flash Image (Nano Banana) API 相关类型定义
+ * 支持 gemini-2.5-flash-image-preview 模型
  */
 
 // AI图像生成请求参数

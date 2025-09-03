@@ -274,8 +274,7 @@ export const useAIImageDisplay = () => {
               message: '🔍 图像已放置在坐标原点(0,0)，带有3秒红色高亮边框帮助定位'
             });
 
-            // 向用户显示友好提示
-            console.info('🎨 AI图像已生成并自动添加到画布！\n✅ 已自动下载到本地\n🎯 图像已放置在坐标原点(0,0)');
+
 
             // 触发图像添加完成事件
             window.dispatchEvent(new CustomEvent('aiImageDisplayed', {

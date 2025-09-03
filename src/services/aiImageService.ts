@@ -1,6 +1,7 @@
 /**
- * Google Gemini 2.5 Flash Image API 服务层
+ * Google Gemini 2.5 Flash Image (Nano Banana) API 服务层
  * 处理AI图像生成、编辑和融合功能
+ * 使用最新的 gemini-2.5-flash-image-preview 模型
  */
 
 import { GoogleGenAI } from '@google/genai';
@@ -16,7 +17,7 @@ import type {
 
 class AIImageService {
   private genAI: GoogleGenAI | null = null;
-  private readonly DEFAULT_MODEL = 'imagen-4.0-generate-001';
+  private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
   private readonly DEFAULT_TIMEOUT = 30000;
 
   constructor() {
@@ -91,14 +92,11 @@ class AIImageService {
 
       const startTime = Date.now();
 
-      // 发送生成请求
+      // 发送生成请求 - 使用新的generateContent API
       const result = await this.processWithTimeout(
-        this.genAI.models.generateImages({
+        this.genAI.models.generateContent({
           model: request.model || this.DEFAULT_MODEL,
-          prompt: prompt,
-          config: {
-            numberOfImages: 1
-          }
+          contents: prompt,
         })
       );
 
@@ -107,13 +105,28 @@ class AIImageService {
 
       console.log('📄 API响应:', result);
 
-      // 获取生成的图像数据
-      if (!result.generatedImages || result.generatedImages.length === 0) {
-        throw new Error('No images generated');
+      // 获取生成的图像数据 - 新的响应格式
+      if (!result.candidates || result.candidates.length === 0) {
+        throw new Error('No candidates returned from API');
       }
 
-      const generatedImage = result.generatedImages[0];
-      const imageBytes = generatedImage.image.imageBytes;
+      const candidate = result.candidates[0];
+      if (!candidate.content || !candidate.content.parts) {
+        throw new Error('No content parts in response');
+      }
+
+      // 查找图像数据
+      let imageBytes: string | null = null;
+      for (const part of candidate.content.parts) {
+        if (part.inlineData) {
+          imageBytes = part.inlineData.data;
+          break;
+        }
+      }
+
+      if (!imageBytes) {
+        throw new Error('No image data found in response');
+      }
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
@@ -201,7 +214,29 @@ class AIImageService {
       );
 
       const processingTime = Date.now() - startTime;
-      const editedImageData = result.text; // 需要根据实际API调整
+
+      // 处理新的响应格式
+      if (!result.candidates || result.candidates.length === 0) {
+        throw new Error('No candidates returned from API');
+      }
+
+      const candidate = result.candidates[0];
+      if (!candidate.content || !candidate.content.parts) {
+        throw new Error('No content parts in response');
+      }
+
+      // 查找图像数据
+      let editedImageData: string | null = null;
+      for (const part of candidate.content.parts) {
+        if (part.inlineData) {
+          editedImageData = part.inlineData.data;
+          break;
+        }
+      }
+
+      if (!editedImageData) {
+        throw new Error('No edited image data found in response');
+      }
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
@@ -273,7 +308,29 @@ class AIImageService {
       );
 
       const processingTime = Date.now() - startTime;
-      const blendedImageData = result.text; // 需要根据实际API调整
+
+      // 处理新的响应格式
+      if (!result.candidates || result.candidates.length === 0) {
+        throw new Error('No candidates returned from API');
+      }
+
+      const candidate = result.candidates[0];
+      if (!candidate.content || !candidate.content.parts) {
+        throw new Error('No content parts in response');
+      }
+
+      // 查找图像数据
+      let blendedImageData: string | null = null;
+      for (const part of candidate.content.parts) {
+        if (part.inlineData) {
+          blendedImageData = part.inlineData.data;
+          break;
+        }
+      }
+
+      if (!blendedImageData) {
+        throw new Error('No blended image data found in response');
+      }
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
@@ -321,10 +378,12 @@ class AIImageService {
   }
 
   /**
-   * 估算成本（基于$0.039/图像）
+   * 估算成本（基于Gemini原生图片生成定价：每张图片1,290个token，$30/100万token）
    */
   estimateCost(imageCount: number): number {
-    return imageCount * 0.039;
+    const tokensPerImage = 1290;
+    const costPer1MTokens = 30; // $30 per 1M tokens
+    return (imageCount * tokensPerImage * costPer1MTokens) / 1000000;
   }
 
   /**
