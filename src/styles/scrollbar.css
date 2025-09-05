@@ -1,0 +1,147 @@
+/* 超细滚动条样式 - 最高优先级 */
+
+/* 移除所有默认滚动条样式 */
+* {
+  scrollbar-width: thin !important;
+}
+
+/* 主要样式类 */
+.custom-scrollbar {
+  padding-right: 1px !important;
+  position: relative !important;
+  
+  /* Firefox */
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(156, 163, 175, 0.4) transparent !important;
+}
+
+/* WebKit - 超细1px设置 */
+.custom-scrollbar::-webkit-scrollbar,
+div.custom-scrollbar::-webkit-scrollbar,
+.overflow-y-auto::-webkit-scrollbar,
+.overflow-y-scroll::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 1px !important;
+  height: 1px !important;
+}
+
+/* 滚动条轨道 - 完全透明 */
+.custom-scrollbar::-webkit-scrollbar-track,
+div.custom-scrollbar::-webkit-scrollbar-track,
+.overflow-y-auto::-webkit-scrollbar-track,
+.overflow-y-scroll::-webkit-scrollbar-track,
+*::-webkit-scrollbar-track {
+  background: transparent !important;
+  border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 滚动条滑块 - 细长条 */
+.custom-scrollbar::-webkit-scrollbar-thumb,
+div.custom-scrollbar::-webkit-scrollbar-thumb,
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.overflow-y-scroll::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5) !important;
+  border: none !important;
+  border-radius: 0px !important;
+  min-height: 30px !important;
+  max-width: 1px !important;
+  width: 1px !important;
+}
+
+/* 悬停状态 */
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6) !important;
+}
+
+/* 激活状态 */
+.custom-scrollbar::-webkit-scrollbar-thumb:active,
+*::-webkit-scrollbar-thumb:active {
+  background: rgba(156, 163, 175, 0.8) !important;
+}
+
+/* 完全移除所有按钮 */
+.custom-scrollbar::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:single-button,
+*::-webkit-scrollbar-button:double-button,
+*::-webkit-scrollbar-button:horizontal,
+*::-webkit-scrollbar-button:vertical,
+*::-webkit-scrollbar-button:start,
+*::-webkit-scrollbar-button:end,
+*::-webkit-scrollbar-button:increment,
+*::-webkit-scrollbar-button:decrement {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+/* 移除角落 */
+.custom-scrollbar::-webkit-scrollbar-corner,
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
+  display: none !important;
+}
+
+/* 针对历史记录区域的特定覆盖 */
+.mt-4::-webkit-scrollbar,
+.max-h-80::-webkit-scrollbar,
+.overflow-y-auto::-webkit-scrollbar,
+.overflow-y-scroll::-webkit-scrollbar,
+div[ref]::-webkit-scrollbar {
+  width: 1px !important;
+}
+
+.mt-4::-webkit-scrollbar-thumb,
+.max-h-80::-webkit-scrollbar-thumb,
+.overflow-y-auto::-webkit-scrollbar-thumb,
+.overflow-y-scroll::-webkit-scrollbar-thumb,
+div[ref]::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5) !important;
+  width: 1px !important;
+  max-width: 1px !important;
+}
+
+/* 极端措施 - 使用ID或更具体的选择器 */
+#root .custom-scrollbar::-webkit-scrollbar,
+body .custom-scrollbar::-webkit-scrollbar,
+html .custom-scrollbar::-webkit-scrollbar {
+  width: 1px !important;
+}
+
+/* 使用属性选择器 */
+[class*="custom-scrollbar"]::-webkit-scrollbar {
+  width: 1px !important;
+}
+
+[class*="overflow"]::-webkit-scrollbar {
+  width: 1px !important;
+}
+
+/* 内联样式覆盖 */
+[style*="overflow"]::-webkit-scrollbar {
+  width: 1px !important;
+}
+
+/* 确保在所有伪类状态下都是1px */
+.custom-scrollbar:hover::-webkit-scrollbar,
+.custom-scrollbar:focus::-webkit-scrollbar,
+.custom-scrollbar:active::-webkit-scrollbar,
+.custom-scrollbar:focus-within::-webkit-scrollbar {
+  width: 1px !important;
+}
+
+/* 最后的保险 - 使用通配符 */
+div::-webkit-scrollbar {
+  width: 1px !important;
+}
+
+div::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5) !important;
+  max-width: 1px !important;
+}

@@ -45,6 +45,9 @@ interface AIChatState {
   // 多图融合状态
   sourceImagesForBlending: string[]; // 当前用于融合的多张图像
 
+  // 图像分析状态
+  sourceImageForAnalysis: string | null; // 当前用于分析的源图像
+
   // 配置选项
   autoDownload: boolean;  // 是否自动下载生成的图片
 
@@ -74,8 +77,18 @@ interface AIChatState {
   removeImageFromBlending: (index: number) => void;
   clearImagesForBlending: () => void;
 
+  // 图像分析功能
+  analyzeImage: (prompt: string, sourceImage: string) => Promise<void>;
+  setSourceImageForAnalysis: (imageData: string | null) => void;
+
+  // 文本对话功能
+  generateTextResponse: (prompt: string) => Promise<void>;
+
+  // 智能工具选择功能
+  processUserInput: (input: string) => Promise<void>;
+
   // 智能模式检测
-  getAIMode: () => 'generate' | 'edit' | 'blend';
+  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze';
 
   // 配置管理
   toggleAutoDownload: () => void;
@@ -87,7 +100,7 @@ interface AIChatState {
 
 export const useAIChatStore = create<AIChatState>((set, get) => ({
   // 初始状态
-  isVisible: false,
+  isVisible: true,
   currentInput: '',
   generationStatus: {
     isGenerating: false,
@@ -98,6 +111,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   lastGeneratedImage: null,
   sourceImageForEditing: null,  // 图生图源图像
   sourceImagesForBlending: [],  // 多图融合源图像数组
+  sourceImageForAnalysis: null, // 图像分析源图像
   autoDownload: false,  // 默认不自动下载
 
   // 对话框控制
@@ -117,9 +131,17 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       timestamp: new Date()
     };
 
+    console.log('📨 添加新消息:', {
+      type: newMessage.type,
+      content: newMessage.content.substring(0, 50) + (newMessage.content.length > 50 ? '...' : ''),
+      id: newMessage.id
+    });
+
     set((state) => ({
       messages: [...state.messages, newMessage]
     }));
+
+    console.log('📊 消息列表更新后长度:', get().messages.length);
   },
 
   clearMessages: () => set({ messages: [] }),
@@ -128,10 +150,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   generateImage: async (prompt: string) => {
     const state = get();
 
-    // 如果正在生成，忽略新请求
-    if (state.generationStatus.isGenerating) {
-      return;
-    }
+    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
+    // 所以这里不需要再检查 isGenerating
 
     // 添加用户消息
     state.addMessage({
@@ -243,7 +263,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
         // 自动添加到画布
         setTimeout(() => {
-          addImageToCanvas(result.data);
+          if (result.data) {
+            addImageToCanvas(result.data);
+          }
         }, 100); // 短暂延迟，确保UI更新
 
         console.log('✅ 图像生成成功，已自动添加到画布', {
@@ -301,10 +323,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   editImage: async (prompt: string, sourceImage: string) => {
     const state = get();
 
-    // 如果正在生成，忽略新请求
-    if (state.generationStatus.isGenerating) {
-      return;
-    }
+    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
+    // 所以这里不需要再检查 isGenerating
 
     // 添加用户消息（包含源图像）
     state.addMessage({
@@ -379,7 +399,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         };
 
         setTimeout(() => {
-          addImageToCanvas(result.data);
+          if (result.data) {
+            addImageToCanvas(result.data);
+          }
         }, 100);
 
         console.log('✅ 图像编辑成功，已自动添加到画布', {
@@ -437,7 +459,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   blendImages: async (prompt: string, sourceImages: string[]) => {
     const state = get();
 
-    if (state.generationStatus.isGenerating) return;
+    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
+    // 所以这里不需要再检查 isGenerating
 
     state.addMessage({
       type: 'user',
@@ -505,7 +528,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         };
 
         setTimeout(() => {
-          addImageToCanvas(result.data);
+          if (result.data) {
+            addImageToCanvas(result.data);
+          }
         }, 100);
 
         console.log('✅ 图像融合成功，已自动添加到画布');
@@ -559,10 +584,282 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     set({ sourceImagesForBlending: [] });
   },
 
+  // 图像分析功能
+  analyzeImage: async (prompt: string, sourceImage: string) => {
+    const state = get();
+
+    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
+    // 所以这里不需要再检查 isGenerating
+
+    // 添加用户消息（包含源图像）
+    state.addMessage({
+      type: 'user',
+      content: prompt ? `分析图片: ${prompt}` : '分析这张图片',
+      sourceImageData: sourceImage
+    });
+
+    set({
+      generationStatus: {
+        isGenerating: true,
+        progress: 0,
+        error: null
+      }
+    });
+
+    try {
+      // 模拟进度更新
+      const progressInterval = setInterval(() => {
+        const currentState = get();
+        if (currentState.generationStatus.progress < 90) {
+          set({
+            generationStatus: {
+              ...currentState.generationStatus,
+              progress: currentState.generationStatus.progress + 15
+            }
+          });
+        }
+      }, 300);
+
+      // 调用AI服务分析图像
+      const result = await aiImageService.analyzeImage({
+        prompt: prompt || '请详细分析这张图片的内容',
+        sourceImage,
+      });
+
+      clearInterval(progressInterval);
+
+      if (result.success && result.data) {
+        set({
+          generationStatus: {
+            isGenerating: false,
+            progress: 100,
+            error: null
+          }
+        });
+
+        // 添加AI分析结果
+        state.addMessage({
+          type: 'ai',
+          content: result.data.analysis
+        });
+
+        console.log('✅ 图片分析成功');
+
+      } else {
+        throw new Error(result.error?.message || '图片分析失败');
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+
+      set({
+        generationStatus: {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
+        }
+      });
+
+      state.addMessage({
+        type: 'error',
+        content: `分析失败: ${errorMessage}`
+      });
+
+      console.error('❌ 图片分析异常:', error);
+    }
+  },
+
+  setSourceImageForAnalysis: (imageData: string | null) => {
+    set({ sourceImageForAnalysis: imageData });
+  },
+
+  // 文本对话功能
+  generateTextResponse: async (prompt: string) => {
+    // 注意：这个方法是被 processUserInput 调用的，所以不需要再次检查 isGenerating
+    // 因为 processUserInput 已经设置了 isGenerating = true
+
+    // 添加用户消息
+    get().addMessage({
+      type: 'user',
+      content: prompt
+    });
+
+    // 更新进度，但保持 isGenerating 状态（已由 processUserInput 设置）
+    set((state) => ({
+      generationStatus: {
+        ...state.generationStatus,
+        progress: 50, // 文本生成通常很快
+        stage: '正在生成文本回复...'
+      }
+    }));
+
+    try {
+      // 调用文本生成服务
+      const result = await aiImageService.generateTextResponse({ prompt });
+
+      if (result.success && result.data) {
+        set({
+          generationStatus: {
+            isGenerating: false,
+            progress: 100,
+            error: null
+          }
+        });
+
+        get().addMessage({
+          type: 'ai',
+          content: result.data.text
+        });
+
+        console.log('✅ 文本回复成功:', result.data.text);
+      } else {
+        throw new Error(result.error?.message || '文本生成失败');
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+
+      set({
+        generationStatus: {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
+        }
+      });
+
+      get().addMessage({
+        type: 'error',
+        content: `回复失败: ${errorMessage}`
+      });
+
+      console.error('❌ 文本生成失败:', errorMessage);
+    }
+  },
+
+  // 智能工具选择功能 - 统一入口
+  processUserInput: async (input: string) => {
+    const state = get();
+
+    if (state.generationStatus.isGenerating) return;
+
+    // 准备工具选择请求
+    const toolSelectionRequest = {
+      userInput: input,
+      hasImages: !!(state.sourceImageForEditing || state.sourceImagesForBlending.length > 0 || state.sourceImageForAnalysis),
+      imageCount: state.sourceImagesForBlending.length || (state.sourceImageForEditing ? 1 : 0) || (state.sourceImageForAnalysis ? 1 : 0),
+      availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse']
+    };
+
+    console.log('🤖 智能处理用户输入...');
+
+    // 显示工具选择进度
+    set({
+      generationStatus: {
+        isGenerating: true,
+        progress: 10,
+        error: null
+      }
+    });
+
+    try {
+      // 使用AI选择工具
+      const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+
+      if (!toolSelectionResult.success || !toolSelectionResult.data) {
+        const errorMsg = toolSelectionResult.error?.message || '工具选择失败';
+        console.error('❌ 工具选择失败:', errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      const { selectedTool, parameters } = toolSelectionResult.data;
+
+      console.log('🎯 AI选择工具:', selectedTool);
+
+      // 根据选择的工具执行相应操作
+      // 获取最新的 store 实例来调用方法
+      const store = get();
+
+      switch (selectedTool) {
+        case 'generateImage':
+          await store.generateImage(parameters.prompt);
+          break;
+
+        case 'editImage':
+          if (state.sourceImageForEditing) {
+            await store.editImage(parameters.prompt, state.sourceImageForEditing);
+            store.setSourceImageForEditing(null);
+          } else {
+            throw new Error('没有可编辑的图像');
+          }
+          break;
+
+        case 'blendImages':
+          if (state.sourceImagesForBlending.length >= 2) {
+            await store.blendImages(parameters.prompt, state.sourceImagesForBlending);
+            store.clearImagesForBlending();
+          } else {
+            throw new Error('需要至少2张图像进行融合');
+          }
+          break;
+
+        case 'analyzeImage':
+          if (state.sourceImageForAnalysis) {
+            await store.analyzeImage(parameters.prompt || input, state.sourceImageForAnalysis);
+            store.setSourceImageForAnalysis(null);
+          } else if (state.sourceImageForEditing) {
+            await store.analyzeImage(parameters.prompt || input, state.sourceImageForEditing);
+            // 分析后不清除图像，用户可能还想编辑
+          } else {
+            throw new Error('没有可分析的图像');
+          }
+          break;
+
+        case 'chatResponse':
+          console.log('🎯 执行文本对话，参数:', parameters.prompt);
+          console.log('🔧 调用 generateTextResponse 方法...');
+          console.log('🔧 store 对象:', store);
+          console.log('🔧 generateTextResponse 方法存在:', typeof store.generateTextResponse);
+          try {
+            const result = await store.generateTextResponse(parameters.prompt);
+            console.log('✅ generateTextResponse 执行完成，返回值:', result);
+          } catch (error) {
+            console.error('❌ generateTextResponse 执行失败:', error);
+            if (error instanceof Error) {
+              console.error('❌ 错误堆栈:', error.stack);
+            }
+            throw error;
+          }
+          break;
+
+        default:
+          throw new Error(`未知工具: ${selectedTool}`);
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '处理失败';
+
+      set({
+        generationStatus: {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
+        }
+      });
+
+      get().addMessage({
+        type: 'error',
+        content: `处理失败: ${errorMessage}`
+      });
+
+      console.error('❌ 智能处理异常:', error);
+    }
+  },
+
   getAIMode: () => {
     const state = get();
     if (state.sourceImagesForBlending.length >= 2) return 'blend';
     if (state.sourceImageForEditing) return 'edit';
+    if (state.sourceImageForAnalysis) return 'analyze';
     return 'generate';
   },
 
@@ -583,7 +880,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       messages: [],
       lastGeneratedImage: null,
       sourceImageForEditing: null,
-      sourceImagesForBlending: []
+      sourceImagesForBlending: [],
+      sourceImageForAnalysis: null
     });
   }
 }));

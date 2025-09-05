@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 导入自定义滚动条样式 */
+@import './styles/scrollbar.css';
+
+/* 导入 Markdown 样式 */
+@import './styles/markdown.css';
+
 /* 基础重置样式 */
 * {
   box-sizing: border-box;

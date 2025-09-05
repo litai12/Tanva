@@ -58,6 +58,62 @@ export interface AIError {
   timestamp: Date;
 }
 
+// AI图像分析请求参数
+export interface AIImageAnalyzeRequest {
+  prompt?: string;
+  sourceImage: string; // base64 encoded image
+  model?: string;
+}
+
+// AI图像分析结果
+export interface AIImageAnalysisResult {
+  analysis: string;
+  confidence?: number;
+  tags?: string[];
+}
+
+// AI文本对话请求参数
+export interface AITextChatRequest {
+  prompt: string;
+  model?: string;
+  context?: string[];
+}
+
+// AI文本对话结果
+export interface AITextChatResult {
+  text: string;
+  model: string;
+  tokenUsage?: number;
+}
+
+// Function Calling 工具定义
+export interface AITool {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}
+
+// 工具选择请求
+export interface ToolSelectionRequest {
+  userInput: string;
+  hasImages: boolean;
+  imageCount: number;
+  availableTools: string[];
+  context?: string;
+}
+
+// 工具选择结果
+export interface ToolSelectionResult {
+  selectedTool: string;
+  parameters: Record<string, any>;
+  confidence: number;
+  reasoning: string;
+}
+
 // AI服务响应
 export interface AIServiceResponse<T = unknown> {
   success: boolean;
