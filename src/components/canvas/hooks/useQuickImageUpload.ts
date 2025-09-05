@@ -42,16 +42,22 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                 const originalWidth = raster.width;
                 const originalHeight = raster.height;
 
-                // 限制最大显示尺寸
-                const maxSize = 400;
+                // 检查是否启用原始尺寸模式
+                const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
+
                 let displayWidth = originalWidth;
                 let displayHeight = originalHeight;
 
-                if (originalWidth > maxSize || originalHeight > maxSize) {
-                    const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
-                    displayWidth = originalWidth * scale;
-                    displayHeight = originalHeight * scale;
+                if (!useOriginalSize) {
+                    // 标准模式：限制最大显示尺寸
+                    const maxSize = 1200;
+                    if (originalWidth > maxSize || originalHeight > maxSize) {
+                        const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
+                        displayWidth = originalWidth * scale;
+                        displayHeight = originalHeight * scale;
+                    }
                 }
+                // 原始尺寸模式：直接使用原图分辨率，1像素=1像素显示
 
                 // 设置显示尺寸
                 raster.size = new paper.Size(displayWidth, displayHeight);

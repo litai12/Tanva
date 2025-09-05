@@ -13,6 +13,8 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   imageData?: string; // AI生成的图像数据
+  sourceImageData?: string; // 用户上传的源图像数据（用于图生图）
+  sourceImagesData?: string[]; // 多张源图像数据（用于图像融合）
 }
 
 export interface GenerationStatus {
@@ -37,6 +39,12 @@ interface AIChatState {
   // 最近生成的图像
   lastGeneratedImage: AIImageResult | null;
 
+  // 图生图状态
+  sourceImageForEditing: string | null; // 当前用于编辑的源图像
+
+  // 多图融合状态
+  sourceImagesForBlending: string[]; // 当前用于融合的多张图像
+
   // 配置选项
   autoDownload: boolean;  // 是否自动下载生成的图片
 
@@ -55,6 +63,19 @@ interface AIChatState {
 
   // 图像生成
   generateImage: (prompt: string) => Promise<void>;
+
+  // 图生图功能
+  editImage: (prompt: string, sourceImage: string) => Promise<void>;
+  setSourceImageForEditing: (imageData: string | null) => void;
+
+  // 多图融合功能
+  blendImages: (prompt: string, sourceImages: string[]) => Promise<void>;
+  addImageForBlending: (imageData: string) => void;
+  removeImageFromBlending: (index: number) => void;
+  clearImagesForBlending: () => void;
+
+  // 智能模式检测
+  getAIMode: () => 'generate' | 'edit' | 'blend';
 
   // 配置管理
   toggleAutoDownload: () => void;
@@ -75,6 +96,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   },
   messages: [],
   lastGeneratedImage: null,
+  sourceImageForEditing: null,  // 图生图源图像
+  sourceImagesForBlending: [],  // 多图融合源图像数组
   autoDownload: false,  // 默认不自动下载
 
   // 对话框控制
@@ -142,7 +165,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       // 调用AI服务生成图像
       const result = await aiImageService.generateImage({
         prompt,
-        aspectRatio: '1:1',
+        aspectRatio: '16:9',  // 改为横屏16:9，生成更大的图像
         outputFormat: 'png'
       });
 
@@ -274,6 +297,275 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     }
   },
 
+  // 图生图功能
+  editImage: async (prompt: string, sourceImage: string) => {
+    const state = get();
+
+    // 如果正在生成，忽略新请求
+    if (state.generationStatus.isGenerating) {
+      return;
+    }
+
+    // 添加用户消息（包含源图像）
+    state.addMessage({
+      type: 'user',
+      content: `编辑图像: ${prompt}`,
+      sourceImageData: sourceImage
+    });
+
+    // 设置生成状态
+    set({
+      generationStatus: {
+        isGenerating: true,
+        progress: 0,
+        error: null
+      }
+    });
+
+    try {
+      // 模拟进度更新
+      const progressInterval = setInterval(() => {
+        const currentState = get();
+        if (currentState.generationStatus.progress < 90) {
+          set({
+            generationStatus: {
+              ...currentState.generationStatus,
+              progress: currentState.generationStatus.progress + 10
+            }
+          });
+        }
+      }, 500);
+
+      // 调用AI服务编辑图像
+      const result = await aiImageService.editImage({
+        prompt,
+        sourceImage,
+        outputFormat: 'png'
+      });
+
+      clearInterval(progressInterval);
+
+      if (result.success && result.data) {
+        // 编辑成功
+        set({
+          generationStatus: {
+            isGenerating: false,
+            progress: 100,
+            error: null
+          },
+          lastGeneratedImage: result.data
+        });
+
+        // 添加AI响应消息
+        state.addMessage({
+          type: 'ai',
+          content: `已编辑图像: ${prompt}`,
+          imageData: result.data.imageData
+        });
+
+        // 自动添加到画布
+        const addImageToCanvas = (aiResult: AIImageResult) => {
+          const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
+          const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
+          const fileName = `ai_edited_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
+
+          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+            detail: {
+              imageData: imageDataUrl,
+              fileName: fileName
+            }
+          }));
+          console.log('📋 已触发快速图片上传事件，编辑后的图片将自动放置到坐标原点(0,0)');
+        };
+
+        setTimeout(() => {
+          addImageToCanvas(result.data);
+        }, 100);
+
+        console.log('✅ 图像编辑成功，已自动添加到画布', {
+          imageDataLength: result.data.imageData?.length,
+          prompt: result.data.prompt,
+          model: result.data.model,
+          id: result.data.id
+        });
+
+      } else {
+        // 编辑失败
+        const errorMessage = result.error?.message || '图像编辑失败';
+
+        set({
+          generationStatus: {
+            isGenerating: false,
+            progress: 0,
+            error: errorMessage
+          }
+        });
+
+        state.addMessage({
+          type: 'error',
+          content: errorMessage
+        });
+
+        console.error('❌ 图像编辑失败:', errorMessage);
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+
+      set({
+        generationStatus: {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
+        }
+      });
+
+      state.addMessage({
+        type: 'error',
+        content: `编辑失败: ${errorMessage}`
+      });
+
+      console.error('❌ 图像编辑异常:', error);
+    }
+  },
+
+  setSourceImageForEditing: (imageData: string | null) => {
+    set({ sourceImageForEditing: imageData });
+  },
+
+  // 多图融合功能
+  blendImages: async (prompt: string, sourceImages: string[]) => {
+    const state = get();
+
+    if (state.generationStatus.isGenerating) return;
+
+    state.addMessage({
+      type: 'user',
+      content: `融合图像: ${prompt}`,
+      sourceImagesData: sourceImages
+    });
+
+    set({
+      generationStatus: {
+        isGenerating: true,
+        progress: 0,
+        error: null
+      }
+    });
+
+    try {
+      const progressInterval = setInterval(() => {
+        const currentState = get();
+        if (currentState.generationStatus.progress < 90) {
+          set({
+            generationStatus: {
+              ...currentState.generationStatus,
+              progress: currentState.generationStatus.progress + 10
+            }
+          });
+        }
+      }, 500);
+
+      const result = await aiImageService.blendImages({
+        prompt,
+        sourceImages,
+        outputFormat: 'png'
+      });
+
+      clearInterval(progressInterval);
+
+      if (result.success && result.data) {
+        set({
+          generationStatus: {
+            isGenerating: false,
+            progress: 100,
+            error: null
+          },
+          lastGeneratedImage: result.data
+        });
+
+        state.addMessage({
+          type: 'ai',
+          content: `已融合图像: ${prompt}`,
+          imageData: result.data.imageData
+        });
+
+        const addImageToCanvas = (aiResult: AIImageResult) => {
+          const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
+          const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
+          const fileName = `ai_blended_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
+
+          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+            detail: {
+              imageData: imageDataUrl,
+              fileName: fileName
+            }
+          }));
+          console.log('📋 已触发快速图片上传事件，融合后的图片将自动放置到坐标原点(0,0)');
+        };
+
+        setTimeout(() => {
+          addImageToCanvas(result.data);
+        }, 100);
+
+        console.log('✅ 图像融合成功，已自动添加到画布');
+
+      } else {
+        const errorMessage = result.error?.message || '图像融合失败';
+        set({
+          generationStatus: {
+            isGenerating: false,
+            progress: 0,
+            error: errorMessage
+          }
+        });
+
+        state.addMessage({
+          type: 'error',
+          content: errorMessage
+        });
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      set({
+        generationStatus: {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
+        }
+      });
+
+      state.addMessage({
+        type: 'error',
+        content: `融合失败: ${errorMessage}`
+      });
+    }
+  },
+
+  addImageForBlending: (imageData: string) => {
+    set((state) => ({
+      sourceImagesForBlending: [...state.sourceImagesForBlending, imageData]
+    }));
+  },
+
+  removeImageFromBlending: (index: number) => {
+    set((state) => ({
+      sourceImagesForBlending: state.sourceImagesForBlending.filter((_, i) => i !== index)
+    }));
+  },
+
+  clearImagesForBlending: () => {
+    set({ sourceImagesForBlending: [] });
+  },
+
+  getAIMode: () => {
+    const state = get();
+    if (state.sourceImagesForBlending.length >= 2) return 'blend';
+    if (state.sourceImageForEditing) return 'edit';
+    return 'generate';
+  },
+
   // 配置管理
   toggleAutoDownload: () => set((state) => ({ autoDownload: !state.autoDownload })),
   setAutoDownload: (value: boolean) => set({ autoDownload: value }),
@@ -289,7 +581,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         error: null
       },
       messages: [],
-      lastGeneratedImage: null
+      lastGeneratedImage: null,
+      sourceImageForEditing: null,
+      sourceImagesForBlending: []
     });
   }
 }));

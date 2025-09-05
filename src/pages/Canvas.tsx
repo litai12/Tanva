@@ -4,6 +4,7 @@ import GridRenderer from '@/components/canvas/GridRenderer';
 import InteractionController from '@/components/canvas/InteractionController';
 import PaperCanvasManager from '@/components/canvas/PaperCanvasManager';
 import ScaleBarRenderer from '@/components/canvas/ScaleBarRenderer';
+import ImageSizeIndicator from '@/components/canvas/ImageSizeIndicator';
 import ToolBar from '@/components/toolbar/ToolBar';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
@@ -66,6 +67,9 @@ const Canvas: React.FC = () => {
 
             {/* 缩放指示器 */}
             <ZoomIndicator />
+
+            {/* 图像尺寸模式指示器 */}
+            <ImageSizeIndicator />
 
             {/* 图层面板 */}
             <LayerPanel />

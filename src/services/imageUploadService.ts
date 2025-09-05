@@ -18,9 +18,9 @@ export interface ImageProcessOptions {
 
 class ImageUploadService {
   private readonly defaultOptions: ImageProcessOptions = {
-    maxWidth: 1200,
-    maxHeight: 1200,
-    quality: 0.8,
+    maxWidth: 4096,     // 提高到4K分辨率
+    maxHeight: 4096,    // 提高到4K分辨率
+    quality: 0.95,      // 提高压缩质量到95%
   };
 
   /**
@@ -67,7 +67,7 @@ class ImageUploadService {
   private isValidImageType(file: File): boolean {
     const validTypes = [
       'image/png',
-      'image/jpeg', 
+      'image/jpeg',
       'image/jpg',
       'image/gif',
       'image/webp'
@@ -91,7 +91,7 @@ class ImageUploadService {
 
       img.onload = () => {
         const { width, height } = this.calculateDimensions(
-          img.width, 
+          img.width,
           img.height,
           options.maxWidth!,
           options.maxHeight!
@@ -103,8 +103,8 @@ class ImageUploadService {
         // 绘制图片到canvas
         ctx.drawImage(img, 0, 0, width, height);
 
-        // 转换为base64
-        const dataUrl = canvas.toDataURL('image/jpeg', options.quality);
+        // 转换为base64 - 使用PNG格式保持无损质量
+        const dataUrl = canvas.toDataURL('image/png');
         resolve(dataUrl);
       };
 
@@ -129,7 +129,7 @@ class ImageUploadService {
    */
   private calculateDimensions(
     originalWidth: number,
-    originalHeight: number, 
+    originalHeight: number,
     maxWidth: number,
     maxHeight: number
   ): { width: number; height: number } {

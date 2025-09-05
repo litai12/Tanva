@@ -6,12 +6,12 @@
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
-import type { 
-  ImageInstance, 
-  ImageDragState, 
-  ImageResizeState, 
+import type {
+  ImageInstance,
+  ImageDragState,
+  ImageResizeState,
   ImageToolEventHandlers,
-  DrawingContext 
+  DrawingContext
 } from '@/types/canvas';
 
 interface UseImageToolProps {
@@ -157,51 +157,67 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const originalWidth = raster.width;
       const originalHeight = raster.height;
       const aspectRatio = originalWidth / originalHeight;
-      
+
       raster.data = {
         originalWidth: originalWidth,
         originalHeight: originalHeight,
         aspectRatio: aspectRatio
       };
-      
-      // 根据占位框和图片比例，计算保持比例的实际大小
-      const boxAspectRatio = paperBounds.width / paperBounds.height;
+
+      // 检查是否启用原始尺寸模式
+      const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
       let finalBounds;
-      
-      if (aspectRatio > boxAspectRatio) {
-        // 图片更宽，以宽度为准
-        const newWidth = paperBounds.width;
-        const newHeight = newWidth / aspectRatio;
-        const yOffset = (paperBounds.height - newHeight) / 2;
-        
+
+      if (useOriginalSize) {
+        // 原始尺寸模式：使用图片的真实像素尺寸，以占位框中心为基准
+        const centerX = paperBounds.x + paperBounds.width / 2;
+        const centerY = paperBounds.y + paperBounds.height / 2;
+
         finalBounds = new paper.Rectangle(
-          paperBounds.x,
-          paperBounds.y + yOffset,
-          newWidth,
-          newHeight
+          centerX - originalWidth / 2,
+          centerY - originalHeight / 2,
+          originalWidth,
+          originalHeight
         );
       } else {
-        // 图片更高，以高度为准
-        const newHeight = paperBounds.height;
-        const newWidth = newHeight * aspectRatio;
-        const xOffset = (paperBounds.width - newWidth) / 2;
-        
-        finalBounds = new paper.Rectangle(
-          paperBounds.x + xOffset,
-          paperBounds.y,
-          newWidth,
-          newHeight
-        );
+        // 标准模式：根据占位框和图片比例，计算保持比例的实际大小
+        const boxAspectRatio = paperBounds.width / paperBounds.height;
+
+        if (aspectRatio > boxAspectRatio) {
+          // 图片更宽，以宽度为准
+          const newWidth = paperBounds.width;
+          const newHeight = newWidth / aspectRatio;
+          const yOffset = (paperBounds.height - newHeight) / 2;
+
+          finalBounds = new paper.Rectangle(
+            paperBounds.x,
+            paperBounds.y + yOffset,
+            newWidth,
+            newHeight
+          );
+        } else {
+          // 图片更高，以高度为准
+          const newHeight = paperBounds.height;
+          const newWidth = newHeight * aspectRatio;
+          const xOffset = (paperBounds.width - newWidth) / 2;
+
+          finalBounds = new paper.Rectangle(
+            paperBounds.x + xOffset,
+            paperBounds.y,
+            newWidth,
+            newHeight
+          );
+        }
       }
-      
+
       // 设置图片边界（保持比例）
       raster.bounds = finalBounds;
-      
+
       // 添加选择框和控制点
       addImageSelectionElements(raster, finalBounds, imageId);
-      
+
       // 更新React状态中的bounds为实际尺寸
-      setImageInstances(prev => prev.map(img => 
+      setImageInstances(prev => prev.map(img =>
         img.id === imageId ? {
           ...img,
           bounds: {
@@ -212,7 +228,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           }
         } : img
       ));
-      
+
       paper.view.update();
     };
 
@@ -281,16 +297,16 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       selected: false,
       visible: false  // 默认隐藏选择框
     });
-    selectionBorder.data = { 
+    selectionBorder.data = {
       isSelectionBorder: true,
       isHelper: true  // 标记为辅助元素
     };
     parentGroup.addChild(selectionBorder);
-    
+
     // 添加四个角的调整控制点
     const handleSize = 8;
     const handleColor = new paper.Color('#3b82f6');
-    
+
     // 创建调整控制点
     const handles = [
       { direction: 'nw', position: [bounds.left, bounds.top] },
@@ -301,7 +317,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     handles.forEach(({ direction, position }) => {
       const handle = new paper.Path.Rectangle({
-        point: [position[0] - handleSize/2, position[1] - handleSize/2],
+        point: [position[0] - handleSize / 2, position[1] - handleSize / 2],
         size: [handleSize, handleSize],
         fillColor: handleColor,
         strokeColor: 'white',
@@ -309,9 +325,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         selected: false,
         visible: false  // 默认隐藏控制点
       });
-      handle.data = { 
-        isResizeHandle: true, 
-        direction, 
+      handle.data = {
+        isResizeHandle: true,
+        direction,
         imageId,
         isHelper: true  // 标记为辅助元素
       };
@@ -319,12 +335,38 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     });
   }, []);
 
+  // ========== 获取图像的base64数据 ==========
+  const getImageDataForEditing = useCallback((imageId: string): string | null => {
+    const imageInstance = imageInstances.find(img => img.id === imageId);
+    if (!imageInstance) return null;
+
+    try {
+      // 找到对应的Paper.js Raster对象
+      const imageGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === imageId
+        )
+      )[0];
+
+      if (!imageGroup) return null;
+
+      const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+      if (!raster || !raster.canvas) return null;
+
+      // 将canvas转换为base64
+      return raster.canvas.toDataURL('image/png');
+    } catch (error) {
+      console.error('获取图像数据失败:', error);
+      return null;
+    }
+  }, [imageInstances]);
+
   // ========== 图片选择/取消选择 ==========
   const handleImageSelect = useCallback((imageId: string) => {
     setSelectedImageId(imageId);
     setImageInstances(prev => prev.map(img => {
       const isSelected = img.id === imageId;
-      
+
       // 控制选择框和控制点的可见性
       const imageGroup = paper.project.layers.flatMap(layer =>
         layer.children.filter(child =>
@@ -340,7 +382,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         });
         paper.view.update();
       }
-      
+
       return {
         ...img,
         isSelected
@@ -367,7 +409,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         });
         paper.view.update();
       }
-      
+
       return {
         ...img,
         isSelected: false
@@ -393,12 +435,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             // 获取实际的Raster对象来获取真实尺寸
             const raster = imageGroup.children.find(child => child instanceof paper.Raster);
             const actualBounds = raster ? raster.bounds : null;
-            
+
             if (actualBounds) {
               // 使用实际的图片尺寸而不是React状态中的尺寸
               const actualWidth = actualBounds.width;
               const actualHeight = actualBounds.height;
-              
+
               // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
               imageGroup.children.forEach(child => {
                 if (child instanceof paper.Raster) {
@@ -420,7 +462,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                   // 重新定位控制点到绝对位置（使用实际图片尺寸）
                   const direction = child.data.direction;
                   let handlePosition;
-                  
+
                   switch (direction) {
                     case 'nw':
                       handlePosition = [newPosition.x, newPosition.y];
@@ -437,11 +479,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                     default:
                       handlePosition = [newPosition.x, newPosition.y];
                   }
-                  
+
                   child.position = new paper.Point(handlePosition[0], handlePosition[1]);
                 }
               });
-              
+
               paper.view.update();
             }
           }
@@ -479,7 +521,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         // 计算缩放比例，保持图片质量
         const scaleX = newBounds.width / raster.data.originalWidth;
         const scaleY = newBounds.height / raster.data.originalHeight;
-        
+
         // 直接设置bounds，避免scale操作的闪烁
         raster.bounds = new paper.Rectangle(
           newBounds.x,
@@ -502,7 +544,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           // 重新定位控制点
           const direction = child.data.direction;
           let handlePosition;
-          
+
           switch (direction) {
             case 'nw':
               handlePosition = [newBounds.x, newBounds.y];
@@ -519,7 +561,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             default:
               handlePosition = [newBounds.x, newBounds.y];
           }
-          
+
           child.position = new paper.Point(handlePosition[0], handlePosition[1]);
         }
       });
@@ -577,5 +619,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     setTriggerImageUpload,
     setImageDragState,
     setImageResizeState,
+
+    // AI编辑功能
+    getImageDataForEditing,
   };
 };

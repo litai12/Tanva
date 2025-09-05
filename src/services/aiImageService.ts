@@ -151,25 +151,35 @@ class AIImageService {
     } catch (error) {
       console.error('❌ 图像生成失败:', error);
 
-      // 检查是否是账单错误
-      if (error.message && error.message.includes('billed users')) {
-        return {
-          success: false,
-          error: this.createError(
-            'BILLING_REQUIRED',
-            'Imagen API requires a billed Google Cloud account. Please upgrade your account to use image generation features.',
-            error
-          )
-        };
+      // 详细的错误分析
+      let errorCode = 'GENERATION_FAILED';
+      let errorMessage = error instanceof Error ? error.message : 'Failed to generate image';
+
+      if (error.message) {
+        if (error.message.includes('API_KEY_INVALID')) {
+          errorCode = 'INVALID_API_KEY';
+          errorMessage = 'API密钥无效，请检查密钥是否正确配置';
+        } else if (error.message.includes('PERMISSION_DENIED')) {
+          errorCode = 'PERMISSION_DENIED';
+          errorMessage = 'API权限被拒绝，请检查密钥权限设置';
+        } else if (error.message.includes('QUOTA_EXCEEDED')) {
+          errorCode = 'QUOTA_EXCEEDED';
+          errorMessage = 'API配额已用完，请检查账户余额';
+        } else if (error.message.includes('User location is not supported')) {
+          errorCode = 'LOCATION_NOT_SUPPORTED';
+          errorMessage = '当前地区不支持此API功能，请尝试使用VPN或联系管理员';
+        } else if (error.message.includes('billed users')) {
+          errorCode = 'BILLING_REQUIRED';
+          errorMessage = 'Gemini API需要付费账户，请升级您的Google Cloud账户';
+        } else if (error.message.includes('fetch failed')) {
+          errorCode = 'NETWORK_ERROR';
+          errorMessage = '网络连接失败，请检查网络连接或API服务状态';
+        }
       }
 
       return {
         success: false,
-        error: this.createError(
-          'GENERATION_FAILED',
-          error instanceof Error ? error.message : 'Failed to generate image',
-          error
-        )
+        error: this.createError(errorCode, errorMessage, error)
       };
     }
   }
@@ -260,13 +270,35 @@ class AIImageService {
     } catch (error) {
       console.error('❌ 图像编辑失败:', error);
 
+      // 详细的错误分析
+      let errorCode = 'EDIT_FAILED';
+      let errorMessage = error instanceof Error ? error.message : 'Failed to edit image';
+
+      if (error.message) {
+        if (error.message.includes('API_KEY_INVALID')) {
+          errorCode = 'INVALID_API_KEY';
+          errorMessage = 'API密钥无效，请检查密钥是否正确配置';
+        } else if (error.message.includes('PERMISSION_DENIED')) {
+          errorCode = 'PERMISSION_DENIED';
+          errorMessage = 'API权限被拒绝，请检查密钥权限设置';
+        } else if (error.message.includes('QUOTA_EXCEEDED')) {
+          errorCode = 'QUOTA_EXCEEDED';
+          errorMessage = 'API配额已用完，请检查账户余额';
+        } else if (error.message.includes('User location is not supported')) {
+          errorCode = 'LOCATION_NOT_SUPPORTED';
+          errorMessage = '当前地区不支持此API功能，请尝试使用VPN或联系管理员';
+        } else if (error.message.includes('billed users')) {
+          errorCode = 'BILLING_REQUIRED';
+          errorMessage = 'Gemini API需要付费账户，请升级您的Google Cloud账户';
+        } else if (error.message.includes('fetch failed')) {
+          errorCode = 'NETWORK_ERROR';
+          errorMessage = '网络连接失败，请检查网络连接或API服务状态';
+        }
+      }
+
       return {
         success: false,
-        error: this.createError(
-          'EDIT_FAILED',
-          error instanceof Error ? error.message : 'Failed to edit image',
-          error
-        )
+        error: this.createError(errorCode, errorMessage, error)
       };
     }
   }
@@ -354,13 +386,35 @@ class AIImageService {
     } catch (error) {
       console.error('❌ 图像融合失败:', error);
 
+      // 详细的错误分析
+      let errorCode = 'BLEND_FAILED';
+      let errorMessage = error instanceof Error ? error.message : 'Failed to blend images';
+
+      if (error.message) {
+        if (error.message.includes('API_KEY_INVALID')) {
+          errorCode = 'INVALID_API_KEY';
+          errorMessage = 'API密钥无效，请检查密钥是否正确配置';
+        } else if (error.message.includes('PERMISSION_DENIED')) {
+          errorCode = 'PERMISSION_DENIED';
+          errorMessage = 'API权限被拒绝，请检查密钥权限设置';
+        } else if (error.message.includes('QUOTA_EXCEEDED')) {
+          errorCode = 'QUOTA_EXCEEDED';
+          errorMessage = 'API配额已用完，请检查账户余额';
+        } else if (error.message.includes('User location is not supported')) {
+          errorCode = 'LOCATION_NOT_SUPPORTED';
+          errorMessage = '当前地区不支持此API功能，请尝试使用VPN或联系管理员';
+        } else if (error.message.includes('billed users')) {
+          errorCode = 'BILLING_REQUIRED';
+          errorMessage = 'Gemini API需要付费账户，请升级您的Google Cloud账户';
+        } else if (error.message.includes('fetch failed')) {
+          errorCode = 'NETWORK_ERROR';
+          errorMessage = '网络连接失败，请检查网络连接或API服务状态';
+        }
+      }
+
       return {
         success: false,
-        error: this.createError(
-          'BLEND_FAILED',
-          error instanceof Error ? error.message : 'Failed to blend images',
-          error
-        )
+        error: this.createError(errorCode, errorMessage, error)
       };
     }
   }
@@ -370,10 +424,11 @@ class AIImageService {
    */
   isAvailable(): boolean {
     const apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
-      : process.env.VITE_GOOGLE_GEMINI_API_KEY;
+      ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY || 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw'
+      : process.env.VITE_GOOGLE_GEMINI_API_KEY || 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw';
     const available = !!this.genAI && !!apiKey;
     console.log('🔍 API可用性检查:', available ? '✅ 可用' : '❌ 不可用');
+    console.log('🔑 使用的API密钥:', apiKey ? `${apiKey.substring(0, 10)}...` : '无');
     return available;
   }
 
@@ -399,7 +454,7 @@ class AIImageService {
 
     try {
       // 使用基础的文本生成来测试连接，避免图像生成的计费问题
-      const result = await this.genAI.models.generateContent({
+      const result = await this.genAI!.models.generateContent({
         model: 'gemini-2.0-flash',
         contents: 'Hello, this is a connection test. Please respond with "Connection successful!"'
       });

@@ -25,11 +25,11 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
     try {
       logger.upload('📸 开始处理图片:', file.name);
 
-      // 处理图片
+      // 处理图片 - 使用高分辨率设置
       const result = await imageUploadService.processImageFile(file, {
-        maxWidth: 1200,
-        maxHeight: 1200,
-        quality: 0.8
+        maxWidth: 4096,    // 4K分辨率
+        maxHeight: 4096,   // 4K分辨率
+        quality: 0.98      // 高质量
       });
 
       if (result.success && result.data) {

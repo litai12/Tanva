@@ -2,9 +2,11 @@ import { logger } from '@/utils/logger';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
-import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen } from 'lucide-react';
+import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
+import ContextMenu from '../ui/context-menu';
 
 interface LayerItemData {
     id: string;
@@ -19,6 +21,7 @@ interface LayerItemData {
 const LayerPanel: React.FC = () => {
     const { showLayerPanel, setShowLayerPanel } = useUIStore();
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
+    const { setSourceImageForEditing, showDialog } = useAIChatStore();
 
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingName, setEditingName] = useState<string>('');
@@ -29,23 +32,36 @@ const LayerPanel: React.FC = () => {
     const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
     const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
 
+    // 上下文菜单状态
+    const [contextMenu, setContextMenu] = useState<{
+        visible: boolean;
+        x: number;
+        y: number;
+        item: LayerItemData | null;
+    }>({
+        visible: false,
+        x: 0,
+        y: 0,
+        item: null
+    });
+
     // 预测图元重排序后的实际位置，用于指示线显示
     const predictItemInsertPosition = (sourceItemId: string, targetItemId: string, placeAbove: boolean) => {
         // 获取图层ID
         const targetLayerId = targetItemId.split('_item_')[0];
         const items = layerItems[targetLayerId] || [];
-        
+
         if (items.length === 0) return -1;
-        
+
         const sourceItem = Object.values(layerItems).flat().find(item => item.id === sourceItemId);
         const targetItem = items.find(item => item.id === targetItemId);
-        
+
         if (!sourceItem || !targetItem) return -1;
-        
+
         // 在Paper.js中，顺序是相反的（显示时已反转）
         // placeAbove=true意味着在视觉上放在上方，但在Paper.js中是insertBelow
         const targetIndex = items.findIndex(item => item.id === targetItemId);
-        
+
         // 现在插入逻辑已修正，预测最终的显示位置
         // 注意：由于scanLayerItems中对items进行了reverse()，
         // insertAbove实际上会让元素在列表中显示在上方
@@ -60,9 +76,9 @@ const LayerPanel: React.FC = () => {
     const predictInsertPosition = (sourceId: string, targetId: string, placeAbove: boolean) => {
         const sourceIndex = layers.findIndex(l => l.id === sourceId);
         const targetIndex = layers.findIndex(l => l.id === targetId);
-        
+
         if (sourceIndex === -1 || targetIndex === -1) return -1;
-        
+
         // 完全复制 reorderLayer 的逻辑
         // 注意：targetIndex 是原始数组中的位置，但插入操作发生在移除源元素后的数组中
         let insertIndex = targetIndex;
@@ -77,7 +93,7 @@ const LayerPanel: React.FC = () => {
             // placeAbove=false: 插入到 targetIndex+1 位置（目标元素后）
             insertIndex = placeAbove ? targetIndex : targetIndex + 1;
         }
-        
+
         return insertIndex;
     };
     const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -96,12 +112,12 @@ const LayerPanel: React.FC = () => {
         if (!layer) return [];
 
         const items: LayerItemData[] = [];
-        
+
         // 获取所有非辅助元素，并反转顺序
         // Paper.js中后面的元素渲染在上方，所以我们需要反转来匹配图层面板的顺序
-        const validItems = layer.children.filter(item => 
-            !item.data?.isHelper && 
-            item.data?.type !== 'grid' && 
+        const validItems = layer.children.filter(item =>
+            !item.data?.isHelper &&
+            item.data?.type !== 'grid' &&
             item.data?.type !== 'scalebar'
         ).reverse();
 
@@ -144,16 +160,16 @@ const LayerPanel: React.FC = () => {
                 // 使用图元的Paper.js ID来生成一个稳定但友好的名称
                 const typeNames = {
                     'circle': '圆形',
-                    'rectangle': '矩形', 
+                    'rectangle': '矩形',
                     'line': '直线',
                     'path': '路径',
                     'image': '图片',
                     'model3d': '3D模型',
                     'group': '组'
                 };
-                
+
                 const baseName = typeNames[type] || '图元';
-                
+
                 // 查找同类型图元中已有的最大编号，分配下一个编号
                 const sameTypeItems = validItems.filter(otherItem => {
                     // 确定其他图元的类型
@@ -168,10 +184,10 @@ const LayerPanel: React.FC = () => {
                         else if (otherItem.data?.type === '3d-model') otherType = 'model3d';
                         else otherType = 'group';
                     }
-                    
+
                     return otherType === type && otherItem.data?.customName;
                 });
-                
+
                 // 找出已有名称中的最大编号
                 let maxNumber = 0;
                 sameTypeItems.forEach(otherItem => {
@@ -185,11 +201,11 @@ const LayerPanel: React.FC = () => {
                         }
                     }
                 });
-                
+
                 // 分配下一个编号
                 const nextNumber = maxNumber + 1;
                 name = nextNumber === 1 ? baseName : `${baseName} ${nextNumber}`;
-                
+
                 // 将名称保存到图元的data中
                 if (!item.data) {
                     item.data = {};
@@ -624,7 +640,7 @@ const LayerPanel: React.FC = () => {
 
     const handleItemClick = (item: LayerItemData, layerId: string) => {
         setSelectedItemId(item.id);
-        
+
         // 通过事件通知DrawingController进行统一的选择处理
         if (item.paperItem) {
             // 发送自定义事件到DrawingController
@@ -687,12 +703,43 @@ const LayerPanel: React.FC = () => {
         }
     };
 
+    // 处理右键菜单
+    const handleItemContextMenu = (item: LayerItemData, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        setContextMenu({
+            visible: true,
+            x: e.clientX,
+            y: e.clientY,
+            item: item
+        });
+    };
+
+    // 处理AI编辑图像
+    const handleAIEditImage = (item: LayerItemData) => {
+        if (item.type !== 'image' || !item.paperItem) return;
+
+        try {
+            // 找到图像的Raster对象
+            const raster = item.paperItem.children?.find(child => child instanceof paper.Raster) as paper.Raster;
+            if (raster && raster.canvas) {
+                const imageData = raster.canvas.toDataURL('image/png');
+                setSourceImageForEditing(imageData);
+                showDialog();
+                console.log('🎨 从图层面板选择图像进行AI编辑');
+            }
+        } catch (error) {
+            console.error('获取图像数据失败:', error);
+        }
+    };
+
     // 图元重排序处理
     const handleItemReorder = (sourceItemId: string, targetItemId: string, placeAbove: boolean) => {
         // 解析图元ID获取Paper.js对象信息
         const sourceItem = Object.values(layerItems).flat().find(item => item.id === sourceItemId);
         const targetItem = Object.values(layerItems).flat().find(item => item.id === targetItemId);
-        
+
         if (!sourceItem?.paperItem || !targetItem?.paperItem) {
             console.warn('无法找到对应的Paper.js对象');
             return;
@@ -710,7 +757,7 @@ const LayerPanel: React.FC = () => {
                 const clonedItem = sourceItem.paperItem.clone();
                 sourceItem.paperItem.remove();
                 targetLayer.addChild(clonedItem);
-                
+
                 // 调整在目标图层中的位置
                 if (placeAbove) {
                     clonedItem.insertAbove(targetItem.paperItem); // 修正：placeAbove应该使用insertAbove
@@ -734,7 +781,7 @@ const LayerPanel: React.FC = () => {
     // 图元移动到指定图层
     const handleItemMoveToLayer = (sourceItemId: string, targetLayerId: string) => {
         const sourceItem = Object.values(layerItems).flat().find(item => item.id === sourceItemId);
-        
+
         if (!sourceItem?.paperItem) {
             console.warn('无法找到对应的Paper.js对象');
             return;
@@ -750,7 +797,7 @@ const LayerPanel: React.FC = () => {
         const clonedItem = sourceItem.paperItem.clone();
         sourceItem.paperItem.remove();
         targetLayer.addChild(clonedItem);
-        
+
         // 更新图层项数据
         updateAllLayerItems();
     };
@@ -807,6 +854,7 @@ const LayerPanel: React.FC = () => {
     if (!showLayerPanel) return null;
 
     return (
+        <>
         <div
             className={`fixed top-[41px] left-0 h-[calc(100vh-41px)] w-80 bg-white shadow-2xl z-[1000] transform transition-transform duration-300 ease-in-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
                 }`}
@@ -839,24 +887,24 @@ const LayerPanel: React.FC = () => {
 
             {/* 图层列表 */}
             <div className="flex-1 overflow-y-auto">
-                <div 
-                    ref={containerRef} 
+                <div
+                    ref={containerRef}
                     className="relative p-3 space-y-2"
                     onDragOver={(e) => {
                         e.preventDefault();
                         e.dataTransfer.dropEffect = 'move';
-                        
+
                         // 计算是否在列表的边界区域
                         const rect = containerRef.current?.getBoundingClientRect();
                         if (!rect) return;
-                        
+
                         const y = e.clientY;
                         const topBoundary = rect.top + 8; // 减小边界检测区域，避免与图层元素冲突
                         const bottomBoundary = rect.bottom - 8;
-                        
+
                         // 检查是否有图层
                         if (layers.length === 0) return;
-                        
+
                         if (y < topBoundary) {
                             // 拖拽到列表顶部 - 放在第一个图层之前
                             setDragOverPosition('above');
@@ -864,7 +912,7 @@ const LayerPanel: React.FC = () => {
                             const containerPadding = 12; // p-3 = 12px
                             if (layers.length > 0) {
                                 // 如果有图层，计算到第一个图层的中间位置
-                                const layerElements = Array.from(containerRef.current?.children || []).filter(child => 
+                                const layerElements = Array.from(containerRef.current?.children || []).filter(child =>
                                     !child.className.includes('absolute')
                                 ) as HTMLElement[];
                                 const firstLayerElement = layerElements[0];
@@ -884,7 +932,7 @@ const LayerPanel: React.FC = () => {
                             // 拖拽到列表底部 - 放在最后一个图层之后
                             setDragOverPosition('below');
                             // 使用与图层元素相同的计算逻辑
-                            const layerElements = Array.from(containerRef.current?.children || []).filter(child => 
+                            const layerElements = Array.from(containerRef.current?.children || []).filter(child =>
                                 !child.className.includes('absolute') // 过滤掉指示线元素
                             ) as HTMLElement[];
                             const lastLayerElement = layerElements[layerElements.length - 1];
@@ -902,8 +950,8 @@ const LayerPanel: React.FC = () => {
                         // 只有当鼠标完全离开容器时才清除指示器
                         const rect = containerRef.current?.getBoundingClientRect();
                         if (!rect) return;
-                        
-                        if (e.clientX < rect.left || e.clientX > rect.right || 
+
+                        if (e.clientX < rect.left || e.clientX > rect.right ||
                             e.clientY < rect.top || e.clientY > rect.bottom) {
                             setIndicatorY(null);
                             setItemIndicatorY(null);
@@ -913,16 +961,16 @@ const LayerPanel: React.FC = () => {
                         e.preventDefault();
                         const layerId = e.dataTransfer.getData('text/layer-id');
                         const itemId = e.dataTransfer.getData('text/item-id');
-                        
+
                         if (layerId && layers.length > 0) {
                             // 计算拖拽位置
                             const rect = containerRef.current?.getBoundingClientRect();
                             if (!rect) return;
-                            
+
                             const y = e.clientY;
                             const topBoundary = rect.top + 8;
                             const bottomBoundary = rect.bottom - 8;
-                            
+
                             if (y < topBoundary) {
                                 // 移动到第一个图层之前
                                 reorderLayer(layerId, layers[0].id, true);
@@ -933,7 +981,7 @@ const LayerPanel: React.FC = () => {
                                 logger.debug('执行边界拖拽：移动到底部');
                             }
                         }
-                        
+
                         setIndicatorY(null);
                         setItemIndicatorY(null);
                         setDraggedLayerId(null);
@@ -965,20 +1013,20 @@ const LayerPanel: React.FC = () => {
                                         const middle = rect.top + rect.height / 2;
                                         const pos: 'above' | 'below' = e.clientY < middle ? 'above' : 'below';
                                         setDragOverPosition(pos);
-                                        
+
                                         // 如果有拖拽源信息，预测实际插入位置
                                         if (containerRef.current && draggedLayerId) {
                                             const cRect = containerRef.current.getBoundingClientRect();
                                             const actualInsertIndex = predictInsertPosition(draggedLayerId, layer.id, pos === 'above');
-                                            
+
                                             if (actualInsertIndex >= 0 && actualInsertIndex <= layers.length) {
                                                 // 根据实际插入位置计算指示线位置
                                                 let edge: number;
                                                 // 获取所有图层元素（排除指示线元素）
-                                                const layerElements = Array.from(containerRef.current.children).filter(child => 
+                                                const layerElements = Array.from(containerRef.current.children).filter(child =>
                                                     !child.className.includes('absolute')
                                                 ) as HTMLElement[];
-                                                
+
                                                 if (actualInsertIndex === 0) {
                                                     // 插入到第一个位置，指示线在容器顶部padding区域的中心
                                                     const firstLayerElement = layerElements[0];
@@ -1022,14 +1070,14 @@ const LayerPanel: React.FC = () => {
                                             }
                                         }
                                     }}
-                                    onDragLeave={() => { 
-                                        setIndicatorY(null); 
+                                    onDragLeave={() => {
+                                        setIndicatorY(null);
                                     }}
                                     onDrop={(e) => {
                                         e.preventDefault();
                                         const layerId = e.dataTransfer.getData('text/layer-id');
                                         const itemId = e.dataTransfer.getData('text/item-id');
-                                        
+
                                         if (layerId) {
                                             // 图层拖拽
                                             reorderLayer(layerId, layer.id, dragOverPosition === 'above');
@@ -1141,26 +1189,26 @@ const LayerPanel: React.FC = () => {
 
                                 {/* 图层内的图元列表 */}
                                 {isExpanded && items.length > 0 && (
-                                    <div 
+                                    <div
                                         className="ml-6 mt-1 space-y-1"
                                         onDragOver={(e) => {
                                             // 只处理图元拖拽
                                             const itemId = e.dataTransfer.getData('text/item-id');
                                             if (!itemId) return;
-                                            
+
                                             e.preventDefault();
                                             e.stopPropagation();
                                             e.dataTransfer.dropEffect = 'move';
-                                            
+
                                             // 计算是否在图元列表的边界区域
                                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                             const y = e.clientY;
                                             const topBoundary = rect.top + 4; // 一些余量
                                             const bottomBoundary = rect.bottom - 4;
-                                            
+
                                             if (containerRef.current) {
                                                 const cRect = containerRef.current.getBoundingClientRect();
-                                                
+
                                                 if (y < topBoundary) {
                                                     // 拖拽到图元列表顶部 - 放在第一个图元之前
                                                     setDragOverPosition('above');
@@ -1177,16 +1225,16 @@ const LayerPanel: React.FC = () => {
                                         onDrop={(e) => {
                                             const sourceId = e.dataTransfer.getData('text/item-id');
                                             if (!sourceId || items.length === 0) return;
-                                            
+
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            
+
                                             // 计算拖拽位置
                                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                             const y = e.clientY;
                                             const topBoundary = rect.top + 4;
                                             const bottomBoundary = rect.bottom - 4;
-                                            
+
                                             if (y < topBoundary) {
                                                 // 移动到第一个图元之前
                                                 handleItemReorder(sourceId, items[0].id, true);
@@ -1194,7 +1242,7 @@ const LayerPanel: React.FC = () => {
                                                 // 移动到最后一个图元之后
                                                 handleItemReorder(sourceId, items[items.length - 1].id, false);
                                             }
-                                            
+
                                             setItemIndicatorY(null);
                                             setDraggedItemId(null); // 清理拖拽状态
                                         }}
@@ -1209,6 +1257,7 @@ const LayerPanel: React.FC = () => {
                                                     e.stopPropagation();
                                                     startEditing(item.id, item.name);
                                                 }}
+                                                onContextMenu={(e) => handleItemContextMenu(item, e)}
                                                 draggable
                                                 onDragStart={(e) => {
                                                     e.dataTransfer.setData('text/item-id', item.id);
@@ -1224,19 +1273,19 @@ const LayerPanel: React.FC = () => {
                                                     const pos: 'above' | 'below' = e.clientY < middle ? 'above' : 'below';
                                                     setDragOverPosition(pos);
                                                     setDragOverItemId(item.id);
-                                                    
+
                                                     if (containerRef.current && draggedItemId) {
                                                         const cRect = containerRef.current.getBoundingClientRect();
                                                         // 使用预测函数确定实际插入位置
                                                         const actualInsertIndex = predictItemInsertPosition(draggedItemId, item.id, pos === 'above');
-                                                        
+
                                                         if (actualInsertIndex >= 0 && actualInsertIndex <= items.length) {
                                                             // 根据预测的实际插入位置计算指示线位置
                                                             // 指示线应该显示在两个图元之间的中间位置
-                                                            const itemElements = Array.from(e.currentTarget.parentElement?.children || []).filter(child => 
+                                                            const itemElements = Array.from(e.currentTarget.parentElement?.children || []).filter(child =>
                                                                 child.tagName === 'DIV' && !child.className.includes('absolute')
                                                             ) as HTMLElement[];
-                                                            
+
                                                             let edge: number;
                                                             if (actualInsertIndex === 0) {
                                                                 // 插入到第一个位置：指示线在图元容器顶部到第一个元素之间的中心
@@ -1282,8 +1331,8 @@ const LayerPanel: React.FC = () => {
                                                         }
                                                     }
                                                 }}
-                                                onDragLeave={() => { 
-                                                    setItemIndicatorY(null); 
+                                                onDragLeave={() => {
+                                                    setItemIndicatorY(null);
                                                     setDragOverItemId(null);
                                                 }}
                                                 onDrop={(e) => {
@@ -1387,6 +1436,52 @@ const LayerPanel: React.FC = () => {
                 </div>
             </div>
         </div>
+
+        {/* 上下文菜单 */}
+        {contextMenu.visible && contextMenu.item && (
+            <ContextMenu
+                x={contextMenu.x}
+                y={contextMenu.y}
+                onClose={() => setContextMenu({ visible: false, x: 0, y: 0, item: null })}
+                items={[
+                    ...(contextMenu.item.type === 'image' ? [
+                        {
+                            label: 'AI编辑图像',
+                            icon: <Sparkles className="w-4 h-4" />,
+                            onClick: () => handleAIEditImage(contextMenu.item!),
+                        }
+                    ] : []),
+                    {
+                        label: contextMenu.item.visible ? '隐藏' : '显示',
+                        icon: contextMenu.item.visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />,
+                        onClick: () => {
+                            if (contextMenu.item) {
+                                handleItemVisibilityToggle(contextMenu.item, {} as React.MouseEvent);
+                            }
+                        },
+                    },
+                    {
+                        label: contextMenu.item.locked ? '解锁' : '锁定',
+                        icon: contextMenu.item.locked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />,
+                        onClick: () => {
+                            if (contextMenu.item) {
+                                handleItemLockToggle(contextMenu.item, {} as React.MouseEvent);
+                            }
+                        },
+                    },
+                    {
+                        label: '删除',
+                        icon: <Trash2 className="w-4 h-4 text-red-500" />,
+                        onClick: () => {
+                            if (contextMenu.item) {
+                                handleItemDelete(contextMenu.item, {} as React.MouseEvent);
+                            }
+                        },
+                    },
+                ]}
+            />
+        )}
+        </>
     );
 };
 

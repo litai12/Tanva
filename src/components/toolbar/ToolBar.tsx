@@ -1,10 +1,11 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2 } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2 } from 'lucide-react';
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
+import paper from 'paper';
 
 // 自定义图标组件
 // 直线工具图标
@@ -93,6 +94,16 @@ const BoxWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
       <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
         <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
       </svg>
+    </div>
+  </div>
+);
+
+// AI编辑图像图标（图片+魔法棒）
+const AIEditImageIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Image className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-purple-500 rounded-full flex items-center justify-center">
+      <Sparkles className="w-2 h-2 text-white" />
     </div>
   </div>
 );
@@ -195,7 +206,65 @@ const ToolBar: React.FC<ToolBarProps> = ({
   } = useToolStore();
 
   const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel } = useUIStore();
-  const { toggleDialog, isVisible: isAIDialogVisible } = useAIChatStore();
+  const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
+
+  // 原始尺寸模式状态
+  const [useOriginalSize, setUseOriginalSize] = React.useState(() => {
+    return localStorage.getItem('tanva-use-original-size') === 'true';
+  });
+
+  // 切换原始尺寸模式
+  const toggleOriginalSizeMode = () => {
+    const newValue = !useOriginalSize;
+    setUseOriginalSize(newValue);
+    localStorage.setItem('tanva-use-original-size', newValue.toString());
+
+    // 派发事件通知其他组件
+    window.dispatchEvent(new CustomEvent('tanva-size-mode-changed'));
+
+    console.log('🖼️ 原始尺寸模式:', newValue ? '启用' : '禁用');
+
+    if (newValue) {
+      console.log('📏 图像将以原始像素尺寸显示（1像素=1像素）');
+    } else {
+      console.log('📐 图像将自动缩放适应画布');
+    }
+  };
+
+  // 处理AI编辑图像功能
+  const handleAIEditImage = () => {
+    // 检查画布中是否有选中的图像
+    const imageInstances = (window as any).tanvaImageInstances || [];
+    const selectedImage = imageInstances.find((img: any) => img.isSelected);
+
+    if (selectedImage) {
+      // 如果有选中的图像，获取其数据并设置为编辑源
+      try {
+        // 找到对应的Paper.js Raster对象
+        const imageGroup = paper.project?.layers?.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === 'image' && child.data?.imageId === selectedImage.id
+          )
+        )[0];
+
+        if (imageGroup) {
+          const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+          if (raster && raster.canvas) {
+            const imageData = raster.canvas.toDataURL('image/png');
+            setSourceImageForEditing(imageData);
+            showDialog();
+            console.log('🎨 已选择图像进行AI编辑');
+          }
+        }
+      } catch (error) {
+        console.error('获取图像数据失败:', error);
+      }
+    } else {
+      // 如果没有选中图像，直接打开对话框让用户上传
+      showDialog();
+      console.log('🎨 打开AI对话框，用户可上传图像进行编辑');
+    }
+  };
 
   return (
     <div
@@ -388,9 +457,31 @@ const ToolBar: React.FC<ToolBarProps> = ({
           size="sm"
           className="px-2 py-2 h-8 w-8"
           onClick={toggleDialog}
-          title="AI图像生成 - 自动下载并添加到画布"
+          title="AI图像生成 - 文本转图片"
         >
           <Wand2 className="w-4 h-4" />
+        </Button>
+
+        {/* AI编辑图像工具 */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="px-2 py-2 h-8 w-8"
+          onClick={handleAIEditImage}
+          title="AI编辑图像 - 选择画布中的图像或上传图像进行AI编辑"
+        >
+          <AIEditImageIcon className="w-4 h-4" />
+        </Button>
+
+        {/* 原始尺寸模式切换 */}
+        <Button
+          variant={useOriginalSize ? 'default' : 'outline'}
+          size="sm"
+          className="px-2 py-2 h-8 w-8"
+          onClick={toggleOriginalSizeMode}
+          title={useOriginalSize ? '当前：原始尺寸模式 (1像素=1像素)' : '当前：自适应模式 (自动缩放)'}
+        >
+          <Maximize2 className="w-4 h-4" />
         </Button>
       </div>
 
