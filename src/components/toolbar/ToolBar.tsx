@@ -467,8 +467,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <AIEditImageIcon className="w-4 h-4" />
         </Button> */}
 
-        {/* 原始尺寸模式切换 */}
-        <Button
+        {/* 原始尺寸模式切换 - 已隐藏，默认使用自适应模式 */}
+        {/* <Button
           variant={useOriginalSize ? 'default' : 'outline'}
           size="sm"
           className="px-2 py-2 h-8 w-8"
@@ -476,7 +476,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title={useOriginalSize ? '当前：原始尺寸模式 (1像素=1像素)' : '当前：自适应模式 (自动缩放)'}
         >
           <Maximize2 className="w-4 h-4" />
-        </Button>
+        </Button> */}
       </div>
 
       <Separator orientation="vertical" className="h-8" />

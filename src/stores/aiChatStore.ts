@@ -389,13 +389,30 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_edited_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
+          // 🎯 获取当前选中图片的边界作为占位框
+          let selectedImageBounds = null;
+          try {
+            if ((window as any).tanvaImageInstances) {
+              const selectedImage = (window as any).tanvaImageInstances.find((img: any) => img.isSelected);
+              if (selectedImage) {
+                selectedImageBounds = selectedImage.bounds;
+                console.log('🎯 发现选中图片，使用其边界作为占位框:', selectedImageBounds);
+              }
+            }
+          } catch (error) {
+            console.warn('获取选中图片边界失败:', error);
+          }
+
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
               imageData: imageDataUrl,
-              fileName: fileName
+              fileName: fileName,
+              selectedImageBounds: selectedImageBounds  // 传递选中图片的边界
             }
           }));
-          console.log('📋 已触发快速图片上传事件，编辑后的图片将自动放置到坐标原点(0,0)');
+
+          const targetInfo = selectedImageBounds ? '选中图片位置' : '坐标原点(0,0)';
+          console.log(`📋 已触发快速图片上传事件，编辑后的图片将自动放置到${targetInfo}`);
         };
 
         setTimeout(() => {

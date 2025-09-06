@@ -17,8 +17,28 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
     const { ensureDrawingLayer, zoom } = context;
     const [triggerQuickUpload, setTriggerQuickUpload] = useState(false);
 
+    // ========== 查找画布中的图片占位框 ==========
+    const findImagePlaceholder = useCallback(() => {
+        try {
+            if (!paper.project) return null;
+
+            // 遍历所有图层查找占位框
+            for (const layer of paper.project.layers) {
+                for (const item of layer.children) {
+                    if (item.data?.type === 'image-placeholder' && item.data?.bounds) {
+                        return item;
+                    }
+                }
+            }
+            return null;
+        } catch (error) {
+            console.error('查找占位框时出错:', error);
+            return null;
+        }
+    }, []);
+
     // 处理快速图片上传 - 自动放置到坐标轴交叉点(0,0)
-    const handleQuickImageUploaded = useCallback((imageData: string, fileName?: string) => {
+    const handleQuickImageUploaded = useCallback((imageData: string, fileName?: string, selectedImageBounds?: any) => {
         try {
             ensureDrawingLayer();
 
@@ -47,20 +67,72 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
 
                 let displayWidth = originalWidth;
                 let displayHeight = originalHeight;
+                let finalPosition = centerPosition;
+                let placeholder = null;
 
-                if (!useOriginalSize) {
-                    // 标准模式：限制最大显示尺寸
-                    const maxSize = 1200;
-                    if (originalWidth > maxSize || originalHeight > maxSize) {
-                        const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
-                        displayWidth = originalWidth * scale;
-                        displayHeight = originalHeight * scale;
+                // 🎯 优先使用传递的选中图片边界，其次查找占位框
+                let targetBounds = selectedImageBounds;
+                if (!targetBounds) {
+                    placeholder = findImagePlaceholder();
+                    if (placeholder && placeholder.data?.bounds) {
+                        targetBounds = placeholder.data.bounds;
                     }
                 }
-                // 原始尺寸模式：直接使用原图分辨率，1像素=1像素显示
 
-                // 设置显示尺寸
+                if (targetBounds) {
+                    const sourceType = selectedImageBounds ? '选中图片边界' : '占位框';
+                    logger.upload(`🎯 发现${sourceType}，使用边界尺寸进行自适应`);
+
+                    // 计算目标边界的中心点和尺寸
+                    const targetCenter = new paper.Point(
+                        targetBounds.x + targetBounds.width / 2,
+                        targetBounds.y + targetBounds.height / 2
+                    );
+
+                    const boxAspectRatio = targetBounds.width / targetBounds.height;
+                    const imageAspectRatio = originalWidth / originalHeight;
+
+                    if (useOriginalSize) {
+                        // 原始尺寸模式：以目标边界中心为基准，使用图片原始尺寸
+                        finalPosition = targetCenter;
+                        displayWidth = originalWidth;
+                        displayHeight = originalHeight;
+                    } else {
+                        // 自适应模式：根据目标边界和图片比例计算保持比例的实际大小
+                        if (imageAspectRatio > boxAspectRatio) {
+                            // 图片更宽，以目标边界宽度为准
+                            displayWidth = targetBounds.width;
+                            displayHeight = displayWidth / imageAspectRatio;
+                        } else {
+                            // 图片更高，以目标边界高度为准
+                            displayHeight = targetBounds.height;
+                            displayWidth = displayHeight * imageAspectRatio;
+                        }
+                        finalPosition = targetCenter;
+                    }
+
+                    // 删除占位框（如果存在）
+                    if (placeholder) {
+                        placeholder.remove();
+                        logger.upload('🗑️ 已删除占位框');
+                    }
+                } else {
+                    // 没有占位框，使用原有的逻辑
+                    if (!useOriginalSize) {
+                        // 标准模式：限制最大显示尺寸
+                        const maxSize = 1200;
+                        if (originalWidth > maxSize || originalHeight > maxSize) {
+                            const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
+                            displayWidth = originalWidth * scale;
+                            displayHeight = originalHeight * scale;
+                        }
+                    }
+                    // 原始尺寸模式：直接使用原图分辨率，1像素=1像素显示
+                }
+
+                // 设置显示尺寸和位置
                 raster.size = new paper.Size(displayWidth, displayHeight);
+                raster.position = finalPosition;
 
                 // 存储元数据
                 raster.data = {
@@ -160,7 +232,8 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     }));
                 }
 
-                logger.upload(`✅ 快速上传成功：图片已添加到坐标原点 - ${fileName || 'uploaded-image'}`);
+                const positionInfo = selectedImageBounds ? '选中图片位置' : (placeholder ? '占位框位置' : '坐标原点');
+                logger.upload(`✅ 快速上传成功：图片已添加到${positionInfo} - ${fileName || 'uploaded-image'}`);
                 paper.view.update();
             };
 
@@ -171,7 +244,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
             logger.error('快速上传图片时出错:', error);
             console.error('快速上传图片时出错:', error);
         }
-    }, [ensureDrawingLayer]);
+    }, [ensureDrawingLayer, findImagePlaceholder]);
 
     // 处理上传错误
     const handleQuickUploadError = useCallback((error: string) => {

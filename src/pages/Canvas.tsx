@@ -68,8 +68,8 @@ const Canvas: React.FC = () => {
             {/* 缩放指示器 */}
             <ZoomIndicator />
 
-            {/* 图像尺寸模式指示器 */}
-            <ImageSizeIndicator />
+            {/* 图像尺寸模式指示器 - 已隐藏 */}
+            {/* <ImageSizeIndicator /> */}
 
             {/* 图层面板 */}
             <LayerPanel />
