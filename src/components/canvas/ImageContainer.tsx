@@ -73,21 +73,28 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 从Paper.js获取实时坐标
   const getRealTimePaperBounds = useCallback(() => {
     try {
+      // 首先尝试从所有图层中查找图片对象
       const imageGroup = paper.project?.layers?.flatMap(layer =>
         layer.children.filter(child =>
           child.data?.type === 'image' && child.data?.imageId === imageData.id
         )
       )[0];
 
-      if (imageGroup) {
+      if (imageGroup instanceof paper.Group) {
         const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
-        if (raster && raster.bounds) {
-          return {
-            x: raster.bounds.x,
-            y: raster.bounds.y,
-            width: raster.bounds.width,
-            height: raster.bounds.height
+        if (raster && raster.bounds && isFinite(raster.bounds.x)) {
+          // 获取实际的边界信息，确保数值有效
+          const realBounds = {
+            x: Math.round(raster.bounds.x * 100) / 100, // 四舍五入到小数点后2位
+            y: Math.round(raster.bounds.y * 100) / 100,
+            width: Math.round(raster.bounds.width * 100) / 100,
+            height: Math.round(raster.bounds.height * 100) / 100
           };
+
+          // 验证bounds是否合理
+          if (realBounds.width > 0 && realBounds.height > 0) {
+            return realBounds;
+          }
         }
       }
     } catch (error) {
@@ -103,6 +110,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     let animationFrame: number;
     let isUpdating = false;
+    let stableTimer: NodeJS.Timeout;
 
     const updateRealTimeBounds = () => {
       if (isUpdating) return;
@@ -110,41 +118,80 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       const paperBounds = getRealTimePaperBounds();
       
-      // 检查坐标是否发生变化
+      // 检查坐标是否发生变化 - 降低阈值以获得更高精度
       const hasChanged = 
-        Math.abs(paperBounds.x - realTimeBounds.x) > 0.5 ||
-        Math.abs(paperBounds.y - realTimeBounds.y) > 0.5 ||
-        Math.abs(paperBounds.width - realTimeBounds.width) > 0.5 ||
-        Math.abs(paperBounds.height - realTimeBounds.height) > 0.5;
+        Math.abs(paperBounds.x - realTimeBounds.x) > 0.1 ||
+        Math.abs(paperBounds.y - realTimeBounds.y) > 0.1 ||
+        Math.abs(paperBounds.width - realTimeBounds.width) > 0.1 ||
+        Math.abs(paperBounds.height - realTimeBounds.height) > 0.1;
 
       if (hasChanged) {
         setIsPositionStable(false);
         setRealTimeBounds(paperBounds);
         
-        // 短暂延迟后标记为稳定
-        setTimeout(() => {
+        // 清除之前的稳定定时器
+        if (stableTimer) {
+          clearTimeout(stableTimer);
+        }
+        
+        // 设置新的稳定定时器
+        stableTimer = setTimeout(() => {
           setIsPositionStable(true);
-        }, 100);
+        }, 150); // 增加延迟时间，确保位置真正稳定
       }
 
       isUpdating = false;
       animationFrame = requestAnimationFrame(updateRealTimeBounds);
     };
 
-    // 开始实时更新
+    // 立即更新一次，然后开始循环
+    const paperBounds = getRealTimePaperBounds();
+    setRealTimeBounds(paperBounds);
     animationFrame = requestAnimationFrame(updateRealTimeBounds);
 
     return () => {
       if (animationFrame) {
         cancelAnimationFrame(animationFrame);
       }
+      if (stableTimer) {
+        clearTimeout(stableTimer);
+      }
     };
-  }, [isSelected, getRealTimePaperBounds, realTimeBounds]);
+  }, [isSelected, getRealTimePaperBounds]);
 
-  // 同步初始bounds
+  // 同步Props bounds变化
   useEffect(() => {
     setRealTimeBounds(bounds);
+    setIsPositionStable(true);
   }, [bounds]);
+
+  // 额外的Paper.js视图更新监听
+  useEffect(() => {
+    if (!isSelected) return;
+
+    let viewUpdateHandler: () => void;
+
+    const setupViewListener = () => {
+      if (paper.view) {
+        viewUpdateHandler = () => {
+          // 视图更新时重新获取坐标
+          const paperBounds = getRealTimePaperBounds();
+          setRealTimeBounds(paperBounds);
+        };
+
+        // 监听Paper.js视图更新事件
+        paper.view.on('update', viewUpdateHandler);
+      }
+    };
+
+    setupViewListener();
+
+    return () => {
+      if (paper.view && viewUpdateHandler) {
+        paper.view.off('update', viewUpdateHandler);
+      }
+    };
+  }, [isSelected, getRealTimePaperBounds]);
 
   // 使用实时坐标进行屏幕坐标转换
   const screenBounds = useMemo(() => {
@@ -239,19 +286,23 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部 */}
       {isSelected && (
         <div
-          className={`absolute flex items-center justify-center gap-2 transition-all duration-200 ease-in-out ${
-            !isPositionStable ? 'opacity-90' : 'opacity-100'
+          className={`absolute flex items-center justify-center gap-2 transition-all duration-150 ease-out ${
+            !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
           }`}
           style={{
-            bottom: -40, // 位于图片底部外侧
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 30, // 确保低于对话框的z-50
-            pointerEvents: 'auto', // 只有按钮区域可以点击
-            // 添加更稳定的定位
+            bottom: -42, // 位于图片底部外侧，稍微增加距离
+            left: 0,
+            right: 0, // 使用left: 0, right: 0来确保完全居中
+            marginLeft: 'auto',
+            marginRight: 'auto',
+            width: 'fit-content', // 自适应内容宽度
+            zIndex: 30,
+            pointerEvents: 'auto',
             position: 'absolute',
-            minWidth: '72px', // 容纳两个按钮和间距
-            minHeight: '32px'
+            // 添加固定定位确保稳定性
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
           }}
         >
           {/* AI编辑按钮 */}
