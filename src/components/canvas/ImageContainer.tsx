@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import paper from 'paper';
-import { useCanvasStore } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
+import { Sparkles } from 'lucide-react';
+import { Button } from '../ui/button';
 
 interface ImageData {
   id: string;
@@ -34,274 +36,166 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onResize
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const imageRef = useRef<HTMLImageElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [resizeDirection, setResizeDirection] = useState<string>('');
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0 });
-  const [initialBounds, setInitialBounds] = useState(bounds);
-  const [, setActualImageBounds] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
 
-  // 获取画布状态用于坐标转换
-  const { zoom, panX, panY } = useCanvasStore();
+  // 获取AI聊天状态
+  const { setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending } = useAIChatStore();
 
-  // 优化的同步机制 - 使用ref跟踪更新状态，避免强制重渲染循环
-  const [renderKey, setRenderKey] = useState(0);
-  const needsUpdateRef = useRef(false);
-  const animationFrameRef = useRef<number | null>(null);
+  // 实时Paper.js坐标状态
+  const [realTimeBounds, setRealTimeBounds] = useState(bounds);
+  const [isPositionStable, setIsPositionStable] = useState(true);
 
-  // 将Paper.js世界坐标转换为屏幕坐标
+  // 将Paper.js世界坐标转换为屏幕坐标（改进版）
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
     if (!paper.view) return paperBounds;
 
-    const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
-    const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
+    try {
+      // 使用更精确的坐标转换
+      const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
+      const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
 
-    return {
-      x: topLeft.x,
-      y: topLeft.y,
-      width: bottomRight.x - topLeft.x,
-      height: bottomRight.y - topLeft.y
-    };
-  }, []);
+      // 添加数值验证，防止NaN或无限值
+      const result = {
+        x: isFinite(topLeft.x) ? topLeft.x : paperBounds.x,
+        y: isFinite(topLeft.y) ? topLeft.y : paperBounds.y,
+        width: isFinite(bottomRight.x - topLeft.x) ? bottomRight.x - topLeft.x : paperBounds.width,
+        height: isFinite(bottomRight.y - topLeft.y) ? bottomRight.y - topLeft.y : paperBounds.height
+      };
 
-  // 将屏幕坐标转换为Paper.js世界坐标
-  const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
-    if (!paper.view) return screenBounds;
-
-    const topLeft = paper.view.viewToProject(new paper.Point(screenBounds.x, screenBounds.y));
-    const bottomRight = paper.view.viewToProject(new paper.Point(screenBounds.x + screenBounds.width, screenBounds.y + screenBounds.height));
-
-    return {
-      x: topLeft.x,
-      y: topLeft.y,
-      width: bottomRight.x - topLeft.x,
-      height: bottomRight.y - topLeft.y
-    };
-  }, []);
-
-  // 监听画布状态变化，在下一个动画帧重新计算以确保Paper.js矩阵已更新
-  useEffect(() => {
-    // 标记需要更新，但不立即触发重渲染
-    needsUpdateRef.current = true;
-
-    // 取消之前的动画帧请求，避免重复执行
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
+      return result;
+    } catch (error) {
+      console.warn('坐标转换失败，使用原始坐标:', error);
+      return paperBounds;
     }
+  }, []);
 
-    // 使用requestAnimationFrame确保在浏览器重绘前Paper.js矩阵已更新
-    animationFrameRef.current = requestAnimationFrame(() => {
-      if (needsUpdateRef.current) {
-        setRenderKey(prev => prev + 1);
-        needsUpdateRef.current = false;
+  // 从Paper.js获取实时坐标
+  const getRealTimePaperBounds = useCallback(() => {
+    try {
+      const imageGroup = paper.project?.layers?.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === imageData.id
+        )
+      )[0];
+
+      if (imageGroup) {
+        const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+        if (raster && raster.bounds) {
+          return {
+            x: raster.bounds.x,
+            y: raster.bounds.y,
+            width: raster.bounds.width,
+            height: raster.bounds.height
+          };
+        }
       }
-      animationFrameRef.current = null;
-    });
+    } catch (error) {
+      console.warn('获取Paper.js实时坐标失败:', error);
+    }
+    
+    return bounds; // 回退到props中的bounds
+  }, [imageData.id, bounds]);
+
+  // 实时同步Paper.js状态
+  useEffect(() => {
+    if (!isSelected) return;
+
+    let animationFrame: number;
+    let isUpdating = false;
+
+    const updateRealTimeBounds = () => {
+      if (isUpdating) return;
+      isUpdating = true;
+
+      const paperBounds = getRealTimePaperBounds();
+      
+      // 检查坐标是否发生变化
+      const hasChanged = 
+        Math.abs(paperBounds.x - realTimeBounds.x) > 0.5 ||
+        Math.abs(paperBounds.y - realTimeBounds.y) > 0.5 ||
+        Math.abs(paperBounds.width - realTimeBounds.width) > 0.5 ||
+        Math.abs(paperBounds.height - realTimeBounds.height) > 0.5;
+
+      if (hasChanged) {
+        setIsPositionStable(false);
+        setRealTimeBounds(paperBounds);
+        
+        // 短暂延迟后标记为稳定
+        setTimeout(() => {
+          setIsPositionStable(true);
+        }, 100);
+      }
+
+      isUpdating = false;
+      animationFrame = requestAnimationFrame(updateRealTimeBounds);
+    };
+
+    // 开始实时更新
+    animationFrame = requestAnimationFrame(updateRealTimeBounds);
 
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
       }
     };
-  }, [zoom, panX, panY]); // 移除不必要的依赖，避免循环
+  }, [isSelected, getRealTimePaperBounds, realTimeBounds]);
 
-  // 缓存屏幕坐标计算，但只依赖bounds变化
-  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds]);
-
-  // 计算控制点偏移量 - 考虑边框宽度和缩放
-  const borderWidth = 2; // 边框宽度
-  const handleSize = 8; // 控制点尺寸
-  const handleOffset = -(borderWidth + handleSize / 2); // 控制点偏移
-
-  // 计算图片在容器中的实际显示尺寸和位置
-  const calculateActualImageBounds = useCallback(() => {
-    if (!imageRef.current) return null;
-
-    const img = imageRef.current;
-    const containerWidth = screenBounds.width;
-    const containerHeight = screenBounds.height;
-
-    // 获取图片的原始尺寸
-    const naturalWidth = img.naturalWidth;
-    const naturalHeight = img.naturalHeight;
-
-    if (naturalWidth === 0 || naturalHeight === 0) return null;
-
-    // 计算object-fit: contain的实际显示尺寸
-    const containerAspectRatio = containerWidth / containerHeight;
-    const imageAspectRatio = naturalWidth / naturalHeight;
-
-    let actualWidth, actualHeight, offsetX, offsetY;
-
-    if (imageAspectRatio > containerAspectRatio) {
-      // 图片更宽，以宽度为准
-      actualWidth = containerWidth;
-      actualHeight = containerWidth / imageAspectRatio;
-      offsetX = 0;
-      offsetY = (containerHeight - actualHeight) / 2;
-    } else {
-      // 图片更高，以高度为准
-      actualHeight = containerHeight;
-      actualWidth = containerHeight * imageAspectRatio;
-      offsetX = (containerWidth - actualWidth) / 2;
-      offsetY = 0;
-    }
-
-    return {
-      x: offsetX,
-      y: offsetY,
-      width: actualWidth,
-      height: actualHeight
-    };
-  }, [screenBounds.width, screenBounds.height]);
-
-  // 当图片加载完成后计算实际边界
-  const handleImageLoad = useCallback(() => {
-    const actualBounds = calculateActualImageBounds();
-    setActualImageBounds(actualBounds);
-  }, [calculateActualImageBounds]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // 只处理左键
-
-    const target = e.target as HTMLElement;
-
-    // 如果点击的是图片本身，只选中不拖拽
-    if (target.tagName === 'IMG') {
-      if (onSelect) {
-        onSelect();
-      }
-      return;
-    }
-
-    // 判断是否点击在调整手柄上 - 优先级最高
-    if (target.classList.contains('resize-handle')) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (onSelect) {
-        onSelect();
-      }
-
-      setIsResizing(true);
-      setInitialBounds(bounds);
-      setResizeStart({ x: e.clientX, y: e.clientY }); // 记录调整大小开始时的鼠标位置
-      
-      // 缓存初始屏幕边界，避免调整时重复计算
-      initialScreenBoundsRef.current = convertToScreenBounds(bounds);
-
-      // 直接从控制点的data属性获取方向，避免计算错误
-      const direction = (target as HTMLElement).getAttribute('data-direction');
-      if (direction) {
-        setResizeDirection(direction);
-      }
-      return; // 重要：直接返回，不执行拖拽逻辑
-    }
-
-    // 判断是否点击在边框区域（不是图片、不是控制点）
-    if (target.classList.contains('border-area') || target === containerRef.current) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (onSelect) {
-        onSelect();
-      }
-
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - screenBounds.x, y: e.clientY - screenBounds.y });
-      return;
-    }
-
-    // 其他情况只选中
-    if (onSelect) {
-      onSelect();
-    }
-  };
-
-  // 节流控制 - 限制调整频率
-  const lastResizeTime = useRef<number>(0);
-  const RESIZE_THROTTLE = 16; // 回到60fps，但优化其他方面
-  
-  // 缓存初始屏幕边界，避免调整时重复计算
-  const initialScreenBoundsRef = useRef<{x: number; y: number; width: number; height: number} | null>(null);
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (isDragging && onMove) {
-      const newScreenX = e.clientX - dragStart.x;
-      const newScreenY = e.clientY - dragStart.y;
-
-      // 转换屏幕坐标为Paper.js坐标
-      const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX, newScreenY)) : { x: newScreenX, y: newScreenY };
-      onMove({ x: paperPosition.x, y: paperPosition.y });
-    } else if (isResizing && onResize && resizeDirection) {
-      const now = Date.now();
-      if (now - lastResizeTime.current < RESIZE_THROTTLE) {
-        return; // 跳过太频繁的调整
-      }
-      lastResizeTime.current = now;
-      
-      // 计算鼠标移动的偏移量
-      const deltaX = e.clientX - resizeStart.x;
-      const deltaY = e.clientY - resizeStart.y;
-
-      // 使用缓存的初始屏幕边界
-      const initialScreenBounds = initialScreenBoundsRef.current || convertToScreenBounds(initialBounds);
-      const newScreenBounds = { ...initialScreenBounds };
-
-      // 根据调整方向计算新的边界 - 使用偏移量避免跳跃
-      if (resizeDirection.includes('e')) {
-        // 向右调整：原宽度 + X偏移量
-        newScreenBounds.width = Math.max(100, initialScreenBounds.width + deltaX);
-      }
-      if (resizeDirection.includes('w')) {
-        // 向左调整：原宽度 - X偏移量，位置向左移动X偏移量
-        newScreenBounds.width = Math.max(100, initialScreenBounds.width - deltaX);
-        newScreenBounds.x = initialScreenBounds.x + (initialScreenBounds.width - newScreenBounds.width);
-      }
-      if (resizeDirection.includes('s')) {
-        // 向下调整：原高度 + Y偏移量
-        newScreenBounds.height = Math.max(100, initialScreenBounds.height + deltaY);
-      }
-      if (resizeDirection.includes('n')) {
-        // 向上调整：原高度 - Y偏移量，位置向上移动Y偏移量
-        newScreenBounds.height = Math.max(100, initialScreenBounds.height - deltaY);
-        newScreenBounds.y = initialScreenBounds.y + (initialScreenBounds.height - newScreenBounds.height);
-      }
-
-      // 转换屏幕坐标为Paper.js坐标
-      const newPaperBounds = convertToPaperBounds(newScreenBounds);
-      onResize(newPaperBounds);
-    }
-  }, [isDragging, isResizing, dragStart, resizeStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-    setIsResizing(false);
-    setResizeDirection('');
-  }, []);
-
+  // 同步初始bounds
   useEffect(() => {
-    if (isDragging || isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+    setRealTimeBounds(bounds);
+  }, [bounds]);
 
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+  // 使用实时坐标进行屏幕坐标转换
+  const screenBounds = useMemo(() => {
+    return convertToScreenBounds(realTimeBounds);
+  }, [realTimeBounds, convertToScreenBounds]);
 
-  // 当bounds或视图变化时重新计算实际图片边界 - 使用renderKey确保同步
-  useEffect(() => {
-    if (imageRef.current && imageRef.current.complete) {
-      const actualBounds = calculateActualImageBounds();
-      setActualImageBounds(actualBounds);
+  // 处理AI编辑按钮点击
+  const handleAIEdit = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    try {
+      // 找到对应的Paper.js Raster对象
+      const imageGroup = paper.project?.layers?.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === imageData.id
+        )
+      )[0];
+
+      if (imageGroup) {
+        const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+        if (raster && raster.canvas) {
+          const imageDataUrl = raster.canvas.toDataURL('image/png');
+          
+          // 检查是否已有图片，如果有则添加到融合模式，否则设置为编辑图片
+          const hasExistingImages = sourceImageForEditing || sourceImagesForBlending.length > 0;
+          
+          if (hasExistingImages) {
+            // 如果有编辑图片，先将其转换为融合模式
+            if (sourceImageForEditing) {
+              addImageForBlending(sourceImageForEditing);
+              setSourceImageForEditing(null);
+              console.log('🎨 将编辑图像转换为融合模式');
+            }
+            
+            // 已有图片：添加新图片到融合模式
+            addImageForBlending(imageDataUrl);
+            console.log('🎨 已添加图像到融合模式');
+          } else {
+            // 没有现有图片：设置为编辑图片
+            setSourceImageForEditing(imageDataUrl);
+            console.log('🎨 已设置图像为编辑模式');
+          }
+          
+          showDialog();
+        }
+      }
+    } catch (error) {
+      console.error('获取图像数据失败:', error);
     }
-  }, [bounds, renderKey, calculateActualImageBounds]);
+  }, [imageData.id, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
+
+  // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
   return (
     <div
@@ -312,119 +206,54 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         top: screenBounds.y,
         width: screenBounds.width,
         height: screenBounds.height,
-        zIndex: 1000 + layerIndex * 10 + (isSelected ? 1 : 0),
-        cursor: isDragging ? 'grabbing' : (isSelected ? 'default' : 'grab'),
+        zIndex: 10 + layerIndex * 2 + (isSelected ? 1 : 0), // 大幅降低z-index，确保在对话框下方
+        cursor: 'default',
         userSelect: 'none',
-        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
+        pointerEvents: 'none', // 让所有鼠标事件穿透到Paper.js
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
-      onMouseDown={handleMouseDown}
     >
-      {/* 透明的交互区域 - 图像现在在Paper.js canvas中渲染 */}
+      {/* 透明覆盖层，让交互穿透到Paper.js */}
       <div
         style={{
           width: '100%',
           height: '100%',
-          border: 'none',
-          borderRadius: '0',
-          overflow: 'hidden',
           backgroundColor: 'transparent',
-          pointerEvents: isSelected ? 'auto' : 'none'
+          pointerEvents: 'none'
         }}
       />
 
-      {/* 选中状态的边框 - 覆盖整个容器，与3D保持一致 */}
+      {/* AI编辑小工具按钮 - 只在选中时显示，位于图片底部 */}
       {isSelected && (
         <div
-          className="border-area"
+          className={`absolute flex items-center justify-center transition-all duration-200 ease-in-out ${
+            !isPositionStable ? 'opacity-90' : 'opacity-100'
+          }`}
           style={{
+            bottom: -40, // 位于图片底部外侧
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 30, // 确保低于对话框的z-50
+            pointerEvents: 'auto', // 只有按钮区域可以点击
+            // 添加更稳定的定位
             position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            border: '2px solid #3b82f6',
-            borderRadius: '0',
-            pointerEvents: 'all',
-            cursor: 'move',
-            zIndex: 5,
-            backgroundColor: 'transparent'
+            minWidth: '32px',
+            minHeight: '32px'
           }}
-        />
-      )}
-
-      {/* 选中状态的调整手柄 - 四个角点，与3D保持一致 */}
-      {isSelected && (
-        <>
-          {/* 左上角 - 与边框左上角对齐 */}
-          <div
-            className="resize-handle"
-            data-direction="nw"
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105"
+            onClick={handleAIEdit}
+            title="添加到AI对话框进行编辑"
             style={{
-              position: 'absolute',
-              top: handleOffset,
-              left: handleOffset,
-              width: handleSize,
-              height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
-              cursor: 'nw-resize',
-              borderRadius: '2px',
-              zIndex: 10
+              backdropFilter: 'blur(8px)'
             }}
-          />
-          {/* 右上角 - 与边框右上角对齐 */}
-          <div
-            className="resize-handle"
-            data-direction="ne"
-            style={{
-              position: 'absolute',
-              top: handleOffset,
-              right: handleOffset,
-              width: handleSize,
-              height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
-              cursor: 'ne-resize',
-              borderRadius: '2px',
-              zIndex: 10
-            }}
-          />
-          {/* 左下角 - 与边框左下角对齐 */}
-          <div
-            className="resize-handle"
-            data-direction="sw"
-            style={{
-              position: 'absolute',
-              bottom: handleOffset,
-              left: handleOffset,
-              width: handleSize,
-              height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
-              cursor: 'sw-resize',
-              borderRadius: '2px',
-              zIndex: 10
-            }}
-          />
-          {/* 右下角 - 与边框右下角对齐 */}
-          <div
-            className="resize-handle"
-            data-direction="se"
-            style={{
-              position: 'absolute',
-              bottom: handleOffset,
-              right: handleOffset,
-              width: handleSize,
-              height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
-              cursor: 'se-resize',
-              borderRadius: '2px',
-              zIndex: 10
-            }}
-          />
-        </>
+          >
+            <Sparkles className="w-4 h-4" />
+          </Button>
+        </div>
       )}
     </div>
   );
