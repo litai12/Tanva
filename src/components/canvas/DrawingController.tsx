@@ -4,6 +4,7 @@ import { useToolStore, useCanvasStore } from '@/stores';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
+import ImageContainer from './ImageContainer';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { logger } from '@/utils/logger';
@@ -388,6 +389,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         trigger={model3DTool.triggerModel3DUpload}
         onTriggerHandled={model3DTool.handleModel3DUploadTriggerHandled}
       />
+
+      {/* 图片UI覆盖层实例 */}
+      {imageTool.imageInstances.map((image) => (
+        <ImageContainer
+          key={image.id}
+          imageData={{
+            id: image.id,
+            src: image.src || '',
+            fileName: image.fileName
+          }}
+          bounds={image.bounds}
+          isSelected={image.id === imageTool.selectedImageId}
+          visible={image.visible}
+          drawMode={drawMode}
+          isSelectionDragging={selectionTool.isSelectionDragging}
+          onSelect={() => imageTool.handleImageSelect(image.id)}
+          onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
+          onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
+          onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
+        />
+      ))}
 
       {/* 3D模型渲染实例 */}
       {model3DTool.model3DInstances.map((model) => (

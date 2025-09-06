@@ -577,6 +577,40 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     eventHandlers.onImageResize?.(imageId, newBounds);
   }, [eventHandlers.onImageResize]);
 
+  // ========== 图片删除 ==========
+  const handleImageDelete = useCallback((imageId: string) => {
+    console.log('🗑️ 开始删除图片:', imageId);
+
+    // 从Paper.js中移除图片对象
+    const imageGroup = paper.project?.layers?.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0];
+
+    if (imageGroup) {
+      imageGroup.remove();
+      paper.view.update();
+      console.log('🗑️ 已从Paper.js中移除图片');
+    }
+
+    // 从React状态中移除图片
+    setImageInstances(prev => {
+      const filtered = prev.filter(img => img.id !== imageId);
+      console.log('🗑️ 已从状态中移除图片，剩余图片数量:', filtered.length);
+      return filtered;
+    });
+
+    // 如果删除的是当前选中的图片，清除选中状态
+    if (selectedImageId === imageId) {
+      setSelectedImageId(null);
+      console.log('🗑️ 已清除选中状态');
+    }
+
+    // 调用删除回调
+    eventHandlers.onImageDelete?.(imageId);
+  }, [selectedImageId, eventHandlers.onImageDelete]);
+
   // ========== 图片上传错误处理 ==========
   const handleImageUploadError = useCallback((error: string) => {
     logger.error('图片上传失败:', error);
@@ -612,6 +646,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     // 图片移动和调整大小
     handleImageMove,
     handleImageResize,
+    handleImageDelete,
 
     // 状态设置器（用于外部直接控制）
     setImageInstances,

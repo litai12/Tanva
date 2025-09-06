@@ -1,7 +1,7 @@
 import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 
 interface ImageData {
@@ -21,6 +21,7 @@ interface ImageContainerProps {
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
+  onDelete?: (imageId: string) => void; // 删除图片回调
 }
 
 const ImageContainer: React.FC<ImageContainerProps> = ({
@@ -33,7 +34,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   layerIndex = 0,
   onSelect,
   onMove,
-  onResize
+  onResize,
+  onDelete
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -195,6 +197,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [imageData.id, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
 
+  // 处理删除按钮点击
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (onDelete) {
+      onDelete(imageData.id);
+      console.log('🗑️ 已删除图像:', imageData.id);
+    }
+  }, [imageData.id, onDelete]);
+
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
   return (
@@ -223,10 +236,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
-      {/* AI编辑小工具按钮 - 只在选中时显示，位于图片底部 */}
+      {/* 图片操作按钮组 - 只在选中时显示，位于图片底部 */}
       {isSelected && (
         <div
-          className={`absolute flex items-center justify-center transition-all duration-200 ease-in-out ${
+          className={`absolute flex items-center justify-center gap-2 transition-all duration-200 ease-in-out ${
             !isPositionStable ? 'opacity-90' : 'opacity-100'
           }`}
           style={{
@@ -237,10 +250,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             pointerEvents: 'auto', // 只有按钮区域可以点击
             // 添加更稳定的定位
             position: 'absolute',
-            minWidth: '32px',
+            minWidth: '72px', // 容纳两个按钮和间距
             minHeight: '32px'
           }}
         >
+          {/* AI编辑按钮 */}
           <Button
             variant="outline"
             size="sm"
@@ -252,6 +266,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             }}
           >
             <Sparkles className="w-4 h-4" />
+          </Button>
+          
+          {/* 删除按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-red-50 hover:border-red-300"
+            onClick={handleDelete}
+            title="删除图片"
+            style={{
+              backdropFilter: 'blur(8px)'
+            }}
+          >
+            <Trash2 className="w-4 h-4 text-red-600" />
           </Button>
         </div>
       )}

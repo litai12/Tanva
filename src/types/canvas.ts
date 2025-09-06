@@ -65,6 +65,7 @@ export interface ImageToolEventHandlers {
   onImageDeselect?: () => void;
   onImageMove?: (imageId: string, newPosition: { x: number; y: number }) => void;
   onImageResize?: (imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;
+  onImageDelete?: (imageId: string) => void;
 }
 
 // 3D模型工具事件处理器类型
