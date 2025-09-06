@@ -30,7 +30,6 @@ const AIChatDialog: React.FC = () => {
     setSourceImageForAnalysis,
     addImageForBlending,
     removeImageFromBlending,
-    clearImagesForBlending,
     getAIMode
   } = useAIChatStore();
 
@@ -214,27 +213,12 @@ const AIChatDialog: React.FC = () => {
           {(sourceImageForEditing || sourceImagesForBlending.length > 0 || sourceImageForAnalysis) && (
             <div className="mb-4">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-medium text-gray-600">
-                  {sourceImagesForBlending.length > 0 ? '融合图像' :
+                <span className="text-xs text-gray-600">
+                  {sourceImagesForBlending.length > 0 ?
+                    <span className="font-bold">融合图像</span> :
                     sourceImageForEditing ? '编辑图像' :
                       sourceImageForAnalysis ? '分析图像' : '图像'}
                 </span>
-                {sourceImagesForBlending.length > 0 && (
-                  <span className="text-xs text-blue-600">({sourceImagesForBlending.length}张)</span>
-                )}
-                <Button
-                  onClick={() => {
-                    setSourceImageForEditing(null);
-                    setSourceImageForAnalysis(null);
-                    clearImagesForBlending();
-                  }}
-                  size="sm"
-                  variant="outline"
-                  className="h-5 w-5 p-0 rounded-full text-xs bg-white border-gray-300 hover:bg-gray-100 hover:border-gray-400"
-                  title="清空所有图像"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </Button>
               </div>
               <div className="flex flex-wrap gap-2">
                 {/* 单图编辑显示 */}
@@ -281,6 +265,12 @@ const AIChatDialog: React.FC = () => {
                       alt={`融合图片 ${index + 1}`}
                       className="w-16 h-16 object-cover rounded border shadow-sm"
                     />
+                    {/* 主场景标签 - 显示在第一张图片上 */}
+                    {index === 0 && sourceImagesForBlending.length > 1 && (
+                      <div className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white px-1 py-0.5 rounded-full font-medium shadow-sm" style={{ fontSize: '0.6rem' }}>
+                        主场景
+                      </div>
+                    )}
                     <button
                       onClick={() => removeImageFromBlending(index)}
                       className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -451,136 +441,142 @@ const AIChatDialog: React.FC = () => {
                   <div
                     key={message.id}
                     className={cn(
-                      "p-2 rounded-lg transition-colors text-xs",
-                      message.type === 'user' && "bg-blue-50 text-blue-800 ml-3 mr-1",
-                      message.type === 'ai' && "bg-green-50 text-green-800 mr-3",
-                      message.type === 'error' && "bg-red-50 text-red-800 mr-1"
+                      "p-2 transition-colors text-sm",
+                      message.type === 'user' && "text-black ml-3 mr-1",
+                      message.type === 'ai' && "text-black mr-3",
+                      message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
                     )}
                   >
                     {/* 如果有图像或源图像，使用特殊布局 */}
                     {(message.imageData || message.sourceImageData || message.sourceImagesData) ? (
-                      <div className="flex gap-2 items-start">
-                        {/* 左边：图像 */}
-                        <div className="flex-shrink-0">
-                          {message.sourceImageData && (
-                            <div className="mb-2">
-                              <img
-                                src={message.sourceImageData}
-                                alt="源图像"
-                                className="w-12 h-12 object-cover rounded border shadow-sm cursor-pointer opacity-75"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSourceImageForEditing(message.sourceImageData!);
-                                }}
-                                title="点击重新使用此图像"
-                              />
-                              <div className="text-xs text-gray-400 text-center mt-0.5">源图</div>
-                            </div>
-                          )}
-                          {message.sourceImagesData && message.sourceImagesData.length > 0 && (
-                            <div className="mb-2">
-                              <div className="grid grid-cols-2 gap-1 max-w-16">
-                                {message.sourceImagesData.map((imageData, index) => (
-                                  <img
-                                    key={index}
-                                    src={imageData}
-                                    alt={`融合图像 ${index + 1}`}
-                                    className="w-7 h-7 object-cover rounded border shadow-sm cursor-pointer opacity-75"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      addImageForBlending(imageData);
-                                    }}
-                                    title={`点击重新使用融合图像 ${index + 1}`}
-                                  />
-                                ))}
-                              </div>
-                              <div className="text-xs text-gray-400 text-center mt-0.5">融合图({message.sourceImagesData.length}张)</div>
-                            </div>
-                          )}
-                          {message.imageData && (
-                            <div>
-                              <img
-                                src={`data:image/png;base64,${message.imageData}`}
-                                alt="AI生成的图像"
-                                className="w-20 h-20 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  // 可以在这里添加图像预览功能
-                                  console.log('点击查看大图');
-                                }}
-                                title="点击查看大图"
-                              />
-                              <div className="text-xs text-gray-500 text-center mt-1">结果</div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* 右边：文字内容 */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="font-medium text-xs">
-                              {message.type === 'user' ? '你' : message.type === 'ai' ? 'AI' : '错误'}
-                            </span>
-                            <span className="text-gray-400 text-xs">
-                              {message.timestamp.toLocaleTimeString('zh-CN', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </span>
+                      <div className={cn(
+                        "inline-block rounded-lg p-3",
+                        message.type === 'user' && "bg-blue-50"
+                      )}>
+                        {/* AI消息标识 - 单独一行 */}
+                        {message.type === 'ai' && (
+                          <div className="flex items-center gap-2 mb-3">
+                            <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
+                            <span className="text-sm font-bold text-black">TAI</span>
                           </div>
-                          <div className="text-sm leading-relaxed text-gray-700 break-words markdown-content">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                p: ({ children }) => <p className="mb-1">{children}</p>,
-                                ul: ({ children }) => <ul className="list-disc list-inside mb-1 ml-2">{children}</ul>,
-                                ol: ({ children }) => <ol className="list-decimal list-inside mb-1 ml-2">{children}</ol>,
-                                li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                                h1: ({ children }) => <h1 className="text-sm font-bold mb-1">{children}</h1>,
-                                h2: ({ children }) => <h2 className="text-xs font-bold mb-1">{children}</h2>,
-                                h3: ({ children }) => <h3 className="text-xs font-semibold mb-1">{children}</h3>,
-                                code: ({ children, ...props }: any) => {
-                                  const inline = !('className' in props && props.className?.includes('language-'));
-                                  return inline
-                                    ? <code className="bg-gray-100 px-1 rounded text-xs">{children}</code>
-                                    : <pre className="bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1"><code>{children}</code></pre>;
-                                },
-                                blockquote: ({ children }) => <blockquote className="border-l-2 border-gray-300 pl-2 italic text-xs mb-1">{children}</blockquote>,
-                                a: ({ href, children }) => <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
-                                strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                                em: ({ children }) => <em className="italic">{children}</em>,
-                              }}
-                            >
-                              {message.content}
-                            </ReactMarkdown>
+                        )}
+
+                        {/* 图片和文字内容 - 同一行 */}
+                        <div className="flex gap-3 items-start">
+                          {/* 左边：图像 */}
+                          <div className="flex-shrink-0">
+                            {message.sourceImageData && (
+                              <div className="mb-2">
+                                <img
+                                  src={message.sourceImageData}
+                                  alt="源图像"
+                                  className="w-12 h-12 object-cover rounded border shadow-sm cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSourceImageForEditing(message.sourceImageData!);
+                                  }}
+                                  title="点击重新使用此图像"
+                                />
+                              </div>
+                            )}
+                            {message.sourceImagesData && message.sourceImagesData.length > 0 && (
+                              <div className="mb-2">
+                                <div className="grid grid-cols-2 gap-1 max-w-16">
+                                  {message.sourceImagesData.map((imageData, index) => (
+                                    <div key={index} className="relative">
+                                      <img
+                                        src={imageData}
+                                        alt={`融合图像 ${index + 1}`}
+                                        className="w-7 h-7 object-cover rounded border shadow-sm cursor-pointer"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          addImageForBlending(imageData);
+                                        }}
+                                        title={`点击重新使用融合图像 ${index + 1}`}
+                                      />
+                                      {/* 主场景标签 - 显示在第一张图片上 */}
+                                      {index === 0 && message.sourceImagesData && message.sourceImagesData.length > 1 && (
+                                        <div className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs px-1 py-0.5 rounded-full font-medium shadow-sm" style={{ fontSize: '0.6rem' }}>
+                                          主
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {message.imageData && (
+                              <div>
+                                <img
+                                  src={`data:image/png;base64,${message.imageData}`}
+                                  alt="AI生成的图像"
+                                  className="w-20 h-20 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // 可以在这里添加图像预览功能
+                                    console.log('点击查看大图');
+                                  }}
+                                  title="点击查看大图"
+                                />
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 右边：文字内容 */}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm leading-relaxed text-black break-words markdown-content">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => <p className="mb-1 text-sm">{children}</p>,
+                                  ul: ({ children }) => <ul className="list-disc list-inside mb-1 ml-2 text-sm">{children}</ul>,
+                                  ol: ({ children }) => <ol className="list-decimal list-inside mb-1 ml-2 text-sm">{children}</ol>,
+                                  li: ({ children }) => <li className="mb-0.5 text-sm">{children}</li>,
+                                  h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-2">{children}</h1>,
+                                  h2: ({ children }) => <h2 className="text-base font-bold mb-1 mt-1">{children}</h2>,
+                                  h3: ({ children }) => <h3 className="text-base font-bold mb-1">{children}</h3>,
+                                  code: ({ children, ...props }: any) => {
+                                    const inline = !('className' in props && props.className?.includes('language-'));
+                                    return inline
+                                      ? <code className="bg-gray-100 px-1 rounded text-xs">{children}</code>
+                                      : <pre className="bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1"><code>{children}</code></pre>;
+                                  },
+                                  blockquote: ({ children }) => <blockquote className="border-l-2 border-gray-300 pl-2 italic text-xs mb-1">{children}</blockquote>,
+                                  a: ({ href, children }) => <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                                  em: ({ children }) => <em className="italic">{children}</em>,
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                            </div>
                           </div>
                         </div>
                       </div>
                     ) : (
                       /* 没有图像时使用原来的纵向布局 */
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-xs">
-                            {message.type === 'user' ? '你' : message.type === 'ai' ? 'AI' : '错误'}
-                          </span>
-                          <span className="text-gray-400 text-xs">
-                            {message.timestamp.toLocaleTimeString('zh-CN', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </span>
-                        </div>
-                        <div className="text-xs markdown-content">
+                      <div>
+                        {/* AI消息标识 */}
+                        {message.type === 'ai' && (
+                          <div className="flex items-center gap-2 mb-2">
+                            <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
+                            <span className="text-sm font-bold text-black">TAI</span>
+                          </div>
+                        )}
+                        <div className={cn(
+                          "text-sm text-black markdown-content leading-relaxed",
+                          message.type === 'user' && "bg-blue-50 rounded-lg p-3 inline-block"
+                        )}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
-                              p: ({ children }) => <p className="mb-0.5">{children}</p>,
-                              ul: ({ children }) => <ul className="list-disc list-inside mb-0.5 ml-1">{children}</ul>,
-                              ol: ({ children }) => <ol className="list-decimal list-inside mb-0.5 ml-1">{children}</ol>,
-                              li: ({ children }) => <li className="mb-0">{children}</li>,
-                              h1: ({ children }) => <h1 className="text-xs font-bold mb-0.5">{children}</h1>,
-                              h2: ({ children }) => <h2 className="text-xs font-bold mb-0.5">{children}</h2>,
-                              h3: ({ children }) => <h3 className="text-xs font-semibold mb-0.5">{children}</h3>,
+                              p: ({ children }) => <p className="mb-1 text-sm">{children}</p>,
+                              ul: ({ children }) => <ul className="list-disc list-inside mb-1 ml-2 text-sm">{children}</ul>,
+                              ol: ({ children }) => <ol className="list-decimal list-inside mb-1 ml-2 text-sm">{children}</ol>,
+                              li: ({ children }) => <li className="mb-0.5 text-sm">{children}</li>,
+                              h1: ({ children }) => <h1 className="text-base font-bold mb-1 mt-1">{children}</h1>,
+                              h2: ({ children }) => <h2 className="text-sm font-bold mb-0.5">{children}</h2>,
+                              h3: ({ children }) => <h3 className="text-sm font-bold mb-0.5">{children}</h3>,
                               code: ({ children, ...props }: any) => {
                                 const inline = !('className' in props && props.className?.includes('language-'));
                                 return inline

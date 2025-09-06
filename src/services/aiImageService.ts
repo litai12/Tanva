@@ -334,15 +334,19 @@ class AIImageService {
     }
 
     try {
-      const prompt = `Blend these images together: ${request.prompt}`;
+      // 改进的prompt，明确指定以第一张图片作为主场景和尺寸基准
+      const prompt = `Blend these images together following this instruction: ${request.prompt}. `;
 
-      // 构建包含多个图像的请求
-      const imageParts = request.sourceImages.map((imageData) => ({
+      // 构建包含多个图像的请求 - 反转顺序，让最后上传的图片作为主场景
+      const reversedImages = [...request.sourceImages].reverse();
+      const imageParts = reversedImages.map((imageData) => ({
         inlineData: {
           mimeType: 'image/jpeg', // 根据实际格式调整
           data: imageData.replace(/^data:image\/[a-z]+;base64,/, '')
         }
       }));
+
+      console.log('🔄 图片顺序已反转，现在的顺序：', reversedImages.map((_, index) => `第${index + 1}张`));
 
       const startTime = Date.now();
 
