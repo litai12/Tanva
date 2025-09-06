@@ -315,81 +315,75 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
         {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
           <div className="absolute top-full left-0 mt-3 transition-all duration-200 ease-in-out z-[1001]">
-            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50">
-              <Button
-                variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
-                size="sm"
-                className="px-2 py-2 h-8 w-8"
-                onClick={() => setDrawMode('free')}
-                title="自由绘制"
-              >
-                <FreeDrawIcon className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
-                size="sm"
-                className="px-2 py-2 h-8 w-8"
-                onClick={() => setDrawMode('line')}
-                title="绘制直线"
-              >
-                <StraightLineIcon className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
-                size="sm"
-                className="px-2 py-2 h-8 w-8"
-                onClick={() => setDrawMode('rect')}
-                title="绘制矩形"
-              >
-                <Square className="w-4 h-4" />
-              </Button>
-              <Button
-                variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
-                size="sm"
-                className="px-2 py-2 h-8 w-8"
-                onClick={() => setDrawMode('circle')}
-                title="绘制圆形"
-              >
-                <CircleIcon className="w-4 h-4" />
-              </Button>
-              {/* 多段线工具 - 暂时关闭 */}
-              {/* <Button
-                variant={drawMode === 'polyline' && !isEraser ? 'default' : 'outline'}
-                size="sm"
-                className="px-2 py-2 h-8 w-8"
-                onClick={() => setDrawMode('polyline')}
-                title="绘制多段线"
-              >
-                <PolylineIcon className="w-4 h-4" />
-              </Button> */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50">
+              {/* 绘图工具按钮组 */}
+              <div className="flex items-center gap-1">
+                <Button
+                  variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
+                  size="sm"
+                  className="px-2 py-2 h-8 w-8"
+                  onClick={() => setDrawMode('free')}
+                  title="自由绘制"
+                >
+                  <FreeDrawIcon className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
+                  size="sm"
+                  className="px-2 py-2 h-8 w-8"
+                  onClick={() => setDrawMode('line')}
+                  title="绘制直线"
+                >
+                  <StraightLineIcon className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
+                  size="sm"
+                  className="px-2 py-2 h-8 w-8"
+                  onClick={() => setDrawMode('rect')}
+                  title="绘制矩形"
+                >
+                  <Square className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
+                  size="sm"
+                  className="px-2 py-2 h-8 w-8"
+                  onClick={() => setDrawMode('circle')}
+                  title="绘制圆形"
+                >
+                  <CircleIcon className="w-4 h-4" />
+                </Button>
+              </div>
+              
+              <Separator orientation="vertical" className="h-6" />
+              
+              {/* 颜色选择器 */}
+              <input
+                type="color"
+                value={currentColor}
+                onChange={(e) => setCurrentColor(e.target.value)}
+                disabled={isEraser}
+                className="w-6 h-6 rounded border border-gray-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title="选择颜色"
+              />
+              
+              {/* 线宽控制 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 font-medium w-4 text-right tabular-nums">
+                  {strokeWidth}
+                </span>
+                <HorizontalSlider
+                  value={strokeWidth}
+                  min={1}
+                  max={20}
+                  onChange={setStrokeWidth}
+                  disabled={isEraser}
+                />
+              </div>
             </div>
           </div>
         )}
-      </div>
-
-      <Separator orientation="vertical" className="h-8" />
-
-      {/* 颜色选择器 */}
-      <input
-        type="color"
-        value={currentColor}
-        onChange={(e) => setCurrentColor(e.target.value)}
-        disabled={isEraser}
-        className="w-6 h-6 rounded border border-gray-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-      />
-
-      {/* 线宽控制 */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-600 font-medium w-4 text-right tabular-nums">
-          {strokeWidth}
-        </span>
-        <HorizontalSlider
-          value={strokeWidth}
-          min={1}
-          max={20}
-          onChange={setStrokeWidth}
-          disabled={isEraser}
-        />
       </div>
 
       <Separator orientation="vertical" className="h-8" />
@@ -418,8 +412,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <ImageWithPlusIcon className="w-4 h-4" />
         </Button>
 
-        {/* 快速图片上传工具（居中） */}
-        <Button
+        {/* 快速图片上传工具（居中） - 暂时隐藏 */}
+        {/* <Button
           variant={drawMode === 'quick-image' ? 'default' : 'outline'}
           size="sm"
           className="px-2 py-2 h-8 w-8"
@@ -427,10 +421,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="快速上传图片（自动居中）"
         >
           <QuickImageIcon className="w-4 h-4" />
-        </Button>
+        </Button> */}
 
-        {/* 3D模型工具 */}
-        <Button
+        {/* 3D模型工具 - 暂时隐藏 */}
+        {/* <Button
           variant={drawMode === '3d-model' ? 'default' : 'outline'}
           size="sm"
           className="px-2 py-2 h-8 w-8"
@@ -438,7 +432,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="添加3D模型"
         >
           <BoxWithPlusIcon className="w-4 h-4" />
-        </Button>
+        </Button> */}
 
         {/* 截图工具 */}
         <Button
@@ -462,8 +456,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <Wand2 className="w-4 h-4" />
         </Button>
 
-        {/* AI编辑图像工具 */}
-        <Button
+        {/* AI编辑图像工具 - 暂时隐藏 */}
+        {/* <Button
           variant="outline"
           size="sm"
           className="px-2 py-2 h-8 w-8"
@@ -471,7 +465,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="AI编辑图像 - 选择画布中的图像或上传图像进行AI编辑"
         >
           <AIEditImageIcon className="w-4 h-4" />
-        </Button>
+        </Button> */}
 
         {/* 原始尺寸模式切换 */}
         <Button
