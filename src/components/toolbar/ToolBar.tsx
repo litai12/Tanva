@@ -423,8 +423,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <QuickImageIcon className="w-4 h-4" />
         </Button> */}
 
-        {/* 3D模型工具 - 暂时隐藏 */}
-        {/* <Button
+        {/* 3D模型工具 */}
+        <Button
           variant={drawMode === '3d-model' ? 'default' : 'outline'}
           size="sm"
           className="px-2 py-2 h-8 w-8"
@@ -432,7 +432,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           title="添加3D模型"
         >
           <BoxWithPlusIcon className="w-4 h-4" />
-        </Button> */}
+        </Button>
 
         {/* 截图工具 */}
         <Button

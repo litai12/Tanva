@@ -215,13 +215,15 @@ export const useSelectionTool = ({
 
     // 处理图片和3D模型的选择（在选择框完成后）
     if (selectedImages.length > 0) {
-      // 目前只支持选择单个图片，取第一个
-      onImageSelect(selectedImages[0]);
-      logger.upload(`选择框选中图片: ${selectedImages[0]}`);
+      // 目前只支持选择单个图片，取最后一个（最上层）
+      const topImage = selectedImages[selectedImages.length - 1];
+      onImageSelect(topImage);
+      logger.upload(`选择框选中图片（最上层）: ${topImage}`);
     } else if (selectedModels.length > 0) {
-      // 目前只支持选择单个3D模型，取第一个
-      onModel3DSelect(selectedModels[0]);
-      logger.upload(`选择框选中3D模型: ${selectedModels[0]}`);
+      // 目前只支持选择单个3D模型，取最后一个（最上层）
+      const topModel = selectedModels[selectedModels.length - 1];
+      onModel3DSelect(topModel);
+      logger.upload(`选择框选中3D模型（最上层）: ${topModel}`);
     }
 
     // 重置状态
@@ -265,8 +267,9 @@ export const useSelectionTool = ({
     let imageClicked = null;
     let modelClicked = null;
 
-    // 检查图片实例
-    for (const image of imageInstances) {
+    // 检查图片实例 - 反向遍历以选择最上层的图片
+    for (let i = imageInstances.length - 1; i >= 0; i--) {
+      const image = imageInstances[i];
       if (point.x >= image.bounds.x &&
         point.x <= image.bounds.x + image.bounds.width &&
         point.y >= image.bounds.y &&
@@ -276,9 +279,10 @@ export const useSelectionTool = ({
       }
     }
 
-    // 如果没有点击图片，检查3D模型实例
+    // 如果没有点击图片，检查3D模型实例 - 反向遍历以选择最上层的模型
     if (!imageClicked) {
-      for (const model of model3DInstances) {
+      for (let i = model3DInstances.length - 1; i >= 0; i--) {
+        const model = model3DInstances[i];
         if (point.x >= model.bounds.x &&
           point.x <= model.bounds.x + model.bounds.width &&
           point.y >= model.bounds.y &&
