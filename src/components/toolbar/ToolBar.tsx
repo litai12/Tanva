@@ -189,6 +189,79 @@ const HorizontalSlider: React.FC<{
   );
 };
 
+// 自定义垂直滑块组件
+const VerticalSlider: React.FC<{
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}> = ({ value, min, max, onChange, disabled = false }) => {
+  const sliderRef = React.useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (disabled) return;
+    setIsDragging(true);
+    updateValue(e);
+    e.preventDefault();
+  };
+
+  const updateValue = (e: MouseEvent | React.MouseEvent) => {
+    if (!sliderRef.current || disabled) return;
+
+    const rect = sliderRef.current.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const percentage = Math.max(0, Math.min(1, 1 - y / rect.height)); // 从下往上滑动值增大
+    const newValue = Math.round(min + percentage * (max - min));
+    onChange(newValue);
+  };
+
+  React.useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        updateValue(e);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  // 计算滑块位置
+  const percentage = (value - min) / (max - min);
+
+  return (
+    <div
+      ref={sliderRef}
+      className={`relative w-2 h-24 bg-gray-200 rounded-full cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+      onMouseDown={handleMouseDown}
+    >
+      {/* 填充的进度条 */}
+      <div
+        className="absolute bottom-0 left-0 right-0 bg-blue-500 rounded-full transition-all duration-150"
+        style={{ height: `${percentage * 100}%` }}
+      />
+      {/* 滑块圆圈 */}
+      <div
+        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transform -translate-y-1.5 -translate-x-0.5 transition-all duration-150"
+        style={{ bottom: `${percentage * 100}%` }}
+      />
+    </div>
+  );
+};
+
 const ToolBar: React.FC<ToolBarProps> = ({
   showLayerPanel = false,
   onClearCanvas,
@@ -268,11 +341,24 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
   return (
     <div
-      className="fixed top-16 left-1/2 transform -translate-x-1/2 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50 z-[1000] transition-all duration-300"
+      className="fixed left-2 top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50 z-[1000] transition-all duration-300"
       style={{
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.08)'
       }}
     >
+      {/* AI生图工具 */}
+      <Button
+        variant={isAIDialogVisible ? 'default' : 'outline'}
+        size="sm"
+        className="px-2 py-2 h-8 w-8"
+        onClick={toggleDialog}
+        title="AI图像生成 - 文本转图片"
+      >
+        <Sparkles className="w-4 h-4" />
+      </Button>
+
+      <Separator orientation="horizontal" className="w-6" />
+
       {/* 选择工具 - 独立按钮 */}
       <Button
         variant={drawMode === 'select' ? 'default' : 'outline'}
@@ -314,8 +400,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
         {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
-          <div className="absolute top-full left-0 mt-3 transition-all duration-200 ease-in-out z-[1001]">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50">
+          <div className="absolute left-full ml-3 transition-all duration-200 ease-in-out z-[1001]" style={{ top: '-10px' }}>
+            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/95 backdrop-blur-sm shadow-lg border border-gray-200/50" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
               <div className="flex items-center gap-1">
                 <Button
@@ -355,9 +441,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   <CircleIcon className="w-4 h-4" />
                 </Button>
               </div>
-              
+
               <Separator orientation="vertical" className="h-6" />
-              
+
               {/* 颜色选择器 */}
               <input
                 type="color"
@@ -367,7 +453,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 className="w-6 h-6 rounded border border-gray-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 title="选择颜色"
               />
-              
+
               {/* 线宽控制 */}
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-600 font-medium w-4 text-right tabular-nums">
@@ -386,10 +472,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
         )}
       </div>
 
-      <Separator orientation="vertical" className="h-8" />
+      <Separator orientation="horizontal" className="w-6" />
 
       {/* 独立工具按钮 - 暂时只保留3D模型工具 */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col items-center gap-2">
         {/* 文字工具 - 暂时关闭 */}
         {/* <Button
           variant={drawMode === 'text' ? 'default' : 'outline'}
@@ -445,16 +531,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <Camera className="w-4 h-4" />
         </Button>
 
-        {/* AI生图工具 */}
-        <Button
-          variant={isAIDialogVisible ? 'default' : 'outline'}
-          size="sm"
-          className="px-2 py-2 h-8 w-8"
-          onClick={toggleDialog}
-          title="AI图像生成 - 文本转图片"
-        >
-          <Wand2 className="w-4 h-4" />
-        </Button>
 
         {/* AI编辑图像工具 - 暂时隐藏 */}
         {/* <Button
@@ -479,7 +555,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </Button> */}
       </div>
 
-      <Separator orientation="vertical" className="h-8" />
+      <Separator orientation="horizontal" className="w-6" />
 
       {/* 图层工具 */}
       <Button
@@ -492,10 +568,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Layers className="w-4 h-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-8" />
+      <Separator orientation="horizontal" className="w-6" />
 
       {/* 工具按钮 */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col items-center gap-2">
         {/* 橡皮擦工具 */}
         <Button
           onClick={toggleEraser}

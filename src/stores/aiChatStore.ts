@@ -285,11 +285,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           metadata: result.data.metadata
         });
 
-        // 生成成功后自动关闭对话框
-        setTimeout(() => {
-          get().hideDialog();
-          console.log('🔄 AI对话框已自动关闭');
-        }, 100); // 延迟0.1秒关闭，让用户看到生成完成的消息
+        // 取消自动关闭对话框 - 保持对话框打开状态
+        // setTimeout(() => {
+        //   get().hideDialog();
+        //   console.log('🔄 AI对话框已自动关闭');
+        // }, 100); // 延迟0.1秒关闭，让用户看到生成完成的消息
 
       } else {
         // 生成失败
@@ -334,18 +334,24 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   },
 
   // 图生图功能
-  editImage: async (prompt: string, sourceImage: string) => {
+  editImage: async (prompt: string, sourceImage: string, showImagePlaceholder: boolean = true) => {
     const state = get();
 
     // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
     // 所以这里不需要再检查 isGenerating
 
-    // 添加用户消息（包含源图像）
-    state.addMessage({
+    // 添加用户消息（根据参数决定是否包含源图像）
+    const messageData: any = {
       type: 'user',
       content: `编辑图像: ${prompt}`,
-      sourceImageData: sourceImage
-    });
+    };
+    
+    // 只有在需要显示图片占位框时才添加 sourceImageData
+    if (showImagePlaceholder) {
+      messageData.sourceImageData = sourceImage;
+    }
+    
+    state.addMessage(messageData);
 
     // 设置生成状态
     set({
@@ -442,11 +448,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           id: result.data.id
         });
 
-        // 编辑成功后自动关闭对话框
-        setTimeout(() => {
-          get().hideDialog();
-          console.log('🔄 AI对话框已自动关闭');
-        }, 100); // 延迟0.1秒关闭，让用户看到编辑完成的消息
+        // 取消自动关闭对话框 - 保持对话框打开状态
+        // setTimeout(() => {
+        //   get().hideDialog();
+        //   console.log('🔄 AI对话框已自动关闭');
+        // }, 100); // 延迟0.1秒关闭，让用户看到编辑完成的消息
 
       } else {
         // 编辑失败
@@ -578,11 +584,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
         console.log('✅ 图像融合成功，已自动添加到画布');
 
-        // 融合成功后自动关闭对话框
-        setTimeout(() => {
-          get().hideDialog();
-          console.log('🔄 AI对话框已自动关闭');
-        }, 100); // 延迟0.1秒关闭，让用户看到融合完成的消息
+        // 取消自动关闭对话框 - 保持对话框打开状态
+        // setTimeout(() => {
+        //   get().hideDialog();
+        //   console.log('🔄 AI对话框已自动关闭');
+        // }, 100); // 延迟0.1秒关闭，让用户看到融合完成的消息
 
       } else {
         const errorMessage = result.error?.message || '图像融合失败';
@@ -892,7 +898,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
                 imageDataPrefix: cachedImage.imageData.substring(0, 50),
                 isBase64: cachedImage.imageData.startsWith('data:image')
               });
-              await store.editImage(parameters.prompt, cachedImage.imageData);
+              await store.editImage(parameters.prompt, cachedImage.imageData, false); // 不显示图片占位框
             } else {
               console.error('❌ 无法编辑图像的原因:', {
                 cachedImage: cachedImage ? 'exists' : 'null',
