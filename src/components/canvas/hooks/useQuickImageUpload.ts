@@ -176,9 +176,9 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     const handle = new paper.Path.Rectangle({
                         point: [position[0] - handleSize / 2, position[1] - handleSize / 2],
                         size: [handleSize, handleSize],
-                        fillColor: handleColor,
-                        strokeColor: 'white',
-                        strokeWidth: 1,
+                        fillColor: 'white',  // 改为白色填充（空心效果）
+                        strokeColor: handleColor,  // 蓝色边框
+                        strokeWidth: 2,  // 增加边框宽度让空心效果更明显
                         selected: false,
                         visible: false  // 默认隐藏
                     });
