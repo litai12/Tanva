@@ -354,7 +354,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             onClick={handleAIEdit}
             title="添加到AI对话框进行编辑"
             style={{
-              backdropFilter: 'blur(8px)'
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
             }}
           >
             <Sparkles className="w-4 h-4" />
@@ -368,7 +371,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             onClick={handleDelete}
             title="删除图片"
             style={{
-              backdropFilter: 'blur(8px)'
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
             }}
           >
             <Trash2 className="w-4 h-4 text-red-600" />
@@ -399,7 +405,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             onClick={handleLayerMoveUp}
             title="图层上移"
             style={{
-              backdropFilter: 'blur(8px)'
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
             }}
           >
             <ChevronUp className="w-4 h-4 text-blue-600" />
@@ -413,7 +422,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             onClick={handleLayerMoveDown}
             title="图层下移"
             style={{
-              backdropFilter: 'blur(8px)'
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
             }}
           >
             <ChevronDown className="w-4 h-4 text-blue-600" />

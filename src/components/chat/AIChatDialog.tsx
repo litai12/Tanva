@@ -241,7 +241,7 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         className={cn(
-          "bg-white/95 backdrop-blur-sm shadow-2xl border border-gray-200/50 transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300",
+          "bg-glass-lighter backdrop-blur-lg shadow-glass-lg border border-glass transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
         tabIndex={0}
@@ -354,7 +354,7 @@ const AIChatDialog: React.FC = () => {
                 placeholder={getSmartPlaceholder()}
                 disabled={generationStatus.isGenerating}
                 className={cn(
-                  "resize-none pr-20 min-h-[80px] transition-all duration-200 text-sm bg-white/80 backdrop-blur-md border border-white/20 rounded-lg",
+                  "resize-none pr-20 min-h-[80px] transition-all duration-200 text-sm",
                   generationStatus.isGenerating && "opacity-75"
                 )}
                 rows={showHistory ? 3 : 1}
