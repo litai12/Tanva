@@ -25,6 +25,7 @@ interface ImageContainerProps {
   onDelete?: (imageId: string) => void; // 删除图片回调
   onMoveLayerUp?: (imageId: string) => void; // 图层上移回调
   onMoveLayerDown?: (imageId: string) => void; // 图层下移回调
+  getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
 }
 
 const ImageContainer: React.FC<ImageContainerProps> = ({
@@ -40,7 +41,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onResize,
   onDelete,
   onMoveLayerUp,
-  onMoveLayerDown
+  onMoveLayerDown,
+  getImageDataForEditing
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -202,45 +204,64 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     e.stopPropagation();
     
     try {
-      // 找到对应的Paper.js Raster对象
-      const imageGroup = paper.project?.layers?.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === imageData.id
-        )
-      )[0];
-
-      if (imageGroup) {
-        const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
-        if (raster && raster.canvas) {
-          const imageDataUrl = raster.canvas.toDataURL('image/png');
-          
-          // 检查是否已有图片，如果有则添加到融合模式，否则设置为编辑图片
-          const hasExistingImages = sourceImageForEditing || sourceImagesForBlending.length > 0;
-          
-          if (hasExistingImages) {
-            // 如果有编辑图片，先将其转换为融合模式
-            if (sourceImageForEditing) {
-              addImageForBlending(sourceImageForEditing);
-              setSourceImageForEditing(null);
-              console.log('🎨 将编辑图像转换为融合模式');
-            }
-            
-            // 已有图片：添加新图片到融合模式
-            addImageForBlending(imageDataUrl);
-            console.log('🎨 已添加图像到融合模式');
-          } else {
-            // 没有现有图片：设置为编辑图片
-            setSourceImageForEditing(imageDataUrl);
-            console.log('🎨 已设置图像为编辑模式');
-          }
-          
-          showDialog();
+      // 🎯 优先使用原始高质量图像数据
+      let imageDataUrl: string | null = null;
+      
+      // 首先尝试从getImageDataForEditing获取原始数据
+      if (getImageDataForEditing) {
+        imageDataUrl = getImageDataForEditing(imageData.id);
+        if (imageDataUrl) {
+          console.log('🎨 AI编辑：使用原始高质量图像数据');
         }
       }
+      
+      // 备用方案：从canvas获取（已缩放，质量较低）
+      if (!imageDataUrl) {
+        console.warn('⚠️ AI编辑：未找到原始图像数据，使用canvas数据（可能已缩放）');
+        const imageGroup = paper.project?.layers?.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === 'image' && child.data?.imageId === imageData.id
+          )
+        )[0];
+
+        if (imageGroup) {
+          const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+          if (raster && raster.canvas) {
+            imageDataUrl = raster.canvas.toDataURL('image/png');
+          }
+        }
+      }
+      
+      if (!imageDataUrl) {
+        console.error('❌ 无法获取图像数据');
+        return;
+      }
+      
+      // 检查是否已有图片，如果有则添加到融合模式，否则设置为编辑图片
+      const hasExistingImages = sourceImageForEditing || sourceImagesForBlending.length > 0;
+      
+      if (hasExistingImages) {
+        // 如果有编辑图片，先将其转换为融合模式
+        if (sourceImageForEditing) {
+          addImageForBlending(sourceImageForEditing);
+          setSourceImageForEditing(null);
+          console.log('🎨 将编辑图像转换为融合模式');
+        }
+        
+        // 已有图片：添加新图片到融合模式
+        addImageForBlending(imageDataUrl);
+        console.log('🎨 已添加图像到融合模式');
+      } else {
+        // 没有现有图片：设置为编辑图片
+        setSourceImageForEditing(imageDataUrl);
+        console.log('🎨 已设置图像为编辑模式');
+      }
+      
+      showDialog();
     } catch (error) {
       console.error('获取图像数据失败:', error);
     }
-  }, [imageData.id, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
+  }, [imageData.id, getImageDataForEditing, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
 
   // 处理删除按钮点击
   const handleDelete = useCallback((e: React.MouseEvent) => {

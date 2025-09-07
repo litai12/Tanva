@@ -75,19 +75,28 @@ export const useAIImageDisplay = () => {
             const originalHeight = raster.height;
             const aspectRatio = originalWidth / originalHeight;
 
-            // 限制最大显示尺寸为400px（与快速上传工具一致）
-            const maxSize = 400;
+            // 🎯 保持原始分辨率，不设置raster.size避免质量损失
+            // 只通过bounds控制显示区域
+            const maxDisplaySize = 1200; // 最大显示尺寸（与快速上传工具保持一致）
             let displayWidth = originalWidth;
             let displayHeight = originalHeight;
 
-            if (originalWidth > maxSize || originalHeight > maxSize) {
-              const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
+            if (originalWidth > maxDisplaySize || originalHeight > maxDisplaySize) {
+              const scale = Math.min(maxDisplaySize / originalWidth, maxDisplaySize / originalHeight);
               displayWidth = originalWidth * scale;
               displayHeight = originalHeight * scale;
             }
 
-            // 设置显示尺寸（与快速上传工具一致）
-            raster.size = new paper.Size(displayWidth, displayHeight);
+            // 🎯 关键修复：不设置raster.size，保持原始分辨率
+            // raster.size = new paper.Size(displayWidth, displayHeight); // ❌ 移除这行
+            
+            // 通过bounds控制显示区域，保持原始分辨率
+            raster.bounds = new paper.Rectangle(
+              -displayWidth / 2,
+              -displayHeight / 2,
+              displayWidth,
+              displayHeight
+            );
 
             // 确保位置在坐标原点
             raster.position = new paper.Point(0, 0);

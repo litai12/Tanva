@@ -500,6 +500,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
           onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
           onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
+          getImageDataForEditing={imageTool.getImageDataForEditing}
         />
       ))}
 

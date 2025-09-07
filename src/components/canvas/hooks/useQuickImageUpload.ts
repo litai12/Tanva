@@ -130,8 +130,16 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     // 原始尺寸模式：直接使用原图分辨率，1像素=1像素显示
                 }
 
-                // 设置显示尺寸和位置
-                raster.size = new paper.Size(displayWidth, displayHeight);
+                // 🎯 关键修复：不设置raster.size，保持原始分辨率
+                // raster.size = new paper.Size(displayWidth, displayHeight); // ❌ 移除这行
+                
+                // 通过bounds控制显示区域，保持原始分辨率
+                raster.bounds = new paper.Rectangle(
+                    finalPosition.x - displayWidth / 2,
+                    finalPosition.y - displayHeight / 2,
+                    displayWidth,
+                    displayHeight
+                );
                 raster.position = finalPosition;
 
                 // 存储元数据
