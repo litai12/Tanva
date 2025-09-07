@@ -241,7 +241,7 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         className={cn(
-          "bg-white/95 backdrop-blur-sm shadow-2xl border border-gray-200/50 transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300",
+          "bg-white/80 backdrop-blur-md shadow-2xl border border-white/20 transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
         tabIndex={0}
