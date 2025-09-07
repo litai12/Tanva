@@ -1,5 +1,0 @@
-src/components/canvas/DrawingController.tsx
-src/components/canvas/hooks/useInteractionController.ts
-src/components/toolbar/ToolBar.tsx
-src/pages/Canvas.tsx
-src/stores/toolStore.ts

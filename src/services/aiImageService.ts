@@ -6,6 +6,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { v4 as uuidv4 } from 'uuid';
+import { contextManager } from '@/services/contextManager';
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -25,7 +26,7 @@ import type {
 class AIImageService {
   private genAI: GoogleGenAI | null = null;
   private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
-  private readonly DEFAULT_TIMEOUT = 30000;
+  private readonly DEFAULT_TIMEOUT = 60000; // 增加到60秒
 
   constructor() {
     this.initializeClient();
@@ -66,15 +67,89 @@ class AIImageService {
     };
   }
 
+  /**
+   * 🔒 安全地处理错误对象，防止Base64数据被输出到控制台
+   */
+  private sanitizeErrorForLogging(error: unknown): string {
+    if (error instanceof Error) {
+      let message = error.message;
+      
+      // 检查是否包含Base64数据
+      if (message && message.length > 1000 && message.includes('iVBORw0KGgo')) {
+        console.warn('⚠️ 检测到Base64图像数据在错误消息中，已过滤');
+        return '图像处理失败（错误详情已过滤）';
+      }
+      
+      // 检查是否包含data URL
+      if (message && message.includes('data:image/')) {
+        console.warn('⚠️ 检测到图像数据URL在错误消息中，已过滤');
+        return '图像处理失败（包含图像数据，已过滤）';
+      }
+      
+      return message;
+    }
+    
+    return String(error);
+  }
+
   private async processWithTimeout<T>(
     promise: Promise<T>,
-    timeoutMs: number = this.DEFAULT_TIMEOUT
+    timeoutMs: number = this.DEFAULT_TIMEOUT,
+    retries: number = 1 // 减少重试次数
   ): Promise<T> {
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
-    );
+    let lastError: Error;
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+        );
+        
+        const result = await Promise.race([promise, timeoutPromise]);
+        
+        // 如果成功，立即返回，不进行重试
+        if (attempt > 0) {
+          console.log(`✅ 重试成功 (第${attempt + 1}次尝试)`);
+        }
+        
+        return result;
+      } catch (error) {
+        lastError = error as Error;
+        
+        // 检查是否是网络相关错误
+        if (this.isNetworkError(error) && attempt < retries) {
+          console.warn(`⚠️ 网络错误，${2000 * (attempt + 1)}ms后重试 (${attempt + 1}/${retries})`);
+          await this.delay(2000 * (attempt + 1)); // 增加延迟时间
+          continue;
+        }
+        
+        throw error;
+      }
+    }
+    
+    throw lastError!;
+  }
 
-    return Promise.race([promise, timeoutPromise]);
+  /**
+   * 检查是否是网络相关错误
+   */
+  private isNetworkError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      return message.includes('fetch') || 
+             message.includes('network') || 
+             message.includes('connection') ||
+             message.includes('cors') ||
+             message.includes('load failed');
+    }
+    return false;
+  }
+
+  /**
+   * 延迟函数
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
@@ -157,13 +232,40 @@ class AIImageService {
 
       console.log('✅ 图像生成成功:', aiResult.id);
 
+      // 🧠 记录操作到上下文
+      contextManager.recordOperation({
+        type: 'generate',
+        input: request.prompt,
+        output: `生成图像成功，ID: ${aiResult.id}`,
+        imageData: aiResult.imageData,
+        success: true,
+        metadata: { 
+          model: request.model || this.DEFAULT_MODEL,
+          aspectRatio: request.aspectRatio,
+          processingTime: Date.now() - startTime
+        }
+      });
+
+      // 🖼️ 缓存最新生成的图像
+      contextManager.cacheLatestImage(aiResult.imageData, aiResult.id, request.prompt);
+
+      // 🧠 添加图像历史
+      contextManager.addImageHistory({
+        imageData: aiResult.imageData,
+        prompt: request.prompt,
+        operationType: 'generate',
+        thumbnail: aiResult.imageData // 使用原图作为缩略图
+      });
+
       return {
         success: true,
         data: aiResult
       };
 
     } catch (error) {
-      console.error('❌ 图像生成失败:', error);
+      // 🔒 安全检查：防止Base64图像数据被输出到控制台
+      const safeError = this.sanitizeErrorForLogging(error);
+      console.error('❌ 图像生成失败:', safeError);
 
       // 详细的错误分析
       let errorCode = 'GENERATION_FAILED';
@@ -276,13 +378,39 @@ class AIImageService {
 
       console.log('✅ 图像编辑成功:', aiResult.id);
 
+      // 🧠 记录操作到上下文
+      contextManager.recordOperation({
+        type: 'edit',
+        input: request.prompt,
+        output: `编辑图像成功，ID: ${aiResult.id}`,
+        imageData: aiResult.imageData,
+        success: true,
+        metadata: { 
+          model: request.model || this.DEFAULT_MODEL,
+          processingTime: Date.now() - startTime
+        }
+      });
+
+      // 🖼️ 更新缓存的图像（编辑后的新图像）
+      contextManager.cacheLatestImage(aiResult.imageData, aiResult.id, request.prompt);
+
+      // 🧠 添加图像历史
+      contextManager.addImageHistory({
+        imageData: aiResult.imageData,
+        prompt: request.prompt,
+        operationType: 'edit',
+        thumbnail: aiResult.imageData
+      });
+
       return {
         success: true,
         data: aiResult
       };
 
     } catch (error) {
-      console.error('❌ 图像编辑失败:', error);
+      // 🔒 安全检查：防止Base64图像数据被输出到控制台
+      const safeError = this.sanitizeErrorForLogging(error);
+      console.error('❌ 图像编辑失败:', safeError);
 
       // 详细的错误分析
       let errorCode = 'EDIT_FAILED';
@@ -396,13 +524,40 @@ class AIImageService {
 
       console.log('✅ 图像融合成功:', aiResult.id);
 
+      // 🧠 记录操作到上下文
+      contextManager.recordOperation({
+        type: 'blend',
+        input: request.prompt,
+        output: `融合图像成功，ID: ${aiResult.id}`,
+        imageData: aiResult.imageData,
+        success: true,
+        metadata: { 
+          model: request.model || this.DEFAULT_MODEL,
+          sourceImageCount: request.sourceImages.length,
+          processingTime: Date.now() - startTime
+        }
+      });
+
+      // 🖼️ 缓存融合后的图像
+      contextManager.cacheLatestImage(aiResult.imageData, aiResult.id, request.prompt);
+
+      // 🧠 添加图像历史
+      contextManager.addImageHistory({
+        imageData: aiResult.imageData,
+        prompt: request.prompt,
+        operationType: 'blend',
+        thumbnail: aiResult.imageData
+      });
+
       return {
         success: true,
         data: aiResult
       };
 
     } catch (error) {
-      console.error('❌ 图像融合失败:', error);
+      // 🔒 安全检查：防止Base64图像数据被输出到控制台
+      const safeError = this.sanitizeErrorForLogging(error);
+      console.error('❌ 图像融合失败:', safeError);
 
       // 详细的错误分析
       let errorCode = 'BLEND_FAILED';
@@ -568,27 +723,31 @@ class AIImageService {
     }
 
     try {
+      // 🧠 使用上下文构建增强提示
+      const contextualPrompt = contextManager.buildContextPrompt(request.userInput);
+      
       // 构建Function Calling的系统提示
-      const systemPrompt = `你是一个智能助手，需要根据用户输入选择最合适的工具。
+      const systemPrompt = `你是一个智能助手，需要根据用户输入和上下文历史选择最合适的工具。
 
-用户输入: "${request.userInput}"
-是否有图像: ${request.hasImages}
-图像数量: ${request.imageCount}
+${contextualPrompt}
+
+基础信息:
+- 是否有图像: ${request.hasImages}
+- 图像数量: ${request.imageCount}
 
 请分析用户意图并选择最合适的工具：
 
 1. generateImage - 如果用户想要生成、创建、画新图像
-2. editImage - 如果有1张图像且用户想要编辑、修改它
+2. editImage - 如果有1张图像（包括缓存的图像）且用户想要编辑、修改它
 3. blendImages - 如果有2张或更多图像且用户想要融合它们
 4. analyzeImage - 如果有图像且用户想要分析、了解图像内容
 5. chatResponse - 如果是数学问题、知识问答、日常对话等文本交互
 
 选择规则：
-- 优先考虑用户的明确意图词汇
-- 生图关键词：画、生成、创建、制作、设计、draw、create、generate
-- 编辑关键词：编辑、修改、改变、调整、edit、modify、change
-- 分析关键词：什么、分析、描述、识别、看看、tell me、what、analyze
-- 对话关键词：计算、等于、为什么、如何、问题、数学、+、-、*、/
+- 优先考虑用户的明确意图和上下文历史
+- 理解用户的自然语言表达，不需要依赖特定关键词
+- 如果有缓存的图像且用户想要修改/编辑它，选择editImage工具
+- 根据对话的连续性和上下文理解用户真实意图
 
 请直接选择工具名称并说明理由，格式：工具名称|理由`;
 
@@ -596,7 +755,25 @@ class AIImageService {
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
-          contents: systemPrompt,  // 直接传字符串
+          contents: [{ text: systemPrompt }],  // 修正：contents应该是数组
+          safetySettings: [
+            {
+              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_HATE_SPEECH',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_HARASSMENT',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+              threshold: 'BLOCK_NONE'
+            }
+          ]
         })
       );
 
@@ -611,16 +788,36 @@ class AIImageService {
 
       console.log('✅ 工具选择成功:', toolSelection);
 
+      // 🧠 记录操作到上下文
+      contextManager.recordOperation({
+        type: 'chat',
+        input: request.userInput,
+        output: result.text,
+        success: true,
+        metadata: { selectedTool: toolSelection.selectedTool }
+      });
+
       return {
         success: true,
         data: toolSelection
       };
 
     } catch (error) {
-      console.error('❌ 工具选择失败:', error);
+      // 🔒 安全检查：防止Base64图像数据被输出到控制台
+      const safeError = this.sanitizeErrorForLogging(error);
+      console.error('❌ 工具选择失败:', safeError);
 
       // 降级处理：使用简单规则选择工具
       const fallbackSelection = this.fallbackToolSelection(request);
+
+      // 🧠 记录失败操作
+      contextManager.recordOperation({
+        type: 'chat',
+        input: request.userInput,
+        output: 'fallback',
+        success: false,
+        metadata: { error: error.message }
+      });
 
       return {
         success: true, // 即使AI失败，也返回降级结果
@@ -842,13 +1039,28 @@ class AIImageService {
       console.log('✅ 图像分析成功');
       console.log(`⏱️ 分析耗时: ${processingTime}ms`);
 
+      // 🧠 记录操作到上下文
+      contextManager.recordOperation({
+        type: 'analyze',
+        input: request.prompt,
+        output: analysisResult.description,
+        success: true,
+        metadata: { 
+          model: request.model || this.DEFAULT_MODEL,
+          processingTime,
+          tags: analysisResult.tags
+        }
+      });
+
       return {
         success: true,
         data: analysisResult
       };
 
     } catch (error) {
-      console.error('❌ 图像分析失败:', error);
+      // 🔒 安全检查：防止Base64图像数据被输出到控制台
+      const safeError = this.sanitizeErrorForLogging(error);
+      console.error('❌ 图像分析失败:', safeError);
       return {
         success: false,
         error: this.createError('ANALYSIS_FAILED', error.message, error)
@@ -888,19 +1100,50 @@ class AIImageService {
     }
 
     try {
+      // 🧠 使用上下文构建增强提示
+      const contextualPrompt = contextManager.buildContextPrompt(request.prompt);
+      
+      console.log('🧠 文本对话使用上下文:', contextualPrompt.substring(0, 200) + '...');
 
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash',
-          contents: request.prompt,  // 直接传字符串，与官方文档一致
+          contents: [{ text: contextualPrompt }],  // 修正：contents应该是数组
+          safetySettings: [
+            {
+              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_HATE_SPEECH',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_HARASSMENT',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+              threshold: 'BLOCK_NONE'
+            }
+          ]
         })
       );
-
 
       if (!result.text) {
         throw new Error('No text response from API');
       }
 
+      // 🧠 记录操作到上下文
+      contextManager.recordOperation({
+        type: 'chat',
+        input: request.prompt,
+        output: result.text,
+        success: true,
+        metadata: { 
+          model: 'gemini-2.0-flash'
+        }
+      });
 
       return {
         success: true,
@@ -911,7 +1154,9 @@ class AIImageService {
       };
 
     } catch (error) {
-      console.error('❌ 文本回复失败:', error);
+      // 🔒 安全检查：防止Base64图像数据被输出到控制台
+      const safeError = this.sanitizeErrorForLogging(error);
+      console.error('❌ 文本回复失败:', safeError);
       return {
         success: false,
         error: this.createError('TEXT_GENERATION_FAILED', error.message, error)
@@ -946,7 +1191,9 @@ class AIImageService {
 
       return success;
     } catch (error) {
-      console.error('❌ 连接测试异常:', error);
+      // 🔒 安全检查：防止Base64图像数据被输出到控制台
+      const safeError = this.sanitizeErrorForLogging(error);
+      console.error('❌ 连接测试异常:', safeError);
       return false;
     }
   }

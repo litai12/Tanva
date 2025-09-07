@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import { aiImageService } from '@/services/aiImageService';
+import { contextManager } from '@/services/contextManager';
 import type { AIImageResult } from '@/types/ai';
 
 export interface ChatMessage {
@@ -96,6 +97,13 @@ interface AIChatState {
 
   // 重置状态
   resetState: () => void;
+
+  // 🧠 上下文管理方法
+  initializeContext: () => void;
+  getContextSummary: () => string;
+  isIterativeMode: () => boolean;
+  enableIterativeMode: () => void;
+  disableIterativeMode: () => void;
 }
 
 export const useAIChatStore = create<AIChatState>((set, get) => ({
@@ -461,7 +469,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      let errorMessage = error instanceof Error ? error.message : '未知错误';
+      
+      // 🔒 安全检查：防止Base64图像数据被当作错误消息
+      if (errorMessage && errorMessage.length > 1000 && errorMessage.includes('iVBORw0KGgo')) {
+        console.warn('⚠️ 检测到Base64图像数据被当作错误消息，使用默认错误信息');
+        errorMessage = '图像编辑失败，请重试';
+      }
 
       set({
         generationStatus: {
@@ -777,13 +791,42 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     if (state.generationStatus.isGenerating) return;
 
+    // 🧠 确保有活跃的上下文
+    if (!contextManager.getCurrentContext()) {
+      contextManager.createSession();
+    }
+    
+    // 🧠 添加用户消息到上下文
+    contextManager.addMessage({
+      type: 'user',
+      content: input
+    });
+
+    // 检测迭代意图
+    const isIterative = contextManager.detectIterativeIntent(input);
+    if (isIterative) {
+      contextManager.incrementIteration();
+      console.log('🔄 检测到迭代优化意图');
+    }
+
     // 准备工具选择请求
+    const cachedImage = contextManager.getCachedImage();
     const toolSelectionRequest = {
       userInput: input,
-      hasImages: !!(state.sourceImageForEditing || state.sourceImagesForBlending.length > 0 || state.sourceImageForAnalysis),
-      imageCount: state.sourceImagesForBlending.length || (state.sourceImageForEditing ? 1 : 0) || (state.sourceImageForAnalysis ? 1 : 0),
+      hasImages: !!(state.sourceImageForEditing || state.sourceImagesForBlending.length > 0 || state.sourceImageForAnalysis || cachedImage),
+      imageCount: state.sourceImagesForBlending.length || (state.sourceImageForEditing ? 1 : 0) || (state.sourceImageForAnalysis ? 1 : 0) || (cachedImage ? 1 : 0),
       availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse']
     };
+
+    console.log('🔍 工具选择调试信息:', {
+      userInput: input,
+      hasImages: toolSelectionRequest.hasImages,
+      imageCount: toolSelectionRequest.imageCount,
+      cachedImage: cachedImage ? `ID: ${cachedImage.imageId}` : 'none',
+      sourceImageForEditing: state.sourceImageForEditing ? 'exists' : 'none',
+      sourceImagesForBlending: state.sourceImagesForBlending.length,
+      sourceImageForAnalysis: state.sourceImageForAnalysis ? 'exists' : 'none'
+    });
 
     console.log('🤖 智能处理用户输入...');
 
@@ -821,10 +864,42 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
         case 'editImage':
           if (state.sourceImageForEditing) {
+            console.log('🖼️ 使用显式图像进行编辑:', {
+              imageDataLength: state.sourceImageForEditing.length,
+              imageDataPrefix: state.sourceImageForEditing.substring(0, 50),
+              isBase64: state.sourceImageForEditing.startsWith('data:image')
+            });
             await store.editImage(parameters.prompt, state.sourceImageForEditing);
-            store.setSourceImageForEditing(null);
+            
+            // 🧠 检测是否需要保持编辑状态
+            if (!isIterative) {
+              store.setSourceImageForEditing(null);
+              contextManager.resetIteration();
+            }
           } else {
-            throw new Error('没有可编辑的图像');
+            // 🖼️ 检查是否有缓存的图像可以编辑
+            const cachedImage = contextManager.getCachedImage();
+            console.log('🔍 editImage case 调试:', {
+              hasSourceImage: !!state.sourceImageForEditing,
+              cachedImage: cachedImage ? `ID: ${cachedImage.imageId}` : 'none',
+              input: input
+            });
+            
+            if (cachedImage) {
+              console.log('🖼️ 使用缓存的图像进行编辑:', {
+                imageId: cachedImage.imageId,
+                imageDataLength: cachedImage.imageData.length,
+                imageDataPrefix: cachedImage.imageData.substring(0, 50),
+                isBase64: cachedImage.imageData.startsWith('data:image')
+              });
+              await store.editImage(parameters.prompt, cachedImage.imageData);
+            } else {
+              console.error('❌ 无法编辑图像的原因:', {
+                cachedImage: cachedImage ? 'exists' : 'null',
+                input: input
+              });
+              throw new Error('没有可编辑的图像');
+            }
           }
           break;
 
@@ -845,7 +920,14 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
             await store.analyzeImage(parameters.prompt || input, state.sourceImageForEditing);
             // 分析后不清除图像，用户可能还想编辑
           } else {
-            throw new Error('没有可分析的图像');
+            // 🖼️ 检查是否有缓存的图像可以分析
+            const cachedImage = contextManager.getCachedImage();
+            if (cachedImage) {
+              console.log('🖼️ 使用缓存的图像进行分析:', cachedImage.imageId);
+              await store.analyzeImage(parameters.prompt || input, cachedImage.imageData);
+            } else {
+              throw new Error('没有可分析的图像');
+            }
           }
           break;
 
@@ -871,7 +953,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '处理失败';
+      let errorMessage = error instanceof Error ? error.message : '处理失败';
+      
+      // 🔒 安全检查：防止Base64图像数据被当作错误消息
+      if (errorMessage && errorMessage.length > 1000 && errorMessage.includes('iVBORw0KGgo')) {
+        console.warn('⚠️ 检测到Base64图像数据被当作错误消息，使用默认错误信息');
+        errorMessage = '图像处理失败，请重试';
+      }
 
       set({
         generationStatus: {
@@ -879,6 +967,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           progress: 0,
           error: errorMessage
         }
+      });
+
+      // 🧠 添加错误消息到上下文
+      contextManager.addMessage({
+        type: 'error',
+        content: `处理失败: ${errorMessage}`
       });
 
       get().addMessage({
@@ -918,5 +1012,30 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       sourceImagesForBlending: [],
       sourceImageForAnalysis: null
     });
+  },
+
+  // 🧠 上下文管理方法实现
+  initializeContext: () => {
+    const sessionId = contextManager.createSession();
+    console.log('🧠 初始化上下文会话:', sessionId);
+  },
+
+  getContextSummary: () => {
+    return contextManager.getSessionSummary();
+  },
+
+  isIterativeMode: () => {
+    const context = contextManager.getCurrentContext();
+    return context ? context.contextInfo.iterationCount > 0 : false;
+  },
+
+  enableIterativeMode: () => {
+    contextManager.incrementIteration();
+    console.log('🔄 启用迭代模式');
+  },
+
+  disableIterativeMode: () => {
+    contextManager.resetIteration();
+    console.log('🔄 禁用迭代模式');
   }
 }));

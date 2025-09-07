@@ -30,7 +30,10 @@ const AIChatDialog: React.FC = () => {
     setSourceImageForAnalysis,
     addImageForBlending,
     removeImageFromBlending,
-    getAIMode
+    getAIMode,
+    initializeContext,
+    getContextSummary,
+    isIterativeMode
   } = useAIChatStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -39,6 +42,11 @@ const AIChatDialog: React.FC = () => {
   const historyRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+
+  // 🧠 初始化上下文记忆系统
+  useEffect(() => {
+    initializeContext();
+  }, [initializeContext]);
 
   // 当有新消息时，自动显示历史记录
   useEffect(() => {
@@ -470,8 +478,19 @@ const AIChatDialog: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="space-y-1.5 mr-1">
-                <div className="mb-2">
+                <div className="mb-2 flex justify-between items-center">
                   <span className="text-xs text-gray-500 font-medium">聊天历史记录</span>
+                  {/* 🧠 上下文状态指示器 */}
+                  <div className="flex items-center space-x-2">
+                    {isIterativeMode() && (
+                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                        🔄 迭代模式
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {getContextSummary()}
+                    </span>
+                  </div>
                 </div>
                 {messages.slice(isMaximized ? -50 : -5).map((message) => (
                   <div
