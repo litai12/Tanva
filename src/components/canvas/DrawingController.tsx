@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import paper from 'paper';
-import { useToolStore, useCanvasStore } from '@/stores';
+import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
@@ -239,6 +239,96 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setDrawMode
   });
 
+  // ========== 图元顺序调整处理 ==========
+
+  // 图元上移处理函数（在同一图层内调整顺序）
+  const handleImageLayerMoveUp = useCallback((imageId: string) => {
+    try {
+      // 找到对应的Paper.js图层组
+      const imageGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === imageId
+        )
+      )[0];
+
+      if (imageGroup instanceof paper.Group) {
+        // 获取图片所在的图层
+        const currentLayer = imageGroup.layer;
+        if (currentLayer) {
+          // 在同一图层内查找其他图片元素（排除辅助元素）
+          const imageItemsInLayer = currentLayer.children.filter(child =>
+            child.data?.type === 'image' && child.data?.imageId
+          );
+
+          // 找到当前图片在图层内的索引
+          const currentIndex = imageItemsInLayer.indexOf(imageGroup);
+
+          // 如果不是最顶层，可以上移
+          if (currentIndex < imageItemsInLayer.length - 1) {
+            // 获取上面的图片元素
+            const nextImageItem = imageItemsInLayer[currentIndex + 1];
+            if (nextImageItem) {
+              // 将当前图片插入到上面图片的前面
+              imageGroup.insertAbove(nextImageItem);
+              console.log(`⬆️ 图片 ${imageId} 在图层内上移 (图层: ${currentLayer.name})`);
+              console.log(`📊 图层内顺序: ${imageItemsInLayer.map(item => item.data?.imageId).join(' → ')}`);
+            }
+          } else {
+            console.log('📍 图片已在图层内最顶层');
+          }
+        }
+      } else {
+        console.warn('未找到对应的图片图层组');
+      }
+    } catch (error) {
+      console.error('图元上移失败:', error);
+    }
+  }, []);
+
+  // 图元下移处理函数（在同一图层内调整顺序）
+  const handleImageLayerMoveDown = useCallback((imageId: string) => {
+    try {
+      // 找到对应的Paper.js图层组
+      const imageGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === imageId
+        )
+      )[0];
+
+      if (imageGroup instanceof paper.Group) {
+        // 获取图片所在的图层
+        const currentLayer = imageGroup.layer;
+        if (currentLayer) {
+          // 在同一图层内查找其他图片元素（排除辅助元素）
+          const imageItemsInLayer = currentLayer.children.filter(child =>
+            child.data?.type === 'image' && child.data?.imageId
+          );
+
+          // 找到当前图片在图层内的索引
+          const currentIndex = imageItemsInLayer.indexOf(imageGroup);
+
+          // 如果不是最底层，可以下移
+          if (currentIndex > 0) {
+            // 获取下面的图片元素
+            const prevImageItem = imageItemsInLayer[currentIndex - 1];
+            if (prevImageItem) {
+              // 将当前图片插入到下面图片的后面
+              imageGroup.insertBelow(prevImageItem);
+              console.log(`⬇️ 图片 ${imageId} 在图层内下移 (图层: ${currentLayer.name})`);
+              console.log(`📊 图层内顺序: ${imageItemsInLayer.map(item => item.data?.imageId).join(' → ')}`);
+            }
+          } else {
+            console.log('📍 图片已在图层内最底层');
+          }
+        }
+      } else {
+        console.warn('未找到对应的图片图层组');
+      }
+    } catch (error) {
+      console.error('图元下移失败:', error);
+    }
+  }, []);
+
   // 同步图片和3D模型的可见性状态
   useEffect(() => {
     const syncVisibilityStates = () => {
@@ -408,6 +498,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
           onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
           onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
+          onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
+          onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
         />
       ))}
 

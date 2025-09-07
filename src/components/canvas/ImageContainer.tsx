@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Trash2 } from 'lucide-react';
+import { Sparkles, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from '../ui/button';
 
 interface ImageData {
@@ -23,6 +23,8 @@ interface ImageContainerProps {
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
   onDelete?: (imageId: string) => void; // 删除图片回调
+  onMoveLayerUp?: (imageId: string) => void; // 图层上移回调
+  onMoveLayerDown?: (imageId: string) => void; // 图层下移回调
 }
 
 const ImageContainer: React.FC<ImageContainerProps> = ({
@@ -36,7 +38,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onSelect,
   onMove,
   onResize,
-  onDelete
+  onDelete,
+  onMoveLayerUp,
+  onMoveLayerDown
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -242,12 +246,34 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const handleDelete = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (onDelete) {
       onDelete(imageData.id);
       console.log('🗑️ 已删除图像:', imageData.id);
     }
   }, [imageData.id, onDelete]);
+
+  // 处理图层上移
+  const handleLayerMoveUp = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (onMoveLayerUp) {
+      onMoveLayerUp(imageData.id);
+      console.log('⬆️ 图层上移:', imageData.id);
+    }
+  }, [imageData.id, onMoveLayerUp]);
+
+  // 处理图层下移
+  const handleLayerMoveDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (onMoveLayerDown) {
+      onMoveLayerDown(imageData.id);
+      console.log('⬇️ 图层下移:', imageData.id);
+    }
+  }, [imageData.id, onMoveLayerDown]);
 
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
@@ -312,7 +338,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           >
             <Sparkles className="w-4 h-4" />
           </Button>
-          
+
           {/* 删除按钮 */}
           <Button
             variant="outline"
@@ -325,6 +351,51 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             }}
           >
             <Trash2 className="w-4 h-4 text-red-600" />
+          </Button>
+        </div>
+      )}
+
+      {/* 图层顺序调整按钮 - 只在选中时显示，位于图片右侧 */}
+      {isSelected && (
+        <div
+          className={`absolute flex flex-col gap-1 transition-all duration-150 ease-out ${
+            !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
+          }`}
+          style={{
+            right: -42, // 位于图片右侧外侧
+            top: '50%', // 垂直居中
+            transform: 'translateY(-50%)', // 确保垂直居中
+            zIndex: 30,
+            pointerEvents: 'auto',
+            position: 'absolute'
+          }}
+        >
+          {/* 图层上移按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
+            onClick={handleLayerMoveUp}
+            title="图层上移"
+            style={{
+              backdropFilter: 'blur(8px)'
+            }}
+          >
+            <ChevronUp className="w-4 h-4 text-blue-600" />
+          </Button>
+
+          {/* 图层下移按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
+            onClick={handleLayerMoveDown}
+            title="图层下移"
+            style={{
+              backdropFilter: 'blur(8px)'
+            }}
+          >
+            <ChevronDown className="w-4 h-4 text-blue-600" />
           </Button>
         </div>
       )}
