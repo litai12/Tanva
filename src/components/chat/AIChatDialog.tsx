@@ -71,6 +71,42 @@ const AIChatDialog: React.FC = () => {
     }
   }, [isVisible]);
 
+  // 监听图片成功添加到画布的事件，自动关闭对话框
+  useEffect(() => {
+    let closeTimer: NodeJS.Timeout | null = null;
+
+    const handleImageAddedToCanvas = () => {
+      // 只有在AI生图完成后（progress为100）且对话框可见且没有错误时才关闭
+      if (isVisible &&
+          !generationStatus.isGenerating &&
+          generationStatus.progress === 100 &&
+          generationStatus.error === null) {
+        // 清除之前的定时器
+        if (closeTimer) {
+          clearTimeout(closeTimer);
+        }
+
+        // 延迟0.1秒关闭，快速响应让用户去看图片
+        closeTimer = setTimeout(() => {
+          hideDialog();
+          console.log('🎯 AI生图完成，对话框已自动关闭');
+          closeTimer = null;
+        }, 100);
+      }
+    };
+
+    // 监听图片上传事件
+    window.addEventListener('triggerQuickImageUpload', handleImageAddedToCanvas);
+
+    return () => {
+      window.removeEventListener('triggerQuickImageUpload', handleImageAddedToCanvas);
+      // 清理定时器
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+      }
+    };
+  }, [isVisible, generationStatus.isGenerating, generationStatus.progress, generationStatus.error, hideDialog]);
+
 
 
   // 切换历史记录显示

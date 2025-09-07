@@ -277,6 +277,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           metadata: result.data.metadata
         });
 
+        // 生成成功后自动关闭对话框
+        setTimeout(() => {
+          get().hideDialog();
+          console.log('🔄 AI对话框已自动关闭');
+        }, 1000); // 延迟1秒关闭，让用户看到生成完成的消息
+
       } else {
         // 生成失败
         const errorMessage = result.error?.message || '图像生成失败';
@@ -428,6 +434,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           id: result.data.id
         });
 
+        // 编辑成功后自动关闭对话框
+        setTimeout(() => {
+          get().hideDialog();
+          console.log('🔄 AI对话框已自动关闭');
+        }, 1000); // 延迟1秒关闭，让用户看到编辑完成的消息
+
       } else {
         // 编辑失败
         const errorMessage = result.error?.message || '图像编辑失败';
@@ -551,6 +563,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }, 100);
 
         console.log('✅ 图像融合成功，已自动添加到画布');
+
+        // 融合成功后自动关闭对话框
+        setTimeout(() => {
+          get().hideDialog();
+          console.log('🔄 AI对话框已自动关闭');
+        }, 1000); // 延迟1秒关闭，让用户看到融合完成的消息
 
       } else {
         const errorMessage = result.error?.message || '图像融合失败';
