@@ -281,7 +281,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         setTimeout(() => {
           get().hideDialog();
           console.log('🔄 AI对话框已自动关闭');
-        }, 1000); // 延迟1秒关闭，让用户看到生成完成的消息
+        }, 100); // 延迟0.1秒关闭，让用户看到生成完成的消息
 
       } else {
         // 生成失败
@@ -438,7 +438,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         setTimeout(() => {
           get().hideDialog();
           console.log('🔄 AI对话框已自动关闭');
-        }, 1000); // 延迟1秒关闭，让用户看到编辑完成的消息
+        }, 100); // 延迟0.1秒关闭，让用户看到编辑完成的消息
 
       } else {
         // 编辑失败
@@ -568,7 +568,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         setTimeout(() => {
           get().hideDialog();
           console.log('🔄 AI对话框已自动关闭');
-        }, 1000); // 延迟1秒关闭，让用户看到融合完成的消息
+        }, 100); // 延迟0.1秒关闭，让用户看到融合完成的消息
 
       } else {
         const errorMessage = result.error?.message || '图像融合失败';

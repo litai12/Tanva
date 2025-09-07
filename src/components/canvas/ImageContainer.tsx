@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useCanvasStore } from '@/stores';
 import { Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -42,6 +43,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 获取AI聊天状态
   const { setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending } = useAIChatStore();
 
+  // 获取画布状态 - 用于监听画布移动变化
+  const { zoom, panX, panY } = useCanvasStore();
+
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
   const [isPositionStable, setIsPositionStable] = useState(true);
@@ -68,7 +72,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       console.warn('坐标转换失败，使用原始坐标:', error);
       return paperBounds;
     }
-  }, []);
+  }, [zoom, panX, panY]); // 添加画布状态依赖，确保画布变化时函数重新创建
 
   // 从Paper.js获取实时坐标
   const getRealTimePaperBounds = useCallback(() => {
@@ -104,7 +108,24 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     return bounds; // 回退到props中的bounds
   }, [imageData.id, bounds]);
 
-  // 实时同步Paper.js状态
+  // 监听画布状态变化，强制重新计算坐标
+  useEffect(() => {
+    // 当画布状态变化时，强制重新计算屏幕坐标
+    const newPaperBounds = getRealTimePaperBounds();
+    setRealTimeBounds(newPaperBounds);
+    setIsPositionStable(false);
+
+    // 设置稳定定时器
+    const stableTimer = setTimeout(() => {
+      setIsPositionStable(true);
+    }, 150);
+
+    return () => {
+      clearTimeout(stableTimer);
+    };
+  }, [zoom, panX, panY, getRealTimePaperBounds]); // 直接监听画布状态变化
+
+  // 实时同步Paper.js状态 - 只在选中时启用
   useEffect(() => {
     if (!isSelected) return;
 
@@ -117,9 +138,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       isUpdating = true;
 
       const paperBounds = getRealTimePaperBounds();
-      
+
       // 检查坐标是否发生变化 - 降低阈值以获得更高精度
-      const hasChanged = 
+      const hasChanged =
         Math.abs(paperBounds.x - realTimeBounds.x) > 0.1 ||
         Math.abs(paperBounds.y - realTimeBounds.y) > 0.1 ||
         Math.abs(paperBounds.width - realTimeBounds.width) > 0.1 ||
@@ -128,12 +149,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       if (hasChanged) {
         setIsPositionStable(false);
         setRealTimeBounds(paperBounds);
-        
+
         // 清除之前的稳定定时器
         if (stableTimer) {
           clearTimeout(stableTimer);
         }
-        
+
         // 设置新的稳定定时器
         stableTimer = setTimeout(() => {
           setIsPositionStable(true);
@@ -165,38 +186,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     setIsPositionStable(true);
   }, [bounds]);
 
-  // 额外的Paper.js视图更新监听
-  useEffect(() => {
-    if (!isSelected) return;
-
-    let viewUpdateHandler: () => void;
-
-    const setupViewListener = () => {
-      if (paper.view) {
-        viewUpdateHandler = () => {
-          // 视图更新时重新获取坐标
-          const paperBounds = getRealTimePaperBounds();
-          setRealTimeBounds(paperBounds);
-        };
-
-        // 监听Paper.js视图更新事件
-        paper.view.on('update', viewUpdateHandler);
-      }
-    };
-
-    setupViewListener();
-
-    return () => {
-      if (paper.view && viewUpdateHandler) {
-        paper.view.off('update', viewUpdateHandler);
-      }
-    };
-  }, [isSelected, getRealTimePaperBounds]);
 
   // 使用实时坐标进行屏幕坐标转换
   const screenBounds = useMemo(() => {
     return convertToScreenBounds(realTimeBounds);
-  }, [realTimeBounds, convertToScreenBounds]);
+  }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
 
   // 处理AI编辑按钮点击
   const handleAIEdit = useCallback((e: React.MouseEvent) => {

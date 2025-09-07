@@ -341,7 +341,15 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     if (!imageInstance) return null;
 
     try {
-      // 找到对应的Paper.js Raster对象
+      // 🎯 优先使用原始图片数据（高质量）
+      // 这样可以避免canvas缩放导致的质量损失
+      if (imageInstance.imageData?.src) {
+        console.log('🎨 AI编辑：使用原始图片数据（高质量）');
+        return imageInstance.imageData.src;
+      }
+
+      // 备用方案：从Paper.js获取（已缩放，可能质量较低）
+      console.warn('⚠️ AI编辑：未找到原始图片数据，使用canvas数据（可能已缩放）');
       const imageGroup = paper.project.layers.flatMap(layer =>
         layer.children.filter(child =>
           child.data?.type === 'image' && child.data?.imageId === imageId
@@ -353,7 +361,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
       if (!raster || !raster.canvas) return null;
 
-      // 将canvas转换为base64
+      // 将canvas转换为base64（已缩放，可能质量较低）
       return raster.canvas.toDataURL('image/png');
     } catch (error) {
       console.error('获取图像数据失败:', error);
