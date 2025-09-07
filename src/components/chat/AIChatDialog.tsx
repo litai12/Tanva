@@ -452,7 +452,7 @@ const AIChatDialog: React.FC = () => {
           {/* 错误提示 */}
           {generationStatus.error && (
             <div className="mt-4">
-              <div className="flex items-center gap-2 p-3 bg-red-500/20 border border-red-500/30 rounded-lg backdrop-blur-md">
+              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
                 <span className="text-sm text-red-800">{generationStatus.error}</span>
               </div>
@@ -499,14 +499,14 @@ const AIChatDialog: React.FC = () => {
                       "p-2 transition-colors text-sm",
                       message.type === 'user' && "text-black ml-3 mr-1",
                       message.type === 'ai' && "text-black mr-3",
-                      message.type === 'error' && "bg-red-500/20 text-red-800 mr-1 rounded-lg p-3 border border-red-500/30 backdrop-blur-md"
+                      message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
                     )}
                   >
                     {/* 如果有图像或源图像，使用特殊布局 */}
                     {(message.imageData || message.sourceImageData || message.sourceImagesData) ? (
                       <div className={cn(
-                        "inline-block rounded-lg p-3 backdrop-blur-md",
-                        message.type === 'user' && "bg-blue-500/20 border border-blue-500/30"
+                        "inline-block rounded-lg p-3",
+                        message.type === 'user' && "bg-blue-50"
                       )}>
                         {/* AI消息标识 - 单独一行 */}
                         {message.type === 'ai' && (
@@ -621,8 +621,8 @@ const AIChatDialog: React.FC = () => {
                           </div>
                         )}
                         <div className={cn(
-                          "text-sm text-black markdown-content leading-relaxed backdrop-blur-md",
-                          message.type === 'user' && "bg-blue-500/20 border border-blue-500/30 rounded-lg p-3 inline-block"
+                          "text-sm text-black markdown-content leading-relaxed",
+                          message.type === 'user' && "bg-blue-50 rounded-lg p-3 inline-block"
                         )}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
