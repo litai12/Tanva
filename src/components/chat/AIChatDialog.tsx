@@ -241,7 +241,7 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         className={cn(
-          "bg-white/80 backdrop-blur-md shadow-2xl border border-white/20 transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300",
+          "bg-white/95 backdrop-blur-sm shadow-2xl border border-gray-200/50 transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
         tabIndex={0}
@@ -367,7 +367,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 z-10",
-                  "bg-white/80 backdrop-blur-md border border-white/20 hover:bg-white/90 hover:border-white/30 shadow-lg"
+                  "bg-white border-gray-300 hover:bg-gray-100 hover:border-gray-400"
                 )}
                 title={isMaximized ? "还原窗口" : "最大化窗口"}
               >
@@ -383,11 +383,11 @@ const AIChatDialog: React.FC = () => {
                   variant="outline"
                   className={cn(
                     "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                    "bg-white/80 backdrop-blur-md border border-white/20 shadow-lg",
+                    "bg-white border-gray-300",
                     isMaximized
                       ? "opacity-30 cursor-not-allowed"
                       : !generationStatus.isGenerating && messages.length > 0
-                        ? "hover:bg-white/90 hover:border-white/30"
+                        ? "hover:bg-gray-100 hover:border-gray-400"
                         : "opacity-50 cursor-not-allowed"
                   )}
                   title={isMaximized ? "最大化时历史记录始终显示" : messages.length > 0 ? `查看聊天历史 (${messages.length}条消息)` : "暂无聊天历史"}
@@ -404,9 +404,9 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-white/80 backdrop-blur-md border border-white/20 shadow-lg",
+                  "bg-white border-gray-300",
                   !generationStatus.isGenerating
-                    ? "hover:bg-white/90 hover:border-white/30"
+                    ? "hover:bg-gray-100 hover:border-gray-400"
                     : "opacity-50 cursor-not-allowed"
                 )}
                 title="上传图片 - 单张编辑，多张融合"
@@ -422,9 +422,9 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-white/80 backdrop-blur-md border border-white/20 shadow-lg",
+                  "bg-white border-gray-300",
                   canSend
-                    ? "hover:bg-white/90 hover:border-white/30 text-gray-700"
+                    ? "hover:bg-gray-100 hover:border-gray-400 text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
               >
@@ -464,7 +464,7 @@ const AIChatDialog: React.FC = () => {
             <div
               ref={historyRef}
               className={cn(
-                "mt-4 overflow-y-auto custom-scrollbar bg-white/60 backdrop-blur-sm rounded-lg p-2 border border-white/30",
+                "mt-4 overflow-y-auto custom-scrollbar",
                 isMaximized ? "max-h-screen" : "max-h-80"
               )}
               style={{

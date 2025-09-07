@@ -35,7 +35,7 @@ const ImageSizeIndicator: React.FC = () => {
     if (!useOriginalSize) return null;
 
     return (
-        <div className="fixed top-20 right-4 bg-green-500/75 text-white px-3 py-2 rounded-lg shadow-lg backdrop-blur-md z-40 flex items-center gap-2">
+        <div className="fixed top-20 right-4 bg-green-500/90 text-white px-3 py-2 rounded-lg shadow-lg backdrop-blur-sm z-40 flex items-center gap-2">
             <Maximize2 className="w-4 h-4" />
             <span className="text-sm font-medium">原始尺寸模式</span>
             <div className="text-xs opacity-90">1像素=1像素</div>
