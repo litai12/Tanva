@@ -367,7 +367,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 z-10",
-                  "bg-white border-gray-300 hover:bg-gray-100 hover:border-gray-400"
+                  "bg-white/80 backdrop-blur-md border border-white/20 hover:bg-white/90 hover:border-white/30 shadow-lg"
                 )}
                 title={isMaximized ? "还原窗口" : "最大化窗口"}
               >
@@ -383,11 +383,11 @@ const AIChatDialog: React.FC = () => {
                   variant="outline"
                   className={cn(
                     "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                    "bg-white border-gray-300",
+                    "bg-white/80 backdrop-blur-md border border-white/20 shadow-lg",
                     isMaximized
                       ? "opacity-30 cursor-not-allowed"
                       : !generationStatus.isGenerating && messages.length > 0
-                        ? "hover:bg-gray-100 hover:border-gray-400"
+                        ? "hover:bg-white/90 hover:border-white/30"
                         : "opacity-50 cursor-not-allowed"
                   )}
                   title={isMaximized ? "最大化时历史记录始终显示" : messages.length > 0 ? `查看聊天历史 (${messages.length}条消息)` : "暂无聊天历史"}
@@ -404,9 +404,9 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-white border-gray-300",
+                  "bg-white/80 backdrop-blur-md border border-white/20 shadow-lg",
                   !generationStatus.isGenerating
-                    ? "hover:bg-gray-100 hover:border-gray-400"
+                    ? "hover:bg-white/90 hover:border-white/30"
                     : "opacity-50 cursor-not-allowed"
                 )}
                 title="上传图片 - 单张编辑，多张融合"
@@ -422,9 +422,9 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-white border-gray-300",
+                  "bg-white/80 backdrop-blur-md border border-white/20 shadow-lg",
                   canSend
-                    ? "hover:bg-gray-100 hover:border-gray-400 text-gray-700"
+                    ? "hover:bg-white/90 hover:border-white/30 text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
               >
@@ -452,7 +452,7 @@ const AIChatDialog: React.FC = () => {
           {/* 错误提示 */}
           {generationStatus.error && (
             <div className="mt-4">
-              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center gap-2 p-3 bg-red-500/20 border border-red-500/30 rounded-lg backdrop-blur-md">
                 <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
                 <span className="text-sm text-red-800">{generationStatus.error}</span>
               </div>
@@ -464,7 +464,7 @@ const AIChatDialog: React.FC = () => {
             <div
               ref={historyRef}
               className={cn(
-                "mt-4 overflow-y-auto custom-scrollbar",
+                "mt-4 overflow-y-auto custom-scrollbar bg-white/60 backdrop-blur-sm rounded-lg p-2 border border-white/30",
                 isMaximized ? "max-h-screen" : "max-h-80"
               )}
               style={{
@@ -499,14 +499,14 @@ const AIChatDialog: React.FC = () => {
                       "p-2 transition-colors text-sm",
                       message.type === 'user' && "text-black ml-3 mr-1",
                       message.type === 'ai' && "text-black mr-3",
-                      message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
+                      message.type === 'error' && "bg-red-500/20 text-red-800 mr-1 rounded-lg p-3 border border-red-500/30 backdrop-blur-md"
                     )}
                   >
                     {/* 如果有图像或源图像，使用特殊布局 */}
                     {(message.imageData || message.sourceImageData || message.sourceImagesData) ? (
                       <div className={cn(
-                        "inline-block rounded-lg p-3",
-                        message.type === 'user' && "bg-blue-50"
+                        "inline-block rounded-lg p-3 backdrop-blur-md",
+                        message.type === 'user' && "bg-blue-500/20 border border-blue-500/30"
                       )}>
                         {/* AI消息标识 - 单独一行 */}
                         {message.type === 'ai' && (
@@ -621,8 +621,8 @@ const AIChatDialog: React.FC = () => {
                           </div>
                         )}
                         <div className={cn(
-                          "text-sm text-black markdown-content leading-relaxed",
-                          message.type === 'user' && "bg-blue-50 rounded-lg p-3 inline-block"
+                          "text-sm text-black markdown-content leading-relaxed backdrop-blur-md",
+                          message.type === 'user' && "bg-blue-500/20 border border-blue-500/30 rounded-lg p-3 inline-block"
                         )}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
