@@ -8,23 +8,28 @@ export default {
     extend: {
       boxShadow: {
         'header': '0 2px 8px rgba(0, 0, 0, 0.08)',
-        'glass': '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
-        'glass-lg': '0 20px 60px rgba(0, 0, 0, 0.2), 0 8px 32px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.25)',
-        'glass-xl': '0 12px 40px rgba(0, 0, 0, 0.15), 0 6px 20px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+        // Apple Liquid Glass 样式 - 清洁简化版本
+        'liquid-glass': '0 8px 32px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+        'liquid-glass-lg': '0 16px 48px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(255, 255, 255, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
       },
       backdropBlur: {
         'xs': '2px',
+        'liquid': '12px',
+      },
+      backdropSaturate: {
+        '150': '1.5',
       },
       backgroundColor: {
-        'glass': 'rgba(255, 255, 255, 0.6)',
-        'glass-light': 'rgba(255, 255, 255, 0.45)',
-        'glass-lighter': 'rgba(255, 255, 255, 0.35)',
-        'glass-hover': 'rgba(255, 255, 255, 0.7)',
-        'glass-light-hover': 'rgba(255, 255, 255, 0.55)',
+        // Apple Liquid Glass 背景色 - 清洁简化版本
+        'liquid-glass': 'rgba(255, 255, 255, 0.15)',
+        'liquid-glass-light': 'rgba(255, 255, 255, 0.1)',
+        'liquid-glass-hover': 'rgba(255, 255, 255, 0.25)',
+        'liquid-glass-active': 'rgba(255, 255, 255, 0.3)',
       },
       borderColor: {
-        'glass': 'rgba(255, 255, 255, 0.3)',
-        'glass-light': 'rgba(255, 255, 255, 0.2)',
+        // Apple Liquid Glass 边框色 - 清洁简化版本
+        'liquid-glass': 'rgba(255, 255, 255, 0.2)',
+        'liquid-glass-light': 'rgba(255, 255, 255, 0.15)',
       }
     },
   },
