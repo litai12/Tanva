@@ -354,7 +354,7 @@ const AIChatDialog: React.FC = () => {
                 placeholder={getSmartPlaceholder()}
                 disabled={generationStatus.isGenerating}
                 className={cn(
-                  "resize-none pr-20 min-h-[80px] transition-all duration-200 text-sm",
+                  "resize-none pr-20 min-h-[80px] transition-all duration-200 text-sm bg-transparent border-gray-300",
                   generationStatus.isGenerating && "opacity-75"
                 )}
                 rows={showHistory ? 3 : 1}
@@ -367,7 +367,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 z-10",
-                  "bg-white border-gray-300 hover:bg-gray-100 hover:border-gray-400"
+                  "bg-glass backdrop-blur-lg border-glass hover:bg-glass-light hover:border-glass-light text-gray-700 opacity-50"
                 )}
                 title={isMaximized ? "还原窗口" : "最大化窗口"}
               >
@@ -383,12 +383,12 @@ const AIChatDialog: React.FC = () => {
                   variant="outline"
                   className={cn(
                     "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                    "bg-white border-gray-300",
+                    "bg-glass backdrop-blur-lg border-glass",
                     isMaximized
-                      ? "opacity-30 cursor-not-allowed"
+                      ? "opacity-30 cursor-not-allowed text-gray-400"
                       : !generationStatus.isGenerating && messages.length > 0
-                        ? "hover:bg-gray-100 hover:border-gray-400"
-                        : "opacity-50 cursor-not-allowed"
+                        ? "hover:bg-glass-light hover:border-glass-light text-gray-700 opacity-50"
+                        : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={isMaximized ? "最大化时历史记录始终显示" : messages.length > 0 ? `查看聊天历史 (${messages.length}条消息)` : "暂无聊天历史"}
                 >
@@ -404,10 +404,10 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-white border-gray-300",
+                  "bg-glass backdrop-blur-lg border-glass",
                   !generationStatus.isGenerating
-                    ? "hover:bg-gray-100 hover:border-gray-400"
-                    : "opacity-50 cursor-not-allowed"
+                    ? "hover:bg-glass-light hover:border-glass-light text-gray-700 opacity-50"
+                    : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
                 title="上传图片 - 单张编辑，多张融合"
               >
@@ -422,9 +422,9 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-white border-gray-300",
+                  "bg-glass backdrop-blur-lg border-glass",
                   canSend
-                    ? "hover:bg-gray-100 hover:border-gray-400 text-gray-700"
+                    ? "hover:bg-glass-light hover:border-glass-light text-gray-700 opacity-50"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
               >

@@ -5,6 +5,7 @@ import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Ma
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
+import { cn } from '@/lib/utils';
 import paper from 'paper';
 
 // 自定义图标组件
@@ -347,7 +348,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <Button
         variant={isAIDialogVisible ? 'default' : 'outline'}
         size="sm"
-        className="px-2 py-2 h-8 w-8"
+        className={cn(
+          "px-2 py-2 h-8 w-8",
+          isAIDialogVisible 
+            ? "bg-blue-600 text-white" 
+            : "bg-white/50 text-gray-700 border-gray-300"
+        )}
         onClick={toggleDialog}
         title="AI图像生成 - 文本转图片"
       >
@@ -360,7 +366,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <Button
         variant={drawMode === 'select' ? 'default' : 'outline'}
         size="sm"
-        className="px-2 py-2 h-8 w-8"
+        className={cn(
+          "px-2 py-2 h-8 w-8",
+          drawMode === 'select' 
+            ? "bg-blue-600 text-white" 
+            : "bg-white/50 text-gray-700 border-gray-300"
+        )}
         onClick={() => setDrawMode('select')}
         title="选择模式"
       >
@@ -373,7 +384,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Button
           variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className={cn(
+            "px-2 py-2 h-8 w-8",
+            drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser
+              ? "bg-blue-600 text-white" 
+              : "bg-white/50 border-gray-300"
+          )}
           onClick={() => {
             // 如果当前没有激活绘图工具（选择模式、橡皮擦模式或其他独立工具），切换到默认的绘线工具
             if (drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot') {
@@ -404,7 +420,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 <Button
                   variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
                   size="sm"
-                  className="px-2 py-2 h-8 w-8"
+                  className={cn(
+                    "px-2 py-2 h-8 w-8",
+                    drawMode === 'free' && !isEraser 
+                      ? "bg-blue-600 text-white" 
+                      : "bg-white/50 border-gray-300"
+                  )}
                   onClick={() => setDrawMode('free')}
                   title="自由绘制"
                 >
@@ -413,7 +434,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 <Button
                   variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
                   size="sm"
-                  className="px-2 py-2 h-8 w-8"
+                  className={cn(
+                    "px-2 py-2 h-8 w-8",
+                    drawMode === 'line' && !isEraser 
+                      ? "bg-blue-600 text-white" 
+                      : "bg-white/50 border-gray-300"
+                  )}
                   onClick={() => setDrawMode('line')}
                   title="绘制直线"
                 >
@@ -422,7 +448,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 <Button
                   variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
                   size="sm"
-                  className="px-2 py-2 h-8 w-8"
+                  className={cn(
+                    "px-2 py-2 h-8 w-8",
+                    drawMode === 'rect' && !isEraser 
+                      ? "bg-blue-600 text-white" 
+                      : "bg-white/50 border-gray-300"
+                  )}
                   onClick={() => setDrawMode('rect')}
                   title="绘制矩形"
                 >
@@ -431,7 +462,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 <Button
                   variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
                   size="sm"
-                  className="px-2 py-2 h-8 w-8"
+                  className={cn(
+                    "px-2 py-2 h-8 w-8",
+                    drawMode === 'circle' && !isEraser 
+                      ? "bg-blue-600 text-white" 
+                      : "bg-white/50 border-gray-300"
+                  )}
                   onClick={() => setDrawMode('circle')}
                   title="绘制圆形"
                 >
@@ -477,7 +513,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* <Button
           variant={drawMode === 'text' ? 'default' : 'outline'}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
           onClick={() => setDrawMode('text')}
           title="添加文本"
         >
@@ -488,7 +524,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Button
           variant={drawMode === 'image' ? 'default' : 'outline'}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className={cn(
+            "px-2 py-2 h-8 w-8",
+            drawMode === 'image' 
+              ? "bg-blue-600 text-white" 
+              : "bg-white/50 border-gray-300"
+          )}
           onClick={() => setDrawMode('image')}
           title="添加图片"
         >
@@ -499,7 +540,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* <Button
           variant={drawMode === 'quick-image' ? 'default' : 'outline'}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
           onClick={() => setDrawMode('quick-image')}
           title="快速上传图片（自动居中）"
         >
@@ -510,7 +551,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Button
           variant={drawMode === '3d-model' ? 'default' : 'outline'}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className={cn(
+            "px-2 py-2 h-8 w-8",
+            drawMode === '3d-model' 
+              ? "bg-blue-600 text-white" 
+              : "bg-white/50 border-gray-300"
+          )}
           onClick={() => setDrawMode('3d-model')}
           title="添加3D模型"
         >
@@ -521,7 +567,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Button
           variant={drawMode === 'screenshot' ? 'default' : 'outline'}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className={cn(
+            "px-2 py-2 h-8 w-8",
+            drawMode === 'screenshot' 
+              ? "bg-blue-600 text-white" 
+              : "bg-white/50 border-gray-300"
+          )}
           onClick={() => setDrawMode('screenshot')}
           title="一键截图 - 自动包含所有元素"
         >
@@ -533,7 +584,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* <Button
           variant="outline"
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
           onClick={handleAIEditImage}
           title="AI编辑图像 - 选择画布中的图像或上传图像进行AI编辑"
         >
@@ -544,7 +595,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* <Button
           variant={useOriginalSize ? 'default' : 'outline'}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
           onClick={toggleOriginalSizeMode}
           title={useOriginalSize ? '当前：原始尺寸模式 (1像素=1像素)' : '当前：自适应模式 (自动缩放)'}
         >
@@ -558,7 +609,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <Button
         variant={isLayerPanelOpen ? 'default' : 'outline'}
         size="sm"
-        className="px-2 py-2 h-8 w-8"
+        className={cn(
+          "px-2 py-2 h-8 w-8",
+          isLayerPanelOpen 
+            ? "bg-blue-600 text-white" 
+            : "bg-white/50 border-gray-300"
+        )}
         onClick={toggleLayerPanel}
         title="图层面板"
       >
@@ -574,7 +630,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
           onClick={toggleEraser}
           variant={isEraser ? "default" : "outline"}
           size="sm"
-          className="px-2 py-2 h-8 w-8"
+          className={cn(
+            "px-2 py-2 h-8 w-8",
+            isEraser 
+              ? "bg-blue-600 text-white" 
+              : "bg-white/50 border-gray-300"
+          )}
           title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
         >
           <Eraser className="w-4 h-4" />
@@ -590,7 +651,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             }}
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+            className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
             title="清空画布 (清除所有图元)"
           >
             <Trash2 className="w-4 h-4" />
