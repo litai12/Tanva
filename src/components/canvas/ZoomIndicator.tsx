@@ -33,30 +33,30 @@ const ZoomIndicator: React.FC = () => {
     const canZoomOut = currentPercent > 10;
 
     return (
-        <div className="absolute bottom-4 left-4 z-10">
-            <div className="bg-glass backdrop-blur-md border border-glass rounded-lg shadow-glass-xl">
-                <div className="flex items-center">
-                    {/* 缩小按钮 */}
+        <div className="fixed left-3 bottom-4 z-10">
+            <div className="bg-glass backdrop-blur-md border border-glass rounded-lg shadow-glass-xl w-10">
+                <div className="flex flex-col items-center">
+                    {/* 放大按钮 */}
                     <Button
                         variant="ghost"
                         size="sm"
-                        className={`h-8 w-8 p-0 rounded-l-lg rounded-r-none border-r transition-all duration-200 ${
-                            !canZoomOut 
-                                ? 'opacity-40 cursor-not-allowed' 
+                        className={`h-6 w-10 p-0 rounded-t-lg rounded-b-none border-b transition-all duration-200 flex items-center justify-center ${
+                            !canZoomIn
+                                ? 'opacity-40 cursor-not-allowed'
                                 : 'hover:bg-blue-50 hover:text-blue-600'
                         }`}
-                        onClick={zoomOut}
-                        disabled={!canZoomOut}
-                        title={canZoomOut ? "缩小 10%" : "已达最小缩放 (10%)"}
+                        onClick={zoomIn}
+                        disabled={!canZoomIn}
+                        title={canZoomIn ? "放大 10%" : "已达最大缩放 (300%)"}
                     >
-                        <span className="text-lg font-bold">−</span>
+                        <span className="text-sm font-bold">+</span>
                     </Button>
 
                     {/* 缩放百分比 - 点击重置 */}
                     <button
-                        className={`px-3 py-2 text-sm font-mono font-medium transition-all duration-200 ${
+                        className={`px-1 py-3 text-xs font-mono font-medium transition-all duration-200 border-t border-b w-full text-center ${
                             currentPercent === 100
-                                ? 'text-gray-500'
+                                ? 'text-gray-400'
                                 : 'text-blue-600 hover:bg-blue-50'
                         }`}
                         onClick={resetZoom}
@@ -66,20 +66,20 @@ const ZoomIndicator: React.FC = () => {
                         {formatZoom(zoom)}
                     </button>
 
-                    {/* 放大按钮 */}
+                    {/* 缩小按钮 */}
                     <Button
                         variant="ghost"
                         size="sm"
-                        className={`h-8 w-8 p-0 rounded-r-lg rounded-l-none border-l transition-all duration-200 ${
-                            !canZoomIn 
-                                ? 'opacity-40 cursor-not-allowed' 
+                        className={`h-6 w-10 p-0 rounded-b-lg rounded-t-none border-t transition-all duration-200 flex items-center justify-center ${
+                            !canZoomOut
+                                ? 'opacity-40 cursor-not-allowed'
                                 : 'hover:bg-blue-50 hover:text-blue-600'
                         }`}
-                        onClick={zoomIn}
-                        disabled={!canZoomIn}
-                        title={canZoomIn ? "放大 10%" : "已达最大缩放 (300%)"}
+                        onClick={zoomOut}
+                        disabled={!canZoomOut}
+                        title={canZoomOut ? "缩小 10%" : "已达最小缩放 (10%)"}
                     >
-                        <span className="text-lg font-bold">+</span>
+                        <span className="text-sm font-bold">−</span>
                     </Button>
                 </div>
             </div>

@@ -48,16 +48,24 @@ const AIChatDialog: React.FC = () => {
     initializeContext();
   }, [initializeContext]);
 
-  // 历史记录默认保持关闭，只有用户主动点击才显示
-  // useEffect(() => {
-  //   if (messages.length > 0 && !showHistory && !isMaximized) {
-  //     // 延迟一点显示，让用户看到消息已添加（非最大化时）
-  //     const timer = setTimeout(() => {
-  //       setShowHistory(true);
-  //     }, 500);
-  //     return () => clearTimeout(timer);
-  //   }
-  // }, [messages.length, isMaximized]);
+  // 智能历史记录显示：纯对话模式自动打开，绘图模式不打开
+  useEffect(() => {
+    if (messages.length > 0 && !showHistory && !isMaximized) {
+      // 检查最后一条消息的类型
+      const lastMessage = messages[messages.length - 1];
+      
+      // 如果是纯对话模式（没有图像数据），自动显示历史记录
+      const isPureChat = lastMessage.type === 'ai' && !lastMessage.imageData && !lastMessage.sourceImageData && !lastMessage.sourceImagesData;
+      
+      if (isPureChat) {
+        // 延迟一点显示，让用户看到消息已添加
+        const timer = setTimeout(() => {
+          setShowHistory(true);
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [messages.length, isMaximized, showHistory]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -241,10 +249,9 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         className={cn(
-          "bg-glass-lighter backdrop-blur-lg shadow-glass-lg border border-glass transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300",
+          "bg-glass-lighter backdrop-blur-lg shadow-glass-lg border border-glass transition-all duration-300 ease-out focus-within:border-blue-300",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
-        tabIndex={0}
       >
         {/* 内容区域 */}
         <div className={cn(
@@ -283,8 +290,8 @@ const AIChatDialog: React.FC = () => {
                   </div>
                 )}
 
-                {/* 分析图像显示 */}
-                {sourceImageForAnalysis && (
+                {/* 分析图像显示 - 隐藏无法显示的预览 */}
+                {false && sourceImageForAnalysis && (
                   <div className="relative group">
                     <img
                       src={sourceImageForAnalysis}
@@ -354,7 +361,7 @@ const AIChatDialog: React.FC = () => {
                 placeholder={getSmartPlaceholder()}
                 disabled={generationStatus.isGenerating}
                 className={cn(
-                  "resize-none pr-20 min-h-[80px] transition-all duration-200 text-sm bg-transparent border-gray-300",
+                  "resize-none pr-20 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
                   generationStatus.isGenerating && "opacity-75"
                 )}
                 rows={showHistory ? 3 : 1}

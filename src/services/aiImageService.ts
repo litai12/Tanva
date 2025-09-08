@@ -737,8 +737,8 @@ ${contextualPrompt}
 
 请分析用户意图并选择最合适的工具：
 
-1. generateImage - 如果用户想要生成、创建、画新图像
-2. editImage - 如果有1张图像（包括缓存的图像）且用户想要编辑、修改它
+1. generateImage - 如果用户想要生成、创建、画"新"图像（如：新画一张、生成一张、创建一个新的、new image等）
+2. editImage - 如果有1张图像（包括缓存的图像）且用户想要编辑、修改现有图像
 3. blendImages - 如果有2张或更多图像且用户想要融合它们
 4. analyzeImage - 如果有图像且用户想要分析、了解图像内容
 5. chatResponse - 如果是数学问题、知识问答、日常对话等文本交互
@@ -746,7 +746,9 @@ ${contextualPrompt}
 选择规则：
 - 优先考虑用户的明确意图和上下文历史
 - 理解用户的自然语言表达，不需要依赖特定关键词
-- 如果有缓存的图像且用户想要修改/编辑它，选择editImage工具
+- 如果用户想要创建/生成"新"的图像（新画、新建、画一张等），选择generateImage工具
+- 如果用户想要修改/编辑现有图像，选择editImage工具
+- 如果用户想要分析/了解图像内容，选择analyzeImage工具
 - 根据对话的连续性和上下文理解用户真实意图
 
 请直接选择工具名称并说明理由，格式：工具名称|理由`;
@@ -938,12 +940,25 @@ ${contextualPrompt}
         };
       }
 
+      // 检查是否是新建意图（优先级高于编辑）
+      const newImageKeywords = ['新画', '新建', '新生成', '新创建', '画一张', '生成一张', '创建一张', 'new image', 'new draw', 'new create'];
+      const hasNewImageKeywords = newImageKeywords.some(keyword => lowerInput.includes(keyword));
+
+      if (hasNewImageKeywords) {
+        return {
+          selectedTool: 'generateImage',
+          parameters: { prompt: userInput },
+          confidence: 0.9,
+          reasoning: '检测到新建图像意图'
+        };
+      }
+
       // 默认编辑
       return {
         selectedTool: 'editImage',
         parameters: { prompt: userInput },
         confidence: 0.75,
-        reasoning: '有图像且非分析意图，选择编辑'
+        reasoning: '有图像且非分析/新建意图，选择编辑'
       };
     }
 
