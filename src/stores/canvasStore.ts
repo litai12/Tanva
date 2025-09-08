@@ -23,6 +23,9 @@ interface CanvasState {
   panX: number;
   panY: number;
   
+  // 交互状态
+  isDragging: boolean;        // 是否正在拖拽画布
+  
   // 单位系统
   units: Unit;                // 当前显示单位
   scaleRatio: number;         // 1像素对应多少米
@@ -35,6 +38,9 @@ interface CanvasState {
   setPan: (x: number, y: number) => void;
   panBy: (deltaX: number, deltaY: number) => void;
   resetView: () => void;
+  
+  // 交互状态操作方法
+  setDragging: (dragging: boolean) => void;
   
   // 单位系统操作方法
   setUnits: (units: Unit) => void;
@@ -53,6 +59,9 @@ export const useCanvasStore = create<CanvasState>()(
       panX: 0,
       panY: 0,
       
+      // 交互状态初始值
+      isDragging: false,    // 默认未拖拽
+      
       // 单位系统初始状态
       units: 'm',           // 默认米单位
       scaleRatio: 0.1,      // 默认1像素=0.1米
@@ -68,6 +77,9 @@ export const useCanvasStore = create<CanvasState>()(
         set({ panX: panX + deltaX, panY: panY + deltaY });
       },
       resetView: () => set({ zoom: 1.0, panX: 0, panY: 0 }),
+      
+      // 交互状态操作方法
+      setDragging: (dragging) => set({ isDragging: dragging }),
       
       // 单位系统操作方法（增强类型安全）
       setUnits: (units) => {

@@ -8,7 +8,7 @@ interface InteractionControllerProps {
 const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef }) => {
   const isDraggingRef = useRef(false); // 拖拽状态缓存
   const zoomRef = useRef(1); // 缓存缩放值避免频繁getState
-  const { zoom, setPan } = useCanvasStore();
+  const { zoom, setPan, setDragging } = useCanvasStore();
 
   // 同步缓存的zoom值
   useEffect(() => {
@@ -33,6 +33,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         event.preventDefault(); // 阻止中键的默认行为（滚动）
         isDragging = true;
         isDraggingRef.current = true; // 设置拖拽状态缓存
+        setDragging(true); // 通知canvasStore开始拖拽
         
         const rect = canvas.getBoundingClientRect();
         lastScreenPoint = {
@@ -84,6 +85,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       if (event.button === 1 && isDragging) {
         isDragging = false;
         isDraggingRef.current = false; // 清除拖拽状态缓存
+        setDragging(false); // 通知canvasStore结束拖拽
         lastScreenPoint = null;
         canvas.style.cursor = 'default';
         
