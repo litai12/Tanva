@@ -249,7 +249,7 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         className={cn(
-          "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300",
+          "bg-liquid-glass backdrop-blur-light backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
       >
