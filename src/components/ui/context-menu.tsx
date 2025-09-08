@@ -47,7 +47,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ items, x, y, onClose }) => {
     return createPortal(
         <div
             ref={menuRef}
-            className="fixed z-[9999] bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px]"
+            className="fixed z-[9999] bg-glass-light backdrop-blur-md rounded-lg shadow-glass border border-glass py-1 min-w-[120px]"
             style={{
                 left: x,
                 top: y,

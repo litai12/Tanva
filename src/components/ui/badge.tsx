@@ -11,7 +11,7 @@ const Badge: React.FC<BadgeProps> = ({ className, variant = 'default', ...props 
   const variantClasses = {
     default: "bg-gray-900 text-white",
     secondary: "bg-gray-200 text-gray-900", 
-    outline: "border border-gray-300 text-gray-700 bg-white"
+    outline: "border border-glass text-gray-700 bg-glass-light"
   };
 
   return (

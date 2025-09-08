@@ -16,13 +16,15 @@ export default {
         'xs': '2px',
       },
       backgroundColor: {
-        'glass': 'rgba(255, 255, 255, 0.8)',
-        'glass-light': 'rgba(255, 255, 255, 0.75)',
-        'glass-lighter': 'rgba(255, 255, 255, 0.7)',
+        'glass': 'rgba(255, 255, 255, 0.6)',
+        'glass-light': 'rgba(255, 255, 255, 0.45)',
+        'glass-lighter': 'rgba(255, 255, 255, 0.35)',
+        'glass-hover': 'rgba(255, 255, 255, 0.7)',
+        'glass-light-hover': 'rgba(255, 255, 255, 0.55)',
       },
       borderColor: {
-        'glass': 'rgba(255, 255, 255, 0.2)',
-        'glass-light': 'rgba(255, 255, 255, 0.15)',
+        'glass': 'rgba(255, 255, 255, 0.3)',
+        'glass-light': 'rgba(255, 255, 255, 0.2)',
       }
     },
   },

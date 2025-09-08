@@ -74,7 +74,7 @@ const Header: React.FC = () => {
 
     return (
         <header
-            className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white shadow-header"
+            className="sticky top-0 z-50 w-full border-b border-glass bg-glass backdrop-blur-md shadow-glass"
         >
             <div className="flex h-10 w-full items-center justify-between px-3">
                 {/* Logo - 左对齐 */}

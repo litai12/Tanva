@@ -856,11 +856,11 @@ const LayerPanel: React.FC = () => {
     return (
         <>
         <div
-            className={`fixed top-[41px] left-0 h-[calc(100vh-41px)] w-80 bg-white shadow-2xl z-[1000] transform transition-transform duration-300 ease-in-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
+            className={`fixed top-[41px] left-0 h-[calc(100vh-41px)] w-80 bg-glass backdrop-blur-md shadow-glass-lg border-r border-glass z-[1000] transform transition-transform duration-300 ease-in-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
                 }`}
         >
             {/* 面板头部 */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-glass">
                 <h2 className="text-lg font-semibold text-gray-800">图层</h2>
                 <Button
                     variant="ghost"
@@ -873,7 +873,7 @@ const LayerPanel: React.FC = () => {
             </div>
 
             {/* 工具栏 */}
-            <div className="p-3 border-b border-gray-100">
+            <div className="p-3 border-b border-glass">
                 <Button
                     variant="outline"
                     size="sm"
@@ -1429,7 +1429,7 @@ const LayerPanel: React.FC = () => {
             </div>
 
             {/* 面板底部 */}
-            <div className="p-3 border-t border-gray-200">
+            <div className="p-3 border-t border-glass">
                 <div className="text-xs text-gray-500 text-center">
                     共 {layers.length} 个图层，
                     {Object.values(layerItems).flat().length} 个图元
