@@ -355,7 +355,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             : "bg-white/50 text-gray-700 border-gray-300"
         )}
         onClick={toggleDialog}
-        title="AI图像生成 - 文本转图片"
+        title="AI对话"
       >
         <Sparkles className="w-4 h-4" />
       </Button>
