@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore, GridStyle } from '@/stores';
+import { memoryMonitor } from '@/utils/memoryMonitor';
 
 interface GridRendererProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -89,17 +90,35 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 纯色背景直接销毁，不回收
     itemsToRecycle.solidBg.forEach(item => item.remove());
     
-    // 回收主网格点（限制池大小）
-    const mainDotsToAdd = itemsToRecycle.mainDots.slice(0, Math.max(0, 500 - dotPoolMainRef.current.length));
+    // 回收主网格点（大幅减小池大小，防止内存积累）
+    const mainDotsToAdd = itemsToRecycle.mainDots.slice(0, Math.max(0, 200 - dotPoolMainRef.current.length));
     dotPoolMainRef.current.push(...mainDotsToAdd);
+    // 超出限制的对象直接销毁
+    itemsToRecycle.mainDots.slice(mainDotsToAdd.length).forEach(dot => dot.remove());
     
-    // 回收副网格点（限制池大小）
-    const minorDotsToAdd = itemsToRecycle.minorDots.slice(0, Math.max(0, 2000 - dotPoolMinorRef.current.length));
+    // 回收副网格点（大幅减小池大小）
+    const minorDotsToAdd = itemsToRecycle.minorDots.slice(0, Math.max(0, 500 - dotPoolMinorRef.current.length));
     dotPoolMinorRef.current.push(...minorDotsToAdd);
+    // 超出限制的对象直接销毁
+    itemsToRecycle.minorDots.slice(minorDotsToAdd.length).forEach(dot => dot.remove());
     
-    // 回收网格线（限制池大小）
-    const gridLinesToAdd = itemsToRecycle.gridLines.slice(0, Math.max(0, 100 - pathPoolRef.current.length));
+    // 回收网格线（减小池大小）
+    const gridLinesToAdd = itemsToRecycle.gridLines.slice(0, Math.max(0, 50 - pathPoolRef.current.length));
     pathPoolRef.current.push(...gridLinesToAdd);
+    // 超出限制的对象直接销毁
+    itemsToRecycle.gridLines.slice(gridLinesToAdd.length).forEach(line => line.remove());
+
+    // 更新内存监控统计
+    memoryMonitor.updatePoolStats(
+      dotPoolMainRef.current.length,
+      dotPoolMinorRef.current.length, 
+      pathPoolRef.current.length
+    );
+
+    // 检查内存警告
+    if (memoryMonitor.checkMemoryWarning()) {
+      console.warn('内存警告检测:', memoryMonitor.getMemorySummary());
+    }
 
     gridLayer.activate();
 
@@ -143,20 +162,42 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 获取世界坐标系中的可视边界
     const viewBounds = paper.view.bounds;
 
-    // 计算网格边界，扩展一点确保完全覆盖
+    // 虚拟化渲染：智能计算渲染边界，避免过度渲染
     const padding = currentGridSize * 2;
-    const minX = Math.floor((viewBounds.left - padding) / currentGridSize) * currentGridSize;
-    const maxX = Math.ceil((viewBounds.right + padding) / currentGridSize) * currentGridSize;
-    const minY = Math.floor((viewBounds.top - padding) / currentGridSize) * currentGridSize;
-    const maxY = Math.ceil((viewBounds.bottom + padding) / currentGridSize) * currentGridSize;
+    const viewWidth = viewBounds.width;
+    const viewHeight = viewBounds.height;
+    
+    // 根据缩放级别动态调整渲染范围
+    const renderMultiplier = Math.max(1, Math.min(3, 1 / zoom)); // 缩放越小，渲染范围越大
+    const effectivePadding = padding * renderMultiplier;
+    
+    const minX = Math.floor((viewBounds.left - effectivePadding) / currentGridSize) * currentGridSize;
+    const maxX = Math.ceil((viewBounds.right + effectivePadding) / currentGridSize) * currentGridSize;
+    const minY = Math.floor((viewBounds.top - effectivePadding) / currentGridSize) * currentGridSize;
+    const maxY = Math.ceil((viewBounds.bottom + effectivePadding) / currentGridSize) * currentGridSize;
+    
+    // 虚拟化限制：防止渲染区域过大
+    const maxRenderWidth = viewWidth * 4; // 最多渲染4倍视口宽度
+    const maxRenderHeight = viewHeight * 4; // 最多渲染4倍视口高度
+    
+    const actualMaxX = Math.min(maxX, minX + maxRenderWidth);
+    const actualMaxY = Math.min(maxY, minY + maxRenderHeight);
+    const actualMinX = Math.max(minX, maxX - maxRenderWidth);
+    const actualMinY = Math.max(minY, maxY - maxRenderHeight);
+    
+    // 使用实际限制后的边界
+    const finalMinX = actualMinX;
+    const finalMaxX = actualMaxX;
+    const finalMinY = actualMinY;
+    const finalMaxY = actualMaxY;
 
     // 创建或更新坐标轴（如果启用）- 固定在Paper.js (0,0)点
     if (showAxis) {
-      // Y轴（蓝色竖直线） - 复用现有轴或创建新的
+      // Y轴（蓝色竖直线） - 复用现有轴或创建新的，使用虚拟化边界
       if (!axisPathsRef.current.yAxis || !axisPathsRef.current.yAxis.project) {
         axisPathsRef.current.yAxis = new paper.Path.Line({
-          from: [0, viewBounds.top - padding],
-          to: [0, viewBounds.bottom + padding],
+          from: [0, finalMinY - effectivePadding],
+          to: [0, finalMaxY + effectivePadding],
           strokeColor: new paper.Color(0.2, 0.4, 0.8, 1.0), // 蓝色Y轴
           strokeWidth: 1.5,
           data: { isAxis: true, axis: 'Y', isHelper: true }
@@ -164,19 +205,19 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         gridLayer.addChild(axisPathsRef.current.yAxis);
       } else {
         // 更新现有Y轴的位置
-        axisPathsRef.current.yAxis.segments[0].point = new paper.Point(0, viewBounds.top - padding);
-        axisPathsRef.current.yAxis.segments[1].point = new paper.Point(0, viewBounds.bottom + padding);
+        axisPathsRef.current.yAxis.segments[0].point = new paper.Point(0, finalMinY - effectivePadding);
+        axisPathsRef.current.yAxis.segments[1].point = new paper.Point(0, finalMaxY + effectivePadding);
         axisPathsRef.current.yAxis.visible = true;
         if (axisPathsRef.current.yAxis.parent !== gridLayer) {
           gridLayer.addChild(axisPathsRef.current.yAxis);
         }
       }
 
-      // X轴（红色水平线） - 复用现有轴或创建新的
+      // X轴（红色水平线） - 复用现有轴或创建新的，使用虚拟化边界
       if (!axisPathsRef.current.xAxis || !axisPathsRef.current.xAxis.project) {
         axisPathsRef.current.xAxis = new paper.Path.Line({
-          from: [viewBounds.left - padding, 0],
-          to: [viewBounds.right + padding, 0],
+          from: [finalMinX - effectivePadding, 0],
+          to: [finalMaxX + effectivePadding, 0],
           strokeColor: new paper.Color(0.8, 0.2, 0.2, 1.0), // 红色X轴
           strokeWidth: 1.5,
           data: { isAxis: true, axis: 'X', isHelper: true }
@@ -184,8 +225,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         gridLayer.addChild(axisPathsRef.current.xAxis);
       } else {
         // 更新现有X轴的位置
-        axisPathsRef.current.xAxis.segments[0].point = new paper.Point(viewBounds.left - padding, 0);
-        axisPathsRef.current.xAxis.segments[1].point = new paper.Point(viewBounds.right + padding, 0);
+        axisPathsRef.current.xAxis.segments[0].point = new paper.Point(finalMinX - effectivePadding, 0);
+        axisPathsRef.current.xAxis.segments[1].point = new paper.Point(finalMaxX + effectivePadding, 0);
         axisPathsRef.current.xAxis.visible = true;
         if (axisPathsRef.current.xAxis.parent !== gridLayer) {
           gridLayer.addChild(axisPathsRef.current.xAxis);
@@ -193,21 +234,21 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       }
     }
 
-    // 创建网格（如果启用）- 根据样式选择线条、点阵或纯色
+    // 创建网格（如果启用）- 根据样式选择线条、点阵或纯色，使用虚拟化边界
     if (showGrid) {
       if (gridStyle === GridStyle.SOLID) {
-        // 创建纯色背景
-        createSolidBackground(minX, maxX, minY, maxY, gridLayer);
+        // 创建纯色背景，使用虚拟化边界
+        createSolidBackground(finalMinX, finalMaxX, finalMinY, finalMaxY, gridLayer);
       } else if (gridStyle === GridStyle.DOTS) {
-        // 创建点阵网格
-        createDotGrid(currentGridSize, minX, maxX, minY, maxY, zoom, gridLayer);
+        // 创建点阵网格，使用虚拟化边界
+        createDotGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer);
       } else {
-        // 创建线条网格（默认） - 保持原有逻辑
+        // 创建线条网格（默认） - 保持原有逻辑，使用虚拟化边界
         // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
         const shouldShowMinorGrid = zoom >= 0.3;
 
-        // 创建垂直网格线
-        for (let x = minX; x <= maxX; x += currentGridSize) {
+        // 创建垂直网格线，使用虚拟化边界
+        for (let x = finalMinX; x <= finalMaxX; x += currentGridSize) {
           // 跳过轴线位置（如果显示轴线）
           if (showAxis && x === 0) continue;
 
@@ -223,11 +264,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           const poolItem = pathPoolRef.current.pop();
 
           if (poolItem && !(poolItem instanceof paper.Path.Circle)) {
-            // 复用现有路径 - 批量更新属性
+            // 复用现有路径 - 批量更新属性，使用虚拟化边界
             line = poolItem;
             const segments = line.segments;
-            segments[0].point.set(x, minY);
-            segments[1].point.set(x, maxY);
+            segments[0].point.set(x, finalMinY);
+            segments[1].point.set(x, finalMaxY);
             
             // 只在需要时更新颜色和宽度
             const targetOpacity = isMainGrid ? 0.18 : 0.15;
@@ -240,19 +281,22 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
             line.visible = true;
             line.data = { isHelper: true, type: 'grid' }; // 重置data
           } else {
-            // 圆形对象放回对应池 - 避免类型混乱
+            // 圆形对象放回对应池 - 避免类型混乱，使用新的池大小限制
             if (poolItem instanceof paper.Path.Circle) {
               const targetPool = poolItem.data?.isMainGrid ? dotPoolMainRef.current : dotPoolMinorRef.current;
-              const maxSize = poolItem.data?.isMainGrid ? 500 : 2000;
+              const maxSize = poolItem.data?.isMainGrid ? 200 : 500;
               if (targetPool.length < maxSize) {
                 targetPool.push(poolItem);
+              } else {
+                // 超出限制直接销毁
+                poolItem.remove();
               }
             }
             
-            // 创建新路径
+            // 创建新路径，使用虚拟化边界
             line = new paper.Path.Line({
-              from: [x, minY],
-              to: [x, maxY],
+              from: [x, finalMinY],
+              to: [x, finalMaxY],
               strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
               strokeWidth: isMainGrid ? 0.8 : 0.3,
               data: { isHelper: true, type: 'grid' }
@@ -261,8 +305,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           gridLayer.addChild(line);
         }
 
-        // 创建水平网格线
-        for (let y = minY; y <= maxY; y += currentGridSize) {
+        // 创建水平网格线，使用虚拟化边界
+        for (let y = finalMinY; y <= finalMaxY; y += currentGridSize) {
           // 跳过轴线位置（如果显示轴线）
           if (showAxis && y === 0) continue;
 
@@ -278,11 +322,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           const poolItem = pathPoolRef.current.pop();
 
           if (poolItem && !(poolItem instanceof paper.Path.Circle)) {
-            // 复用现有路径 - 批量更新属性
+            // 复用现有路径 - 批量更新属性，使用虚拟化边界
             line = poolItem;
             const segments = line.segments;
-            segments[0].point.set(minX, y);
-            segments[1].point.set(maxX, y);
+            segments[0].point.set(finalMinX, y);
+            segments[1].point.set(finalMaxX, y);
             
             // 只在需要时更新颜色和宽度
             const targetOpacity = isMainGrid ? 0.18 : 0.15;
@@ -295,19 +339,22 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
             line.visible = true;
             line.data = { isHelper: true, type: 'grid' }; // 重置data
           } else {
-            // 圆形对象放回对应池 - 避免类型混乱
+            // 圆形对象放回对应池 - 避免类型混乱，使用新的池大小限制
             if (poolItem instanceof paper.Path.Circle) {
               const targetPool = poolItem.data?.isMainGrid ? dotPoolMainRef.current : dotPoolMinorRef.current;
-              const maxSize = poolItem.data?.isMainGrid ? 500 : 2000;
+              const maxSize = poolItem.data?.isMainGrid ? 200 : 500;
               if (targetPool.length < maxSize) {
                 targetPool.push(poolItem);
+              } else {
+                // 超出限制直接销毁
+                poolItem.remove();
               }
             }
             
-            // 创建新路径
+            // 创建新路径，使用虚拟化边界
             line = new paper.Path.Line({
-              from: [minX, y],
-              to: [maxX, y],
+              from: [finalMinX, y],
+              to: [finalMaxX, y],
               strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.18 : 0.15),
               strokeWidth: isMainGrid ? 0.8 : 0.3,
               data: { isHelper: true, type: 'grid' }
@@ -446,6 +493,53 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     }
   }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging]); // 添加isDragging依赖
 
+  // 强制垃圾回收函数 - 用于内存压力过大时
+  const forceMemoryCleanup = useCallback(() => {
+    // 强制清空所有对象池
+    pathPoolRef.current.forEach(path => path && path.remove && path.remove());
+    pathPoolRef.current = [];
+
+    dotPoolRef.current.forEach(dot => dot && dot.remove && dot.remove());
+    dotPoolRef.current = [];
+
+    dotPoolMainRef.current.forEach(dot => dot && dot.remove && dot.remove());
+    dotPoolMainRef.current = [];
+
+    dotPoolMinorRef.current.forEach(dot => dot && dot.remove && dot.remove());
+    dotPoolMinorRef.current = [];
+
+    // 标记内存清理完成
+    memoryMonitor.markCleanup();
+    
+    // 开发模式下触发手动垃圾回收
+    if (process.env.NODE_ENV === 'development') {
+      memoryMonitor.forceCleanup();
+    }
+
+    console.log('强制内存清理已完成');
+  }, []);
+
+  // 监控内存使用，必要时触发强制清理
+  useEffect(() => {
+    const checkMemoryPressure = () => {
+      const stats = memoryMonitor.getStats();
+      const totalPoolSize = stats.activePoolSize.mainDots + 
+                           stats.activePoolSize.minorDots + 
+                           stats.activePoolSize.gridLines;
+      
+      // 如果对象池总大小超过1000或总对象超过5000，强制清理
+      if (totalPoolSize > 1000 || stats.totalItems > 5000) {
+        console.warn('检测到内存压力，执行强制清理:', stats);
+        forceMemoryCleanup();
+      }
+    };
+
+    // 每30秒检查一次内存使用情况
+    const intervalId = setInterval(checkMemoryPressure, 30000);
+    
+    return () => clearInterval(intervalId);
+  }, [forceMemoryCleanup]);
+
   // 清理函数
   useEffect(() => {
     return () => {
@@ -498,8 +592,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         gridLayer.remove();
         gridLayerRef.current = null;
       }
+
+      // 最终清理内存监控
+      memoryMonitor.markCleanup();
     };
-  }, []); // 空依赖数组确保只在组件卸载时执行
+  }, [forceMemoryCleanup]); // 添加forceMemoryCleanup依赖
 
   return null; // 这个组件不渲染任何DOM
 };

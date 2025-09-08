@@ -24,8 +24,10 @@ import {
     EyeOff, 
     Dot, 
     Square,
-    Menu
+    Menu,
+    Activity
 } from 'lucide-react';
+import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
 import { getAllUnits, getUnitDisplayName, getScaleRatioText } from '@/lib/unitUtils';
 import { logger } from '@/utils/logger';
@@ -54,6 +56,7 @@ const FloatingHeader: React.FC = () => {
     } = useCanvasStore();
 
     const [showUnitOptions, setShowUnitOptions] = useState(false);
+    const [showMemoryDebug, setShowMemoryDebug] = useState(false);
 
     const handleLogoClick = () => {
         logger.debug('Logo clicked');
@@ -322,6 +325,21 @@ const FloatingHeader: React.FC = () => {
                                 <Settings className="mr-2 h-3 w-3" />
                                 <span>设置</span>
                             </DropdownMenuItem>
+                            
+                            {/* 开发模式下显示内存调试选项 */}
+                            {process.env.NODE_ENV === 'development' && (
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        className="text-xs cursor-pointer"
+                                        onClick={() => setShowMemoryDebug(!showMemoryDebug)}
+                                    >
+                                        <Activity className="mr-2 h-3 w-3" />
+                                        <span>{showMemoryDebug ? '关闭内存监控' : '内存监控'}</span>
+                                    </DropdownMenuItem>
+                                </>
+                            )}
+                            
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 className="text-xs cursor-pointer"
@@ -334,6 +352,12 @@ const FloatingHeader: React.FC = () => {
                     </DropdownMenu>
                 </div>
             </div>
+            
+            {/* 内存调试面板 */}
+            <MemoryDebugPanel 
+                isVisible={showMemoryDebug} 
+                onClose={() => setShowMemoryDebug(false)} 
+            />
         </div>
     );
 };
