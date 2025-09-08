@@ -59,7 +59,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         child.visible = false;
         child.remove(); // 从图层中移除，但不销毁对象
 
-        if (child.data?.type === 'grid-dot' && child instanceof paper.Path.Circle) {
+        if (child.data?.type === 'solid-background') {
+          // 纯色背景矩形直接移除，不回收到对象池
+          child.remove();
+        } else if (child.data?.type === 'grid-dot' && child instanceof paper.Path.Circle) {
           // 根据点的类型回收到不同的对象池
           if (child.data?.isMainGrid) {
             if (dotPoolMainRef.current.length < 500) {
@@ -140,9 +143,12 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       }
     }
 
-    // 创建网格（如果启用）- 根据样式选择线条或点阵
+    // 创建网格（如果启用）- 根据样式选择线条、点阵或纯色
     if (showGrid) {
-      if (gridStyle === GridStyle.DOTS) {
+      if (gridStyle === GridStyle.SOLID) {
+        // 创建纯色背景
+        createSolidBackground(minX, maxX, minY, maxY, gridLayer);
+      } else if (gridStyle === GridStyle.DOTS) {
         // 创建点阵网格
         createDotGrid(currentGridSize, minX, maxX, minY, maxY, zoom, gridLayer);
       } else {
@@ -267,6 +273,25 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       previousActiveLayer.activate();
     }
   }, [zoom, showGrid, showAxis, gridStyle]);
+
+  // 纯色背景创建函数 - 创建淡淡的灰色背景
+  const createSolidBackground = (minX: number, maxX: number, minY: number, maxY: number, gridLayer: paper.Layer) => {
+    // 添加 Paper.js 状态检查
+    if (!paper.project || !paper.view) {
+      console.warn('Paper.js not initialized yet');
+      return;
+    }
+
+    // 创建一个覆盖整个可视区域的纯色矩形
+    const backgroundRect = new paper.Path.Rectangle({
+      from: [minX, minY],
+      to: [maxX, maxY],
+      fillColor: new paper.Color(0.95, 0.95, 0.95, 1.0), // 淡淡的灰色背景
+      data: { isHelper: true, type: 'solid-background' }
+    });
+
+    gridLayer.addChild(backgroundRect);
+  };
 
   // 优化后的点阵网格创建函数 - 大幅提升性能
   const createDotGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, zoom: number, gridLayer: paper.Layer) => {

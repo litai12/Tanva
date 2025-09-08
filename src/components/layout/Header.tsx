@@ -11,7 +11,7 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home, Ruler, Eye, EyeOff, Dot } from 'lucide-react';
+import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home, Ruler, Eye, EyeOff, Dot, Square } from 'lucide-react';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
 import { getAllUnits, getUnitDisplayName, getScaleRatioText } from '@/lib/unitUtils';
 
@@ -42,6 +42,34 @@ const Header: React.FC = () => {
     const handleLogoClick = () => {
         // 暂时空实现
         logger.debug('Logo clicked');
+    };
+
+    // 网格样式切换函数 - 循环切换：线条 -> 点阵 -> 纯色 -> 线条...
+    const getNextGridStyle = (currentStyle: GridStyle) => {
+        switch (currentStyle) {
+            case GridStyle.LINES:
+                return GridStyle.DOTS;
+            case GridStyle.DOTS:
+                return GridStyle.SOLID;
+            case GridStyle.SOLID:
+                return GridStyle.LINES;
+            default:
+                return GridStyle.LINES;
+        }
+    };
+
+    // 获取网格样式显示信息
+    const getGridStyleInfo = (style: GridStyle) => {
+        switch (style) {
+            case GridStyle.LINES:
+                return { icon: Grid3x3, text: '切换到点阵' };
+            case GridStyle.DOTS:
+                return { icon: Dot, text: '切换到纯色' };
+            case GridStyle.SOLID:
+                return { icon: Square, text: '切换到线条' };
+            default:
+                return { icon: Grid3x3, text: '切换到点阵' };
+        }
     };
 
     return (
@@ -155,19 +183,18 @@ const Header: React.FC = () => {
                             </DropdownMenuItem>
 
                             {/* 网格样式切换 */}
-                            {showGrid && (
-                                <DropdownMenuItem
-                                    className="text-xs cursor-pointer ml-4"
-                                    onClick={() => setGridStyle(gridStyle === GridStyle.LINES ? GridStyle.DOTS : GridStyle.LINES)}
-                                >
-                                    {gridStyle === GridStyle.LINES ? (
-                                        <Dot className="mr-2 h-3 w-3" />
-                                    ) : (
-                                        <Grid3x3 className="mr-2 h-3 w-3" />
-                                    )}
-                                    <span>{gridStyle === GridStyle.LINES ? '切换到点阵' : '切换到线条'}</span>
-                                </DropdownMenuItem>
-                            )}
+                            {showGrid && (() => {
+                                const { icon: IconComponent, text } = getGridStyleInfo(gridStyle);
+                                return (
+                                    <DropdownMenuItem
+                                        className="text-xs cursor-pointer ml-4"
+                                        onClick={() => setGridStyle(getNextGridStyle(gridStyle))}
+                                    >
+                                        <IconComponent className="mr-2 h-3 w-3" />
+                                        <span>{text}</span>
+                                    </DropdownMenuItem>
+                                );
+                            })()}
 
                             {/* 坐标轴开关 */}
                             <DropdownMenuItem

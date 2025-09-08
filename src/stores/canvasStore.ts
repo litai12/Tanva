@@ -7,7 +7,8 @@ import { isValidUnit } from '@/lib/unitUtils';
 // 网格样式枚举
 export const GridStyle = {
   LINES: 'lines',    // 线条网格
-  DOTS: 'dots'       // 点阵网格
+  DOTS: 'dots',      // 点阵网格
+  SOLID: 'solid'     // 纯色背景
 } as const;
 
 export type GridStyle = typeof GridStyle[keyof typeof GridStyle];
