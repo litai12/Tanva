@@ -9,6 +9,7 @@ import ToolBar from '@/components/toolbar/ToolBar';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
+import FloatingHeader from '@/components/layout/FloatingHeader';
 import { useLayerStore } from '@/stores';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // 不再需要，改用快速上传逻辑
 
@@ -32,7 +33,7 @@ const Canvas: React.FC = () => {
     }, [isPaperInitialized, ensureActiveLayer]);
 
     return (
-        <div className="flex-1 relative overflow-hidden">
+        <div className="relative w-full h-full overflow-hidden">
             <canvas
                 ref={canvasRef}
                 className="absolute inset-0 w-full h-full"
@@ -61,6 +62,9 @@ const Canvas: React.FC = () => {
                     <DrawingController canvasRef={canvasRef} />
                 </>
             )}
+
+            {/* 浮动导航栏 */}
+            <FloatingHeader />
 
             {/* 工具列 */}
             <ToolBar />
