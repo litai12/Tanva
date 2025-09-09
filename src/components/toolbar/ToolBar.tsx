@@ -414,9 +414,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
         {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
           <div className="absolute left-full ml-3 transition-all duration-200 ease-in-out z-[1001]" style={{ top: '-10px' }}>
-            <div className="flex items-center gap-3 px-3 py-2 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
+            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
-              <div className="flex items-center gap-1">
+              <div className="flex flex-col gap-1">
                 <Button
                   variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
                   size="sm"
@@ -475,7 +475,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 </Button>
               </div>
 
-              <Separator orientation="vertical" className="h-6" />
+              <Separator orientation="horizontal" className="w-6" />
 
               {/* 颜色选择器 */}
               <input
@@ -488,11 +488,11 @@ const ToolBar: React.FC<ToolBarProps> = ({
               />
 
               {/* 线宽控制 */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-600 font-medium w-4 text-right tabular-nums">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs text-gray-600 font-medium tabular-nums">
                   {strokeWidth}
                 </span>
-                <HorizontalSlider
+                <VerticalSlider
                   value={strokeWidth}
                   min={1}
                   max={20}
