@@ -349,7 +349,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         variant={isAIDialogVisible ? 'default' : 'outline'}
         size="sm"
         className={cn(
-          "px-2 py-2 h-8 w-8",
+          "p-0 h-8 w-8 rounded-full",
           isAIDialogVisible 
             ? "bg-blue-600 text-white" 
             : "bg-white/50 text-gray-700 border-gray-300"
@@ -367,7 +367,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         variant={drawMode === 'select' ? 'default' : 'outline'}
         size="sm"
         className={cn(
-          "px-2 py-2 h-8 w-8",
+          "p-0 h-8 w-8 rounded-full",
           drawMode === 'select' 
             ? "bg-blue-600 text-white" 
             : "bg-white/50 text-gray-700 border-gray-300"
@@ -385,7 +385,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -421,7 +421,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'free' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -435,7 +435,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'line' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -449,7 +449,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'rect' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -463,7 +463,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'circle' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -525,7 +525,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={drawMode === 'image' ? 'default' : 'outline'}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode === 'image' 
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -552,7 +552,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={drawMode === '3d-model' ? 'default' : 'outline'}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode === '3d-model' 
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -568,7 +568,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={drawMode === 'screenshot' ? 'default' : 'outline'}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode === 'screenshot' 
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -610,7 +610,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         variant={isLayerPanelOpen ? 'default' : 'outline'}
         size="sm"
         className={cn(
-          "px-2 py-2 h-8 w-8",
+          "p-0 h-8 w-8 rounded-full",
           isLayerPanelOpen 
             ? "bg-blue-600 text-white" 
             : "bg-white/50 border-gray-300"
@@ -631,7 +631,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={isEraser ? "default" : "outline"}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             isEraser 
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -651,7 +651,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             }}
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+            className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
             title="清空画布 (清除所有图元)"
           >
             <Trash2 className="w-4 h-4" />
