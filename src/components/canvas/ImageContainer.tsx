@@ -2,8 +2,10 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, Download } from 'lucide-react';
 import { Button } from '../ui/button';
+import ImagePreviewModal from '../ui/ImagePreviewModal';
+import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
 
 interface ImageData {
   id: string;
@@ -55,6 +57,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
   const [isPositionStable, setIsPositionStable] = useState(true);
+  
+  // 预览模态框状态
+  const [showPreview, setShowPreview] = useState(false);
 
   // 将Paper.js世界坐标转换为屏幕坐标（改进版）
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
@@ -296,6 +301,54 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [imageData.id, onMoveLayerDown]);
 
+  // 处理预览按钮点击
+  const handlePreview = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setShowPreview(true);
+    console.log('👁️ 打开图片预览:', imageData.id);
+  }, [imageData.id]);
+
+  // 处理下载按钮点击
+  const handleDownload = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    try {
+      // 🎯 优先使用原始高质量图像数据
+      let imageDataUrl: string | null = null;
+      
+      // 首先尝试从getImageDataForEditing获取原始数据
+      if (getImageDataForEditing) {
+        imageDataUrl = getImageDataForEditing(imageData.id);
+        if (imageDataUrl) {
+          console.log('💾 下载：使用原始高质量图像数据');
+        }
+      }
+      
+      // 备用方案：使用imageData.src
+      if (!imageDataUrl) {
+        imageDataUrl = imageData.src;
+        console.log('💾 下载：使用imageData.src');
+      }
+      
+      if (!imageDataUrl) {
+        console.error('❌ 无法获取图像数据进行下载');
+        return;
+      }
+      
+      // 生成建议的文件名
+      const fileName = getSuggestedFileName(imageData.fileName, 'image');
+      
+      // 下载图片
+      downloadImage(imageDataUrl, fileName);
+      
+      console.log('✅ 图片下载成功:', fileName);
+    } catch (error) {
+      console.error('❌ 图片下载失败:', error);
+    }
+  }, [imageData.id, imageData.src, imageData.fileName, getImageDataForEditing]);
+
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
   return (
@@ -331,7 +384,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
           }`}
           style={{
-            bottom: -42, // 位于图片底部外侧，稍微增加距离
+            top: -42, // 位于图片顶部外侧
             left: 0,
             right: 0, // 使用left: 0, right: 0来确保完全居中
             marginLeft: 'auto',
@@ -360,7 +413,41 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
             }}
           >
-            <Sparkles className="w-4 h-4" />
+            <Sparkles className="w-4 h-4 text-blue-600" />
+          </Button>
+
+          {/* 预览按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
+            onClick={handlePreview}
+            title="全屏预览图片"
+            style={{
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+            }}
+          >
+            <Eye className="w-4 h-4 text-blue-600" />
+          </Button>
+
+          {/* 下载按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-green-50 hover:border-green-300"
+            onClick={handleDownload}
+            title="下载原始图片"
+            style={{
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+            }}
+          >
+            <Download className="w-4 h-4 text-blue-600" />
           </Button>
 
           {/* 删除按钮 */}
@@ -377,7 +464,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
             }}
           >
-            <Trash2 className="w-4 h-4 text-red-600" />
+            <Trash2 className="w-4 h-4 text-blue-600" />
           </Button>
         </div>
       )}
@@ -432,6 +519,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           </Button>
         </div>
       )}
+      
+      {/* 图片预览模态框 */}
+      <ImagePreviewModal
+        isOpen={showPreview}
+        imageSrc={getImageDataForEditing ? (getImageDataForEditing(imageData.id) || imageData.src) : imageData.src}
+        imageTitle={imageData.fileName || `图片 ${imageData.id}`}
+        onClose={() => setShowPreview(false)}
+      />
     </div>
   );
 };

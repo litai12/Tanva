@@ -244,7 +244,7 @@ const AIChatDialog: React.FC = () => {
       "fixed z-50 transition-all duration-300 ease-out",
       isMaximized
         ? "top-32 left-16 right-16 bottom-4" // 最大化时，64px边距
-        : "bottom-5 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4"
+        : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4"
     )}>
       <div
         ref={dialogRef}

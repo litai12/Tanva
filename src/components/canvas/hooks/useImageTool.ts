@@ -304,7 +304,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     parentGroup.addChild(selectionBorder);
 
     // 添加四个角的调整控制点
-    const handleSize = 8;
+    const handleSize = 6;
     const handleColor = new paper.Color('#3b82f6');
 
     // 创建调整控制点
