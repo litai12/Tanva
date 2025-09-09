@@ -9,9 +9,10 @@ interface GridRendererProps {
 }
 
 const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitialized }) => {
-  const { gridSize, gridStyle, zoom, isDragging } = useCanvasStore();
+  const { gridSize, gridStyle, zoom, isDragging, panX, panY } = useCanvasStore();
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
+  const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
 
   // Paper.js对象池 - 减少频繁创建/删除的性能损耗
   const pathPoolRef = useRef<paper.Path[]>([]);
@@ -176,16 +177,17 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const minY = Math.floor((viewBounds.top - effectivePadding) / currentGridSize) * currentGridSize;
     const maxY = Math.ceil((viewBounds.bottom + effectivePadding) / currentGridSize) * currentGridSize;
     
-    // 虚拟化限制：防止渲染区域过大
-    const maxRenderWidth = viewWidth * 4; // 最多渲染4倍视口宽度
-    const maxRenderHeight = viewHeight * 4; // 最多渲染4倍视口高度
+    // 虚拟化限制：防止渲染区域过大，但确保足够的覆盖
+    const maxRenderWidth = viewWidth * 6; // 增加到6倍视口宽度
+    const maxRenderHeight = viewHeight * 6; // 增加到6倍视口高度
     
+    // 修复边界计算逻辑
     const actualMaxX = Math.min(maxX, minX + maxRenderWidth);
     const actualMaxY = Math.min(maxY, minY + maxRenderHeight);
-    const actualMinX = Math.max(minX, maxX - maxRenderWidth);
-    const actualMinY = Math.max(minY, maxY - maxRenderHeight);
+    const actualMinX = Math.max(minX, minX); // 确保不会缩小最小边界
+    const actualMinY = Math.max(minY, minY); // 确保不会缩小最小边界
     
-    // 使用实际限制后的边界
+    // 使用修正后的边界
     const finalMinX = actualMinX;
     const finalMaxX = actualMaxX;
     const finalMinY = actualMinY;
@@ -394,34 +396,56 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     gridLayer.addChild(backgroundRect);
   };
 
-  // 优化后的点阵网格创建函数 - 大幅提升性能
+  // 高效点阵网格创建函数 - 大幅减少对象数量
   const createDotGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, zoom: number, gridLayer: paper.Layer) => {
-    // 计算副网格显示阈值 - 当缩放小于50%时隐藏副网格，进一步减少点数
-    const shouldShowMinorGrid = zoom >= 0.5;
+    // 更严格的副网格显示阈值，减少点数量
+    const shouldShowMinorGrid = zoom >= 0.8; // 从0.3提高到0.8，大幅减少副网格点
 
-    // 性能优化：大幅限制最大网格数量，避免创建过多对象
-    const maxDotsPerAxis = Math.max(50, Math.min(200, Math.ceil(600 / zoom))); // 从500降至200，从1000降至600
-    const actualGridSize = Math.max(currentGridSize, (maxX - minX) / maxDotsPerAxis);
+    // 预计算常用值
+    const mainGridOpacity = 0.35;
+    const minorGridOpacity = 0.25;
+    const mainDotRadius = Math.max(0.8, Math.min(1.5, zoom * 1.2));
+    const minorDotRadius = Math.max(0.5, Math.min(1.0, zoom * 0.8));
 
-    // 预计算常用值 - 降低透明度
-    const mainGridOpacity = 0.25;  // 从0.4降低到0.25
-    const minorGridOpacity = 0.15; // 从0.3降低到0.15
-    const mainDotRadius = 1.2;
-    const minorDotRadius = 0.8;
+    let dotCount = 0;
+    const maxDots = 3000; // 减少到3000，控制最大对象数量
+    
+    // 动态网格间距 - 根据缩放级别调整密度
+    const dynamicGridSize = zoom < 0.5 ? currentGridSize * 2 : currentGridSize; // 缩放小时使用更大间距
 
-    // 创建点阵网格 - 优化的双循环
-    for (let x = minX; x <= maxX; x += actualGridSize) {
-      for (let y = minY; y <= maxY; y += actualGridSize) {
-        // 跳过轴线位置（如果显示轴线）
-        if ((showAxis && Math.abs(x) < actualGridSize / 2) || (showAxis && Math.abs(y) < actualGridSize / 2)) continue;
+    // 使用动态间距的优化点阵逻辑
+    for (let x = minX; x <= maxX; x += dynamicGridSize) {
+      // 跳过轴线位置
+      if (showAxis && Math.abs(x) < dynamicGridSize / 2) continue;
 
-        // 计算是否为主网格点（每5个点）- 优化计算
-        const xIndex = Math.round(x / actualGridSize);
-        const yIndex = Math.round(y / actualGridSize);
-        const isMainGrid = (xIndex % 5 === 0) && (yIndex % 5 === 0);
+      // 计算是否为主网格线（每5条线，基于原始网格大小）
+      const xGridIndex = Math.round(x / currentGridSize);
+      const isMainGridX = xGridIndex % 5 === 0;
 
-        // 如果是副网格且缩放过小，则跳过
-        if (!isMainGrid && !shouldShowMinorGrid) continue;
+      // 更激进的副网格过滤
+      if (!isMainGridX && !shouldShowMinorGrid) continue;
+
+      for (let y = minY; y <= maxY; y += dynamicGridSize) {
+        // 提前检查点数限制
+        if (dotCount >= maxDots) {
+          console.warn(`点阵达到最大限制 ${maxDots}，停止渲染`);
+          break;
+        }
+
+        // 跳过轴线位置
+        if (showAxis && Math.abs(y) < dynamicGridSize / 2) continue;
+
+        // 计算是否为主网格线
+        const yGridIndex = Math.round(y / currentGridSize);
+        const isMainGridY = yGridIndex % 5 === 0;
+
+        // 更激进的副网格过滤
+        if (!isMainGridY && !shouldShowMinorGrid) continue;
+
+        const isMainGrid = isMainGridX && isMainGridY;
+        
+        // 对副网格点进行稀疏采样，进一步减少数量
+        if (!isMainGrid && Math.random() > 0.3) continue;
 
         // 从对应的对象池获取圆点
         const dotPool = isMainGrid ? dotPoolMainRef.current : dotPoolMinorRef.current;
@@ -458,7 +482,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
             });
           }
         } else {
-          // 创建新圆点 - 减少data对象的属性
+          // 创建新圆点 - 保持与网格线一致的数据结构
           dot = new paper.Path.Circle({
             center: [x, y],
             radius: isMainGrid ? mainDotRadius : minorDotRadius,
@@ -471,7 +495,19 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           });
         }
         gridLayer.addChild(dot);
+        dotCount++;
       }
+      
+      // 如果达到最大限制，退出外层循环
+      if (dotCount >= maxDots) {
+        break;
+      }
+    }
+
+    // 开发模式下输出优化统计
+    if (process.env.NODE_ENV === 'development') {
+      const efficiency = maxDots > 0 ? ((maxDots - dotCount) / maxDots * 100).toFixed(1) : '0';
+      console.log(`优化点阵: ${dotCount}个点 (限制${maxDots}, 节省${efficiency}%)`);
     }
   };
 
@@ -492,6 +528,56 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       }
     }
   }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging]); // 添加isDragging依赖
+
+  // 智能平移检测 - 只有在平移距离足够大时才重绘
+  useEffect(() => {
+    if (!isPaperInitialized || !canvasRef.current) return;
+    
+    // 计算平移距离
+    const panDistance = Math.sqrt(
+      Math.pow(panX - lastPanRef.current.x, 2) + 
+      Math.pow(panY - lastPanRef.current.y, 2)
+    );
+    
+    // 根据网格样式调整重绘阈值
+    const redrawThreshold = gridStyle === GridStyle.DOTS ? gridSize / 4 : gridSize / 2;
+    const shouldRedrawFromPan = panDistance > redrawThreshold;
+    
+    if (showGrid || showAxis) {
+      // 针对点阵样式使用防抖，提升性能
+      if (gridStyle === GridStyle.DOTS) {
+        // 拖拽时不重绘，非拖拽时响应平移
+        if (!isDragging && (shouldRedrawFromPan || panDistance === 0)) {
+          const timeoutId = setTimeout(() => {
+            createGrid(gridSize);
+            lastPanRef.current = { x: panX, y: panY };
+          }, shouldRedrawFromPan ? 150 : 0); // 平移时延迟，其他情况立即执行
+          return () => clearTimeout(timeoutId);
+        }
+      } else {
+        // 线条网格：平移时即时重绘，保持响应性
+        if (shouldRedrawFromPan || panDistance === 0) {
+          createGrid(gridSize);
+          lastPanRef.current = { x: panX, y: panY };
+        }
+      }
+    }
+  }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging, panX, panY, createGrid]);
+
+  // 专门处理拖拽结束后的点阵重绘
+  useEffect(() => {
+    if (!isPaperInitialized || !showGrid) return;
+    
+    // 当拖拽结束且是点阵模式时，立即重绘
+    if (!isDragging && gridStyle === GridStyle.DOTS) {
+      const timeoutId = setTimeout(() => {
+        createGrid(gridSize);
+        lastPanRef.current = { x: panX, y: panY };
+      }, 50); // 较短的延迟，确保拖拽完全结束
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isDragging, isPaperInitialized, showGrid, gridStyle, gridSize, createGrid, panX, panY]);
 
   // 强制垃圾回收函数 - 用于内存压力过大时
   const forceMemoryCleanup = useCallback(() => {
