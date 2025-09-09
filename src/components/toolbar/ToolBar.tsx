@@ -413,7 +413,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
         {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
-          <div className="absolute left-full ml-3 transition-all duration-200 ease-in-out z-[1001]" style={{ top: '-10px' }}>
+          <div className="absolute left-full ml-3 transition-all duration-200 ease-in-out z-[1001]" style={{ top: '-14px' }}>
             <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
               <div className="flex flex-col gap-1">
