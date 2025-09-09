@@ -342,7 +342,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
   return (
     <div
-      className="fixed left-2 top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-lg bg-glass backdrop-blur-md shadow-glass border border-glass z-[1000] transition-all duration-300"
+      className="fixed left-2 top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-300"
     >
       {/* AI生图工具 */}
       <Button
@@ -414,7 +414,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
         {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
           <div className="absolute left-full ml-3 transition-all duration-200 ease-in-out z-[1001]" style={{ top: '-10px' }}>
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-glass-light backdrop-blur-md shadow-glass-xl border border-glass-light" style={{ marginTop: '1px' }}>
+            <div className="flex items-center gap-3 px-3 py-2 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
               <div className="flex items-center gap-1">
                 <Button

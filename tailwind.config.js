@@ -8,9 +8,9 @@ export default {
     extend: {
       boxShadow: {
         'header': '0 2px 8px rgba(0, 0, 0, 0.08)',
-        // Apple Liquid Glass 样式 - 白光内阴影版本
-        'liquid-glass': '0 8px 32px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(255, 255, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
-        'liquid-glass-lg': '0 16px 48px rgba(0, 0, 0, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+        // Apple Liquid Glass 样式 - 移除白色高光版本
+        'liquid-glass': '0 8px 32px rgba(0, 0, 0, 0.06)',
+        'liquid-glass-lg': '0 16px 48px rgba(0, 0, 0, 0.08)',
       },
       backdropBlur: {
         'xs': '2px',
@@ -31,9 +31,9 @@ export default {
         'liquid-glass-active': 'rgba(255, 255, 255, 0.08)',
       },
       borderColor: {
-        // Apple Liquid Glass 边框色 - 简化版本
-        'liquid-glass': 'rgba(255, 255, 255, 0.2)',
-        'liquid-glass-light': 'rgba(255, 255, 255, 0.15)',
+        // Apple Liquid Glass 边框色 - 中性灰色版本
+        'liquid-glass': 'rgba(0, 0, 0, 0.1)',
+        'liquid-glass-light': 'rgba(0, 0, 0, 0.08)',
       }
     },
   },

@@ -11,7 +11,7 @@ import {
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home, Ruler, Eye, EyeOff, Dot, Square } from 'lucide-react';
+import { Settings, User, LogOut, HelpCircle, Share, Library, Menu, Grid3x3, Plus, Home, Ruler, Eye, EyeOff, Square } from 'lucide-react';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
 import { getAllUnits, getUnitDisplayName, getScaleRatioText } from '@/lib/unitUtils';
 
@@ -44,12 +44,13 @@ const Header: React.FC = () => {
         logger.debug('Logo clicked');
     };
 
-    // 网格样式切换函数 - 循环切换：线条 -> 点阵 -> 纯色 -> 线条...
+    // 网格样式切换函数 - 暂时禁用点阵，只在线条和纯色之间切换
     const getNextGridStyle = (currentStyle: GridStyle) => {
         switch (currentStyle) {
             case GridStyle.LINES:
-                return GridStyle.DOTS;
+                return GridStyle.SOLID;
             case GridStyle.DOTS:
+                // 点阵已禁用，回退到纯色
                 return GridStyle.SOLID;
             case GridStyle.SOLID:
                 return GridStyle.LINES;
@@ -58,17 +59,18 @@ const Header: React.FC = () => {
         }
     };
 
-    // 获取网格样式显示信息
+    // 获取网格样式显示信息 - 点阵已禁用
     const getGridStyleInfo = (style: GridStyle) => {
         switch (style) {
             case GridStyle.LINES:
-                return { icon: Grid3x3, text: '切换到点阵' };
+                return { icon: Grid3x3, text: '切换到纯色' };
             case GridStyle.DOTS:
-                return { icon: Dot, text: '切换到纯色' };
+                // 点阵已禁用，显示切换到纯色
+                return { icon: Square, text: '切换到纯色 (点阵已禁用)' };
             case GridStyle.SOLID:
                 return { icon: Square, text: '切换到线条' };
             default:
-                return { icon: Grid3x3, text: '切换到点阵' };
+                return { icon: Grid3x3, text: '切换到纯色' };
         }
     };
 
