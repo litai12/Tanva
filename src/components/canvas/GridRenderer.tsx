@@ -179,7 +179,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = poolItem;
         line.segments[0].point = new paper.Point(x, minY);
         line.segments[1].point = new paper.Point(x, maxY);
-        line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.165 : 0.14);
+        line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10);
         line.strokeWidth = isMainGrid ? 0.8 : 0.3;
         line.visible = true;
       } else {
@@ -187,7 +187,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = new paper.Path.Line({
           from: [x, minY],
           to: [x, maxY],
-          strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.165 : 0.14),
+          strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10),
           strokeWidth: isMainGrid ? 0.8 : 0.3,
           data: { isHelper: true, type: 'grid' }
         });
@@ -216,7 +216,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = poolItem;
         line.segments[0].point = new paper.Point(minX, y);
         line.segments[1].point = new paper.Point(maxX, y);
-        line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.165 : 0.14);
+        line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10);
         line.strokeWidth = isMainGrid ? 0.8 : 0.3;
         line.visible = true;
       } else {
@@ -224,7 +224,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = new paper.Path.Line({
           from: [minX, y],
           to: [maxX, y],
-          strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.165 : 0.14),
+          strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10),
           strokeWidth: isMainGrid ? 0.8 : 0.3,
           data: { isHelper: true, type: 'grid' }
         });

@@ -258,7 +258,7 @@ const AIChatDialog: React.FC = () => {
           <div className="absolute top-0 left-4 right-4 h-1 z-50">
             <div className="w-full h-full bg-gray-200/20 rounded-full">
               <div 
-                className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all duration-500 ease-out"
+                className="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out"
                 style={{ width: `${generationStatus.progress}%` }}
               />
             </div>
@@ -496,7 +496,7 @@ const AIChatDialog: React.FC = () => {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="space-y-1.5 mr-1">
+              <div className="space-y-1.5 mr-1 pb-6">
                 <div className="mb-2 flex justify-between items-center">
                   <span className="text-xs text-gray-500 font-medium">聊天历史记录</span>
                   {/* 🧠 上下文状态指示器 */}
