@@ -249,10 +249,22 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         className={cn(
-          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300",
+          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-hidden",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
       >
+        {/* 进度条 - 贴着对话框顶部，避免触碰圆角 */}
+        {generationStatus.isGenerating && (
+          <div className="absolute top-0 left-4 right-4 h-1 z-50">
+            <div className="w-full h-full bg-gray-200/20 rounded-full">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${generationStatus.progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+        
         {/* 内容区域 */}
         <div className={cn(
           isMaximized ? "p-4 h-full overflow-hidden" : ""
