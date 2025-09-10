@@ -216,7 +216,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       if (getImageDataForEditing) {
         imageDataUrl = getImageDataForEditing(imageData.id);
         if (imageDataUrl) {
-          console.log('🎨 AI编辑：使用原始高质量图像数据');
+          // console.log('🎨 AI编辑：使用原始高质量图像数据');
         }
       }
       
@@ -322,7 +322,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       if (getImageDataForEditing) {
         imageDataUrl = getImageDataForEditing(imageData.id);
         if (imageDataUrl) {
-          console.log('💾 下载：使用原始高质量图像数据');
+          // console.log('💾 下载：使用原始高质量图像数据');
         }
       }
       

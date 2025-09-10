@@ -344,7 +344,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       // 🎯 优先使用原始图片数据（高质量）
       // 这样可以避免canvas缩放导致的质量损失
       if (imageInstance.imageData?.src) {
-        console.log('🎨 AI编辑：使用原始图片数据（高质量）');
+        // console.log('🎨 AI编辑：使用原始图片数据（高质量）');
         return imageInstance.imageData.src;
       }
 
