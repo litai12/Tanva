@@ -856,24 +856,16 @@ const LayerPanel: React.FC = () => {
     return (
         <>
         <div
-            className={`fixed top-[41px] left-0 h-[calc(100vh-41px)] w-80 bg-glass backdrop-blur-md shadow-glass-lg border-r border-glass z-[1000] transform transition-transform duration-300 ease-in-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
+            className={`fixed top-0 left-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border-r border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
                 }`}
         >
             {/* 面板头部 */}
-            <div className="flex items-center justify-between p-4 border-b border-glass">
+            <div className="flex items-center justify-between px-4 pt-6 pb-4">
                 <h2 className="text-lg font-semibold text-gray-800">图层</h2>
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={handleClose}
-                >
-                    <X className="h-4 w-4" />
-                </Button>
             </div>
 
             {/* 工具栏 */}
-            <div className="p-3 border-b border-glass">
+            <div className="p-3">
                 <Button
                     variant="outline"
                     size="sm"
@@ -886,7 +878,7 @@ const LayerPanel: React.FC = () => {
             </div>
 
             {/* 图层列表 */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto pb-12">
                 <div
                     ref={containerRef}
                     className="relative p-3 space-y-2"
@@ -1428,8 +1420,8 @@ const LayerPanel: React.FC = () => {
                 </div>
             </div>
 
-            {/* 面板底部 */}
-            <div className="p-3 border-t border-glass">
+            {/* 面板底部 - 固定在最底部 */}
+            <div className="absolute bottom-0 left-0 right-0 p-3 bg-liquid-glass/50 backdrop-blur-minimal">
                 <div className="text-xs text-gray-500 text-center">
                     共 {layers.length} 个图层，
                     {Object.values(layerItems).flat().length} 个图元
