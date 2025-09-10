@@ -256,8 +256,12 @@ const VerticalSlider: React.FC<{
       />
       {/* 滑块圆圈 */}
       <div
-        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transform -translate-y-1.5 -translate-x-0.5 transition-all duration-150"
-        style={{ bottom: `${percentage * 100}%` }}
+        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transition-all duration-150"
+        style={{ 
+          bottom: `calc(${percentage * 100}% - 6px)`,
+          left: '50%',
+          transform: 'translateX(-50%)'
+        }}
       />
     </div>
   );
@@ -505,6 +509,22 @@ const ToolBar: React.FC<ToolBarProps> = ({
         )}
       </div>
 
+      {/* 橡皮擦工具 - 放在画笔工具下方 */}
+      <Button
+        onClick={toggleEraser}
+        variant={isEraser ? "default" : "outline"}
+        size="sm"
+        className={cn(
+          "p-0 h-8 w-8 rounded-full",
+          isEraser 
+            ? "bg-blue-600 text-white" 
+            : "bg-white/50 border-gray-300"
+        )}
+        title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
+      >
+        <Eraser className="w-4 h-4" />
+      </Button>
+
       <Separator orientation="horizontal" className="w-6" />
 
       {/* 独立工具按钮 - 暂时只保留3D模型工具 */}
@@ -621,26 +641,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Layers className="w-4 h-4" />
       </Button>
 
-      <Separator orientation="horizontal" className="w-6" />
-
       {/* 工具按钮 */}
       <div className="flex flex-col items-center gap-2">
-        {/* 橡皮擦工具 */}
-        <Button
-          onClick={toggleEraser}
-          variant={isEraser ? "default" : "outline"}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            isEraser 
-              ? "bg-blue-600 text-white" 
-              : "bg-white/50 border-gray-300"
-          )}
-          title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
-        >
-          <Eraser className="w-4 h-4" />
-        </Button>
-
         {/* 清理画布按钮 */}
         {onClearCanvas && (
           <Button
