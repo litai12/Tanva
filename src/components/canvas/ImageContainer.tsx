@@ -384,7 +384,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
           }`}
           style={{
-            top: -42, // 位于图片顶部外侧
+            bottom: -42, // 位于图片底部外侧
             left: 0,
             right: 0, // 使用left: 0, right: 0来确保完全居中
             marginLeft: 'auto',
