@@ -369,8 +369,34 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
   }, [imageInstances]);
 
+  // 检查图层是否可见
+  const isLayerVisible = useCallback((imageId: string) => {
+    // 找到对应的Paper.js图层组
+    const imageGroup = paper.project.layers.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0];
+
+    if (imageGroup instanceof paper.Group) {
+      // 获取图片所在的图层
+      const currentLayer = imageGroup.layer;
+      if (currentLayer) {
+        // 返回图层的可见状态
+        return currentLayer.visible;
+      }
+    }
+    return true; // 默认可见（兜底）
+  }, []);
+
   // ========== 图片选择/取消选择 ==========
   const handleImageSelect = useCallback((imageId: string) => {
+    // 检查图层是否可见，只有可见的图层才能被选中
+    if (!isLayerVisible(imageId)) {
+      logger.debug('图层不可见，无法选中图片:', imageId);
+      return;
+    }
+
     setSelectedImageId(imageId);
     setImageInstances(prev => prev.map(img => {
       const isSelected = img.id === imageId;
@@ -397,7 +423,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       };
     }));
     eventHandlers.onImageSelect?.(imageId);
-  }, [eventHandlers.onImageSelect]);
+  }, [eventHandlers.onImageSelect, isLayerVisible]);
 
   const handleImageDeselect = useCallback(() => {
     setSelectedImageId(null);

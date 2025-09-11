@@ -80,6 +80,26 @@ export const useSelectionTool = ({
 
   // ========== 选择框功能 ==========
 
+  // 检查图层是否可见
+  const isLayerVisible = useCallback((imageId: string) => {
+    // 找到对应的Paper.js图层组
+    const imageGroup = paper.project.layers.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0];
+
+    if (imageGroup instanceof paper.Group) {
+      // 获取图片所在的图层
+      const currentLayer = imageGroup.layer;
+      if (currentLayer) {
+        // 返回图层的可见状态
+        return currentLayer.visible;
+      }
+    }
+    return true; // 默认可见（兜底）
+  }, []);
+
   // 开始选择框绘制
   const startSelectionBox = useCallback((point: paper.Point) => {
     setIsSelectionDragging(true);
@@ -136,8 +156,13 @@ export const useSelectionTool = ({
     for (const image of imageInstances) {
       const imageBounds = new paper.Rectangle(image.bounds.x, image.bounds.y, image.bounds.width, image.bounds.height);
       if (selectionRect.intersects(imageBounds)) {
-        selectedImages.push(image.id);
-        logger.upload('选择框收集图片:', image.id);
+        // 检查图层是否可见，只有可见的图层才能被选中
+        if (isLayerVisible(image.id)) {
+          selectedImages.push(image.id);
+          logger.upload('选择框收集图片:', image.id);
+        } else {
+          logger.debug('选择框：图层不可见，跳过选择:', image.id);
+        }
       }
     }
 
@@ -229,7 +254,7 @@ export const useSelectionTool = ({
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
-  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageSelect, onModel3DSelect, imageInstances, model3DInstances]);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageSelect, onModel3DSelect, imageInstances, model3DInstances, isLayerVisible]);
 
   // ========== 清除所有选择 ==========
   const clearAllSelections = useCallback(() => {
@@ -274,8 +299,14 @@ export const useSelectionTool = ({
         point.x <= image.bounds.x + image.bounds.width &&
         point.y >= image.bounds.y &&
         point.y <= image.bounds.y + image.bounds.height) {
-        imageClicked = image.id;
-        break;
+        // 检查图层是否可见，只有可见的图层才能被选中
+        if (isLayerVisible(image.id)) {
+          imageClicked = image.id;
+          break;
+        } else {
+          // 如果图层不可见，记录日志但跳过选择
+          logger.debug('图层不可见，跳过选择:', image.id);
+        }
       }
     }
 
@@ -298,7 +329,7 @@ export const useSelectionTool = ({
       imageClicked,
       modelClicked
     };
-  }, [zoom, imageInstances, model3DInstances]);
+  }, [zoom, imageInstances, model3DInstances, isLayerVisible]);
 
   // 处理选择模式下的点击
   const handleSelectionClick = useCallback((point: paper.Point) => {
