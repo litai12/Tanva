@@ -475,6 +475,52 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [imageTool]);
 
+  // 监听图层面板触发的实例更新事件
+  useEffect(() => {
+    // 处理图片实例更新
+    const handleImageInstanceUpdate = (event: CustomEvent) => {
+      const { imageId, layerId } = event.detail;
+      console.log(`🔄 DrawingController收到图片实例更新事件: ${imageId} → 图层${layerId}`);
+      
+      imageTool.setImageInstances(prev => prev.map(image => {
+        if (image.id === imageId) {
+          return { 
+            ...image, 
+            layerId: layerId,
+            layerIndex: parseInt(layerId) || 0 
+          };
+        }
+        return image;
+      }));
+    };
+
+    // 处理3D模型实例更新
+    const handleModel3DInstanceUpdate = (event: CustomEvent) => {
+      const { modelId, layerId } = event.detail;
+      console.log(`🔄 DrawingController收到3D模型实例更新事件: ${modelId} → 图层${layerId}`);
+      
+      model3DTool.setModel3DInstances(prev => prev.map(model => {
+        if (model.id === modelId) {
+          return { 
+            ...model, 
+            layerId: layerId,
+            layerIndex: parseInt(layerId) || 0 
+          };
+        }
+        return model;
+      }));
+    };
+
+    // 添加事件监听器
+    window.addEventListener('imageInstanceUpdated', handleImageInstanceUpdate as EventListener);
+    window.addEventListener('model3DInstanceUpdated', handleModel3DInstanceUpdate as EventListener);
+
+    return () => {
+      window.removeEventListener('imageInstanceUpdated', handleImageInstanceUpdate as EventListener);
+      window.removeEventListener('model3DInstanceUpdated', handleModel3DInstanceUpdate as EventListener);
+    };
+  }, [imageTool, model3DTool]);
+
   // 监听图层面板的选择事件
   useEffect(() => {
     const handleLayerItemSelected = (event: CustomEvent) => {

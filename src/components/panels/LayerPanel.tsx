@@ -751,10 +751,28 @@ const LayerPanel: React.FC = () => {
 
         // 如果是跨图层移动
         if (sourceLayerId !== targetLayerId) {
+            console.log(`🎯 尝试跨图层移动: ${sourceLayerId} → ${targetLayerId}`);
+            console.log(`📋 可用图层:`, paper.project.layers.map(l => l.name));
+            
             const targetLayer = paper.project.layers.find(l => l.name === `layer_${targetLayerId}`);
             if (targetLayer) {
+                console.log(`🚀 找到目标图层，开始跨图层移动: ${sourceLayerId} → ${targetLayerId}`);
+                console.log(`📊 源图元数据:`, sourceItem.paperItem.data);
+                
+                // 保存原始Paper.js项的引用
+                const originalPaperItem = sourceItem.paperItem;
+                
                 // 移除源图元并添加到目标图层
-                const clonedItem = sourceItem.paperItem.clone();
+                const clonedItem = sourceItem.paperItem.clone({
+                    deep: true, // 深度克隆，确保所有数据都被复制
+                    insert: false // 不自动插入，手动控制位置
+                });
+                
+                // 确保数据完整复制
+                if (originalPaperItem.data) {
+                    clonedItem.data = { ...originalPaperItem.data };
+                }
+                
                 sourceItem.paperItem.remove();
                 targetLayer.addChild(clonedItem);
 
@@ -764,9 +782,17 @@ const LayerPanel: React.FC = () => {
                 } else {
                     clonedItem.insertBelow(targetItem.paperItem); // 修正：placeBelow应该使用insertBelow
                 }
+                
+                // 同步实例数据
+                syncInstancesAfterMove(originalPaperItem, clonedItem, targetLayerId);
+                
+                console.log(`✅ 跨图层移动完成: ${sourceLayerId} → ${targetLayerId}`);
+            } else {
+                console.error(`❌ 无法找到目标图层: layer_${targetLayerId}`);
             }
         } else {
             // 同一图层内重排序
+            console.log(`📍 同图层内重排序: ${sourceLayerId}`);
             if (placeAbove) {
                 sourceItem.paperItem.insertAbove(targetItem.paperItem); // 修正：placeAbove应该使用insertAbove
             } else {
@@ -776,6 +802,67 @@ const LayerPanel: React.FC = () => {
 
         // 更新图层项数据
         updateAllLayerItems();
+    };
+
+    // 同步实例数据：在Paper.js图元移动后更新对应的ImageInstance/Model3DInstance
+    const syncInstancesAfterMove = (oldPaperItem: paper.Item, newPaperItem: paper.Item, newLayerId: string) => {
+        const itemData = oldPaperItem.data;
+        console.log(`🔄 开始同步实例数据:`, { itemData, newLayerId });
+        
+        if (!itemData) {
+            console.warn('⚠️ 没有itemData，跳过同步');
+            return;
+        }
+
+        // 处理图片实例同步
+        if (itemData.type === 'image' && itemData.imageId) {
+            console.log(`🖼️ 开始同步图片实例: ${itemData.imageId}`);
+            const imageInstances = (window as any).tanvaImageInstances || [];
+            console.log(`📋 当前图片实例:`, imageInstances.map((img: any) => ({ id: img.id, layerId: img.layerId })));
+            
+            const imageInstance = imageInstances.find((img: any) => img.id === itemData.imageId);
+            if (imageInstance) {
+                console.log(`✅ 找到图片实例，更新图层: ${itemData.imageId} → ${newLayerId}`);
+                const oldLayerId = imageInstance.layerId;
+                imageInstance.layerId = newLayerId;
+                imageInstance.layerIndex = parseInt(newLayerId) || 0;
+                
+                console.log(`🔄 图片实例更新: ${oldLayerId} → ${newLayerId}`);
+                
+                // 触发实例更新事件
+                window.dispatchEvent(new CustomEvent('imageInstanceUpdated', {
+                    detail: { imageId: itemData.imageId, layerId: newLayerId }
+                }));
+            } else {
+                console.warn(`⚠️ 找不到图片实例: ${itemData.imageId}`);
+            }
+        }
+
+        // 处理3D模型实例同步
+        if (itemData.type === '3d-model' && itemData.modelId) {
+            console.log(`🎭 开始同步3D模型实例: ${itemData.modelId}`);
+            const model3DInstances = (window as any).tanvaModel3DInstances || [];
+            console.log(`📋 当前3D模型实例:`, model3DInstances.map((model: any) => ({ id: model.id, layerId: model.layerId })));
+            
+            const modelInstance = model3DInstances.find((model: any) => model.id === itemData.modelId);
+            if (modelInstance) {
+                console.log(`✅ 找到3D模型实例，更新图层: ${itemData.modelId} → ${newLayerId}`);
+                const oldLayerId = modelInstance.layerId;
+                modelInstance.layerId = newLayerId;
+                modelInstance.layerIndex = parseInt(newLayerId) || 0;
+                
+                console.log(`🔄 3D模型实例更新: ${oldLayerId} → ${newLayerId}`);
+                
+                // 触发实例更新事件
+                window.dispatchEvent(new CustomEvent('model3DInstanceUpdated', {
+                    detail: { modelId: itemData.modelId, layerId: newLayerId }
+                }));
+            } else {
+                console.warn(`⚠️ 找不到3D模型实例: ${itemData.modelId}`);
+            }
+        }
+        
+        console.log(`🏁 实例同步完成`);
     };
 
     // 图元移动到指定图层
@@ -793,13 +880,31 @@ const LayerPanel: React.FC = () => {
             return;
         }
 
+        // 保存原始Paper.js项的引用和数据
+        const originalPaperItem = sourceItem.paperItem;
+        
         // 克隆图元并移动到目标图层的最顶层
-        const clonedItem = sourceItem.paperItem.clone();
+        const clonedItem = sourceItem.paperItem.clone({
+            deep: true, // 深度克隆，确保所有数据都被复制
+            insert: false // 不自动插入，手动控制位置
+        });
+        
+        // 确保数据完整复制
+        if (originalPaperItem.data) {
+            clonedItem.data = { ...originalPaperItem.data };
+        }
+        
+        // 移除原始项并添加克隆项到目标图层
         sourceItem.paperItem.remove();
         targetLayer.addChild(clonedItem);
 
+        // 同步实例数据
+        syncInstancesAfterMove(originalPaperItem, clonedItem, targetLayerId);
+
         // 更新图层项数据
         updateAllLayerItems();
+        
+        console.log(`✅ 图元已移动到图层 ${targetLayerId}`);
     };
 
     const getItemIcon = (type: LayerItemData['type']) => {
