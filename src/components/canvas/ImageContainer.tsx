@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, Download } from 'lucide-react';
+import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, EyeOff, Download } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal from '../ui/ImagePreviewModal';
 import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
@@ -27,6 +27,7 @@ interface ImageContainerProps {
   onDelete?: (imageId: string) => void; // 删除图片回调
   onMoveLayerUp?: (imageId: string) => void; // 图层上移回调
   onMoveLayerDown?: (imageId: string) => void; // 图层下移回调
+  onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
 }
 
@@ -44,6 +45,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onDelete,
   onMoveLayerUp,
   onMoveLayerDown,
+  onToggleVisibility,
   getImageDataForEditing
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -309,6 +311,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     console.log('👁️ 打开图片预览:', imageData.id);
   }, [imageData.id]);
 
+  // 处理切换可见性按钮点击
+  const handleToggleVisibility = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (onToggleVisibility) {
+      onToggleVisibility(imageData.id);
+      console.log('👁️‍🗨️ 切换图层可见性:', imageData.id);
+    }
+  }, [imageData.id, onToggleVisibility]);
+
   // 处理下载按钮点击
   const handleDownload = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -431,6 +444,23 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             }}
           >
             <Eye className="w-4 h-4 text-blue-600" />
+          </Button>
+
+          {/* 隐藏/显示按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-orange-50 hover:border-orange-300"
+            onClick={handleToggleVisibility}
+            title="隐藏图层（可在图层面板中恢复）"
+            style={{
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+            }}
+          >
+            <EyeOff className="w-4 h-4 text-blue-600" />
           </Button>
 
           {/* 下载按钮 */}

@@ -37,6 +37,13 @@ export interface ScreenshotResult {
   filename?: string;
 }
 
+export interface DrawableElement {
+  type: 'paper' | 'image' | 'model3d';
+  layerIndex: number;
+  bounds: { x: number; y: number; width: number; height: number };
+  data: any; // Paper.js Item, ImageInstance, or Model3DInstance
+}
+
 export class AutoScreenshotService {
   private static readonly DEFAULT_OPTIONS: Required<ScreenshotOptions> = {
     format: 'png',
@@ -103,14 +110,11 @@ export class AutoScreenshotService {
         ctx.fillRect(0, 0, contentBounds.width, contentBounds.height);
       }
 
-      // 4. 绘制Paper.js内容
-      await this.drawPaperJSContent(ctx, contentBounds);
-
-      // 5. 绘制图片内容
-      await this.drawImageInstances(ctx, contentBounds, imageInstances);
-
-      // 6. 绘制3D模型内容
-      await this.draw3DModelInstances(ctx, contentBounds, model3DInstances);
+      // 4. 收集并按层级排序所有元素
+      const sortedElements = this.collectAndSortAllElements(imageInstances, model3DInstances);
+      
+      // 5. 按正确的层级顺序绘制所有元素
+      await this.drawElementsByOrder(ctx, contentBounds, sortedElements);
 
       // 7. 生成最终结果
       const result = await this.generateResult(canvas, opts, contentBounds);
@@ -124,6 +128,292 @@ export class AutoScreenshotService {
         success: false,
         error: error instanceof Error ? error.message : '未知错误'
       };
+    }
+  }
+
+  /**
+   * 收集并按层级排序所有可绘制元素
+   */
+  private static collectAndSortAllElements(
+    imageInstances: ImageInstance[],
+    model3DInstances: Model3DInstance[]
+  ): DrawableElement[] {
+    const elements: DrawableElement[] = [];
+
+    // 1. 收集Paper.js元素
+    console.log('🔍 开始收集Paper.js元素...');
+    
+    if (paper.project && paper.project.layers) {
+      console.log(`📋 Paper.js项目信息: 找到 ${paper.project.layers.length} 个图层`);
+      
+      for (const layer of paper.project.layers) {
+        const layerIndex = paper.project.layers.indexOf(layer);
+        
+        console.log(`📊 检查图层 ${layerIndex}: ${layer.name || '未命名'} (可见: ${layer.visible}, 子元素数: ${layer.children.length})`);
+        
+        if (!layer.visible) {
+          console.log(`⏭️ 跳过不可见图层: ${layerIndex}`);
+          continue;
+        }
+        
+        console.log(`✨ 处理可见图层 ${layerIndex}: 开始遍历 ${layer.children.length} 个子元素`);
+        
+        for (let itemIndex = 0; itemIndex < layer.children.length; itemIndex++) {
+          const item = layer.children[itemIndex];
+          
+          // 跳过辅助元素
+          if (item.data?.isHelper) continue;
+          if (!item.visible) continue;
+
+          // 记录所有遍历的元素（调试信息）
+          console.log(`🔍 检查元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`, {
+            visible: item.visible,
+            isHelper: item.data?.isHelper,
+            hasSegments: item instanceof paper.Path ? item.segments?.length || 0 : 'N/A',
+            hasBounds: !!item.bounds,
+            boundsValid: item.bounds ? `${Math.round(item.bounds.x)},${Math.round(item.bounds.y)} ${Math.round(item.bounds.width)}x${Math.round(item.bounds.height)}` : 'N/A'
+          });
+
+          // 收集所有有效的内容元素，移除过于严格的边界检查
+          if ((item instanceof paper.Path && item.segments && item.segments.length > 0) ||
+              (item instanceof paper.Group) ||
+              (item instanceof paper.Raster && !item.data?.isHelper)) {
+            
+            // 宽松的边界验证：只要item.bounds存在就收集（移除严格的相交检查）
+            if (item.bounds) {
+              // 精确计算层级：图层索引 * 1000 + 元素在图层中的索引
+              const preciseLayerIndex = layerIndex * 1000 + itemIndex;
+              
+              console.log(`✅ 收集Paper.js元素: ${item.className} (layer: ${preciseLayerIndex})`, {
+                bounds: `${Math.round(item.bounds.x)},${Math.round(item.bounds.y)} ${Math.round(item.bounds.width)}x${Math.round(item.bounds.height)}`,
+                segments: item instanceof paper.Path ? item.segments.length : 'N/A',
+                strokeColor: item instanceof paper.Path && item.strokeColor ? item.strokeColor.toCSS() : 'N/A',
+                strokeWidth: item instanceof paper.Path ? item.strokeWidth : 'N/A'
+              });
+              
+              elements.push({
+                type: 'paper',
+                layerIndex: preciseLayerIndex,
+                bounds: {
+                  x: item.bounds.x,
+                  y: item.bounds.y,
+                  width: item.bounds.width,
+                  height: item.bounds.height
+                },
+                data: item
+              });
+            } else {
+              console.warn(`⚠️ 跳过无边界的Paper.js元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+            }
+          } else {
+            console.log(`⏭️ 跳过非内容元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`, {
+              reason: item instanceof paper.Path ? 
+                (!item.segments ? '无segments' : item.segments.length === 0 ? 'segments为空' : '通过Path检查') :
+                item instanceof paper.Group ? '不是Group' : 
+                item instanceof paper.Raster ? (item.data?.isHelper ? '是辅助元素' : '通过Raster检查') :
+                '不匹配任何类型'
+            });
+          }
+        }
+        
+        console.log(`✅ 图层 ${layerIndex} 处理完成`);
+      }
+      
+      console.log('✅ Paper.js元素收集完成');
+    } else {
+      console.warn('⚠️ 未找到Paper.js项目或图层');
+    }
+
+    // 2. 收集图片实例
+    const visibleImages = imageInstances.filter(img => img.visible);
+    console.log(`🖼️ 收集图片实例: 找到 ${visibleImages.length} 个可见图片`);
+    
+    for (const image of visibleImages) {
+      // 图片实例使用其真实的 layerIndex，乘以1000确保在正确的图层级别
+      const imageLayerIndex = (image.layerIndex || 0) * 1000;
+      
+      console.log(`✅ 收集图片实例: ${image.id} (layer: ${imageLayerIndex})`, {
+        bounds: `${Math.round(image.bounds.x)},${Math.round(image.bounds.y)} ${Math.round(image.bounds.width)}x${Math.round(image.bounds.height)}`,
+        layerIndex: imageLayerIndex,
+        visible: image.visible
+      });
+      
+      elements.push({
+        type: 'image',
+        layerIndex: imageLayerIndex,
+        bounds: image.bounds,
+        data: image
+      });
+    }
+
+    // 3. 收集3D模型实例
+    const visibleModels = model3DInstances.filter(model => model.visible);
+    console.log(`🎭 收集3D模型实例: 找到 ${visibleModels.length} 个可见模型`);
+    
+    for (const model of visibleModels) {
+      // 3D模型使用其真实的 layerIndex，乘以1000确保在正确的图层级别
+      const modelLayerIndex = (model.layerIndex || 0) * 1000;
+      
+      console.log(`✅ 收集3D模型实例: ${model.id} (layer: ${modelLayerIndex})`, {
+        bounds: `${Math.round(model.bounds.x)},${Math.round(model.bounds.y)} ${Math.round(model.bounds.width)}x${Math.round(model.bounds.height)}`,
+        layerIndex: modelLayerIndex,
+        visible: model.visible
+      });
+      
+      elements.push({
+        type: 'model3d',
+        layerIndex: modelLayerIndex,
+        bounds: model.bounds,
+        data: model
+      });
+    }
+
+    // 4. 按层级排序（从底层到顶层）
+    elements.sort((a, b) => a.layerIndex - b.layerIndex);
+    
+    // 详细的收集统计信息
+    const stats = {
+      totalElements: elements.length,
+      paperElements: elements.filter(el => el.type === 'paper').length,
+      imageElements: elements.filter(el => el.type === 'image').length,
+      model3dElements: elements.filter(el => el.type === 'model3d').length,
+      paperPaths: elements.filter(el => el.type === 'paper' && el.data instanceof paper.Path).length,
+      paperGroups: elements.filter(el => el.type === 'paper' && el.data instanceof paper.Group).length,
+      paperRasters: elements.filter(el => el.type === 'paper' && el.data instanceof paper.Raster).length
+    };
+    
+    console.log('📈 元素收集统计:', stats);
+    
+    logger.debug('📋 收集到的元素排序结果:', elements.map(el => ({
+      type: el.type,
+      layerIndex: el.layerIndex,
+      className: el.data.className || el.data.constructor?.name || 'unknown',
+      id: el.data.id || 'unknown',
+      bounds: `${Math.round(el.bounds.x)},${Math.round(el.bounds.y)} ${Math.round(el.bounds.width)}x${Math.round(el.bounds.height)}`,
+      segments: el.data instanceof paper.Path ? el.data.segments?.length : 'N/A',
+      strokeColor: el.data instanceof paper.Path && el.data.strokeColor ? el.data.strokeColor.toCSS() : 'N/A'
+    })));
+    
+    console.log('🎯 截图元素绘制顺序:', elements.map((el, index) => 
+      `${index + 1}. [${el.type}] Layer:${el.layerIndex} ${el.data.className || el.data.constructor?.name} ID:${el.data.id || 'unknown'} Segments:${el.data instanceof paper.Path ? el.data.segments?.length || 0 : 'N/A'}`
+    ).join('\n'));
+
+    return elements;
+  }
+
+  /**
+   * 按顺序绘制所有元素
+   */
+  private static async drawElementsByOrder(
+    ctx: CanvasRenderingContext2D,
+    bounds: ContentBounds,
+    elements: DrawableElement[]
+  ): Promise<void> {
+    logger.debug('🎨 开始按层级顺序绘制元素...');
+    
+    for (const element of elements) {
+      try {
+        switch (element.type) {
+          case 'paper':
+            await this.drawSinglePaperElement(ctx, bounds, element.data);
+            break;
+          case 'image':
+            await this.drawSingleImageInstance(ctx, bounds, element.data);
+            break;
+          case 'model3d':
+            await this.drawSingleModel3DInstance(ctx, bounds, element.data);
+            break;
+        }
+      } catch (error) {
+        logger.warn(`绘制元素失败 (${element.type}, layer: ${element.layerIndex}):`, error);
+        continue;
+      }
+    }
+    
+    logger.debug('✅ 所有元素绘制完成');
+  }
+
+  /**
+   * 绘制单个Paper.js元素
+   */
+  private static async drawSinglePaperElement(
+    ctx: CanvasRenderingContext2D,
+    bounds: ContentBounds,
+    item: paper.Item
+  ): Promise<void> {
+    ctx.save();
+    ctx.translate(-bounds.x, -bounds.y);
+
+    try {
+      if (item instanceof paper.Path && item.segments && item.segments.length > 0) {
+        this.drawPaperPath(ctx, item);
+      } else if (item instanceof paper.Group) {
+        this.drawPaperGroup(ctx, item);
+      } else if (item instanceof paper.Raster && !item.data?.isHelper) {
+        await this.drawPaperRaster(ctx, item);
+      }
+    } finally {
+      ctx.restore();
+    }
+  }
+
+  /**
+   * 绘制单个图片实例
+   */
+  private static async drawSingleImageInstance(
+    ctx: CanvasRenderingContext2D,
+    bounds: ContentBounds,
+    imageInstance: ImageInstance
+  ): Promise<void> {
+    // 计算图片在截图中的相对位置
+    const relativeX = imageInstance.bounds.x - bounds.x;
+    const relativeY = imageInstance.bounds.y - bounds.y;
+
+    // 加载图片
+    const img = await this.loadImageFromSrc(imageInstance.imageData.src);
+    
+    // 绘制图片
+    ctx.drawImage(
+      img,
+      relativeX,
+      relativeY,
+      imageInstance.bounds.width,
+      imageInstance.bounds.height
+    );
+  }
+
+  /**
+   * 绘制单个3D模型实例
+   */
+  private static async drawSingleModel3DInstance(
+    ctx: CanvasRenderingContext2D,
+    bounds: ContentBounds,
+    modelInstance: Model3DInstance
+  ): Promise<void> {
+    // 计算模型在截图中的相对位置
+    const relativeX = modelInstance.bounds.x - bounds.x;
+    const relativeY = modelInstance.bounds.y - bounds.y;
+
+    // 查找对应的Canvas元素
+    const modelCanvas = this.find3DCanvas(modelInstance.id);
+    if (modelCanvas) {
+      // 确保Canvas内容是最新的
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(resolve);
+        });
+      });
+      
+      // 绘制3D模型内容
+      ctx.drawImage(
+        modelCanvas,
+        relativeX,
+        relativeY,
+        modelInstance.bounds.width,
+        modelInstance.bounds.height
+      );
+    } else {
+      logger.warn(`无法找到3D模型 ${modelInstance.id} 的Canvas元素`);
     }
   }
 

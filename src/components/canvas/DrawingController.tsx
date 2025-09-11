@@ -27,6 +27,7 @@ interface DrawingControllerProps {
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
+  const { toggleVisibility } = useLayerStore();
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   const lastDrawModeRef = useRef<string>(drawMode);
 
@@ -329,6 +330,38 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, []);
 
+  // 处理图片图层可见性切换
+  const handleImageToggleVisibility = useCallback((imageId: string) => {
+    try {
+      // 找到对应的Paper.js图层组
+      const imageGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === imageId
+        )
+      )[0];
+
+      if (imageGroup instanceof paper.Group) {
+        // 获取图片所在的图层
+        const currentLayer = imageGroup.layer;
+        if (currentLayer) {
+          // 从图层名称获取图层store ID (layer_${id} -> id)
+          const layerStoreId = currentLayer.name.replace('layer_', '');
+          
+          // 调用图层store的切换可见性函数
+          toggleVisibility(layerStoreId);
+          
+          console.log(`👁️ 切换图层可见性: ${currentLayer.name} (storeId: ${layerStoreId})`);
+        } else {
+          console.warn('图片没有关联的图层');
+        }
+      } else {
+        console.warn('未找到对应的图片图层组');
+      }
+    } catch (error) {
+      console.error('切换图层可见性失败:', error);
+    }
+  }, [toggleVisibility]);
+
   // 同步图片和3D模型的可见性状态
   useEffect(() => {
     const syncVisibilityStates = () => {
@@ -500,6 +533,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
           onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
           onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
+          onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
           getImageDataForEditing={imageTool.getImageDataForEditing}
         />
       ))}
