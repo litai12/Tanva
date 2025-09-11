@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import paper from 'paper';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
@@ -28,6 +29,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
   const { toggleVisibility } = useLayerStore();
+  const { setSourceImageForEditing, showDialog: showAIDialog } = useAIChatStore();
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   const lastDrawModeRef = useRef<string>(drawMode);
 
@@ -194,14 +196,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         models: model3DTool.model3DInstances
       });
 
-      const result = await AutoScreenshotService.quickScreenshot(
+      // 使用带回调的截图模式，同时下载和传入AI对话框
+      const result = await AutoScreenshotService.captureAutoScreenshot(
         imageTool.imageInstances,
-        model3DTool.model3DInstances
+        model3DTool.model3DInstances,
+        {
+          format: 'png',
+          quality: 0.92,
+          scale: 2,
+          padding: 0, // 无边距，与内容尺寸完全一致
+          autoDownload: true, // 同时下载文件，方便检查质量
+          filename: 'artboard-screenshot',
+          // 截图完成后的回调，直接传入AI聊天
+          onComplete: (dataUrl: string, filename: string) => {
+            console.log('🎨 截图完成，同时下载文件和传入AI对话框...', { filename });
+            
+            // 将截图设置为AI编辑源图片
+            setSourceImageForEditing(dataUrl);
+            
+            // 显示AI对话框
+            showAIDialog();
+            
+            console.log('✅ 截图已下载到本地并传入AI对话框');
+          }
+        }
       );
 
       if (result.success) {
         logger.debug('✅ 截图成功生成:', result.filename);
-        console.log('截图成功！文件已下载:', result.filename);
+        console.log('截图成功！已下载到本地并传入AI对话框:', result.filename);
       } else {
         logger.error('❌ 截图失败:', result.error);
         console.error('截图失败:', result.error);
@@ -216,7 +239,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 无论成功失败，都切换回选择模式
       setDrawMode('select');
     }
-  }, [imageTool.imageInstances, model3DTool.model3DInstances, setDrawMode]);
+  }, [imageTool.imageInstances, model3DTool.model3DInstances, setDrawMode, setSourceImageForEditing, showAIDialog]);
 
   // 监听截图工具的激活
   useEffect(() => {

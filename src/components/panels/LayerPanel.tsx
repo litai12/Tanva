@@ -856,7 +856,7 @@ const LayerPanel: React.FC = () => {
     return (
         <>
         <div
-            className={`fixed top-0 left-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border-r border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
+            className={`fixed top-0 left-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-r border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${showLayerPanel ? 'translate-x-0' : '-translate-x-full'
                 }`}
         >
             {/* 面板头部 */}

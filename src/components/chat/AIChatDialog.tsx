@@ -249,7 +249,7 @@ const AIChatDialog: React.FC = () => {
       <div
         ref={dialogRef}
         className={cn(
-          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-hidden",
+          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-hidden",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
       >
@@ -386,7 +386,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 z-10",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-150 border border-liquid-glass hover:bg-liquid-glass-hover shadow-liquid-glass text-gray-700"
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass hover:bg-liquid-glass-hover shadow-liquid-glass text-gray-700"
                 )}
                 title={isMaximized ? "还原窗口" : "最大化窗口"}
               >
@@ -402,7 +402,7 @@ const AIChatDialog: React.FC = () => {
                   variant="outline"
                   className={cn(
                     "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-150 border border-liquid-glass shadow-liquid-glass",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     isMaximized
                       ? "opacity-30 cursor-not-allowed text-gray-400"
                       : !generationStatus.isGenerating && messages.length > 0
@@ -423,7 +423,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-150 border border-liquid-glass shadow-liquid-glass",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   !generationStatus.isGenerating
                     ? "hover:bg-liquid-glass-hover text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
@@ -441,7 +441,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-150 border border-liquid-glass shadow-liquid-glass",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   canSend
                     ? "hover:bg-liquid-glass-hover text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"

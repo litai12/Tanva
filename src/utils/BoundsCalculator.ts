@@ -20,77 +20,113 @@ export interface ContentBounds extends Bounds {
 
 export class BoundsCalculator {
   /**
-   * 计算所有内容元素的联合边界
-   * @param imageInstances 图片实例数组
+   * 计算截图边界（以图片为基础，包含其上的绘制内容）
+   * @param imageInstances 图片实例数组（作为主要边界基础）
    * @param model3DInstances 3D模型实例数组
    * @param padding 边距（Paper.js坐标单位）
-   * @returns 包含所有元素的边界
+   * @returns 以图片为基础的截图边界
    */
   static calculateContentBounds(
     imageInstances: ImageInstance[],
     model3DInstances: Model3DInstance[],
-    padding: number = 50
+    padding: number = 0
   ): ContentBounds {
-    const allBounds: Bounds[] = [];
+    console.log('📏 以图片为基础计算截图边界...');
+    
+    // 第一步：收集所有可见图片和3D模型作为基础边界
+    const baseBounds: Bounds[] = [];
+    
+    // 1. 收集可见图片实例作为主要边界
+    const visibleImages = imageInstances.filter(img => img.visible);
+    console.log(`🖼️ 找到 ${visibleImages.length} 个可见图片实例`);
+    
+    for (const image of visibleImages) {
+      if (this.isValidBounds(image.bounds)) {
+        baseBounds.push(image.bounds);
+        console.log(`  - 图片 ${image.id}: ${Math.round(image.bounds.x)},${Math.round(image.bounds.y)} ${Math.round(image.bounds.width)}x${Math.round(image.bounds.height)}`);
+      }
+    }
 
-    // 1. 收集Paper.js中的所有非辅助元素边界
-    if (paper.project && paper.project.layers) {
-      for (const layer of paper.project.layers) {
-        if (!layer.visible) continue;
-        
-        for (const item of layer.children) {
-          // 跳过辅助元素（网格、选择框等）
-          if (item.data?.isHelper) continue;
+    // 2. 收集可见3D模型实例
+    const visibleModels = model3DInstances.filter(model => model.visible);
+    console.log(`🎭 找到 ${visibleModels.length} 个可见3D模型`);
+    
+    for (const model of visibleModels) {
+      if (this.isValidBounds(model.bounds)) {
+        baseBounds.push(model.bounds);
+        console.log(`  - 3D模型 ${model.id}: ${Math.round(model.bounds.x)},${Math.round(model.bounds.y)} ${Math.round(model.bounds.width)}x${Math.round(model.bounds.height)}`);
+      }
+    }
+    
+    // 如果没有图片和3D模型，则收集所有Paper.js绘制内容作为边界
+    if (baseBounds.length === 0) {
+      console.log('⚠️ 没有图片和3D模型，使用Paper.js绘制内容作为边界');
+      
+      if (paper.project && paper.project.layers) {
+        for (const layer of paper.project.layers) {
+          if (!layer.visible) continue;
           
-          // 跳过不可见元素
-          if (!item.visible) continue;
-          
-          // 只收集真正的内容元素
-          if (item instanceof paper.Path && item.segments && item.segments.length > 0) {
-            if (item.bounds && this.isValidBounds(item.bounds)) {
-              allBounds.push({
-                x: item.bounds.x,
-                y: item.bounds.y,
-                width: item.bounds.width,
-                height: item.bounds.height
-              });
-            }
-          } else if (item instanceof paper.Group) {
-            // 递归处理组内元素
-            this.collectGroupBounds(item, allBounds);
-          } else if (item instanceof paper.Raster && !item.data?.isHelper) {
-            // Paper.js中的图片（不是图片占位符）
-            if (item.bounds && this.isValidBounds(item.bounds)) {
-              allBounds.push({
-                x: item.bounds.x,
-                y: item.bounds.y,
-                width: item.bounds.width,
-                height: item.bounds.height
-              });
+          for (const item of layer.children) {
+            if (item.data?.isHelper || !item.visible) continue;
+            
+            if ((item instanceof paper.Path && item.segments && item.segments.length > 0) ||
+                (item instanceof paper.Group) ||
+                (item instanceof paper.Raster && !item.data?.isHelper)) {
+              if (item.bounds && this.isValidBounds(item.bounds)) {
+                baseBounds.push({
+                  x: item.bounds.x,
+                  y: item.bounds.y,
+                  width: item.bounds.width,
+                  height: item.bounds.height
+                });
+              }
             }
           }
         }
       }
-    }
-
-    // 2. 收集可见图片实例的边界
-    const visibleImages = imageInstances.filter(img => img.visible);
-    for (const image of visibleImages) {
-      if (this.isValidBounds(image.bounds)) {
-        allBounds.push(image.bounds);
+    } else {
+      // 第二步：如果有图片/3D模型，只使用它们的边界作为截图区域
+      console.log('🎨 以图片/3D模型的边界作为截图区域，不包含超出范围的绘制内容');
+      
+      // 只计算Paper.js元素数量用于统计，但不将它们的边界加入baseBounds
+      let paperElementCount = 0;
+      if (paper.project && paper.project.layers) {
+        for (const layer of paper.project.layers) {
+          if (!layer.visible) continue;
+          
+          for (const item of layer.children) {
+            if (item.data?.isHelper || !item.visible) continue;
+            
+            if ((item instanceof paper.Path && item.segments && item.segments.length > 0) ||
+                (item instanceof paper.Group) ||
+                (item instanceof paper.Raster && !item.data?.isHelper)) {
+              if (item.bounds && this.isValidBounds(item.bounds)) {
+                const imageBounds = this.calculateUnionBounds(baseBounds);
+                const itemBounds = {
+                  x: item.bounds.x,
+                  y: item.bounds.y,
+                  width: item.bounds.width,
+                  height: item.bounds.height
+                };
+                
+                if (this.boundsIntersect(imageBounds, itemBounds)) {
+                  paperElementCount++;
+                  console.log(`  ✓ Paper.js元素 ${item.className} 与图片重叠: ${Math.round(item.bounds.x)},${Math.round(item.bounds.y)} ${Math.round(item.bounds.width)}x${Math.round(item.bounds.height)}`);
+                } else {
+                  console.log(`  × Paper.js元素 ${item.className} 超出图片范围，将被裁剪`);
+                }
+              }
+            }
+          }
+        }
       }
+      
+      console.log(`📊 找到 ${paperElementCount} 个与图片重叠的Paper.js元素`);
     }
 
-    // 3. 收集可见3D模型实例的边界
-    const visibleModels = model3DInstances.filter(model => model.visible);
-    for (const model of visibleModels) {
-      if (this.isValidBounds(model.bounds)) {
-        allBounds.push(model.bounds);
-      }
-    }
-
-    // 4. 计算联合边界
-    if (allBounds.length === 0) {
+    // 第三步：计算最终边界
+    if (baseBounds.length === 0) {
+      console.log('⚠️ 没有找到任何内容元素，使用默认边界');
       return {
         x: 0,
         y: 0,
@@ -101,16 +137,18 @@ export class BoundsCalculator {
       };
     }
 
-    const unionBounds = this.calculateUnionBounds(allBounds);
+    // 严格使用图片/3D模型的边界，不包含超出部分
+    const finalBounds = this.calculateUnionBounds(baseBounds);
+    console.log(`📏 最终截图边界（严格按图片边界）: ${Math.round(finalBounds.x)},${Math.round(finalBounds.y)} ${Math.round(finalBounds.width)}x${Math.round(finalBounds.height)}`);
     
-    // 5. 添加边距
+    // 不添加边距，严格按照图片边界截图
     return {
-      x: unionBounds.x - padding,
-      y: unionBounds.y - padding,
-      width: unionBounds.width + padding * 2,
-      height: unionBounds.height + padding * 2,
+      x: finalBounds.x,
+      y: finalBounds.y,
+      width: finalBounds.width,
+      height: finalBounds.height,
       isEmpty: false,
-      elementCount: allBounds.length
+      elementCount: baseBounds.length
     };
   }
 

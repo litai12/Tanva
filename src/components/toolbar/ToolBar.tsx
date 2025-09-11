@@ -347,7 +347,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
   return (
     <div
       className={cn(
-        "fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-[50ms] ease-out",
+        "fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-[50ms] ease-out",
         isLayerPanelOpen ? "left-[322px]" : "left-2"
       )}
     >
@@ -421,7 +421,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
         {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
           <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
-            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-150 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
+            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
               <div className="flex flex-col gap-1">
                 <Button
@@ -597,7 +597,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               : "bg-white/50 border-gray-300"
           )}
           onClick={() => setDrawMode('screenshot')}
-          title="一键截图 - 自动包含所有元素"
+          title="AI截图 - 自动包含所有元素，同时下载和传入AI对话框"
         >
           <Camera className="w-4 h-4" />
         </Button>

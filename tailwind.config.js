@@ -14,21 +14,23 @@ export default {
       },
       backdropBlur: {
         'xs': '2px',
-        'minimal': '4px',
-        'light': '6px',
-        'liquid': '12px',
-        'xl': '24px',
+        'minimal': '8px',
+        'light': '10px',
+        'liquid': '20px',
+        'xl': '32px',
       },
       backdropSaturate: {
+        '110': '1.1',
+        '125': '1.25',
         '150': '1.5',
         '180': '1.8',
       },
       backgroundColor: {
-        // Apple Liquid Glass 背景色 - 极致透明版本
-        'liquid-glass': 'rgba(255, 255, 255, 0.03)',
-        'liquid-glass-light': 'rgba(255, 255, 255, 0.02)',
-        'liquid-glass-hover': 'rgba(255, 255, 255, 0.06)',
-        'liquid-glass-active': 'rgba(255, 255, 255, 0.08)',
+        // Apple Liquid Glass 背景色 - 降低透明度版本
+        'liquid-glass': 'rgba(255, 255, 255, 0.08)',
+        'liquid-glass-light': 'rgba(255, 255, 255, 0.06)',
+        'liquid-glass-hover': 'rgba(255, 255, 255, 0.12)',
+        'liquid-glass-active': 'rgba(255, 255, 255, 0.15)',
       },
       borderColor: {
         // Apple Liquid Glass 边框色 - 中性灰色版本

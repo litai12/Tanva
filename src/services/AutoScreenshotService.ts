@@ -26,6 +26,8 @@ export interface ScreenshotOptions {
   autoDownload?: boolean;
   /** 文件名前缀 */
   filename?: string;
+  /** 生成完成后的回调函数，用于自定义处理截图数据 */
+  onComplete?: (dataUrl: string, filename: string) => void;
 }
 
 export interface ScreenshotResult {
@@ -49,10 +51,10 @@ export class AutoScreenshotService {
     format: 'png',
     quality: 0.92,
     scale: 2, // 2x分辨率，提高清晰度
-    padding: 50,
+    padding: 0, // 移除默认边距，使截图尺寸与内容完全匹配
     includeBackground: true,
     backgroundColor: '#ffffff',
-    autoDownload: true,
+    autoDownload: false, // 改为默认不自动下载，改为传入AI对话框
     filename: 'artboard-screenshot'
   };
 
@@ -104,19 +106,29 @@ export class AutoScreenshotService {
       // 设置高DPI支持
       ctx.scale(opts.scale, opts.scale);
 
-      // 3. 绘制背景
+      // 3. 设置裁剪区域，确保所有绘制内容都在截图边界内
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, contentBounds.width, contentBounds.height);
+      ctx.clip();
+      console.log(`🔲 设置裁剪区域: 0,0 ${contentBounds.width}x${contentBounds.height}`);
+
+      // 4. 绘制背景
       if (opts.includeBackground) {
         ctx.fillStyle = opts.backgroundColor;
         ctx.fillRect(0, 0, contentBounds.width, contentBounds.height);
       }
 
-      // 4. 收集并按层级排序所有元素
+      // 5. 收集并按层级排序所有元素
       const sortedElements = this.collectAndSortAllElements(imageInstances, model3DInstances);
       
-      // 5. 按正确的层级顺序绘制所有元素
+      // 6. 按正确的层级顺序绘制所有元素
       await this.drawElementsByOrder(ctx, contentBounds, sortedElements);
+      
+      // 7. 恢复裁剪区域
+      ctx.restore();
 
-      // 7. 生成最终结果
+      // 8. 生成最终结果
       const result = await this.generateResult(canvas, opts, contentBounds);
       
       logger.debug('✅ 截图生成完成');
@@ -188,7 +200,9 @@ export class AutoScreenshotService {
                 bounds: `${Math.round(item.bounds.x)},${Math.round(item.bounds.y)} ${Math.round(item.bounds.width)}x${Math.round(item.bounds.height)}`,
                 segments: item instanceof paper.Path ? item.segments.length : 'N/A',
                 strokeColor: item instanceof paper.Path && item.strokeColor ? item.strokeColor.toCSS() : 'N/A',
-                strokeWidth: item instanceof paper.Path ? item.strokeWidth : 'N/A'
+                strokeWidth: item instanceof paper.Path ? item.strokeWidth : 'N/A',
+                isCircle: item instanceof paper.Path.Circle,
+                radius: item instanceof paper.Path.Circle ? (item as any).radius : 'N/A'
               });
               
               elements.push({
@@ -495,7 +509,7 @@ export class AutoScreenshotService {
   }
 
   /**
-   * 绘制Paper.js路径
+   * 绘制Paper.js路径（增强版，支持圆形特殊处理）
    */
   private static drawPaperPath(ctx: CanvasRenderingContext2D, path: paper.Path): void {
     if (!path.segments || path.segments.length === 0) return;
@@ -514,7 +528,58 @@ export class AutoScreenshotService {
       ctx.fillStyle = path.fillColor.toCSS(true);
     }
 
-    // 构建路径
+    // 增强圆形检测：检查多种可能的圆形标识
+    const isCircle = path instanceof paper.Path.Circle || 
+                    path.className === 'Path.Circle' ||
+                    (path as any).radius !== undefined ||
+                    (path as any).isCirclePath === true; // 我们自定义的圆形标识
+    
+    const isLikelyCircle = path.segments.length === 4 && 
+                         path.closed && 
+                         Math.abs(path.bounds.width - path.bounds.height) < 1; // 宽高接近相等
+    
+    // 特殊处理：如果是圆形，使用Canvas原生的arc方法以保证完美的圆形
+    if (isCircle || isLikelyCircle) {
+      const center = path.position;
+      const radius = (path as any).radius || (Math.min(path.bounds.width, path.bounds.height) / 2);
+      
+      console.log('🔍 检测到圆形，使用arc方法绘制:', {
+        center: { x: center.x, y: center.y },
+        radius: radius,
+        bounds: `${path.bounds.x},${path.bounds.y} ${path.bounds.width}x${path.bounds.height}`,
+        className: path.className,
+        isCircleInstance: path instanceof paper.Path.Circle,
+        hasRadiusProperty: (path as any).radius !== undefined,
+        segments: path.segments.length,
+        isLikelyCircle: isLikelyCircle
+      });
+      
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
+      
+      // 填充和描边
+      if (path.fillColor) {
+        ctx.fill();
+      }
+      if (path.strokeColor) {
+        ctx.stroke();
+      }
+      
+      ctx.restore();
+      return;
+    }
+    
+    // 调试：记录非圆形路径信息
+    console.log('🔍 绘制一般路径:', {
+      className: path.className,
+      isCircle: path instanceof paper.Path.Circle,
+      segments: path.segments.length,
+      closed: path.closed,
+      bounds: `${path.bounds.x},${path.bounds.y} ${path.bounds.width}x${path.bounds.height}`,
+      widthHeightRatio: path.bounds.width / path.bounds.height
+    });
+
+    // 对于其他路径，使用原有的段绘制方法
     ctx.beginPath();
     
     const firstSegment = path.segments[0];
@@ -778,6 +843,11 @@ export class AutoScreenshotService {
     // 自动下载
     if (options.autoDownload && blob) {
       this.downloadBlob(blob, filename);
+    }
+    
+    // 调用完成回调（如果提供）
+    if (options.onComplete) {
+      options.onComplete(dataUrl, filename);
     }
 
     return {
