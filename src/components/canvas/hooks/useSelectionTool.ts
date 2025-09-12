@@ -12,8 +12,10 @@ interface UseSelectionToolProps {
   zoom: number;
   imageInstances: ImageInstance[];
   model3DInstances: Model3DInstance[];
-  onImageSelect: (imageId: string) => void;
-  onModel3DSelect: (modelId: string) => void;
+  onImageSelect: (imageId: string, addToSelection?: boolean) => void;
+  onImageMultiSelect: (imageIds: string[]) => void;
+  onModel3DSelect: (modelId: string, addToSelection?: boolean) => void;
+  onModel3DMultiSelect: (modelIds: string[]) => void;
   onImageDeselect: () => void;
   onModel3DDeselect: () => void;
 }
@@ -23,7 +25,9 @@ export const useSelectionTool = ({
   imageInstances,
   model3DInstances,
   onImageSelect,
+  onImageMultiSelect,
   onModel3DSelect,
+  onModel3DMultiSelect,
   onImageDeselect,
   onModel3DDeselect
 }: UseSelectionToolProps) => {
@@ -175,10 +179,12 @@ export const useSelectionTool = ({
       }
     }
 
-    // 遍历绘图图层中的所有路径
-    const drawingLayer = paper.project.layers.find(layer => layer.name === "drawing");
-    if (drawingLayer) {
-      drawingLayer.children.forEach((item) => {
+    // 遍历所有图层中的所有路径（排除特殊图层）
+    paper.project.layers.forEach(layer => {
+      // 跳过网格和背景图层
+      if (layer.name === 'grid' || layer.name === 'background') return;
+      
+      layer.children.forEach((item) => {
         if (item instanceof paper.Path) {
           // 检查路径是否在选择框内
           if (selectionRect.contains(item.bounds)) {
@@ -211,18 +217,19 @@ export const useSelectionTool = ({
           }
         }
       });
-    }
+    });
 
-    // 更新选择状态
+    // 更新路径选择状态
+    // 清除之前的路径选择
+    selectedPaths.forEach(path => {
+      path.selected = false;
+      if ((path as any).originalStrokeWidth) {
+        path.strokeWidth = (path as any).originalStrokeWidth;
+      }
+    });
+
+    // 如果有新的路径被选中
     if (selectedPathsInBox.length > 0) {
-      // 清除之前的选择
-      selectedPaths.forEach(path => {
-        path.selected = false;
-        if ((path as any).originalStrokeWidth) {
-          path.strokeWidth = (path as any).originalStrokeWidth;
-        }
-      });
-
       // 选择框内的所有路径，启用编辑模式
       selectedPathsInBox.forEach(path => {
         path.selected = true;
@@ -232,29 +239,41 @@ export const useSelectionTool = ({
         }
         path.strokeWidth = (path as any).originalStrokeWidth + 1;
       });
-
-      setSelectedPaths(selectedPathsInBox);
-      setSelectedPath(null); // 清除单个选择
       logger.debug(`选择了${selectedPathsInBox.length}个路径`);
     }
 
-    // 处理图片和3D模型的选择（在选择框完成后）
+    setSelectedPaths(selectedPathsInBox);
+    setSelectedPath(null); // 清除单个选择
+
+    // 处理所有类型的选择（同时支持多种类型）
+    let totalSelected = 0;
+    
+    // 选择所有框内图片
     if (selectedImages.length > 0) {
-      // 目前只支持选择单个图片，取最后一个（最上层）
-      const topImage = selectedImages[selectedImages.length - 1];
-      onImageSelect(topImage);
-      logger.upload(`选择框选中图片（最上层）: ${topImage}`);
-    } else if (selectedModels.length > 0) {
-      // 目前只支持选择单个3D模型，取最后一个（最上层）
-      const topModel = selectedModels[selectedModels.length - 1];
-      onModel3DSelect(topModel);
-      logger.upload(`选择框选中3D模型（最上层）: ${topModel}`);
+      onImageMultiSelect(selectedImages);
+      logger.upload(`选择框选中${selectedImages.length}个图片: ${selectedImages.join(', ')}`);
+      totalSelected += selectedImages.length;
+    }
+    
+    // 选择所有框包3D模型
+    if (selectedModels.length > 0) {
+      onModel3DMultiSelect(selectedModels);
+      logger.upload(`选择框选中${selectedModels.length}个3D模型: ${selectedModels.join(', ')}`);
+      totalSelected += selectedModels.length;
+    }
+    
+    // 路径已经在上面处理过了
+    totalSelected += selectedPathsInBox.length;
+    
+    // 输出总计
+    if (totalSelected > 0) {
+      logger.debug(`框选完成：总共选中 ${totalSelected} 个元素`);
     }
 
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
-  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageSelect, onModel3DSelect, imageInstances, model3DInstances, isLayerVisible]);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, imageInstances, model3DInstances, isLayerVisible]);
 
   // ========== 清除所有选择 ==========
   const clearAllSelections = useCallback(() => {
@@ -271,9 +290,13 @@ export const useSelectionTool = ({
     });
     setSelectedPaths([]);
 
+
     // 清除其他选择
     onModel3DDeselect();
     onImageDeselect();
+    
+    // 强制更新Paper.js视图，确保所有视觉状态同步
+    paper.view.update();
   }, [selectedPaths, handlePathDeselect, onModel3DDeselect, onImageDeselect]);
 
   // ========== 点击检测功能 ==========
@@ -332,23 +355,34 @@ export const useSelectionTool = ({
   }, [zoom, imageInstances, model3DInstances, isLayerVisible]);
 
   // 处理选择模式下的点击
-  const handleSelectionClick = useCallback((point: paper.Point) => {
+  const handleSelectionClick = useCallback((point: paper.Point, ctrlPressed: boolean = false) => {
     const { hitResult, imageClicked, modelClicked } = detectClickedObject(point);
 
     if (imageClicked) {
-      // 如果图片未选中，先选中它
-      const clickedImage = imageInstances.find(img => img.id === imageClicked);
-      if (!clickedImage?.isSelected) {
-        clearAllSelections();
-        onImageSelect(imageClicked);
-        logger.upload('选中图片:', imageClicked);
+      // 如果按住Ctrl键，进行增量选择
+      if (ctrlPressed) {
+        onImageSelect(imageClicked, true);
+        logger.upload(`增量选中图片: ${imageClicked}`);
+      } else {
+        // 否则单选
+        const clickedImage = imageInstances.find(img => img.id === imageClicked);
+        if (!clickedImage?.isSelected) {
+          clearAllSelections();
+          onImageSelect(imageClicked);
+          logger.upload('选中图片:', imageClicked);
+        }
       }
       return { type: 'image', id: imageClicked };
     } else if (modelClicked) {
       // 选中3D模型
-      clearAllSelections();
-      onModel3DSelect(modelClicked);
-      logger.upload('选中3D模型:', modelClicked);
+      if (ctrlPressed) {
+        onModel3DSelect(modelClicked, true);
+        logger.upload(`增量选中3D模型: ${modelClicked}`);
+      } else {
+        clearAllSelections();
+        onModel3DSelect(modelClicked);
+        logger.upload('选中3D模型:', modelClicked);
+      }
       return { type: '3d-model', id: modelClicked };
     } else if (hitResult && hitResult.item instanceof paper.Path) {
       // 检查路径是否在网格图层或其他背景图层中，如果是则不选择
@@ -388,14 +422,32 @@ export const useSelectionTool = ({
           return { type: 'selection-box-start', point };
         } else {
           // 点击到了有效路径，选择它
-          clearAllSelections(); // 先清除之前的选择
-          handlePathSelect(path);
+          if (ctrlPressed) {
+            // Ctrl键增量选择路径
+            if (selectedPaths.includes(path)) {
+              // 如果已选中，取消选择
+              path.selected = false;
+              path.fullySelected = false;
+              if ((path as any).originalStrokeWidth) {
+                path.strokeWidth = (path as any).originalStrokeWidth;
+              }
+              setSelectedPaths(prev => prev.filter(p => p !== path));
+            } else {
+              // 添加到选择
+              handlePathSelect(path);
+              setSelectedPaths(prev => [...prev, path]);
+            }
+          } else {
+            // 单击：清除其他选择，只选择这个路径
+            clearAllSelections();
+            handlePathSelect(path);
+          }
           logger.debug('选中路径:', path);
           return { type: 'path', path };
         }
       }
     } else {
-      // 点击空白区域，先取消所有选择
+      // 点击空白区域，先取消所有选择（包括分组）
       clearAllSelections();
       logger.debug('点击空白区域，取消所有选择');
 

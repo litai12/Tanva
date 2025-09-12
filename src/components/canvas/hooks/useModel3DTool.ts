@@ -28,7 +28,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   const [triggerModel3DUpload, setTriggerModel3DUpload] = useState(false);
   const currentModel3DPlaceholderRef = useRef<paper.Group | null>(null);
   const [model3DInstances, setModel3DInstances] = useState<Model3DInstance[]>([]);
-  const [selectedModel3DId, setSelectedModel3DId] = useState<string | null>(null);
+  const [selectedModel3DIds, setSelectedModel3DIds] = useState<string[]>([]);  // 支持多选
 
   // ========== 创建3D模型占位框 ==========
   const create3DModelPlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
@@ -217,10 +217,10 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   }, [ensureDrawingLayer, eventHandlers.onModel3DSelect, setDrawMode]);
 
   // ========== 3D模型选择/取消选择 ==========
-  const handleModel3DSelect = useCallback((modelId: string) => {
-    setSelectedModel3DId(modelId);
+  // 更新3D模型选择视觉效果
+  const updateModel3DSelectionVisuals = useCallback((selectedIds: string[]) => {
     setModel3DInstances(prev => prev.map(model => {
-      const isSelected = model.id === modelId;
+      const isSelected = selectedIds.includes(model.id);
       // 控制选择边框的可见性
       if (model.selectionRect) {
         model.selectionRect.visible = isSelected;
@@ -230,23 +230,51 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
         isSelected
       };
     }));
+  }, []);
+
+  const handleModel3DSelect = useCallback((modelId: string, addToSelection: boolean = false) => {
+    // 更新选择状态
+    if (addToSelection) {
+      // 增量选择模式
+      setSelectedModel3DIds(prev => {
+        if (prev.includes(modelId)) {
+          // 如果已选中，则取消选择
+          const newIds = prev.filter(id => id !== modelId);
+          updateModel3DSelectionVisuals(newIds);
+          return newIds;
+        } else {
+          // 否则添加到选择
+          const newIds = [...prev, modelId];
+          updateModel3DSelectionVisuals(newIds);
+          return newIds;
+        }
+      });
+    } else {
+      // 单选模式
+      setSelectedModel3DIds([modelId]);
+      updateModel3DSelectionVisuals([modelId]);
+    }
+    
     eventHandlers.onModel3DSelect?.(modelId);
-  }, [eventHandlers.onModel3DSelect]);
+  }, [eventHandlers.onModel3DSelect, updateModel3DSelectionVisuals]);
+
+  // 批量选择3D模型
+  const handleModel3DMultiSelect = useCallback((modelIds: string[]) => {
+    logger.upload(`批量选中3D模型: ${modelIds.join(', ')}`);
+    setSelectedModel3DIds(modelIds);
+    updateModel3DSelectionVisuals(modelIds);
+    
+    // 触发批量选择事件
+    if (eventHandlers.onModel3DMultiSelect) {
+      eventHandlers.onModel3DMultiSelect(modelIds);
+    }
+  }, [eventHandlers.onModel3DMultiSelect, updateModel3DSelectionVisuals]);
 
   const handleModel3DDeselect = useCallback(() => {
-    setSelectedModel3DId(null);
-    setModel3DInstances(prev => prev.map(model => {
-      // 隐藏所有选择边框
-      if (model.selectionRect) {
-        model.selectionRect.visible = false;
-      }
-      return {
-        ...model,
-        isSelected: false
-      };
-    }));
+    setSelectedModel3DIds([]);
+    updateModel3DSelectionVisuals([]);
     eventHandlers.onModel3DDeselect?.();
-  }, [eventHandlers.onModel3DDeselect]);
+  }, [eventHandlers.onModel3DDeselect, updateModel3DSelectionVisuals]);
 
   // ========== 3D模型移动 ==========
   const handleModel3DMove = useCallback((modelId: string, newPosition: { x: number; y: number }) => {
@@ -366,7 +394,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   return {
     // 状态
     model3DInstances,
-    selectedModel3DId,
+    selectedModel3DIds,  // 多选状态
+    selectedModel3DId: selectedModel3DIds[0] || null,  // 向下兼容单选
     triggerModel3DUpload,
 
     // 占位框相关
@@ -380,6 +409,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
     // 3D模型选择
     handleModel3DSelect,
+    handleModel3DMultiSelect,  // 批量选择
     handleModel3DDeselect,
 
     // 3D模型移动和调整大小
@@ -391,7 +421,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
     // 状态设置器（用于外部直接控制）
     setModel3DInstances,
-    setSelectedModel3DId,
+    setSelectedModel3DIds,  // 设置多选状态
     setTriggerModel3DUpload,
   };
 };

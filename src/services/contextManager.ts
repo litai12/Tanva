@@ -27,6 +27,19 @@ class ContextManager implements IContextManager {
    * 创建新会话
    */
   createSession(): string {
+    // 检查是否已有活跃的会话
+    if (this.currentSessionId && this.contexts.has(this.currentSessionId)) {
+      const existingContext = this.contexts.get(this.currentSessionId);
+      if (existingContext) {
+        // 如果会话是最近30秒内创建的，认为是重复初始化，返回现有会话
+        const sessionAge = Date.now() - existingContext.startTime.getTime();
+        if (sessionAge < 30000) {  // 30秒内
+          console.log('🧠 返回现有会话上下文:', this.currentSessionId, '(防止重复创建)');
+          return this.currentSessionId;
+        }
+      }
+    }
+    
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const context: ConversationContext = {
       sessionId,

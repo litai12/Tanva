@@ -62,6 +62,7 @@ export interface ImageResizeState {
 // 图片工具事件处理器类型
 export interface ImageToolEventHandlers {
   onImageSelect?: (imageId: string) => void;
+  onImageMultiSelect?: (imageIds: string[]) => void;  // 批量选择
   onImageDeselect?: () => void;
   onImageMove?: (imageId: string, newPosition: { x: number; y: number }) => void;
   onImageResize?: (imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;
@@ -71,6 +72,7 @@ export interface ImageToolEventHandlers {
 // 3D模型工具事件处理器类型
 export interface Model3DToolEventHandlers {
   onModel3DSelect?: (modelId: string) => void;
+  onModel3DMultiSelect?: (modelIds: string[]) => void;  // 批量选择
   onModel3DDeselect?: () => void;
   onModel3DMove?: (modelId: string, newPosition: { x: number; y: number }) => void;
   onModel3DResize?: (modelId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;

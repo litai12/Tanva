@@ -164,10 +164,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     imageInstances: imageTool.imageInstances,
     model3DInstances: model3DTool.model3DInstances,
     onImageSelect: imageTool.handleImageSelect,
+    onImageMultiSelect: imageTool.handleImageMultiSelect,
     onModel3DSelect: model3DTool.handleModel3DSelect,
+    onModel3DMultiSelect: model3DTool.handleModel3DMultiSelect,
     onImageDeselect: imageTool.handleImageDeselect,
     onModel3DDeselect: model3DTool.handleModel3DDeselect
   });
+
 
   // ========== 初始化路径编辑器Hook ==========
   const pathEditor = usePathEditor({
@@ -583,46 +586,52 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       />
 
       {/* 图片UI覆盖层实例 */}
-      {imageTool.imageInstances.map((image) => (
-        <ImageContainer
-          key={image.id}
-          imageData={{
-            id: image.id,
-            src: image.src || '',
-            fileName: image.fileName
-          }}
-          bounds={image.bounds}
-          isSelected={image.id === imageTool.selectedImageId}
-          visible={image.visible}
-          drawMode={drawMode}
-          isSelectionDragging={selectionTool.isSelectionDragging}
-          onSelect={() => imageTool.handleImageSelect(image.id)}
-          onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
-          onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
-          onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
-          onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
-          onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
-          onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
-          getImageDataForEditing={imageTool.getImageDataForEditing}
-        />
-      ))}
+      {imageTool.imageInstances.map((image) => {
+        
+        return (
+          <ImageContainer
+            key={image.id}
+            imageData={{
+              id: image.id,
+              src: image.src || '',
+              fileName: image.fileName
+            }}
+            bounds={image.bounds}
+            isSelected={imageTool.selectedImageIds.includes(image.id)}
+            visible={image.visible}
+            drawMode={drawMode}
+            isSelectionDragging={selectionTool.isSelectionDragging}
+            onSelect={() => imageTool.handleImageSelect(image.id)}
+            onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
+            onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
+            onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
+            onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
+            onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
+            onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
+            getImageDataForEditing={imageTool.getImageDataForEditing}
+          />
+        );
+      })}
 
       {/* 3D模型渲染实例 */}
-      {model3DTool.model3DInstances.map((model) => (
-        <Model3DContainer
-          key={model.id}
-          modelData={model.modelData}
-          modelId={model.id}
-          bounds={model.bounds}
-          isSelected={model.isSelected}
-          visible={model.visible}
-          drawMode={drawMode}
-          isSelectionDragging={selectionTool.isSelectionDragging}
-          onSelect={() => model3DTool.handleModel3DSelect(model.id)}
-          onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
-          onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
-        />
-      ))}
+      {model3DTool.model3DInstances.map((model) => {
+        
+        return (
+          <Model3DContainer
+            key={model.id}
+            modelData={model.modelData}
+            modelId={model.id}
+            bounds={model.bounds}
+            isSelected={model.isSelected}
+            visible={model.visible}
+            drawMode={drawMode}
+            isSelectionDragging={selectionTool.isSelectionDragging}
+            onSelect={() => model3DTool.handleModel3DSelect(model.id)}
+            onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
+            onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
+          />
+        );
+      })}
     </>
   );
 };

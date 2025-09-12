@@ -3,7 +3,7 @@
  * 协调所有鼠标事件处理，管理不同工具间的交互
  */
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import type { DrawMode } from '@/stores/toolStore';
@@ -148,8 +148,9 @@ export const useInteractionController = ({
         return; // 路径编辑处理了这个事件
       }
 
-      // 处理选择相关的点击
-      const selectionResult = selectionTool.handleSelectionClick(point);
+      // 处理选择相关的点击（传递Ctrl键状态）
+      const ctrlPressed = event.ctrlKey || event.metaKey;  // Mac上使用Cmd键
+      const selectionResult = selectionTool.handleSelectionClick(point, ctrlPressed);
 
       // 如果点击了图片且准备拖拽
       if (selectionResult?.type === 'image') {
