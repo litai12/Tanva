@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { Send, AlertCircle, Image, X, History, Plus, Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -42,6 +43,12 @@ const AIChatDialog: React.FC = () => {
   const historyRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  
+  // 图片预览状态
+  const [previewImage, setPreviewImage] = useState<{
+    src: string;
+    title: string;
+  } | null>(null);
 
   // 🧠 初始化上下文记忆系统
   useEffect(() => {
@@ -217,6 +224,16 @@ const AIChatDialog: React.FC = () => {
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setCurrentInput(e.target.value);
+  };
+
+  // 处理图片预览
+  const handleImagePreview = (src: string, title: string) => {
+    setPreviewImage({ src, title });
+  };
+
+  // 关闭图片预览
+  const handleClosePreview = () => {
+    setPreviewImage(null);
   };
 
   // 智能提示文字
@@ -525,7 +542,8 @@ const AIChatDialog: React.FC = () => {
                     {(message.imageData || message.sourceImageData || message.sourceImagesData) ? (
                       <div className={cn(
                         "inline-block rounded-lg p-3",
-                        message.type === 'user' && "bg-blue-50"
+                        message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                        message.type === 'ai' && "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
                       )}>
                         {/* AI消息标识 - 单独一行 */}
                         {message.type === 'ai' && (
@@ -544,10 +562,9 @@ const AIChatDialog: React.FC = () => {
                               className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                // 可以在这里添加图像预览功能
-                                console.log('点击查看大图');
+                                handleImagePreview(`data:image/png;base64,${message.imageData}`, 'AI生成的图像');
                               }}
-                              title="点击查看大图"
+                              title="点击全屏预览"
                             />
                           </div>
                         ) : (
@@ -560,12 +577,12 @@ const AIChatDialog: React.FC = () => {
                                   <img
                                     src={message.sourceImageData}
                                     alt="源图像"
-                                    className="w-16 h-16 object-cover rounded border shadow-sm cursor-pointer"
+                                    className="w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setSourceImageForEditing(message.sourceImageData!);
+                                      handleImagePreview(message.sourceImageData!, '源图像');
                                     }}
-                                    title="点击重新使用此图像"
+                                    title="点击全屏预览"
                                   />
                                 </div>
                               )}
@@ -577,12 +594,12 @@ const AIChatDialog: React.FC = () => {
                                         <img
                                           src={imageData}
                                           alt={`融合图像 ${index + 1}`}
-                                          className="w-8 h-8 object-cover rounded border shadow-sm cursor-pointer"
+                                          className="w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            addImageForBlending(imageData);
+                                            handleImagePreview(imageData, `融合图像 ${index + 1}`);
                                           }}
-                                          title={`点击重新使用融合图像 ${index + 1}`}
+                                          title={`点击全屏预览融合图像 ${index + 1}`}
                                         />
                                         {/* 主场景标签 - 显示在第一张图片上 */}
                                         {index === 0 && message.sourceImagesData && message.sourceImagesData.length > 1 && (
@@ -641,7 +658,7 @@ const AIChatDialog: React.FC = () => {
                         )}
                         <div className={cn(
                           "text-sm text-black markdown-content leading-relaxed",
-                          message.type === 'user' && "bg-blue-50 rounded-lg p-3 inline-block"
+                          message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
                         )}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
@@ -679,6 +696,16 @@ const AIChatDialog: React.FC = () => {
 
         </div>
       </div>
+
+      {/* 图片预览模态框 */}
+      {previewImage && (
+        <ImagePreviewModal
+          isOpen={true}
+          imageSrc={previewImage.src}
+          imageTitle={previewImage.title}
+          onClose={handleClosePreview}
+        />
+      )}
     </div>
   );
 };
