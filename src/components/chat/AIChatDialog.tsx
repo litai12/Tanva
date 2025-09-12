@@ -43,6 +43,7 @@ const AIChatDialog: React.FC = () => {
   const historyRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [manuallyClosedHistory, setManuallyClosedHistory] = useState(false);
   
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
@@ -55,9 +56,17 @@ const AIChatDialog: React.FC = () => {
     initializeContext();
   }, [initializeContext]);
 
+  // 对话框关闭时重置手动关闭标志
+  useEffect(() => {
+    if (!isVisible) {
+      setManuallyClosedHistory(false);
+      setShowHistory(false);
+    }
+  }, [isVisible]);
+
   // 智能历史记录显示：纯对话模式自动打开，绘图模式不打开
   useEffect(() => {
-    if (messages.length > 0 && !showHistory && !isMaximized) {
+    if (messages.length > 0 && !showHistory && !isMaximized && !manuallyClosedHistory) {
       // 检查最后一条消息的类型
       const lastMessage = messages[messages.length - 1];
       
@@ -72,7 +81,7 @@ const AIChatDialog: React.FC = () => {
         return () => clearTimeout(timer);
       }
     }
-  }, [messages.length, isMaximized, showHistory]);
+  }, [messages.length, isMaximized, showHistory, manuallyClosedHistory]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -134,7 +143,14 @@ const AIChatDialog: React.FC = () => {
 
   // 切换历史记录显示
   const toggleHistory = () => {
-    setShowHistory(!showHistory);
+    const newShowHistory = !showHistory;
+    setShowHistory(newShowHistory);
+    // 记录用户手动操作，如果用户关闭了历史记录，标记为手动关闭
+    if (!newShowHistory) {
+      setManuallyClosedHistory(true);
+    } else {
+      setManuallyClosedHistory(false);
+    }
   };
 
   // 统一的图片上传处理
