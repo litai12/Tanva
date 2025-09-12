@@ -98,9 +98,9 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
               height: 'auto',
               objectFit: 'contain'
             }}
-            onLoad={() => console.log('预览图片加载成功:', imageSrc)}
+            onLoad={() => console.log('预览图片加载成功')}
             onError={(e) => {
-              console.error('预览图片加载失败:', imageSrc, e);
+              console.error('预览图片加载失败:', e);
             }}
           />
         </div>
