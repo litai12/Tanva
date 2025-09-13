@@ -1,7 +1,8 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2 } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type } from 'lucide-react';
+import TextStylePanel from './TextStylePanel';
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
@@ -530,18 +531,54 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       <Separator orientation="horizontal" className="w-6" />
 
-      {/* 独立工具按钮 - 暂时只保留3D模型工具 */}
+      {/* 独立工具按钮 */}
       <div className="flex flex-col items-center gap-2">
-        {/* 文字工具 - 暂时关闭 */}
-        {/* <Button
-          variant={drawMode === 'text' ? 'default' : 'outline'}
-          size="sm"
-          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
-          onClick={() => setDrawMode('text')}
-          title="添加文本"
-        >
-          <Type className="w-4 h-4" />
-        </Button> */}
+        {/* 文字工具 */}
+        <div className="relative">
+          <Button
+            variant={drawMode === 'text' ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              drawMode === 'text' 
+                ? "bg-blue-600 text-white" 
+                : "bg-white/50 border-gray-300"
+            )}
+            onClick={() => {
+              setDrawMode('text');
+              logger.tool('工具栏：切换到文字工具');
+            }}
+            title="添加文本"
+          >
+            <Type className="w-4 h-4" />
+          </Button>
+
+          {/* 文本样式面板 - 当文本工具激活时显示 */}
+          {drawMode === 'text' && (
+            <TextStylePanel
+              currentStyle={(window as any).tanvaTextTool?.getSelectedTextStyle?.() || {
+                fontFamily: 'Inter',
+                fontWeight: 'normal',
+                fontSize: 24,
+                color: currentColor,
+                align: 'left',
+                italic: false
+              }}
+              onStyleChange={(updates) => {
+                const textTool = (window as any).tanvaTextTool;
+                if (textTool) {
+                  // 如果有选中的文本，更新该文本的样式
+                  if (textTool.selectedTextId) {
+                    textTool.updateTextStyle(textTool.selectedTextId, updates);
+                  } else {
+                    // 否则更新默认样式
+                    textTool.updateDefaultStyle(updates);
+                  }
+                }
+              }}
+            />
+          )}
+        </div>
 
         {/* 图片工具 */}
         <Button

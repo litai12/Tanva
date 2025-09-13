@@ -19,6 +19,9 @@ import { usePathEditor } from './hooks/usePathEditor';
 import { useEraserTool } from './hooks/useEraserTool';
 import { useInteractionController } from './hooks/useInteractionController';
 import { useQuickImageUpload } from './hooks/useQuickImageUpload';
+import { useSimpleTextTool } from './hooks/useSimpleTextTool';
+import SimpleTextEditor from './SimpleTextEditor';
+import TextSelectionOverlay from './TextSelectionOverlay';
 import type { DrawingContext } from '@/types/canvas';
 
 interface DrawingControllerProps {
@@ -183,6 +186,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     strokeWidth
   });
 
+  // ========== 初始化简单文本工具Hook ==========
+  const simpleTextTool = useSimpleTextTool({
+    currentColor,
+    ensureDrawingLayer
+  });
+
+  // 暴露文本工具状态到全局，供工具栏使用
+  useEffect(() => {
+    (window as any).tanvaTextTool = simpleTextTool;
+  }, [simpleTextTool]);
+
   // ========== 截图功能处理 ==========
   const handleScreenshot = useCallback(async () => {
     try {
@@ -262,6 +276,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     drawingTools,
     imageTool,
     model3DTool,
+    simpleTextTool,
     performErase: eraserTool.performErase,
     setDrawMode
   });
@@ -632,6 +647,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           />
         );
       })}
+
+      {/* 文本选择框覆盖层 */}
+      <TextSelectionOverlay
+        textItems={simpleTextTool.textItems}
+        selectedTextId={simpleTextTool.selectedTextId}
+        editingTextId={simpleTextTool.editingTextId}
+      />
+
+      {/* 简单文本编辑器 */}
+      <SimpleTextEditor
+        textItems={simpleTextTool.textItems}
+        editingTextId={simpleTextTool.editingTextId}
+        onUpdateContent={simpleTextTool.updateTextContent}
+        onStopEdit={simpleTextTool.stopEditText}
+      />
     </>
   );
 };

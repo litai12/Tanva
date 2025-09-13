@@ -63,6 +63,12 @@ interface Model3DTool {
   create3DModelPlaceholder: (start: paper.Point, end: paper.Point) => void;
 }
 
+interface SimpleTextTool {
+  handleCanvasClick: (point: paper.Point, event?: PointerEvent) => void;
+  handleDoubleClick: (point: paper.Point) => void;
+  handleKeyDown: (event: KeyboardEvent) => boolean;
+}
+
 interface UseInteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   drawMode: DrawMode;
@@ -72,6 +78,7 @@ interface UseInteractionControllerProps {
   drawingTools: DrawingTools;
   imageTool: ImageTool;
   model3DTool: Model3DTool;
+  simpleTextTool: SimpleTextTool;
   performErase: (path: paper.Path) => void;
   setDrawMode: (mode: DrawMode) => void;
 }
@@ -85,6 +92,7 @@ export const useInteractionController = ({
   drawingTools,
   imageTool,
   model3DTool,
+  simpleTextTool,
   performErase,
   setDrawMode
 }: UseInteractionControllerProps) => {
@@ -191,6 +199,10 @@ export const useInteractionController = ({
       return;
     } else if (drawMode === '3d-model') {
       drawingTools.start3DModelDraw(point);
+    } else if (drawMode === 'text') {
+      // 文本工具处理
+      simpleTextTool.handleCanvasClick(point, event as any);
+      return; // 文本工具不需要设置 isDrawingRef
     }
 
     drawingTools.isDrawingRef.current = true;
@@ -533,11 +545,38 @@ export const useInteractionController = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // 键盘事件处理
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (drawMode === 'text') {
+        const handled = simpleTextTool.handleKeyDown(event);
+        if (handled) {
+          event.preventDefault();
+        }
+      }
+    };
+
+    // 双击事件处理
+    const handleDoubleClick = (event: MouseEvent) => {
+      if (drawMode === 'text') {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const point = paper.view.viewToProject(new paper.Point(x, y));
+        
+        console.log('🎯 检测到原生双击事件');
+        simpleTextTool.handleDoubleClick(point);
+      }
+    };
+
     // 绑定事件监听器
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('mouseup', handleMouseUp);
     canvas.addEventListener('mouseleave', handleMouseUp); // 鼠标离开也结束绘制
+    canvas.addEventListener('dblclick', handleDoubleClick); // 双击事件
+    
+    // 键盘事件需要绑定到document，因为canvas无法获取焦点
+    document.addEventListener('keydown', handleKeyDown);
 
     return () => {
       // 清理事件监听器
@@ -545,8 +584,10 @@ export const useInteractionController = ({
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
+      canvas.removeEventListener('dblclick', handleDoubleClick);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleMouseDown, handleMouseMove, handleMouseUp]);
+  }, [handleMouseDown, handleMouseMove, handleMouseUp, drawMode, simpleTextTool]);
 
   return {
     // 主要事件处理器
