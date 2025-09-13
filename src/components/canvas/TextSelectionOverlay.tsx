@@ -67,60 +67,63 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         top: selectionBounds.top,
         width: selectionBounds.width,
         height: selectionBounds.height,
-        border: '2px dashed #007AFF',
-        borderRadius: '2px',
-        backgroundColor: 'rgba(0, 122, 255, 0.1)',
+        border: '1px solid #007AFF',
+        backgroundColor: 'transparent',
         pointerEvents: 'none', // 不阻挡鼠标事件
         zIndex: 999,
         boxSizing: 'border-box'
       }}
     >
-      {/* 四个角的调整手柄 */}
+      {/* 四个角的方块手柄 - 白色填充，蓝色边框 */}
       <div
         style={{
           position: 'absolute',
-          top: -4,
-          left: -4,
-          width: 8,
-          height: 8,
-          backgroundColor: '#007AFF',
-          borderRadius: '50%',
+          top: -3,
+          left: -3,
+          width: 6,
+          height: 6,
+          backgroundColor: 'white',
+          border: '1px solid #007AFF',
+          borderRadius: '1px',
           cursor: 'nw-resize'
         }}
       />
       <div
         style={{
           position: 'absolute',
-          top: -4,
-          right: -4,
-          width: 8,
-          height: 8,
-          backgroundColor: '#007AFF',
-          borderRadius: '50%',
+          top: -3,
+          right: -3,
+          width: 6,
+          height: 6,
+          backgroundColor: 'white',
+          border: '1px solid #007AFF',
+          borderRadius: '1px',
           cursor: 'ne-resize'
         }}
       />
       <div
         style={{
           position: 'absolute',
-          bottom: -4,
-          left: -4,
-          width: 8,
-          height: 8,
-          backgroundColor: '#007AFF',
-          borderRadius: '50%',
+          bottom: -3,
+          left: -3,
+          width: 6,
+          height: 6,
+          backgroundColor: 'white',
+          border: '1px solid #007AFF',
+          borderRadius: '1px',
           cursor: 'sw-resize'
         }}
       />
       <div
         style={{
           position: 'absolute',
-          bottom: -4,
-          right: -4,
-          width: 8,
-          height: 8,
-          backgroundColor: '#007AFF',
-          borderRadius: '50%',
+          bottom: -3,
+          right: -3,
+          width: 6,
+          height: 6,
+          backgroundColor: 'white',
+          border: '1px solid #007AFF',
+          borderRadius: '1px',
           cursor: 'se-resize'
         }}
       />

@@ -68,17 +68,38 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
   }, [onStopEdit]);
 
   // 处理失去焦点
-  const handleBlur = useCallback(() => {
-    onStopEdit();
+  const handleBlur = useCallback((event: React.FocusEvent) => {
+    // 延迟处理失焦，给双击事件一些时间处理
+    setTimeout(() => {
+      // 只有当输入框真的失去焦点时才停止编辑
+      // 检查当前活动元素是否仍然是这个输入框
+      if (inputRef.current && document.activeElement !== inputRef.current) {
+        onStopEdit();
+      }
+    }, 100);
   }, [onStopEdit]);
 
   // 聚焦输入框
   useEffect(() => {
     if (editingTextId && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
+      // 确保输入框获得焦点并选择全部内容
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      }, 10);
     }
   }, [editingTextId]);
+
+  // 添加点击处理，防止点击输入框时失去编辑状态
+  const handleInputClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    // 确保输入框保持焦点
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, []);
 
   if (!editingTextId || !currentEditingText) {
     return null;
@@ -94,6 +115,20 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
       onChange={handleInputChange}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
+      onClick={handleInputClick}
+      onDoubleClick={(e) => {
+        // 双击选择全部文字内容并确保保持编辑状态
+        e.stopPropagation();
+        const target = e.target as HTMLInputElement;
+        
+        // 确保输入框获得焦点
+        target.focus();
+        
+        // 选择所有文本
+        target.select();
+        
+        console.log('📝 输入框双击，选择全部文字并保持编辑状态');
+      }}
       style={{
         position: 'fixed',
         left: position.left,
@@ -101,7 +136,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
         width: position.width,
         minWidth: 100,
         padding: '2px 4px',
-        border: '2px solid #007AFF',
+        border: '1px solid #007AFF',
         borderRadius: '2px',
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
         fontSize: '20px',

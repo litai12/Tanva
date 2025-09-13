@@ -49,7 +49,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     const placeholder = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(center.subtract([finalWidth / 2, finalHeight / 2]), [finalWidth, finalHeight]),
       strokeColor: new paper.Color('#8b5cf6'),
-      strokeWidth: 2,
+      strokeWidth: 1,
       dashArray: [8, 4],
       fillColor: new paper.Color(0.95, 0.9, 1, 0.6) // 淡紫色背景
     });
@@ -63,7 +63,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       rectangle: new paper.Rectangle(center.subtract([buttonSize / 2, buttonHeight / 2]), [buttonSize, buttonHeight]),
       fillColor: new paper.Color('#7c3aed'),
       strokeColor: new paper.Color('#6d28d9'),
-      strokeWidth: 1.5
+      strokeWidth: 1
     });
 
     // 创建3D立方体图标
@@ -179,7 +179,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
         paperBounds.height
       ),
       strokeColor: new paper.Color('#8b5cf6'),
-      strokeWidth: 2,
+      strokeWidth: 1,
       fillColor: null,
       visible: false, // 默认隐藏选择框
       selected: false

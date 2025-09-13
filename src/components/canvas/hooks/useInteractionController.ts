@@ -64,7 +64,7 @@ interface Model3DTool {
 }
 
 interface SimpleTextTool {
-  handleCanvasClick: (point: paper.Point, event?: PointerEvent) => void;
+  handleCanvasClick: (point: paper.Point, event?: PointerEvent, currentDrawMode?: string) => void;
   handleDoubleClick: (point: paper.Point) => void;
   handleKeyDown: (event: KeyboardEvent) => boolean;
 }
@@ -560,15 +560,16 @@ export const useInteractionController = ({
 
     // 双击事件处理
     const handleDoubleClick = (event: MouseEvent) => {
-      if (drawMode === 'text') {
-        const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        const point = paper.view.viewToProject(new paper.Point(x, y));
-        
-        console.log('🎯 检测到原生双击事件');
-        simpleTextTool.handleDoubleClick(point);
-      }
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const point = paper.view.viewToProject(new paper.Point(x, y));
+      
+      console.log('🎯 检测到原生双击事件，当前模式:', drawMode);
+      
+      // 允许在任何模式下双击文本进行编辑
+      // 这样即使在选择模式下也能双击编辑文本
+      simpleTextTool.handleDoubleClick(point);
     };
 
     // 绑定事件监听器

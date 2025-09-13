@@ -157,7 +157,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                 const selectionBorder = new paper.Path.Rectangle({
                     rectangle: raster.bounds,
                     strokeColor: new paper.Color('#3b82f6'),
-                    strokeWidth: 2,
+                    strokeWidth: 1,
                     fillColor: null,
                     selected: false,
                     visible: false  // 默认隐藏
@@ -186,7 +186,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                         size: [handleSize, handleSize],
                         fillColor: 'white',  // 改为白色填充（空心效果）
                         strokeColor: handleColor,  // 蓝色边框
-                        strokeWidth: 2,  // 增加边框宽度让空心效果更明显
+                        strokeWidth: 1,  // 增加边框宽度让空心效果更明显
                         selected: false,
                         visible: false  // 默认隐藏
                     });

@@ -188,7 +188,9 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
           item.paperText.fontWeight = updates.fontWeight === 'bold' ? 'bold' : 'normal';
         }
         if (updates.italic !== undefined) {
-          item.paperText.fontStyle = updates.italic ? 'italic' : 'normal';
+          // Note: Paper.js PointText fontStyle handling may vary by version
+          // We store the italic state in our style object for consistency
+          (item.paperText as any).fontStyle = updates.italic ? 'italic' : 'normal';
         }
         if (updates.align !== undefined) {
           item.paperText.justification = updates.align;
@@ -278,7 +280,10 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       } else {
         // 单击选择文本
         selectText(textId);
-        stopEditText(); // 停止编辑其他文本
+        // 只有当点击的不是当前正在编辑的文本时，才停止编辑
+        if (editingTextId && editingTextId !== textId) {
+          stopEditText();
+        }
         console.log('👆 单击选择文本:', textId);
       }
     } else {
@@ -354,16 +359,52 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     // 检查是否双击了现有文本
     const hitResult = paper.project.hitTest(point, {
       fill: true,
-      tolerance: 5
+      stroke: true,
+      segments: true,
+      curves: true,
+      tolerance: 10,
+      match: (item: any) => {
+        return item.data?.type === 'text' || item instanceof paper.PointText;
+      }
     });
 
+    let clickedTextId = null;
+    
     if (hitResult?.item?.data?.type === 'text') {
-      const textId = hitResult.item.data.textId;
-      console.log('🎯 原生双击编辑文本:', textId);
-      selectText(textId);
-      startEditText(textId);
+      clickedTextId = hitResult.item.data.textId;
+    } else {
+      // 如果hitTest没找到，手动检查所有文本的边界框
+      for (const textItem of textItems) {
+        const bounds = textItem.paperText.bounds;
+        if (bounds && bounds.contains(point)) {
+          console.log('📍 通过边界框检测到文本:', textItem.id);
+          clickedTextId = textItem.id;
+          break;
+        }
+      }
     }
-  }, [selectText, startEditText]);
+
+    if (clickedTextId) {
+      console.log('🎯 原生双击编辑文本:', clickedTextId);
+      
+      // 如果文本已经在编辑状态，重新聚焦输入框
+      if (editingTextId === clickedTextId) {
+        console.log('🔄 文本已在编辑状态，触发重新聚焦');
+        // 触发输入框重新聚焦和选择全部文本的事件
+        setTimeout(() => {
+          const inputElement = document.querySelector(`input[type="text"]`) as HTMLInputElement;
+          if (inputElement) {
+            inputElement.focus();
+            inputElement.select();
+          }
+        }, 50);
+      } else {
+        // 文本不在编辑状态，开始编辑
+        selectText(clickedTextId);
+        startEditText(clickedTextId);
+      }
+    }
+  }, [selectText, startEditText, editingTextId, textItems]);
 
   return {
     // 状态

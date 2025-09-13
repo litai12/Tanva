@@ -380,7 +380,7 @@ export const useDrawingTools = ({
     const rect = new paper.Rectangle(startPoint, startPoint.add(new paper.Point(1, 1)));
     pathRef.current = new paper.Path.Rectangle(rect);
     pathRef.current.strokeColor = new paper.Color('#8b5cf6');
-    pathRef.current.strokeWidth = 2;
+    pathRef.current.strokeWidth = 1;
     pathRef.current.dashArray = [8, 4];
     pathRef.current.fillColor = null;
 
@@ -422,7 +422,7 @@ export const useDrawingTools = ({
       pathRef.current.remove();
       pathRef.current = new paper.Path.Rectangle(rectangle);
       pathRef.current.strokeColor = new paper.Color('#8b5cf6');
-      pathRef.current.strokeWidth = 2;
+      pathRef.current.strokeWidth = 1;
       pathRef.current.dashArray = [8, 4];
       pathRef.current.fillColor = null;
 

@@ -65,7 +65,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const placeholder = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(center.subtract([finalWidth / 2, finalHeight / 2]), [finalWidth, finalHeight]),
       strokeColor: new paper.Color('#60a5fa'), // 更柔和的蓝色边框
-      strokeWidth: 2,
+      strokeWidth: 1,
       dashArray: [8, 6],
       fillColor: new paper.Color(0.94, 0.97, 1, 0.8) // 淡蓝色半透明背景
     });
@@ -79,7 +79,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       rectangle: new paper.Rectangle(center.subtract([buttonSize / 2, buttonHeight / 2]), [buttonSize, buttonHeight]),
       fillColor: new paper.Color('#3b82f6'), // 更现代的蓝色
       strokeColor: new paper.Color('#2563eb'), // 深蓝色边框
-      strokeWidth: 1.5
+      strokeWidth: 1
     });
 
     // 创建"+"图标（更粗更圆润）
@@ -292,7 +292,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const selectionBorder = new paper.Path.Rectangle({
       rectangle: bounds,
       strokeColor: new paper.Color('#3b82f6'),
-      strokeWidth: 2,
+      strokeWidth: 1,
       fillColor: null,
       selected: false,
       visible: false  // 默认隐藏选择框
@@ -321,7 +321,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                         size: [handleSize, handleSize],
                         fillColor: 'white',  // 改为白色填充（空心效果）
                         strokeColor: handleColor,  // 蓝色边框
-                        strokeWidth: 2,  // 增加边框宽度让空心效果更明显
+                        strokeWidth: 1,  // 增加边框宽度让空心效果更明显
                         selected: false,
                         visible: false  // 默认隐藏控制点
                       });
