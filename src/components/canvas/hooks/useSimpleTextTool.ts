@@ -74,6 +74,10 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       visible: true
     });
 
+    // 确保文本可以被点击检测到
+    paperText.strokeColor = null; // 确保没有描边干扰
+    paperText.selected = false; // 确保没有选中状态干扰
+
     // 添加数据标识
     paperText.data = {
       type: 'text',
@@ -201,19 +205,53 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     setDefaultStyle(prev => ({ ...prev, ...updates }));
   }, []);
 
-  // 处理画布点击
-  const handleCanvasClick = useCallback((point: paper.Point, event?: any) => {
+  // 处理画布点击 (需要从外部传入当前工具模式)
+  const handleCanvasClick = useCallback((point: paper.Point, event?: any, currentDrawMode?: string) => {
     const currentTime = Date.now();
     
     // 检查是否点击了现有文本
+    // Paper.js的PointText需要特殊的hitTest选项
     const hitResult = paper.project.hitTest(point, {
       fill: true,
-      tolerance: 5
+      stroke: true,
+      segments: true,
+      curves: true,
+      tolerance: 10,
+      match: (item: any) => {
+        // 直接检查所有可能的文本对象
+        console.log('🔍 检查物品:', item, item.data, item.constructor.name);
+        return item.data?.type === 'text' || item instanceof paper.PointText;
+      }
     });
 
+    console.log('🔍 文本点击检测:', {
+      point,
+      hitResult,
+      hitItem: hitResult?.item,
+      hitData: hitResult?.item?.data,
+      currentDrawMode
+    });
+
+    // 检查hitResult是否找到了文本
+    let clickedTextId = null;
+    
     if (hitResult?.item?.data?.type === 'text') {
+      clickedTextId = hitResult.item.data.textId;
+    } else {
+      // 如果hitTest没找到，手动检查所有文本的边界框
+      for (const textItem of textItems) {
+        const bounds = textItem.paperText.bounds;
+        if (bounds && bounds.contains(point)) {
+          console.log('📍 通过边界框检测到文本:', textItem.id);
+          clickedTextId = textItem.id;
+          break;
+        }
+      }
+    }
+
+    if (clickedTextId) {
       // 点击了现有文本
-      const textId = hitResult.item.data.textId;
+      const textId = clickedTextId;
       
       // 自定义双击检测：500ms内点击同一个文本
       const timeDiff = currentTime - lastClickTimeRef.current;
@@ -244,16 +282,30 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         console.log('👆 单击选择文本:', textId);
       }
     } else {
-      // 点击空白区域，创建新文本
-      deselectText();
-      stopEditText();
-      
-      // 重置点击记录
-      lastClickTimeRef.current = currentTime;
-      lastClickTargetRef.current = null;
-      
-      // 创建新文本并立即进入编辑模式
-      createText(point, '文本');
+      // 点击空白区域的行为取决于当前工具模式
+      if (currentDrawMode === 'text') {
+        // 文本工具模式：创建新文本
+        deselectText();
+        stopEditText();
+        
+        // 重置点击记录
+        lastClickTimeRef.current = currentTime;
+        lastClickTargetRef.current = null;
+        
+        // 创建新文本并立即进入编辑模式
+        createText(point, '文本');
+        console.log('✨ 文本工具模式：创建新文本');
+      } else {
+        // 其他工具模式：只取消选择
+        deselectText();
+        stopEditText();
+        
+        // 重置点击记录
+        lastClickTimeRef.current = currentTime;
+        lastClickTargetRef.current = null;
+        
+        console.log('📍 点击空白区域，取消文本选择');
+      }
     }
   }, [selectText, startEditText, deselectText, stopEditText, createText]);
 
@@ -283,6 +335,20 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     return false;
   }, [selectedTextId, editingTextId, deleteText, stopEditText]);
 
+  // 主动创建文本的方法
+  const createTextAtPoint = useCallback((point?: paper.Point) => {
+    // 如果没有指定点，在画布中心创建
+    const createPoint = point || new paper.Point(400, 300);
+    
+    // 先取消所有选择
+    deselectText();
+    stopEditText();
+    
+    // 创建新文本并立即进入编辑模式
+    createText(createPoint, '文本');
+    console.log('✨ 主动创建文本');
+  }, [deselectText, stopEditText, createText]);
+
   // 处理双击事件（备选方案）
   const handleDoubleClick = useCallback((point: paper.Point) => {
     // 检查是否双击了现有文本
@@ -308,6 +374,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     
     // 操作方法
     createText,
+    createTextAtPoint,
     selectText,
     deselectText,
     startEditText,

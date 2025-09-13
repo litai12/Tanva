@@ -548,7 +548,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
               setDrawMode('text');
               logger.tool('工具栏：切换到文字工具');
             }}
-            title="添加文本"
+            title="文本工具 - 点击空白处创建文本"
           >
             <Type className="w-4 h-4" />
           </Button>

@@ -173,6 +173,9 @@ export const useInteractionController = ({
         }
       }
 
+      // 在选择模式下，让文本工具也处理点击事件（用于文本选择/取消选择）
+      simpleTextTool.handleCanvasClick(point, event as any, 'select');
+
       return;
     }
 
@@ -200,8 +203,8 @@ export const useInteractionController = ({
     } else if (drawMode === '3d-model') {
       drawingTools.start3DModelDraw(point);
     } else if (drawMode === 'text') {
-      // 文本工具处理
-      simpleTextTool.handleCanvasClick(point, event as any);
+      // 文本工具处理，传递当前工具模式
+      simpleTextTool.handleCanvasClick(point, event as any, drawMode);
       return; // 文本工具不需要设置 isDrawingRef
     }
 
