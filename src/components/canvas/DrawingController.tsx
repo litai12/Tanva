@@ -653,6 +653,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         textItems={simpleTextTool.textItems}
         selectedTextId={simpleTextTool.selectedTextId}
         editingTextId={simpleTextTool.editingTextId}
+        isDragging={simpleTextTool.isDragging}
+        isResizing={simpleTextTool.isResizing}
+        onTextDragStart={simpleTextTool.startTextDrag}
+        onTextDrag={simpleTextTool.dragText}
+        onTextDragEnd={simpleTextTool.endTextDrag}
+        onTextResizeStart={simpleTextTool.startTextResize}
+        onTextResize={simpleTextTool.resizeTextDrag}
+        onTextResizeEnd={simpleTextTool.endTextResize}
       />
 
       {/* 简单文本编辑器 */}

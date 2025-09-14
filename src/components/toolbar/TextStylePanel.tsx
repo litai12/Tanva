@@ -45,12 +45,12 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
     { value: 'bold', label: 'Bold' }
   ];
 
-  // 常用字号
-  const fontSizes = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72];
+  // 常用字号（12-72范围，一排显示）
+  const fontSizes = [12, 16, 20, 24, 32, 48, 64, 72];
 
   const handleFontSizeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value);
-    if (!isNaN(value) && value > 0 && value <= 200) {
+    if (!isNaN(value) && value >= 12 && value <= 72) {
       onStyleChange({ fontSize: value });
     }
   }, [onStyleChange]);
@@ -113,8 +113,8 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
               type="number"
               value={currentStyle.fontSize}
               onChange={handleFontSizeChange}
-              min="8"
-              max="200"
+              min="12"
+              max="72"
               className="flex-1 text-xs px-2 py-1.5 rounded border border-gray-300 bg-white text-center"
               title="字号"
             />
@@ -123,7 +123,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
           
           {/* 常用字号快捷按钮 */}
           <div className="flex flex-wrap gap-1 mt-2">
-            {fontSizes.slice(0, 6).map(size => (
+            {fontSizes.map(size => (
               <Button
                 key={size}
                 variant={currentStyle.fontSize === size ? 'default' : 'outline'}

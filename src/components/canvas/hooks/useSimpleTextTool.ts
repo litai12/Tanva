@@ -39,6 +39,21 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   const lastClickTimeRef = useRef(0);
   const lastClickTargetRef = useRef<string | null>(null);
 
+  // 拖拽状态管理
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number; textPosition: paper.Point } | null>(null);
+
+  // 调整大小状态管理
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ 
+    x: number; 
+    y: number; 
+    originalFontSize: number; 
+    direction?: string;
+    originalTextBounds?: paper.Rectangle;
+    fixedCorner?: paper.Point;
+  } | null>(null);
+
   // 默认文本样式
   const [defaultStyle, setDefaultStyle] = useState<TextStyle>({
     fontFamily: 'Inter',
@@ -205,6 +220,182 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   // 更新默认样式（影响新创建的文本）
   const updateDefaultStyle = useCallback((updates: Partial<TextStyle>) => {
     setDefaultStyle(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  // 移动文本位置
+  const moveText = useCallback((textId: string, newPosition: paper.Point) => {
+    setTextItems(prev => prev.map(item => {
+      if (item.id === textId) {
+        // 更新 Paper.js 对象位置
+        item.paperText.position = newPosition;
+        return { ...item };
+      }
+      return item;
+    }));
+  }, []);
+
+  // 开始拖拽文本
+  const startTextDrag = useCallback((textId: string, startPoint: paper.Point) => {
+    const textItem = textItems.find(item => item.id === textId);
+    if (!textItem) return false;
+
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: startPoint.x,
+      y: startPoint.y,
+      textPosition: textItem.paperText.position.clone()
+    };
+
+    console.log('🤏 开始拖拽文本:', textId);
+    return true;
+  }, [textItems]);
+
+  // 拖拽文本中
+  const dragText = useCallback((currentPoint: paper.Point) => {
+    if (!isDragging || !dragStartRef.current || !selectedTextId) return;
+
+    const deltaX = currentPoint.x - dragStartRef.current.x;
+    const deltaY = currentPoint.y - dragStartRef.current.y;
+    
+    const newPosition = dragStartRef.current.textPosition.add(new paper.Point(deltaX, deltaY));
+    moveText(selectedTextId, newPosition);
+  }, [isDragging, selectedTextId, moveText]);
+
+  // 结束拖拽文本
+  const endTextDrag = useCallback(() => {
+    setIsDragging(false);
+    dragStartRef.current = null;
+    console.log('✋ 结束拖拽文本');
+  }, []);
+
+  // 调整文本大小（通过改变字体大小）
+  const resizeText = useCallback((textId: string, newFontSize: number) => {
+    // 限制字体大小在合理范围内
+    const clampedSize = Math.max(12, Math.min(72, newFontSize));
+    
+    setTextItems(prev => prev.map(item => {
+      if (item.id === textId) {
+        // 更新 Paper.js 对象字体大小
+        item.paperText.fontSize = clampedSize;
+        
+        // 更新样式状态
+        const newStyle = { ...item.style, fontSize: clampedSize };
+        
+        return { ...item, style: newStyle };
+      }
+      return item;
+    }));
+  }, []);
+
+  // 开始调整文本大小
+  const startTextResize = useCallback((textId: string, startPoint: paper.Point, direction?: string) => {
+    const textItem = textItems.find(item => item.id === textId);
+    if (!textItem) return false;
+
+    const textBounds = textItem.paperText.bounds;
+    
+    // 根据拖拽角点确定固定锚点（对角）
+    let fixedCorner: paper.Point;
+    switch (direction) {
+      case 'nw': // 拖拽左上角，固定右下角
+        fixedCorner = textBounds.bottomRight;
+        break;
+      case 'ne': // 拖拽右上角，固定左下角
+        fixedCorner = textBounds.bottomLeft;
+        break;
+      case 'sw': // 拖拽左下角，固定右上角
+        fixedCorner = textBounds.topRight;
+        break;
+      case 'se': // 拖拽右下角，固定左上角
+      default:
+        fixedCorner = textBounds.topLeft;
+        break;
+    }
+
+    setIsResizing(true);
+    resizeStartRef.current = {
+      x: startPoint.x,
+      y: startPoint.y,
+      originalFontSize: textItem.style.fontSize,
+      direction: direction,
+      originalTextBounds: textBounds,
+      fixedCorner: fixedCorner
+    };
+
+    console.log('🔄 开始调整文本大小:', textId, '方向:', direction, '固定角:', fixedCorner);
+    return true;
+  }, [textItems]);
+
+  // 调整文本大小中
+  const resizeTextDrag = useCallback((currentPoint: paper.Point, direction?: string) => {
+    if (!isResizing || !resizeStartRef.current || !selectedTextId) return;
+
+    const { fixedCorner, originalTextBounds, originalFontSize } = resizeStartRef.current;
+    if (!fixedCorner || !originalTextBounds) return;
+
+    // 计算原始对角线距离（从固定锚点到原始拖拽点）
+    const originalDragPoint = new paper.Point(resizeStartRef.current.x, resizeStartRef.current.y);
+    const originalDistance = fixedCorner.getDistance(originalDragPoint);
+    
+    // 计算当前对角线距离（从固定锚点到当前鼠标位置）
+    const currentDistance = fixedCorner.getDistance(currentPoint);
+    
+    // 计算缩放因子 = 当前距离 / 原始距离
+    const scaleFactor = currentDistance / originalDistance;
+    
+    // 限制缩放因子在合理范围内（基于12-72字体范围）
+    const minScale = 12 / originalFontSize; // 最小字体12的缩放因子
+    const maxScale = 72 / originalFontSize; // 最大字体72的缩放因子
+    const clampedScaleFactor = Math.max(minScale, Math.min(maxScale, scaleFactor));
+    
+    // 计算新字体大小
+    const newFontSize = Math.round(originalFontSize * clampedScaleFactor);
+    
+    // 应用新的字体大小
+    resizeText(selectedTextId, newFontSize);
+    
+    // 调整文本位置，使固定锚点真正固定
+    const textItem = textItems.find(item => item.id === selectedTextId);
+    if (textItem) {
+      const newBounds = textItem.paperText.bounds;
+      const resizeDirection = direction || resizeStartRef.current.direction || 'se';
+      
+      // 计算需要调整的位置偏移，使固定锚点保持不变
+      let offsetX = 0, offsetY = 0;
+      
+      switch (resizeDirection) {
+        case 'nw': // 固定右下角
+          offsetX = fixedCorner.x - newBounds.bottomRight.x;
+          offsetY = fixedCorner.y - newBounds.bottomRight.y;
+          break;
+        case 'ne': // 固定左下角
+          offsetX = fixedCorner.x - newBounds.bottomLeft.x;
+          offsetY = fixedCorner.y - newBounds.bottomLeft.y;
+          break;
+        case 'sw': // 固定右上角
+          offsetX = fixedCorner.x - newBounds.topRight.x;
+          offsetY = fixedCorner.y - newBounds.topRight.y;
+          break;
+        case 'se': // 固定左上角
+        default:
+          offsetX = fixedCorner.x - newBounds.topLeft.x;
+          offsetY = fixedCorner.y - newBounds.topLeft.y;
+          break;
+      }
+      
+      // 应用位置偏移
+      if (offsetX !== 0 || offsetY !== 0) {
+        const newPosition = textItem.paperText.position.add(new paper.Point(offsetX, offsetY));
+        moveText(selectedTextId, newPosition);
+      }
+    }
+  }, [isResizing, selectedTextId, resizeText, moveText, textItems]);
+
+  // 结束调整文本大小
+  const endTextResize = useCallback(() => {
+    setIsResizing(false);
+    resizeStartRef.current = null;
+    console.log('✋ 结束调整文本大小');
   }, []);
 
   // 处理画布点击 (需要从外部传入当前工具模式)
@@ -412,6 +603,8 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     selectedTextId,
     editingTextId,
     defaultStyle,
+    isDragging,
+    isResizing,
     
     // 操作方法
     createText,
@@ -427,6 +620,18 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     handleCanvasClick,
     handleDoubleClick,
     handleKeyDown,
-    getSelectedTextStyle
+    getSelectedTextStyle,
+    
+    // 移动功能
+    moveText,
+    startTextDrag,
+    dragText,
+    endTextDrag,
+    
+    // 调整大小功能
+    resizeText,
+    startTextResize,
+    resizeTextDrag,
+    endTextResize
   };
 };
