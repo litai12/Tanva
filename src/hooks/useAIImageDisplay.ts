@@ -77,7 +77,7 @@ export const useAIImageDisplay = () => {
 
             // 🎯 保持原始分辨率，不设置raster.size避免质量损失
             // 只通过bounds控制显示区域
-            const maxDisplaySize = 1200; // 最大显示尺寸（与快速上传工具保持一致）
+            const maxDisplaySize = 768; // 最大显示尺寸（与快速上传工具保持一致）
             let displayWidth = originalWidth;
             let displayHeight = originalHeight;
 
@@ -159,7 +159,7 @@ export const useAIImageDisplay = () => {
             };
 
             // 添加四个角的调整控制点（默认隐藏）
-            const handleSize = 8;
+            const handleSize = 6;
             const handleColor = new paper.Color('#3b82f6');
             const bounds = raster.bounds;
 

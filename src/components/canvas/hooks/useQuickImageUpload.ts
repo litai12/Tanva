@@ -120,7 +120,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     // 没有占位框，使用原有的逻辑
                     if (!useOriginalSize) {
                         // 标准模式：限制最大显示尺寸
-                        const maxSize = 1200;
+                        const maxSize = 768;
                         if (originalWidth > maxSize || originalHeight > maxSize) {
                             const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
                             displayWidth = originalWidth * scale;
@@ -157,7 +157,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                 const selectionBorder = new paper.Path.Rectangle({
                     rectangle: raster.bounds,
                     strokeColor: new paper.Color('#3b82f6'),
-                    strokeWidth: 2,
+                    strokeWidth: 1,
                     fillColor: null,
                     selected: false,
                     visible: false  // 默认隐藏
@@ -168,7 +168,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                 };
 
                 // 添加四个角的调整控制点（默认隐藏）
-                const handleSize = 8;
+                const handleSize = 6;
                 const handleColor = new paper.Color('#3b82f6');
                 const bounds = raster.bounds;
 
@@ -186,7 +186,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                         size: [handleSize, handleSize],
                         fillColor: 'white',  // 改为白色填充（空心效果）
                         strokeColor: handleColor,  // 蓝色边框
-                        strokeWidth: 2,  // 增加边框宽度让空心效果更明显
+                        strokeWidth: 1,  // 增加边框宽度让空心效果更明显
                         selected: false,
                         visible: false  // 默认隐藏
                     });

@@ -3,7 +3,7 @@
  * 协调所有鼠标事件处理，管理不同工具间的交互
  */
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import type { DrawMode } from '@/stores/toolStore';
@@ -63,6 +63,12 @@ interface Model3DTool {
   create3DModelPlaceholder: (start: paper.Point, end: paper.Point) => void;
 }
 
+interface SimpleTextTool {
+  handleCanvasClick: (point: paper.Point, event?: PointerEvent, currentDrawMode?: string) => void;
+  handleDoubleClick: (point: paper.Point) => void;
+  handleKeyDown: (event: KeyboardEvent) => boolean;
+}
+
 interface UseInteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   drawMode: DrawMode;
@@ -72,6 +78,7 @@ interface UseInteractionControllerProps {
   drawingTools: DrawingTools;
   imageTool: ImageTool;
   model3DTool: Model3DTool;
+  simpleTextTool: SimpleTextTool;
   performErase: (path: paper.Path) => void;
   setDrawMode: (mode: DrawMode) => void;
 }
@@ -85,6 +92,7 @@ export const useInteractionController = ({
   drawingTools,
   imageTool,
   model3DTool,
+  simpleTextTool,
   performErase,
   setDrawMode
 }: UseInteractionControllerProps) => {
@@ -148,8 +156,9 @@ export const useInteractionController = ({
         return; // 路径编辑处理了这个事件
       }
 
-      // 处理选择相关的点击
-      const selectionResult = selectionTool.handleSelectionClick(point);
+      // 处理选择相关的点击（传递Ctrl键状态）
+      const ctrlPressed = event.ctrlKey || event.metaKey;  // Mac上使用Cmd键
+      const selectionResult = selectionTool.handleSelectionClick(point, ctrlPressed);
 
       // 如果点击了图片且准备拖拽
       if (selectionResult?.type === 'image') {
@@ -163,6 +172,9 @@ export const useInteractionController = ({
           });
         }
       }
+
+      // 在选择模式下，让文本工具也处理点击事件（用于文本选择/取消选择）
+      simpleTextTool.handleCanvasClick(point, event as any, 'select');
 
       return;
     }
@@ -190,6 +202,10 @@ export const useInteractionController = ({
       return;
     } else if (drawMode === '3d-model') {
       drawingTools.start3DModelDraw(point);
+    } else if (drawMode === 'text') {
+      // 文本工具处理，传递当前工具模式
+      simpleTextTool.handleCanvasClick(point, event as any, drawMode);
+      return; // 文本工具不需要设置 isDrawingRef
     }
 
     drawingTools.isDrawingRef.current = true;
@@ -414,7 +430,7 @@ export const useInteractionController = ({
     const aspectRatio = imageTool.imageResizeState.resizeStartBounds.width /
       imageTool.imageResizeState.resizeStartBounds.height;
 
-    let newBounds = imageTool.imageResizeState.resizeStartBounds.clone();
+    const newBounds = imageTool.imageResizeState.resizeStartBounds.clone();
 
     // 根据拖拽方向调整边界，保持宽高比
     const direction = imageTool.imageResizeState.resizeDirection;
@@ -532,11 +548,39 @@ export const useInteractionController = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // 键盘事件处理
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (drawMode === 'text') {
+        const handled = simpleTextTool.handleKeyDown(event);
+        if (handled) {
+          event.preventDefault();
+        }
+      }
+    };
+
+    // 双击事件处理
+    const handleDoubleClick = (event: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const point = paper.view.viewToProject(new paper.Point(x, y));
+      
+      console.log('🎯 检测到原生双击事件，当前模式:', drawMode);
+      
+      // 允许在任何模式下双击文本进行编辑
+      // 这样即使在选择模式下也能双击编辑文本
+      simpleTextTool.handleDoubleClick(point);
+    };
+
     // 绑定事件监听器
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('mouseup', handleMouseUp);
     canvas.addEventListener('mouseleave', handleMouseUp); // 鼠标离开也结束绘制
+    canvas.addEventListener('dblclick', handleDoubleClick); // 双击事件
+    
+    // 键盘事件需要绑定到document，因为canvas无法获取焦点
+    document.addEventListener('keydown', handleKeyDown);
 
     return () => {
       // 清理事件监听器
@@ -544,8 +588,10 @@ export const useInteractionController = ({
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
+      canvas.removeEventListener('dblclick', handleDoubleClick);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleMouseDown, handleMouseMove, handleMouseUp]);
+  }, [handleMouseDown, handleMouseMove, handleMouseUp, drawMode, simpleTextTool]);
 
   return {
     // 主要事件处理器

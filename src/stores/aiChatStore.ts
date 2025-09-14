@@ -167,14 +167,14 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       content: prompt
     });
 
-    // 设置生成状态
-    set({
+    // 设置生成状态 - 保持或增加当前进度
+    set((state) => ({
       generationStatus: {
         isGenerating: true,
-        progress: 0,
+        progress: Math.max(state.generationStatus.progress, 15),
         error: null
       }
-    });
+    }));
 
     try {
       // 模拟进度更新
@@ -353,14 +353,14 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     
     state.addMessage(messageData);
 
-    // 设置生成状态
-    set({
+    // 设置生成状态 - 保持或增加当前进度
+    set((state) => ({
       generationStatus: {
         isGenerating: true,
-        progress: 0,
+        progress: Math.max(state.generationStatus.progress, 15),
         error: null
       }
-    });
+    }));
 
     try {
       // 模拟进度更新
@@ -517,13 +517,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       sourceImagesData: sourceImages
     });
 
-    set({
+    set((state) => ({
       generationStatus: {
         isGenerating: true,
-        progress: 0,
+        progress: Math.max(state.generationStatus.progress, 15),
         error: null
       }
-    });
+    }));
 
     try {
       const progressInterval = setInterval(() => {
@@ -647,19 +647,24 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     // 所以这里不需要再检查 isGenerating
 
     // 添加用户消息（包含源图像）
+    // 确保图像数据有正确的data URL前缀
+    const formattedImageData = sourceImage.startsWith('data:image') 
+      ? sourceImage 
+      : `data:image/png;base64,${sourceImage}`;
+      
     state.addMessage({
       type: 'user',
       content: prompt ? `分析图片: ${prompt}` : '分析这张图片',
-      sourceImageData: sourceImage
+      sourceImageData: formattedImageData
     });
 
-    set({
+    set((state) => ({
       generationStatus: {
         isGenerating: true,
-        progress: 0,
+        progress: Math.max(state.generationStatus.progress, 15),
         error: null
       }
-    });
+    }));
 
     try {
       // 模拟进度更新
@@ -817,33 +822,69 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     // 准备工具选择请求
     const cachedImage = contextManager.getCachedImage();
+    
+    // 计算显式图片数量（不包含缓存图片）
+    let explicitImageCount = 0;
+    
+    // 计算融合模式的图片数量
+    if (state.sourceImagesForBlending.length > 0) {
+      explicitImageCount += state.sourceImagesForBlending.length;
+    }
+    
+    // 如果有编辑图片，计入总数
+    if (state.sourceImageForEditing) {
+      explicitImageCount += 1;
+    }
+    
+    // 如果有分析图片，计入总数
+    if (state.sourceImageForAnalysis) {
+      explicitImageCount += 1;
+    }
+    
+    // 总图像数量 = 显式图片 + 缓存图片（如果存在）
+    const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
+    
     const toolSelectionRequest = {
       userInput: input,
-      hasImages: !!(state.sourceImageForEditing || state.sourceImagesForBlending.length > 0 || state.sourceImageForAnalysis || cachedImage),
-      imageCount: state.sourceImagesForBlending.length || (state.sourceImageForEditing ? 1 : 0) || (state.sourceImageForAnalysis ? 1 : 0) || (cachedImage ? 1 : 0),
+      hasImages: totalImageCount > 0,
+      imageCount: explicitImageCount, // 传递显式图片数量，不包含缓存
+      hasCachedImage: !!cachedImage,  // 单独标记是否有缓存图片
       availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse']
     };
 
     console.log('🔍 工具选择调试信息:', {
       userInput: input,
       hasImages: toolSelectionRequest.hasImages,
-      imageCount: toolSelectionRequest.imageCount,
-      cachedImage: cachedImage ? `ID: ${cachedImage.imageId}` : 'none',
-      sourceImageForEditing: state.sourceImageForEditing ? 'exists' : 'none',
-      sourceImagesForBlending: state.sourceImagesForBlending.length,
-      sourceImageForAnalysis: state.sourceImageForAnalysis ? 'exists' : 'none'
+      显式图片数量: explicitImageCount,
+      总图片数量: totalImageCount,
+      详细: {
+        融合图片数量: state.sourceImagesForBlending.length,
+        编辑图片: state.sourceImageForEditing ? '有' : '无',
+        分析图片: state.sourceImageForAnalysis ? '有' : '无',
+        缓存图片: cachedImage ? `ID: ${cachedImage.imageId}` : '无'
+      }
     });
 
     console.log('🤖 智能处理用户输入...');
 
-    // 显示工具选择进度
+    // 显示工具选择进度 - 从0开始
     set({
       generationStatus: {
         isGenerating: true,
-        progress: 10,
+        progress: 0,
         error: null
       }
     });
+
+    // 短暂延迟后动画过渡到10%
+    setTimeout(() => {
+      set((state) => ({
+        generationStatus: {
+          ...state.generationStatus,
+          progress: 10
+        }
+      }));
+    }, 100);
 
     try {
       // 使用AI选择工具

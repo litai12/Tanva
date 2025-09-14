@@ -34,7 +34,7 @@ const ZoomIndicator: React.FC = () => {
 
     return (
         <div className="fixed left-3 bottom-4 z-10">
-            <div className="bg-glass backdrop-blur-md border border-glass rounded-lg shadow-glass-xl w-10">
+            <div className="bg-glass backdrop-blur-md border border-glass rounded-2xl shadow-glass-xl w-10">
                 <div className="flex flex-col items-center">
                     {/* 放大按钮 */}
                     <Button

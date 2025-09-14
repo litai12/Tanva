@@ -27,7 +27,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   const [triggerImageUpload, setTriggerImageUpload] = useState(false);
   const currentPlaceholderRef = useRef<paper.Group | null>(null);
   const [imageInstances, setImageInstances] = useState<ImageInstance[]>([]);
-  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [selectedImageIds, setSelectedImageIds] = useState<string[]>([]);  // 支持多选
 
   // 图片拖拽状态
   const [imageDragState, setImageDragState] = useState<ImageDragState>({
@@ -65,7 +65,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const placeholder = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(center.subtract([finalWidth / 2, finalHeight / 2]), [finalWidth, finalHeight]),
       strokeColor: new paper.Color('#60a5fa'), // 更柔和的蓝色边框
-      strokeWidth: 2,
+      strokeWidth: 1,
       dashArray: [8, 6],
       fillColor: new paper.Color(0.94, 0.97, 1, 0.8) // 淡蓝色半透明背景
     });
@@ -79,7 +79,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       rectangle: new paper.Rectangle(center.subtract([buttonSize / 2, buttonHeight / 2]), [buttonSize, buttonHeight]),
       fillColor: new paper.Color('#3b82f6'), // 更现代的蓝色
       strokeColor: new paper.Color('#2563eb'), // 深蓝色边框
-      strokeWidth: 1.5
+      strokeWidth: 1
     });
 
     // 创建"+"图标（更粗更圆润）
@@ -292,7 +292,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const selectionBorder = new paper.Path.Rectangle({
       rectangle: bounds,
       strokeColor: new paper.Color('#3b82f6'),
-      strokeWidth: 2,
+      strokeWidth: 1,
       fillColor: null,
       selected: false,
       visible: false  // 默认隐藏选择框
@@ -304,7 +304,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     parentGroup.addChild(selectionBorder);
 
     // 添加四个角的调整控制点
-    const handleSize = 8;
+    const handleSize = 6;
     const handleColor = new paper.Color('#3b82f6');
 
     // 创建调整控制点
@@ -321,7 +321,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                         size: [handleSize, handleSize],
                         fillColor: 'white',  // 改为白色填充（空心效果）
                         strokeColor: handleColor,  // 蓝色边框
-                        strokeWidth: 2,  // 增加边框宽度让空心效果更明显
+                        strokeWidth: 1,  // 增加边框宽度让空心效果更明显
                         selected: false,
                         visible: false  // 默认隐藏控制点
                       });
@@ -344,7 +344,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       // 🎯 优先使用原始图片数据（高质量）
       // 这样可以避免canvas缩放导致的质量损失
       if (imageInstance.imageData?.src) {
-        console.log('🎨 AI编辑：使用原始图片数据（高质量）');
+        // console.log('🎨 AI编辑：使用原始图片数据（高质量）');
         return imageInstance.imageData.src;
       }
 
@@ -369,11 +369,31 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
   }, [imageInstances]);
 
+  // 检查图层是否可见
+  const isLayerVisible = useCallback((imageId: string) => {
+    // 找到对应的Paper.js图层组
+    const imageGroup = paper.project.layers.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0];
+
+    if (imageGroup instanceof paper.Group) {
+      // 获取图片所在的图层
+      const currentLayer = imageGroup.layer;
+      if (currentLayer) {
+        // 返回图层的可见状态
+        return currentLayer.visible;
+      }
+    }
+    return true; // 默认可见（兜底）
+  }, []);
+
   // ========== 图片选择/取消选择 ==========
-  const handleImageSelect = useCallback((imageId: string) => {
-    setSelectedImageId(imageId);
+  // 更新图片选择视觉效果
+  const updateImageSelectionVisuals = useCallback((selectedIds: string[]) => {
     setImageInstances(prev => prev.map(img => {
-      const isSelected = img.id === imageId;
+      const isSelected = selectedIds.includes(img.id);
 
       // 控制选择框和控制点的可见性
       const imageGroup = paper.project.layers.flatMap(layer =>
@@ -388,7 +408,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             child.visible = isSelected;
           }
         });
-        paper.view.update();
       }
 
       return {
@@ -396,35 +415,61 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         isSelected
       };
     }));
+    paper.view.update();
+  }, []);
+
+  const handleImageSelect = useCallback((imageId: string, addToSelection: boolean = false) => {
+    // 检查图层是否可见，只有可见的图层才能被选中
+    if (!isLayerVisible(imageId)) {
+      logger.debug('图层不可见，无法选中图片:', imageId);
+      return;
+    }
+
+    // 更新选择状态
+    if (addToSelection) {
+      // 增量选择模式
+      setSelectedImageIds(prev => {
+        if (prev.includes(imageId)) {
+          // 如果已选中，则取消选择
+          const newIds = prev.filter(id => id !== imageId);
+          updateImageSelectionVisuals(newIds);
+          return newIds;
+        } else {
+          // 否则添加到选择
+          const newIds = [...prev, imageId];
+          updateImageSelectionVisuals(newIds);
+          return newIds;
+        }
+      });
+    } else {
+      // 单选模式
+      setSelectedImageIds([imageId]);
+      updateImageSelectionVisuals([imageId]);
+    }
+    
     eventHandlers.onImageSelect?.(imageId);
-  }, [eventHandlers.onImageSelect]);
+  }, [eventHandlers.onImageSelect, isLayerVisible, updateImageSelectionVisuals]);
+
+  // 批量选择图片
+  const handleImageMultiSelect = useCallback((imageIds: string[]) => {
+    // 过滤出可见图层的图片
+    const visibleImageIds = imageIds.filter(id => isLayerVisible(id));
+    
+    logger.upload(`批量选中图片: ${visibleImageIds.join(', ')}`);
+    setSelectedImageIds(visibleImageIds);
+    updateImageSelectionVisuals(visibleImageIds);
+    
+    // 触发批量选择事件
+    if (eventHandlers.onImageMultiSelect) {
+      eventHandlers.onImageMultiSelect(visibleImageIds);
+    }
+  }, [eventHandlers.onImageMultiSelect, isLayerVisible, updateImageSelectionVisuals]);
 
   const handleImageDeselect = useCallback(() => {
-    setSelectedImageId(null);
-    setImageInstances(prev => prev.map(img => {
-      // 隐藏所有图片的选择框和控制点
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === img.id
-        )
-      )[0];
-
-      if (imageGroup instanceof paper.Group) {
-        imageGroup.children.forEach(child => {
-          if (child.data?.isSelectionBorder || child.data?.isResizeHandle) {
-            child.visible = false;
-          }
-        });
-        paper.view.update();
-      }
-
-      return {
-        ...img,
-        isSelected: false
-      };
-    }));
+    setSelectedImageIds([]);
+    updateImageSelectionVisuals([]);
     eventHandlers.onImageDeselect?.();
-  }, [eventHandlers.onImageDeselect]);
+  }, [eventHandlers.onImageDeselect, updateImageSelectionVisuals]);
 
   // ========== 图片移动 ==========
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
@@ -610,14 +655,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     });
 
     // 如果删除的是当前选中的图片，清除选中状态
-    if (selectedImageId === imageId) {
-      setSelectedImageId(null);
+    if (selectedImageIds.includes(imageId)) {
+      setSelectedImageIds(prev => prev.filter(id => id !== imageId));
       console.log('🗑️ 已清除选中状态');
     }
 
     // 调用删除回调
     eventHandlers.onImageDelete?.(imageId);
-  }, [selectedImageId, eventHandlers.onImageDelete]);
+  }, [selectedImageIds[0], eventHandlers.onImageDelete]);
 
   // ========== 图片上传错误处理 ==========
   const handleImageUploadError = useCallback((error: string) => {
@@ -633,7 +678,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   return {
     // 状态
     imageInstances,
-    selectedImageId,
+    selectedImageIds,  // 多选状态
+    selectedImageId: selectedImageIds[0] || null,  // 向下兼容单选
     triggerImageUpload,
     imageDragState,
     imageResizeState,
@@ -649,6 +695,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 图片选择
     handleImageSelect,
+    handleImageMultiSelect,  // 批量选择
     handleImageDeselect,
 
     // 图片移动和调整大小
@@ -658,7 +705,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 状态设置器（用于外部直接控制）
     setImageInstances,
-    setSelectedImageId,
+    setSelectedImageIds,  // 设置多选状态
     setTriggerImageUpload,
     setImageDragState,
     setImageResizeState,

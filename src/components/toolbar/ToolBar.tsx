@@ -1,7 +1,8 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2 } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type } from 'lucide-react';
+import TextStylePanel from './TextStylePanel';
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
@@ -256,8 +257,12 @@ const VerticalSlider: React.FC<{
       />
       {/* 滑块圆圈 */}
       <div
-        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transform -translate-y-1.5 -translate-x-0.5 transition-all duration-150"
-        style={{ bottom: `${percentage * 100}%` }}
+        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transition-all duration-150"
+        style={{ 
+          bottom: `calc(${percentage * 100}% - 6px)`,
+          left: '50%',
+          transform: 'translateX(-50%)'
+        }}
       />
     </div>
   );
@@ -342,14 +347,17 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
   return (
     <div
-      className="fixed left-2 top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-lg bg-glass backdrop-blur-md shadow-glass border border-glass z-[1000] transition-all duration-300"
+      className={cn(
+        "fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-[50ms] ease-out",
+        isLayerPanelOpen ? "left-[322px]" : "left-2"
+      )}
     >
       {/* AI生图工具 */}
       <Button
         variant={isAIDialogVisible ? 'default' : 'outline'}
         size="sm"
         className={cn(
-          "px-2 py-2 h-8 w-8",
+          "p-0 h-8 w-8 rounded-full",
           isAIDialogVisible 
             ? "bg-blue-600 text-white" 
             : "bg-white/50 text-gray-700 border-gray-300"
@@ -367,7 +375,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         variant={drawMode === 'select' ? 'default' : 'outline'}
         size="sm"
         className={cn(
-          "px-2 py-2 h-8 w-8",
+          "p-0 h-8 w-8 rounded-full",
           drawMode === 'select' 
             ? "bg-blue-600 text-white" 
             : "bg-white/50 text-gray-700 border-gray-300"
@@ -385,7 +393,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -413,15 +421,15 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
         {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
-          <div className="absolute left-full ml-3 transition-all duration-200 ease-in-out z-[1001]" style={{ top: '-10px' }}>
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-glass-light backdrop-blur-md shadow-glass-xl border border-glass-light" style={{ marginTop: '1px' }}>
+          <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
+            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
-              <div className="flex items-center gap-1">
+              <div className="flex flex-col gap-1">
                 <Button
                   variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'free' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -435,7 +443,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'line' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -449,7 +457,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'rect' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -463,7 +471,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
-                    "px-2 py-2 h-8 w-8",
+                    "p-0 h-8 w-8 rounded-full",
                     drawMode === 'circle' && !isEraser 
                       ? "bg-blue-600 text-white" 
                       : "bg-white/50 border-gray-300"
@@ -475,7 +483,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 </Button>
               </div>
 
-              <Separator orientation="vertical" className="h-6" />
+              <Separator orientation="horizontal" className="w-6" />
 
               {/* 颜色选择器 */}
               <input
@@ -488,11 +496,11 @@ const ToolBar: React.FC<ToolBarProps> = ({
               />
 
               {/* 线宽控制 */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-600 font-medium w-4 text-right tabular-nums">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs text-gray-600 font-medium tabular-nums">
                   {strokeWidth}
                 </span>
-                <HorizontalSlider
+                <VerticalSlider
                   value={strokeWidth}
                   min={1}
                   max={20}
@@ -505,27 +513,79 @@ const ToolBar: React.FC<ToolBarProps> = ({
         )}
       </div>
 
+      {/* 橡皮擦工具 - 放在画笔工具下方 */}
+      <Button
+        onClick={toggleEraser}
+        variant={isEraser ? "default" : "outline"}
+        size="sm"
+        className={cn(
+          "p-0 h-8 w-8 rounded-full",
+          isEraser 
+            ? "bg-blue-600 text-white" 
+            : "bg-white/50 border-gray-300"
+        )}
+        title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
+      >
+        <Eraser className="w-4 h-4" />
+      </Button>
+
       <Separator orientation="horizontal" className="w-6" />
 
-      {/* 独立工具按钮 - 暂时只保留3D模型工具 */}
+      {/* 独立工具按钮 */}
       <div className="flex flex-col items-center gap-2">
-        {/* 文字工具 - 暂时关闭 */}
-        {/* <Button
-          variant={drawMode === 'text' ? 'default' : 'outline'}
-          size="sm"
-          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
-          onClick={() => setDrawMode('text')}
-          title="添加文本"
-        >
-          <Type className="w-4 h-4" />
-        </Button> */}
+        {/* 文字工具 */}
+        <div className="relative">
+          <Button
+            variant={drawMode === 'text' ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              drawMode === 'text' 
+                ? "bg-blue-600 text-white" 
+                : "bg-white/50 border-gray-300"
+            )}
+            onClick={() => {
+              setDrawMode('text');
+              logger.tool('工具栏：切换到文字工具');
+            }}
+            title="文本工具 - 点击空白处创建文本"
+          >
+            <Type className="w-4 h-4" />
+          </Button>
+
+          {/* 文本样式面板 - 当文本工具激活时显示 */}
+          {drawMode === 'text' && (
+            <TextStylePanel
+              currentStyle={(window as any).tanvaTextTool?.getSelectedTextStyle?.() || {
+                fontFamily: 'Inter',
+                fontWeight: 'normal',
+                fontSize: 24,
+                color: currentColor,
+                align: 'left',
+                italic: false
+              }}
+              onStyleChange={(updates) => {
+                const textTool = (window as any).tanvaTextTool;
+                if (textTool) {
+                  // 如果有选中的文本，更新该文本的样式
+                  if (textTool.selectedTextId) {
+                    textTool.updateTextStyle(textTool.selectedTextId, updates);
+                  } else {
+                    // 否则更新默认样式
+                    textTool.updateDefaultStyle(updates);
+                  }
+                }
+              }}
+            />
+          )}
+        </div>
 
         {/* 图片工具 */}
         <Button
           variant={drawMode === 'image' ? 'default' : 'outline'}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode === 'image' 
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -552,7 +612,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={drawMode === '3d-model' ? 'default' : 'outline'}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode === '3d-model' 
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
@@ -568,13 +628,13 @@ const ToolBar: React.FC<ToolBarProps> = ({
           variant={drawMode === 'screenshot' ? 'default' : 'outline'}
           size="sm"
           className={cn(
-            "px-2 py-2 h-8 w-8",
+            "p-0 h-8 w-8 rounded-full",
             drawMode === 'screenshot' 
               ? "bg-blue-600 text-white" 
               : "bg-white/50 border-gray-300"
           )}
           onClick={() => setDrawMode('screenshot')}
-          title="一键截图 - 自动包含所有元素"
+          title="AI截图 - 自动包含所有元素，同时下载和传入AI对话框"
         >
           <Camera className="w-4 h-4" />
         </Button>
@@ -610,7 +670,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         variant={isLayerPanelOpen ? 'default' : 'outline'}
         size="sm"
         className={cn(
-          "px-2 py-2 h-8 w-8",
+          "p-0 h-8 w-8 rounded-full",
           isLayerPanelOpen 
             ? "bg-blue-600 text-white" 
             : "bg-white/50 border-gray-300"
@@ -621,26 +681,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
         <Layers className="w-4 h-4" />
       </Button>
 
-      <Separator orientation="horizontal" className="w-6" />
-
       {/* 工具按钮 */}
       <div className="flex flex-col items-center gap-2">
-        {/* 橡皮擦工具 */}
-        <Button
-          onClick={toggleEraser}
-          variant={isEraser ? "default" : "outline"}
-          size="sm"
-          className={cn(
-            "px-2 py-2 h-8 w-8",
-            isEraser 
-              ? "bg-blue-600 text-white" 
-              : "bg-white/50 border-gray-300"
-          )}
-          title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
-        >
-          <Eraser className="w-4 h-4" />
-        </Button>
-
         {/* 清理画布按钮 */}
         {onClearCanvas && (
           <Button
@@ -651,7 +693,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
             }}
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+            className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
             title="清空画布 (清除所有图元)"
           >
             <Trash2 className="w-4 h-4" />

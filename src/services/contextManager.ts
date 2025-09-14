@@ -27,6 +27,19 @@ class ContextManager implements IContextManager {
    * 创建新会话
    */
   createSession(): string {
+    // 检查是否已有活跃的会话
+    if (this.currentSessionId && this.contexts.has(this.currentSessionId)) {
+      const existingContext = this.contexts.get(this.currentSessionId);
+      if (existingContext) {
+        // 如果会话是最近30秒内创建的，认为是重复初始化，返回现有会话
+        const sessionAge = Date.now() - existingContext.startTime.getTime();
+        if (sessionAge < 30000) {  // 30秒内
+          console.log('🧠 返回现有会话上下文:', this.currentSessionId, '(防止重复创建)');
+          return this.currentSessionId;
+        }
+      }
+    }
+    
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const context: ConversationContext = {
       sessionId,
@@ -121,15 +134,17 @@ class ContextManager implements IContextManager {
     const context = this.getCurrentContext();
     if (!context) return userInput;
     
-    const recentMessages = context.messages.slice(-5); // 最近5条消息
-    const recentOperations = context.operations.slice(-3); // 最近3次操作
+    // 限制历史记录数量，防止请求头过大 (431错误)
+    const recentMessages = context.messages.slice(-3); // 减少到最近3条消息
+    const recentOperations = context.operations.slice(-2); // 减少到最近2次操作
     
     let contextPrompt = `用户当前输入: ${userInput}\n\n`;
     
     if (recentMessages.length > 0) {
       contextPrompt += `对话历史:\n`;
       recentMessages.forEach(msg => {
-        const content = msg.content.length > 100 ? msg.content.substring(0, 100) + '...' : msg.content;
+        // 减少单条消息长度限制
+        const content = msg.content.length > 80 ? msg.content.substring(0, 80) + '...' : msg.content;
         contextPrompt += `- ${msg.type}: ${content}\n`;
       });
       contextPrompt += `\n`;
@@ -138,8 +153,9 @@ class ContextManager implements IContextManager {
     if (recentOperations.length > 0) {
       contextPrompt += `最近操作:\n`;
       recentOperations.forEach(op => {
-        const input = op.input.length > 50 ? op.input.substring(0, 50) + '...' : op.input;
-        const output = op.output && op.output.length > 50 ? op.output.substring(0, 50) + '...' : op.output;
+        // 减少操作记录长度限制
+        const input = op.input.length > 40 ? op.input.substring(0, 40) + '...' : op.input;
+        const output = op.output && op.output.length > 40 ? op.output.substring(0, 40) + '...' : op.output;
         contextPrompt += `- ${op.type}: ${input} → ${output || '成功'} (${op.success ? '成功' : '失败'})\n`;
       });
       contextPrompt += `\n`;
@@ -157,29 +173,37 @@ class ContextManager implements IContextManager {
       contextPrompt += `上次操作: ${context.contextInfo.lastOperationType}\n`;
     }
     
-    // 🖼️ 图像缓存信息
+    // 🖼️ 图像缓存信息 - 简化信息
     if (context.cachedImages.latest) {
-      contextPrompt += `\n当前缓存的图像:\n`;
-      contextPrompt += `- 图像ID: ${context.cachedImages.latestId}\n`;
-      contextPrompt += `- 生成提示: ${context.cachedImages.latestPrompt}\n`;
-      contextPrompt += `- 生成时间: ${context.cachedImages.timestamp?.toLocaleTimeString()}\n`;
+      contextPrompt += `\n当前缓存图像: ${context.cachedImages.latestId || 'unknown'}\n`;
+      // 简化生成提示信息
+      const promptPreview = context.cachedImages.latestPrompt && context.cachedImages.latestPrompt.length > 50 
+        ? context.cachedImages.latestPrompt.substring(0, 50) + '...'
+        : context.cachedImages.latestPrompt || '';
+      if (promptPreview) {
+        contextPrompt += `生成提示: ${promptPreview}\n`;
+      }
     }
     
-    // 🧠 特殊处理数学计算和连续对话
-    const isMathRelated = /[\d\+\-\*\/\=]/.test(userInput) || 
-                          recentMessages.some(msg => /[\d\+\-\*\/\=]/.test(msg.content));
-    
+    // 🧠 特殊处理数学计算和连续对话 - 简化检测
+    const isMathRelated = /[\d\+\-\*\/\=]/.test(userInput);
     if (isMathRelated) {
-      contextPrompt += `\n注意：这是一个数学计算相关的对话，请保持计算的连续性和准确性。`;
+      contextPrompt += `\n注意：数学计算相关对话。`;
     }
     
-    // 🖼️ 特殊处理图像编辑意图
+    // 🖼️ 特殊处理图像编辑意图 - 简化检测
     const isImageEditIntent = this.detectImageEditIntent(userInput);
     if (isImageEditIntent && context.cachedImages.latest) {
-      contextPrompt += `\n注意：用户可能想要编辑当前缓存的图像，请考虑使用编辑功能。`;
+      contextPrompt += `\n注意：可能需要编辑缓存图像。`;
     }
     
-    contextPrompt += `\n请根据以上上下文理解用户意图并提供合适的响应。`;
+    // 限制总体上下文提示长度，防止请求头过大 (431错误)
+    const maxContextLength = 1500; // 设置合理的上限
+    if (contextPrompt.length > maxContextLength) {
+      contextPrompt = contextPrompt.substring(0, maxContextLength) + '\n...(上下文已截断)';
+    }
+    
+    contextPrompt += `\n请根据上下文理解用户意图。`;
     
     return contextPrompt;
   }

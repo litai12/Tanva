@@ -227,8 +227,16 @@ export const useDrawingTools = ({
     pathRef.current.strokeWidth = strokeWidth;
     pathRef.current.fillColor = null; // 确保不填充
 
-    // 保存起始点用于后续更新
-    if (pathRef.current) pathRef.current.startPoint = startPoint;
+    // 保存起始点和圆形标识用于后续更新
+    if (pathRef.current) {
+      (pathRef.current as any).startPoint = startPoint;
+      (pathRef.current as any).isCirclePath = true; // 标记为圆形路径
+      console.log('🔴 创建圆形路径:', {
+        center: startPoint,
+        radius: 1,
+        className: pathRef.current.className
+      });
+    }
 
     setDrawingState(prev => ({
       ...prev,
@@ -261,16 +269,11 @@ export const useDrawingTools = ({
       const startPoint = (pathRef.current as any).startPoint;
       const radius = startPoint.getDistance(point);
 
-      // 优化：更新现有圆形而不是重新创建
+      // 修复：使用正确的方式更新圆形以避免形变
       if (pathRef.current instanceof paper.Path.Circle) {
-        // 直接更新圆形的中心和半径
+        // 直接更新圆形的半径属性，保持正确的圆形
+        (pathRef.current as any).radius = radius;
         pathRef.current.position = startPoint;
-        pathRef.current.bounds = new paper.Rectangle(
-          startPoint.x - radius,
-          startPoint.y - radius,
-          radius * 2,
-          radius * 2
-        );
       } else {
         // 如果类型不匹配，才重新创建
         pathRef.current.remove();
@@ -377,7 +380,7 @@ export const useDrawingTools = ({
     const rect = new paper.Rectangle(startPoint, startPoint.add(new paper.Point(1, 1)));
     pathRef.current = new paper.Path.Rectangle(rect);
     pathRef.current.strokeColor = new paper.Color('#8b5cf6');
-    pathRef.current.strokeWidth = 2;
+    pathRef.current.strokeWidth = 1;
     pathRef.current.dashArray = [8, 4];
     pathRef.current.fillColor = null;
 
@@ -419,7 +422,7 @@ export const useDrawingTools = ({
       pathRef.current.remove();
       pathRef.current = new paper.Path.Rectangle(rectangle);
       pathRef.current.strokeColor = new paper.Color('#8b5cf6');
-      pathRef.current.strokeWidth = 2;
+      pathRef.current.strokeWidth = 1;
       pathRef.current.dashArray = [8, 4];
       pathRef.current.fillColor = null;
 

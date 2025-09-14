@@ -102,6 +102,7 @@ export interface ToolSelectionRequest {
   userInput: string;
   hasImages: boolean;
   imageCount: number;
+  hasCachedImage?: boolean; // 是否有缓存图像
   availableTools: string[];
   context?: string;
 }

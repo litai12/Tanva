@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import paper from 'paper';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
@@ -18,6 +19,9 @@ import { usePathEditor } from './hooks/usePathEditor';
 import { useEraserTool } from './hooks/useEraserTool';
 import { useInteractionController } from './hooks/useInteractionController';
 import { useQuickImageUpload } from './hooks/useQuickImageUpload';
+import { useSimpleTextTool } from './hooks/useSimpleTextTool';
+import SimpleTextEditor from './SimpleTextEditor';
+import TextSelectionOverlay from './TextSelectionOverlay';
 import type { DrawingContext } from '@/types/canvas';
 
 interface DrawingControllerProps {
@@ -27,6 +31,8 @@ interface DrawingControllerProps {
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
+  const { toggleVisibility } = useLayerStore();
+  const { setSourceImageForEditing, showDialog: showAIDialog } = useAIChatStore();
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   const lastDrawModeRef = useRef<string>(drawMode);
 
@@ -161,10 +167,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     imageInstances: imageTool.imageInstances,
     model3DInstances: model3DTool.model3DInstances,
     onImageSelect: imageTool.handleImageSelect,
+    onImageMultiSelect: imageTool.handleImageMultiSelect,
     onModel3DSelect: model3DTool.handleModel3DSelect,
+    onModel3DMultiSelect: model3DTool.handleModel3DMultiSelect,
     onImageDeselect: imageTool.handleImageDeselect,
     onModel3DDeselect: model3DTool.handleModel3DDeselect
   });
+
 
   // ========== 初始化路径编辑器Hook ==========
   const pathEditor = usePathEditor({
@@ -176,6 +185,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     context: drawingContext,
     strokeWidth
   });
+
+  // ========== 初始化简单文本工具Hook ==========
+  const simpleTextTool = useSimpleTextTool({
+    currentColor,
+    ensureDrawingLayer
+  });
+
+  // 暴露文本工具状态到全局，供工具栏使用
+  useEffect(() => {
+    (window as any).tanvaTextTool = simpleTextTool;
+  }, [simpleTextTool]);
 
   // ========== 截图功能处理 ==========
   const handleScreenshot = useCallback(async () => {
@@ -193,14 +213,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         models: model3DTool.model3DInstances
       });
 
-      const result = await AutoScreenshotService.quickScreenshot(
+      // 使用带回调的截图模式，同时下载和传入AI对话框
+      const result = await AutoScreenshotService.captureAutoScreenshot(
         imageTool.imageInstances,
-        model3DTool.model3DInstances
+        model3DTool.model3DInstances,
+        {
+          format: 'png',
+          quality: 0.92,
+          scale: 2,
+          padding: 0, // 无边距，与内容尺寸完全一致
+          autoDownload: true, // 同时下载文件，方便检查质量
+          filename: 'artboard-screenshot',
+          // 截图完成后的回调，直接传入AI聊天
+          onComplete: (dataUrl: string, filename: string) => {
+            console.log('🎨 截图完成，同时下载文件和传入AI对话框...', { filename });
+            
+            // 将截图设置为AI编辑源图片
+            setSourceImageForEditing(dataUrl);
+            
+            // 显示AI对话框
+            showAIDialog();
+            
+            console.log('✅ 截图已下载到本地并传入AI对话框');
+          }
+        }
       );
 
       if (result.success) {
         logger.debug('✅ 截图成功生成:', result.filename);
-        console.log('截图成功！文件已下载:', result.filename);
+        console.log('截图成功！已下载到本地并传入AI对话框:', result.filename);
       } else {
         logger.error('❌ 截图失败:', result.error);
         console.error('截图失败:', result.error);
@@ -215,7 +256,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 无论成功失败，都切换回选择模式
       setDrawMode('select');
     }
-  }, [imageTool.imageInstances, model3DTool.model3DInstances, setDrawMode]);
+  }, [imageTool.imageInstances, model3DTool.model3DInstances, setDrawMode, setSourceImageForEditing, showAIDialog]);
 
   // 监听截图工具的激活
   useEffect(() => {
@@ -235,6 +276,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     drawingTools,
     imageTool,
     model3DTool,
+    simpleTextTool,
     performErase: eraserTool.performErase,
     setDrawMode
   });
@@ -329,6 +371,38 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, []);
 
+  // 处理图片图层可见性切换
+  const handleImageToggleVisibility = useCallback((imageId: string) => {
+    try {
+      // 找到对应的Paper.js图层组
+      const imageGroup = paper.project.layers.flatMap(layer =>
+        layer.children.filter(child =>
+          child.data?.type === 'image' && child.data?.imageId === imageId
+        )
+      )[0];
+
+      if (imageGroup instanceof paper.Group) {
+        // 获取图片所在的图层
+        const currentLayer = imageGroup.layer;
+        if (currentLayer) {
+          // 从图层名称获取图层store ID (layer_${id} -> id)
+          const layerStoreId = currentLayer.name.replace('layer_', '');
+          
+          // 调用图层store的切换可见性函数
+          toggleVisibility(layerStoreId);
+          
+          console.log(`👁️ 切换图层可见性: ${currentLayer.name} (storeId: ${layerStoreId})`);
+        } else {
+          console.warn('图片没有关联的图层');
+        }
+      } else {
+        console.warn('未找到对应的图片图层组');
+      }
+    } catch (error) {
+      console.error('切换图层可见性失败:', error);
+    }
+  }, [toggleVisibility]);
+
   // 同步图片和3D模型的可见性状态
   useEffect(() => {
     const syncVisibilityStates = () => {
@@ -419,6 +493,52 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [imageTool]);
 
+  // 监听图层面板触发的实例更新事件
+  useEffect(() => {
+    // 处理图片实例更新
+    const handleImageInstanceUpdate = (event: CustomEvent) => {
+      const { imageId, layerId } = event.detail;
+      console.log(`🔄 DrawingController收到图片实例更新事件: ${imageId} → 图层${layerId}`);
+      
+      imageTool.setImageInstances(prev => prev.map(image => {
+        if (image.id === imageId) {
+          return { 
+            ...image, 
+            layerId: layerId,
+            layerIndex: parseInt(layerId) || 0 
+          };
+        }
+        return image;
+      }));
+    };
+
+    // 处理3D模型实例更新
+    const handleModel3DInstanceUpdate = (event: CustomEvent) => {
+      const { modelId, layerId } = event.detail;
+      console.log(`🔄 DrawingController收到3D模型实例更新事件: ${modelId} → 图层${layerId}`);
+      
+      model3DTool.setModel3DInstances(prev => prev.map(model => {
+        if (model.id === modelId) {
+          return { 
+            ...model, 
+            layerId: layerId,
+            layerIndex: parseInt(layerId) || 0 
+          };
+        }
+        return model;
+      }));
+    };
+
+    // 添加事件监听器
+    window.addEventListener('imageInstanceUpdated', handleImageInstanceUpdate as EventListener);
+    window.addEventListener('model3DInstanceUpdated', handleModel3DInstanceUpdate as EventListener);
+
+    return () => {
+      window.removeEventListener('imageInstanceUpdated', handleImageInstanceUpdate as EventListener);
+      window.removeEventListener('model3DInstanceUpdated', handleModel3DInstanceUpdate as EventListener);
+    };
+  }, [imageTool, model3DTool]);
+
   // 监听图层面板的选择事件
   useEffect(() => {
     const handleLayerItemSelected = (event: CustomEvent) => {
@@ -481,45 +601,75 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       />
 
       {/* 图片UI覆盖层实例 */}
-      {imageTool.imageInstances.map((image) => (
-        <ImageContainer
-          key={image.id}
-          imageData={{
-            id: image.id,
-            src: image.src || '',
-            fileName: image.fileName
-          }}
-          bounds={image.bounds}
-          isSelected={image.id === imageTool.selectedImageId}
-          visible={image.visible}
-          drawMode={drawMode}
-          isSelectionDragging={selectionTool.isSelectionDragging}
-          onSelect={() => imageTool.handleImageSelect(image.id)}
-          onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
-          onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
-          onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
-          onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
-          onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
-          getImageDataForEditing={imageTool.getImageDataForEditing}
-        />
-      ))}
+      {imageTool.imageInstances.map((image) => {
+        
+        return (
+          <ImageContainer
+            key={image.id}
+            imageData={{
+              id: image.id,
+              src: image.src || '',
+              fileName: image.fileName
+            }}
+            bounds={image.bounds}
+            isSelected={imageTool.selectedImageIds.includes(image.id)}
+            visible={image.visible}
+            drawMode={drawMode}
+            isSelectionDragging={selectionTool.isSelectionDragging}
+            onSelect={() => imageTool.handleImageSelect(image.id)}
+            onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
+            onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
+            onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
+            onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
+            onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
+            onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
+            getImageDataForEditing={imageTool.getImageDataForEditing}
+          />
+        );
+      })}
 
       {/* 3D模型渲染实例 */}
-      {model3DTool.model3DInstances.map((model) => (
-        <Model3DContainer
-          key={model.id}
-          modelData={model.modelData}
-          modelId={model.id}
-          bounds={model.bounds}
-          isSelected={model.isSelected}
-          visible={model.visible}
-          drawMode={drawMode}
-          isSelectionDragging={selectionTool.isSelectionDragging}
-          onSelect={() => model3DTool.handleModel3DSelect(model.id)}
-          onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
-          onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
-        />
-      ))}
+      {model3DTool.model3DInstances.map((model) => {
+        
+        return (
+          <Model3DContainer
+            key={model.id}
+            modelData={model.modelData}
+            modelId={model.id}
+            bounds={model.bounds}
+            isSelected={model.isSelected}
+            visible={model.visible}
+            drawMode={drawMode}
+            isSelectionDragging={selectionTool.isSelectionDragging}
+            onSelect={() => model3DTool.handleModel3DSelect(model.id)}
+            onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
+            onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
+          />
+        );
+      })}
+
+      {/* 文本选择框覆盖层 */}
+      <TextSelectionOverlay
+        textItems={simpleTextTool.textItems}
+        selectedTextId={simpleTextTool.selectedTextId}
+        editingTextId={simpleTextTool.editingTextId}
+        isDragging={simpleTextTool.isDragging}
+        isResizing={simpleTextTool.isResizing}
+        onTextDragStart={simpleTextTool.startTextDrag}
+        onTextDrag={simpleTextTool.dragText}
+        onTextDragEnd={simpleTextTool.endTextDrag}
+        onTextResizeStart={simpleTextTool.startTextResize}
+        onTextResize={simpleTextTool.resizeTextDrag}
+        onTextResizeEnd={simpleTextTool.endTextResize}
+      />
+
+      {/* 简单文本编辑器 */}
+      <SimpleTextEditor
+        textItems={simpleTextTool.textItems}
+        editingTextId={simpleTextTool.editingTextId}
+        onUpdateContent={simpleTextTool.updateTextContent}
+        onStopEdit={simpleTextTool.stopEditText}
+      />
     </>
   );
 };

@@ -72,7 +72,7 @@ class AIImageService {
    */
   private sanitizeErrorForLogging(error: unknown): string {
     if (error instanceof Error) {
-      let message = error.message;
+      const message = error.message;
       
       // 检查是否包含Base64数据
       if (message && message.length > 1000 && message.includes('iVBORw0KGgo')) {
@@ -169,12 +169,12 @@ class AIImageService {
     }
 
     try {
-      // 直接使用用户的提示词，不添加前缀
-      let prompt = request.prompt;
+      // 构建中文图像生成提示词
+      let prompt = `请生成图像：${request.prompt}`;
 
       // 添加宽高比信息（如果指定）
       if (request.aspectRatio && request.aspectRatio !== '1:1') {
-        prompt += ` (aspect ratio: ${request.aspectRatio})`;
+        prompt += ` (宽高比: ${request.aspectRatio})`;
       }
 
       console.log('📝 发送提示词:', prompt);
@@ -317,7 +317,7 @@ class AIImageService {
     }
 
     try {
-      const prompt = `Edit this image based on the following instruction: ${request.prompt}`;
+      const prompt = `请编辑图片：${request.prompt}`;
 
       // 将base64图像转换为适当的格式
       const imageData = request.sourceImage.replace(/^data:image\/[a-z]+;base64,/, '');
@@ -462,8 +462,17 @@ class AIImageService {
     }
 
     try {
-      // 改进的prompt，明确指定以第一张图片作为主场景和尺寸基准
-      const prompt = `Blend these images together following this instruction: ${request.prompt}. `;
+      // 根据图片数量使用不同的提示词策略
+      let prompt: string;
+      
+      if (request.sourceImages.length === 2) {
+        // 两张图：将第一张图（较早上传的）融合到第二张图（最后上传的主场景）中
+        // 注意：图片顺序会被反转，所以API收到的第一张是用户最后上传的
+        prompt = `请融合图片：${request.prompt}`;
+      } else {
+        // 多张图（3张或以上）：混合所有图片
+        prompt = `请融合图片：${request.prompt}`;
+      }
 
       // 构建包含多个图像的请求 - 反转顺序，让最后上传的图片作为主场景
       const reversedImages = [...request.sourceImages].reverse();
@@ -657,7 +666,7 @@ class AIImageService {
     },
     {
       name: 'blendImages',
-      description: '融合多张图像。适用于用户想要混合、合并、融合多张图片的请求。需要2张或更多图像。',
+      description: '融合多张图像。适用于用户想要混合、合并、融合、组合、拼接、结合多张图片，或者将多个元素整合到一起的请求。需要2张或更多图像。',
       parameters: {
         type: 'object',
         properties: {
@@ -694,7 +703,7 @@ class AIImageService {
     },
     {
       name: 'chatResponse',
-      description: '进行文本对话，回答问题或聊天。适用于数学计算、知识问答、日常对话等不涉及图像的请求。',
+      description: '进行文本对话，回答问题或聊天。适用于数学计算、知识问答、日常对话等请求。',
       parameters: {
         type: 'object',
         properties: {
@@ -712,10 +721,20 @@ class AIImageService {
    * 使用Gemini Function Calling选择合适的工具
    */
   async selectTool(request: ToolSelectionRequest): Promise<AIServiceResponse<ToolSelectionResult>> {
-    console.log('🤖 开始AI工具选择:', request);
+    const startTime = Date.now();
+    
+    console.log('🤖 ========== AI两层分类工具选择开始 ==========');
+    console.log('📋 输入参数详情:', {
+      用户输入: request.userInput,
+      输入长度: request.userInput.length,
+      是否有图像: request.hasImages,
+      图像数量: request.imageCount,
+      可用工具: request.availableTools?.join(', ') || '默认5个工具'
+    });
     console.log('🔑 API密钥状态:', this.genAI ? '✅ 已初始化' : '❌ 未初始化');
 
     if (!this.genAI) {
+      console.error('❌ GenAI客户端未初始化');
       return {
         success: false,
         error: this.createError('CLIENT_NOT_INITIALIZED', 'GenAI client not initialized')
@@ -724,36 +743,47 @@ class AIImageService {
 
     try {
       // 🧠 使用上下文构建增强提示
+      console.log('🧠 开始构建上下文增强提示...');
       const contextualPrompt = contextManager.buildContextPrompt(request.userInput);
+      console.log('🧠 上下文提示构建完成:', {
+        提示长度: contextualPrompt.length,
+        提示预览: contextualPrompt.substring(0, 200) + '...'
+      });
       
-      // 构建Function Calling的系统提示
-      const systemPrompt = `你是一个智能助手，需要根据用户输入和上下文历史选择最合适的工具。
+      // 构建简化的意图识别系统提示
+      const systemPrompt = `🌏 请用中文进行分析和回复。
+
+你是一个智能助手，需要根据用户输入识别用户的主要意图。
 
 ${contextualPrompt}
 
-基础信息:
-- 是否有图像: ${request.hasImages}
-- 图像数量: ${request.imageCount}
+🎯 **意图分类**（只需要识别用户想要做什么）：
 
-请分析用户意图并选择最合适的工具：
+**generation** - 用户想要创建全新的图像
+- 例：画一张图、生成图像、创建新图片、重新画等
 
-1. generateImage - 如果用户想要生成、创建、画"新"图像（如：新画一张、生成一张、创建一个新的、new image等）
-2. editImage - 如果有1张图像（包括缓存的图像）且用户想要编辑、修改现有图像
-3. blendImages - 如果有2张或更多图像且用户想要融合它们
-4. analyzeImage - 如果有图像且用户想要分析、了解图像内容
-5. chatResponse - 如果是数学问题、知识问答、日常对话等文本交互
+**editing** - 用户想要修改、编辑或融合现有图像  
+- 例：编辑图片、修改图像、融合图片、调整图像等
 
-选择规则：
-- 优先考虑用户的明确意图和上下文历史
-- 理解用户的自然语言表达，不需要依赖特定关键词
-- 如果用户想要创建/生成"新"的图像（新画、新建、画一张等），选择generateImage工具
-- 如果用户想要修改/编辑现有图像，选择editImage工具
-- 如果用户想要分析/了解图像内容，选择analyzeImage工具
-- 根据对话的连续性和上下文理解用户真实意图
+**text** - 用户想要获得文字分析、解释或对话
+- 例：分析图片、解释内容、对话交流、回答问题等
 
-请直接选择工具名称并说明理由，格式：工具名称|理由`;
+🚨 **重要原则**：
+- 即使有现有图像，如果用户明确表达生成新图的意图，选择 generation
+- 只有当用户想要修改/处理现有图像时，选择 editing
+- 对于询问、分析、解释类需求，选择 text
+
+⚠️ 请仔细理解用户意图，不要被现有图像数量影响判断。
+🎯 回复格式：意图类别(generation/editing/text)|理由:中文说明`;
+
+      console.log('📤 准备发送AI请求:', {
+        模型: 'gemini-2.0-flash',
+        提示词长度: systemPrompt.length,
+        安全设置: '已配置4个类别为BLOCK_NONE'
+      });
 
       // 使用Gemini进行工具选择
+      const aiCallStartTime = Date.now();
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
@@ -778,17 +808,34 @@ ${contextualPrompt}
           ]
         })
       );
+      
+      const aiCallTime = Date.now() - aiCallStartTime;
+      console.log(`📥 AI响应成功，耗时: ${aiCallTime}ms`);
 
       if (!result.text) {
+        console.error('❌ AI响应中没有文本内容');
         throw new Error('No tool selection response from API');
       }
 
-      console.log('🤖 AI工具选择原始响应:', result.text);
+      console.log('🤖 AI工具选择原始响应:', {
+        响应内容: result.text,
+        响应长度: result.text.length,
+        响应时间: aiCallTime + 'ms'
+      });
 
       // 解析AI的选择
+      console.log('🔍 开始解析AI响应...');
+      const parseStartTime = Date.now();
       const toolSelection = this.parseToolSelection(result.text, request);
+      const parseTime = Date.now() - parseStartTime;
 
-      console.log('✅ 工具选择成功:', toolSelection);
+      const totalTime = Date.now() - startTime;
+      console.log('✅ 工具选择成功:', {
+        选择结果: toolSelection,
+        解析耗时: parseTime + 'ms',
+        总耗时: totalTime + 'ms',
+        AI调用占比: Math.round((aiCallTime / totalTime) * 100) + '%'
+      });
 
       // 🧠 记录操作到上下文
       contextManager.recordOperation({
@@ -796,8 +843,15 @@ ${contextualPrompt}
         input: request.userInput,
         output: result.text,
         success: true,
-        metadata: { selectedTool: toolSelection.selectedTool }
+        metadata: { 
+          selectedTool: toolSelection.selectedTool,
+          confidence: toolSelection.confidence,
+          processingTime: totalTime,
+          aiCallTime: aiCallTime
+        }
       });
+
+      console.log('🤖 ========== AI两层分类工具选择完成 ==========');
 
       return {
         success: true,
@@ -805,12 +859,29 @@ ${contextualPrompt}
       };
 
     } catch (error) {
+      const totalTime = Date.now() - startTime;
+      
       // 🔒 安全检查：防止Base64图像数据被输出到控制台
       const safeError = this.sanitizeErrorForLogging(error);
-      console.error('❌ 工具选择失败:', safeError);
+      console.error('❌ ========== AI工具选择失败，启动降级逻辑 ==========');
+      console.error('❌ 失败详情:', {
+        错误信息: safeError,
+        失败时间: totalTime + 'ms',
+        用户输入: request.userInput.substring(0, 50) + '...',
+        图像数量: request.imageCount
+      });
 
       // 降级处理：使用简单规则选择工具
+      console.log('🔧 开始两层分类降级处理...');
+      const fallbackStartTime = Date.now();
       const fallbackSelection = this.fallbackToolSelection(request);
+      const fallbackTime = Date.now() - fallbackStartTime;
+      
+      console.log('✅ 降级处理完成:', {
+        降级结果: fallbackSelection,
+        降级耗时: fallbackTime + 'ms',
+        总耗时: (totalTime + fallbackTime) + 'ms'
+      });
 
       // 🧠 记录失败操作
       contextManager.recordOperation({
@@ -818,8 +889,15 @@ ${contextualPrompt}
         input: request.userInput,
         output: 'fallback',
         success: false,
-        metadata: { error: error.message }
+        metadata: { 
+          error: safeError,
+          fallbackTool: fallbackSelection.selectedTool,
+          processingTime: totalTime,
+          fallbackTime: fallbackTime
+        }
       });
+
+      console.log('🤖 ========== 降级工具选择完成 ==========');
 
       return {
         success: true, // 即使AI失败，也返回降级结果
@@ -829,66 +907,128 @@ ${contextualPrompt}
   }
 
   /**
-   * 解析AI的工具选择响应
+   * 解析AI意图识别并进行第二层逻辑判断
    */
   private parseToolSelection(aiResponse: string, request: ToolSelectionRequest): ToolSelectionResult {
-    const { userInput, hasImages, imageCount } = request;
+    const { userInput, imageCount, hasCachedImage } = request;
 
-    // 提取工具名称和理由
-    const lines = aiResponse.trim().split('\n');
-    let selectedTool = '';
-    let reasoning = aiResponse;
+    console.log('🔍 开始解析AI意图识别响应:', aiResponse);
 
-    // 尝试解析格式：工具名称|理由
-    const pipeMatch = aiResponse.match(/(\w+)\|(.+)/);
-    if (pipeMatch) {
-      selectedTool = pipeMatch[1];
-      reasoning = pipeMatch[2].trim();
+    // 解析意图识别格式：意图类别(generation/editing/text)|理由:中文说明
+    let intentCategory = '';
+    let aiReasoning = '';
+    
+    const intentMatch = aiResponse.match(/(generation|editing|text)\|理由:(.+)/);
+    if (intentMatch) {
+      intentCategory = intentMatch[1];
+      aiReasoning = intentMatch[2].trim();
+      
+      console.log('✅ AI意图识别成功:', {
+        意图类别: intentCategory,
+        AI理由: aiReasoning
+      });
     } else {
-      // 尝试从文本中提取工具名称
-      const toolNames = this.AVAILABLE_TOOLS.map(tool => tool.name);
-      for (const toolName of toolNames) {
-        if (aiResponse.toLowerCase().includes(toolName.toLowerCase())) {
-          selectedTool = toolName;
-          break;
-        }
+      // 兜底：从文本中提取意图类别
+      if (aiResponse.includes('generation')) {
+        intentCategory = 'generation';
+      } else if (aiResponse.includes('editing')) {
+        intentCategory = 'editing';
+      } else if (aiResponse.includes('text')) {
+        intentCategory = 'text';
       }
+      
+      aiReasoning = aiResponse;
+      console.log('⚠️ 使用兜底解析:', { 意图类别: intentCategory, 原始响应: aiResponse });
     }
 
-    // 验证选择的工具是否存在
-    const toolExists = this.AVAILABLE_TOOLS.some(tool => tool.name === selectedTool);
-    if (!toolExists) {
-      console.warn('AI选择了不存在的工具:', selectedTool, '使用降级逻辑');
+    // 如果无法识别意图类别，使用降级逻辑
+    if (!intentCategory) {
+      console.warn('❌ 无法识别AI意图类别，使用降级逻辑');
       return this.fallbackToolSelection(request);
     }
 
-    // 构建参数
-    let parameters: Record<string, any> = { prompt: userInput };
+    // 第二层：基于意图类别和图片数量的纯逻辑判断
+    const totalImageCount = imageCount + (hasCachedImage ? 1 : 0);
+    let selectedTool = '';
+    let logicReasoning = '';
 
-    switch (selectedTool) {
-      case 'generateImage':
-        // 检测宽高比
-        const aspectRatio = this.detectAspectRatio(userInput);
-        if (aspectRatio) {
-          parameters.aspectRatio = aspectRatio;
+    console.log('🔧 第二层逻辑判断:', {
+      AI意图类别: intentCategory,
+      显式图片数量: imageCount,
+      有缓存图像: hasCachedImage,
+      总图片数量: totalImageCount
+    });
+
+    switch (intentCategory) {
+      case 'generation':
+        selectedTool = 'generateImage';
+        logicReasoning = '生成新图像，忽略现有图像';
+        break;
+        
+      case 'editing':
+        if (totalImageCount === 0) {
+          selectedTool = 'generateImage';
+          logicReasoning = '无图片可编辑，转为生成新图像';
+        } else if (totalImageCount === 1) {
+          selectedTool = 'editImage';
+          logicReasoning = '单张图片，执行图片编辑';
+        } else {
+          selectedTool = 'blendImages';
+          logicReasoning = `${totalImageCount}张图片，执行图片融合`;
         }
         break;
-      case 'editImage':
-      case 'analyzeImage':
-        // 这些需要在store层添加sourceImage参数
+        
+      case 'text':
+        if (totalImageCount > 0) {
+          selectedTool = 'analyzeImage';
+          logicReasoning = '有图片，执行图片分析';
+        } else {
+          selectedTool = 'chatResponse';
+          logicReasoning = '无图片，执行文字对话';
+        }
         break;
-      case 'blendImages':
-        // 这些需要在store层添加sourceImages参数
-        break;
+        
+      default:
+        console.warn('❌ 未知意图类别:', intentCategory, '使用降级逻辑');
+        return this.fallbackToolSelection(request);
     }
+
+    console.log('✅ 第二层逻辑判断完成:', {
+      选择工具: selectedTool,
+      逻辑理由: logicReasoning
+    });
+
+    // 构建参数
+    const parameters: Record<string, string> = { prompt: userInput };
+
+    // 检测宽高比（仅对generateImage）
+    if (selectedTool === 'generateImage') {
+      const aspectRatio = this.detectAspectRatio(userInput);
+      if (aspectRatio) {
+        parameters.aspectRatio = aspectRatio;
+      }
+    }
+
+    // 构建完整推理过程
+    const fullReasoning = `AI意图识别: ${intentCategory} (${aiReasoning}), 逻辑判断: ${logicReasoning}`;
+    
+    // 计算置信度（基于解析成功率）
+    const confidence = intentMatch ? 0.95 : 0.8;
+
+    console.log('✅ 工具选择解析完成:', {
+      selectedTool,
+      confidence,
+      reasoning: fullReasoning.substring(0, 100) + '...'
+    });
 
     return {
       selectedTool,
       parameters,
-      confidence: 0.9,
-      reasoning: reasoning || `AI选择了${selectedTool}`
+      confidence,
+      reasoning: fullReasoning
     };
   }
+
 
   /**
    * 检测用户输入中的宽高比需求
@@ -910,89 +1050,73 @@ ${contextualPrompt}
   }
 
   /**
-   * 降级工具选择（基于简单规则）
+   * 降级工具选择（基于三分类规则）
    */
   private fallbackToolSelection(request: ToolSelectionRequest): ToolSelectionResult {
-    const { userInput, hasImages, imageCount } = request;
+    const { userInput, hasImages, imageCount, hasCachedImage } = request;
     const lowerInput = userInput.toLowerCase();
 
-    // 优先级规则
-    if (imageCount >= 2) {
-      return {
-        selectedTool: 'blendImages',
-        parameters: { prompt: userInput },
-        confidence: 0.8,
-        reasoning: '检测到多张图像，选择融合功能'
-      };
+    console.log('🔧 三分类降级选择:', {
+      用户输入: userInput.substring(0, 50) + '...',
+      显式图片数量: imageCount,
+      有缓存图像: hasCachedImage,
+      总图像情况: hasImages
+    });
+
+    // 第一层分类：三分类判断
+    let selectedCategory: string;
+    let selectedTool: string;
+    let reasoning: string;
+    let confidence: number;
+
+    // 简单默认策略（无关键词检测）
+    const totalImageCount = imageCount + (hasCachedImage ? 1 : 0);
+    
+    if (totalImageCount === 0) {
+      // 没有图片，默认生成
+      selectedCategory = '图像生成类';
+      selectedTool = 'generateImage';
+      reasoning = '无图片，默认生成新图像';
+      confidence = 0.6;
+    } else if (totalImageCount === 1) {
+      // 单张图片，默认编辑
+      selectedCategory = '图像编辑类';
+      selectedTool = 'editImage';
+      reasoning = '单张图片，默认编辑';
+      confidence = 0.6;
+    } else {
+      // 多张图片，默认融合
+      selectedCategory = '图像编辑类';
+      selectedTool = 'blendImages';
+      reasoning = `${totalImageCount}张图片，默认融合`;
+      confidence = 0.6;
     }
 
-    if (imageCount === 1) {
-      // 检查是否是分析意图
-      const analysisKeywords = ['什么', '分析', '描述', '识别', '看看', 'what', 'analyze', 'describe', 'identify'];
-      const hasAnalysisKeywords = analysisKeywords.some(keyword => lowerInput.includes(keyword));
+    console.log(`✅ 三分类完成:`, {
+      第一层: selectedCategory,
+      选择工具: selectedTool,
+      置信度: confidence
+    });
 
-      if (hasAnalysisKeywords) {
-        return {
-          selectedTool: 'analyzeImage',
-          parameters: { prompt: userInput },
-          confidence: 0.85,
-          reasoning: '检测到分析意图'
-        };
+    // 构建参数
+    const parameters: Record<string, string> = { prompt: userInput };
+    
+    // 为generateImage添加宽高比检测
+    if (selectedTool === 'generateImage') {
+      const aspectRatio = this.detectAspectRatio(userInput);
+      if (aspectRatio) {
+        parameters.aspectRatio = aspectRatio;
       }
-
-      // 检查是否是新建意图（优先级高于编辑）
-      const newImageKeywords = ['新画', '新建', '新生成', '新创建', '画一张', '生成一张', '创建一张', 'new image', 'new draw', 'new create'];
-      const hasNewImageKeywords = newImageKeywords.some(keyword => lowerInput.includes(keyword));
-
-      if (hasNewImageKeywords) {
-        return {
-          selectedTool: 'generateImage',
-          parameters: { prompt: userInput },
-          confidence: 0.9,
-          reasoning: '检测到新建图像意图'
-        };
-      }
-
-      // 默认编辑
-      return {
-        selectedTool: 'editImage',
-        parameters: { prompt: userInput },
-        confidence: 0.75,
-        reasoning: '有图像且非分析/新建意图，选择编辑'
-      };
     }
 
-    // 无图像时的判断
-    const imageKeywords = ['画', '生成', '创建', '制作', '设计', 'draw', 'create', 'generate', 'make', 'design'];
-    const hasImageKeywords = imageKeywords.some(keyword => lowerInput.includes(keyword));
-
-    if (hasImageKeywords) {
-      return {
-        selectedTool: 'generateImage',
-        parameters: { prompt: userInput },
-        confidence: 0.9,
-        reasoning: '检测到图像生成关键词'
-      };
-    }
-
-    // 数学表达式
-    if (lowerInput.match(/^\d+[\+\-\*\/]\d+/) || lowerInput.includes('=') || lowerInput.includes('计算')) {
-      return {
-        selectedTool: 'chatResponse',
-        parameters: { prompt: userInput },
-        confidence: 0.95,
-        reasoning: '检测到数学或计算意图'
-      };
-    }
-
-    // 默认对话
     return {
-      selectedTool: 'chatResponse',
-      parameters: { prompt: userInput },
-      confidence: 0.6,
-      reasoning: '默认选择对话功能'
+      selectedTool,
+      parameters,
+      confidence,
+      reasoning
     };
   }
+
 
   /**
    * 分析图像内容
@@ -1009,7 +1133,11 @@ ${contextualPrompt}
 
     try {
       // 构建分析提示词
-      const analysisPrompt = request.prompt || `请详细分析这张图片，包括：
+      const analysisPrompt = request.prompt 
+        ? `🌏 请用中文进行分析和回复。\n\n${request.prompt}`
+        : `🌏 请用中文进行分析和回复。
+
+请详细分析这张图片，包括：
 1. 图片的主要内容和主题
 2. 图片中的对象、人物、场景
 3. 色彩和构图特点
@@ -1034,6 +1162,24 @@ ${contextualPrompt}
                 mimeType: 'image/jpeg',
                 data: imageData
               }
+            }
+          ],
+          safetySettings: [
+            {
+              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_HATE_SPEECH',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_HARASSMENT',
+              threshold: 'BLOCK_NONE'
+            },
+            {
+              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+              threshold: 'BLOCK_NONE'
             }
           ]
         })
@@ -1118,12 +1264,15 @@ ${contextualPrompt}
       // 🧠 使用上下文构建增强提示
       const contextualPrompt = contextManager.buildContextPrompt(request.prompt);
       
-      console.log('🧠 文本对话使用上下文:', contextualPrompt.substring(0, 200) + '...');
+      // 添加中文语言指令
+      const finalPrompt = `请用中文回复以下内容：\n\n${contextualPrompt}`;
+      
+      console.log('🧠 文本对话使用上下文:', finalPrompt.substring(0, 200) + '...');
 
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash',
-          contents: [{ text: contextualPrompt }],  // 修正：contents应该是数组
+          contents: [{ text: finalPrompt }],  // 修正：contents应该是数组
           safetySettings: [
             {
               category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
