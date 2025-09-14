@@ -95,11 +95,15 @@ class AIImageService {
   private async processWithTimeout<T>(
     promise: Promise<T>,
     timeoutMs: number = this.DEFAULT_TIMEOUT,
-    retries: number = 1 // 减少重试次数
+    retries: number = 3, // 增加重试次数到3次
+    operationType?: string // 操作类型，用于日志记录
   ): Promise<T> {
     let lastError: Error;
+    const startTime = Date.now();
     
     for (let attempt = 0; attempt <= retries; attempt++) {
+      const attemptStartTime = Date.now();
+      
       try {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
@@ -107,20 +111,44 @@ class AIImageService {
         
         const result = await Promise.race([promise, timeoutPromise]);
         
-        // 如果成功，立即返回，不进行重试
+        // 记录成功信息
+        const totalTime = Date.now() - startTime;
+        const attemptTime = Date.now() - attemptStartTime;
+        
         if (attempt > 0) {
-          console.log(`✅ 重试成功 (第${attempt + 1}次尝试)`);
+          console.log(`✅ ${operationType || 'API调用'} 重试成功 (第${attempt + 1}次尝试，总耗时: ${totalTime}ms，本次尝试: ${attemptTime}ms)`);
+        } else {
+          console.log(`✅ ${operationType || 'API调用'} 首次成功 (耗时: ${attemptTime}ms)`);
         }
         
         return result;
       } catch (error) {
         lastError = error as Error;
+        const attemptTime = Date.now() - attemptStartTime;
         
-        // 检查是否是网络相关错误
-        if (this.isNetworkError(error) && attempt < retries) {
-          console.warn(`⚠️ 网络错误，${2000 * (attempt + 1)}ms后重试 (${attempt + 1}/${retries})`);
-          await this.delay(2000 * (attempt + 1)); // 增加延迟时间
+        console.warn(`⚠️ ${operationType || 'API调用'} 第${attempt + 1}次尝试失败 (耗时: ${attemptTime}ms)`);
+        
+        // 检查是否是可重试的错误
+        if (this.isRetryableError(error) && attempt < retries) {
+          const delay = this.calculateRetryDelay(attempt);
+          const errorType = this.getErrorType(error);
+          
+          console.warn(`🔄 ${operationType || 'API调用'} 将在${Math.round(delay)}ms后重试 (第${attempt + 1}次失败，剩余${retries - attempt}次重试)`);
+          console.warn(`   错误类型: ${errorType}`);
+          console.warn(`   错误详情: ${this.sanitizeErrorForLogging(error)}`);
+          
+          await this.delay(delay);
           continue;
+        }
+        
+        // 记录最终失败信息
+        const totalTime = Date.now() - startTime;
+        if (attempt >= retries) {
+          console.error(`❌ ${operationType || 'API调用'} 已达到最大重试次数(${retries})，最终失败 (总耗时: ${totalTime}ms)`);
+          console.error(`   最终失败的错误类型: ${this.getErrorType(error)}`);
+        } else {
+          console.error(`❌ ${operationType || 'API调用'} 遇到不可重试的错误 (耗时: ${totalTime}ms)`);
+          console.error(`   不可重试错误类型: ${this.getErrorType(error)}`);
         }
         
         throw error;
@@ -143,6 +171,128 @@ class AIImageService {
              message.includes('load failed');
     }
     return false;
+  }
+
+  /**
+   * 检查错误是否可重试
+   */
+  private isRetryableError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      
+      // 网络相关错误 - 可重试
+      if (this.isNetworkError(error)) {
+        return true;
+      }
+      
+      // 超时错误 - 可重试
+      if (message.includes('timeout') || message.includes('request timeout')) {
+        return true;
+      }
+      
+      // 服务器临时错误 - 可重试
+      if (message.includes('service unavailable') || 
+          message.includes('temporarily unavailable') ||
+          message.includes('server error') ||
+          message.includes('internal error')) {
+        return true;
+      }
+      
+      // API速率限制 - 可重试
+      if (message.includes('rate limit') || 
+          message.includes('too many requests') ||
+          message.includes('quota') && !message.includes('quota exceeded')) {
+        return true;
+      }
+      
+      // Gemini特定的临时错误 - 可重试
+      if (message.includes('candidates') && message.includes('returned') ||
+          message.includes('content parts') && message.includes('response') ||
+          message.includes('no image data found') ||
+          message.includes('no text response')) {
+        return true;
+      }
+      
+      // 以下错误不可重试（永久性错误）
+      if (message.includes('api_key_invalid') ||
+          message.includes('invalid_api_key') ||
+          message.includes('permission_denied') ||
+          message.includes('quota_exceeded') ||
+          message.includes('billed users') ||
+          message.includes('location is not supported')) {
+        return false;
+      }
+    }
+    
+    // 默认对于未知错误，尝试重试
+    return true;
+  }
+
+  /**
+   * 计算重试延迟（指数退避策略）
+   */
+  private calculateRetryDelay(attempt: number): number {
+    // 指数退避策略: 2秒, 4秒, 6秒
+    const baseDelay = 2000; // 2秒基础延迟
+    const maxDelay = 6000;  // 最大6秒延迟
+    
+    const delay = Math.min(baseDelay * (attempt + 1), maxDelay);
+    
+    // 添加一些随机抖动以避免thundering herd问题
+    const jitter = Math.random() * 500; // 0-500ms的随机抖动
+    
+    return delay + jitter;
+  }
+
+  /**
+   * 获取错误类型（用于日志记录）
+   */
+  private getErrorType(error: unknown): string {
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      
+      if (this.isNetworkError(error)) {
+        return '网络错误';
+      }
+      
+      if (message.includes('timeout')) {
+        return '超时错误';
+      }
+      
+      if (message.includes('api_key_invalid') || message.includes('invalid_api_key')) {
+        return 'API密钥无效';
+      }
+      
+      if (message.includes('permission_denied')) {
+        return '权限被拒绝';
+      }
+      
+      if (message.includes('quota_exceeded')) {
+        return '配额已耗尽';
+      }
+      
+      if (message.includes('billed users')) {
+        return '需要付费账户';
+      }
+      
+      if (message.includes('location is not supported')) {
+        return '地区不支持';
+      }
+      
+      if (message.includes('rate limit') || message.includes('too many requests')) {
+        return '请求频率限制';
+      }
+      
+      if (message.includes('candidates') || message.includes('content parts') || message.includes('no image data found')) {
+        return 'API响应格式错误';
+      }
+      
+      if (message.includes('service unavailable') || message.includes('server error')) {
+        return '服务器临时错误';
+      }
+    }
+    
+    return '未知错误';
   }
 
   /**
@@ -170,12 +320,7 @@ class AIImageService {
 
     try {
       // 构建中文图像生成提示词
-      let prompt = `请生成图像：${request.prompt}`;
-
-      // 添加宽高比信息（如果指定）
-      if (request.aspectRatio && request.aspectRatio !== '1:1') {
-        prompt += ` (宽高比: ${request.aspectRatio})`;
-      }
+      const prompt = `请生成图像：${request.prompt}`;
 
       console.log('📝 发送提示词:', prompt);
 
@@ -186,7 +331,10 @@ class AIImageService {
         this.genAI.models.generateContent({
           model: request.model || this.DEFAULT_MODEL,
           contents: prompt,
-        })
+        }),
+        this.DEFAULT_TIMEOUT,
+        3,
+        '图像生成'
       );
 
       const processingTime = Date.now() - startTime;
@@ -336,7 +484,10 @@ class AIImageService {
               }
             }
           ]
-        })
+        }),
+        this.DEFAULT_TIMEOUT,
+        3,
+        '图像编辑'
       );
 
       const processingTime = Date.now() - startTime;
@@ -491,7 +642,10 @@ class AIImageService {
         this.genAI.models.generateContent({
           model: request.model || this.DEFAULT_MODEL,
           contents: [{ text: prompt }, ...imageParts]
-        })
+        }),
+        this.DEFAULT_TIMEOUT,
+        3,
+        '图像融合'
       );
 
       const processingTime = Date.now() - startTime;
@@ -787,26 +941,11 @@ ${contextualPrompt}
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
-          contents: [{ text: systemPrompt }],  // 修正：contents应该是数组
-          safetySettings: [
-            {
-              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_HATE_SPEECH',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_HARASSMENT',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-              threshold: 'BLOCK_NONE'
-            }
-          ]
-        })
+          contents: [{ text: systemPrompt }]
+        }),
+        this.DEFAULT_TIMEOUT,
+        3,
+        '工具选择'
       );
       
       const aiCallTime = Date.now() - aiCallStartTime;
@@ -1001,13 +1140,13 @@ ${contextualPrompt}
     // 构建参数
     const parameters: Record<string, string> = { prompt: userInput };
 
-    // 检测宽高比（仅对generateImage）
-    if (selectedTool === 'generateImage') {
-      const aspectRatio = this.detectAspectRatio(userInput);
-      if (aspectRatio) {
-        parameters.aspectRatio = aspectRatio;
-      }
-    }
+    // 比例检测已禁用 - API不支持aspectRatio参数
+    // if (selectedTool === 'generateImage') {
+    //   const aspectRatio = this.detectAspectRatio(userInput);
+    //   if (aspectRatio) {
+    //     parameters.aspectRatio = aspectRatio;
+    //   }
+    // }
 
     // 构建完整推理过程
     const fullReasoning = `AI意图识别: ${intentCategory} (${aiReasoning}), 逻辑判断: ${logicReasoning}`;
@@ -1032,6 +1171,7 @@ ${contextualPrompt}
 
   /**
    * 检测用户输入中的宽高比需求
+   * 已禁用 - API不支持aspectRatio参数，保留备用
    */
   private detectAspectRatio(input: string): string | undefined {
     const lowerInput = input.toLowerCase();
@@ -1054,7 +1194,6 @@ ${contextualPrompt}
    */
   private fallbackToolSelection(request: ToolSelectionRequest): ToolSelectionResult {
     const { userInput, hasImages, imageCount, hasCachedImage } = request;
-    const lowerInput = userInput.toLowerCase();
 
     console.log('🔧 三分类降级选择:', {
       用户输入: userInput.substring(0, 50) + '...',
@@ -1101,13 +1240,13 @@ ${contextualPrompt}
     // 构建参数
     const parameters: Record<string, string> = { prompt: userInput };
     
-    // 为generateImage添加宽高比检测
-    if (selectedTool === 'generateImage') {
-      const aspectRatio = this.detectAspectRatio(userInput);
-      if (aspectRatio) {
-        parameters.aspectRatio = aspectRatio;
-      }
-    }
+    // 比例检测已禁用 - API不支持aspectRatio参数
+    // if (selectedTool === 'generateImage') {
+    //   const aspectRatio = this.detectAspectRatio(userInput);
+    //   if (aspectRatio) {
+    //     parameters.aspectRatio = aspectRatio;
+    //   }
+    // }
 
     return {
       selectedTool,
@@ -1163,26 +1302,11 @@ ${contextualPrompt}
                 data: imageData
               }
             }
-          ],
-          safetySettings: [
-            {
-              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_HATE_SPEECH',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_HARASSMENT',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-              threshold: 'BLOCK_NONE'
-            }
           ]
-        })
+        }),
+        this.DEFAULT_TIMEOUT,
+        3,
+        '图像分析'
       );
 
       const processingTime = Date.now() - startTime;
@@ -1203,8 +1327,8 @@ ${contextualPrompt}
       // 🧠 记录操作到上下文
       contextManager.recordOperation({
         type: 'analyze',
-        input: request.prompt,
-        output: analysisResult.description,
+        input: request.prompt || '分析图像',
+        output: analysisResult.analysis,
         success: true,
         metadata: { 
           model: request.model || this.DEFAULT_MODEL,
@@ -1272,26 +1396,11 @@ ${contextualPrompt}
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash',
-          contents: [{ text: finalPrompt }],  // 修正：contents应该是数组
-          safetySettings: [
-            {
-              category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_HATE_SPEECH',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_HARASSMENT',
-              threshold: 'BLOCK_NONE'
-            },
-            {
-              category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-              threshold: 'BLOCK_NONE'
-            }
-          ]
-        })
+          contents: [{ text: finalPrompt }]
+        }),
+        this.DEFAULT_TIMEOUT,
+        3,
+        '文本对话'
       );
 
       if (!result.text) {
@@ -1341,10 +1450,15 @@ ${contextualPrompt}
 
     try {
       // 使用基础的文本生成来测试连接，避免图像生成的计费问题
-      const result = await this.genAI!.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: 'Hello, this is a connection test. Please respond with "Connection successful!"'
-      });
+      const result = await this.processWithTimeout(
+        this.genAI!.models.generateContent({
+          model: 'gemini-2.0-flash',
+          contents: 'Hello, this is a connection test. Please respond with "Connection successful!"'
+        }),
+        this.DEFAULT_TIMEOUT,
+        3,
+        'API连接测试'
+      );
 
       const success = !!result.text;
       console.log('🔬 连接测试结果:', success ? '✅ 成功' : '❌ 失败');
