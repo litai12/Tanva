@@ -647,10 +647,15 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     // 所以这里不需要再检查 isGenerating
 
     // 添加用户消息（包含源图像）
+    // 确保图像数据有正确的data URL前缀
+    const formattedImageData = sourceImage.startsWith('data:image') 
+      ? sourceImage 
+      : `data:image/png;base64,${sourceImage}`;
+      
     state.addMessage({
       type: 'user',
       content: prompt ? `分析图片: ${prompt}` : '分析这张图片',
-      sourceImageData: sourceImage
+      sourceImageData: formattedImageData
     });
 
     set((state) => ({
@@ -818,40 +823,40 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     // 准备工具选择请求
     const cachedImage = contextManager.getCachedImage();
     
-    // 更准确的图片计数逻辑
-    let totalImageCount = 0;
+    // 计算显式图片数量（不包含缓存图片）
+    let explicitImageCount = 0;
     
     // 计算融合模式的图片数量
     if (state.sourceImagesForBlending.length > 0) {
-      totalImageCount += state.sourceImagesForBlending.length;
+      explicitImageCount += state.sourceImagesForBlending.length;
     }
     
     // 如果有编辑图片，计入总数
     if (state.sourceImageForEditing) {
-      totalImageCount += 1;
+      explicitImageCount += 1;
     }
     
     // 如果有分析图片，计入总数
     if (state.sourceImageForAnalysis) {
-      totalImageCount += 1;
+      explicitImageCount += 1;
     }
     
-    // 如果没有显式图片但有缓存图片，计入总数
-    if (totalImageCount === 0 && cachedImage) {
-      totalImageCount = 1;
-    }
+    // 总图像数量 = 显式图片 + 缓存图片（如果存在）
+    const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
     
     const toolSelectionRequest = {
       userInput: input,
       hasImages: totalImageCount > 0,
-      imageCount: totalImageCount,
+      imageCount: explicitImageCount, // 传递显式图片数量，不包含缓存
+      hasCachedImage: !!cachedImage,  // 单独标记是否有缓存图片
       availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse']
     };
 
     console.log('🔍 工具选择调试信息:', {
       userInput: input,
       hasImages: toolSelectionRequest.hasImages,
-      totalImageCount: totalImageCount,
+      显式图片数量: explicitImageCount,
+      总图片数量: totalImageCount,
       详细: {
         融合图片数量: state.sourceImagesForBlending.length,
         编辑图片: state.sourceImageForEditing ? '有' : '无',

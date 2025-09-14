@@ -430,7 +430,7 @@ export const useInteractionController = ({
     const aspectRatio = imageTool.imageResizeState.resizeStartBounds.width /
       imageTool.imageResizeState.resizeStartBounds.height;
 
-    let newBounds = imageTool.imageResizeState.resizeStartBounds.clone();
+    const newBounds = imageTool.imageResizeState.resizeStartBounds.clone();
 
     // 根据拖拽方向调整边界，保持宽高比
     const direction = imageTool.imageResizeState.resizeDirection;
