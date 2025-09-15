@@ -569,19 +569,50 @@ const AIChatDialog: React.FC = () => {
                           </div>
                         )}
 
-                        {/* AI生成图片时只显示图片，不显示文字 */}
+                        {/* AI消息：同时显示文本回复和图像 */}
                         {message.type === 'ai' && message.imageData ? (
-                          <div className="flex justify-center">
-                            <img
-                              src={`data:image/png;base64,${message.imageData}`}
-                              alt="AI生成的图像"
-                              className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleImagePreview(`data:image/png;base64,${message.imageData}`, 'AI生成的图像');
-                              }}
-                              title="点击全屏预览"
-                            />
+                          <div className="space-y-3">
+                            {/* 文本回复部分 */}
+                            <div className="text-sm leading-relaxed text-black break-words markdown-content">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => <p className="mb-1 text-sm">{children}</p>,
+                                  ul: ({ children }) => <ul className="list-disc list-inside mb-1 ml-2 text-sm">{children}</ul>,
+                                  ol: ({ children }) => <ol className="list-decimal list-inside mb-1 ml-2 text-sm">{children}</ol>,
+                                  li: ({ children }) => <li className="mb-0.5 text-sm">{children}</li>,
+                                  h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-2">{children}</h1>,
+                                  h2: ({ children }) => <h2 className="text-base font-bold mb-1 mt-1">{children}</h2>,
+                                  h3: ({ children }) => <h3 className="text-base font-bold mb-1">{children}</h3>,
+                                  code: ({ children, ...props }: any) => {
+                                    const inline = !('className' in props && props.className?.includes('language-'));
+                                    return inline
+                                      ? <code className="bg-gray-100 px-1 rounded text-xs">{children}</code>
+                                      : <pre className="bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1"><code>{children}</code></pre>;
+                                  },
+                                  blockquote: ({ children }) => <blockquote className="border-l-2 border-gray-300 pl-2 italic text-xs mb-1">{children}</blockquote>,
+                                  a: ({ href, children }) => <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                                  em: ({ children }) => <em className="italic">{children}</em>,
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                            </div>
+                            
+                            {/* 图像部分 */}
+                            <div className="flex justify-center">
+                              <img
+                                src={`data:image/png;base64,${message.imageData}`}
+                                alt="AI生成的图像"
+                                className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleImagePreview(`data:image/png;base64,${message.imageData}`, 'AI生成的图像');
+                                }}
+                                title="点击全屏预览"
+                              />
+                            </div>
                           </div>
                         ) : (
                           /* 其他情况使用横向布局（图片+文字） */

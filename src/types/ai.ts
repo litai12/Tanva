@@ -30,6 +30,7 @@ export interface AIImageBlendRequest {
 export interface AIImageResult {
   id: string;
   imageData: string; // base64 encoded image
+  textResponse?: string; // AI的文本回复，如"Okay, here's a cat for you!"
   prompt: string;
   model: string;
   createdAt: Date;
@@ -42,12 +43,14 @@ export interface AIImageResult {
 }
 
 // AI生成状态
-export enum AIGenerationStatus {
-  IDLE = 'idle',
-  GENERATING = 'generating',
-  SUCCESS = 'success',
-  ERROR = 'error'
-}
+export const AIGenerationStatus = {
+  IDLE: 'idle',
+  GENERATING: 'generating',
+  SUCCESS: 'success',
+  ERROR: 'error'
+} as const;
+
+export type AIGenerationStatus = typeof AIGenerationStatus[keyof typeof AIGenerationStatus];
 
 // AI错误类型
 export interface AIError {

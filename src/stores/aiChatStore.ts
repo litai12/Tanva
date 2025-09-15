@@ -216,7 +216,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         // 添加AI响应消息
         state.addMessage({
           type: 'ai',
-          content: `已生成图像: ${prompt}`,
+          content: result.data.textResponse || `已生成图像: ${prompt}`, // 优先使用API的真实文本回复
           imageData: result.data.imageData
         });
 
@@ -402,7 +402,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         // 添加AI响应消息
         state.addMessage({
           type: 'ai',
-          content: `已编辑图像: ${prompt}`,
+          content: result.data.textResponse || `已编辑图像: ${prompt}`, // 优先使用API的真实文本回复
           imageData: result.data.imageData
         });
 
@@ -561,7 +561,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
         state.addMessage({
           type: 'ai',
-          content: `已融合图像: ${prompt}`,
+          content: result.data.textResponse || `已融合图像: ${prompt}`, // 优先使用API的真实文本回复
           imageData: result.data.imageData
         });
 

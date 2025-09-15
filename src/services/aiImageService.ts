@@ -424,12 +424,15 @@ class AIImageService {
             throw new Error('No content parts in response');
           }
 
-          // 查找图像数据
+          // 查找图像数据和文本回复
           let imageBytes: string | null = null;
+          let textResponse: string | null = null;
+          
           for (const part of candidate.content.parts) {
             if (part.inlineData) {
               imageBytes = part.inlineData.data;
-              break;
+            } else if (part.text) {
+              textResponse = part.text;
             }
           }
 
@@ -437,7 +440,7 @@ class AIImageService {
             throw new Error('No image data found in response');
           }
 
-          return { apiResult, imageBytes };
+          return { apiResult, imageBytes, textResponse };
         })(),
         this.DEFAULT_TIMEOUT,
         3,
@@ -448,10 +451,12 @@ class AIImageService {
       console.log(`⏱️ 总处理耗时: ${processingTime}ms`);
 
       const imageBytes = result.imageBytes;
+      const textResponse = result.textResponse;
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
         imageData: imageBytes, // base64编码的图像数据
+        textResponse: textResponse || undefined, // AI的文本回复，如"Okay, here's a cat for you!"
         prompt: request.prompt,
         model: request.model || this.DEFAULT_MODEL,
         createdAt: new Date(),
@@ -591,12 +596,15 @@ class AIImageService {
             throw new Error('No content parts in response');
           }
 
-          // 查找图像数据
+          // 查找图像数据和文本回复
           let editedImageData: string | null = null;
+          let textResponse: string | null = null;
+          
           for (const part of candidate.content.parts) {
             if (part.inlineData) {
               editedImageData = part.inlineData.data;
-              break;
+            } else if (part.text) {
+              textResponse = part.text;
             }
           }
 
@@ -604,7 +612,7 @@ class AIImageService {
             throw new Error('No edited image data found in response');
           }
 
-          return { apiResult, imageBytes: editedImageData };
+          return { apiResult, imageBytes: editedImageData, textResponse };
         })(),
         this.DEFAULT_TIMEOUT,
         3,
@@ -615,10 +623,12 @@ class AIImageService {
       console.log(`⏱️ 总处理耗时: ${processingTime}ms`);
 
       const editedImageData = result.imageBytes;
+      const textResponse = result.textResponse;
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
         imageData: editedImageData,
+        textResponse: textResponse || undefined, // AI的文本回复，如"I've edited your image as requested!"
         prompt: request.prompt,
         model: request.model || this.DEFAULT_MODEL,
         createdAt: new Date(),
@@ -759,12 +769,15 @@ class AIImageService {
             throw new Error('No content parts in response');
           }
 
-          // 查找图像数据
+          // 查找图像数据和文本回复
           let blendedImageData: string | null = null;
+          let textResponse: string | null = null;
+          
           for (const part of candidate.content.parts) {
             if (part.inlineData) {
               blendedImageData = part.inlineData.data;
-              break;
+            } else if (part.text) {
+              textResponse = part.text;
             }
           }
 
@@ -772,7 +785,7 @@ class AIImageService {
             throw new Error('No blended image data found in response');
           }
 
-          return { apiResult, imageBytes: blendedImageData };
+          return { apiResult, imageBytes: blendedImageData, textResponse };
         })(),
         this.DEFAULT_TIMEOUT,
         3,
@@ -783,10 +796,12 @@ class AIImageService {
       console.log(`⏱️ 总处理耗时: ${processingTime}ms`);
 
       const blendedImageData = result.imageBytes;
+      const textResponse = result.textResponse;
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
         imageData: blendedImageData,
+        textResponse: textResponse || undefined, // AI的文本回复，如"I've blended your images together!"
         prompt: request.prompt,
         model: request.model || this.DEFAULT_MODEL,
         createdAt: new Date(),
