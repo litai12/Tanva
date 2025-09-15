@@ -222,7 +222,7 @@ const AIChatDialog: React.FC = () => {
     const trimmedInput = currentInput.trim();
     if (!trimmedInput || generationStatus.isGenerating) return;
 
-    // 使用新的智能处理入口
+    // 使用智能处理入口
     await processUserInput(trimmedInput);
     clearInput();
   };
