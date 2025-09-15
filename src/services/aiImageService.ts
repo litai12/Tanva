@@ -176,16 +176,26 @@ class AIImageService {
           let imageBytes: string | null = null;
           let textResponse: string | null = null;
           
+          // 添加详细的调试信息
+          console.log('🔍 解析响应parts:', candidate.content.parts.map(part => ({
+            hasInlineData: !!part.inlineData,
+            hasText: !!part.text,
+            textLength: part.text?.length || 0
+          })));
+
           for (const part of candidate.content.parts) {
             if (part.inlineData) {
               imageBytes = part.inlineData.data;
+              console.log('✅ 找到图像数据，大小:', imageBytes.length, '字符');
             } else if (part.text) {
               textResponse = part.text;
+              console.log('✅ 找到文本回复:', textResponse.substring(0, 100));
             }
           }
 
-          if (!imageBytes) {
-            throw new Error('No image data found in response');
+          // 优雅降级：不再将无图像视为错误
+          if (!imageBytes && !textResponse) {
+            throw new Error('No image data or text response found in API response');
           }
 
           return { apiResult, imageBytes, textResponse };
@@ -202,8 +212,9 @@ class AIImageService {
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
-        imageData: imageBytes, // base64编码的图像数据
+        imageData: imageBytes || undefined, // base64编码的图像数据（可选）
         textResponse: textResponse || undefined, // AI的文本回复，如"Okay, here's a cat for you!"
+        hasImage: !!imageBytes, // 标识是否包含图像
         prompt: request.prompt,
         model: request.model || this.DEFAULT_MODEL,
         createdAt: new Date(),
@@ -333,7 +344,7 @@ class AIImageService {
 
           console.log('📄 API响应:', apiResult);
 
-          // 🔍 解析响应数据（现在包含在重试范围内）
+          // 解析响应数据
           if (!apiResult.candidates || apiResult.candidates.length === 0) {
             throw new Error('No candidates returned from API');
           }
@@ -347,16 +358,26 @@ class AIImageService {
           let editedImageData: string | null = null;
           let textResponse: string | null = null;
           
+          // 添加详细的调试信息
+          console.log('🔍 编辑响应parts:', candidate.content.parts.map(part => ({
+            hasInlineData: !!part.inlineData,
+            hasText: !!part.text,
+            textLength: part.text?.length || 0
+          })));
+          
           for (const part of candidate.content.parts) {
             if (part.inlineData) {
               editedImageData = part.inlineData.data;
+              console.log('✅ 找到编辑图像数据，大小:', editedImageData.length, '字符');
             } else if (part.text) {
               textResponse = part.text;
+              console.log('✅ 找到编辑文本回复:', textResponse.substring(0, 100));
             }
           }
 
-          if (!editedImageData) {
-            throw new Error('No edited image data found in response');
+          // 优雅降级：不再将无图像视为错误
+          if (!editedImageData && !textResponse) {
+            throw new Error('No edited image data or text response found in API response');
           }
 
           return { apiResult, imageBytes: editedImageData, textResponse };
@@ -373,8 +394,9 @@ class AIImageService {
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
-        imageData: editedImageData,
+        imageData: editedImageData || undefined,
         textResponse: textResponse || undefined, // AI的文本回复，如"I've edited your image as requested!"
+        hasImage: !!editedImageData, // 标识是否包含图像
         prompt: request.prompt,
         model: request.model || this.DEFAULT_MODEL,
         createdAt: new Date(),
@@ -505,7 +527,7 @@ class AIImageService {
 
           console.log('📄 API响应:', apiResult);
 
-          // 🔍 解析响应数据（现在包含在重试范围内）
+          // 解析响应数据
           if (!apiResult.candidates || apiResult.candidates.length === 0) {
             throw new Error('No candidates returned from API');
           }
@@ -519,16 +541,26 @@ class AIImageService {
           let blendedImageData: string | null = null;
           let textResponse: string | null = null;
           
+          // 添加详细的调试信息
+          console.log('🔍 融合响应parts:', candidate.content.parts.map(part => ({
+            hasInlineData: !!part.inlineData,
+            hasText: !!part.text,
+            textLength: part.text?.length || 0
+          })));
+          
           for (const part of candidate.content.parts) {
             if (part.inlineData) {
               blendedImageData = part.inlineData.data;
+              console.log('✅ 找到融合图像数据，大小:', blendedImageData.length, '字符');
             } else if (part.text) {
               textResponse = part.text;
+              console.log('✅ 找到融合文本回复:', textResponse.substring(0, 100));
             }
           }
 
-          if (!blendedImageData) {
-            throw new Error('No blended image data found in response');
+          // 优雅降级：不再将无图像视为错误
+          if (!blendedImageData && !textResponse) {
+            throw new Error('No blended image data or text response found in API response');
           }
 
           return { apiResult, imageBytes: blendedImageData, textResponse };
@@ -545,8 +577,9 @@ class AIImageService {
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
-        imageData: blendedImageData,
+        imageData: blendedImageData || undefined,
         textResponse: textResponse || undefined, // AI的文本回复，如"I've blended your images together!"
+        hasImage: !!blendedImageData, // 标识是否包含图像
         prompt: request.prompt,
         model: request.model || this.DEFAULT_MODEL,
         createdAt: new Date(),

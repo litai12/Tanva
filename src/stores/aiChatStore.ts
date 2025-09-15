@@ -214,11 +214,20 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         });
 
         // 添加AI响应消息
+        const messageContent = result.data.textResponse || 
+          (result.data.hasImage ? `已生成图像: ${prompt}` : `无法生成图像: ${prompt}`);
+        
         state.addMessage({
           type: 'ai',
-          content: result.data.textResponse || `已生成图像: ${prompt}`, // 优先使用API的真实文本回复
+          content: messageContent, // 优先使用API的真实文本回复
           imageData: result.data.imageData
         });
+
+        // 如果没有图像，记录原因并返回
+        if (!result.data.hasImage) {
+          console.log('⚠️ API返回了文本回复但没有图像:', result.data.textResponse);
+          return;
+        }
 
         // 可选：自动下载图片到用户的默认下载文件夹
         const downloadImageData = (imageData: string, prompt: string, autoDownload: boolean = false) => {
@@ -251,12 +260,19 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           }
         };
 
-        // 根据配置决定是否自动下载
+        // 根据配置决定是否自动下载（仅当有图像时）
         const currentState = get();
-        downloadImageData(result.data.imageData, prompt, currentState.autoDownload);
+        if (result.data.imageData) {
+          downloadImageData(result.data.imageData, prompt, currentState.autoDownload);
+        }
 
-        // 自动添加到画布中央 - 使用快速上传工具的逻辑
+        // 自动添加到画布中央 - 使用快速上传工具的逻辑（仅当有图像时）
         const addImageToCanvas = (aiResult: AIImageResult) => {
+          if (!aiResult.imageData) {
+            console.log('⚠️ 跳过画布添加：没有图像数据');
+            return;
+          }
+          
           // 构建图像数据URL
           const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
@@ -400,14 +416,28 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         });
 
         // 添加AI响应消息
+        const messageContent = result.data.textResponse || 
+          (result.data.hasImage ? `已编辑图像: ${prompt}` : `无法编辑图像: ${prompt}`);
+          
         state.addMessage({
           type: 'ai',
-          content: result.data.textResponse || `已编辑图像: ${prompt}`, // 优先使用API的真实文本回复
+          content: messageContent, // 优先使用API的真实文本回复
           imageData: result.data.imageData
         });
 
+        // 如果没有图像，记录原因并返回
+        if (!result.data.hasImage) {
+          console.log('⚠️ 编辑API返回了文本回复但没有图像:', result.data.textResponse);
+          return;
+        }
+
         // 自动添加到画布
         const addImageToCanvas = (aiResult: AIImageResult) => {
+          if (!aiResult.imageData) {
+            console.log('⚠️ 跳过编辑图像画布添加：没有图像数据');
+            return;
+          }
+          
           const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_edited_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
@@ -559,13 +589,28 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           lastGeneratedImage: result.data
         });
 
+        // 添加AI响应消息
+        const messageContent = result.data.textResponse || 
+          (result.data.hasImage ? `已融合图像: ${prompt}` : `无法融合图像: ${prompt}`);
+          
         state.addMessage({
           type: 'ai',
-          content: result.data.textResponse || `已融合图像: ${prompt}`, // 优先使用API的真实文本回复
+          content: messageContent, // 优先使用API的真实文本回复
           imageData: result.data.imageData
         });
 
+        // 如果没有图像，记录原因并返回
+        if (!result.data.hasImage) {
+          console.log('⚠️ 融合API返回了文本回复但没有图像:', result.data.textResponse);
+          return;
+        }
+
         const addImageToCanvas = (aiResult: AIImageResult) => {
+          if (!aiResult.imageData) {
+            console.log('⚠️ 跳过融合图像画布添加：没有图像数据');
+            return;
+          }
+          
           const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_blended_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;

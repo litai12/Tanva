@@ -29,11 +29,12 @@ export interface AIImageBlendRequest {
 // AI生成结果
 export interface AIImageResult {
   id: string;
-  imageData: string; // base64 encoded image
+  imageData?: string; // base64 encoded image (可选，API可能只返回文本)
   textResponse?: string; // AI的文本回复，如"Okay, here's a cat for you!"
   prompt: string;
   model: string;
   createdAt: Date;
+  hasImage: boolean; // 标识是否包含图像数据
   metadata?: {
     aspectRatio?: string;
     outputFormat?: string;
