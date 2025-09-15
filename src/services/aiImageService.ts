@@ -92,284 +92,32 @@ class AIImageService {
     return String(error);
   }
 
-  private async processWithTimeout<T>(
+  private async withTimeout<T>(
     promise: Promise<T>,
     timeoutMs: number = this.DEFAULT_TIMEOUT,
-    retries: number = 3, // 增加重试次数到3次
-    operationType?: string // 操作类型，用于日志记录
+    operationType?: string
   ): Promise<T> {
-    let lastError: Error;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+    );
+    
     const startTime = Date.now();
     
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      const attemptStartTime = Date.now();
-      
-      try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
-        );
-        
-        const result = await Promise.race([promise, timeoutPromise]);
-        
-        // 记录成功信息
-        const totalTime = Date.now() - startTime;
-        const attemptTime = Date.now() - attemptStartTime;
-        
-        if (attempt > 0) {
-          console.log(`✅ ${operationType || 'API调用'} 重试成功 (第${attempt + 1}次尝试，总耗时: ${totalTime}ms，本次尝试: ${attemptTime}ms)`);
-        } else {
-          console.log(`✅ ${operationType || 'API调用'} 首次成功 (耗时: ${attemptTime}ms)`);
-        }
-        
-        return result;
-      } catch (error) {
-        lastError = error as Error;
-        const attemptTime = Date.now() - attemptStartTime;
-        
-        console.warn(`⚠️ ${operationType || 'API调用'} 第${attempt + 1}次尝试失败 (耗时: ${attemptTime}ms)`);
-        
-        // 检查是否是可重试的错误
-        if (this.isRetryableError(error) && attempt < retries) {
-          const delay = this.calculateRetryDelay(attempt);
-          const errorType = this.getErrorType(error);
-          const remainingRetries = retries - attempt;
-          
-          console.warn(`🔄 ${operationType || 'API调用'} 重试中...`);
-          console.warn(`   📊 重试进度: 第${attempt + 1}次失败，剩余${remainingRetries}次重试机会`);
-          console.warn(`   🏷️ 错误类型: ${errorType}`);
-          console.warn(`   📋 错误详情: ${this.sanitizeErrorForLogging(error)}`);
-          console.warn(`   ⏰ 重试延迟: ${Math.round(delay)}ms (${Math.round(delay/1000)}秒)`);
-          console.warn(`   🎯 重试策略: 指数退避 + 随机抖动`);
-          
-          // 显示用户友好的重试信息
-          if (operationType) {
-            console.log(`💡 ${operationType}暂时失败，正在自动重试第${attempt + 1}次...`);
-          }
-          
-          await this.delay(delay);
-          
-          console.log(`🚀 开始第${attempt + 2}次尝试...`);
-          continue;
-        }
-        
-        // 记录最终失败信息
-        const totalTime = Date.now() - startTime;
-        if (attempt >= retries) {
-          console.error(`❌ ${operationType || 'API调用'} 已达到最大重试次数(${retries})，最终失败 (总耗时: ${totalTime}ms)`);
-          console.error(`   最终失败的错误类型: ${this.getErrorType(error)}`);
-        } else {
-          console.error(`❌ ${operationType || 'API调用'} 遇到不可重试的错误 (耗时: ${totalTime}ms)`);
-          console.error(`   不可重试错误类型: ${this.getErrorType(error)}`);
-        }
-        
-        throw error;
-      }
+    try {
+      const result = await Promise.race([promise, timeoutPromise]);
+      const duration = Date.now() - startTime;
+      console.log(`✅ ${operationType || 'API调用'} 成功 (耗时: ${duration}ms)`);
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`❌ ${operationType || 'API调用'} 失败 (耗时: ${duration}ms):`, this.sanitizeErrorForLogging(error));
+      throw error;
     }
-    
-    throw lastError!;
   }
 
-  /**
-   * 检查是否是网络相关错误
-   */
-  private isNetworkError(error: unknown): boolean {
-    if (error instanceof Error) {
-      const message = error.message.toLowerCase();
-      return message.includes('fetch') || 
-             message.includes('network') || 
-             message.includes('connection') ||
-             message.includes('cors') ||
-             message.includes('load failed');
-    }
-    return false;
-  }
 
-  /**
-   * 检查错误是否可重试
-   */
-  private isRetryableError(error: unknown): boolean {
-    if (error instanceof Error) {
-      const message = error.message.toLowerCase();
-      
-      // 网络相关错误 - 可重试
-      if (this.isNetworkError(error)) {
-        return true;
-      }
-      
-      // 超时错误 - 可重试
-      if (message.includes('timeout') || 
-          message.includes('request timeout') ||
-          message.includes('read timeout') ||
-          message.includes('connection timeout')) {
-        return true;
-      }
-      
-      // 服务器临时错误 - 可重试
-      if (message.includes('service unavailable') || 
-          message.includes('temporarily unavailable') ||
-          message.includes('server error') ||
-          message.includes('internal error') ||
-          message.includes('internal server error') ||
-          message.includes('502 bad gateway') ||
-          message.includes('503 service unavailable') ||
-          message.includes('504 gateway timeout')) {
-        return true;
-      }
-      
-      // API速率限制和负载相关 - 可重试
-      if (message.includes('rate limit') || 
-          message.includes('too many requests') ||
-          message.includes('rate_limit_exceeded') ||
-          message.includes('model_overloaded') ||
-          message.includes('busy') ||
-          (message.includes('quota') && !message.includes('quota exceeded'))) {
-        return true;
-      }
-      
-      // Gemini特定的临时错误 - 可重试
-      if (message.includes('candidates') && message.includes('returned') ||
-          message.includes('content parts') && message.includes('response') ||
-          message.includes('no image data found') ||
-          message.includes('no text response') ||
-          message.includes('no candidates returned') ||
-          message.includes('content generation failed') ||
-          message.includes('model temporarily unavailable') ||
-          message.includes('request failed with status') ||
-          message.includes('generation request failed')) {
-        return true;
-      }
-      
-      // 图像处理相关的临时错误 - 可重试
-      if (message.includes('image processing failed') ||
-          message.includes('image decode error') ||
-          message.includes('image format error') ||
-          message.includes('invalid image data') ||
-          message.includes('image too large') ||
-          message.includes('image upload failed')) {
-        return true;
-      }
-      
-      // JSON解析和响应格式错误 - 可重试
-      if (message.includes('json parse error') ||
-          message.includes('invalid json') ||
-          message.includes('malformed response') ||
-          message.includes('unexpected end of json')) {
-        return true;
-      }
-      
-      // 以下错误不可重试（永久性错误）
-      if (message.includes('api_key_invalid') ||
-          message.includes('invalid_api_key') ||
-          message.includes('permission_denied') ||
-          message.includes('quota_exceeded') ||
-          message.includes('billed users') ||
-          message.includes('location is not supported') ||
-          message.includes('model not found') ||
-          message.includes('invalid request') ||
-          message.includes('unauthorized')) {
-        return false;
-      }
-    }
-    
-    // 默认对于未知错误，尝试重试
-    return true;
-  }
 
-  /**
-   * 计算重试延迟（指数退避策略）
-   */
-  private calculateRetryDelay(attempt: number): number {
-    // 优化的指数退避策略: 3秒, 6秒, 10秒
-    const delays = [3000, 6000, 10000]; // 3s, 6s, 10s
-    const baseDelay = delays[Math.min(attempt, delays.length - 1)];
-    
-    // 增加随机抖动范围以避免thundering herd问题
-    const jitter = Math.random() * 1000; // 0-1000ms的随机抖动
-    
-    const finalDelay = baseDelay + jitter;
-    
-    console.log(`⏰ 重试延迟计算: 第${attempt + 1}次重试，基础延迟${baseDelay}ms，抖动${Math.round(jitter)}ms，总延迟${Math.round(finalDelay)}ms`);
-    
-    return finalDelay;
-  }
 
-  /**
-   * 获取错误类型（用于日志记录）
-   */
-  private getErrorType(error: unknown): string {
-    if (error instanceof Error) {
-      const message = error.message.toLowerCase();
-      
-      if (this.isNetworkError(error)) {
-        return '网络连接错误';
-      }
-      
-      if (message.includes('timeout') || message.includes('request timeout') || message.includes('read timeout')) {
-        return '请求超时错误';
-      }
-      
-      if (message.includes('api_key_invalid') || message.includes('invalid_api_key')) {
-        return 'API密钥无效';
-      }
-      
-      if (message.includes('permission_denied') || message.includes('unauthorized')) {
-        return '权限被拒绝';
-      }
-      
-      if (message.includes('quota_exceeded')) {
-        return '配额已耗尽';
-      }
-      
-      if (message.includes('billed users')) {
-        return '需要付费账户';
-      }
-      
-      if (message.includes('location is not supported')) {
-        return '地区不支持';
-      }
-      
-      if (message.includes('rate limit') || message.includes('too many requests') || message.includes('rate_limit_exceeded')) {
-        return '请求频率限制';
-      }
-      
-      if (message.includes('model_overloaded') || message.includes('busy') || message.includes('model temporarily unavailable')) {
-        return '模型负载过高';
-      }
-      
-      if (message.includes('candidates') || message.includes('content parts') || message.includes('no image data found') || 
-          message.includes('no candidates returned') || message.includes('content generation failed')) {
-        return 'API响应格式错误';
-      }
-      
-      if (message.includes('image processing failed') || message.includes('image decode error') || 
-          message.includes('image format error') || message.includes('invalid image data')) {
-        return '图像处理错误';
-      }
-      
-      if (message.includes('json parse error') || message.includes('invalid json') || message.includes('malformed response')) {
-        return 'JSON解析错误';
-      }
-      
-      if (message.includes('service unavailable') || message.includes('server error') || 
-          message.includes('502 bad gateway') || message.includes('503 service unavailable') || 
-          message.includes('504 gateway timeout')) {
-        return '服务器临时错误';
-      }
-      
-      if (message.includes('model not found') || message.includes('invalid request')) {
-        return '请求参数错误';
-      }
-    }
-    
-    return '未知错误';
-  }
-
-  /**
-   * 延迟函数
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
 
   /**
    * 生成图像
@@ -395,8 +143,8 @@ class AIImageService {
 
       const startTime = Date.now();
 
-      // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
-      const result = await this.processWithTimeout(
+      // API调用和数据解析
+      const result = await this.withTimeout(
         (async () => {
           const apiResult = await this.genAI!.models.generateContent({
             model: request.model || this.DEFAULT_MODEL,
@@ -414,7 +162,7 @@ class AIImageService {
 
           console.log('📄 API响应:', apiResult);
 
-          // 🔍 解析响应数据（现在包含在重试范围内）
+          // 解析响应数据
           if (!apiResult.candidates || apiResult.candidates.length === 0) {
             throw new Error('No candidates returned from API');
           }
@@ -443,7 +191,6 @@ class AIImageService {
           return { apiResult, imageBytes, textResponse };
         })(),
         this.DEFAULT_TIMEOUT,
-        3,
         '图像生成'
       );
 
@@ -560,7 +307,7 @@ class AIImageService {
       const startTime = Date.now();
 
       // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
-      const result = await this.processWithTimeout(
+      const result = await this.withTimeout(
         (async () => {
           const apiResult = await this.genAI!.models.generateContent({
             model: request.model || this.DEFAULT_MODEL,
@@ -615,7 +362,6 @@ class AIImageService {
           return { apiResult, imageBytes: editedImageData, textResponse };
         })(),
         this.DEFAULT_TIMEOUT,
-        3,
         '图像编辑'
       );
 
@@ -741,7 +487,7 @@ class AIImageService {
       const startTime = Date.now();
 
       // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
-      const result = await this.processWithTimeout(
+      const result = await this.withTimeout(
         (async () => {
           const apiResult = await this.genAI!.models.generateContent({
             model: request.model || this.DEFAULT_MODEL,
@@ -788,7 +534,6 @@ class AIImageService {
           return { apiResult, imageBytes: blendedImageData, textResponse };
         })(),
         this.DEFAULT_TIMEOUT,
-        3,
         '图像融合'
       );
 
@@ -1059,7 +804,7 @@ ${contextualPrompt}
 
       // 使用Gemini进行工具选择
       const aiCallStartTime = Date.now();
-      const result = await this.processWithTimeout(
+      const result = await this.withTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
           contents: [{ text: systemPrompt }],
@@ -1074,7 +819,6 @@ ${contextualPrompt}
           }
         }),
         this.DEFAULT_TIMEOUT,
-        0, // 工具选择不重试，失败后直接使用降级逻辑
         '工具选择'
       );
       
@@ -1430,7 +1174,7 @@ ${contextualPrompt}
       const startTime = Date.now();
 
       // 使用 gemini-2.0-flash 进行图像分析
-      const result = await this.processWithTimeout(
+      const result = await this.withTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash',
           contents: [
@@ -1453,7 +1197,6 @@ ${contextualPrompt}
           }
         }),
         this.DEFAULT_TIMEOUT,
-        3,
         '图像分析'
       );
 
@@ -1541,7 +1284,7 @@ ${contextualPrompt}
       
       console.log('🧠 文本对话使用上下文:', finalPrompt.substring(0, 200) + '...');
 
-      const result = await this.processWithTimeout(
+      const result = await this.withTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash',
           contents: [{ text: finalPrompt }],
@@ -1556,7 +1299,6 @@ ${contextualPrompt}
           }
         }),
         this.DEFAULT_TIMEOUT,
-        3,
         '文本对话'
       );
 
@@ -1607,13 +1349,12 @@ ${contextualPrompt}
 
     try {
       // 使用基础的文本生成来测试连接，避免图像生成的计费问题
-      const result = await this.processWithTimeout(
+      const result = await this.withTimeout(
         this.genAI!.models.generateContent({
           model: 'gemini-2.0-flash',
           contents: 'Hello, this is a connection test. Please respond with "Connection successful!"'
         }),
         this.DEFAULT_TIMEOUT,
-        3,
         'API连接测试'
       );
 
