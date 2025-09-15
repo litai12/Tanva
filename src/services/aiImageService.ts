@@ -20,7 +20,8 @@ import type {
   AIError,
   AITool,
   ToolSelectionRequest,
-  ToolSelectionResult
+  ToolSelectionResult,
+  AIStreamProgressEvent
 } from '@/types/ai';
 
 class AIImageService {
@@ -120,6 +121,185 @@ class AIImageService {
 
 
   /**
+   * 发送进度更新事件给UI
+   */
+  private emitProgressUpdate(operationType: string, progress: Omit<AIStreamProgressEvent, 'operationType' | 'timestamp'>): void {
+    const eventDetail: AIStreamProgressEvent = {
+      operationType,
+      ...progress,
+      timestamp: Date.now()
+    };
+
+    // 发送自定义事件
+    window.dispatchEvent(new CustomEvent<AIStreamProgressEvent>('aiStreamProgress', {
+      detail: eventDetail
+    }));
+
+    console.log(`📢 UI进度更新 [${operationType}]:`, eventDetail);
+  }
+
+  /**
+   * 处理流式响应的通用解析器
+   */
+  private async parseStreamResponse(
+    stream: any,
+    operationType: string
+  ): Promise<{ imageBytes: string | null; textResponse: string }> {
+    console.log(`🌊 开始${operationType}流式响应解析...`);
+
+    // 发送开始事件
+    this.emitProgressUpdate(operationType, {
+      phase: 'starting',
+      message: `开始接收${operationType}流式响应`
+    });
+
+    let textResponse: string = '';
+    let imageBytes: string | null = null;
+    let chunkCount = 0;
+    let textChunks: string[] = [];
+    let totalResponseSize = 0;
+    let hasReceivedText = false;
+    let hasReceivedImage = false;
+
+    try {
+      for await (const chunk of stream) {
+        chunkCount++;
+        console.log(`📦 ${operationType}响应块 #${chunkCount}`);
+
+        // 验证响应块结构
+        if (!chunk || typeof chunk !== 'object') {
+          console.log(`⚠️ 响应块 #${chunkCount} 不是有效对象`);
+          continue;
+        }
+
+        if (!chunk.candidates || !Array.isArray(chunk.candidates) || chunk.candidates.length === 0) {
+          console.log(`⚠️ 响应块 #${chunkCount} 中没有有效的candidates`);
+          continue;
+        }
+
+        const candidate = chunk.candidates[0];
+        if (!candidate || typeof candidate !== 'object') {
+          console.log(`⚠️ 响应块 #${chunkCount} 中candidate无效`);
+          continue;
+        }
+
+        if (!candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts)) {
+          console.log(`⚠️ 响应块 #${chunkCount} 中没有有效的content parts`);
+          continue;
+        }
+
+        // 处理每个part
+        for (const part of candidate.content.parts) {
+          if (!part || typeof part !== 'object') {
+            console.log(`⚠️ 响应块 #${chunkCount} 中part无效`);
+            continue;
+          }
+
+          // 处理文本数据
+          if (part.text && typeof part.text === 'string') {
+            const textLength = part.text.length;
+            textChunks.push(part.text);
+            textResponse += part.text;
+            totalResponseSize += textLength;
+            console.log(`📝 ${operationType}文本块 (+${textLength}字符):`, part.text.substring(0, 50) + (part.text.length > 50 ? '...' : ''));
+
+            // 首次接收到文本时发送通知
+            if (!hasReceivedText) {
+              hasReceivedText = true;
+              this.emitProgressUpdate(operationType, {
+                phase: 'text_received',
+                chunkCount,
+                textLength: textResponse.length,
+                message: `已接收到${operationType}文本确认`
+              });
+            }
+          }
+
+          // 处理图像数据
+          if (part.inlineData && part.inlineData.data && typeof part.inlineData.data === 'string') {
+            imageBytes = part.inlineData.data;
+            const imageSize = imageBytes.length;
+            totalResponseSize += imageSize;
+            console.log(`🖼️ ${operationType}图像数据 (大小: ${imageSize}字符, MIME: ${part.inlineData.mimeType || 'unknown'})`);
+
+            // 首次接收到图像时发送通知
+            if (!hasReceivedImage) {
+              hasReceivedImage = true;
+              this.emitProgressUpdate(operationType, {
+                phase: 'image_received',
+                chunkCount,
+                hasImage: true,
+                message: `已接收到${operationType}图像数据`
+              });
+            }
+          }
+        }
+
+        // 实时进度反馈
+        if (chunkCount % 5 === 0) {
+          console.log(`📊 ${operationType}进度更新: ${chunkCount}个块, 文本${textChunks.length}段, 图像${imageBytes ? '已接收' : '未接收'}`);
+        }
+      }
+
+      // 最终统计
+      console.log(`✅ ${operationType}流式响应完成:`, {
+        总块数: chunkCount,
+        文本段数: textChunks.length,
+        文本总长度: textResponse.length,
+        有图像数据: !!imageBytes,
+        图像数据长度: imageBytes?.length || 0,
+        总响应大小: totalResponseSize,
+        平均块大小: chunkCount > 0 ? Math.round(totalResponseSize / chunkCount) : 0
+      });
+
+      // 数据验证
+      if (!imageBytes && !textResponse) {
+        console.error(`❌ ${operationType}响应为空: 没有接收到图像数据或文本响应`);
+        throw new Error(`No ${operationType.toLowerCase()} data or text response found in stream`);
+      }
+
+      if (imageBytes && imageBytes.length < 100) {
+        console.warn(`⚠️ ${operationType}图像数据疑似不完整: 长度仅${imageBytes.length}字符`);
+      }
+
+      if (textResponse && textResponse.length > 10000) {
+        console.warn(`⚠️ ${operationType}文本响应异常长: ${textResponse.length}字符`);
+      }
+
+      // 发送完成事件
+      this.emitProgressUpdate(operationType, {
+        phase: 'completed',
+        chunkCount,
+        textLength: textResponse.length,
+        hasImage: !!imageBytes,
+        message: `${operationType}流式响应处理完成`
+      });
+
+      return { imageBytes, textResponse };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ ${operationType}流式响应解析出错:`, {
+        错误: errorMessage,
+        已处理块数: chunkCount,
+        已获取文本长度: textResponse.length,
+        已获取图像: !!imageBytes
+      });
+
+      // 发送错误事件
+      this.emitProgressUpdate(operationType, {
+        phase: 'error',
+        chunkCount,
+        textLength: textResponse.length,
+        hasImage: !!imageBytes,
+        message: `${operationType}流式响应处理失败: ${errorMessage}`
+      });
+
+      throw error;
+    }
+  }
+
+  /**
    * 生成图像
    */
   async generateImage(request: AIImageGenerateRequest): Promise<AIServiceResponse<AIImageResult>> {
@@ -143,10 +323,10 @@ class AIImageService {
 
       const startTime = Date.now();
 
-      // API调用和数据解析
+      // 使用流式API调用和数据解析
       const result = await this.withTimeout(
         (async () => {
-          const apiResult = await this.genAI!.models.generateContent({
+          const stream = await this.genAI!.models.generateContentStream({
             model: request.model || this.DEFAULT_MODEL,
             contents: prompt,
             config: {
@@ -160,48 +340,10 @@ class AIImageService {
             }
           });
 
-          console.log('📄 API响应:', apiResult);
-
-          // 解析响应数据
-          if (!apiResult.candidates || apiResult.candidates.length === 0) {
-            throw new Error('No candidates returned from API');
-          }
-
-          const candidate = apiResult.candidates[0];
-          if (!candidate.content || !candidate.content.parts) {
-            throw new Error('No content parts in response');
-          }
-
-          // 查找图像数据和文本回复
-          let imageBytes: string | null = null;
-          let textResponse: string | null = null;
-          
-          // 添加详细的调试信息
-          console.log('🔍 解析响应parts:', candidate.content.parts.map(part => ({
-            hasInlineData: !!part.inlineData,
-            hasText: !!part.text,
-            textLength: part.text?.length || 0
-          })));
-
-          for (const part of candidate.content.parts) {
-            if (part.inlineData) {
-              imageBytes = part.inlineData.data;
-              console.log('✅ 找到图像数据，大小:', imageBytes.length, '字符');
-            } else if (part.text) {
-              textResponse = part.text;
-              console.log('✅ 找到文本回复:', textResponse.substring(0, 100));
-            }
-          }
-
-          // 优雅降级：不再将无图像视为错误
-          if (!imageBytes && !textResponse) {
-            throw new Error('No image data or text response found in API response');
-          }
-
-          return { apiResult, imageBytes, textResponse };
+          return this.parseStreamResponse(stream, '图像生成');
         })(),
         this.DEFAULT_TIMEOUT,
-        '图像生成'
+        '流式图像生成'
       );
 
       const processingTime = Date.now() - startTime;
@@ -317,10 +459,10 @@ class AIImageService {
 
       const startTime = Date.now();
 
-      // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
+      // 🌊 使用流式API调用进行图像编辑
       const result = await this.withTimeout(
         (async () => {
-          const apiResult = await this.genAI!.models.generateContent({
+          const stream = await this.genAI!.models.generateContentStream({
             model: request.model || this.DEFAULT_MODEL,
             contents: [
               { text: prompt },
@@ -342,48 +484,10 @@ class AIImageService {
             }
           });
 
-          console.log('📄 API响应:', apiResult);
-
-          // 解析响应数据
-          if (!apiResult.candidates || apiResult.candidates.length === 0) {
-            throw new Error('No candidates returned from API');
-          }
-
-          const candidate = apiResult.candidates[0];
-          if (!candidate.content || !candidate.content.parts) {
-            throw new Error('No content parts in response');
-          }
-
-          // 查找图像数据和文本回复
-          let editedImageData: string | null = null;
-          let textResponse: string | null = null;
-          
-          // 添加详细的调试信息
-          console.log('🔍 编辑响应parts:', candidate.content.parts.map(part => ({
-            hasInlineData: !!part.inlineData,
-            hasText: !!part.text,
-            textLength: part.text?.length || 0
-          })));
-          
-          for (const part of candidate.content.parts) {
-            if (part.inlineData) {
-              editedImageData = part.inlineData.data;
-              console.log('✅ 找到编辑图像数据，大小:', editedImageData.length, '字符');
-            } else if (part.text) {
-              textResponse = part.text;
-              console.log('✅ 找到编辑文本回复:', textResponse.substring(0, 100));
-            }
-          }
-
-          // 优雅降级：不再将无图像视为错误
-          if (!editedImageData && !textResponse) {
-            throw new Error('No edited image data or text response found in API response');
-          }
-
-          return { apiResult, imageBytes: editedImageData, textResponse };
+          return this.parseStreamResponse(stream, '图像编辑');
         })(),
         this.DEFAULT_TIMEOUT,
-        '图像编辑'
+        '流式图像编辑'
       );
 
       const processingTime = Date.now() - startTime;
@@ -508,10 +612,10 @@ class AIImageService {
 
       const startTime = Date.now();
 
-      // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
+      // 🌊 使用流式API调用进行图像融合
       const result = await this.withTimeout(
         (async () => {
-          const apiResult = await this.genAI!.models.generateContent({
+          const stream = await this.genAI!.models.generateContentStream({
             model: request.model || this.DEFAULT_MODEL,
             contents: [{ text: prompt }, ...imageParts],
             config: {
@@ -525,48 +629,10 @@ class AIImageService {
             }
           });
 
-          console.log('📄 API响应:', apiResult);
-
-          // 解析响应数据
-          if (!apiResult.candidates || apiResult.candidates.length === 0) {
-            throw new Error('No candidates returned from API');
-          }
-
-          const candidate = apiResult.candidates[0];
-          if (!candidate.content || !candidate.content.parts) {
-            throw new Error('No content parts in response');
-          }
-
-          // 查找图像数据和文本回复
-          let blendedImageData: string | null = null;
-          let textResponse: string | null = null;
-          
-          // 添加详细的调试信息
-          console.log('🔍 融合响应parts:', candidate.content.parts.map(part => ({
-            hasInlineData: !!part.inlineData,
-            hasText: !!part.text,
-            textLength: part.text?.length || 0
-          })));
-          
-          for (const part of candidate.content.parts) {
-            if (part.inlineData) {
-              blendedImageData = part.inlineData.data;
-              console.log('✅ 找到融合图像数据，大小:', blendedImageData.length, '字符');
-            } else if (part.text) {
-              textResponse = part.text;
-              console.log('✅ 找到融合文本回复:', textResponse.substring(0, 100));
-            }
-          }
-
-          // 优雅降级：不再将无图像视为错误
-          if (!blendedImageData && !textResponse) {
-            throw new Error('No blended image data or text response found in API response');
-          }
-
-          return { apiResult, imageBytes: blendedImageData, textResponse };
+          return this.parseStreamResponse(stream, '图像融合');
         })(),
         this.DEFAULT_TIMEOUT,
-        '图像融合'
+        '流式图像融合'
       );
 
       const processingTime = Date.now() - startTime;

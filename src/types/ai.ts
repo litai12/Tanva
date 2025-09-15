@@ -43,6 +43,17 @@ export interface AIImageResult {
   };
 }
 
+// AI流式响应进度事件
+export interface AIStreamProgressEvent {
+  operationType: string;
+  phase: 'starting' | 'text_received' | 'image_received' | 'completed' | 'error';
+  chunkCount?: number;
+  textLength?: number;
+  hasImage?: boolean;
+  message?: string;
+  timestamp: number;
+}
+
 // AI生成状态
 export const AIGenerationStatus = {
   IDLE: 'idle',
