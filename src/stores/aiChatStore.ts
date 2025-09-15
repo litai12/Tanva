@@ -193,7 +193,6 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       // 调用AI服务生成图像
       const result = await aiImageService.generateImage({
         prompt,
-        aspectRatio: '16:9',  // 改为横屏16:9，生成更大的图像
         outputFormat: 'png'
       });
 

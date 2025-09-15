@@ -132,12 +132,23 @@ class AIImageService {
         if (this.isRetryableError(error) && attempt < retries) {
           const delay = this.calculateRetryDelay(attempt);
           const errorType = this.getErrorType(error);
+          const remainingRetries = retries - attempt;
           
-          console.warn(`🔄 ${operationType || 'API调用'} 将在${Math.round(delay)}ms后重试 (第${attempt + 1}次失败，剩余${retries - attempt}次重试)`);
-          console.warn(`   错误类型: ${errorType}`);
-          console.warn(`   错误详情: ${this.sanitizeErrorForLogging(error)}`);
+          console.warn(`🔄 ${operationType || 'API调用'} 重试中...`);
+          console.warn(`   📊 重试进度: 第${attempt + 1}次失败，剩余${remainingRetries}次重试机会`);
+          console.warn(`   🏷️ 错误类型: ${errorType}`);
+          console.warn(`   📋 错误详情: ${this.sanitizeErrorForLogging(error)}`);
+          console.warn(`   ⏰ 重试延迟: ${Math.round(delay)}ms (${Math.round(delay/1000)}秒)`);
+          console.warn(`   🎯 重试策略: 指数退避 + 随机抖动`);
+          
+          // 显示用户友好的重试信息
+          if (operationType) {
+            console.log(`💡 ${operationType}暂时失败，正在自动重试第${attempt + 1}次...`);
+          }
           
           await this.delay(delay);
+          
+          console.log(`🚀 开始第${attempt + 2}次尝试...`);
           continue;
         }
         
@@ -186,7 +197,10 @@ class AIImageService {
       }
       
       // 超时错误 - 可重试
-      if (message.includes('timeout') || message.includes('request timeout')) {
+      if (message.includes('timeout') || 
+          message.includes('request timeout') ||
+          message.includes('read timeout') ||
+          message.includes('connection timeout')) {
         return true;
       }
       
@@ -194,14 +208,21 @@ class AIImageService {
       if (message.includes('service unavailable') || 
           message.includes('temporarily unavailable') ||
           message.includes('server error') ||
-          message.includes('internal error')) {
+          message.includes('internal error') ||
+          message.includes('internal server error') ||
+          message.includes('502 bad gateway') ||
+          message.includes('503 service unavailable') ||
+          message.includes('504 gateway timeout')) {
         return true;
       }
       
-      // API速率限制 - 可重试
+      // API速率限制和负载相关 - 可重试
       if (message.includes('rate limit') || 
           message.includes('too many requests') ||
-          message.includes('quota') && !message.includes('quota exceeded')) {
+          message.includes('rate_limit_exceeded') ||
+          message.includes('model_overloaded') ||
+          message.includes('busy') ||
+          (message.includes('quota') && !message.includes('quota exceeded'))) {
         return true;
       }
       
@@ -209,7 +230,30 @@ class AIImageService {
       if (message.includes('candidates') && message.includes('returned') ||
           message.includes('content parts') && message.includes('response') ||
           message.includes('no image data found') ||
-          message.includes('no text response')) {
+          message.includes('no text response') ||
+          message.includes('no candidates returned') ||
+          message.includes('content generation failed') ||
+          message.includes('model temporarily unavailable') ||
+          message.includes('request failed with status') ||
+          message.includes('generation request failed')) {
+        return true;
+      }
+      
+      // 图像处理相关的临时错误 - 可重试
+      if (message.includes('image processing failed') ||
+          message.includes('image decode error') ||
+          message.includes('image format error') ||
+          message.includes('invalid image data') ||
+          message.includes('image too large') ||
+          message.includes('image upload failed')) {
+        return true;
+      }
+      
+      // JSON解析和响应格式错误 - 可重试
+      if (message.includes('json parse error') ||
+          message.includes('invalid json') ||
+          message.includes('malformed response') ||
+          message.includes('unexpected end of json')) {
         return true;
       }
       
@@ -219,7 +263,10 @@ class AIImageService {
           message.includes('permission_denied') ||
           message.includes('quota_exceeded') ||
           message.includes('billed users') ||
-          message.includes('location is not supported')) {
+          message.includes('location is not supported') ||
+          message.includes('model not found') ||
+          message.includes('invalid request') ||
+          message.includes('unauthorized')) {
         return false;
       }
     }
@@ -232,16 +279,18 @@ class AIImageService {
    * 计算重试延迟（指数退避策略）
    */
   private calculateRetryDelay(attempt: number): number {
-    // 指数退避策略: 2秒, 4秒, 6秒
-    const baseDelay = 2000; // 2秒基础延迟
-    const maxDelay = 6000;  // 最大6秒延迟
+    // 优化的指数退避策略: 3秒, 6秒, 10秒
+    const delays = [3000, 6000, 10000]; // 3s, 6s, 10s
+    const baseDelay = delays[Math.min(attempt, delays.length - 1)];
     
-    const delay = Math.min(baseDelay * (attempt + 1), maxDelay);
+    // 增加随机抖动范围以避免thundering herd问题
+    const jitter = Math.random() * 1000; // 0-1000ms的随机抖动
     
-    // 添加一些随机抖动以避免thundering herd问题
-    const jitter = Math.random() * 500; // 0-500ms的随机抖动
+    const finalDelay = baseDelay + jitter;
     
-    return delay + jitter;
+    console.log(`⏰ 重试延迟计算: 第${attempt + 1}次重试，基础延迟${baseDelay}ms，抖动${Math.round(jitter)}ms，总延迟${Math.round(finalDelay)}ms`);
+    
+    return finalDelay;
   }
 
   /**
@@ -252,18 +301,18 @@ class AIImageService {
       const message = error.message.toLowerCase();
       
       if (this.isNetworkError(error)) {
-        return '网络错误';
+        return '网络连接错误';
       }
       
-      if (message.includes('timeout')) {
-        return '超时错误';
+      if (message.includes('timeout') || message.includes('request timeout') || message.includes('read timeout')) {
+        return '请求超时错误';
       }
       
       if (message.includes('api_key_invalid') || message.includes('invalid_api_key')) {
         return 'API密钥无效';
       }
       
-      if (message.includes('permission_denied')) {
+      if (message.includes('permission_denied') || message.includes('unauthorized')) {
         return '权限被拒绝';
       }
       
@@ -279,16 +328,36 @@ class AIImageService {
         return '地区不支持';
       }
       
-      if (message.includes('rate limit') || message.includes('too many requests')) {
+      if (message.includes('rate limit') || message.includes('too many requests') || message.includes('rate_limit_exceeded')) {
         return '请求频率限制';
       }
       
-      if (message.includes('candidates') || message.includes('content parts') || message.includes('no image data found')) {
+      if (message.includes('model_overloaded') || message.includes('busy') || message.includes('model temporarily unavailable')) {
+        return '模型负载过高';
+      }
+      
+      if (message.includes('candidates') || message.includes('content parts') || message.includes('no image data found') || 
+          message.includes('no candidates returned') || message.includes('content generation failed')) {
         return 'API响应格式错误';
       }
       
-      if (message.includes('service unavailable') || message.includes('server error')) {
+      if (message.includes('image processing failed') || message.includes('image decode error') || 
+          message.includes('image format error') || message.includes('invalid image data')) {
+        return '图像处理错误';
+      }
+      
+      if (message.includes('json parse error') || message.includes('invalid json') || message.includes('malformed response')) {
+        return 'JSON解析错误';
+      }
+      
+      if (message.includes('service unavailable') || message.includes('server error') || 
+          message.includes('502 bad gateway') || message.includes('503 service unavailable') || 
+          message.includes('504 gateway timeout')) {
         return '服务器临时错误';
+      }
+      
+      if (message.includes('model not found') || message.includes('invalid request')) {
+        return '请求参数错误';
       }
     }
     
@@ -319,51 +388,66 @@ class AIImageService {
     }
 
     try {
-      // 构建中文图像生成提示词
-      const prompt = `请生成图像：${request.prompt}`;
+      // 直接使用用户原始提示词
+      const prompt = request.prompt;
 
       console.log('📝 发送提示词:', prompt);
 
       const startTime = Date.now();
 
-      // 发送生成请求 - 使用新的generateContent API
+      // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
       const result = await this.processWithTimeout(
-        this.genAI.models.generateContent({
-          model: request.model || this.DEFAULT_MODEL,
-          contents: prompt,
-        }),
+        (async () => {
+          const apiResult = await this.genAI!.models.generateContent({
+            model: request.model || this.DEFAULT_MODEL,
+            contents: prompt,
+            config: {
+              safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+              ]
+            }
+          });
+
+          console.log('📄 API响应:', apiResult);
+
+          // 🔍 解析响应数据（现在包含在重试范围内）
+          if (!apiResult.candidates || apiResult.candidates.length === 0) {
+            throw new Error('No candidates returned from API');
+          }
+
+          const candidate = apiResult.candidates[0];
+          if (!candidate.content || !candidate.content.parts) {
+            throw new Error('No content parts in response');
+          }
+
+          // 查找图像数据
+          let imageBytes: string | null = null;
+          for (const part of candidate.content.parts) {
+            if (part.inlineData) {
+              imageBytes = part.inlineData.data;
+              break;
+            }
+          }
+
+          if (!imageBytes) {
+            throw new Error('No image data found in response');
+          }
+
+          return { apiResult, imageBytes };
+        })(),
         this.DEFAULT_TIMEOUT,
         3,
         '图像生成'
       );
 
       const processingTime = Date.now() - startTime;
-      console.log(`⏱️ 处理耗时: ${processingTime}ms`);
+      console.log(`⏱️ 总处理耗时: ${processingTime}ms`);
 
-      console.log('📄 API响应:', result);
-
-      // 获取生成的图像数据 - 新的响应格式
-      if (!result.candidates || result.candidates.length === 0) {
-        throw new Error('No candidates returned from API');
-      }
-
-      const candidate = result.candidates[0];
-      if (!candidate.content || !candidate.content.parts) {
-        throw new Error('No content parts in response');
-      }
-
-      // 查找图像数据
-      let imageBytes: string | null = null;
-      for (const part of candidate.content.parts) {
-        if (part.inlineData) {
-          imageBytes = part.inlineData.data;
-          break;
-        }
-      }
-
-      if (!imageBytes) {
-        throw new Error('No image data found in response');
-      }
+      const imageBytes = result.imageBytes;
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
@@ -372,7 +456,6 @@ class AIImageService {
         model: request.model || this.DEFAULT_MODEL,
         createdAt: new Date(),
         metadata: {
-          aspectRatio: request.aspectRatio,
           outputFormat: request.outputFormat || 'png',
           processingTime
         }
@@ -389,7 +472,6 @@ class AIImageService {
         success: true,
         metadata: { 
           model: request.model || this.DEFAULT_MODEL,
-          aspectRatio: request.aspectRatio,
           processingTime: Date.now() - startTime
         }
       });
@@ -465,55 +547,74 @@ class AIImageService {
     }
 
     try {
-      const prompt = `请编辑图片：${request.prompt}`;
+      const prompt = request.prompt;
 
       // 将base64图像转换为适当的格式
       const imageData = request.sourceImage.replace(/^data:image\/[a-z]+;base64,/, '');
 
       const startTime = Date.now();
 
+      // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
       const result = await this.processWithTimeout(
-        this.genAI.models.generateContent({
-          model: request.model || this.DEFAULT_MODEL,
-          contents: [
-            { text: prompt },
-            {
-              inlineData: {
-                mimeType: 'image/jpeg', // 根据实际格式调整
-                data: imageData
+        (async () => {
+          const apiResult = await this.genAI!.models.generateContent({
+            model: request.model || this.DEFAULT_MODEL,
+            contents: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg', // 根据实际格式调整
+                  data: imageData
+                }
               }
+            ],
+            config: {
+              safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+              ]
             }
-          ]
-        }),
+          });
+
+          console.log('📄 API响应:', apiResult);
+
+          // 🔍 解析响应数据（现在包含在重试范围内）
+          if (!apiResult.candidates || apiResult.candidates.length === 0) {
+            throw new Error('No candidates returned from API');
+          }
+
+          const candidate = apiResult.candidates[0];
+          if (!candidate.content || !candidate.content.parts) {
+            throw new Error('No content parts in response');
+          }
+
+          // 查找图像数据
+          let editedImageData: string | null = null;
+          for (const part of candidate.content.parts) {
+            if (part.inlineData) {
+              editedImageData = part.inlineData.data;
+              break;
+            }
+          }
+
+          if (!editedImageData) {
+            throw new Error('No edited image data found in response');
+          }
+
+          return { apiResult, imageBytes: editedImageData };
+        })(),
         this.DEFAULT_TIMEOUT,
         3,
         '图像编辑'
       );
 
       const processingTime = Date.now() - startTime;
+      console.log(`⏱️ 总处理耗时: ${processingTime}ms`);
 
-      // 处理新的响应格式
-      if (!result.candidates || result.candidates.length === 0) {
-        throw new Error('No candidates returned from API');
-      }
-
-      const candidate = result.candidates[0];
-      if (!candidate.content || !candidate.content.parts) {
-        throw new Error('No content parts in response');
-      }
-
-      // 查找图像数据
-      let editedImageData: string | null = null;
-      for (const part of candidate.content.parts) {
-        if (part.inlineData) {
-          editedImageData = part.inlineData.data;
-          break;
-        }
-      }
-
-      if (!editedImageData) {
-        throw new Error('No edited image data found in response');
-      }
+      const editedImageData = result.imageBytes;
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
@@ -613,17 +714,8 @@ class AIImageService {
     }
 
     try {
-      // 根据图片数量使用不同的提示词策略
-      let prompt: string;
-      
-      if (request.sourceImages.length === 2) {
-        // 两张图：将第一张图（较早上传的）融合到第二张图（最后上传的主场景）中
-        // 注意：图片顺序会被反转，所以API收到的第一张是用户最后上传的
-        prompt = `请融合图片：${request.prompt}`;
-      } else {
-        // 多张图（3张或以上）：混合所有图片
-        prompt = `请融合图片：${request.prompt}`;
-      }
+      // 直接使用用户原始提示词
+      const prompt = request.prompt;
 
       // 构建包含多个图像的请求 - 反转顺序，让最后上传的图片作为主场景
       const reversedImages = [...request.sourceImages].reverse();
@@ -638,40 +730,59 @@ class AIImageService {
 
       const startTime = Date.now();
 
+      // 🔄 将API调用和数据解析包装为一个完整的Promise，确保解析错误也能重试
       const result = await this.processWithTimeout(
-        this.genAI.models.generateContent({
-          model: request.model || this.DEFAULT_MODEL,
-          contents: [{ text: prompt }, ...imageParts]
-        }),
+        (async () => {
+          const apiResult = await this.genAI!.models.generateContent({
+            model: request.model || this.DEFAULT_MODEL,
+            contents: [{ text: prompt }, ...imageParts],
+            config: {
+              safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+              ]
+            }
+          });
+
+          console.log('📄 API响应:', apiResult);
+
+          // 🔍 解析响应数据（现在包含在重试范围内）
+          if (!apiResult.candidates || apiResult.candidates.length === 0) {
+            throw new Error('No candidates returned from API');
+          }
+
+          const candidate = apiResult.candidates[0];
+          if (!candidate.content || !candidate.content.parts) {
+            throw new Error('No content parts in response');
+          }
+
+          // 查找图像数据
+          let blendedImageData: string | null = null;
+          for (const part of candidate.content.parts) {
+            if (part.inlineData) {
+              blendedImageData = part.inlineData.data;
+              break;
+            }
+          }
+
+          if (!blendedImageData) {
+            throw new Error('No blended image data found in response');
+          }
+
+          return { apiResult, imageBytes: blendedImageData };
+        })(),
         this.DEFAULT_TIMEOUT,
         3,
         '图像融合'
       );
 
       const processingTime = Date.now() - startTime;
+      console.log(`⏱️ 总处理耗时: ${processingTime}ms`);
 
-      // 处理新的响应格式
-      if (!result.candidates || result.candidates.length === 0) {
-        throw new Error('No candidates returned from API');
-      }
-
-      const candidate = result.candidates[0];
-      if (!candidate.content || !candidate.content.parts) {
-        throw new Error('No content parts in response');
-      }
-
-      // 查找图像数据
-      let blendedImageData: string | null = null;
-      for (const part of candidate.content.parts) {
-        if (part.inlineData) {
-          blendedImageData = part.inlineData.data;
-          break;
-        }
-      }
-
-      if (!blendedImageData) {
-        throw new Error('No blended image data found in response');
-      }
+      const blendedImageData = result.imageBytes;
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
@@ -790,11 +901,6 @@ class AIImageService {
           prompt: {
             type: 'string',
             description: '图像生成的详细描述文字，包含风格、内容、色彩等信息'
-          },
-          aspectRatio: {
-            type: 'string',
-            description: '图像宽高比，如 16:9(横屏), 9:16(竖屏), 1:1(正方形), 4:3, 3:4',
-            enum: ['1:1', '9:16', '16:9', '4:3', '3:4']
           }
         },
         required: ['prompt']
@@ -941,10 +1047,19 @@ ${contextualPrompt}
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
-          contents: [{ text: systemPrompt }]
+          contents: [{ text: systemPrompt }],
+          config: {
+            safetySettings: [
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+            ]
+          }
         }),
         this.DEFAULT_TIMEOUT,
-        3,
+        0, // 工具选择不重试，失败后直接使用降级逻辑
         '工具选择'
       );
       
@@ -1046,6 +1161,42 @@ ${contextualPrompt}
   }
 
   /**
+   * 检测用户是否明确要求分析图片
+   */
+  private isExplicitImageAnalysisRequest(userInput: string): boolean {
+    const lowerInput = userInput.toLowerCase();
+    
+    // 明确的图片分析关键词
+    const imageAnalysisKeywords = [
+      '分析图片', '分析这张图', '分析图像', '看图', '识别图片', '图片内容',
+      '这图片', '图中', '图上', '画面', '照片', '截图',
+      'analyze image', 'what is in', 'describe image', 'image content',
+      'picture shows', 'photo contains', 'image analysis'
+    ];
+    
+    // 检查是否包含明确的图片分析关键词
+    const hasImageKeyword = imageAnalysisKeywords.some(keyword => 
+      lowerInput.includes(keyword)
+    );
+    
+    // 排除数学计算、对话等非图片分析意图
+    const isNonImageIntent = /[\d\+\-\*\/\=]/.test(userInput) || // 数学计算
+                             lowerInput.includes('计算') ||
+                             lowerInput.includes('算') ||
+                             lowerInput.includes('问题') ||
+                             lowerInput.includes('解释');
+    
+    console.log('🔍 图片分析明确性检测:', {
+      用户输入: userInput.substring(0, 50),
+      有图片关键词: hasImageKeyword,
+      是非图片意图: isNonImageIntent,
+      最终判断: hasImageKeyword && !isNonImageIntent
+    });
+    
+    return hasImageKeyword && !isNonImageIntent;
+  }
+
+  /**
    * 解析AI意图识别并进行第二层逻辑判断
    */
   private parseToolSelection(aiResponse: string, request: ToolSelectionRequest): ToolSelectionResult {
@@ -1118,12 +1269,18 @@ ${contextualPrompt}
         break;
         
       case 'text':
-        if (totalImageCount > 0) {
+        // 🎯 优先尊重AI的判断：既然AI说是text，通常就应该执行文字处理
+        // 只有在用户明确要求分析图片时，才执行图片分析
+        const isExplicitImageRequest = this.isExplicitImageAnalysisRequest(userInput);
+        
+        if (isExplicitImageRequest && totalImageCount > 0) {
           selectedTool = 'analyzeImage';
-          logicReasoning = '有图片，执行图片分析';
+          logicReasoning = '明确要求分析图片，执行图片分析';
         } else {
           selectedTool = 'chatResponse';
-          logicReasoning = '无图片，执行文字对话';
+          logicReasoning = totalImageCount > 0 
+            ? 'AI判断为文字处理，尊重AI判断执行文字对话'
+            : '无图片，执行文字对话';
         }
         break;
         
@@ -1140,13 +1297,6 @@ ${contextualPrompt}
     // 构建参数
     const parameters: Record<string, string> = { prompt: userInput };
 
-    // 比例检测已禁用 - API不支持aspectRatio参数
-    // if (selectedTool === 'generateImage') {
-    //   const aspectRatio = this.detectAspectRatio(userInput);
-    //   if (aspectRatio) {
-    //     parameters.aspectRatio = aspectRatio;
-    //   }
-    // }
 
     // 构建完整推理过程
     const fullReasoning = `AI意图识别: ${intentCategory} (${aiReasoning}), 逻辑判断: ${logicReasoning}`;
@@ -1169,25 +1319,6 @@ ${contextualPrompt}
   }
 
 
-  /**
-   * 检测用户输入中的宽高比需求
-   * 已禁用 - API不支持aspectRatio参数，保留备用
-   */
-  private detectAspectRatio(input: string): string | undefined {
-    const lowerInput = input.toLowerCase();
-
-    if (lowerInput.includes('横屏') || lowerInput.includes('宽屏') || lowerInput.includes('landscape')) {
-      return '16:9';
-    }
-    if (lowerInput.includes('竖屏') || lowerInput.includes('竖版') || lowerInput.includes('portrait')) {
-      return '9:16';
-    }
-    if (lowerInput.includes('正方形') || lowerInput.includes('方形') || lowerInput.includes('square')) {
-      return '1:1';
-    }
-
-    return undefined;
-  }
 
   /**
    * 降级工具选择（基于三分类规则）
@@ -1240,13 +1371,6 @@ ${contextualPrompt}
     // 构建参数
     const parameters: Record<string, string> = { prompt: userInput };
     
-    // 比例检测已禁用 - API不支持aspectRatio参数
-    // if (selectedTool === 'generateImage') {
-    //   const aspectRatio = this.detectAspectRatio(userInput);
-    //   if (aspectRatio) {
-    //     parameters.aspectRatio = aspectRatio;
-    //   }
-    // }
 
     return {
       selectedTool,
@@ -1302,7 +1426,16 @@ ${contextualPrompt}
                 data: imageData
               }
             }
-          ]
+          ],
+          config: {
+            safetySettings: [
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+            ]
+          }
         }),
         this.DEFAULT_TIMEOUT,
         3,
@@ -1396,7 +1529,16 @@ ${contextualPrompt}
       const result = await this.processWithTimeout(
         this.genAI.models.generateContent({
           model: 'gemini-2.0-flash',
-          contents: [{ text: finalPrompt }]
+          contents: [{ text: finalPrompt }],
+          config: {
+            safetySettings: [
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+            ]
+          }
         }),
         this.DEFAULT_TIMEOUT,
         3,
@@ -1432,7 +1574,7 @@ ${contextualPrompt}
       console.error('❌ 文本回复失败:', safeError);
       return {
         success: false,
-        error: this.createError('TEXT_GENERATION_FAILED', error.message, error)
+        error: this.createError('TEXT_GENERATION_FAILED', error instanceof Error ? error.message : 'Text generation failed', error)
       };
     }
   }
