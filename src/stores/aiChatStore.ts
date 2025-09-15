@@ -223,9 +223,15 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           imageData: result.data.imageData
         });
 
-        // 如果没有图像，记录原因并返回
+        // 如果没有图像，记录详细原因并返回
         if (!result.data.hasImage) {
-          console.log('⚠️ API返回了文本回复但没有图像:', result.data.textResponse);
+          console.warn('⚠️ API返回了文本回复但没有图像，详细信息:', {
+            文本回复: result.data.textResponse,
+            图像数据存在: !!result.data.imageData,
+            图像数据长度: result.data.imageData?.length || 0,
+            hasImage标志: result.data.hasImage,
+            生成提示: result.data.prompt
+          });
           return;
         }
 
@@ -278,14 +284,17 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_generated_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
-          // 直接触发快速上传事件，复用现有的上传逻辑
+          // 直接触发快速上传事件，复用现有的上传逻辑，添加智能排版信息
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
               imageData: imageDataUrl,
-              fileName: fileName
+              fileName: fileName,
+              operationType: 'generate',
+              sourceImageId: undefined,
+              sourceImages: undefined
             }
           }));
-          console.log('📋 已触发快速图片上传事件，图片将自动放置到坐标原点(0,0)');
+          console.log('📋 已触发快速图片上传事件，使用智能排版 (操作类型: generate)');
         };
 
         // 自动添加到画布
@@ -442,30 +451,35 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_edited_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
-          // 🎯 获取当前选中图片的边界作为占位框
+          // 🎯 获取当前选中图片的ID和边界信息用于智能排版
           let selectedImageBounds = null;
+          let sourceImageId = null;
           try {
             if ((window as any).tanvaImageInstances) {
               const selectedImage = (window as any).tanvaImageInstances.find((img: any) => img.isSelected);
               if (selectedImage) {
                 selectedImageBounds = selectedImage.bounds;
-                console.log('🎯 发现选中图片，使用其边界作为占位框:', selectedImageBounds);
+                sourceImageId = selectedImage.id;
+                console.log('🎯 发现选中图片，ID:', sourceImageId, '边界:', selectedImageBounds);
               }
             }
           } catch (error) {
-            console.warn('获取选中图片边界失败:', error);
+            console.warn('获取选中图片信息失败:', error);
           }
 
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
               imageData: imageDataUrl,
               fileName: fileName,
-              selectedImageBounds: selectedImageBounds  // 传递选中图片的边界
+              selectedImageBounds: selectedImageBounds,  // 保持兼容性
+              operationType: 'edit',
+              sourceImageId: sourceImageId,
+              sourceImages: undefined
             }
           }));
 
-          const targetInfo = selectedImageBounds ? '选中图片位置' : '坐标原点(0,0)';
-          console.log(`📋 已触发快速图片上传事件，编辑后的图片将自动放置到${targetInfo}`);
+          const targetInfo = sourceImageId ? `选中图片${sourceImageId}下方` : '默认位置';
+          console.log(`📋 已触发快速图片上传事件，使用智能排版 (操作类型: edit, 目标位置: ${targetInfo})`);
         };
 
         setTimeout(() => {
@@ -615,13 +629,30 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_blended_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
+          // 🎯 获取源图像ID列表用于智能排版
+          let sourceImageIds: string[] = [];
+          try {
+            if ((window as any).tanvaImageInstances) {
+              const selectedImages = (window as any).tanvaImageInstances.filter((img: any) => img.isSelected);
+              sourceImageIds = selectedImages.map((img: any) => img.id);
+              console.log('🎯 发现选中的源图像IDs:', sourceImageIds);
+            }
+          } catch (error) {
+            console.warn('获取源图像IDs失败:', error);
+          }
+
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
               imageData: imageDataUrl,
-              fileName: fileName
+              fileName: fileName,
+              operationType: 'blend',
+              sourceImageId: undefined,
+              sourceImages: sourceImageIds.length > 0 ? sourceImageIds : undefined
             }
           }));
-          console.log('📋 已触发快速图片上传事件，融合后的图片将自动放置到坐标原点(0,0)');
+          
+          const targetInfo = sourceImageIds.length > 0 ? `第一张源图像${sourceImageIds[0]}下方` : '默认位置';
+          console.log(`📋 已触发快速图片上传事件，使用智能排版 (操作类型: blend, 目标位置: ${targetInfo})`);
         };
 
         setTimeout(() => {

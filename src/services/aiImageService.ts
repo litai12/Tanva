@@ -69,6 +69,73 @@ class AIImageService {
   }
 
   /**
+   * 验证图像数据的完整性和格式
+   */
+  private validateImageData(imageData: string, operationType: string): {
+    isValid: boolean;
+    reason?: string;
+    severity?: 'warning' | 'error';
+    info?: string;
+  } {
+    // 基本长度检查
+    if (imageData.length < 500) {
+      return {
+        isValid: false,
+        reason: `图像数据太短 (${imageData.length}字符)，可能不完整`,
+        severity: 'error'
+      };
+    }
+
+    // Base64格式验证
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+    if (!base64Regex.test(imageData)) {
+      return {
+        isValid: false,
+        reason: '图像数据不是有效的Base64格式',
+        severity: 'error'
+      };
+    }
+
+    // Base64字符串长度应该是4的倍数（padding后）
+    if (imageData.length % 4 !== 0) {
+      return {
+        isValid: false,
+        reason: `Base64数据长度 (${imageData.length}) 不是4的倍数`,
+        severity: 'warning'
+      };
+    }
+
+    // 检查常见图像格式的文件头
+    const headerChecks = [
+      { format: 'PNG', header: 'iVBORw0KGgo' }, // PNG header
+      { format: 'JPEG', header: '/9j/' },       // JPEG header
+      { format: 'GIF', header: 'R0lGODlh' },   // GIF header
+      { format: 'WebP', header: 'UklGR' }      // WebP header
+    ];
+
+    const detectedFormat = headerChecks.find(check => 
+      imageData.startsWith(check.header)
+    );
+
+    if (!detectedFormat) {
+      return {
+        isValid: false,
+        reason: '未检测到有效的图像格式标识符',
+        severity: 'warning'
+      };
+    }
+
+    // 估算图像大小（Base64编码后的大小约为原始大小的4/3）
+    const estimatedSizeBytes = (imageData.length * 3) / 4;
+    const estimatedSizeKB = Math.round(estimatedSizeBytes / 1024);
+
+    return {
+      isValid: true,
+      info: `${detectedFormat.format}格式, 约${estimatedSizeKB}KB, ${imageData.length}字符`
+    };
+  }
+
+  /**
    * 🔒 安全地处理错误对象，防止Base64数据被输出到控制台
    */
   private sanitizeErrorForLogging(error: unknown): string {
@@ -91,6 +158,43 @@ class AIImageService {
     }
     
     return String(error);
+  }
+
+  /**
+   * 带重试机制的异步操作包装器
+   */
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    operationType: string,
+    maxRetries: number = 2,
+    baseDelay: number = 1000
+  ): Promise<T> {
+    let lastError: Error;
+    
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        console.log(`🔄 ${operationType} 尝试 ${attempt}/${maxRetries + 1}`);
+        const result = await operation();
+        
+        if (attempt > 1) {
+          console.log(`✅ ${operationType} 在第${attempt}次尝试成功`);
+        }
+        
+        return result;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (attempt <= maxRetries) {
+          const delay = baseDelay * Math.pow(1.5, attempt - 1); // 指数退避
+          console.warn(`⚠️ ${operationType} 第${attempt}次尝试失败: ${lastError.message}, ${delay}ms后重试...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          console.error(`❌ ${operationType} 所有尝试失败`);
+        }
+      }
+    }
+    
+    throw lastError!;
   }
 
   private async withTimeout<T>(
@@ -155,11 +259,13 @@ class AIImageService {
 
     let textResponse: string = '';
     let imageBytes: string | null = null;
+    let imageDataChunks: string[] = []; // 用于累积图像数据块
     let chunkCount = 0;
     let textChunks: string[] = [];
     let totalResponseSize = 0;
     let hasReceivedText = false;
     let hasReceivedImage = false;
+    let currentImageMimeType: string | null = null;
 
     try {
       for await (const chunk of stream) {
@@ -215,12 +321,21 @@ class AIImageService {
             }
           }
 
-          // 处理图像数据
+          // 处理图像数据 - 修复：累积而不是覆盖
           if (part.inlineData && part.inlineData.data && typeof part.inlineData.data === 'string') {
-            imageBytes = part.inlineData.data;
-            const imageSize = imageBytes.length;
-            totalResponseSize += imageSize;
-            console.log(`🖼️ ${operationType}图像数据 (大小: ${imageSize}字符, MIME: ${part.inlineData.mimeType || 'unknown'})`);
+            const currentChunk = part.inlineData.data;
+            const chunkSize = currentChunk.length;
+            
+            // 累积图像数据块
+            imageDataChunks.push(currentChunk);
+            totalResponseSize += chunkSize;
+            
+            // 记录MIME类型（通常在第一个块中）
+            if (part.inlineData.mimeType && !currentImageMimeType) {
+              currentImageMimeType = part.inlineData.mimeType;
+            }
+            
+            console.log(`🖼️ ${operationType}图像数据块 #${imageDataChunks.length} (大小: ${chunkSize}字符, 累积: ${imageDataChunks.reduce((sum, chunk) => sum + chunk.length, 0)}字符, MIME: ${part.inlineData.mimeType || 'unknown'})`);
 
             // 首次接收到图像时发送通知
             if (!hasReceivedImage) {
@@ -237,8 +352,15 @@ class AIImageService {
 
         // 实时进度反馈
         if (chunkCount % 5 === 0) {
-          console.log(`📊 ${operationType}进度更新: ${chunkCount}个块, 文本${textChunks.length}段, 图像${imageBytes ? '已接收' : '未接收'}`);
+          const totalImageLength = imageDataChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+          console.log(`📊 ${operationType}进度更新: ${chunkCount}个块, 文本${textChunks.length}段, 图像数据块${imageDataChunks.length}个(累积${totalImageLength}字符)`);
         }
+      }
+
+      // 合并所有图像数据块
+      if (imageDataChunks.length > 0) {
+        imageBytes = imageDataChunks.join('');
+        console.log(`🔧 合并${imageDataChunks.length}个图像数据块，最终长度: ${imageBytes.length}字符`);
       }
 
       // 最终统计
@@ -246,8 +368,10 @@ class AIImageService {
         总块数: chunkCount,
         文本段数: textChunks.length,
         文本总长度: textResponse.length,
+        图像数据块数: imageDataChunks.length,
         有图像数据: !!imageBytes,
         图像数据长度: imageBytes?.length || 0,
+        图像MIME类型: currentImageMimeType || 'unknown',
         总响应大小: totalResponseSize,
         平均块大小: chunkCount > 0 ? Math.round(totalResponseSize / chunkCount) : 0
       });
@@ -258,8 +382,20 @@ class AIImageService {
         throw new Error(`No ${operationType.toLowerCase()} data or text response found in stream`);
       }
 
-      if (imageBytes && imageBytes.length < 100) {
-        console.warn(`⚠️ ${operationType}图像数据疑似不完整: 长度仅${imageBytes.length}字符`);
+      // 增强的图像数据验证
+      if (imageBytes) {
+        const validationResult = this.validateImageData(imageBytes, operationType);
+        if (!validationResult.isValid) {
+          console.warn(`⚠️ ${operationType}图像数据验证失败: ${validationResult.reason}`);
+          
+          // 根据验证失败的原因决定是否抛出错误
+          if (validationResult.severity === 'error') {
+            console.error(`❌ ${operationType}图像数据严重损坏，无法使用`);
+            throw new Error(`Invalid image data: ${validationResult.reason}`);
+          }
+        } else {
+          console.log(`✅ ${operationType}图像数据验证通过: ${validationResult.info}`);
+        }
       }
 
       if (textResponse && textResponse.length > 10000) {
@@ -279,11 +415,15 @@ class AIImageService {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const totalImageLength = imageDataChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      
       console.error(`❌ ${operationType}流式响应解析出错:`, {
         错误: errorMessage,
         已处理块数: chunkCount,
         已获取文本长度: textResponse.length,
-        已获取图像: !!imageBytes
+        图像数据块数: imageDataChunks.length,
+        图像累积长度: totalImageLength,
+        最终图像状态: !!imageBytes ? `有(${imageBytes.length}字符)` : '无'
       });
 
       // 发送错误事件
@@ -292,7 +432,7 @@ class AIImageService {
         chunkCount,
         textLength: textResponse.length,
         hasImage: !!imageBytes,
-        message: `${operationType}流式响应处理失败: ${errorMessage}`
+        message: `${operationType}流式响应处理失败: ${errorMessage} (已处理${imageDataChunks.length}个图像块)`
       });
 
       throw error;
@@ -323,27 +463,34 @@ class AIImageService {
 
       const startTime = Date.now();
 
-      // 使用流式API调用和数据解析
-      const result = await this.withTimeout(
-        (async () => {
-          const stream = await this.genAI!.models.generateContentStream({
-            model: request.model || this.DEFAULT_MODEL,
-            contents: prompt,
-            config: {
-              safetySettings: [
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-              ]
-            }
-          });
+      // 使用带重试的流式API调用和数据解析
+      const result = await this.withRetry(
+        async () => {
+          return await this.withTimeout(
+            (async () => {
+              const stream = await this.genAI!.models.generateContentStream({
+                model: request.model || this.DEFAULT_MODEL,
+                contents: prompt,
+                config: {
+                  safetySettings: [
+                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+                  ]
+                }
+              });
 
-          return this.parseStreamResponse(stream, '图像生成');
-        })(),
-        this.DEFAULT_TIMEOUT,
-        '流式图像生成'
+              return this.parseStreamResponse(stream, '图像生成');
+            })(),
+            this.DEFAULT_TIMEOUT,
+            '流式图像生成'
+          );
+        },
+        '图像生成',
+        1, // 最多重试1次，避免过度消费API
+        2000 // 2秒延迟
       );
 
       const processingTime = Date.now() - startTime;
@@ -351,6 +498,21 @@ class AIImageService {
 
       const imageBytes = result.imageBytes;
       const textResponse = result.textResponse;
+
+      // 详细的结果分析和调试信息
+      console.log('🔍 图像生成结果分析:', {
+        有图像数据: !!imageBytes,
+        图像数据长度: imageBytes?.length || 0,
+        有文本响应: !!textResponse,
+        文本响应长度: textResponse?.length || 0,
+        文本响应预览: textResponse?.substring(0, 100) || 'N/A'
+      });
+
+      // 如果有图像数据，进行额外验证
+      if (imageBytes) {
+        const validationResult = this.validateImageData(imageBytes, '图像生成结果');
+        console.log('🔍 最终图像数据验证:', validationResult);
+      }
 
       const aiResult: AIImageResult = {
         id: uuidv4(),
@@ -366,7 +528,12 @@ class AIImageService {
         }
       };
 
-      console.log('✅ 图像生成成功:', aiResult.id);
+      console.log('✅ 图像生成成功:', {
+        结果ID: aiResult.id,
+        包含图像: aiResult.hasImage,
+        图像数据大小: aiResult.imageData?.length || 0,
+        文本响应: aiResult.textResponse?.substring(0, 50) || 'N/A'
+      });
 
       // 🧠 记录操作到上下文
       contextManager.recordOperation({
