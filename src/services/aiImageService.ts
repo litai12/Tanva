@@ -1272,31 +1272,37 @@ ${contextualPrompt}
 
       const startTime = Date.now();
 
-      // 使用 gemini-2.0-flash 进行图像分析
+      // 🌊 使用流式API进行图像分析
       const result = await this.withTimeout(
-        this.genAI.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: [
-            { text: analysisPrompt },
-            {
-              inlineData: {
-                mimeType: 'image/jpeg',
-                data: imageData
+        (async () => {
+          const stream = await this.genAI.models.generateContentStream({
+            model: 'gemini-2.0-flash',
+            contents: [
+              { text: analysisPrompt },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: imageData
+                }
               }
+            ],
+            config: {
+              safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+              ]
             }
-          ],
-          config: {
-            safetySettings: [
-              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-            ]
-          }
-        }),
+          });
+
+          const streamResult = await this.parseStreamResponse(stream, '图像分析');
+          // 图像分析只返回文本，不期望图像数据
+          return { text: streamResult.textResponse };
+        })(),
         this.DEFAULT_TIMEOUT,
-        '图像分析'
+        '流式图像分析'
       );
 
       const processingTime = Date.now() - startTime;
@@ -1383,22 +1389,29 @@ ${contextualPrompt}
       
       console.log('🧠 文本对话使用上下文:', finalPrompt.substring(0, 200) + '...');
 
+      // 🌊 使用流式API进行文本对话
       const result = await this.withTimeout(
-        this.genAI.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: [{ text: finalPrompt }],
-          config: {
-            safetySettings: [
-              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-            ]
-          }
-        }),
+        (async () => {
+          const stream = await this.genAI.models.generateContentStream({
+            model: 'gemini-2.0-flash',
+            contents: [{ text: finalPrompt }],
+            config: {
+              safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+              ]
+            }
+          });
+
+          const streamResult = await this.parseStreamResponse(stream, '文本对话');
+          // 文本对话只返回文本，不期望图像数据
+          return { text: streamResult.textResponse };
+        })(),
         this.DEFAULT_TIMEOUT,
-        '文本对话'
+        '流式文本对话'
       );
 
       if (!result.text) {
