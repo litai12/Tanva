@@ -1452,15 +1452,17 @@ ${contextualPrompt}
     }
 
     // 第二层：基于意图类别和图片数量的纯逻辑判断
-    const totalImageCount = imageCount + (hasCachedImage ? 1 : 0);
+    // 用户显式选择优先级最高，不计算缓存图像
+    const userSelectedImageCount = imageCount; // 只计算用户显式选择的图片
+    const hasCachedForFallback = hasCachedImage && imageCount === 0; // 只有没有显式选择时才考虑缓存
     let selectedTool = '';
     let logicReasoning = '';
 
     console.log('🔧 第二层逻辑判断:', {
       AI意图类别: intentCategory,
-      显式图片数量: imageCount,
+      用户显式选择数量: userSelectedImageCount,
       有缓存图像: hasCachedImage,
-      总图片数量: totalImageCount
+      缓存作为后备: hasCachedForFallback
     });
 
     switch (intentCategory) {
@@ -1470,15 +1472,15 @@ ${contextualPrompt}
         break;
         
       case 'editing':
-        if (totalImageCount === 0) {
+        if (userSelectedImageCount === 0 && !hasCachedForFallback) {
           selectedTool = 'generateImage';
           logicReasoning = '无图片可编辑，转为生成新图像';
-        } else if (totalImageCount === 1) {
+        } else if (userSelectedImageCount === 1 || hasCachedForFallback) {
           selectedTool = 'editImage';
-          logicReasoning = '单张图片，执行图片编辑';
-        } else {
+          logicReasoning = userSelectedImageCount === 1 ? '用户选择单张图片，执行图片编辑' : '使用缓存图片，执行图片编辑';
+        } else if (userSelectedImageCount >= 2) {
           selectedTool = 'blendImages';
-          logicReasoning = `${totalImageCount}张图片，执行图片融合`;
+          logicReasoning = `用户选择${userSelectedImageCount}张图片，执行图片融合`;
         }
         break;
         
@@ -1487,12 +1489,12 @@ ${contextualPrompt}
         // 只有在用户明确要求分析图片时，才执行图片分析
         const isExplicitImageRequest = this.isExplicitImageAnalysisRequest(userInput);
         
-        if (isExplicitImageRequest && totalImageCount > 0) {
+        if (isExplicitImageRequest && (userSelectedImageCount > 0 || hasCachedForFallback)) {
           selectedTool = 'analyzeImage';
           logicReasoning = '明确要求分析图片，执行图片分析';
         } else {
           selectedTool = 'chatResponse';
-          logicReasoning = totalImageCount > 0 
+          logicReasoning = (userSelectedImageCount > 0 || hasCachedForFallback)
             ? 'AI判断为文字处理，尊重AI判断执行文字对话'
             : '无图片，执行文字对话';
         }
@@ -1553,26 +1555,27 @@ ${contextualPrompt}
     let reasoning: string;
     let confidence: number;
 
-    // 简单默认策略（无关键词检测）
-    const totalImageCount = imageCount + (hasCachedImage ? 1 : 0);
+    // 简单默认策略（无关键词检测） - 用户显式选择优先
+    const userSelectedImageCount = imageCount; // 只计算用户显式选择的图片
+    const hasCachedForFallback = hasCachedImage && imageCount === 0; // 只有没有显式选择时才考虑缓存
     
-    if (totalImageCount === 0) {
+    if (userSelectedImageCount === 0 && !hasCachedForFallback) {
       // 没有图片，默认生成
       selectedCategory = '图像生成类';
       selectedTool = 'generateImage';
       reasoning = '无图片，默认生成新图像';
       confidence = 0.6;
-    } else if (totalImageCount === 1) {
+    } else if (userSelectedImageCount === 1 || hasCachedForFallback) {
       // 单张图片，默认编辑
       selectedCategory = '图像编辑类';
       selectedTool = 'editImage';
-      reasoning = '单张图片，默认编辑';
+      reasoning = userSelectedImageCount === 1 ? '用户选择单张图片，默认编辑' : '使用缓存图片，默认编辑';
       confidence = 0.6;
     } else {
       // 多张图片，默认融合
       selectedCategory = '图像编辑类';
       selectedTool = 'blendImages';
-      reasoning = `${totalImageCount}张图片，默认融合`;
+      reasoning = `用户选择${userSelectedImageCount}张图片，默认融合`;
       confidence = 0.6;
     }
 

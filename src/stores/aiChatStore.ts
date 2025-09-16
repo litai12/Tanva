@@ -549,6 +549,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
   setSourceImageForEditing: (imageData: string | null) => {
     set({ sourceImageForEditing: imageData });
+    
+    // 🔥 立即缓存用户上传的图片
+    if (imageData) {
+      const imageId = `user_upload_${Date.now()}`;
+      contextManager.cacheLatestImage(imageData, imageId, '用户上传的图片');
+      console.log('📸 用户上传图片已缓存:', imageId);
+    }
   },
 
   // 多图融合功能
@@ -706,6 +713,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     set((state) => ({
       sourceImagesForBlending: [...state.sourceImagesForBlending, imageData]
     }));
+    
+    // 🔥 立即缓存用户上传的融合图片（缓存最后一张）
+    const imageId = `user_blend_upload_${Date.now()}`;
+    contextManager.cacheLatestImage(imageData, imageId, '用户上传的融合图片');
+    console.log('📸 用户融合图片已缓存:', imageId);
   },
 
   removeImageFromBlending: (index: number) => {
@@ -810,6 +822,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
   setSourceImageForAnalysis: (imageData: string | null) => {
     set({ sourceImageForAnalysis: imageData });
+    
+    // 🔥 立即缓存用户上传的分析图片
+    if (imageData) {
+      const imageId = `user_analysis_upload_${Date.now()}`;
+      contextManager.cacheLatestImage(imageData, imageId, '用户上传的分析图片');
+      console.log('📸 用户分析图片已缓存:', imageId);
+    }
   },
 
   // 文本对话功能
