@@ -127,6 +127,13 @@ class ContextManager implements IContextManager {
     }
     
     console.log('📊 记录操作历史:', newOperation.type, newOperation.input.substring(0, 30));
+
+    // 事件通知：模式变化
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('contextModeChanged', { detail: { mode: context.currentMode } }));
+      }
+    } catch {}
   }
 
   /**
@@ -406,6 +413,14 @@ class ContextManager implements IContextManager {
       bounds: options?.bounds || context.cachedImages.latestBounds || null,
       layerId: options?.layerId ?? context.cachedImages.latestLayerId ?? null
     });
+
+    // 通知: 缓存更新
+    try {
+      if (typeof window !== 'undefined') {
+        const payload = this.getCachedImage();
+        window.dispatchEvent(new CustomEvent('cachedImageChanged', { detail: payload }));
+      }
+    } catch {}
   }
 
   /**
@@ -481,6 +496,13 @@ class ContextManager implements IContextManager {
     };
     
     console.log('🗑️ 清除图像缓存');
+
+    // 通知: 缓存清空
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cachedImageChanged', { detail: null }));
+      }
+    } catch {}
   }
 }
 

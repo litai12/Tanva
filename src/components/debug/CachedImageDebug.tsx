@@ -15,32 +15,52 @@ const CachedImageDebug: React.FC = () => {
   const [cached, setCached] = useState<CachedImageInfo | null>(null);
   const [expanded, setExpanded] = useState(true);
   const lastKeyRef = useRef<string | null>(null);
+  const [mode, setMode] = useState<string | null>(null);
 
-  // 轮询获取缓存（临时实现，便于快速验证）
+  // 事件驱动：监听 cachedImageChanged
   useEffect(() => {
-    const read = () => {
-      try {
-        const data = contextManager.getCachedImage();
-        if (!data) {
-          if (lastKeyRef.current !== 'none') {
-            lastKeyRef.current = 'none';
-            setCached(null);
-          }
-          return;
+    const apply = (data: any) => {
+      if (!data) {
+        if (lastKeyRef.current !== 'none') {
+          lastKeyRef.current = 'none';
+          setCached(null);
         }
-        // 使用 imageId + 长度作为变化键
-        const key = `${data.imageId}:${data.imageData?.length || 0}:${data.bounds ? `${Math.round(data.bounds.x)}-${Math.round(data.bounds.y)}-${Math.round(data.bounds.width)}-${Math.round(data.bounds.height)}` : 'no-bounds'}`;
-        if (lastKeyRef.current !== key) {
-          lastKeyRef.current = key;
-          setCached({ imageId: data.imageId, imageData: data.imageData, prompt: data.prompt, bounds: data.bounds ?? null, layerId: data.layerId ?? null });
-        }
-      } catch (e) {
-        // 忽略读取错误，保持调试组件健壮
+        return;
+      }
+      const key = `${data.imageId}:${data.imageData?.length || 0}:${data.bounds ? `${Math.round(data.bounds.x)}-${Math.round(data.bounds.y)}-${Math.round(data.bounds.width)}-${Math.round(data.bounds.height)}` : 'no-bounds'}`;
+      if (lastKeyRef.current !== key) {
+        lastKeyRef.current = key;
+        setCached({
+          imageId: data.imageId,
+          imageData: data.imageData,
+          prompt: data.prompt,
+          bounds: data.bounds ?? null,
+          layerId: data.layerId ?? null
+        });
       }
     };
-    read();
-    const timer = window.setInterval(read, 1000);
-    return () => window.clearInterval(timer);
+
+    // 初始化一次
+    try {
+      apply(contextManager.getCachedImage());
+      const ctx = contextManager.getCurrentContext();
+      if (ctx?.currentMode) setMode(ctx.currentMode);
+    } catch {}
+
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent;
+      apply(ce.detail);
+    };
+    window.addEventListener('cachedImageChanged', handler as EventListener);
+    const modeHandler = (e: Event) => {
+      const ce = e as CustomEvent;
+      if (ce?.detail?.mode) setMode(ce.detail.mode);
+    };
+    window.addEventListener('contextModeChanged', modeHandler as EventListener);
+    return () => {
+      window.removeEventListener('cachedImageChanged', handler as EventListener);
+      window.removeEventListener('contextModeChanged', modeHandler as EventListener);
+    };
   }, []);
 
   const hasImage = !!cached?.imageData && cached.imageData.startsWith('data:image');
@@ -152,6 +172,9 @@ const CachedImageDebug: React.FC = () => {
                 </div>
                 <div className="text-[10px] text-gray-600 break-all line-clamp-2">
                   提示: {cached.prompt || '—'}
+                </div>
+                <div className="text-[10px] text-gray-600">
+                  模式: {mode || '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
                   中心: {center ? `cx=${Math.round(center.cx)}, cy=${Math.round(center.cy)}` : '—'}
