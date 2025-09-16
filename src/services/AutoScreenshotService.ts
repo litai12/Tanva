@@ -189,7 +189,8 @@ export class AutoScreenshotService {
           // 收集所有有效的内容元素，移除过于严格的边界检查
           if ((item instanceof paper.Path && item.segments && item.segments.length > 0) ||
               (item instanceof paper.Group) ||
-              (item instanceof paper.Raster && !item.data?.isHelper)) {
+              (item instanceof paper.Raster && !item.data?.isHelper) ||
+              (item instanceof paper.PointText)) {
             
             // 宽松的边界验证：只要item.bounds存在就收集（移除严格的相交检查）
             if (item.bounds) {
@@ -365,6 +366,8 @@ export class AutoScreenshotService {
         this.drawPaperGroup(ctx, item);
       } else if (item instanceof paper.Raster && !item.data?.isHelper) {
         await this.drawPaperRaster(ctx, item);
+      } else if (item instanceof paper.PointText) {
+        this.drawPaperText(ctx, item);
       }
     } finally {
       ctx.restore();
@@ -487,6 +490,8 @@ export class AutoScreenshotService {
               this.drawPaperGroup(tempCtx, item);
             } else if (item instanceof paper.Raster && !item.data?.isHelper) {
               await this.drawPaperRaster(tempCtx, item);
+            } else if (item instanceof paper.PointText) {
+              this.drawPaperText(tempCtx, item);
             }
           } catch (itemError) {
             logger.warn(`绘制Paper.js元素失败:`, itemError);
@@ -621,6 +626,64 @@ export class AutoScreenshotService {
   }
 
   /**
+   * 绘制Paper.js文本（PointText）
+   */
+  private static drawPaperText(ctx: CanvasRenderingContext2D, text: paper.PointText): void {
+    ctx.save();
+
+    // 字体与样式
+    const fontSize = (text as any).fontSize || 16;
+    const fontFamily = (text as any).fontFamily || 'sans-serif';
+    const fontStyle = (text as any).fontStyle || 'normal'; // e.g., italic
+    const fontWeight = (text as any).fontWeight || 'normal'; // e.g., bold
+    ctx.font = `${fontStyle} ${fontWeight} ${Math.round(fontSize)}px ${fontFamily}`.trim();
+
+    // 对齐
+    const justification = (text as any).justification || 'left';
+    let align: CanvasTextAlign = 'left';
+    if (justification === 'center') align = 'center';
+    else if (justification === 'right') align = 'right';
+    ctx.textAlign = align;
+    ctx.textBaseline = 'alphabetic';
+
+    // 颜色
+    if (text.fillColor) {
+      ctx.fillStyle = text.fillColor.toCSS(true);
+    }
+    if (text.strokeColor) {
+      ctx.strokeStyle = text.strokeColor.toCSS(true);
+      ctx.lineWidth = (text as any).strokeWidth || 1;
+    }
+
+    // 位置（Paper 的 point 为基线点）
+    const p = (text as any).point || text.point || text.position;
+    const x = p?.x ?? text.position.x;
+    const y = p?.y ?? text.position.y;
+
+    const content = (text as any).content || '';
+    const lines = String(content).split(/\r?\n/);
+    const leading = (text as any).leading || Math.round(fontSize * 1.2);
+
+    // 旋转（若有）
+    const rotation = (text as any).rotation || 0;
+    if (rotation) {
+      ctx.translate(x, y);
+      ctx.rotate((rotation * Math.PI) / 180);
+    }
+
+    // 绘制多行文本
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const dx = rotation ? 0 : 0;
+      const dy = i * leading;
+      if (text.fillColor) ctx.fillText(line, rotation ? 0 : x + dx, rotation ? 0 + dy : y + dy);
+      if (text.strokeColor) ctx.strokeText(line, rotation ? 0 : x + dx, rotation ? 0 + dy : y + dy);
+    }
+
+    ctx.restore();
+  }
+
+  /**
    * 绘制Paper.js组
    */
   private static drawPaperGroup(ctx: CanvasRenderingContext2D, group: paper.Group): void {
@@ -631,6 +694,8 @@ export class AutoScreenshotService {
         this.drawPaperPath(ctx, child);
       } else if (child instanceof paper.Raster && !child.data?.isHelper) {
         this.drawPaperRaster(ctx, child);
+      } else if (child instanceof paper.PointText) {
+        this.drawPaperText(ctx, child);
       } else if (child instanceof paper.Group) {
         this.drawPaperGroup(ctx, child);
       }
