@@ -17,6 +17,132 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
     const { ensureDrawingLayer, zoom } = context;
     const [triggerQuickUpload, setTriggerQuickUpload] = useState(false);
 
+    // ========== 智能排版工具函数 ==========
+    
+    // 获取画布上所有图像的位置信息
+    const getAllCanvasImages = useCallback(() => {
+        const images: Array<{
+            id: string;
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+            operationType?: string;
+        }> = [];
+
+        try {
+            if (!paper.project) return images;
+
+            // 遍历所有图层查找图像
+            for (const layer of paper.project.layers) {
+                for (const item of layer.children) {
+                    // 查找图像组或直接的图像项
+                    if (item.data?.type === 'image' || 
+                        (item instanceof paper.Group && item.data?.type === 'image')) {
+                        
+                        let raster: paper.Raster | null = null;
+                        let bounds: paper.Rectangle | null = null;
+
+                        if (item instanceof paper.Group) {
+                            // 从组中找到Raster对象
+                            raster = item.children.find(child => child instanceof paper.Raster) as paper.Raster;
+                            bounds = raster?.bounds || item.bounds;
+                        } else if (item instanceof paper.Raster) {
+                            raster = item;
+                            bounds = item.bounds;
+                        }
+
+                        if (bounds && item.data?.imageId) {
+                            images.push({
+                                id: item.data.imageId,
+                                x: bounds.center.x,
+                                y: bounds.center.y,
+                                width: bounds.width,
+                                height: bounds.height,
+                                operationType: item.data.operationType
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('获取画布图像时出错:', error);
+        }
+
+        console.log('📊 画布图像统计:', images.length, '张图像:', images);
+        return images;
+    }, []);
+
+    // 根据ID查找特定图像
+    const findImageById = useCallback((imageId: string) => {
+        const images = getAllCanvasImages();
+        return images.find(img => img.id === imageId);
+    }, [getAllCanvasImages]);
+
+    // 计算智能排版位置
+    const calculateSmartPosition = useCallback((
+        operationType: string, 
+        sourceImageId?: string,
+        sourceImages?: string[]
+    ) => {
+        const SPACING = 522; // 512 + 10px间距
+        const existingImages = getAllCanvasImages();
+
+        console.log('🧠 智能排版计算:', {
+            operationType,
+            sourceImageId,
+            sourceImages,
+            existingImageCount: existingImages.length
+        });
+
+        switch (operationType) {
+            case 'generate':
+                // 生成图：水平排列，从(0,0)开始向右
+                const generateImages = existingImages.filter(img => 
+                    img.operationType === 'generate' || !img.operationType
+                );
+                const position = { x: generateImages.length * SPACING, y: 0 };
+                console.log('📍 生成图位置计算:', position, '(基于', generateImages.length, '张现有图像)');
+                return position;
+
+            case 'edit':
+                // 编辑图：基于原图向下偏移
+                if (sourceImageId) {
+                    const sourceImage = findImageById(sourceImageId);
+                    if (sourceImage) {
+                        const position = { x: sourceImage.x, y: sourceImage.y + SPACING };
+                        console.log('📍 编辑图位置计算:', position, '(基于源图', sourceImageId, ')');
+                        return position;
+                    }
+                }
+                // 没有找到源图，默认向下偏移
+                const editPosition = { x: 0, y: SPACING };
+                console.log('📍 编辑图默认位置:', editPosition);
+                return editPosition;
+
+            case 'blend':
+                // 融合图：基于第一张源图向下偏移
+                if (sourceImages && sourceImages.length > 0) {
+                    const firstSourceImage = findImageById(sourceImages[0]);
+                    if (firstSourceImage) {
+                        const position = { x: firstSourceImage.x, y: firstSourceImage.y + SPACING };
+                        console.log('📍 融合图位置计算:', position, '(基于第一张源图', sourceImages[0], ')');
+                        return position;
+                    }
+                }
+                // 没有找到源图，默认向下偏移
+                const blendPosition = { x: 0, y: SPACING };
+                console.log('📍 融合图默认位置:', blendPosition);
+                return blendPosition;
+
+            default:
+                // 默认位置
+                const defaultPosition = { x: 0, y: 0 };
+                console.log('📍 默认位置:', defaultPosition);
+                return defaultPosition;
+        }
+    }, [getAllCanvasImages, findImageById]);
+
     // ========== 查找画布中的图片占位框 ==========
     const findImagePlaceholder = useCallback(() => {
         try {
@@ -37,15 +163,36 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
         }
     }, []);
 
-    // 处理快速图片上传 - 自动放置到坐标轴交叉点(0,0)
-    const handleQuickImageUploaded = useCallback((imageData: string, fileName?: string, selectedImageBounds?: any) => {
+    // 处理快速图片上传 - 支持智能位置排版
+    const handleQuickImageUploaded = useCallback((
+        imageData: string, 
+        fileName?: string, 
+        selectedImageBounds?: any,
+        smartPosition?: { x: number; y: number },
+        operationType?: string,
+        sourceImageId?: string,
+        sourceImages?: string[]
+    ) => {
         try {
             ensureDrawingLayer();
 
-            // 使用坐标轴交叉点位置 (0, 0)
-            const centerPosition = new paper.Point(0, 0);
-
-            logger.upload(`📍 快速上传：将图片放置在坐标原点 (0, 0)`);
+            // 智能位置计算：优先使用传入的智能位置，否则计算智能位置
+            let targetPosition: paper.Point;
+            
+            if (smartPosition) {
+                // 使用传入的智能位置
+                targetPosition = new paper.Point(smartPosition.x, smartPosition.y);
+                logger.upload(`📍 快速上传：使用智能位置 (${smartPosition.x}, ${smartPosition.y})`);
+            } else if (operationType) {
+                // 计算智能位置
+                const calculated = calculateSmartPosition(operationType, sourceImageId, sourceImages);
+                targetPosition = new paper.Point(calculated.x, calculated.y);
+                logger.upload(`📍 快速上传：计算智能位置 (${calculated.x}, ${calculated.y}) 操作类型: ${operationType}`);
+            } else {
+                // 默认使用坐标原点
+                targetPosition = new paper.Point(0, 0);
+                logger.upload(`📍 快速上传：默认位置 (0, 0)`);
+            }
 
             // 生成唯一ID
             const imageId = `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -53,7 +200,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
             // 创建图片的Raster对象
             const raster = new paper.Raster({
                 source: imageData,
-                position: centerPosition
+                position: targetPosition
             });
 
             // 等待图片加载完成
@@ -67,7 +214,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
 
                 let displayWidth = originalWidth;
                 let displayHeight = originalHeight;
-                let finalPosition = centerPosition;
+                let finalPosition = targetPosition;
                 let placeholder = null;
 
                 // 🎯 优先使用传递的选中图片边界，其次查找占位框
@@ -120,7 +267,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     // 没有占位框，使用原有的逻辑
                     if (!useOriginalSize) {
                         // 标准模式：限制最大显示尺寸
-                        const maxSize = 768;
+                        const maxSize = 512;
                         if (originalWidth > maxSize || originalHeight > maxSize) {
                             const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
                             displayWidth = originalWidth * scale;
@@ -149,8 +296,11 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     originalWidth: originalWidth,
                     originalHeight: originalHeight,
                     fileName: fileName || 'quick-uploaded-image',
-                    uploadMethod: 'quick-center',
-                    aspectRatio: originalWidth / originalHeight
+                    uploadMethod: 'smart-layout',
+                    aspectRatio: originalWidth / originalHeight,
+                    operationType: operationType || 'manual',
+                    sourceImageId: sourceImageId,
+                    sourceImages: sourceImages
                 };
 
                 // 创建选择框（默认隐藏，点击时显示）
@@ -211,7 +361,10 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                 imageGroup.data = {
                     type: 'image',
                     imageId: imageId,
-                    isHelper: false
+                    isHelper: false,
+                    operationType: operationType || 'manual',
+                    sourceImageId: sourceImageId,
+                    sourceImages: sourceImages
                 };
 
                 // 添加到全局图片实例管理（如果有的话）
@@ -274,6 +427,10 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
         triggerQuickImageUpload,
         handleQuickImageUploaded,
         handleQuickUploadError,
-        handleQuickUploadTriggerHandled
+        handleQuickUploadTriggerHandled,
+        // 智能排版相关函数
+        calculateSmartPosition,
+        getAllCanvasImages,
+        findImageById
     };
 };

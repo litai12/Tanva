@@ -117,13 +117,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // ========== 监听AI生成图片的快速上传触发事件 ==========
   useEffect(() => {
     const handleTriggerQuickUpload = (event: CustomEvent) => {
-      const { imageData, fileName, selectedImageBounds } = event.detail;
-      console.log('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { fileName, hasSelectedBounds: !!selectedImageBounds });
+      const { 
+        imageData, 
+        fileName, 
+        selectedImageBounds,
+        smartPosition,
+        operationType,
+        sourceImageId,
+        sourceImages
+      } = event.detail;
+      
+      console.log('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { 
+        fileName, 
+        hasSelectedBounds: !!selectedImageBounds,
+        hasSmartPosition: !!smartPosition,
+        operationType,
+        sourceImageId,
+        sourceImages: sourceImages?.length
+      });
 
       if (imageData && quickImageUpload.handleQuickImageUploaded) {
-        // 直接调用快速上传的处理函数，传递选中图片的边界信息
-        quickImageUpload.handleQuickImageUploaded(imageData, fileName, selectedImageBounds);
-        console.log('✅ [DEBUG] 已调用快速上传处理函数');
+        // 直接调用快速上传的处理函数，传递智能排版相关参数
+        quickImageUpload.handleQuickImageUploaded(
+          imageData, 
+          fileName, 
+          selectedImageBounds,
+          smartPosition,
+          operationType,
+          sourceImageId,
+          sourceImages
+        );
+        console.log('✅ [DEBUG] 已调用智能排版快速上传处理函数');
       }
     };
 

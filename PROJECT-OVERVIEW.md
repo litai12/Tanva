@@ -1,0 +1,195 @@
+# Tanva - 专业绘图与AI创作平台
+
+## 项目简介
+
+Tanva（Tanva Artboard Interface）是一个基于React和TypeScript的现代化专业绘图应用程序，结合了传统数字绘图工具与先进的AI图像生成技术。项目使用Paper.js作为核心绘图引擎，提供流畅的绘图体验和专业级的图形处理能力。
+
+## 核心特性
+
+### 🎨 专业绘图工具
+- **多种绘图模式**：自由绘制、直线、矩形、圆形、多段线
+- **图层管理**：完整的图层系统，支持图层操作和组织
+- **高精度画布**：基于Paper.js的矢量图形引擎
+- **智能网格系统**：支持线条网格、点阵网格和纯色背景
+- **比例尺系统**：支持多种单位（米、厘米、英寸、像素）
+
+### 🤖 AI集成功能
+- **智能图像生成**：基于Google Gemini 2.5 Flash模型
+- **图像编辑**：AI驱动的图像修改和优化
+- **多图融合**：智能合成多张图像
+- **图像分析**：深度理解图像内容
+- **智能对话**：上下文感知的AI助手
+
+### 🖼️ 媒体处理
+- **图像支持**：PNG、JPEG、GIF、WebP格式
+- **3D模型集成**：GLB/GLTF格式支持
+- **智能排版**：自动布局和位置优化
+- **截图功能**：完整画布内容捕获
+
+### 🎛️ 用户界面
+- **现代化设计**：基于shadcn/ui的一致界面风格
+- **响应式布局**：适配不同屏幕尺寸
+- **浮动工具栏**：上下文相关的工具面板
+- **液体玻璃效果**：现代毛玻璃视觉设计
+
+## 技术架构
+
+### 前端框架
+- **React 19**：现代化的用户界面库
+- **TypeScript**：类型安全的开发体验
+- **Vite**：快速的开发构建工具
+
+### 绘图引擎
+- **Paper.js**：专业级矢量图形库
+- **Canvas API**：高性能图形渲染
+- **HTML5**：现代Web标准支持
+
+### AI集成
+- **Google Gemini API**：先进的多模态AI模型
+- **图像处理**：Base64编码的图像数据传输
+- **流式响应**：实时进度反馈
+
+### 状态管理
+- **Zustand**：轻量级状态管理
+- **模块化Store**：按功能分离的状态管理
+- **持久化存储**：本地设置保存
+
+### UI框架
+- **Tailwind CSS**：原子化CSS框架
+- **Shadcn/UI**：可复用组件库
+- **Lucide React**：现代图标库
+
+## 项目结构
+
+```
+src/
+├── components/          # 组件目录
+│   ├── canvas/         # 画布相关组件
+│   ├── chat/           # AI对话组件
+│   ├── layout/         # 布局组件
+│   ├── panels/         # 面板组件
+│   ├── toolbar/        # 工具栏组件
+│   └── ui/             # 基础UI组件
+├── hooks/              # 自定义Hooks
+├── lib/                # 工具库
+├── pages/              # 页面组件
+├── services/           # 服务层
+├── stores/             # 状态管理
+├── types/              # TypeScript类型定义
+├── utils/              # 工具函数
+└── styles/             # 样式文件
+```
+
+## 核心模块
+
+### 画布系统 (Canvas System)
+- **PaperCanvasManager**：Paper.js画布管理器
+- **GridRenderer**：网格渲染组件
+- **InteractionController**：交互控制器
+- **DrawingController**：绘图控制器
+
+### 工具系统 (Tool System)
+- **ToolBar**：主工具栏
+- **工具Hooks**：各种绘图工具的自定义Hooks
+- **TextEditor**：文本编辑器
+- **ImageContainer**：图像容器
+
+### 状态管理 (State Management)
+- **canvasStore**：画布状态（缩放、平移、网格）
+- **toolStore**：工具状态（当前工具、颜色、线宽）
+- **layerStore**：图层管理
+- **aiChatStore**：AI对话状态
+- **uiStore**：界面状态
+
+### AI服务层 (AI Services)
+- **aiImageService**：AI图像处理服务
+- **contextManager**：上下文管理器
+- **autoScreenshot**：自动截图服务
+
+## 开发指南
+
+### 环境要求
+- Node.js 18+
+- npm 或 yarn
+- 现代浏览器（支持ES2020+）
+
+### 安装依赖
+```bash
+npm install
+```
+
+### 开发环境
+```bash
+npm run dev
+```
+
+### 构建生产版本
+```bash
+npm run build
+```
+
+### 代码检查
+```bash
+npm run lint
+```
+
+## 配置说明
+
+### 环境变量
+```env
+VITE_GOOGLE_GEMINI_API_KEY=your_api_key_here
+```
+
+### TypeScript配置
+- 严格类型检查
+- 路径别名：`@/*` 映射到 `./src/*`
+- 现代ES特性支持
+
+### 代码规范
+- ESLint配置用于代码质量
+- TypeScript严格模式
+- 组件单一职责原则
+- 明确的类型定义
+
+## 性能优化
+
+### 画布优化
+- Canvas渲染优化
+- 图层缓存策略
+- 内存管理监控
+
+### 组件优化
+- React.memo优化
+- useCallback和useMemo
+- 懒加载策略
+
+### AI服务优化
+- 流式响应处理
+- 错误重试机制
+- 图像数据验证
+
+## 部署说明
+
+### 静态部署
+项目构建后生成静态文件，可部署到任何静态托管服务：
+- Vercel
+- Netlify
+- GitHub Pages
+- 自定义服务器
+
+### 生产环境配置
+- 配置正确的API密钥
+- 启用生产模式优化
+- 设置错误监控
+
+## 许可证
+
+本项目遵循相应的开源许可证。使用前请确保遵守相关条款。
+
+## 更新日志
+
+查看 `doc/` 目录中的详细技术文档了解各个版本的更新内容和技术细节。
+
+---
+
+*最后更新：2025-01-15*
