@@ -27,6 +27,9 @@ export interface ConversationContext {
     latestId: string | null; // 最新图像的ID
     latestPrompt: string | null; // 最新图像的提示词
     timestamp: Date | null; // 生成时间
+    // 新增：最近图像在画布中的位置信息（可选）
+    latestBounds?: { x: number; y: number; width: number; height: number } | null;
+    latestLayerId?: string | null;
   };
   
   // 上下文信息

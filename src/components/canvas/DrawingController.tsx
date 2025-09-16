@@ -9,6 +9,7 @@ import ImageContainer from './ImageContainer';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { logger } from '@/utils/logger';
+import { contextManager } from '@/services/contextManager';
 
 // 导入新的hooks
 import { useImageTool } from './hooks/useImageTool';
@@ -104,6 +105,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         imageTool.setImageInstances(prev => [...prev, imageInstance]);
         logger.upload('快速上传的图片已添加到实例管理');
         console.log('✅ [DEBUG] 图片实例已添加到imageTool管理');
+
+        // 同步缓存位置信息（如果该图片刚被缓存为最新）
+        try {
+          const cached = contextManager.getCachedImage();
+          // 直接将当前实例作为“最新缓存图像”，并写入位置信息
+          contextManager.cacheLatestImage(
+            imageInstance.imageData?.src || cached?.imageData || '',
+            imageInstance.id,
+            cached?.prompt || '快速上传图片',
+            {
+              bounds: imageInstance.bounds,
+              layerId: imageInstance.layerId
+            }
+          );
+          console.log('🧷 已将图片位置信息写入缓存（覆盖为当前实例）:', { id: imageInstance.id, bounds: imageInstance.bounds });
+        } catch (e) {
+          console.warn('写入缓存位置信息失败:', e);
+        }
       }
     };
 
@@ -190,7 +209,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     zoom,
     imageInstances: imageTool.imageInstances,
     model3DInstances: model3DTool.model3DInstances,
-    onImageSelect: imageTool.handleImageSelect,
+    onImageSelect: (imageId, addToSelection) => {
+      // 先执行原有选择逻辑
+      imageTool.handleImageSelect(imageId, addToSelection);
+      try {
+        // 在当前实例列表中查找该图片，获取其最新bounds
+        const img = imageTool.imageInstances.find(i => i.id === imageId);
+        if (img && img.bounds) {
+          // 将该图片作为最新缓存，并写入位置信息（中心通过bounds在需要时计算）
+          contextManager.cacheLatestImage(
+            img.imageData?.src || '',
+            img.id,
+            '用户选择的图片',
+            {
+              bounds: img.bounds,
+              layerId: img.layerId
+            }
+          );
+          console.log('📌 已基于选中图片更新缓存位置:', { id: img.id, bounds: img.bounds });
+        }
+      } catch (e) {
+        console.warn('更新缓存位置失败:', e);
+      }
+    },
     onImageMultiSelect: imageTool.handleImageMultiSelect,
     onModel3DSelect: model3DTool.handleModel3DSelect,
     onModel3DMultiSelect: model3DTool.handleModel3DMultiSelect,
@@ -632,8 +673,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             key={image.id}
             imageData={{
               id: image.id,
-              src: image.src || '',
-              fileName: image.fileName
+              src: image.imageData?.src || '',
+              fileName: image.imageData?.fileName
             }}
             bounds={image.bounds}
             isSelected={imageTool.selectedImageIds.includes(image.id)}

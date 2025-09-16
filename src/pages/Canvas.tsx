@@ -11,6 +11,7 @@ import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import { useLayerStore } from '@/stores';
+import CachedImageDebug from '@/components/debug/CachedImageDebug';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // 不再需要，改用快速上传逻辑
 
 const Canvas: React.FC = () => {
@@ -80,6 +81,9 @@ const Canvas: React.FC = () => {
 
             {/* AI对话框 */}
             <AIChatDialog />
+
+            {/* 临时：缓存图片调试面板 */}
+            <CachedImageDebug />
         </div>
     );
 };

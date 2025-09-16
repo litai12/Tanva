@@ -284,12 +284,29 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_generated_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
+          // 计算智能位置：基于缓存图片中心 → 向右522
+          let smartPosition: { x: number; y: number } | undefined = undefined;
+          try {
+            const cached = contextManager.getCachedImage();
+            if (cached?.bounds) {
+              const cx = cached.bounds.x + cached.bounds.width / 2;
+              const cy = cached.bounds.y + cached.bounds.height / 2;
+              smartPosition = { x: cx + 522, y: cy };
+              console.log('📍 生成图智能位置(相对缓存 → 右移522):', smartPosition);
+            } else {
+              console.log('📍 无缓存位置，按默认策略放置');
+            }
+          } catch (e) {
+            console.warn('计算生成图智能位置失败:', e);
+          }
+
           // 直接触发快速上传事件，复用现有的上传逻辑，添加智能排版信息
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
               imageData: imageDataUrl,
               fileName: fileName,
               operationType: 'generate',
+              smartPosition,
               sourceImageId: undefined,
               sourceImages: undefined
             }
@@ -467,12 +484,35 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
             console.warn('获取选中图片信息失败:', error);
           }
 
+          // 计算智能位置：基于缓存图片中心 → 向下522
+          let smartPosition: { x: number; y: number } | undefined = undefined;
+          try {
+            const cached = contextManager.getCachedImage();
+            if (cached?.bounds) {
+              const cx = cached.bounds.x + cached.bounds.width / 2;
+              const cy = cached.bounds.y + cached.bounds.height / 2;
+              smartPosition = { x: cx, y: cy + 522 };
+              console.log('📍 编辑产出智能位置(相对缓存 → 下移522):', smartPosition);
+            } else if (selectedImageBounds) {
+              // 兼容：若无缓存但传入了选中图片边界，则基于选中图向下
+              const cx = selectedImageBounds.x + selectedImageBounds.width / 2;
+              const cy = selectedImageBounds.y + selectedImageBounds.height / 2;
+              smartPosition = { x: cx, y: cy + 522 };
+              console.log('📍 编辑产出智能位置(相对选中图 → 下移522):', smartPosition);
+            } else {
+              console.log('📍 无缓存和选中边界，按默认策略放置');
+            }
+          } catch (e) {
+            console.warn('计算编辑产出智能位置失败:', e);
+          }
+
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
               imageData: imageDataUrl,
               fileName: fileName,
               selectedImageBounds: selectedImageBounds,  // 保持兼容性
               operationType: 'edit',
+              smartPosition,
               sourceImageId: sourceImageId,
               sourceImages: undefined
             }

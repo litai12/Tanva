@@ -52,7 +52,9 @@ class ContextManager implements IContextManager {
         latest: null,
         latestId: null,
         latestPrompt: null,
-        timestamp: null
+        timestamp: null,
+        latestBounds: null,
+        latestLayerId: null
       },
       contextInfo: {
         userPreferences: {},
@@ -230,7 +232,7 @@ class ContextManager implements IContextManager {
                                 msg.type === 'ai' && /[\d\+\-\*\/\=]/.test(msg.content)
                               );
     
-    return hasKeyword || isMathContinuation;
+    return hasKeyword || !!isMathContinuation;
   }
 
   /**
@@ -374,7 +376,12 @@ class ContextManager implements IContextManager {
   /**
    * 🖼️ 缓存最新生成的图像
    */
-  cacheLatestImage(imageData: string, imageId: string, prompt: string): void {
+  cacheLatestImage(
+    imageData: string,
+    imageId: string,
+    prompt: string,
+    options?: { bounds?: { x: number; y: number; width: number; height: number }; layerId?: string }
+  ): void {
     const context = this.getCurrentContext();
     if (!context) {
       console.error('❌ 无法缓存图像：没有活跃的上下文');
@@ -385,7 +392,9 @@ class ContextManager implements IContextManager {
       latest: imageData,
       latestId: imageId,
       latestPrompt: prompt,
-      timestamp: new Date()
+      timestamp: new Date(),
+      latestBounds: options?.bounds || context.cachedImages.latestBounds || null,
+      latestLayerId: options?.layerId ?? context.cachedImages.latestLayerId ?? null
     };
     
     console.log('🖼️ 缓存最新图像:', {
@@ -393,14 +402,16 @@ class ContextManager implements IContextManager {
       prompt: prompt.substring(0, 30),
       hasImageData: !!imageData,
       imageDataLength: imageData?.length || 0,
-      sessionId: context.sessionId
+      sessionId: context.sessionId,
+      bounds: options?.bounds || context.cachedImages.latestBounds || null,
+      layerId: options?.layerId ?? context.cachedImages.latestLayerId ?? null
     });
   }
 
   /**
    * 🖼️ 获取缓存的图像信息
    */
-  getCachedImage(): { imageData: string; imageId: string; prompt: string } | null {
+  getCachedImage(): { imageData: string; imageId: string; prompt: string; bounds?: { x: number; y: number; width: number; height: number } | null; layerId?: string | null } | null {
     const context = this.getCurrentContext();
     if (!context) {
       console.log('🔍 getCachedImage: 没有活跃的上下文');
@@ -418,14 +429,18 @@ class ContextManager implements IContextManager {
     const result = {
       imageData: context.cachedImages.latest,
       imageId: context.cachedImages.latestId!,
-      prompt: context.cachedImages.latestPrompt!
+      prompt: context.cachedImages.latestPrompt!,
+      bounds: context.cachedImages.latestBounds ?? null,
+      layerId: context.cachedImages.latestLayerId ?? null
     };
     
     console.log('🔍 getCachedImage: 返回缓存的图像', {
       imageId: result.imageId,
       prompt: result.prompt.substring(0, 30),
       hasImageData: !!result.imageData,
-      imageDataLength: result.imageData?.length || 0
+      imageDataLength: result.imageData?.length || 0,
+      bounds: result.bounds,
+      layerId: result.layerId
     });
     
     return result;
@@ -460,7 +475,9 @@ class ContextManager implements IContextManager {
       latest: null,
       latestId: null,
       latestPrompt: null,
-      timestamp: null
+      timestamp: null,
+      latestBounds: null,
+      latestLayerId: null
     };
     
     console.log('🗑️ 清除图像缓存');
