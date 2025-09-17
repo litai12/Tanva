@@ -10,14 +10,14 @@ interface ColorPickerProps {
   title?: string;
   showTransparent?: boolean;
   isTransparent?: boolean; // 新增：是否当前为透明状态
+  showLabel?: string; // 新增：在颜色块中心显示的字母标签
 }
 
-// 预设颜色面板 - 2行8列（16个颜色）
+// 预设颜色面板 - 1行12列（12个颜色）
 const PRESET_COLORS = [
-  // 第一排：基础颜色（7个，为透明选项预留第一个位置）
-  '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff',
-  // 第二排：常用颜色（8个）
-  '#808080', '#c0c0c0', '#ff6666', '#66ff66', '#6666ff', '#ffff66', '#ff66ff', '#66ffff',
+  // 参考系统颜色选择器的标准颜色（11个，为透明选项预留第一个位置）
+  '#ff0000', '#ff8000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', 
+  '#ff00ff', '#800080', '#8b4513', '#c0c0c0', '#808080', '#000000'
 ];
 
 // 透明选项图标 - 只保留对角线
@@ -38,7 +38,8 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
   className,
   title,
   showTransparent = false,
-  isTransparent = false
+  isTransparent = false,
+  showLabel
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -73,7 +74,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
       <div
         ref={buttonRef}
         className={cn(
-          "w-6 h-6 rounded border border-gray-300 cursor-pointer",
+          "w-6 h-6 rounded border border-gray-300 cursor-pointer relative flex items-center justify-center",
           disabled && "opacity-50 cursor-not-allowed",
           className
         )}
@@ -82,19 +83,30 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
         title={title}
       >
         {/* 如果是透明状态，显示透明图标 */}
-        {isTransparent && !disabled && (
+        {isTransparent && !disabled ? (
           <TransparentIcon />
-        )}
+        ) : showLabel ? (
+          /* 显示字母标签 */
+          <span 
+            className="text-xs font-bold"
+            style={{
+              // 根据背景颜色自动调整文字颜色
+              color: disabled ? '#9ca3af' : (value === '#ffffff' || value === '#ffff00' || value === '#00ffff' || value === '#ffff66') ? '#000000' : '#ffffff'
+            }}
+          >
+            {showLabel}
+          </span>
+        ) : null}
       </div>
 
       {/* 颜色面板 */}
       {isOpen && (
         <div
           ref={panelRef}
-          className="absolute left-0 top-8 z-50 bg-white border border-gray-300 rounded-lg shadow-lg p-3 w-44"
+          className="absolute left-0 top-8 z-50 bg-white border border-gray-300 rounded-lg shadow-lg p-3 w-60"
         >
-          {/* 预设颜色网格 - 2行8列 */}
-          <div className="grid grid-cols-8 gap-1 mb-3">
+          {/* 预设颜色网格 - 1行12列 */}
+          <div className="grid grid-cols-12 gap-1 mb-3">
             {/* 第一排第一个位置：透明选项（如果需要） */}
             {showTransparent ? (
               <div
@@ -135,7 +147,7 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
                 className="sr-only"
               />
               <div className="w-full h-8 bg-gray-50 border border-gray-300 rounded cursor-pointer hover:bg-gray-100 flex items-center justify-center text-xs text-gray-600 font-medium">
-                更多颜色...
+                More
               </div>
             </label>
           </div>

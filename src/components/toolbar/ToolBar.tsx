@@ -510,27 +510,33 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
               {/* 线条颜色选择器 */}
               <div className="flex flex-col items-center gap-1">
-                <span className="text-xs text-gray-500 font-medium">Line</span>
                 <ColorPicker
                   value={currentColor}
                   onChange={setCurrentColor}
                   disabled={isEraser}
                   title="线条颜色"
+                  showLabel="L"
                 />
               </div>
 
               {/* 填充控制区域 - 只在支持填充的工具时显示 */}
               {supportsFill(drawMode) && (
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs text-gray-500 font-medium">Fill</span>
                   <ColorPicker
                     value={fillColor}
-                    onChange={setFillColor}
+                    onChange={(color) => {
+                      setFillColor(color);
+                      // 当用户选择颜色时，自动启用填充
+                      if (!hasFill) {
+                        toggleFill();
+                      }
+                    }}
                     onTransparentSelect={toggleFill}
                     disabled={isEraser}
                     title="填充颜色"
                     showTransparent={true}
                     isTransparent={!hasFill}
+                    showLabel={hasFill ? "F" : undefined}
                   />
                 </div>
               )}
