@@ -3,7 +3,7 @@
  * 提供基础的文本创建和编辑功能
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 
@@ -56,8 +56,9 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
 
   // 默认文本样式
   const [defaultStyle, setDefaultStyle] = useState<TextStyle>({
-    fontFamily: 'Inter',
-    fontWeight: 'normal',
+    // 系统默认：中文优先选择黑体族（Heiti/SimHei），英文字体回退 sans-serif
+    fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
+    fontWeight: 'bold',
     fontSize: 24,
     color: currentColor,
     align: 'left',
@@ -221,6 +222,15 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   const updateDefaultStyle = useCallback((updates: Partial<TextStyle>) => {
     setDefaultStyle(prev => ({ ...prev, ...updates }));
   }, []);
+
+  // 在样式或选中项变更完成后再通知面板刷新，避免“落后一拍”
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('tanvaTextStyleChanged'));
+      }
+    } catch {}
+  }, [textItems, defaultStyle, selectedTextId]);
 
   // 移动文本位置
   const moveText = useCallback((textId: string, newPosition: paper.Point) => {

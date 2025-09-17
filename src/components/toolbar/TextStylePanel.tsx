@@ -30,20 +30,19 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
   
   // 字体选项
   const fontFamilies = [
-    // 中文字体
-    { value: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif', label: '默认黑体' },
+    // 中文字体（默认推荐黑体）
+    { value: '"Heiti SC", "SimHei", "黑体", sans-serif', label: '黑体' },
     { value: '"PingFang SC", "Microsoft YaHei", "微软雅黑", sans-serif', label: '苹方/微软雅黑' },
     { value: '"Songti SC", "SimSun", "宋体", serif', label: '宋体' },
     { value: '"Kaiti SC", "KaiTi", "楷体", serif', label: '楷体' },
-    { value: '"Heiti SC", "SimHei", "黑体", sans-serif', label: '黑体' },
     // 英文字体
-    { value: 'Inter', label: 'Inter' },
-    { value: 'Arial', label: 'Arial' },
-    { value: 'Helvetica', label: 'Helvetica' },
-    { value: 'Georgia', label: 'Georgia' },
-    { value: 'Times', label: 'Times' },
-    { value: 'Courier', label: 'Courier' },
-    { value: 'Verdana', label: 'Verdana' }
+    { value: 'Inter, sans-serif', label: 'Inter' },
+    { value: 'Arial, sans-serif', label: 'Arial' },
+    { value: 'Helvetica, sans-serif', label: 'Helvetica' },
+    { value: 'Georgia, serif', label: 'Georgia' },
+    { value: 'Times, serif', label: 'Times' },
+    { value: 'Courier, monospace', label: 'Courier' },
+    { value: 'Verdana, sans-serif', label: 'Verdana' }
   ];
 
   // 字重选项

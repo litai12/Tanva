@@ -368,6 +368,14 @@ const ToolBar: React.FC<ToolBarProps> = ({
     }
   };
 
+  // 监听文本样式变化以刷新UI
+  const [, forceUpdate] = React.useState(0);
+  React.useEffect(() => {
+    const tick = () => forceUpdate((x) => x + 1);
+    window.addEventListener('tanvaTextStyleChanged', tick);
+    return () => window.removeEventListener('tanvaTextStyleChanged', tick);
+  }, []);
+
   return (
     <div
       className={cn(
@@ -603,8 +611,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
           {drawMode === 'text' && (
             <TextStylePanel
               currentStyle={(window as any).tanvaTextTool?.getSelectedTextStyle?.() || {
-                fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif',
-                fontWeight: 'normal',
+                fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
+                fontWeight: 'bold',
                 fontSize: 24,
                 color: currentColor,
                 align: 'left',
