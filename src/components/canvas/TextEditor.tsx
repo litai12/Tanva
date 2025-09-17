@@ -20,6 +20,7 @@ import {
   Check
 } from 'lucide-react';
 import { useTextStore, useTextActions, useCurrentTextStyle } from '@/stores/textStore';
+import { useToolStore } from '@/stores/toolStore';
 import { cn } from '@/lib/utils';
 import type { TextStyle, TextFormatOptions } from '@/types/text';
 import paper from 'paper';
@@ -39,6 +40,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
   const textInstances = useTextStore(state => state.textInstances);
   const currentStyle = useCurrentTextStyle();
   const textActions = useTextActions();
+  const setDrawMode = useToolStore(state => state.setDrawMode);
   
   // 获取当前编辑的文本
   const activeText = toolState.activeTextId ? textInstances.get(toolState.activeTextId) : null;
@@ -137,7 +139,9 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
       });
     }
     textActions.stopEditText();
-  }, [activeText, editingContent, textActions]);
+    // 完成编辑后切换到选择工具
+    setDrawMode('select');
+  }, [activeText, editingContent, textActions, setDrawMode]);
 
   // 取消编辑
   const cancelEditing = useCallback(() => {

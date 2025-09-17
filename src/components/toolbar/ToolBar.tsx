@@ -603,7 +603,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           {drawMode === 'text' && (
             <TextStylePanel
               currentStyle={(window as any).tanvaTextTool?.getSelectedTextStyle?.() || {
-                fontFamily: 'Inter',
+                fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif',
                 fontWeight: 'normal',
                 fontSize: 24,
                 color: currentColor,

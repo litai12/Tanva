@@ -30,6 +30,13 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
   
   // 字体选项
   const fontFamilies = [
+    // 中文字体
+    { value: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif', label: '默认黑体' },
+    { value: '"PingFang SC", "Microsoft YaHei", "微软雅黑", sans-serif', label: '苹方/微软雅黑' },
+    { value: '"Songti SC", "SimSun", "宋体", serif', label: '宋体' },
+    { value: '"Kaiti SC", "KaiTi", "楷体", serif', label: '楷体' },
+    { value: '"Heiti SC", "SimHei", "黑体", sans-serif', label: '黑体' },
+    // 英文字体
     { value: 'Inter', label: 'Inter' },
     { value: 'Arial', label: 'Arial' },
     { value: 'Helvetica', label: 'Helvetica' },
@@ -57,7 +64,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
 
   return (
     <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
-      <div className="flex flex-col items-center gap-3 px-3 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light min-w-[160px]">
+      <div className="flex flex-col items-center gap-3 px-3 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light min-w-[180px]">
         
         {/* 字体选择 */}
         <div className="w-full">

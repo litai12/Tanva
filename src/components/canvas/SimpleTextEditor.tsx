@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
 import paper from 'paper';
+import { useToolStore } from '@/stores/toolStore';
 
 interface SimpleTextEditorProps {
   textItems: Array<{
@@ -26,6 +27,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const currentEditingText = textItems.find(item => item.id === editingTextId);
+  const setDrawMode = useToolStore(state => state.setDrawMode);
 
   // 计算输入框位置
   const getInputPosition = useCallback(() => {
@@ -64,8 +66,10 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
     if (event.key === 'Enter' || event.key === 'Escape') {
       event.preventDefault();
       onStopEdit();
+      // 回车或Esc后切换到选择工具
+      setDrawMode('select');
     }
-  }, [onStopEdit]);
+  }, [onStopEdit, setDrawMode]);
 
   // 处理失去焦点
   const handleBlur = useCallback((event: React.FocusEvent) => {
@@ -75,9 +79,11 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
       // 检查当前活动元素是否仍然是这个输入框
       if (inputRef.current && document.activeElement !== inputRef.current) {
         onStopEdit();
+        // 失去焦点后也切换到选择工具
+        setDrawMode('select');
       }
     }, 100);
-  }, [onStopEdit]);
+  }, [onStopEdit, setDrawMode]);
 
   // 聚焦输入框
   useEffect(() => {

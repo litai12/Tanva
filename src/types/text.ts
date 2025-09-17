@@ -226,7 +226,7 @@ export const COMMON_FONTS = [
 
 // 默认文本样式
 export const DEFAULT_TEXT_STYLE: TextStyle = {
-  fontFamily: 'Arial',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif',
   fontSize: 16,
   fontColor: '#000000',
   fontWeight: 'normal',
