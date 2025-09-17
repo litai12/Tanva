@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
+import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
@@ -61,6 +62,19 @@ const PolylineIcon: React.FC<{ className?: string }> = ({ className }) => (
     <circle cx="10" cy="8" r="1" fill="currentColor" />
     {/* 结束点 */}
     <circle cx="14" cy="2" r="1.5" fill="currentColor" />
+  </svg>
+);
+
+// 填充图标
+const FillIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+    <path 
+      d="M8 2 L12 6 L8 10 L4 6 Z" 
+      fill="currentColor"
+      stroke="currentColor" 
+      strokeWidth="1"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
@@ -276,13 +290,22 @@ const ToolBar: React.FC<ToolBarProps> = ({
   const {
     drawMode,
     currentColor,
+    fillColor,
     strokeWidth,
     isEraser,
+    hasFill,
     setDrawMode,
     setCurrentColor,
+    setFillColor,
     setStrokeWidth,
     toggleEraser,
+    toggleFill,
   } = useToolStore();
+
+  // 判断当前工具是否支持填充
+  const supportsFill = (mode: DrawMode): boolean => {
+    return ['rect', 'circle'].includes(mode);
+  };
 
   const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel } = useUIStore();
   const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
@@ -485,15 +508,32 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
               <Separator orientation="horizontal" className="w-6" />
 
-              {/* 颜色选择器 */}
-              <input
-                type="color"
-                value={currentColor}
-                onChange={(e) => setCurrentColor(e.target.value)}
-                disabled={isEraser}
-                className="w-6 h-6 rounded border border-gray-300 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                title="选择颜色"
-              />
+              {/* 线条颜色选择器 */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs text-gray-500 font-medium">Line</span>
+                <ColorPicker
+                  value={currentColor}
+                  onChange={setCurrentColor}
+                  disabled={isEraser}
+                  title="线条颜色"
+                />
+              </div>
+
+              {/* 填充控制区域 - 只在支持填充的工具时显示 */}
+              {supportsFill(drawMode) && (
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs text-gray-500 font-medium">Fill</span>
+                  <ColorPicker
+                    value={fillColor}
+                    onChange={setFillColor}
+                    onTransparentSelect={toggleFill}
+                    disabled={isEraser}
+                    title="填充颜色"
+                    showTransparent={true}
+                    isTransparent={!hasFill}
+                  />
+                </div>
+              )}
 
               {/* 线宽控制 */}
               <div className="flex flex-col items-center gap-1">

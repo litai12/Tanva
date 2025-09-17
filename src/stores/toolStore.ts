@@ -12,14 +12,18 @@ interface ToolState {
 
   // 绘图属性
   currentColor: string;
+  fillColor: string;
   strokeWidth: number;
   isEraser: boolean;
+  hasFill: boolean;
 
   // 操作方法
   setDrawMode: (mode: DrawMode) => void;
   setCurrentColor: (color: string) => void;
+  setFillColor: (color: string) => void;
   setStrokeWidth: (width: number) => void;
   toggleEraser: () => void;
+  toggleFill: () => void;
 
   // 快捷切换工具
   nextDrawingTool: () => void;
@@ -35,15 +39,23 @@ export const useToolStore = create<ToolState>()(
         // 初始状态
         drawMode: 'select',
         currentColor: '#000000',
+        fillColor: '#ffffff',
         strokeWidth: 2,
         isEraser: false,
+        hasFill: false,
 
         // 设置方法
         setDrawMode: (mode) => {
           logger.debug(`🔧 切换工具模式: ${get().drawMode} -> ${mode}`);
           // 切换到绘图模式时，自动关闭橡皮擦
           if (DRAWING_TOOLS.includes(mode)) {
-            set({ drawMode: mode, isEraser: false });
+            // 对于支持填充的工具，自动启用填充
+            const supportsFill = ['rect', 'circle'].includes(mode);
+            set({ 
+              drawMode: mode, 
+              isEraser: false,
+              hasFill: supportsFill 
+            });
           } else {
             set({ drawMode: mode });
           }
@@ -51,6 +63,10 @@ export const useToolStore = create<ToolState>()(
 
         setCurrentColor: (color) => {
           set({ currentColor: color });
+        },
+
+        setFillColor: (color) => {
+          set({ fillColor: color });
         },
 
         setStrokeWidth: (width) => {
@@ -67,6 +83,11 @@ export const useToolStore = create<ToolState>()(
             // 如果当前不是橡皮擦模式，开启橡皮擦并切换到自由绘制模式
             set({ isEraser: true, drawMode: 'free' });
           }
+        },
+
+        toggleFill: () => {
+          const { hasFill } = get();
+          set({ hasFill: !hasFill });
         },
 
         // 快捷切换绘图工具（循环切换）
@@ -86,7 +107,9 @@ export const useToolStore = create<ToolState>()(
         partialize: (state) => ({
           drawMode: state.drawMode,
           currentColor: state.currentColor,
+          fillColor: state.fillColor,
           strokeWidth: state.strokeWidth,
+          hasFill: state.hasFill,
         }),
       }
     )
@@ -97,13 +120,17 @@ export const useToolStore = create<ToolState>()(
 export const useCurrentTool = () => useToolStore((state) => state.drawMode);
 export const useDrawingProps = () => useToolStore((state) => ({
   currentColor: state.currentColor,
+  fillColor: state.fillColor,
   strokeWidth: state.strokeWidth,
   isEraser: state.isEraser,
+  hasFill: state.hasFill,
 }));
 export const useToolActions = () => useToolStore((state) => ({
   setDrawMode: state.setDrawMode,
   setCurrentColor: state.setCurrentColor,
+  setFillColor: state.setFillColor,
   setStrokeWidth: state.setStrokeWidth,
   toggleEraser: state.toggleEraser,
+  toggleFill: state.toggleFill,
   nextDrawingTool: state.nextDrawingTool,
 }));

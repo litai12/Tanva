@@ -30,7 +30,7 @@ interface DrawingControllerProps {
 }
 
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
-  const { drawMode, currentColor, strokeWidth, isEraser, setDrawMode } = useToolStore();
+  const { drawMode, currentColor, fillColor, strokeWidth, isEraser, hasFill, setDrawMode } = useToolStore();
   const { zoom } = useCanvasStore();
   const { toggleVisibility } = useLayerStore();
   const { setSourceImageForEditing, showDialog: showAIDialog } = useAIChatStore();
@@ -194,8 +194,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const drawingTools = useDrawingTools({
     context: drawingContext,
     currentColor,
+    fillColor,
     strokeWidth,
     isEraser,
+    hasFill,
     eventHandlers: {
       onPathCreate: (path) => console.log('路径创建:', path),
       onPathComplete: (path) => console.log('路径完成:', path),

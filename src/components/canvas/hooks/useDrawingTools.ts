@@ -17,19 +17,38 @@ import type { DrawMode } from '@/stores/toolStore';
 interface UseDrawingToolsProps {
   context: DrawingContext;
   currentColor: string;
+  fillColor: string;
   strokeWidth: number;
   isEraser: boolean;
+  hasFill: boolean;
   eventHandlers?: DrawingToolEventHandlers;
 }
 
 export const useDrawingTools = ({ 
   context, 
   currentColor, 
+  fillColor,
   strokeWidth, 
   isEraser,
+  hasFill,
   eventHandlers = {} 
 }: UseDrawingToolsProps) => {
   const { ensureDrawingLayer } = context;
+
+  // 判断当前工具是否支持填充
+  const supportsFill = (mode: DrawMode): boolean => {
+    return ['rect', 'circle'].includes(mode);
+  };
+
+  // 处理填充颜色，基于hasFill状态和工具类型
+  const getFillColor = (mode: DrawMode): paper.Color | null => {
+    // 如果工具不支持填充，或用户明确关闭了填充，返回null
+    if (!supportsFill(mode) || !hasFill) {
+      return null;
+    }
+    
+    return new paper.Color(fillColor);
+  };
 
   // 绘图工具状态
   const pathRef = useRef<ExtendedPath | null>(null);
@@ -148,7 +167,7 @@ export const useDrawingTools = ({
     pathRef.current = new paper.Path.Rectangle(rectangle);
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
-    pathRef.current.fillColor = null; // 确保不填充
+    pathRef.current.fillColor = getFillColor('rect');
 
     // 保存起始点用于后续更新
     if (pathRef.current) pathRef.current.startPoint = startPoint;
@@ -195,7 +214,7 @@ export const useDrawingTools = ({
       }
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
-      pathRef.current.fillColor = null;
+      pathRef.current.fillColor = getFillColor('rect');
 
       // 保持起始点引用
       if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
@@ -225,7 +244,7 @@ export const useDrawingTools = ({
     });
     pathRef.current.strokeColor = new paper.Color(currentColor);
     pathRef.current.strokeWidth = strokeWidth;
-    pathRef.current.fillColor = null; // 确保不填充
+    pathRef.current.fillColor = getFillColor('circle');
 
     // 保存起始点和圆形标识用于后续更新
     if (pathRef.current) {
@@ -284,7 +303,7 @@ export const useDrawingTools = ({
       }
       pathRef.current.strokeColor = new paper.Color(currentColor);
       pathRef.current.strokeWidth = strokeWidth;
-      pathRef.current.fillColor = null;
+      pathRef.current.fillColor = getFillColor('circle');
 
       // 保持起始点引用
       if (pathRef.current) (pathRef.current as any).startPoint = startPoint;
