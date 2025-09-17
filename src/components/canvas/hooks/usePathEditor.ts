@@ -16,9 +16,11 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   // ========== 路径编辑状态 ==========
   const [isPathDragging, setIsPathDragging] = useState(false);
   const [isSegmentDragging, setIsSegmentDragging] = useState(false);
+  const [isScaling, setIsScaling] = useState(false);
   const [dragStartPoint, setDragStartPoint] = useState<paper.Point | null>(null);
   const [draggedSegment, setDraggedSegment] = useState<paper.Segment | null>(null);
   const [draggedPath, setDraggedPath] = useState<paper.Path | null>(null);
+  const [originalBounds, setOriginalBounds] = useState<paper.Rectangle | null>(null);
 
   // ========== 控制点检测和拖拽 ==========
 
@@ -38,21 +40,101 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     return null;
   }, [zoom]);
 
+  // 检查路径是否为矩形
+  const isRectanglePath = useCallback((path: paper.Path): boolean => {
+    return path instanceof paper.Path.Rectangle || 
+           (path.segments && path.segments.length === 4 && path.closed);
+  }, []);
+
   // 开始拖拽控制点
-  const startSegmentDrag = useCallback((segment: paper.Segment, startPoint: paper.Point) => {
+  const startSegmentDrag = useCallback((segment: paper.Segment, startPoint: paper.Point, shiftPressed: boolean = false) => {
     setIsSegmentDragging(true);
     setDraggedSegment(segment);
     setDragStartPoint(startPoint);
-    logger.debug('开始拖拽控制点');
+    
+    // 如果按住Shift且是矩形，启用缩放模式
+    if (shiftPressed && segment.path && isRectanglePath(segment.path)) {
+      setIsScaling(true);
+      setOriginalBounds(segment.path.bounds.clone());
+      logger.debug('开始Shift+角点缩放模式');
+    } else {
+      setIsScaling(false);
+      setOriginalBounds(null);
+      logger.debug('开始拖拽控制点');
+    }
+  }, [isRectanglePath]);
+
+  // 计算矩形缩放
+  const scaleRectangle = useCallback((
+    path: paper.Path,
+    draggedSegment: paper.Segment,
+    originalBounds: paper.Rectangle,
+    dragStartPoint: paper.Point,
+    currentPoint: paper.Point
+  ) => {
+    if (!path.segments || path.segments.length !== 4) return;
+
+    // 找到被拖拽角点的索引
+    const segmentIndex = path.segments.indexOf(draggedSegment);
+    if (segmentIndex === -1) return;
+
+    // 计算拖拽向量
+    const dragVector = currentPoint.subtract(dragStartPoint);
+    
+    // 根据角点位置计算缩放因子
+    let scaleX = 1;
+    let scaleY = 1;
+    
+    // 计算基于拖拽距离的缩放因子
+    const originalCenter = originalBounds.center;
+    const originalCorner = dragStartPoint;
+    const newCorner = currentPoint;
+    
+    // 计算从中心到原始角点和新角点的距离
+    const originalDistance = originalCenter.getDistance(originalCorner);
+    const newDistance = originalCenter.getDistance(newCorner);
+    
+    if (originalDistance > 0) {
+      const scaleFactor = newDistance / originalDistance;
+      scaleX = scaleFactor;
+      scaleY = scaleFactor;
+    }
+
+    // 应用缩放，保持中心点不变
+    const center = originalBounds.center;
+    const newWidth = originalBounds.width * scaleX;
+    const newHeight = originalBounds.height * scaleY;
+    
+    const newBounds = new paper.Rectangle(
+      center.x - newWidth / 2,
+      center.y - newHeight / 2,
+      newWidth,
+      newHeight
+    );
+
+    // 更新矩形的四个角点
+    path.segments[0].point = new paper.Point(newBounds.left, newBounds.top);
+    path.segments[1].point = new paper.Point(newBounds.right, newBounds.top);
+    path.segments[2].point = new paper.Point(newBounds.right, newBounds.bottom);
+    path.segments[3].point = new paper.Point(newBounds.left, newBounds.bottom);
+
+    logger.debug('矩形缩放:', { scaleFactor: scaleX, newBounds });
   }, []);
 
   // 更新控制点位置
   const updateSegmentDrag = useCallback((currentPoint: paper.Point) => {
-    if (!isSegmentDragging || !draggedSegment) return;
+    if (!isSegmentDragging || !draggedSegment || !dragStartPoint) return;
 
-    draggedSegment.point = currentPoint;
-    logger.debug('更新控制点位置:', currentPoint);
-  }, [isSegmentDragging, draggedSegment]);
+    if (isScaling && originalBounds && draggedSegment.path) {
+      // Shift+拖拽：等比例缩放
+      scaleRectangle(draggedSegment.path, draggedSegment, originalBounds, dragStartPoint, currentPoint);
+    } else {
+      // 普通拖拽：直接移动角点
+      draggedSegment.point = currentPoint;
+    }
+    
+    logger.debug('更新控制点位置:', currentPoint, { isScaling });
+  }, [isSegmentDragging, draggedSegment, dragStartPoint, isScaling, originalBounds, scaleRectangle]);
 
   // 结束控制点拖拽
   const finishSegmentDrag = useCallback(() => {
@@ -60,6 +142,8 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
       setIsSegmentDragging(false);
       setDraggedSegment(null);
       setDragStartPoint(null);
+      setIsScaling(false);
+      setOriginalBounds(null);
       logger.debug('结束控制点拖拽');
     }
   }, [isSegmentDragging]);
@@ -110,7 +194,8 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   const handlePathEditInteraction = useCallback((
     point: paper.Point, 
     selectedPath: paper.Path | null,
-    interactionType: 'mousedown' | 'mousemove' | 'mouseup'
+    interactionType: 'mousedown' | 'mousemove' | 'mouseup',
+    shiftPressed?: boolean
   ) => {
     if (!selectedPath) return null;
 
@@ -119,8 +204,8 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
       const segment = getSegmentAt(point, selectedPath);
       if (segment) {
         // 点击在控制点上，开始控制点拖拽
-        startSegmentDrag(segment, point);
-        return { type: 'segment-drag-start', segment };
+        startSegmentDrag(segment, point, shiftPressed);
+        return { type: 'segment-drag-start', segment, isScaling: shiftPressed && isRectanglePath(selectedPath) };
       }
 
       // 检查是否点击在路径本身上（非控制点）
@@ -230,9 +315,11 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     // 状态
     isPathDragging,
     isSegmentDragging,
+    isScaling,
     dragStartPoint,
     draggedSegment,
     draggedPath,
+    originalBounds,
 
     // 控制点检测和拖拽
     getSegmentAt,

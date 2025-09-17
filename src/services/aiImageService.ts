@@ -28,7 +28,7 @@ class AIImageService {
   private genAI: GoogleGenAI | null = null;
   private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
   private readonly DEFAULT_TIMEOUT = 60000; // 增加到60秒
-  private readonly MAX_IMAGE_RETRIES = 3; // 图像生成最大重试次数（针对无图像返回）
+  private readonly MAX_IMAGE_RETRIES = 5; // 图像生成最大重试次数（针对无图像返回）
   private readonly IMAGE_RETRY_DELAY_BASE = 2000; // 基础重试延迟（毫秒）
 
   constructor() {

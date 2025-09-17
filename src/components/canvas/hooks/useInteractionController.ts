@@ -21,7 +21,8 @@ interface SelectionTool {
 interface PathEditor {
   isPathDragging: boolean;
   isSegmentDragging: boolean;
-  handlePathEditInteraction: (point: paper.Point, selectedPath: paper.Path | null, type: 'mousedown' | 'mousemove' | 'mouseup') => any;
+  isScaling: boolean;
+  handlePathEditInteraction: (point: paper.Point, selectedPath: paper.Path | null, type: 'mousedown' | 'mousemove' | 'mouseup', shiftPressed?: boolean) => any;
   getCursorStyle: (point: paper.Point, selectedPath: paper.Path | null) => string;
 }
 
@@ -151,7 +152,8 @@ export const useInteractionController = ({
       }
 
       // 处理路径编辑交互
-      const pathEditResult = pathEditor.handlePathEditInteraction(point, selectionTool.selectedPath, 'mousedown');
+      const shiftPressed = event.shiftKey;
+      const pathEditResult = pathEditor.handlePathEditInteraction(point, selectionTool.selectedPath, 'mousedown', shiftPressed);
       if (pathEditResult) {
         return; // 路径编辑处理了这个事件
       }
