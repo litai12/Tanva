@@ -1,5 +1,5 @@
 import { logger } from '@/utils/logger';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -26,6 +26,17 @@ const Header: React.FC = () => {
         toggleGrid,
         toggleAxis
     } = useUIStore();
+
+    // 偏移本地草稿用于可编辑输入
+    const [offsetInput, setOffsetInput] = useState(String(smartPlacementOffset));
+    useEffect(() => {
+        setOffsetInput(String(smartPlacementOffset));
+    }, [smartPlacementOffset]);
+    const commitOffset = () => {
+        const n = parseInt(offsetInput, 10);
+        if (!isNaN(n)) setSmartPlacementOffset(n);
+        else setOffsetInput(String(smartPlacementOffset));
+    };
     
     const { 
         resetView,
@@ -285,8 +296,15 @@ const Header: React.FC = () => {
                                         type="number"
                                         min={16}
                                         max={4096}
-                                        value={smartPlacementOffset}
-                                        onChange={(e) => setSmartPlacementOffset(parseInt(e.target.value || '0', 10))}
+                                        inputMode="numeric"
+                                        value={offsetInput}
+                                        onChange={(e) => setOffsetInput(e.target.value)}
+                                        onBlur={commitOffset}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') commitOffset();
+                                            if (e.key === 'Escape') setOffsetInput(String(smartPlacementOffset));
+                                            e.stopPropagation();
+                                        }}
                                         className="w-20 text-xs px-2 py-1 rounded border border-gray-300 bg-white"
                                     />
                                 </div>

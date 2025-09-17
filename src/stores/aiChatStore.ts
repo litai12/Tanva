@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import { aiImageService } from '@/services/aiImageService';
+import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
 import type { AIImageResult } from '@/types/ai';
 
@@ -291,9 +292,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
             if (cached?.bounds) {
               const cx = cached.bounds.x + cached.bounds.width / 2;
               const cy = cached.bounds.y + cached.bounds.height / 2;
-              const offset = (() => { try { return (require('@/stores/uiStore') as any).useUIStore.getState().smartPlacementOffset as number; } catch { return 522; } })();
+              const offset = useUIStore.getState().smartPlacementOffset || 522;
               smartPosition = { x: cx, y: cy + offset };
-              console.log('📍 生成图智能位置(相对缓存 → 下移522):', smartPosition);
+              console.log('📍 生成图智能位置(相对缓存 → 下移)', offset, 'px:', smartPosition);
             } else {
               console.log('📍 无缓存位置，按默认策略放置');
             }
@@ -492,16 +493,16 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
             if (cached?.bounds) {
               const cx = cached.bounds.x + cached.bounds.width / 2;
               const cy = cached.bounds.y + cached.bounds.height / 2;
-              const offset = (() => { try { return (require('@/stores/uiStore') as any).useUIStore.getState().smartPlacementOffset as number; } catch { return 522; } })();
+              const offset = useUIStore.getState().smartPlacementOffset || 522;
               smartPosition = { x: cx + offset, y: cy };
-              console.log('📍 编辑产出智能位置(相对缓存 → 右移522):', smartPosition);
+              console.log('📍 编辑产出智能位置(相对缓存 → 右移)', offset, 'px:', smartPosition);
             } else if (selectedImageBounds) {
               // 兼容：若无缓存但传入了选中图片边界，则基于选中图向右
               const cx = selectedImageBounds.x + selectedImageBounds.width / 2;
               const cy = selectedImageBounds.y + selectedImageBounds.height / 2;
-              const offset = (() => { try { return (require('@/stores/uiStore') as any).useUIStore.getState().smartPlacementOffset as number; } catch { return 522; } })();
+              const offset = useUIStore.getState().smartPlacementOffset || 522;
               smartPosition = { x: cx + offset, y: cy };
-              console.log('📍 编辑产出智能位置(相对选中图 → 右移522):', smartPosition);
+              console.log('📍 编辑产出智能位置(相对选中图 → 右移)', offset, 'px:', smartPosition);
             } else {
               console.log('📍 无缓存和选中边界，按默认策略放置');
             }
@@ -702,9 +703,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
                   if (cached?.bounds) {
                     const cx = cached.bounds.x + cached.bounds.width / 2;
                     const cy = cached.bounds.y + cached.bounds.height / 2;
-                    const offset = (() => { try { return (require('@/stores/uiStore') as any).useUIStore.getState().smartPlacementOffset as number; } catch { return 522; } })();
+                    const offset = useUIStore.getState().smartPlacementOffset || 522;
                     const pos = { x: cx + offset, y: cy };
-                    console.log('📍 融合产出智能位置(相对缓存 → 右移522):', pos);
+                    console.log('📍 融合产出智能位置(相对缓存 → 右移)', offset, 'px:', pos);
                     return pos;
                   }
                 } catch (e) {

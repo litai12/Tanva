@@ -6,6 +6,7 @@
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { useUIStore } from '@/stores/uiStore';
 import type { DrawingContext } from '@/types/canvas';
 
 interface UseQuickImageUploadProps {
@@ -85,14 +86,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
         sourceImageId?: string,
         sourceImages?: string[]
     ) => {
-        const getSpacing = () => {
-            try {
-                const { useUIStore } = require('@/stores/uiStore');
-                return useUIStore.getState().smartPlacementOffset as number;
-            } catch {
-                return 522;
-            }
-        };
+        const getSpacing = () => useUIStore.getState().smartPlacementOffset || 522;
         const existingImages = getAllCanvasImages();
 
         console.log('🧠 智能排版计算:', {

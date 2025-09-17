@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -37,6 +37,8 @@ const FloatingHeader: React.FC = () => {
         showLibraryPanel,
         showGrid,
         showAxis,
+        smartPlacementOffset,
+        setSmartPlacementOffset,
         toggleLibraryPanel,
         toggleGrid,
         toggleAxis
@@ -104,6 +106,21 @@ const FloatingHeader: React.FC = () => {
             }).catch(() => {
                 alert('分享链接: ' + window.location.href);
             });
+        }
+    };
+
+    // 智能落位偏移：本地草稿，失焦或回车时提交
+    const [offsetInput, setOffsetInput] = useState(String(smartPlacementOffset));
+    useEffect(() => {
+        setOffsetInput(String(smartPlacementOffset));
+    }, [smartPlacementOffset]);
+
+    const commitOffset = () => {
+        const n = parseInt(offsetInput, 10);
+        if (!isNaN(n)) {
+            setSmartPlacementOffset(n);
+        } else {
+            setOffsetInput(String(smartPlacementOffset));
         }
     };
 
@@ -314,6 +331,32 @@ const FloatingHeader: React.FC = () => {
                             <DropdownMenuItem disabled className="text-[10px] text-muted-foreground">
                                 <span>当前比例: {getScaleRatioText(scaleRatio, zoom)}</span>
                             </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+                            {/* 智能落位偏移 */}
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                智能落位
+                            </DropdownMenuLabel>
+                            <div className="px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-gray-600">偏移(px)</span>
+                                    <input
+                                        type="number"
+                                        min={16}
+                                        max={4096}
+                                        inputMode="numeric"
+                                        value={offsetInput}
+                                        onChange={(e) => setOffsetInput(e.target.value)}
+                                        onBlur={commitOffset}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') commitOffset();
+                                            if (e.key === 'Escape') setOffsetInput(String(smartPlacementOffset));
+                                            e.stopPropagation();
+                                        }}
+                                        className="w-20 text-xs px-2 py-1 rounded border border-gray-300 bg-white"
+                                    />
+                                </div>
+                            </div>
 
                             <DropdownMenuSeparator />
 
