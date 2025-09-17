@@ -176,15 +176,39 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         top: selectionBounds.top,
         width: selectionBounds.width,
         height: selectionBounds.height,
-        border: '1px solid #007AFF',
         backgroundColor: 'transparent',
-        pointerEvents: 'auto', // 启用鼠标事件
+        pointerEvents: 'none', // 基层不拦截事件
         zIndex: 999,
-        boxSizing: 'border-box',
-        cursor: isDragging ? 'grabbing' : isResizing ? 'nw-resize' : 'grab'
+        boxSizing: 'border-box'
       }}
-      onMouseDown={handleBorderMouseDown}
     >
+      {/* 可视边框（不拦截事件） */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          border: '1px solid #007AFF',
+          pointerEvents: 'none'
+        }}
+      />
+
+      {/* 四条边的命中区域：仅在边框上显示移动光标并响应拖拽 */}
+      <div
+        style={{ position: 'absolute', left: -3, top: -3, width: `calc(100% + 6px)`, height: 6, cursor: 'move', pointerEvents: 'auto' }}
+        onMouseDown={handleBorderMouseDown}
+      />
+      <div
+        style={{ position: 'absolute', left: -3, bottom: -3, width: `calc(100% + 6px)`, height: 6, cursor: 'move', pointerEvents: 'auto' }}
+        onMouseDown={handleBorderMouseDown}
+      />
+      <div
+        style={{ position: 'absolute', left: -3, top: 0, width: 6, height: '100%', cursor: 'move', pointerEvents: 'auto' }}
+        onMouseDown={handleBorderMouseDown}
+      />
+      <div
+        style={{ position: 'absolute', right: -3, top: 0, width: 6, height: '100%', cursor: 'move', pointerEvents: 'auto' }}
+        onMouseDown={handleBorderMouseDown}
+      />
       {/* 四个角的方块手柄 - 白色填充，蓝色边框 */}
       <div
         style={{
