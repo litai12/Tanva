@@ -20,6 +20,8 @@ const Header: React.FC = () => {
         showLibraryPanel,
         showGrid,
         showAxis,
+        smartPlacementOffset,
+        setSmartPlacementOffset,
         toggleLibraryPanel,
         toggleGrid,
         toggleAxis
@@ -269,6 +271,26 @@ const Header: React.FC = () => {
                             <DropdownMenuItem disabled className="text-[10px] text-muted-foreground">
                                 <span>当前比例: {getScaleRatioText(scaleRatio, zoom)}</span>
                             </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            {/* 智能落位偏移设置 */}
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                智能落位
+                            </DropdownMenuLabel>
+                            <div className="px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-gray-600">偏移(px)</span>
+                                    <input
+                                        type="number"
+                                        min={16}
+                                        max={4096}
+                                        value={smartPlacementOffset}
+                                        onChange={(e) => setSmartPlacementOffset(parseInt(e.target.value || '0', 10))}
+                                        className="w-20 text-xs px-2 py-1 rounded border border-gray-300 bg-white"
+                                    />
+                                </div>
+                            </div>
 
                             <DropdownMenuSeparator />
 

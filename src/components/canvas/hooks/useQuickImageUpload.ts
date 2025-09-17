@@ -85,7 +85,14 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
         sourceImageId?: string,
         sourceImages?: string[]
     ) => {
-        const SPACING = 522; // 512 + 10px间距
+        const getSpacing = () => {
+            try {
+                const { useUIStore } = require('@/stores/uiStore');
+                return useUIStore.getState().smartPlacementOffset as number;
+            } catch {
+                return 522;
+            }
+        };
         const existingImages = getAllCanvasImages();
 
         console.log('🧠 智能排版计算:', {
@@ -96,44 +103,50 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
         });
 
         switch (operationType) {
-            case 'generate':
+            case 'generate': {
                 // 生成图：默认向下排列（若未提供smartPosition）
+                const spacing = getSpacing();
                 const genImages = existingImages.filter(img => 
                     img.operationType === 'generate' || !img.operationType
                 );
-                const gpos = { x: 0, y: genImages.length * SPACING };
+                const gpos = { x: 0, y: genImages.length * spacing };
                 console.log('📍 生成图默认位置计算(向下):', gpos, '(基于', genImages.length, '张现有图像)');
                 return gpos;
+            }
 
-            case 'edit':
+            case 'edit': {
                 // 编辑图：基于原图向右偏移
+                const spacing = getSpacing();
                 if (sourceImageId) {
                     const sourceImage = findImageById(sourceImageId);
                     if (sourceImage) {
-                        const position = { x: sourceImage.x + SPACING, y: sourceImage.y };
+                        const position = { x: sourceImage.x + spacing, y: sourceImage.y };
                         console.log('📍 编辑图位置计算(向右):', position, '(基于源图', sourceImageId, ')');
                         return position;
                     }
                 }
                 // 没有找到源图，默认向右偏移
-                const editPosition = { x: SPACING, y: 0 };
+                const editPosition = { x: spacing, y: 0 };
                 console.log('📍 编辑图默认位置(向右):', editPosition);
                 return editPosition;
+            }
 
-            case 'blend':
+            case 'blend': {
                 // 融合图：基于第一张源图向右偏移
+                const spacing = getSpacing();
                 if (sourceImages && sourceImages.length > 0) {
                     const firstSourceImage = findImageById(sourceImages[0]);
                     if (firstSourceImage) {
-                        const position = { x: firstSourceImage.x + SPACING, y: firstSourceImage.y };
+                        const position = { x: firstSourceImage.x + spacing, y: firstSourceImage.y };
                         console.log('📍 融合图位置计算(向右):', position, '(基于第一张源图', sourceImages[0], ')');
                         return position;
                     }
                 }
                 // 没有找到源图，默认向右偏移
-                const blendPosition = { x: SPACING, y: 0 };
+                const blendPosition = { x: spacing, y: 0 };
                 console.log('📍 融合图默认位置(向右):', blendPosition);
                 return blendPosition;
+            }
 
             default:
                 // 默认位置

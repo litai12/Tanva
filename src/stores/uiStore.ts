@@ -8,6 +8,9 @@ interface UIState {
   showAxis: boolean;
   showBounds: boolean;
 
+  // 智能落位配置
+  smartPlacementOffset: number; // px，默认 522
+
   // 操作方法
   toggleLibraryPanel: () => void;
   toggleLayerPanel: () => void;
@@ -21,7 +24,17 @@ interface UIState {
   setShowGrid: (show: boolean) => void;
   setShowAxis: (show: boolean) => void;
   setShowBounds: (show: boolean) => void;
+  setSmartPlacementOffset: (offset: number) => void;
 }
+
+const initialOffset = (() => {
+  if (typeof window !== 'undefined') {
+    const val = localStorage.getItem('tanva-smart-offset');
+    const n = val ? parseInt(val, 10) : NaN;
+    if (!isNaN(n) && n > 0 && n < 10000) return n;
+  }
+  return 522; // 默认 512 + 10
+})();
 
 export const useUIStore = create<UIState>((set) => ({
   // 初始状态
@@ -30,6 +43,7 @@ export const useUIStore = create<UIState>((set) => ({
   showGrid: true,
   showAxis: false,
   showBounds: false,
+  smartPlacementOffset: initialOffset,
 
   // 切换方法
   toggleLibraryPanel: () => set((state) => ({ showLibraryPanel: !state.showLibraryPanel })),
@@ -44,4 +58,9 @@ export const useUIStore = create<UIState>((set) => ({
   setShowGrid: (show) => set({ showGrid: show }),
   setShowAxis: (show) => set({ showAxis: show }),
   setShowBounds: (show) => set({ showBounds: show }),
+  setSmartPlacementOffset: (offset) => set(() => {
+    const v = Math.max(16, Math.min(4096, Math.round(offset)));
+    try { if (typeof window !== 'undefined') localStorage.setItem('tanva-smart-offset', String(v)); } catch {}
+    return { smartPlacementOffset: v } as Partial<UIState>;
+  }),
 }));
