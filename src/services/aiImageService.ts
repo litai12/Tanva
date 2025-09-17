@@ -581,7 +581,7 @@ class AIImageService {
             );
           },
           '图像生成',
-          1, // API调用失败时的重试次数
+          3, // API调用失败时的重试次数
           2000 // 2秒延迟
         );
         
@@ -1257,24 +1257,31 @@ ${contextualPrompt}
         安全设置: '已配置4个类别为BLOCK_NONE'
       });
 
-      // 使用Gemini进行工具选择
+      // 使用Gemini进行工具选择（带重试机制）
       const aiCallStartTime = Date.now();
-      const result = await this.withTimeout(
-        this.genAI.models.generateContent({
-          model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
-          contents: [{ text: systemPrompt }],
-          config: {
-            safetySettings: [
-              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-              { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-            ]
-          }
-        }),
-        this.DEFAULT_TIMEOUT,
-        '工具选择'
+      const result = await this.withRetry(
+        async () => {
+          return await this.withTimeout(
+            this.genAI!.models.generateContent({
+              model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
+              contents: [{ text: systemPrompt }],
+              config: {
+                safetySettings: [
+                  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+                ]
+              }
+            }),
+            this.DEFAULT_TIMEOUT,
+            '工具选择API调用'
+          );
+        },
+        'AI工具选择',
+        3, // API调用失败时的重试次数
+        2000 // 2秒延迟
       );
       
       const aiCallTime = Date.now() - aiCallStartTime;
@@ -1564,19 +1571,19 @@ ${contextualPrompt}
       selectedCategory = '图像生成类';
       selectedTool = 'generateImage';
       reasoning = '无图片，默认生成新图像';
-      confidence = 0.6;
+      confidence = 0.95;
     } else if (userSelectedImageCount === 1 || hasCachedForFallback) {
       // 单张图片，默认编辑
       selectedCategory = '图像编辑类';
       selectedTool = 'editImage';
       reasoning = userSelectedImageCount === 1 ? '用户选择单张图片，默认编辑' : '使用缓存图片，默认编辑';
-      confidence = 0.6;
+      confidence = 0.95;
     } else {
       // 多张图片，默认融合
       selectedCategory = '图像编辑类';
       selectedTool = 'blendImages';
       reasoning = `用户选择${userSelectedImageCount}张图片，默认融合`;
-      confidence = 0.6;
+      confidence = 0.95;
     }
 
     console.log(`✅ 三分类完成:`, {
