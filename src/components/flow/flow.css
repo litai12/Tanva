@@ -21,4 +21,6 @@
 /* 可选：降低背景干扰 */
 .tanva-flow-overlay .react-flow__background {
   opacity: 0.6;
+  z-index: -1 !important; /* 将点阵放到所有Flow子元素之下 */
+  position: absolute; /* 确保可应用z-index */
 }

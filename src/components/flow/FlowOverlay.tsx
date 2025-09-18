@@ -52,6 +52,24 @@ function FlowInner() {
   const [bgColor, setBgColor] = React.useState<string>('#e5e7eb');
   const [bgGap, setBgGap] = React.useState<number>(16);
   const [bgSize, setBgSize] = React.useState<number>(1);
+  const [bgGapInput, setBgGapInput] = React.useState<string>('16');
+  const [bgSizeInput, setBgSizeInput] = React.useState<string>('1');
+
+  // 同步输入框字符串与实际数值
+  React.useEffect(() => { setBgGapInput(String(bgGap)); }, [bgGap]);
+  React.useEffect(() => { setBgSizeInput(String(bgSize)); }, [bgSize]);
+
+  const commitGap = React.useCallback((val: string) => {
+    const n = Math.max(4, Math.min(64, Math.floor(Number(val)) || bgGap));
+    setBgGap(n);
+    setBgGapInput(String(n));
+  }, [bgGap]);
+
+  const commitSize = React.useCallback((val: string) => {
+    const n = Math.max(1, Math.min(4, Math.floor(Number(val)) || bgSize));
+    setBgSize(n);
+    setBgSizeInput(String(n));
+  }, [bgSize]);
 
   useViewportSync();
 
@@ -251,10 +269,30 @@ function FlowInner() {
           </select>
           <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} title="颜色" style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }} />
           <label style={{ fontSize: 12 }}>间距
-            <input type="number" min={4} max={64} value={bgGap} onChange={(e) => setBgGap(Math.max(4, Math.min(64, Number(e.target.value) || 16)))} style={{ width: 56, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }} />
+            <input
+              type="number"
+              inputMode="numeric"
+              min={4}
+              max={64}
+              value={bgGapInput}
+              onChange={(e) => setBgGapInput(e.target.value)}
+              onBlur={(e) => commitGap(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') commitGap((e.target as HTMLInputElement).value); }}
+              style={{ width: 56, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }}
+            />
           </label>
           <label style={{ fontSize: 12 }}>尺寸
-            <input type="number" min={1} max={4} value={bgSize} onChange={(e) => setBgSize(Math.max(1, Math.min(4, Number(e.target.value) || 1)))} style={{ width: 44, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }} />
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={4}
+              value={bgSizeInput}
+              onChange={(e) => setBgSizeInput(e.target.value)}
+              onBlur={(e) => commitSize(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') commitSize((e.target as HTMLInputElement).value); }}
+              style={{ width: 44, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }}
+            />
           </label>
         </>
       )}
@@ -262,7 +300,7 @@ function FlowInner() {
   );
 
   return (
-    <div ref={containerRef} className="tanva-flow-overlay absolute inset-0" style={{ zIndex: 0 }}>
+    <div ref={containerRef} className="tanva-flow-overlay absolute inset-0">
       {FlowToolbar}
       <ReactFlow
         nodes={nodesWithHandlers}
