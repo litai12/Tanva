@@ -13,6 +13,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const gridDotSize = useCanvasStore(state => state.gridDotSize);
   const gridColor = useCanvasStore(state => state.gridColor);
   const gridBgColor = useCanvasStore(state => state.gridBgColor);
+  const gridBgEnabled = useCanvasStore(state => state.gridBgEnabled);
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
@@ -189,15 +190,18 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 创建网格（如果启用）- 暂时禁用点阵，只支持线条和纯色
     if (showGrid) {
-      if (gridStyle === GridStyle.SOLID) {
-        // 创建纯色背景，使用虚拟化边界
+      // 可选：在任何样式下都叠加底色
+      if (gridBgEnabled || gridStyle === GridStyle.SOLID) {
         createSolidBackground(finalMinX, finalMaxX, finalMinY, finalMaxY, gridLayer);
-      } else if (gridStyle === GridStyle.DOTS) {
-        // 创建点阵网格
+      }
+
+      // 覆盖层（线条/点阵）
+      if (gridStyle === GridStyle.DOTS) {
         createDotGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, gridDotSize, gridLayer);
-      } else {
-        // 创建线条网格（默认）
+      } else if (gridStyle === GridStyle.LINES) {
         createLineGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer);
+      } else {
+        // SOLID 时已绘制底色，无需叠加
       }
     }
 
@@ -209,7 +213,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       previousActiveLayer.name.startsWith('layer_')) {
       previousActiveLayer.activate();
     }
-  }, [zoom, showGrid, showAxis, gridStyle]);
+  }, [zoom, showGrid, showAxis, gridStyle, gridDotSize, gridColor, gridBgColor, gridBgEnabled]);
 
   // 线条网格创建函数
   const getColorWithAlpha = (hex: string, alpha: number) => {
@@ -367,7 +371,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       // 直接重绘，保持响应性
       createGrid(gridSize);
     }
-  }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging]); // 添加isDragging依赖
+  }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging, gridDotSize, gridColor, gridBgColor, gridBgEnabled, createGrid]);
 
   // 智能平移检测 - 只有在平移距离足够大时才重绘
   useEffect(() => {

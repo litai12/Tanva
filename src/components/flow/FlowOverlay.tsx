@@ -60,6 +60,8 @@ function FlowInner() {
   const setGridColor = useCanvasStore(s => s.setGridColor);
   const gridBgColor = useCanvasStore(s => s.gridBgColor);
   const setGridBgColor = useCanvasStore(s => s.setGridBgColor);
+  const gridBgEnabled = useCanvasStore(s => s.gridBgEnabled);
+  const setGridBgEnabled = useCanvasStore(s => s.setGridBgEnabled);
 
   const [bgEnabled, setBgEnabled] = React.useState(showGrid);
   const [bgVariant, setBgVariant] = React.useState<'dots' | 'lines' | 'solid'>(
@@ -67,6 +69,7 @@ function FlowInner() {
   );
   const [bgColorLocal, setBgColorLocal] = React.useState<string>(gridColor || '#e5e7eb');
   const [bgFillLocal, setBgFillLocal] = React.useState<string>(gridBgColor || '#f7f7f7');
+  const [bgFillEnabled, setBgFillEnabled] = React.useState<boolean>(gridBgEnabled);
   const [bgGap, setBgGap] = React.useState<number>(gridSize || 16);
   const [bgSize, setBgSize] = React.useState<number>(gridDotSize || 1);
   const [bgGapInput, setBgGapInput] = React.useState<string>(String(bgGap));
@@ -86,6 +89,7 @@ function FlowInner() {
   React.useEffect(() => { setGridDotSize(bgSize); }, [bgSize, setGridDotSize]);
   React.useEffect(() => { setGridColor(bgColorLocal); }, [bgColorLocal, setGridColor]);
   React.useEffect(() => { setGridBgColor(bgFillLocal); }, [bgFillLocal, setGridBgColor]);
+  React.useEffect(() => { setGridBgEnabled(bgFillEnabled); }, [bgFillEnabled, setGridBgEnabled]);
 
   const commitGap = React.useCallback((val: string) => {
     const n = Math.max(4, Math.min(64, Math.floor(Number(val)) || bgGap));
@@ -296,7 +300,13 @@ function FlowInner() {
             <option value="lines">网格线</option>
             <option value="solid">纯色</option>
           </select>
-          <input type="color" value={bgColorLocal} onChange={(e) => setBgColorLocal(e.target.value)} title="颜色" style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }} />
+          <input
+            type="color"
+            value={bgColorLocal}
+            onChange={(e) => { const v = e.target.value; setBgColorLocal(v); setGridColor(v); }}
+            title="颜色"
+            style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }}
+          />
           <label style={{ fontSize: 12 }}>间距
             <input
               type="number"
@@ -325,15 +335,15 @@ function FlowInner() {
           </label>
           <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            底色
-            <input
-              type="color"
-              value={bgFillLocal}
-              onChange={(e) => { setBgFillLocal(e.target.value); setBgVariant('solid'); }}
-              title="设置纯色背景颜色（自动切换为纯色背景）"
-              style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }}
-            />
+            <input type="checkbox" checked={bgFillEnabled} onChange={(e) => setBgFillEnabled(e.target.checked)} /> 底色
           </label>
+          <input
+            type="color"
+            value={bgFillLocal}
+            onChange={(e) => { const v = e.target.value; setBgFillLocal(v); setGridBgColor(v); }}
+            title="设置底层纯色背景"
+            style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent', opacity: bgFillEnabled ? 1 : 0.5, pointerEvents: bgFillEnabled ? 'auto' : 'none' }}
+          />
         </>
       )}
     </div>
