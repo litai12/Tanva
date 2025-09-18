@@ -255,7 +255,7 @@ function FlowInner() {
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#f3f4f6" gap={16} />
+        {/* 背景点阵已关闭。如需启用可恢复 Background 组件 */}
         <MiniMap pannable zoomable />
         <Controls showInteractive={false} />
       </ReactFlow>
