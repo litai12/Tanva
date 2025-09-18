@@ -766,6 +766,26 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 >
                   <span className="text-xs">Prompt</span>
                 </Button>
+                {/* 3D */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
+                  onClick={() => { (window as any).tanvaFlow?.addThree?.(); }}
+                  title="Add 3D Node"
+                >
+                  <span className="text-xs">3D</span>
+                </Button>
+                {/* Camera */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
+                  onClick={() => { (window as any).tanvaFlow?.addCamera?.(); }}
+                  title="Add Camera Node"
+                >
+                  <span className="text-xs">Camera</span>
+                </Button>
                 {/* Generate */}
                 <Button
                   variant="outline"

@@ -18,6 +18,8 @@ import './flow.css';
 import TextPromptNode from './nodes/TextPromptNode';
 import ImageNode from './nodes/ImageNode';
 import GenerateNode from './nodes/GenerateNode';
+import ThreeNode from './nodes/ThreeNode';
+import CameraNode from './nodes/CameraNode';
 import { useCanvasStore } from '@/stores';
 import { useUIStore } from '@/stores';
 import { aiImageService } from '@/services/aiImageService';
@@ -29,6 +31,8 @@ const nodeTypes = {
   textPrompt: TextPromptNode,
   image: ImageNode,
   generate: GenerateNode,
+  three: ThreeNode,
+  camera: CameraNode,
 };
 
 function useViewportSync() {
@@ -129,12 +133,12 @@ function FlowInner() {
     // 允许连接到 Generate 和 Image
     if (targetNode.type === 'generate') {
       if (targetHandle === 'text') return sourceNode.type === 'textPrompt';
-      if (targetHandle === 'img') return sourceNode.type === 'image' || sourceNode.type === 'generate';
+      if (targetHandle === 'img') return ['image','generate','three','camera'].includes(sourceNode.type || '');
       return false;
     }
 
     if (targetNode.type === 'image') {
-      if (targetHandle === 'img') return sourceNode.type === 'image' || sourceNode.type === 'generate';
+      if (targetHandle === 'img') return ['image','generate','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     return false;
@@ -313,6 +317,16 @@ function FlowInner() {
       addImage: (x = 0, y = 0, imageData?: string) => {
         const id = `img_${Date.now()}`;
         setNodes(ns => ns.concat([{ id, type: 'image', position: { x, y }, data: { imageData } }] as any));
+        return id;
+      },
+      addThree: (x = 0, y = 0) => {
+        const id = `three_${Date.now()}`;
+        setNodes(ns => ns.concat([{ id, type: 'three', position: { x, y }, data: {} }] as any));
+        return id;
+      },
+      addCamera: (x = 0, y = 0) => {
+        const id = `camera_${Date.now()}`;
+        setNodes(ns => ns.concat([{ id, type: 'camera', position: { x, y }, data: {} }] as any));
         return id;
       },
       addGenerate: (x = 0, y = 0) => {
