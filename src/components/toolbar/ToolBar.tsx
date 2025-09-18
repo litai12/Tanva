@@ -22,26 +22,6 @@ const FlowIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-// 文字节点图标 - 单字母T（无外框）
-const TextNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
-    <text x="8" y="11" fontSize="9" fontWeight="700" textAnchor="middle" fill="currentColor">T</text>
-  </svg>
-);
-
-// 图片节点图标 - 单字母P（无外框）
-const ImageNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
-    <text x="8" y="11" fontSize="9" fontWeight="700" textAnchor="middle" fill="currentColor">P</text>
-  </svg>
-);
-
-// 生成节点图标 - 单字母G（无外框）
-const GenerateNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
-    <text x="8" y="11" fontSize="9" fontWeight="700" textAnchor="middle" fill="currentColor">G</text>
-  </svg>
-);
 // 直线工具图标
 const StraightLineIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
@@ -341,15 +321,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
   const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled } = useUIStore();
   const [showFlowQuickMenu, setShowFlowQuickMenu] = React.useState(false);
   const flowMenuRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!flowMenuRef.current) return;
-      if (!flowMenuRef.current.contains(e.target as Node)) setShowFlowQuickMenu(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, []);
   const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
 
   // 原始尺寸模式状态
@@ -774,33 +745,36 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
           {showFlowQuickMenu && (
             <div className="absolute left-full ml-3 z-[1001]" style={{ top: '-14px' }}>
-              <div className="flex flex-col items-center gap-1 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light">
+              <div className="flex flex-col items-stretch gap-2 px-3 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light min-w-[140px]">
+                {/* Image */}
                 <Button
                   variant="outline"
                   size="sm"
-                  className="p-0 h-8 w-8 rounded-full bg-white/60 border-gray-300 text-gray-700 hover:bg-white"
-                  onClick={() => { (window as any).tanvaFlow?.addTextPrompt?.(); setShowFlowQuickMenu(false); }}
-                  title="添加文字节点"
+                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
+                  onClick={() => { (window as any).tanvaFlow?.addImage?.(); }}
+                  title="Add Image Node"
                 >
-                  <TextNodeIcon className="w-4 h-4" />
+                  <span className="text-xs">Image</span>
                 </Button>
+                {/* Prompt */}
                 <Button
                   variant="outline"
                   size="sm"
-                  className="p-0 h-8 w-8 rounded-full bg-white/60 border-gray-300 text-gray-700 hover:bg-white"
-                  onClick={() => { (window as any).tanvaFlow?.addImage?.(); setShowFlowQuickMenu(false); }}
-                  title="添加图片节点"
+                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
+                  onClick={() => { (window as any).tanvaFlow?.addTextPrompt?.(); }}
+                  title="Add Prompt Node"
                 >
-                  <ImageNodeIcon className="w-4 h-4" />
+                  <span className="text-xs">Prompt</span>
                 </Button>
+                {/* Generate */}
                 <Button
                   variant="outline"
                   size="sm"
-                  className="p-0 h-8 w-8 rounded-full bg-white/60 border-gray-300 text-gray-700 hover:bg-white"
-                  onClick={() => { (window as any).tanvaFlow?.addGenerate?.(); setShowFlowQuickMenu(false); }}
-                  title="添加生成节点"
+                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
+                  onClick={() => { (window as any).tanvaFlow?.addGenerate?.(); }}
+                  title="Add Generate Node"
                 >
-                  <GenerateNodeIcon className="w-4 h-4" />
+                  <span className="text-xs">Generate</span>
                 </Button>
               </div>
             </div>

@@ -126,13 +126,16 @@ function FlowInner() {
     const targetNode = rf.getNode(target);
     if (!sourceNode || !targetNode) return false;
 
-    if (targetNode.type !== 'generate') return false;
-
-    if (targetHandle === 'text') {
-      return sourceNode.type === 'textPrompt';
+    // 允许连接到 Generate 和 Image
+    if (targetNode.type === 'generate') {
+      if (targetHandle === 'text') return sourceNode.type === 'textPrompt';
+      if (targetHandle === 'img') return sourceNode.type === 'image' || sourceNode.type === 'generate';
+      return false;
     }
-    if (targetHandle === 'img') {
-      return sourceNode.type === 'image' || sourceNode.type === 'generate';
+
+    if (targetNode.type === 'image') {
+      if (targetHandle === 'img') return sourceNode.type === 'image' || sourceNode.type === 'generate';
+      return false;
     }
     return false;
   }, [rf]);
@@ -140,17 +143,44 @@ function FlowInner() {
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
   const canAcceptConnection = React.useCallback((params: Connection) => {
     if (!params.target || !params.targetHandle) return false;
+    const targetNode = rf.getNode(params.target);
     const incoming = edges.filter(e => e.target === params.target && e.targetHandle === params.targetHandle);
-    if (params.targetHandle === 'text') return incoming.length < 1;
-    if (params.targetHandle === 'img') return incoming.length < 6;
+    if (targetNode?.type === 'generate') {
+      if (params.targetHandle === 'text') return incoming.length < 1;
+      if (params.targetHandle === 'img') return incoming.length < 6;
+    }
+    if (targetNode?.type === 'image') {
+      if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
+    }
     return false;
-  }, [edges]);
+  }, [edges, rf]);
 
   const onConnect = React.useCallback((params: Connection) => {
     if (!isValidConnection(params)) return;
     if (!canAcceptConnection(params)) return;
-    setEdges((eds) => addEdge({ ...params, type: 'default' }, eds));
-  }, [isValidConnection, canAcceptConnection, setEdges]);
+
+    setEdges((eds) => {
+      let next = eds;
+      // 如果是连接到 Image(img)，先移除旧的输入线，再添加新线
+      const tgt = rf.getNode(params.target!);
+      if (tgt?.type === 'image' && params.targetHandle === 'img') {
+        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'img'));
+      }
+      return addEdge({ ...params, type: 'default' }, next);
+    });
+
+    // 若连接到 Image(img)，立即把源图像写入目标
+    try {
+      const target = rf.getNode(params.target!);
+      if (target?.type === 'image' && params.targetHandle === 'img' && params.source) {
+        const src = rf.getNode(params.source);
+        const img = (src?.data as any)?.imageData;
+        if (img) {
+          setNodes(ns => ns.map(n => n.id === target.id ? { ...n, data: { ...n.data, imageData: img } } : n));
+        }
+      }
+    } catch {}
+  }, [isValidConnection, canAcceptConnection, setEdges, rf, setNodes]);
 
   // 监听来自节点的本地数据写入（TextPrompt）
   React.useEffect(() => {
@@ -158,6 +188,10 @@ function FlowInner() {
       const detail = (e as CustomEvent).detail as { id: string; patch: Record<string, any> };
       if (!detail?.id) return;
       setNodes((ns) => ns.map((n) => n.id === detail.id ? { ...n, data: { ...n.data, ...detail.patch } } : n));
+      // 若目标是 Image 且设置了 imageData 为空，自动断开输入连线
+      if (Object.prototype.hasOwnProperty.call(detail.patch, 'imageData') && !detail.patch.imageData) {
+        setEdges(eds => eds.filter(e => !(e.target === detail.id && e.targetHandle === 'img')));
+      }
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
@@ -222,20 +256,21 @@ function FlowInner() {
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'succeeded', imageData: imgBase64, error: undefined } } : n));
 
       // 将图片添加到画布（沿用现有快速上传机制）
+      // 生成结果不再自动发送到画布，由节点上的 Send 按钮触发
+
+      // 若该生成节点连接到 Image 节点，自动把结果写入目标 Image
       if (imgBase64) {
-        const mime = `image/${out.metadata?.outputFormat || 'png'}`;
-        const dataUrl = `data:${mime};base64,${imgBase64}`;
-        const fileName = `flow_${Date.now()}.${out.metadata?.outputFormat || 'png'}`;
-        window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-          detail: {
-            imageData: dataUrl,
-            fileName,
-            operationType: imageDatas.length === 0 ? 'generate' : (imageDatas.length === 1 ? 'edit' : 'blend'),
-            smartPosition: undefined,
-            sourceImageId: undefined,
-            sourceImages: undefined,
-          }
-        }));
+        const outs = edges.filter(e => e.source === nodeId);
+        if (outs.length) {
+          setNodes(ns => ns.map(n => {
+            const hits = outs.filter(e => e.target === n.id);
+            if (!hits.length) return n;
+            if (n.type === 'image') {
+              return { ...n, data: { ...n.data, imageData: imgBase64 } };
+            }
+            return n;
+          }));
+        }
       }
     } catch (err: any) {
       const msg = err?.message || String(err);
@@ -246,7 +281,24 @@ function FlowInner() {
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
     n.type === 'generate'
-      ? { ...n, data: { ...n.data, onRun: runNode } }
+      ? { ...n, data: { ...n.data, onRun: runNode, onSend: (id: string) => {
+          const node = rf.getNode(id);
+          const img = (node?.data as any)?.imageData as string | undefined;
+          if (!img) return;
+          const mime = `image/png`;
+          const dataUrl = `data:${mime};base64,${img}`;
+          const fileName = `flow_${Date.now()}.png`;
+          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+            detail: {
+              imageData: dataUrl,
+              fileName,
+              operationType: 'generate',
+              smartPosition: undefined,
+              sourceImageId: undefined,
+              sourceImages: undefined,
+            }
+          }));
+        } } }
       : n
   )), [nodes, runNode]);
 

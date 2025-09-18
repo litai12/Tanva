@@ -9,6 +9,8 @@
 .tanva-flow-overlay .react-flow__handle,
 .tanva-flow-overlay .react-flow__controls,
 .tanva-flow-overlay .react-flow__minimap,
+.tanva-flow-overlay .react-flow__node-resizer,
+.tanva-flow-overlay .react-flow__node-resizer-handle,
 .tanva-flow-overlay .tanva-flow-toolbar {
   pointer-events: auto;
 }
@@ -29,4 +31,24 @@
 .tanva-no-select, .tanva-no-select * {
   -webkit-user-select: none !important;
   user-select: none !important;
+}
+
+/* 去除节点被选中时的蓝色外框/阴影 */
+.tanva-flow-overlay .react-flow__node.selected {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* 通用小提示样式（用于句柄悬停提示） */
+.flow-tooltip {
+  position: absolute;
+  background: #111827;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+  pointer-events: none;
 }

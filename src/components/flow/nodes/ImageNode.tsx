@@ -1,15 +1,24 @@
 import React from 'react';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 
 type Props = {
   id: string;
-  data: { imageData?: string; label?: string };
+  data: { imageData?: string; label?: string; boxW?: number; boxH?: number };
   selected?: boolean;
 };
 
-export default function ImageNode({ id, data }: Props) {
+export default function ImageNode({ id, data, selected }: Props) {
+  const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const [hover, setHover] = React.useState<string | null>(null);
+  const [preview, setPreview] = React.useState(false);
+  React.useEffect(() => {
+    if (!preview) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(false); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [preview]);
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -35,15 +44,68 @@ export default function ImageNode({ id, data }: Props) {
     e.preventDefault();
   };
 
+  const headerHeight = 34; // 顶部标题+按钮区域高度
+
   return (
     <div style={{
-      width: 240,
+      width: data.boxW || 260,
+      height: data.boxH || 240,
       padding: 8,
       background: '#fff',
       border: '1px solid #e5e7eb',
       borderRadius: 8,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+      display: 'flex',
+      flexDirection: 'column',
+      position: 'relative'
     }}>
+      <NodeResizer
+        isVisible
+        minWidth={200}
+        minHeight={160}
+        color="transparent"
+        lineStyle={{ display: 'none' }}
+        handlePositions={['top-left','top','top-right','right','bottom-right','bottom','bottom-left','left'] as any}
+        handleComponent={(props: any) => {
+          const { position, ...rest } = props || {};
+          const common: React.CSSProperties = { background: 'transparent', opacity: 0, position: 'absolute', pointerEvents: 'auto' };
+          const edgeThickness = 12; // 可抓取厚度
+          // 边角小区
+          if (position === 'top-left' || position === 'top-right' || position === 'bottom-left' || position === 'bottom-right') {
+            const style: React.CSSProperties = { ...common, ...((rest as any).style || {}), width: edgeThickness, height: edgeThickness };
+            if (position === 'top-left') style.cursor = 'nwse-resize';
+            if (position === 'top-right') style.cursor = 'nesw-resize';
+            if (position === 'bottom-left') style.cursor = 'nesw-resize';
+            if (position === 'bottom-right') style.cursor = 'nwse-resize';
+            return <div {...rest} style={style} />;
+          }
+          // 四条边
+          if (position === 'top' || position === 'bottom') {
+            const style: React.CSSProperties = { ...common, ...((rest as any).style || {}), width: '100%', height: edgeThickness, left: 0, cursor: 'ns-resize' };
+            if (position === 'top') style.top = 0; else style.bottom = 0;
+            return <div {...rest} style={style} />;
+          }
+          if (position === 'left' || position === 'right') {
+            const style: React.CSSProperties = { ...common, ...((rest as any).style || {}), height: '100%', width: edgeThickness, top: 0, cursor: 'ew-resize' };
+            if (position === 'left') style.left = 0; else style.right = 0;
+            return <div {...rest} style={style} />;
+          }
+          return null;
+        }}
+        onResize={(evt, params) => {
+          rf.setNodes(ns => ns.map(n => n.id === id ? {
+            ...n,
+            data: { ...n.data, boxW: params.width, boxH: params.height }
+          } : n));
+        }}
+        onResizeEnd={(evt, params) => {
+          // 将节点尺寸持久到 data，保证重渲染后保持
+          rf.setNodes(ns => ns.map(n => n.id === id ? {
+            ...n,
+            data: { ...n.data, boxW: params.width, boxH: params.height }
+          } : n));
+        }}
+      />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ fontWeight: 600 }}>{data.label || 'Image'}</div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -52,13 +114,19 @@ export default function ImageNode({ id, data }: Props) {
             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}
           >上传</button>
           {data.imageData && (
-            <button
-              onClick={() => {
-                const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: undefined } } });
-                window.dispatchEvent(ev);
-              }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}
-            >清空</button>
+          <button
+            onClick={() => {
+              const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: undefined } } });
+              window.dispatchEvent(ev);
+              // 同步断开输入连线
+              try {
+                const edges = rf.getEdges();
+                const remain = edges.filter(e => !(e.target === id && e.targetHandle === 'img'));
+                rf.setEdges(remain);
+              } catch {}
+            }}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}
+          >清空</button>
           )}
         </div>
       </div>
@@ -74,21 +142,53 @@ export default function ImageNode({ id, data }: Props) {
       <div
         onDrop={onDrop}
         onDragOver={onDragOver}
+        onDoubleClick={() => src && setPreview(true)}
         style={{
-          width: '100%', height: 160, background: '#f3f4f6', borderRadius: 6,
+          flex: 1,
+          minHeight: 120,
+          background: '#fff',
+          borderRadius: 6,
           display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-          border: '1px dashed #e5e7eb'
+          border: '1px solid #e5e7eb'
         }}
         title="拖拽图片到此或点击上传"
       >
         {src ? (
-          <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }} />
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>拖拽图片到此或点击上传</span>
         )}
       </div>
 
-      <Handle type="source" position={Position.Right} id="img" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="img"
+        onMouseEnter={() => setHover('img-in')}
+        onMouseLeave={() => setHover(null)}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="img"
+        onMouseEnter={() => setHover('img-out')}
+        onMouseLeave={() => setHover(null)}
+      />
+      {hover === 'img-in' && (
+        <div className="flow-tooltip" style={{ left: -8, top: '50%', transform: 'translate(-100%, -50%)' }}>image</div>
+      )}
+      {hover === 'img-out' && (
+        <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>
+      )}
+
+      {preview && src && (
+        <div
+          onClick={() => setPreview(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+        >
+          <img src={src} alt="" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', background: '#000' }} />
+        </div>
+      )}
     </div>
   );
 }
