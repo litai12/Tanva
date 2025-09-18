@@ -8,6 +8,7 @@ interface UIState {
   showAxis: boolean;
   showBounds: boolean;
   showFlowPanel: boolean; // Flow 工具面板
+  flowUIEnabled: boolean; // 是否渲染Flow相关UI（主工具按钮+浮动面板）
 
   // 智能落位配置
   smartPlacementOffset: number; // px，默认 522
@@ -19,6 +20,7 @@ interface UIState {
   toggleAxis: () => void;
   toggleBounds: () => void;
   toggleFlowPanel: () => void;
+  setFlowUIEnabled: (enabled: boolean) => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -47,6 +49,7 @@ export const useUIStore = create<UIState>((set) => ({
   showAxis: false,
   showBounds: false,
   showFlowPanel: false,
+  flowUIEnabled: false,
   smartPlacementOffset: initialOffset,
 
   // 切换方法
@@ -56,6 +59,7 @@ export const useUIStore = create<UIState>((set) => ({
   toggleAxis: () => set((state) => ({ showAxis: !state.showAxis })),
   toggleBounds: () => set((state) => ({ showBounds: !state.showBounds })),
   toggleFlowPanel: () => set((state) => ({ showFlowPanel: !state.showFlowPanel })),
+  setFlowUIEnabled: (enabled) => set({ flowUIEnabled: !!enabled }),
 
   // 设置方法
   setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),

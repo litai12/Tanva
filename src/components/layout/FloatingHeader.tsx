@@ -18,11 +18,7 @@ import {
     Share, 
     Library, 
     Grid3x3, 
-    Plus, 
-    Home, 
     Ruler, 
-    Eye, 
-    EyeOff, 
     Square,
     Menu,
     Activity,
@@ -32,7 +28,6 @@ import {
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
-import { getAllUnits, getUnitDisplayName, getScaleRatioText } from '@/lib/unitUtils';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 
@@ -40,39 +35,29 @@ const FloatingHeader: React.FC = () => {
     const {
         showLibraryPanel,
         showGrid,
-        showAxis,
         smartPlacementOffset,
         setSmartPlacementOffset,
         toggleLibraryPanel,
         toggleGrid,
-        toggleAxis,
-        setShowGrid,
-        setShowAxis
+        setShowGrid
     } = useUIStore();
     
     const { 
-        resetView,
-        units,
-        scaleRatio, 
-        zoom,
-        showScaleBar,
         gridStyle,
         gridSize,
         gridDotSize,
         gridColor,
         gridBgColor,
         gridBgEnabled,
-        setUnits,
         setGridStyle,
         setGridSize,
         setGridDotSize,
         setGridColor,
         setGridBgColor,
-        setGridBgEnabled,
-        toggleScaleBar
+        setGridBgEnabled
     } = useCanvasStore();
 
-    const [showUnitOptions, setShowUnitOptions] = useState(false);
+    // 单位/比例功能已移除
     const [showMemoryDebug, setShowMemoryDebug] = useState(false);
     const [showGridOptions, setShowGridOptions] = useState(false);
     const [gridSizeInput, setGridSizeInput] = useState(String(gridSize));
@@ -380,88 +365,7 @@ const FloatingHeader: React.FC = () => {
 
                             <DropdownMenuSeparator />
             
-                            {/* 视图设置 */}
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                视图设置
-                            </DropdownMenuLabel>
-
-                            {/* 坐标轴开关 */}
-                            <div className="px-3 py-1.5 flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                    <Plus className="h-3 w-3 text-gray-500" />
-                                    <span className="text-xs">坐标轴</span>
-                                </div>
-                                <Switch
-                                    checked={showAxis}
-                                    onCheckedChange={toggleAxis}
-                                    className="h-4 w-7"
-                                />
-                            </div>
-
-                            {/* 回到原点 */}
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer"
-                                onClick={resetView}
-                            >
-                                <Home className="mr-2 h-3 w-3" />
-                                <span>回到原点</span>
-                            </DropdownMenuItem>
-
-                            {/* 比例尺显示切换 */}
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer"
-                                onClick={toggleScaleBar}
-                            >
-                                {showScaleBar ? (
-                                    <EyeOff className="mr-2 h-3 w-3" />
-                                ) : (
-                                    <Eye className="mr-2 h-3 w-3" />
-                                )}
-                                <span>{showScaleBar ? '隐藏比例尺' : '显示比例尺'}</span>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuSeparator />
-
-                            {/* 单位和比例尺设置 */}
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                单位和比例尺
-                            </DropdownMenuLabel>
-
-                            {/* 单位选择 */}
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer"
-                                onClick={() => setShowUnitOptions(!showUnitOptions)}
-                            >
-                                <Ruler className="mr-2 h-3 w-3" />
-                                <span>单位: {getUnitDisplayName(units)}</span>
-                            </DropdownMenuItem>
-
-                            {/* 单位选项 */}
-                            {showUnitOptions && (
-                                <>
-                                    {getAllUnits().map((unit) => (
-                                        <DropdownMenuItem
-                                            key={unit}
-                                            className="text-xs cursor-pointer ml-4"
-                                            onClick={() => {
-                                                setUnits(unit);
-                                                setShowUnitOptions(false);
-                                            }}
-                                        >
-                                            <span className={units === unit ? 'font-medium' : ''}>
-                                                {getUnitDisplayName(unit)} ({unit})
-                                            </span>
-                                        </DropdownMenuItem>
-                                    ))}
-                                </>
-                            )}
-
-                            {/* 当前比例尺信息 */}
-                            <DropdownMenuItem disabled className="text-[10px] text-muted-foreground">
-                                <span>当前比例: {getScaleRatioText(scaleRatio, zoom)}</span>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuSeparator />
+                            {/* 已移除：视图设置（坐标轴/回到原点/比例尺）、单位和比例尺信息 */}
                             {/* 智能落位偏移 */}
                             <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
                                 智能落位

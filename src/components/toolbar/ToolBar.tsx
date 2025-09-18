@@ -22,27 +22,24 @@ const FlowIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-// 文字节点图标 - 圆角矩形带T
+// 文字节点图标 - 单字母T（无外框）
 const TextNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
-    <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    <text x="8" y="11" fontSize="8" fontWeight="600" textAnchor="middle" fill="currentColor">T</text>
+    <text x="8" y="11" fontSize="9" fontWeight="700" textAnchor="middle" fill="currentColor">T</text>
   </svg>
 );
 
-// 图片节点图标 - 圆角矩形带P
+// 图片节点图标 - 单字母P（无外框）
 const ImageNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
-    <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    <text x="8" y="11" fontSize="8" fontWeight="600" textAnchor="middle" fill="currentColor">P</text>
+    <text x="8" y="11" fontSize="9" fontWeight="700" textAnchor="middle" fill="currentColor">P</text>
   </svg>
 );
 
-// 生成节点图标 - 圆角矩形带G
+// 生成节点图标 - 单字母G（无外框）
 const GenerateNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
-    <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    <text x="8" y="11" fontSize="8" fontWeight="600" textAnchor="middle" fill="currentColor">G</text>
+    <text x="8" y="11" fontSize="9" fontWeight="700" textAnchor="middle" fill="currentColor">G</text>
   </svg>
 );
 // 直线工具图标
@@ -341,7 +338,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
     return ['rect', 'circle'].includes(mode);
   };
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled } = useUIStore();
   const [showFlowQuickMenu, setShowFlowQuickMenu] = React.useState(false);
   const flowMenuRef = React.useRef<HTMLDivElement>(null);
 
@@ -446,71 +443,25 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       <Separator orientation="horizontal" className="w-6" />
 
-      {/* Flow 次级菜单触发按钮（仅添加节点：文字/图片/生成） */}
-      <div className="relative" ref={flowMenuRef}>
+      
+
+      {/* Flow 工具开关 */}
+      {flowUIEnabled && (
         <Button
-          variant={showFlowQuickMenu ? 'default' : 'outline'}
+          variant={showFlowPanel ? 'default' : 'outline'}
           size="sm"
           className={cn(
             "p-0 h-8 w-8 rounded-full",
-            showFlowQuickMenu ? "bg-blue-600 text-white" : "bg-white/50 text-gray-700 border-gray-300"
+            showFlowPanel 
+              ? "bg-blue-600 text-white" 
+              : "bg-white/50 text-gray-700 border-gray-300"
           )}
-          onClick={() => setShowFlowQuickMenu(v => !v)}
-          title="Flow 节点菜单"
+          onClick={toggleFlowPanel}
+          title={showFlowPanel ? '关闭 Flow 面板' : '打开 Flow 面板'}
         >
-          <FlowIcon className="w-4 h-4" />
+          <GitBranch className="w-4 h-4" />
         </Button>
-
-        {showFlowQuickMenu && (
-          <div className="absolute left-full ml-3 z-[1001]" style={{ top: '-14px' }}>
-            <div className="flex flex-col items-center gap-1 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light">
-              <Button
-                variant="outline"
-                size="sm"
-                className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
-                onClick={() => { (window as any).tanvaFlow?.addTextPrompt?.(); setShowFlowQuickMenu(false); }}
-                title="添加文字节点"
-              >
-                <TextNodeIcon className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
-                onClick={() => { (window as any).tanvaFlow?.addImage?.(); setShowFlowQuickMenu(false); }}
-                title="添加图片节点"
-              >
-                <ImageNodeIcon className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                className="p-0 h-8 w-8 rounded-full bg-gray-900 text-white"
-                onClick={() => { (window as any).tanvaFlow?.addGenerate?.(); setShowFlowQuickMenu(false); }}
-                title="添加生成节点"
-              >
-                <GenerateNodeIcon className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Flow 工具开关 */}
-      <Button
-        variant={showFlowPanel ? 'default' : 'outline'}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          showFlowPanel 
-            ? "bg-blue-600 text-white" 
-            : "bg-white/50 text-gray-700 border-gray-300"
-        )}
-        onClick={toggleFlowPanel}
-        title={showFlowPanel ? '关闭 Flow 面板' : '打开 Flow 面板'}
-      >
-        <GitBranch className="w-4 h-4" />
-      </Button>
+      )}
 
       {/* 预留：若需在主工具栏控制网格背景颜色，可在此恢复控件 */}
 
@@ -805,6 +756,56 @@ const ToolBar: React.FC<ToolBarProps> = ({
         >
           <Camera className="w-4 h-4" />
         </Button>
+
+        {/* Flow 节点菜单按钮（移动到摄像头下方） */}
+        <div className="relative mt-2" ref={flowMenuRef}>
+          <Button
+            variant={showFlowQuickMenu ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              showFlowQuickMenu ? "bg-blue-600 text-white" : "bg-white/50 text-gray-700 border-gray-300"
+            )}
+            onClick={() => setShowFlowQuickMenu(v => !v)}
+            title="Flow 节点菜单"
+          >
+            <FlowIcon className="w-4 h-4" />
+          </Button>
+
+          {showFlowQuickMenu && (
+            <div className="absolute left-full ml-3 z-[1001]" style={{ top: '-14px' }}>
+              <div className="flex flex-col items-center gap-1 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
+                  onClick={() => { (window as any).tanvaFlow?.addTextPrompt?.(); setShowFlowQuickMenu(false); }}
+                  title="添加文字节点"
+                >
+                  <TextNodeIcon className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
+                  onClick={() => { (window as any).tanvaFlow?.addImage?.(); setShowFlowQuickMenu(false); }}
+                  title="添加图片节点"
+                >
+                  <ImageNodeIcon className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="p-0 h-8 w-8 rounded-full bg-gray-900 text-white"
+                  onClick={() => { (window as any).tanvaFlow?.addGenerate?.(); setShowFlowQuickMenu(false); }}
+                  title="添加生成节点"
+                >
+                  <GenerateNodeIcon className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
 
 
         {/* AI编辑图像工具 - 暂时隐藏 */}

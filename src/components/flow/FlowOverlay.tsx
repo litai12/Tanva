@@ -283,8 +283,9 @@ function FlowInner() {
   }, [rf, setNodes]);
 
   const showFlowPanel = useUIStore(s => s.showFlowPanel);
+  const flowUIEnabled = useUIStore(s => s.flowUIEnabled);
 
-  const FlowToolbar = showFlowPanel ? (
+  const FlowToolbar = flowUIEnabled && showFlowPanel ? (
     <div className="tanva-flow-toolbar"
       style={{ position: 'absolute', top: 56, right: 16, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(255,255,255,0.9)', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}
     >
