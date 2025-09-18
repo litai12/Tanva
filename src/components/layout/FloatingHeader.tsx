@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { 
     Settings, 
     User, 
@@ -24,7 +25,10 @@ import {
     EyeOff, 
     Square,
     Menu,
-    Activity
+    Activity,
+    Palette,
+    Check,
+    ChevronRight
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
@@ -41,7 +45,9 @@ const FloatingHeader: React.FC = () => {
         setSmartPlacementOffset,
         toggleLibraryPanel,
         toggleGrid,
-        toggleAxis
+        toggleAxis,
+        setShowGrid,
+        setShowAxis
     } = useUIStore();
     
     const { 
@@ -51,47 +57,52 @@ const FloatingHeader: React.FC = () => {
         zoom,
         showScaleBar,
         gridStyle,
+        gridSize,
+        gridDotSize,
+        gridColor,
+        gridBgColor,
+        gridBgEnabled,
         setUnits,
         setGridStyle,
+        setGridSize,
+        setGridDotSize,
+        setGridColor,
+        setGridBgColor,
+        setGridBgEnabled,
         toggleScaleBar
     } = useCanvasStore();
 
     const [showUnitOptions, setShowUnitOptions] = useState(false);
     const [showMemoryDebug, setShowMemoryDebug] = useState(false);
+    const [showGridOptions, setShowGridOptions] = useState(false);
+    const [gridSizeInput, setGridSizeInput] = useState(String(gridSize));
+    const [gridDotSizeInput, setGridDotSizeInput] = useState(String(gridDotSize));
+    
+    // 监听网格大小变化
+    useEffect(() => {
+        setGridSizeInput(String(gridSize));
+    }, [gridSize]);
+    
+    useEffect(() => {
+        setGridDotSizeInput(String(gridDotSize));
+    }, [gridDotSize]);
+    
+    const commitGridSize = () => {
+        const n = parseInt(gridSizeInput, 10);
+        if (!isNaN(n) && n > 0 && n <= 200) setGridSize(n);
+        else setGridSizeInput(String(gridSize));
+    };
+    
+    const commitGridDotSize = () => {
+        const n = parseInt(gridDotSizeInput, 10);
+        if (!isNaN(n) && n >= 1 && n <= 4) setGridDotSize(n);
+        else setGridDotSizeInput(String(gridDotSize));
+    };
 
     const handleLogoClick = () => {
         logger.debug('Logo clicked');
     };
 
-    // 网格样式切换函数 - 暂时禁用点阵，只在线条和纯色之间切换
-    const getNextGridStyle = (currentStyle: GridStyle) => {
-        switch (currentStyle) {
-            case GridStyle.LINES:
-                return GridStyle.SOLID;
-            case GridStyle.DOTS:
-                // 点阵已禁用，回退到纯色
-                return GridStyle.SOLID;
-            case GridStyle.SOLID:
-                return GridStyle.LINES;
-            default:
-                return GridStyle.LINES;
-        }
-    };
-
-    // 获取网格样式显示信息 - 点阵已禁用
-    const getGridStyleInfo = (style: GridStyle) => {
-        switch (style) {
-            case GridStyle.LINES:
-                return { icon: Grid3x3, text: '线条网格' };
-            case GridStyle.DOTS:
-                // 点阵已禁用，显示为线条
-                return { icon: Grid3x3, text: '线条网格 (点阵已禁用)' };
-            case GridStyle.SOLID:
-                return { icon: Square, text: '纯色背景' };
-            default:
-                return { icon: Grid3x3, text: '线条网格' };
-        }
-    };
 
     const handleShare = () => {
         if (navigator.share) {
@@ -209,7 +220,7 @@ const FloatingHeader: React.FC = () => {
                                 <Menu className="w-4 h-4" />
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-48" align="end" forceMount>
+                        <DropdownMenuContent className="w-56" align="end" forceMount>
                             <DropdownMenuLabel className="font-normal">
                                 <div className="flex flex-col space-y-1">
                                     <p className="text-xs font-medium leading-none">
@@ -222,29 +233,170 @@ const FloatingHeader: React.FC = () => {
                             </DropdownMenuLabel>
                             <DropdownMenuSeparator />
 
-                            {/* 网格样式设置 */}
                             {/* 视图控制 */}
                             <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
                                 视图控制
                             </DropdownMenuLabel>
 
-                            {/* 网格开关 */}
+                            {/* 背景开关 */}
+                            <div className="px-3 py-1.5 flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                    <Square className="h-3 w-3 text-gray-500" />
+                                    <span className="text-xs">背景</span>
+                                </div>
+                                <Switch
+                                    checked={showGrid}
+                                    onCheckedChange={toggleGrid}
+                                    className="h-4 w-7"
+                                />
+                            </div>
+
+                            {/* 网格样式选择 */}
                             <DropdownMenuItem
-                                className="text-xs cursor-pointer"
-                                onClick={toggleGrid}
+                                className="text-xs cursor-pointer px-3"
+                                onClick={() => setShowGridOptions(!showGridOptions)}
+                                onSelect={(e) => e.preventDefault()}
                             >
                                 <Grid3x3 className="mr-2 h-3 w-3" />
-                                <span>{showGrid ? '关闭网格' : '开启网格'}</span>
+                                <span className="flex-1">网格线</span>
+                                <span className="text-[10px] text-gray-500 mr-1">
+                                    {gridStyle === GridStyle.LINES ? '线条' : 
+                                     gridStyle === GridStyle.DOTS ? '点阵' : '纯色'}
+                                </span>
+                                <ChevronRight className="h-3 w-3" />
                             </DropdownMenuItem>
 
+                            {/* 网格样式选项 */}
+                            {showGridOptions && (
+                                <>
+                                    <DropdownMenuItem
+                                        className="text-xs cursor-pointer ml-6"
+                                        onClick={() => {
+                                            setGridStyle(GridStyle.LINES);
+                                            setShowGridOptions(false);
+                                        }}
+                                    >
+                                        {gridStyle === GridStyle.LINES && <Check className="mr-2 h-3 w-3" />}
+                                        <span className="ml-5">线条</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        className="text-xs cursor-pointer ml-6"
+                                        onClick={() => {
+                                            setGridStyle(GridStyle.DOTS);
+                                            setShowGridOptions(false);
+                                        }}
+                                    >
+                                        {gridStyle === GridStyle.DOTS && <Check className="mr-2 h-3 w-3" />}
+                                        <span className="ml-5">点阵</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        className="text-xs cursor-pointer ml-6"
+                                        onClick={() => {
+                                            setGridStyle(GridStyle.SOLID);
+                                            setShowGridOptions(false);
+                                        }}
+                                    >
+                                        {gridStyle === GridStyle.SOLID && <Check className="mr-2 h-3 w-3" />}
+                                        <span className="ml-5">纯色</span>
+                                    </DropdownMenuItem>
+                                </>
+                            )}
+
+                            {/* 网格颜色 */}
+                            <div className="px-3 py-1.5 flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                    <Palette className="h-3 w-3 text-gray-500" />
+                                    <span className="text-xs">颜色</span>
+                                </div>
+                                <input
+                                    type="color"
+                                    value={gridColor}
+                                    onChange={(e) => setGridColor(e.target.value)}
+                                    className="w-8 h-5 rounded border border-gray-300 cursor-pointer"
+                                />
+                            </div>
+
+                            {/* 网格间距 */}
+                            <div className="px-3 py-1.5 flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                    <Ruler className="h-3 w-3 text-gray-500" />
+                                    <span className="text-xs">间距</span>
+                                </div>
+                                <input
+                                    type="number"
+                                    min={10}
+                                    max={200}
+                                    value={gridSizeInput}
+                                    onChange={(e) => setGridSizeInput(e.target.value)}
+                                    onBlur={commitGridSize}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') commitGridSize();
+                                        if (e.key === 'Escape') setGridSizeInput(String(gridSize));
+                                        e.stopPropagation();
+                                    }}
+                                    className="w-16 text-xs px-2 py-0.5 rounded border border-gray-300 bg-white"
+                                />
+                            </div>
+
+                            {/* 点阵大小（仅在点阵模式下显示） */}
+                            {gridStyle === GridStyle.DOTS && (
+                                <div className="px-3 py-1.5 flex items-center justify-between">
+                                    <span className="text-xs">尺寸</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={4}
+                                        value={gridDotSizeInput}
+                                        onChange={(e) => setGridDotSizeInput(e.target.value)}
+                                        onBlur={commitGridDotSize}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') commitGridDotSize();
+                                            if (e.key === 'Escape') setGridDotSizeInput(String(gridDotSize));
+                                            e.stopPropagation();
+                                        }}
+                                        className="w-16 text-xs px-2 py-0.5 rounded border border-gray-300 bg-white"
+                                    />
+                                </div>
+                            )}
+
+                            {/* 底色开关 */}
+                            <div className="px-3 py-1.5 flex items-center justify-between">
+                                <span className="text-xs">底色</span>
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="color"
+                                        value={gridBgColor}
+                                        onChange={(e) => setGridBgColor(e.target.value)}
+                                        className="w-8 h-5 rounded border border-gray-300 cursor-pointer"
+                                        disabled={!gridBgEnabled}
+                                    />
+                                    <Switch
+                                        checked={gridBgEnabled}
+                                        onCheckedChange={setGridBgEnabled}
+                                        className="h-4 w-7"
+                                    />
+                                </div>
+                            </div>
+
+                            <DropdownMenuSeparator />
+            
+                            {/* 视图设置 */}
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                视图设置
+                            </DropdownMenuLabel>
+
                             {/* 坐标轴开关 */}
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer"
-                                onClick={toggleAxis}
-                            >
-                                <Plus className="mr-2 h-3 w-3" />
-                                <span>{showAxis ? '关闭坐标轴' : '开启坐标轴'}</span>
-                            </DropdownMenuItem>
+                            <div className="px-3 py-1.5 flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                    <Plus className="h-3 w-3 text-gray-500" />
+                                    <span className="text-xs">坐标轴</span>
+                                </div>
+                                <Switch
+                                    checked={showAxis}
+                                    onCheckedChange={toggleAxis}
+                                    className="h-4 w-7"
+                                />
+                            </div>
 
                             {/* 回到原点 */}
                             <DropdownMenuItem
@@ -267,29 +419,6 @@ const FloatingHeader: React.FC = () => {
                                 )}
                                 <span>{showScaleBar ? '隐藏比例尺' : '显示比例尺'}</span>
                             </DropdownMenuItem>
-
-                            <DropdownMenuSeparator />
-
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                网格样式
-                            </DropdownMenuLabel>
-                            
-                            {showGrid && (
-                                <DropdownMenuItem
-                                    className="text-xs cursor-pointer"
-                                    onClick={() => setGridStyle(getNextGridStyle(gridStyle))}
-                                >
-                                    {(() => {
-                                        const { icon: IconComponent, text } = getGridStyleInfo(gridStyle);
-                                        return (
-                                            <>
-                                                <IconComponent className="mr-2 h-3 w-3" />
-                                                <span>当前: {text}</span>
-                                            </>
-                                        );
-                                    })()}
-                                </DropdownMenuItem>
-                            )}
 
                             <DropdownMenuSeparator />
 
