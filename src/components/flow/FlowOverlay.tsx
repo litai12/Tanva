@@ -460,9 +460,13 @@ function FlowInner() {
 }
 
 export default function FlowOverlay() {
+  const { mode } = useUIStore();
+  
   return (
-    <ReactFlowProvider>
-      <FlowInner />
-    </ReactFlowProvider>
+    <div style={{ display: mode === 'node' ? 'block' : 'none' }}>
+      <ReactFlowProvider>
+        <FlowInner />
+      </ReactFlowProvider>
+    </div>
   );
 }

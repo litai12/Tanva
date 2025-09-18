@@ -85,7 +85,7 @@ const Canvas: React.FC = () => {
             <AIChatDialog />
 
             {/* 临时：缓存图片调试面板 */}
-            <CachedImageDebug />
+            {/* <CachedImageDebug /> */}
         </div>
     );
 };

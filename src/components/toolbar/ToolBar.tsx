@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type, GitBranch } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type, GitBranch, Workflow } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -118,6 +118,114 @@ const BoxWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
   <div className="relative">
     <Box className={className} />
     <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// 带蓝色加号的文本图标
+const TypeWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Type className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// 带蓝色加号的照相机图标
+const CameraWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Camera className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// 带蓝色加号的生成器图标
+const WorkflowWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Workflow className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// 带蓝色加号的AI对话图标
+const SparklesWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Sparkles className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// Node模式专用：带黑色加号的文本图标
+const TypeWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Type className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// Node模式专用：带黑色加号的图片图标
+const ImageWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Image className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// Node模式专用：带黑色加号的3D模型图标
+const BoxWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Box className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// Node模式专用：带黑色加号的照相机图标
+const CameraWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Camera className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
+      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
+        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    </div>
+  </div>
+);
+
+// Node模式专用：带黑色加号的生成器图标（使用星星图标）
+const SparklesWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <div className="relative">
+    <Sparkles className={className} />
+    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
       <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
         <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
       </svg>
@@ -318,9 +426,23 @@ const ToolBar: React.FC<ToolBarProps> = ({
     return ['rect', 'circle'].includes(mode);
   };
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled } = useUIStore();
-  const [showFlowQuickMenu, setShowFlowQuickMenu] = React.useState(false);
-  const flowMenuRef = React.useRef<HTMLDivElement>(null);
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, mode } = useUIStore();
+
+  // 根据模式获取激活状态的按钮样式
+  const getActiveButtonStyle = (isActive: boolean) => {
+    if (!isActive) {
+      return "bg-white/50 text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300";
+    }
+    return "bg-blue-600 text-white";
+  };
+
+  // 获取绘图子面板按钮样式（绘图工具展开菜单中的按钮）
+  const getSubPanelButtonStyle = (isActive: boolean) => {
+    if (!isActive) {
+      return "bg-white/50 border-gray-300 text-gray-700 hover:bg-blue-50 hover:border-blue-300";
+    }
+    return "bg-blue-600 text-white";
+  };
   const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
 
   // 原始尺寸模式状态
@@ -396,25 +518,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
         isLayerPanelOpen ? "left-[322px]" : "left-2"
       )}
     >
-      {/* AI生图工具 */}
-      <Button
-        variant={isAIDialogVisible ? 'default' : 'outline'}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          isAIDialogVisible 
-            ? "bg-blue-600 text-white" 
-            : "bg-white/50 text-gray-700 border-gray-300"
-        )}
-        onClick={toggleDialog}
-        title="AI对话"
-      >
-        <Sparkles className="w-4 h-4" />
-      </Button>
-
-      <Separator orientation="horizontal" className="w-6" />
-
-      
 
       {/* Flow 工具开关 */}
       {flowUIEnabled && (
@@ -423,9 +526,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           size="sm"
           className={cn(
             "p-0 h-8 w-8 rounded-full",
-            showFlowPanel 
-              ? "bg-blue-600 text-white" 
-              : "bg-white/50 text-gray-700 border-gray-300"
+            getActiveButtonStyle(showFlowPanel)
           )}
           onClick={toggleFlowPanel}
           title={showFlowPanel ? '关闭 Flow 面板' : '打开 Flow 面板'}
@@ -442,9 +543,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         size="sm"
         className={cn(
           "p-0 h-8 w-8 rounded-full",
-          drawMode === 'select' 
-            ? "bg-blue-600 text-white" 
-            : "bg-white/50 text-gray-700 border-gray-300"
+          getActiveButtonStyle(drawMode === 'select')
         )}
         onClick={() => setDrawMode('select')}
         title="选择模式"
@@ -460,9 +559,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           size="sm"
           className={cn(
             "p-0 h-8 w-8 rounded-full",
-            drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser
-              ? "bg-blue-600 text-white" 
-              : "bg-white/50 border-gray-300"
+            getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
           )}
           onClick={() => {
             // 如果当前没有激活绘图工具（选择模式、橡皮擦模式或其他独立工具），切换到默认的绘线工具
@@ -496,9 +593,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   size="sm"
                   className={cn(
                     "p-0 h-8 w-8 rounded-full",
-                    drawMode === 'free' && !isEraser 
-                      ? "bg-blue-600 text-white" 
-                      : "bg-white/50 border-gray-300"
+                    getSubPanelButtonStyle(drawMode === 'free' && !isEraser)
                   )}
                   onClick={() => setDrawMode('free')}
                   title="自由绘制"
@@ -510,9 +605,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   size="sm"
                   className={cn(
                     "p-0 h-8 w-8 rounded-full",
-                    drawMode === 'line' && !isEraser 
-                      ? "bg-blue-600 text-white" 
-                      : "bg-white/50 border-gray-300"
+                    getSubPanelButtonStyle(drawMode === 'line' && !isEraser)
                   )}
                   onClick={() => setDrawMode('line')}
                   title="绘制直线"
@@ -524,9 +617,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   size="sm"
                   className={cn(
                     "p-0 h-8 w-8 rounded-full",
-                    drawMode === 'rect' && !isEraser 
-                      ? "bg-blue-600 text-white" 
-                      : "bg-white/50 border-gray-300"
+                    getSubPanelButtonStyle(drawMode === 'rect' && !isEraser)
                   )}
                   onClick={() => setDrawMode('rect')}
                   title="绘制矩形"
@@ -538,9 +629,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                   size="sm"
                   className={cn(
                     "p-0 h-8 w-8 rounded-full",
-                    drawMode === 'circle' && !isEraser 
-                      ? "bg-blue-600 text-white" 
-                      : "bg-white/50 border-gray-300"
+                    getSubPanelButtonStyle(drawMode === 'circle' && !isEraser)
                   )}
                   onClick={() => setDrawMode('circle')}
                   title="绘制圆形"
@@ -609,9 +698,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         size="sm"
         className={cn(
           "p-0 h-8 w-8 rounded-full",
-          isEraser 
-            ? "bg-blue-600 text-white" 
-            : "bg-white/50 border-gray-300"
+          getActiveButtonStyle(isEraser)
         )}
         title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
       >
@@ -620,107 +707,104 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       <Separator orientation="horizontal" className="w-6" />
 
+
       {/* 独立工具按钮 */}
       <div className="flex flex-col items-center gap-2">
-        {/* 文字工具 */}
-        <div className="relative">
+        {/* 文字工具（仅非Node模式） */}
+        {mode !== 'node' && (
+          <div className="relative">
+            <Button
+              variant={drawMode === 'text' ? 'default' : 'outline'}
+              size="sm"
+              className={cn(
+                "p-0 h-8 w-8 rounded-full",
+                getActiveButtonStyle(drawMode === 'text')
+              )}
+              onClick={() => {
+                setDrawMode('text');
+                logger.tool('工具栏：切换到文字工具');
+              }}
+              title="文本工具 - 点击空白处创建文本"
+            >
+              <Type className="w-4 h-4" />
+            </Button>
+
+            {/* 文本样式面板 - 当文本工具激活时显示 */}
+            {drawMode === 'text' && (
+              <TextStylePanel
+                currentStyle={(window as any).tanvaTextTool?.getSelectedTextStyle?.() || {
+                  fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
+                  fontWeight: 'bold',
+                  fontSize: 24,
+                  color: currentColor,
+                  align: 'left',
+                  italic: false
+                }}
+                onStyleChange={(updates) => {
+                  const textTool = (window as any).tanvaTextTool;
+                  if (textTool) {
+                    // 如果有选中的文本，更新该文本的样式
+                    if (textTool.selectedTextId) {
+                      textTool.updateTextStyle(textTool.selectedTextId, updates);
+                    } else {
+                      // 否则更新默认样式
+                      textTool.updateDefaultStyle(updates);
+                    }
+                  }
+                }}
+              />
+            )}
+          </div>
+        )}
+
+      {/* Node 模式：主要按钮组（放在照相机上面） */}
+      {mode === 'node' && (
+        <>
+          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addTextPrompt?.()} title="Prompt Node"><Type className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addImage?.()} title="Image Node"><Image className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addThree?.()} title="3D Node"><Box className="w-4 h-4" /></Button>
+          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addCamera?.()} title="Camera Node"><Camera className="w-4 h-4" /></Button>
+        </>
+      )}
+
+      {/* 图片工具（仅 Chat 模式） */}
+      {mode === 'chat' && (
+        <>
           <Button
-            variant={drawMode === 'text' ? 'default' : 'outline'}
+            variant={drawMode === 'image' ? 'default' : 'outline'}
             size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              drawMode === 'text' 
-                ? "bg-blue-600 text-white" 
-                : "bg-white/50 border-gray-300"
+              getActiveButtonStyle(drawMode === 'image')
             )}
-            onClick={() => {
-              setDrawMode('text');
-              logger.tool('工具栏：切换到文字工具');
-            }}
-            title="文本工具 - 点击空白处创建文本"
+            onClick={() => setDrawMode('image')}
+            title="添加图片"
           >
-            <Type className="w-4 h-4" />
+            <Image className="w-4 h-4" />
           </Button>
 
-          {/* 文本样式面板 - 当文本工具激活时显示 */}
-          {drawMode === 'text' && (
-            <TextStylePanel
-              currentStyle={(window as any).tanvaTextTool?.getSelectedTextStyle?.() || {
-                fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
-                fontWeight: 'bold',
-                fontSize: 24,
-                color: currentColor,
-                align: 'left',
-                italic: false
-              }}
-              onStyleChange={(updates) => {
-                const textTool = (window as any).tanvaTextTool;
-                if (textTool) {
-                  // 如果有选中的文本，更新该文本的样式
-                  if (textTool.selectedTextId) {
-                    textTool.updateTextStyle(textTool.selectedTextId, updates);
-                  } else {
-                    // 否则更新默认样式
-                    textTool.updateDefaultStyle(updates);
-                  }
-                }
-              }}
-            />
-          )}
-        </div>
-
-        {/* 图片工具 */}
-        <Button
-          variant={drawMode === 'image' ? 'default' : 'outline'}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            drawMode === 'image' 
-              ? "bg-blue-600 text-white" 
-              : "bg-white/50 border-gray-300"
-          )}
-          onClick={() => setDrawMode('image')}
-          title="添加图片"
-        >
-          <ImageWithPlusIcon className="w-4 h-4" />
-        </Button>
-
-        {/* 快速图片上传工具（居中） - 暂时隐藏 */}
-        {/* <Button
-          variant={drawMode === 'quick-image' ? 'default' : 'outline'}
-          size="sm"
-          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
-          onClick={() => setDrawMode('quick-image')}
-          title="快速上传图片（自动居中）"
-        >
-          <QuickImageIcon className="w-4 h-4" />
-        </Button> */}
-
-        {/* 3D模型工具 */}
-        <Button
+          {/* 快速图片上传工具（居中） - 暂时隐藏 */}
+          {/* 3D模型工具（仅 Chat 模式） */}
+          <Button
           variant={drawMode === '3d-model' ? 'default' : 'outline'}
           size="sm"
           className={cn(
             "p-0 h-8 w-8 rounded-full",
-            drawMode === '3d-model' 
-              ? "bg-blue-600 text-white" 
-              : "bg-white/50 border-gray-300"
+            getActiveButtonStyle(drawMode === '3d-model')
           )}
           onClick={() => setDrawMode('3d-model')}
           title="添加3D模型"
         >
-          <BoxWithPlusIcon className="w-4 h-4" />
+          <Box className="w-4 h-4" />
         </Button>
 
-        {/* 截图工具 */}
+        {/* 截图工具（仅 Chat 模式） */}
         <Button
           variant={drawMode === 'screenshot' ? 'default' : 'outline'}
           size="sm"
           className={cn(
             "p-0 h-8 w-8 rounded-full",
-            drawMode === 'screenshot' 
-              ? "bg-blue-600 text-white" 
-              : "bg-white/50 border-gray-300"
+            getActiveButtonStyle(drawMode === 'screenshot')
           )}
           onClick={() => setDrawMode('screenshot')}
           title="AI截图 - 自动包含所有元素，同时下载和传入AI对话框"
@@ -728,81 +812,20 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <Camera className="w-4 h-4" />
         </Button>
 
-        {/* Flow 节点菜单按钮（移动到摄像头下方） */}
-        <div className="relative mt-2" ref={flowMenuRef}>
-          <Button
-            variant={showFlowQuickMenu ? 'default' : 'outline'}
-            size="sm"
-            className={cn(
-              "p-0 h-8 w-8 rounded-full",
-              showFlowQuickMenu ? "bg-blue-600 text-white" : "bg-white/50 text-gray-700 border-gray-300"
-            )}
-            onClick={() => setShowFlowQuickMenu(v => !v)}
-            title="Flow 节点菜单"
-          >
-            <FlowIcon className="w-4 h-4" />
-          </Button>
+        {/* AI对话工具 */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="p-0 h-8 w-8 rounded-full bg-white/50 text-gray-700 border-gray-300"
+          onClick={toggleDialog}
+          title="AI对话"
+        >
+          <Sparkles className="w-4 h-4" />
+        </Button>
+        </>
+      )}
 
-          {showFlowQuickMenu && (
-            <div className="absolute left-full ml-3 z-[1001]" style={{ top: '-14px' }}>
-              <div className="flex flex-col items-stretch gap-2 px-3 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light min-w-[140px]">
-                {/* Image */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
-                  onClick={() => { (window as any).tanvaFlow?.addImage?.(); }}
-                  title="Add Image Node"
-                >
-                  <span className="text-xs">Image</span>
-                </Button>
-                {/* Prompt */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
-                  onClick={() => { (window as any).tanvaFlow?.addTextPrompt?.(); }}
-                  title="Add Prompt Node"
-                >
-                  <span className="text-xs">Prompt</span>
-                </Button>
-                {/* 3D */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
-                  onClick={() => { (window as any).tanvaFlow?.addThree?.(); }}
-                  title="Add 3D Node"
-                >
-                  <span className="text-xs">3D</span>
-                </Button>
-                {/* Camera */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
-                  onClick={() => { (window as any).tanvaFlow?.addCamera?.(); }}
-                  title="Add Camera Node"
-                >
-                  <span className="text-xs">Camera</span>
-                </Button>
-                {/* Generate */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 px-3 rounded-lg bg-white/60 border-gray-300 text-gray-700 hover:bg-white flex items-center justify-start"
-                  onClick={() => { (window as any).tanvaFlow?.addGenerate?.(); }}
-                  title="Add Generate Node"
-                >
-                  <span className="text-xs">Generate</span>
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-
-
-        {/* AI编辑图像工具 - 暂时隐藏 */}
+      {/* AI编辑图像工具 - 暂时隐藏 */}
         {/* <Button
           variant="outline"
           size="sm"
@@ -825,7 +848,20 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </Button> */}
       </div>
 
-      <Separator orientation="horizontal" className="w-6" />
+      {/* 非Node模式下的分隔线 */}
+      {mode !== 'node' && (
+        <Separator orientation="horizontal" className="w-6" />
+      )}
+
+      {/* Node 模式：Generate Node（放在图层上面） */}
+      {mode === 'node' && (
+        <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addGenerate?.()} title="Generate Node"><Sparkles className="w-4 h-4" /></Button>
+      )}
+
+      {/* Node模式下的分隔线（图层上面） */}
+      {mode === 'node' && (
+        <Separator orientation="horizontal" className="w-6" />
+      )}
 
       {/* 图层工具 */}
       <Button
@@ -833,15 +869,14 @@ const ToolBar: React.FC<ToolBarProps> = ({
         size="sm"
         className={cn(
           "p-0 h-8 w-8 rounded-full",
-          isLayerPanelOpen 
-            ? "bg-blue-600 text-white" 
-            : "bg-white/50 border-gray-300"
+          getActiveButtonStyle(isLayerPanelOpen)
         )}
         onClick={toggleLayerPanel}
         title="图层面板"
       >
         <Layers className="w-4 h-4" />
       </Button>
+
 
       {/* 工具按钮 */}
       <div className="flex flex-col items-center gap-2">

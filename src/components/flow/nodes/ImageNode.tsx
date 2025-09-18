@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
+import { useUIStore } from '@/stores';
 
 type Props = {
   id: string;
@@ -9,6 +10,7 @@ type Props = {
 
 export default function ImageNode({ id, data, selected }: Props) {
   const rf = useReactFlow();
+  const { mode } = useUIStore();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   const [hover, setHover] = React.useState<string | null>(null);
@@ -142,7 +144,7 @@ export default function ImageNode({ id, data, selected }: Props) {
       <div
         onDrop={onDrop}
         onDragOver={onDragOver}
-        onDoubleClick={() => src && setPreview(true)}
+        onDoubleClick={() => src && mode === 'node' && setPreview(true)}
         style={{
           flex: 1,
           minHeight: 120,

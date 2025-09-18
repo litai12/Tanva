@@ -9,6 +9,7 @@ interface UIState {
   showBounds: boolean;
   showFlowPanel: boolean; // Flow 工具面板
   flowUIEnabled: boolean; // 是否渲染Flow相关UI（主工具按钮+浮动面板）
+  mode: 'chat' | 'node'; // 全局模式
 
   // 智能落位配置
   smartPlacementOffset: number; // px，默认 522
@@ -21,6 +22,8 @@ interface UIState {
   toggleBounds: () => void;
   toggleFlowPanel: () => void;
   setFlowUIEnabled: (enabled: boolean) => void;
+  toggleMode: () => void;
+  setMode: (m: 'chat' | 'node') => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -50,6 +53,7 @@ export const useUIStore = create<UIState>((set) => ({
   showBounds: false,
   showFlowPanel: false,
   flowUIEnabled: false,
+  mode: 'chat',
   smartPlacementOffset: initialOffset,
 
   // 切换方法
@@ -60,6 +64,8 @@ export const useUIStore = create<UIState>((set) => ({
   toggleBounds: () => set((state) => ({ showBounds: !state.showBounds })),
   toggleFlowPanel: () => set((state) => ({ showFlowPanel: !state.showFlowPanel })),
   setFlowUIEnabled: (enabled) => set({ flowUIEnabled: !!enabled }),
+  toggleMode: () => set((state) => ({ mode: state.mode === 'chat' ? 'node' : 'chat' })),
+  setMode: (m) => set({ mode: m }),
 
   // 设置方法
   setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
