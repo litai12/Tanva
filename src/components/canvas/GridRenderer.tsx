@@ -10,6 +10,9 @@ interface GridRendererProps {
 
 const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitialized }) => {
   const { gridSize, gridStyle, zoom, isDragging, panX, panY } = useCanvasStore();
+  const gridDotSize = useCanvasStore(state => state.gridDotSize);
+  const gridColor = useCanvasStore(state => state.gridColor);
+  const gridBgColor = useCanvasStore(state => state.gridBgColor);
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
@@ -190,13 +193,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         // 创建纯色背景，使用虚拟化边界
         createSolidBackground(finalMinX, finalMaxX, finalMinY, finalMaxY, gridLayer);
       } else if (gridStyle === GridStyle.DOTS) {
-        // 点阵暂时禁用，回退到线条网格
-        console.warn('点阵模式已暂时禁用，回退到线条网格');
-        // 创建线条网格（回退）
-        createLineGrid(currentGridSize, minX, maxX, minY, maxY, zoom, gridLayer);
+        // 创建点阵网格
+        createDotGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, gridDotSize, gridLayer);
       } else {
         // 创建线条网格（默认）
-        createLineGrid(currentGridSize, minX, maxX, minY, maxY, zoom, gridLayer);
+        createLineGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer);
       }
     }
 
@@ -211,9 +212,23 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   }, [zoom, showGrid, showAxis, gridStyle]);
 
   // 线条网格创建函数
+  const getColorWithAlpha = (hex: string, alpha: number) => {
+    // 解析 #rrggbb 或 #rgb
+    let r = 229, g = 231, b = 235; // fallback #e5e7eb
+    const h = (hex || '').replace('#','');
+    if (h.length === 3) {
+      r = parseInt(h[0] + h[0], 16); g = parseInt(h[1] + h[1], 16); b = parseInt(h[2] + h[2], 16);
+    } else if (h.length === 6) {
+      r = parseInt(h.substring(0,2), 16); g = parseInt(h.substring(2,4), 16); b = parseInt(h.substring(4,6), 16);
+    }
+    return new paper.Color(r/255, g/255, b/255, alpha);
+  };
+
   const createLineGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, zoom: number, gridLayer: paper.Layer) => {
     // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
     const shouldShowMinorGrid = zoom >= 0.3;
+    const minorColor = getColorWithAlpha(gridColor, 0.10);
+    const majorColor = getColorWithAlpha(gridColor, 0.13);
 
     // 创建垂直网格线
     for (let x = minX; x <= maxX; x += currentGridSize) {
@@ -236,7 +251,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = poolItem;
         line.segments[0].point = new paper.Point(x, minY);
         line.segments[1].point = new paper.Point(x, maxY);
-        line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10);
+        line.strokeColor = isMainGrid ? majorColor : minorColor;
         line.strokeWidth = isMainGrid ? 0.8 : 0.3;
         line.visible = true;
       } else {
@@ -244,7 +259,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = new paper.Path.Line({
           from: [x, minY],
           to: [x, maxY],
-          strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10),
+          strokeColor: isMainGrid ? majorColor : minorColor,
           strokeWidth: isMainGrid ? 0.8 : 0.3,
           data: { isHelper: true, type: 'grid' }
         });
@@ -273,7 +288,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = poolItem;
         line.segments[0].point = new paper.Point(minX, y);
         line.segments[1].point = new paper.Point(maxX, y);
-        line.strokeColor = new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10);
+        line.strokeColor = isMainGrid ? majorColor : minorColor;
         line.strokeWidth = isMainGrid ? 0.8 : 0.3;
         line.visible = true;
       } else {
@@ -281,12 +296,33 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line = new paper.Path.Line({
           from: [minX, y],
           to: [maxX, y],
-          strokeColor: new paper.Color(0, 0, 0, isMainGrid ? 0.13 : 0.10),
+          strokeColor: isMainGrid ? majorColor : minorColor,
           strokeWidth: isMainGrid ? 0.8 : 0.3,
           data: { isHelper: true, type: 'grid' }
         });
       }
       gridLayer.addChild(line);
+    }
+  };
+
+  // 点阵网格创建
+  const createDotGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, dotSize: number, gridLayer: paper.Layer) => {
+    const fill = new paper.Color(0, 0, 0, 0.28); // 默认透明度
+    try {
+      const c = gridColor.replace('#','');
+      const r = c.length === 6 ? parseInt(c.substring(0,2), 16) : 229;
+      const g = c.length === 6 ? parseInt(c.substring(2,4), 16) : 231;
+      const b = c.length === 6 ? parseInt(c.substring(4,6), 16) : 235;
+      fill.red = r/255; fill.green = g/255; fill.blue = b/255;
+    } catch {}
+
+    const radius = Math.max(0.5, Math.min(4, dotSize));
+
+    for (let x = minX; x <= maxX; x += currentGridSize) {
+      for (let y = minY; y <= maxY; y += currentGridSize) {
+        const dot = new paper.Path.Circle({ center: [x, y], radius, fillColor: fill, data: { isHelper: true, type: 'grid-dot' } });
+        gridLayer.addChild(dot);
+      }
     }
   };
 
@@ -299,10 +335,25 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     }
 
     // 创建一个覆盖整个可视区域的纯色矩形
+    const bg = (() => {
+      try {
+        const h = (gridBgColor || '#f7f7f7').replace('#','');
+        let r = 247, g = 247, b = 247;
+        if (h.length === 3) {
+          r = parseInt(h[0] + h[0], 16); g = parseInt(h[1] + h[1], 16); b = parseInt(h[2] + h[2], 16);
+        } else if (h.length === 6) {
+          r = parseInt(h.substring(0,2), 16); g = parseInt(h.substring(2,4), 16); b = parseInt(h.substring(4,6), 16);
+        }
+        return new paper.Color(r/255, g/255, b/255, 1);
+      } catch {
+        return new paper.Color(0.95, 0.95, 0.95, 1.0);
+      }
+    })();
+
     const backgroundRect = new paper.Path.Rectangle({
       from: [minX, minY],
       to: [maxX, maxY],
-      fillColor: new paper.Color(0.95, 0.95, 0.95, 1.0), // 淡淡的灰色背景
+      fillColor: bg,
       data: { isHelper: true, type: 'solid-background' }
     });
 

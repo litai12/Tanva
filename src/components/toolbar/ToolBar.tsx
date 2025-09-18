@@ -401,6 +401,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       <Separator orientation="horizontal" className="w-6" />
 
+      {/* 预留：若需在主工具栏控制网格背景颜色，可在此恢复控件 */}
+
       {/* 选择工具 - 独立按钮 */}
       <Button
         variant={drawMode === 'select' ? 'default' : 'outline'}

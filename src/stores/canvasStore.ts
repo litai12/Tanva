@@ -17,6 +17,9 @@ interface CanvasState {
   // 网格系统
   gridSize: number;
   gridStyle: GridStyle;
+  gridDotSize: number;        // 点阵半径（像素，随缩放）
+  gridColor: string;          // 网格颜色（十六进制）
+  gridBgColor: string;        // 网格背景颜色（SOLID样式下生效）
   
   // 视口状态
   zoom: number;
@@ -34,6 +37,9 @@ interface CanvasState {
   // 操作方法
   setGridSize: (size: number) => void;
   setGridStyle: (style: GridStyle) => void;
+  setGridDotSize: (size: number) => void;
+  setGridColor: (color: string) => void;
+  setGridBgColor: (color: string) => void;
   setZoom: (zoom: number) => void;
   setPan: (x: number, y: number) => void;
   panBy: (deltaX: number, deltaY: number) => void;
@@ -55,6 +61,9 @@ export const useCanvasStore = create<CanvasState>()(
       // 初始状态
       gridSize: 20,
       gridStyle: GridStyle.LINES, // 默认使用线条网格
+      gridDotSize: 1,
+      gridColor: '#e5e7eb',
+      gridBgColor: '#f7f7f7',
       zoom: 1.0,
       panX: 0,
       panY: 0,
@@ -70,6 +79,9 @@ export const useCanvasStore = create<CanvasState>()(
       // 设置方法
       setGridSize: (size) => set({ gridSize: size }),
       setGridStyle: (style) => set({ gridStyle: style }),
+      setGridDotSize: (size) => set({ gridDotSize: Math.max(1, Math.min(4, Math.round(size))) }),
+      setGridColor: (color) => set({ gridColor: color }),
+      setGridBgColor: (color) => set({ gridBgColor: color }),
       setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(3, zoom)) }), // 限制缩放范围 10%-300%
       setPan: (x, y) => set({ panX: x, panY: y }),
       panBy: (deltaX, deltaY) => {
@@ -101,6 +113,9 @@ export const useCanvasStore = create<CanvasState>()(
         partialize: (state) => ({
           gridSize: state.gridSize,
           gridStyle: state.gridStyle,
+          gridDotSize: state.gridDotSize,
+          gridColor: state.gridColor,
+          gridBgColor: state.gridBgColor,
           units: state.units,
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,

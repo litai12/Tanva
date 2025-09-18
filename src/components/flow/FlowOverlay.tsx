@@ -19,6 +19,7 @@ import TextPromptNode from './nodes/TextPromptNode';
 import ImageNode from './nodes/ImageNode';
 import GenerateNode from './nodes/GenerateNode';
 import { useCanvasStore } from '@/stores';
+import { useUIStore } from '@/stores';
 import { aiImageService } from '@/services/aiImageService';
 import type { AIImageResult } from '@/types/ai';
 
@@ -46,18 +47,45 @@ function FlowInner() {
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
 
-  // 背景设置（默认关闭）
-  const [bgEnabled, setBgEnabled] = React.useState(false);
-  const [bgVariant, setBgVariant] = React.useState<'dots' | 'lines'>('dots');
-  const [bgColor, setBgColor] = React.useState<string>('#e5e7eb');
-  const [bgGap, setBgGap] = React.useState<number>(16);
-  const [bgSize, setBgSize] = React.useState<number>(1);
-  const [bgGapInput, setBgGapInput] = React.useState<string>('16');
-  const [bgSizeInput, setBgSizeInput] = React.useState<string>('1');
+  // 背景设置改为驱动底层 Canvas 网格
+  const showGrid = useUIStore(s => s.showGrid);
+  const setShowGrid = useUIStore(s => s.setShowGrid);
+  const gridStyle = useCanvasStore(s => s.gridStyle);
+  const setGridStyle = useCanvasStore(s => s.setGridStyle);
+  const gridSize = useCanvasStore(s => s.gridSize);
+  const setGridSize = useCanvasStore(s => s.setGridSize);
+  const gridDotSize = useCanvasStore(s => s.gridDotSize);
+  const setGridDotSize = useCanvasStore(s => s.setGridDotSize);
+  const gridColor = useCanvasStore(s => s.gridColor);
+  const setGridColor = useCanvasStore(s => s.setGridColor);
+  const gridBgColor = useCanvasStore(s => s.gridBgColor);
+  const setGridBgColor = useCanvasStore(s => s.setGridBgColor);
+
+  const [bgEnabled, setBgEnabled] = React.useState(showGrid);
+  const [bgVariant, setBgVariant] = React.useState<'dots' | 'lines' | 'solid'>(
+    gridStyle === 'dots' ? 'dots' : gridStyle === 'solid' ? 'solid' : 'lines'
+  );
+  const [bgColorLocal, setBgColorLocal] = React.useState<string>(gridColor || '#e5e7eb');
+  const [bgFillLocal, setBgFillLocal] = React.useState<string>(gridBgColor || '#f7f7f7');
+  const [bgGap, setBgGap] = React.useState<number>(gridSize || 16);
+  const [bgSize, setBgSize] = React.useState<number>(gridDotSize || 1);
+  const [bgGapInput, setBgGapInput] = React.useState<string>(String(bgGap));
+  const [bgSizeInput, setBgSizeInput] = React.useState<string>(String(bgSize));
 
   // 同步输入框字符串与实际数值
   React.useEffect(() => { setBgGapInput(String(bgGap)); }, [bgGap]);
   React.useEffect(() => { setBgSizeInput(String(bgSize)); }, [bgSize]);
+
+  // 将本地设置同步到底层画布
+  React.useEffect(() => { setShowGrid(bgEnabled); }, [bgEnabled, setShowGrid]);
+  React.useEffect(() => {
+    const style = bgVariant === 'dots' ? 'dots' : (bgVariant === 'solid' ? 'solid' : 'lines');
+    setGridStyle(style as any);
+  }, [bgVariant, setGridStyle]);
+  React.useEffect(() => { setGridSize(bgGap); }, [bgGap, setGridSize]);
+  React.useEffect(() => { setGridDotSize(bgSize); }, [bgSize, setGridDotSize]);
+  React.useEffect(() => { setGridColor(bgColorLocal); }, [bgColorLocal, setGridColor]);
+  React.useEffect(() => { setGridBgColor(bgFillLocal); }, [bgFillLocal, setGridBgColor]);
 
   const commitGap = React.useCallback((val: string) => {
     const n = Math.max(4, Math.min(64, Math.floor(Number(val)) || bgGap));
@@ -263,11 +291,12 @@ function FlowInner() {
       </label>
       {bgEnabled && (
         <>
-          <select value={bgVariant} onChange={(e) => setBgVariant(e.target.value as 'dots' | 'lines')} style={{ fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 6px', background: '#fff' }}>
+          <select value={bgVariant} onChange={(e) => setBgVariant(e.target.value as 'dots' | 'lines' | 'solid')} style={{ fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 6px', background: '#fff' }}>
             <option value="dots">点阵</option>
             <option value="lines">网格线</option>
+            <option value="solid">纯色</option>
           </select>
-          <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} title="颜色" style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }} />
+          <input type="color" value={bgColorLocal} onChange={(e) => setBgColorLocal(e.target.value)} title="颜色" style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }} />
           <label style={{ fontSize: 12 }}>间距
             <input
               type="number"
@@ -292,6 +321,17 @@ function FlowInner() {
               onBlur={(e) => commitSize(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') commitSize((e.target as HTMLInputElement).value); }}
               style={{ width: 44, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }}
+            />
+          </label>
+          <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            底色
+            <input
+              type="color"
+              value={bgFillLocal}
+              onChange={(e) => { setBgFillLocal(e.target.value); setBgVariant('solid'); }}
+              title="设置纯色背景颜色（自动切换为纯色背景）"
+              style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }}
             />
           </label>
         </>
@@ -319,9 +359,6 @@ function FlowInner() {
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
       >
-        {bgEnabled && (
-          <Background variant={bgVariant} color={bgColor} gap={bgGap} size={bgSize} />
-        )}
         <MiniMap pannable zoomable />
         <Controls showInteractive={false} />
       </ReactFlow>
