@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type, GitBranch } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -11,6 +11,40 @@ import { cn } from '@/lib/utils';
 import paper from 'paper';
 
 // 自定义图标组件
+// Flow图标（参考样式：三个小节点+连接线，简洁）
+const FlowIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
+    <circle cx="4" cy="4" r="2" fill="currentColor" />
+    <circle cx="12" cy="4" r="2" fill="currentColor" />
+    <circle cx="12" cy="12" r="2" fill="currentColor" />
+    <path d="M6 4 H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M12 6 V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+
+// 文字节点图标 - 圆角矩形带T
+const TextNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
+    <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    <text x="8" y="11" fontSize="8" fontWeight="600" textAnchor="middle" fill="currentColor">T</text>
+  </svg>
+);
+
+// 图片节点图标 - 圆角矩形带P
+const ImageNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
+    <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    <text x="8" y="11" fontSize="8" fontWeight="600" textAnchor="middle" fill="currentColor">P</text>
+  </svg>
+);
+
+// 生成节点图标 - 圆角矩形带G
+const GenerateNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
+    <rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    <text x="8" y="11" fontSize="8" fontWeight="600" textAnchor="middle" fill="currentColor">G</text>
+  </svg>
+);
 // 直线工具图标
 const StraightLineIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
@@ -307,7 +341,18 @@ const ToolBar: React.FC<ToolBarProps> = ({
     return ['rect', 'circle'].includes(mode);
   };
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel } = useUIStore();
+  const [showFlowQuickMenu, setShowFlowQuickMenu] = React.useState(false);
+  const flowMenuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!flowMenuRef.current) return;
+      if (!flowMenuRef.current.contains(e.target as Node)) setShowFlowQuickMenu(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, []);
   const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
 
   // 原始尺寸模式状态
@@ -400,6 +445,72 @@ const ToolBar: React.FC<ToolBarProps> = ({
       </Button>
 
       <Separator orientation="horizontal" className="w-6" />
+
+      {/* Flow 次级菜单触发按钮（仅添加节点：文字/图片/生成） */}
+      <div className="relative" ref={flowMenuRef}>
+        <Button
+          variant={showFlowQuickMenu ? 'default' : 'outline'}
+          size="sm"
+          className={cn(
+            "p-0 h-8 w-8 rounded-full",
+            showFlowQuickMenu ? "bg-blue-600 text-white" : "bg-white/50 text-gray-700 border-gray-300"
+          )}
+          onClick={() => setShowFlowQuickMenu(v => !v)}
+          title="Flow 节点菜单"
+        >
+          <FlowIcon className="w-4 h-4" />
+        </Button>
+
+        {showFlowQuickMenu && (
+          <div className="absolute left-full ml-3 z-[1001]" style={{ top: '-14px' }}>
+            <div className="flex flex-col items-center gap-1 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light">
+              <Button
+                variant="outline"
+                size="sm"
+                className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
+                onClick={() => { (window as any).tanvaFlow?.addTextPrompt?.(); setShowFlowQuickMenu(false); }}
+                title="添加文字节点"
+              >
+                <TextNodeIcon className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
+                onClick={() => { (window as any).tanvaFlow?.addImage?.(); setShowFlowQuickMenu(false); }}
+                title="添加图片节点"
+              >
+                <ImageNodeIcon className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="p-0 h-8 w-8 rounded-full bg-gray-900 text-white"
+                onClick={() => { (window as any).tanvaFlow?.addGenerate?.(); setShowFlowQuickMenu(false); }}
+                title="添加生成节点"
+              >
+                <GenerateNodeIcon className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Flow 工具开关 */}
+      <Button
+        variant={showFlowPanel ? 'default' : 'outline'}
+        size="sm"
+        className={cn(
+          "p-0 h-8 w-8 rounded-full",
+          showFlowPanel 
+            ? "bg-blue-600 text-white" 
+            : "bg-white/50 text-gray-700 border-gray-300"
+        )}
+        onClick={toggleFlowPanel}
+        title={showFlowPanel ? '关闭 Flow 面板' : '打开 Flow 面板'}
+      >
+        <GitBranch className="w-4 h-4" />
+      </Button>
 
       {/* 预留：若需在主工具栏控制网格背景颜色，可在此恢复控件 */}
 

@@ -282,7 +282,9 @@ function FlowInner() {
     return id;
   }, [rf, setNodes]);
 
-  const FlowToolbar = (
+  const showFlowPanel = useUIStore(s => s.showFlowPanel);
+
+  const FlowToolbar = showFlowPanel ? (
     <div className="tanva-flow-toolbar"
       style={{ position: 'absolute', top: 56, right: 16, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(255,255,255,0.9)', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}
     >
@@ -347,7 +349,7 @@ function FlowInner() {
         </>
       )}
     </div>
-  );
+  ) : null;
 
   return (
     <div ref={containerRef} className="tanva-flow-overlay absolute inset-0">

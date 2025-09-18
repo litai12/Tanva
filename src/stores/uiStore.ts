@@ -7,6 +7,7 @@ interface UIState {
   showGrid: boolean;
   showAxis: boolean;
   showBounds: boolean;
+  showFlowPanel: boolean; // Flow 工具面板
 
   // 智能落位配置
   smartPlacementOffset: number; // px，默认 522
@@ -17,6 +18,7 @@ interface UIState {
   toggleGrid: () => void;
   toggleAxis: () => void;
   toggleBounds: () => void;
+  toggleFlowPanel: () => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -24,6 +26,7 @@ interface UIState {
   setShowGrid: (show: boolean) => void;
   setShowAxis: (show: boolean) => void;
   setShowBounds: (show: boolean) => void;
+  setShowFlowPanel: (show: boolean) => void;
   setSmartPlacementOffset: (offset: number) => void;
 }
 
@@ -43,6 +46,7 @@ export const useUIStore = create<UIState>((set) => ({
   showGrid: true,
   showAxis: false,
   showBounds: false,
+  showFlowPanel: false,
   smartPlacementOffset: initialOffset,
 
   // 切换方法
@@ -51,6 +55,7 @@ export const useUIStore = create<UIState>((set) => ({
   toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
   toggleAxis: () => set((state) => ({ showAxis: !state.showAxis })),
   toggleBounds: () => set((state) => ({ showBounds: !state.showBounds })),
+  toggleFlowPanel: () => set((state) => ({ showFlowPanel: !state.showFlowPanel })),
 
   // 设置方法
   setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
@@ -58,6 +63,7 @@ export const useUIStore = create<UIState>((set) => ({
   setShowGrid: (show) => set({ showGrid: show }),
   setShowAxis: (show) => set({ showAxis: show }),
   setShowBounds: (show) => set({ showBounds: show }),
+  setShowFlowPanel: (show) => set({ showFlowPanel: show }),
   setSmartPlacementOffset: (offset) => set(() => {
     const v = Math.max(16, Math.min(4096, Math.round(offset)));
     try { if (typeof window !== 'undefined') localStorage.setItem('tanva-smart-offset', String(v)); } catch {}
