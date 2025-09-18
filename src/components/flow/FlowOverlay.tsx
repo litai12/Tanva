@@ -46,6 +46,7 @@ function FlowInner() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const [isConnecting, setIsConnecting] = React.useState(false);
 
   // 背景设置改为驱动底层 Canvas 网格
   const showGrid = useUIStore(s => s.showGrid);
@@ -104,6 +105,16 @@ function FlowInner() {
   }, [bgSize]);
 
   useViewportSync();
+
+  // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
+  React.useEffect(() => {
+    if (isConnecting) {
+      document.body.classList.add('tanva-no-select');
+    } else {
+      document.body.classList.remove('tanva-no-select');
+    }
+    return () => document.body.classList.remove('tanva-no-select');
+  }, [isConnecting]);
 
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback((connection: Connection) => {
@@ -361,6 +372,8 @@ function FlowInner() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={() => setIsConnecting(true)}
+        onConnectEnd={() => setIsConnecting(false)}
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
         fitView={false}
@@ -368,7 +381,8 @@ function FlowInner() {
         zoomOnScroll={false}
         zoomOnPinch={false}
         zoomOnDoubleClick={false}
-        selectionOnDrag
+        selectionOnDrag={false}
+        selectNodesOnDrag={false}
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
       >

@@ -778,7 +778,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
+                  className="p-0 h-8 w-8 rounded-full bg-white/60 border-gray-300 text-gray-700 hover:bg-white"
                   onClick={() => { (window as any).tanvaFlow?.addTextPrompt?.(); setShowFlowQuickMenu(false); }}
                   title="添加文字节点"
                 >
@@ -787,16 +787,16 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300"
+                  className="p-0 h-8 w-8 rounded-full bg-white/60 border-gray-300 text-gray-700 hover:bg-white"
                   onClick={() => { (window as any).tanvaFlow?.addImage?.(); setShowFlowQuickMenu(false); }}
                   title="添加图片节点"
                 >
                   <ImageNodeIcon className="w-4 h-4" />
                 </Button>
                 <Button
-                  variant="default"
+                  variant="outline"
                   size="sm"
-                  className="p-0 h-8 w-8 rounded-full bg-gray-900 text-white"
+                  className="p-0 h-8 w-8 rounded-full bg-white/60 border-gray-300 text-gray-700 hover:bg-white"
                   onClick={() => { (window as any).tanvaFlow?.addGenerate?.(); setShowFlowQuickMenu(false); }}
                   title="添加生成节点"
                 >

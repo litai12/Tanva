@@ -24,3 +24,9 @@
   z-index: -1 !important; /* 将点阵放到所有Flow子元素之下 */
   position: absolute; /* 确保可应用z-index */
 }
+
+/* 连接线拖拽时，禁用全局文本选择以避免页面出现蓝色选区 */
+.tanva-no-select, .tanva-no-select * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
