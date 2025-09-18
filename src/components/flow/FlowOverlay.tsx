@@ -46,6 +46,13 @@ function FlowInner() {
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
 
+  // 背景设置（默认关闭）
+  const [bgEnabled, setBgEnabled] = React.useState(false);
+  const [bgVariant, setBgVariant] = React.useState<'dots' | 'lines'>('dots');
+  const [bgColor, setBgColor] = React.useState<string>('#e5e7eb');
+  const [bgGap, setBgGap] = React.useState<number>(16);
+  const [bgSize, setBgSize] = React.useState<number>(1);
+
   useViewportSync();
 
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
@@ -227,11 +234,30 @@ function FlowInner() {
 
   const FlowToolbar = (
     <div className="tanva-flow-toolbar"
-      style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 10, display: 'flex', gap: 8 }}
+      style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(255,255,255,0.9)', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}
     >
       <button onClick={() => addAtCenter('textPrompt')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
       <button onClick={() => addAtCenter('image')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>图片</button>
       <button onClick={() => addAtCenter('generate')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
+      <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+        <input type="checkbox" checked={bgEnabled} onChange={(e) => setBgEnabled(e.target.checked)} /> 背景
+      </label>
+      {bgEnabled && (
+        <>
+          <select value={bgVariant} onChange={(e) => setBgVariant(e.target.value as 'dots' | 'lines')} style={{ fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 6px', background: '#fff' }}>
+            <option value="dots">点阵</option>
+            <option value="lines">网格线</option>
+          </select>
+          <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} title="颜色" style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }} />
+          <label style={{ fontSize: 12 }}>间距
+            <input type="number" min={4} max={64} value={bgGap} onChange={(e) => setBgGap(Math.max(4, Math.min(64, Number(e.target.value) || 16)))} style={{ width: 56, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }} />
+          </label>
+          <label style={{ fontSize: 12 }}>尺寸
+            <input type="number" min={1} max={4} value={bgSize} onChange={(e) => setBgSize(Math.max(1, Math.min(4, Number(e.target.value) || 1)))} style={{ width: 44, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }} />
+          </label>
+        </>
+      )}
     </div>
   );
 
@@ -255,7 +281,9 @@ function FlowInner() {
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
       >
-        {/* 背景点阵已关闭。如需启用可恢复 Background 组件 */}
+        {bgEnabled && (
+          <Background variant={bgVariant} color={bgColor} gap={bgGap} size={bgSize} />
+        )}
         <MiniMap pannable zoomable />
         <Controls showInteractive={false} />
       </ReactFlow>
