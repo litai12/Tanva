@@ -1,0 +1,272 @@
+import React from 'react';
+import ReactFlow, {
+  Background,
+  Controls,
+  MiniMap,
+  type Connection,
+  addEdge,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type Edge,
+  type Node
+} from 'reactflow';
+import { ReactFlowProvider } from 'reactflow';
+import 'reactflow/dist/style.css';
+import './flow.css';
+
+import TextPromptNode from './nodes/TextPromptNode';
+import ImageNode from './nodes/ImageNode';
+import GenerateNode from './nodes/GenerateNode';
+import { useCanvasStore } from '@/stores';
+import { aiImageService } from '@/services/aiImageService';
+import type { AIImageResult } from '@/types/ai';
+
+type RFNode = Node<any>;
+
+const nodeTypes = {
+  textPrompt: TextPromptNode,
+  image: ImageNode,
+  generate: GenerateNode,
+};
+
+function useViewportSync() {
+  const { zoom, panX, panY } = useCanvasStore();
+  const rf = useReactFlow();
+  React.useEffect(() => {
+    try {
+      rf.setViewport({ x: panX, y: panY, zoom }, { duration: 0 });
+    } catch (_) {}
+  }, [rf, zoom, panX, panY]);
+}
+
+function FlowInner() {
+  const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const rf = useReactFlow();
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useViewportSync();
+
+  // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
+  const isValidConnection = React.useCallback((connection: Connection) => {
+    const { source, target, targetHandle } = connection;
+    if (!source || !target || !targetHandle) return false;
+    if (source === target) return false;
+
+    const sourceNode = rf.getNode(source);
+    const targetNode = rf.getNode(target);
+    if (!sourceNode || !targetNode) return false;
+
+    if (targetNode.type !== 'generate') return false;
+
+    if (targetHandle === 'text') {
+      return sourceNode.type === 'textPrompt';
+    }
+    if (targetHandle === 'img') {
+      return sourceNode.type === 'image' || sourceNode.type === 'generate';
+    }
+    return false;
+  }, [rf]);
+
+  // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
+  const canAcceptConnection = React.useCallback((params: Connection) => {
+    if (!params.target || !params.targetHandle) return false;
+    const incoming = edges.filter(e => e.target === params.target && e.targetHandle === params.targetHandle);
+    if (params.targetHandle === 'text') return incoming.length < 1;
+    if (params.targetHandle === 'img') return incoming.length < 6;
+    return false;
+  }, [edges]);
+
+  const onConnect = React.useCallback((params: Connection) => {
+    if (!isValidConnection(params)) return;
+    if (!canAcceptConnection(params)) return;
+    setEdges((eds) => addEdge({ ...params, type: 'default' }, eds));
+  }, [isValidConnection, canAcceptConnection, setEdges]);
+
+  // 监听来自节点的本地数据写入（TextPrompt）
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { id: string; patch: Record<string, any> };
+      if (!detail?.id) return;
+      setNodes((ns) => ns.map((n) => n.id === detail.id ? { ...n, data: { ...n.data, ...detail.patch } } : n));
+    };
+    window.addEventListener('flow:updateNodeData', handler as EventListener);
+    return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
+  }, [setNodes]);
+
+  // 运行：根据输入自动选择 生图/编辑/融合
+  const runNode = React.useCallback(async (nodeId: string) => {
+    const node = rf.getNode(nodeId);
+    if (!node || node.type !== 'generate') return;
+
+    // 收集 prompt
+    const incomingTextEdge = edges.find(e => e.target === nodeId && e.targetHandle === 'text');
+    if (!incomingTextEdge) {
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
+      return;
+    }
+    const promptNode = rf.getNode(incomingTextEdge.source);
+    const prompt = (promptNode?.data as any)?.text || '';
+    if (!prompt.trim()) {
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
+      return;
+    }
+
+    // 收集图片输入（最多6张），来源可为 Image 或 Generate
+    const imgEdges = edges.filter(e => e.target === nodeId && e.targetHandle === 'img').slice(0, 6);
+    const imageDatas: string[] = [];
+    for (const e of imgEdges) {
+      const srcNode = rf.getNode(e.source);
+      if (!srcNode) continue;
+      const data = (srcNode.data as any);
+      const img = data?.imageData;
+      if (typeof img === 'string' && img.length > 0) imageDatas.push(img);
+    }
+
+    // 更新状态
+    setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
+
+    try {
+      let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
+
+      if (imageDatas.length === 0) {
+        // 文生图
+        result = await aiImageService.generateImage({ prompt, outputFormat: 'png' });
+      } else if (imageDatas.length === 1) {
+        // 图生图（编辑）
+        result = await aiImageService.editImage({ prompt, sourceImage: imageDatas[0], outputFormat: 'png' });
+      } else {
+        // 多图融合（2-6张）
+        result = await aiImageService.blendImages({ prompt, sourceImages: imageDatas.slice(0, 6), outputFormat: 'png' });
+      }
+
+      if (!result.success || !result.data) {
+        const msg = result.error?.message || '执行失败';
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+        return;
+      }
+
+      const out = result.data;
+      const imgBase64 = out.imageData;
+
+      // 更新本节点
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'succeeded', imageData: imgBase64, error: undefined } } : n));
+
+      // 将图片添加到画布（沿用现有快速上传机制）
+      if (imgBase64) {
+        const mime = `image/${out.metadata?.outputFormat || 'png'}`;
+        const dataUrl = `data:${mime};base64,${imgBase64}`;
+        const fileName = `flow_${Date.now()}.${out.metadata?.outputFormat || 'png'}`;
+        window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+          detail: {
+            imageData: dataUrl,
+            fileName,
+            operationType: imageDatas.length === 0 ? 'generate' : (imageDatas.length === 1 ? 'edit' : 'blend'),
+            smartPosition: undefined,
+            sourceImageId: undefined,
+            sourceImages: undefined,
+          }
+        }));
+      }
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+    }
+  }, [rf, edges, setNodes]);
+
+  // 在 node 渲染前为 Generate 节点注入 onRun 回调
+  const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
+    n.type === 'generate'
+      ? { ...n, data: { ...n.data, onRun: runNode } }
+      : n
+  )), [nodes, runNode]);
+
+  // 简单的全局调试API，便于从控制台添加节点
+  React.useEffect(() => {
+    (window as any).tanvaFlow = {
+      addTextPrompt: (x = 0, y = 0, text = '') => {
+        const id = `tp_${Date.now()}`;
+        setNodes(ns => ns.concat([{ id, type: 'textPrompt', position: { x, y }, data: { text } }] as any));
+        return id;
+      },
+      addImage: (x = 0, y = 0, imageData?: string) => {
+        const id = `img_${Date.now()}`;
+        setNodes(ns => ns.concat([{ id, type: 'image', position: { x, y }, data: { imageData } }] as any));
+        return id;
+      },
+      addGenerate: (x = 0, y = 0) => {
+        const id = `gen_${Date.now()}`;
+        setNodes(ns => ns.concat([{ id, type: 'generate', position: { x, y }, data: { status: 'idle' } }] as any));
+        return id;
+      },
+      connect: (source: string, target: string, targetHandle: 'text' | 'img') => {
+        const conn = { source, target, targetHandle } as any;
+        if (isValidConnection(conn as any) && canAcceptConnection(conn as any)) {
+          setEdges(eds => addEdge(conn, eds));
+          return true;
+        }
+        return false;
+      }
+    };
+    return () => { delete (window as any).tanvaFlow; };
+  }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
+
+  const addAtCenter = React.useCallback((type: 'textPrompt' | 'image' | 'generate') => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const centerScreen = {
+      x: (rect?.width || window.innerWidth) / 2,
+      y: (rect?.height || window.innerHeight) / 2,
+    };
+    const center = rf.project(centerScreen);
+    const id = `${type}_${Date.now()}`;
+    const base: any = { id, type, position: center, data: type === 'textPrompt' ? { text: '' } : (type === 'generate' ? { status: 'idle' } : { imageData: undefined }) };
+    setNodes(ns => ns.concat([base]));
+    return id;
+  }, [rf, setNodes]);
+
+  const FlowToolbar = (
+    <div className="tanva-flow-toolbar"
+      style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 10, display: 'flex', gap: 8 }}
+    >
+      <button onClick={() => addAtCenter('textPrompt')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
+      <button onClick={() => addAtCenter('image')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>图片</button>
+      <button onClick={() => addAtCenter('generate')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
+    </div>
+  );
+
+  return (
+    <div ref={containerRef} className="tanva-flow-overlay absolute inset-0" style={{ zIndex: 0 }}>
+      {FlowToolbar}
+      <ReactFlow
+        nodes={nodesWithHandlers}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        isValidConnection={isValidConnection}
+        nodeTypes={nodeTypes}
+        fitView={false}
+        panOnDrag={false}
+        zoomOnScroll={false}
+        zoomOnPinch={false}
+        zoomOnDoubleClick={false}
+        selectionOnDrag
+        deleteKeyCode={['Backspace', 'Delete']}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background color="#f3f4f6" gap={16} />
+        <MiniMap pannable zoomable />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+    </div>
+  );
+}
+
+export default function FlowOverlay() {
+  return (
+    <ReactFlowProvider>
+      <FlowInner />
+    </ReactFlowProvider>
+  );
+}

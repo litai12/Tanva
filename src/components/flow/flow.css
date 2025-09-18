@@ -1,0 +1,24 @@
+/* 让整个 Flow 覆盖层默认穿透 */
+.tanva-flow-overlay {
+  pointer-events: none;
+}
+
+/* 允许交互的子元素重新启用事件 */
+.tanva-flow-overlay .react-flow__node,
+.tanva-flow-overlay .react-flow__edge,
+.tanva-flow-overlay .react-flow__handle,
+.tanva-flow-overlay .react-flow__controls,
+.tanva-flow-overlay .react-flow__minimap,
+.tanva-flow-overlay .tanva-flow-toolbar {
+  pointer-events: auto;
+}
+
+/* 禁用Pane捕获，避免空白区域吞事件 */
+.tanva-flow-overlay .react-flow__pane {
+  pointer-events: none !important;
+}
+
+/* 可选：降低背景干扰 */
+.tanva-flow-overlay .react-flow__background {
+  opacity: 0.6;
+}
