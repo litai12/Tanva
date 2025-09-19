@@ -273,7 +273,7 @@ const AIChatDialog: React.FC = () => {
   const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating;
 
   return (
-    <div className={cn(
+    <div data-prevent-add-panel className={cn(
       "fixed z-50 transition-all duration-300 ease-out",
       isMaximized
         ? "top-32 left-16 right-16 bottom-4" // 最大化时，64px边距

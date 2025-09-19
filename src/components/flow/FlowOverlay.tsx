@@ -1,4 +1,5 @@
 import React from 'react';
+import paper from 'paper';
 import ReactFlow, {
   Controls,
   MiniMap,
@@ -187,6 +188,56 @@ function FlowInner() {
     setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
   }, [rf]);
 
+  // 仅在真正空白处（底层画布）允许触发
+  const isBlankArea = React.useCallback((clientX: number, clientY: number) => {
+    const container = containerRef.current;
+    if (!container) return false;
+    const rect = container.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
+
+    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    if (!el) return false;
+    // 排除：添加面板/工具栏/Flow交互元素/任意标记为不触发的UI
+    if (el.closest('.tanva-add-panel, .tanva-flow-toolbar, .react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, [data-prevent-add-panel]')) return false;
+    // 接受：底层画布 或 ReactFlow 背景/Pane（网格区域）
+    const tag = el.tagName.toLowerCase();
+    const isCanvas = tag === 'canvas';
+    const isPane = !!el.closest('.react-flow__pane');
+    const isGridBg = !!el.closest('.react-flow__background');
+    if (!isCanvas && !isPane && !isGridBg) return false;
+    
+    // 进一步：命中检测 Paper.js 物体（文本/图像/形状等）
+    try {
+      const canvasRect = (paper?.view?.element as HTMLCanvasElement | undefined)?.getBoundingClientRect();
+      if (canvasRect) {
+        const vx = clientX - canvasRect.left;
+        const vy = clientY - canvasRect.top;
+        const pt = paper.view.viewToProject(new paper.Point(vx, vy));
+        const hit = paper.project.hitTest(pt, {
+          segments: true,
+          stroke: true,
+          fill: true,
+          bounds: true,
+          center: true,
+          tolerance: 4,
+        } as any);
+        if (hit && hit.item) {
+          const item: any = hit.item;
+          const layerName = item?.layer?.name || '';
+          const isGridLayer = layerName === 'grid';
+          const isHelper = !!item?.data?.isAxis || item?.data?.isHelper === true;
+          const isGridType = typeof item?.data?.type === 'string' && item.data.type.startsWith('grid');
+          if (isGridLayer || isHelper || isGridType) {
+            // 命中网格/坐标轴等辅助元素：视为空白
+          } else {
+            return false; // 命中真实内容，视为非空白
+          }
+        }
+      }
+    } catch {}
+    return true;
+  }, []);
+
   const onPaneClick = React.useCallback((event: React.MouseEvent) => {
     // 基于两次快速点击判定双击（ReactFlow Pane 无原生 onDoubleClick 回调）
     const now = Date.now();
@@ -194,12 +245,9 @@ function FlowInner() {
     const last = lastPaneClickRef.current;
     lastPaneClickRef.current = { t: now, x, y };
     if (last && (now - last.t) < 500 && Math.hypot(last.x - x, last.y - y) < 10) {
-      // 仅空白区域触发：若点击在节点或边上则忽略
-      const target = event.target as HTMLElement;
-      if (target.closest('.react-flow__node') || target.closest('.react-flow__edge')) return;
-      openAddPanelAt(x, y);
+      if (isBlankArea(x, y)) openAddPanelAt(x, y);
     }
-  }, [openAddPanelAt]);
+  }, [openAddPanelAt, isBlankArea]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddPanel(v => ({ ...v, visible: false })); };
@@ -213,7 +261,7 @@ function FlowInner() {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
   }, [addPanel.visible]);
 
-  // 捕获原生双击（容器空白区域），避免被底层Canvas独占
+  // 捕获原生双击，仅在空白处触发；并阻止底层原生处理
   React.useEffect(() => {
     const onNativeDblClick = (e: MouseEvent) => {
       if (!containerRef.current) return;
@@ -221,19 +269,16 @@ function FlowInner() {
       const x = e.clientX, y = e.clientY;
       if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
 
-      const target = e.target as HTMLElement;
-      // 忽略：节点/边/句柄/工具栏/添加面板/其他UI
-      if (target.closest('.react-flow__node') || target.closest('.react-flow__edge') || target.closest('.react-flow__handle')) return;
-      if (addPanelRef.current && addPanelRef.current.contains(target)) return;
-      if (target.closest('.tanva-flow-toolbar') || target.closest('[data-prevent-add-panel]')) return;
-
-      // 触发添加面板
-      openAddPanelAt(x, y);
+      if (isBlankArea(x, y)) {
+        e.stopPropagation();
+        e.preventDefault();
+        openAddPanelAt(x, y);
+      }
     };
     // 使用捕获阶段，尽量在底层监听之前处理
     window.addEventListener('dblclick', onNativeDblClick, true);
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
-  }, [openAddPanelAt]);
+  }, [openAddPanelAt, isBlankArea]);
 
   const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'image' | 'generate' | 'three' | 'camera', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
@@ -577,19 +622,8 @@ function FlowInner() {
   }, [addPanel.visible, addPanel.screen.x, addPanel.screen.y]);
 
   const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    
-    // 阻止面板内部的双击事件
-    if (addPanelRef.current && addPanelRef.current.contains(target)) return;
-    
-    // 只允许在 react-flow__pane 元素上双击才触发
-    // react-flow__pane 是 ReactFlow 的画布背景元素
-    if (target.classList.contains('react-flow__pane')) {
-      openAddPanelAt(e.clientX, e.clientY);
-    }
-    
-    // 其他所有情况都不触发面板创建
-  }, [openAddPanelAt]);
+    if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY);
+  }, [openAddPanelAt, isBlankArea]);
 
   return (
     <div ref={containerRef} className={"tanva-flow-overlay absolute inset-0"} onDoubleClick={handleContainerDoubleClick}>
