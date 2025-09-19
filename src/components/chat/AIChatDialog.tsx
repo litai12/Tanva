@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, Maximize2, Minimize2, Search } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -586,7 +586,8 @@ const AIChatDialog: React.FC = () => {
                 size="sm"
                 variant="outline"
                 className={cn(
-                  "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  // 移除最大化按钮后，收紧到右侧
+                  "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   !generationStatus.isGenerating
                     ? enableWebSearch 
@@ -597,20 +598,6 @@ const AIChatDialog: React.FC = () => {
                 title={`联网搜索: ${enableWebSearch ? '开启' : '关闭'} - 让AI获取实时信息`}
               >
                 <Search className="h-3.5 w-3.5" />
-              </Button>
-
-              {/* 最大化按钮 */}
-              <Button
-                onClick={() => setIsMaximized(!isMaximized)}
-                size="sm"
-                variant="outline"
-                className={cn(
-                  "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 z-10",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass hover:bg-liquid-glass-hover shadow-liquid-glass text-gray-700"
-                )}
-                title={isMaximized ? "还原窗口" : "最大化窗口"}
-              >
-                {isMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               </Button>
 
               {/* 历史记录按钮 */}
