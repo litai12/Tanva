@@ -91,6 +91,22 @@ export interface AITextChatRequest {
   prompt: string;
   model?: string;
   context?: string[];
+  enableWebSearch?: boolean; // 是否启用联网搜索
+}
+
+// 网络搜索结果
+export interface WebSearchResult {
+  searchQueries: string[]; // 执行的搜索查询
+  sources: WebSearchSource[]; // 搜索来源
+  hasSearchResults: boolean; // 是否包含搜索结果
+}
+
+// 搜索来源信息
+export interface WebSearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+  relevanceScore?: number;
 }
 
 // AI文本对话结果
@@ -98,6 +114,7 @@ export interface AITextChatResult {
   text: string;
   model: string;
   tokenUsage?: number;
+  webSearchResult?: WebSearchResult; // 联网搜索结果
 }
 
 // Function Calling 工具定义

@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, Maximize2, Minimize2 } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, Maximize2, Minimize2, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -23,6 +23,7 @@ const AIChatDialog: React.FC = () => {
     sourceImageForEditing,
     sourceImagesForBlending,
     sourceImageForAnalysis,
+    enableWebSearch,
     hideDialog,
     setCurrentInput,
     clearInput,
@@ -34,7 +35,8 @@ const AIChatDialog: React.FC = () => {
     getAIMode,
     initializeContext,
     getContextSummary,
-    isIterativeMode
+    isIterativeMode,
+    toggleWebSearch
   } = useAIChatStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -577,6 +579,26 @@ const AIChatDialog: React.FC = () => {
                 rows={showHistory ? 3 : 1}
               />
 
+              {/* 联网搜索开关 */}
+              <Button
+                onClick={toggleWebSearch}
+                disabled={generationStatus.isGenerating}
+                size="sm"
+                variant="outline"
+                className={cn(
+                  "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                  !generationStatus.isGenerating
+                    ? enableWebSearch 
+                      ? "hover:bg-blue-600 bg-blue-500 text-white border-blue-500"
+                      : "hover:bg-liquid-glass-hover text-gray-700"
+                    : "opacity-50 cursor-not-allowed text-gray-400"
+                )}
+                title={`联网搜索: ${enableWebSearch ? '开启' : '关闭'} - 让AI获取实时信息`}
+              >
+                <Search className="h-3.5 w-3.5" />
+              </Button>
+
               {/* 最大化按钮 */}
               <Button
                 onClick={() => setIsMaximized(!isMaximized)}
@@ -731,6 +753,13 @@ const AIChatDialog: React.FC = () => {
                           <div className="flex items-center gap-2 mb-3">
                             <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
                             <span className="text-sm font-bold text-black">TAI</span>
+                            {/* 显示联网搜索标识 */}
+                            {message.webSearchResult?.hasSearchResults && (
+                              <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                                <Search className="w-3 h-3" />
+                                <span>已联网</span>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -866,6 +895,13 @@ const AIChatDialog: React.FC = () => {
                           <div className="flex items-center gap-2 mb-2">
                             <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
                             <span className="text-sm font-bold text-black">TAI</span>
+                            {/* 显示联网搜索标识 */}
+                            {message.webSearchResult?.hasSearchResults && (
+                              <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                                <Search className="w-3 h-3" />
+                                <span>已联网</span>
+                              </div>
+                            )}
                           </div>
                         )}
                         <div className={cn(
@@ -896,6 +932,28 @@ const AIChatDialog: React.FC = () => {
                           >
                             {message.content}
                           </ReactMarkdown>
+                          
+                          {/* 显示搜索来源 */}
+                          {message.type === 'ai' && message.webSearchResult?.hasSearchResults && (
+                            <div className="mt-2 pt-2 border-t border-gray-100">
+                              <div className="text-xs text-gray-500 mb-1">信息来源：</div>
+                              <div className="space-y-1">
+                                {message.webSearchResult.sources.slice(0, 3).map((source: any, idx: number) => (
+                                  <div key={idx} className="text-xs">
+                                    <a 
+                                      href={source.url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:underline"
+                                      title={source.snippet}
+                                    >
+                                      {source.title}
+                                    </a>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

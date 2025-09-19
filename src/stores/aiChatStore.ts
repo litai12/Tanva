@@ -17,6 +17,7 @@ export interface ChatMessage {
   imageData?: string; // AI生成的图像数据
   sourceImageData?: string; // 用户上传的源图像数据（用于图生图）
   sourceImagesData?: string[]; // 多张源图像数据（用于图像融合）
+  webSearchResult?: any; // 联网搜索结果
 }
 
 export interface GenerationStatus {
@@ -53,6 +54,7 @@ interface AIChatState {
 
   // 配置选项
   autoDownload: boolean;  // 是否自动下载生成的图片
+  enableWebSearch: boolean;  // 是否启用联网搜索
 
   // 操作方法
   showDialog: () => void;
@@ -99,6 +101,8 @@ interface AIChatState {
   // 配置管理
   toggleAutoDownload: () => void;
   setAutoDownload: (value: boolean) => void;
+  toggleWebSearch: () => void;
+  setWebSearch: (value: boolean) => void;
 
   // 重置状态
   resetState: () => void;
@@ -126,6 +130,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   sourceImagesForBlending: [],  // 多图融合源图像数组
   sourceImageForAnalysis: null, // 图像分析源图像
   autoDownload: false,  // 默认不自动下载
+  enableWebSearch: false,  // 默认关闭联网搜索
 
   // 对话框控制
   showDialog: () => set({ isVisible: true }),
@@ -913,7 +918,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     try {
       // 调用文本生成服务
-      const result = await aiImageService.generateTextResponse({ prompt });
+      const state = get();
+      const result = await aiImageService.generateTextResponse({ 
+        prompt,
+        enableWebSearch: state.enableWebSearch 
+      });
 
       if (result.success && result.data) {
         set({
@@ -926,7 +935,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
         get().addMessage({
           type: 'ai',
-          content: result.data.text
+          content: result.data.text,
+          webSearchResult: result.data.webSearchResult
         });
 
         console.log('✅ 文本回复成功:', result.data.text);
@@ -1210,6 +1220,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   // 配置管理
   toggleAutoDownload: () => set((state) => ({ autoDownload: !state.autoDownload })),
   setAutoDownload: (value: boolean) => set({ autoDownload: value }),
+  toggleWebSearch: () => set((state) => ({ enableWebSearch: !state.enableWebSearch })),
+  setWebSearch: (value: boolean) => set({ enableWebSearch: value }),
 
   // 重置状态
   resetState: () => {

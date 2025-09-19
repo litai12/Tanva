@@ -1754,6 +1754,24 @@ ${contextualPrompt}
       const finalPrompt = `请用中文回复以下内容：\n\n${contextualPrompt}`;
       
       console.log('🧠 文本对话使用上下文:', finalPrompt.substring(0, 200) + '...');
+      console.log('🔍 是否启用联网搜索:', request.enableWebSearch ? '✅ 是' : '❌ 否');
+      
+      // 构建API配置
+      const apiConfig: any = {
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+        ]
+      };
+
+      // 🔍 如果启用联网搜索，添加Google搜索工具
+      if (request.enableWebSearch) {
+        apiConfig.tools = [{ googleSearch: {} }];
+        console.log('🔍 已添加Google搜索工具到API配置');
+      }
 
       // 🌊 使用流式API进行文本对话
       const result = await this.withTimeout(
@@ -1761,20 +1779,15 @@ ${contextualPrompt}
           const stream = await this.genAI.models.generateContentStream({
             model: 'gemini-2.0-flash',
             contents: [{ text: finalPrompt }],
-            config: {
-              safetySettings: [
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-              ]
-            }
+            config: apiConfig
           });
 
           const streamResult = await this.parseStreamResponse(stream, '文本对话');
           // 文本对话只返回文本，不期望图像数据
-          return { text: streamResult.textResponse };
+          return { 
+            text: streamResult.textResponse,
+            metadata: streamResult.metadata // 包含搜索元数据
+          };
         })(),
         this.DEFAULT_TIMEOUT,
         '流式文本对话'
@@ -1784,6 +1797,18 @@ ${contextualPrompt}
         throw new Error('No text response from API');
       }
 
+      // 🔍 处理搜索结果元数据
+      let webSearchResult: any = undefined;
+      if (request.enableWebSearch && result.metadata) {
+        webSearchResult = this.parseWebSearchMetadata(result.metadata);
+        if (webSearchResult.hasSearchResults) {
+          console.log('🔍 联网搜索成功:', {
+            查询数量: webSearchResult.searchQueries.length,
+            来源数量: webSearchResult.sources.length
+          });
+        }
+      }
+
       // 🧠 记录操作到上下文
       contextManager.recordOperation({
         type: 'chat',
@@ -1791,7 +1816,9 @@ ${contextualPrompt}
         output: result.text,
         success: true,
         metadata: { 
-          model: 'gemini-2.0-flash'
+          model: 'gemini-2.0-flash',
+          enableWebSearch: request.enableWebSearch,
+          hasSearchResults: webSearchResult?.hasSearchResults || false
         }
       });
 
@@ -1799,7 +1826,8 @@ ${contextualPrompt}
         success: true,
         data: {
           text: result.text,
-          model: 'gemini-2.0-flash'
+          model: 'gemini-2.0-flash',
+          webSearchResult
         }
       };
 
@@ -1849,6 +1877,48 @@ ${contextualPrompt}
       const safeError = this.sanitizeErrorForLogging(error);
       console.error('❌ 连接测试异常:', safeError);
       return false;
+    }
+  }
+
+  /**
+   * 解析网络搜索元数据
+   */
+  private parseWebSearchMetadata(metadata: any): any {
+    try {
+      const webSearchResult = {
+        searchQueries: [],
+        sources: [],
+        hasSearchResults: false
+      };
+
+      // 解析搜索查询
+      if (metadata.webSearchQueries && Array.isArray(metadata.webSearchQueries)) {
+        webSearchResult.searchQueries = metadata.webSearchQueries;
+        console.log('🔍 解析到搜索查询:', webSearchResult.searchQueries);
+      }
+
+      // 解析搜索来源
+      if (metadata.groundingChunks && Array.isArray(metadata.groundingChunks)) {
+        webSearchResult.sources = metadata.groundingChunks.map((chunk: any) => ({
+          title: chunk.web?.title || '未知标题',
+          url: chunk.web?.uri || '',
+          snippet: chunk.text || '',
+          relevanceScore: chunk.confidence || 0
+        }));
+        console.log('🔍 解析到搜索来源:', webSearchResult.sources.length + '个');
+      }
+
+      // 判断是否有搜索结果
+      webSearchResult.hasSearchResults = webSearchResult.searchQueries.length > 0 || webSearchResult.sources.length > 0;
+
+      return webSearchResult;
+    } catch (error) {
+      console.warn('⚠️ 解析搜索元数据失败:', error);
+      return {
+        searchQueries: [],
+        sources: [],
+        hasSearchResults: false
+      };
     }
   }
 }
