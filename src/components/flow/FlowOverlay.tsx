@@ -188,6 +188,88 @@ function FlowInner() {
     setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
   }, [rf]);
 
+  // ---------- 导出/导入（序列化） ----------
+  const cleanNodeData = React.useCallback((data: any) => {
+    if (!data) return {};
+    // 不导出回调与大体积图像数据
+    const { onRun, onSend, imageData, ...rest } = data || {};
+    return rest;
+  }, []);
+
+  const exportFlow = React.useCallback(() => {
+    try {
+      const payload = {
+        version: 1,
+        createdAt: new Date().toISOString(),
+        nodes: nodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: cleanNodeData(n.data) })),
+        edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target, sourceHandle: (e as any).sourceHandle, targetHandle: (e as any).targetHandle, type: e.type || 'default' })),
+      } as const;
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `tanva-flow-${Date.now()}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch (err) {
+      console.error('导出失败', err);
+    }
+  }, [nodes, edges, cleanNodeData]);
+
+  const importInputRef = React.useRef<HTMLInputElement | null>(null);
+  const handleImportClick = React.useCallback(() => {
+    // 点击导入后立即关闭面板
+    setAddPanel(v => ({ ...v, visible: false }));
+    importInputRef.current?.click();
+  }, []);
+
+  const handleImportFiles = React.useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result || '');
+        const obj = JSON.parse(text);
+        const rawNodes = Array.isArray(obj?.nodes) ? obj.nodes : [];
+        const rawEdges = Array.isArray(obj?.edges) ? obj.edges : [];
+
+        const existing = new Set((rf.getNodes() || []).map(n => n.id));
+        const idMap = new Map<string, string>();
+
+        const now = Date.now();
+        const mappedNodes = rawNodes.map((n: any, idx: number) => {
+          const origId = String(n.id || `n_${idx}`);
+          let newId = origId;
+          if (existing.has(newId) || idMap.has(newId)) newId = `${origId}_${now}_${idx}`;
+          idMap.set(origId, newId);
+          return {
+            id: newId,
+            type: n.type,
+            position: n.position || { x: 0, y: 0 },
+            data: cleanNodeData(n.data) || {},
+          } as any;
+        });
+
+        const mappedEdges = rawEdges.map((e: any, idx: number) => {
+          const sid = idMap.get(String(e.source)) || String(e.source);
+          const tid = idMap.get(String(e.target)) || String(e.target);
+          return { id: String(e.id || `e_${now}_${idx}`), source: sid, target: tid, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle, type: e.type || 'default' } as any;
+        }).filter((e: any) => mappedNodes.find(n => n.id === e.source) && mappedNodes.find(n => n.id === e.target));
+
+        setNodes(ns => ns.concat(mappedNodes));
+        setEdges(es => es.concat(mappedEdges));
+        console.log(`✅ 导入成功：节点 ${mappedNodes.length} 条，连线 ${mappedEdges.length} 条`);
+      } catch (err) {
+        console.error('导入失败：JSON 解析错误', err);
+      } finally {
+        // 确保面板关闭；重置 input 值，允许重复导入同一文件
+        setAddPanel(v => ({ ...v, visible: false }));
+        try { if (importInputRef.current) importInputRef.current.value = ''; } catch {}
+      }
+    };
+    reader.readAsText(file);
+  }, [rf, setNodes, setEdges, cleanNodeData]);
+
   // 仅在真正空白处（底层画布）允许触发
   const isBlankArea = React.useCallback((clientX: number, clientY: number) => {
     const container = containerRef.current;
@@ -668,13 +750,16 @@ function FlowInner() {
           }}>
             <div style={{ 
               display: 'flex', 
-              gap: 2, 
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8, 
               padding: 8, 
               borderBottom: '1px solid #f3f4f6',
               background: '#fafafa',
               borderRadius: '12px 12px 0 0'
             }}>
-              <button 
+              <div style={{ display: 'flex', gap: 2 }}>
+                <button 
                 onClick={() => setAddTab('nodes')} 
                 style={{ 
                   padding: '8px 16px', 
@@ -706,6 +791,12 @@ function FlowInner() {
               >
                 模板
               </button>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={exportFlow} title="导出当前编排为JSON" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer' }}>导出</button>
+                <button onClick={handleImportClick} title="导入JSON并复现编排" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer' }}>导入</button>
+                <input ref={importInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={(e) => handleImportFiles(e.target.files)} />
+              </div>
             </div>
             {addTab === 'nodes' ? (
               <div style={{ 
