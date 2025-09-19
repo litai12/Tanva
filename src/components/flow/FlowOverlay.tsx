@@ -277,6 +277,18 @@ function FlowInner() {
     const rect = container.getBoundingClientRect();
     if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
 
+    // 屏蔽 AI 对话框等区域及其外侧保护带（24px），防止误触发
+    try {
+      const shield = 24; // 外侧保护带
+      const preventEls = Array.from(document.querySelectorAll('[data-prevent-add-panel]')) as HTMLElement[];
+      for (const el of preventEls) {
+        const r = el.getBoundingClientRect();
+        if (clientX >= r.left - shield && clientX <= r.right + shield && clientY >= r.top - shield && clientY <= r.bottom + shield) {
+          return false;
+        }
+      }
+    } catch {}
+
     const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
     if (!el) return false;
     // 排除：添加面板/工具栏/Flow交互元素/任意标记为不触发的UI
@@ -343,7 +355,7 @@ function FlowInner() {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
   }, [addPanel.visible]);
 
-  // 捕获原生双击，仅在空白处触发；并阻止底层原生处理
+  // 捕获原生双击，仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
     const onNativeDblClick = (e: MouseEvent) => {
       if (!containerRef.current) return;
@@ -351,13 +363,24 @@ function FlowInner() {
       const x = e.clientX, y = e.clientY;
       if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
 
+      // 若在屏蔽元素或其外侧保护带内，忽略
+      try {
+        const shield = 24;
+        const preventEls = Array.from(document.querySelectorAll('[data-prevent-add-panel]')) as HTMLElement[];
+        for (const el of preventEls) {
+          const r = el.getBoundingClientRect();
+          if (x >= r.left - shield && x <= r.right + shield && y >= r.top - shield && y <= r.bottom + shield) {
+            return;
+          }
+        }
+      } catch {}
+
       if (isBlankArea(x, y)) {
         e.stopPropagation();
         e.preventDefault();
         openAddPanelAt(x, y);
       }
     };
-    // 使用捕获阶段，尽量在底层监听之前处理
     window.addEventListener('dblclick', onNativeDblClick, true);
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
