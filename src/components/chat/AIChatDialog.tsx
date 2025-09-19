@@ -298,11 +298,6 @@ const AIChatDialog: React.FC = () => {
     }
   };
 
-  // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
-  if (!isVisible) return null;
-
-  const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating;
-
   // 外圈双击放大/缩小：只有点击非内容区域（padding、外框）时生效
   const handleOuterDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const x = e.clientX, y = e.clientY;
@@ -340,6 +335,7 @@ const AIChatDialog: React.FC = () => {
   };
 
   // 全局兜底：允许在卡片外侧“环形区域”双击触发（更灵敏）
+  // 注意：Hook 需在任何 early return 之前声明，避免 Hook 次序不一致
   useEffect(() => {
     const onDbl = (ev: MouseEvent) => {
       const card = dialogRef.current;
@@ -383,6 +379,7 @@ const AIChatDialog: React.FC = () => {
   }, []);
 
   // 根据鼠标位置动态设置光标（zoom-in / zoom-out），明确可触发切换的区域
+  // 放在 early return 之前，避免 Hook 顺序问题
   useEffect(() => {
     const onMove = (ev: MouseEvent) => {
       const card = dialogRef.current; const content = contentRef.current; const cont = containerRef.current;
@@ -411,6 +408,7 @@ const AIChatDialog: React.FC = () => {
   }, [isMaximized]);
 
   // 捕获阶段拦截双击，避免触发 Flow 节点面板；并在非交互控件下切换大小
+  // 放在 early return 之前，避免 Hook 顺序问题
   useEffect(() => {
     const handler = (ev: MouseEvent) => {
       const target = ev.target as HTMLElement;
@@ -428,6 +426,11 @@ const AIChatDialog: React.FC = () => {
     if (el) el.addEventListener('dblclick', handler, true);
     return () => { if (el) el.removeEventListener('dblclick', handler, true); };
   }, []);
+
+  // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
+  if (!isVisible) return null;
+
+  const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating;
 
   return (
     <div ref={containerRef} data-prevent-add-panel className={cn(

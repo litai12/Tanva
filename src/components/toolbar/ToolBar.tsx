@@ -249,6 +249,19 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         isLayerPanelOpen ? "left-[322px]" : "left-2"
       )}
     >
+      {/* AI 对话开关 - 置于工具列最顶部 */}
+      <Button
+        variant={isAIDialogVisible ? 'default' : 'outline'}
+        size="sm"
+        className={cn(
+          "p-0 h-8 w-8 rounded-full",
+          getActiveButtonStyle(isAIDialogVisible)
+        )}
+        onClick={toggleDialog}
+        title={isAIDialogVisible ? "关闭 AI 对话" : "打开 AI 对话"}
+      >
+        <Sparkles className="w-4 h-4" />
+      </Button>
 
       {/* Flow 工具开关 */}
       {flowUIEnabled && (
@@ -489,7 +502,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* 统一画板：移除节点快速创建按钮（改为空白处双击弹窗） */}
 
-      {/* 图片/3D/截图/AI 对话工具 */}
+      {/* 图片/3D/截图 工具 */}
       <>
           <Button
             variant={drawMode === 'image' ? 'default' : 'outline'}
@@ -533,16 +546,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           <Camera className="w-4 h-4" />
         </Button>
 
-        {/* AI对话工具 */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="p-0 h-8 w-8 rounded-full bg-white/50 text-gray-700 border-gray-300"
-          onClick={toggleDialog}
-          title="AI对话"
-        >
-          <Sparkles className="w-4 h-4" />
-        </Button>
       </>
 
       {/* AI编辑图像工具 - 暂时隐藏 */}
