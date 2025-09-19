@@ -39,6 +39,9 @@ const AIChatDialog: React.FC = () => {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -272,19 +275,147 @@ const AIChatDialog: React.FC = () => {
 
   const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating;
 
+  // 外圈双击放大/缩小：只有点击非内容区域（padding、外框）时生效
+  const handleOuterDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const x = e.clientX, y = e.clientY;
+    const card = dialogRef.current;
+    const content = contentRef.current;
+    if (!card) { setIsMaximized(v => !v); return; }
+    const cardRect = card.getBoundingClientRect();
+    const insideCard = x >= cardRect.left && x <= cardRect.right && y >= cardRect.top && y <= cardRect.bottom;
+    const distToCardEdge = Math.min(
+      x - cardRect.left,
+      cardRect.right - x,
+      y - cardRect.top,
+      cardRect.bottom - y
+    );
+    if (!insideCard) {
+      // 外部区域不再触发（只接受向内偏移的区域）
+      return;
+    }
+    if (content) {
+      const cr = content.getBoundingClientRect();
+      const insideContent = x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom;
+      if (insideContent) {
+        // 在最大化时，允许在内容区内双击也能缩小，但避免输入框/按钮等交互控件
+        const tgt = e.target as HTMLElement;
+        const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+        const inTopBand = y <= cr.top + 24; // 内容顶部带
+        // 允许靠近卡片内边缘的带状区域（24px）无论是否最大化
+        const inInnerEdgeBand = distToCardEdge <= 24;
+        if (isMaximized) { /* 最大化时，任何卡片内部双击均允许（除交互控件） */ }
+        else if (!inTopBand && !inInnerEdgeBand) return; // 非最大化仅允许顶部带或内边缘带
+        if (interactive) return;
+      }
+    }
+    setIsMaximized(v => !v);
+  };
+
+  // 全局兜底：允许在卡片外侧“环形区域”双击触发（更灵敏）
+  useEffect(() => {
+    const onDbl = (ev: MouseEvent) => {
+      const card = dialogRef.current;
+      if (!card) return;
+      const x = ev.clientX, y = ev.clientY;
+      const r = card.getBoundingClientRect();
+      const content = contentRef.current;
+      const cr = content ? content.getBoundingClientRect() : null;
+
+      const insideCard = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+      const insideContent = cr ? (x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom) : false;
+      const distToCardEdge = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
+
+      // 定义外侧环形区域（卡片外扩24px以内，但不包含卡片外太远区域）
+      // 外环禁用，只允许卡片内触发
+
+      // 触发条件：
+      // 1) 卡片padding/边框区域
+      // 2) 外侧环形区域
+      // 3) 在最大化时，即使在内容区内，只要不是交互控件也允许
+      const tgt = ev.target as HTMLElement;
+      const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+      const inTopBand = cr ? y <= cr.top + 24 : false;
+      const inInnerEdgeBand = distToCardEdge <= 24;
+      const allowInsideContent = ((isMaximized || inTopBand || inInnerEdgeBand) && !interactive);
+      if (insideCard && (!insideContent || allowInsideContent)) {
+        ev.stopPropagation();
+        ev.preventDefault();
+        setIsMaximized(v => !v);
+      }
+
+      // 外部屏蔽：卡片外侧一定范围内，阻止冒泡，防止 Flow 弹出节点面板
+      const inOuterShield = x >= r.left - 24 && x <= r.right + 24 && y >= r.top - 24 && y <= r.bottom + 24 && !insideCard;
+      if (inOuterShield) {
+        ev.stopPropagation();
+        ev.preventDefault();
+      }
+    };
+    window.addEventListener('dblclick', onDbl, true);
+    return () => window.removeEventListener('dblclick', onDbl, true);
+  }, []);
+
+  // 根据鼠标位置动态设置光标（zoom-in / zoom-out），明确可触发切换的区域
+  useEffect(() => {
+    const onMove = (ev: MouseEvent) => {
+      const card = dialogRef.current; const content = contentRef.current; const cont = containerRef.current;
+      if (!card || !cont) return;
+      const x = ev.clientX, y = ev.clientY;
+      const r = card.getBoundingClientRect();
+      const insideCard = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+      const cr = content ? content.getBoundingClientRect() : null;
+      const insideContent = cr ? (x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom) : false;
+      const distToCardEdge = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
+      const inTopBand = cr ? y <= cr.top + 28 : false;
+      const inInnerEdgeBand = distToCardEdge <= 28;
+      const target = ev.target as HTMLElement;
+      const interactive = !!target?.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+
+      let should = false;
+      if (insideCard) {
+        if (!insideContent) should = true; // 卡片padding/边框
+        else if (!interactive && (isMaximized || inTopBand || inInnerEdgeBand)) should = true;
+      }
+      setHoverToggleZone(should);
+      cont.style.cursor = should ? (isMaximized ? 'zoom-out' : 'zoom-in') : '';
+    };
+    window.addEventListener('mousemove', onMove, true);
+    return () => window.removeEventListener('mousemove', onMove, true);
+  }, [isMaximized]);
+
+  // 捕获阶段拦截双击，避免触发 Flow 节点面板；并在非交互控件下切换大小
+  useEffect(() => {
+    const handler = (ev: MouseEvent) => {
+      const target = ev.target as HTMLElement;
+      const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+      if (interactive) {
+        // 在交互控件上双击：只阻止冒泡，不切换
+        ev.stopPropagation();
+        return;
+      }
+      ev.stopPropagation();
+      ev.preventDefault();
+      setIsMaximized(v => !v);
+    };
+    const el = containerRef.current;
+    if (el) el.addEventListener('dblclick', handler, true);
+    return () => { if (el) el.removeEventListener('dblclick', handler, true); };
+  }, []);
+
   return (
-    <div data-prevent-add-panel className={cn(
+    <div ref={containerRef} data-prevent-add-panel className={cn(
       "fixed z-50 transition-all duration-300 ease-out",
       isMaximized
         ? "top-32 left-16 right-16 bottom-4" // 最大化时，64px边距
         : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4"
-    )}>
+    )} onDoubleClick={handleOuterDoubleClick}>
       <div
         ref={dialogRef}
+        data-prevent-add-panel
         className={cn(
           "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-hidden",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
+        onDoubleClick={handleOuterDoubleClick}
       >
         {/* 进度条 - 贴着对话框顶部，避免触碰圆角 */}
         {generationStatus.isGenerating && (
@@ -299,7 +430,7 @@ const AIChatDialog: React.FC = () => {
         )}
         
         {/* 内容区域 */}
-        <div className={cn(
+        <div ref={contentRef} data-chat-content className={cn(
           isMaximized ? "p-4 h-full overflow-hidden" : ""
         )}>
 
@@ -395,7 +526,41 @@ const AIChatDialog: React.FC = () => {
 
 
           {/* 输入区域 */}
-          <div onClick={(e) => e.stopPropagation()}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onMouseDownCapture={(e) => {
+              // 捕获阶段拦截，避免文本选中/聚焦导致的蓝色高亮
+              try {
+                const t = textareaRef.current; if (!t) return;
+                const r = t.getBoundingClientRect();
+                const x = (e as any).clientX, y = (e as any).clientY;
+                const inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+                if (!inside) return;
+                const edgeDist = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
+                if (edgeDist <= 24) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              } catch {}
+            }}
+            onDoubleClick={(e) => {
+              try {
+                const t = textareaRef.current;
+                if (!t) { e.preventDefault(); e.stopPropagation(); setIsMaximized(v => !v); return; }
+                const r = t.getBoundingClientRect();
+                const x = e.clientX, y = e.clientY;
+                const insideText = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+                if (!insideText) { e.preventDefault(); e.stopPropagation(); setIsMaximized(v => !v); return; }
+                // 判断是否在“外圈框”区域：靠近边缘的环（阈值 24px）
+                const edgeDist = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
+                if (edgeDist <= 24) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsMaximized(v => !v);
+                }
+              } catch {}
+            }}
+          >
             <div className="relative">
 
               <Textarea

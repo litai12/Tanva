@@ -128,7 +128,7 @@ const FloatingHeader: React.FC = () => {
                 {/* 左侧区域：Logo + Beta */}
                 <div className="flex items-center gap-2">
                     <div
-                        className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity"
+                        className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity select-none"
                         onClick={handleLogoClick}
                         title="返回首页"
                     >
@@ -136,6 +136,7 @@ const FloatingHeader: React.FC = () => {
                             src="/logo.png"
                             alt="Logo"
                             className="w-6 h-6 object-contain"
+                            draggable="false"
                         />
                     </div>
                     <Badge variant="secondary" className="text-[8px] px-1 py-0">
