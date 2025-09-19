@@ -46,11 +46,14 @@ export interface AIImageResult {
 // AI流式响应进度事件
 export interface AIStreamProgressEvent {
   operationType: string;
-  phase: 'starting' | 'text_received' | 'image_received' | 'completed' | 'error';
+  phase: 'starting' | 'text_received' | 'text_delta' | 'image_received' | 'completed' | 'error';
   chunkCount?: number;
   textLength?: number;
   hasImage?: boolean;
   message?: string;
+  // 新增：文本增量与完整文本（可选）
+  deltaText?: string;
+  fullText?: string;
   timestamp: number;
 }
 

@@ -341,6 +341,15 @@ class AIImageService {
             totalResponseSize += textLength;
             console.log(`📝 ${operationType}文本块 (+${textLength}字符):`, part.text.substring(0, 50) + (part.text.length > 50 ? '...' : ''));
 
+            // 文本增量事件：逐段通知UI进行流式渲染
+            this.emitProgressUpdate(operationType, {
+              phase: 'text_delta',
+              chunkCount,
+              textLength: textResponse.length,
+              deltaText: part.text,
+              message: `收到${operationType}文本增量`
+            });
+
             // 首次接收到文本时发送通知
             if (!hasReceivedText) {
               hasReceivedText = true;
@@ -491,7 +500,8 @@ class AIImageService {
         chunkCount,
         textLength: textResponse.length,
         hasImage: !!imageBytes,
-        message: `${operationType}流式响应处理完成`
+        message: `${operationType}流式响应处理完成`,
+        fullText: textResponse
       });
 
       return { imageBytes, textResponse };

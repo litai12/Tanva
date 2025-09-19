@@ -13,6 +13,7 @@ import { Send, AlertCircle, Image, X, History, Plus, Search } from 'lucide-react
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { AIStreamProgressEvent } from '@/types/ai';
 
 const AIChatDialog: React.FC = () => {
   const {
@@ -49,6 +50,9 @@ const AIChatDialog: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [manuallyClosedHistory, setManuallyClosedHistory] = useState(false);
+  // 流式文本渲染状态（仅文本对话）
+  const [streamingText, setStreamingText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
   
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
@@ -90,7 +94,7 @@ const AIChatDialog: React.FC = () => {
 
   // 自动滚动到最新消息
   useEffect(() => {
-    if ((showHistory || isMaximized) && historyRef.current && messages.length > 0) {
+    if ((showHistory || isMaximized) && historyRef.current && (messages.length > 0 || isStreaming)) {
       // 延迟滚动，确保DOM已更新
       const timer = setTimeout(() => {
         if (historyRef.current) {
@@ -99,7 +103,7 @@ const AIChatDialog: React.FC = () => {
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [showHistory, messages.length, isMaximized]);
+  }, [showHistory, messages.length, isMaximized, isStreaming, streamingText]);
 
   // 自动聚焦到输入框
   useEffect(() => {
@@ -157,6 +161,28 @@ const AIChatDialog: React.FC = () => {
       setManuallyClosedHistory(false);
     }
   };
+
+  // 订阅AI流式进度事件，按增量渲染文本（仅限“文本对话”）
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<AIStreamProgressEvent>).detail;
+      if (!detail || detail.operationType !== '文本对话') return;
+      if (detail.phase === 'starting') {
+        setIsStreaming(true);
+        setStreamingText('');
+      } else if (detail.phase === 'text_delta' && detail.deltaText) {
+        setIsStreaming(true);
+        setStreamingText(prev => prev + detail.deltaText);
+      } else if (detail.phase === 'completed' || detail.phase === 'error') {
+        // 完成或出错时停止流式展示；最终内容会在消息历史中以正式消息出现
+        setIsStreaming(false);
+        // 可选：若未能落盘为正式消息，保留 fullText 以防闪烁
+        // 当前逻辑由 generateTextResponse 在完成后 addMessage
+      }
+    };
+    window.addEventListener('aiStreamProgress', handler as EventListener);
+    return () => window.removeEventListener('aiStreamProgress', handler as EventListener);
+  }, []);
 
   // 统一的图片上传处理
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -686,7 +712,7 @@ const AIChatDialog: React.FC = () => {
           )}
 
           {/* 消息历史（点击对话框时显示，最大化时始终显示） */}
-          {(showHistory || isMaximized) && messages.length > 0 && (
+          {(showHistory || isMaximized) && (messages.length > 0 || isStreaming) && (
             <div
               ref={historyRef}
               className={cn(
@@ -946,6 +972,31 @@ const AIChatDialog: React.FC = () => {
                     )}
                   </div>
                 ))}
+
+                {/* 流式文本临时气泡（仅文本对话） */}
+                {isStreaming && streamingText && (
+                  <div
+                    className={cn(
+                      "p-2 transition-colors text-sm text-black mr-3"
+                    )}
+                  >
+                    {/* AI消息标识 */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
+                      <span className="text-sm font-bold text-black">TAI</span>
+                      <span className="text-xs text-gray-400">正在输入…</span>
+                    </div>
+                    <div className={cn(
+                      "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass rounded-lg p-3"
+                    )}>
+                      <div className="text-sm leading-relaxed text-black break-words markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {streamingText}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
