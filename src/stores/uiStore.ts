@@ -10,6 +10,7 @@ interface UIState {
   showFlowPanel: boolean; // Flow 工具面板
   flowUIEnabled: boolean; // 是否渲染Flow相关UI（主工具按钮+浮动面板）
   mode: 'chat' | 'node'; // 全局模式
+  flowEraserActive: boolean; // 节点擦除工具开关（仅 Node 模式）
 
   // 智能落位配置
   smartPlacementOffset: number; // px，默认 522
@@ -24,6 +25,8 @@ interface UIState {
   setFlowUIEnabled: (enabled: boolean) => void;
   toggleMode: () => void;
   setMode: (m: 'chat' | 'node') => void;
+  toggleFlowEraser: () => void;
+  setFlowEraser: (v: boolean) => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -54,6 +57,7 @@ export const useUIStore = create<UIState>((set) => ({
   showFlowPanel: false,
   flowUIEnabled: false,
   mode: 'chat',
+  flowEraserActive: false,
   smartPlacementOffset: initialOffset,
 
   // 切换方法
@@ -66,6 +70,8 @@ export const useUIStore = create<UIState>((set) => ({
   setFlowUIEnabled: (enabled) => set({ flowUIEnabled: !!enabled }),
   toggleMode: () => set((state) => ({ mode: state.mode === 'chat' ? 'node' : 'chat' })),
   setMode: (m) => set({ mode: m }),
+  toggleFlowEraser: () => set((state) => ({ flowEraserActive: !state.flowEraserActive })),
+  setFlowEraser: (v) => set({ flowEraserActive: !!v }),
 
   // 设置方法
   setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),

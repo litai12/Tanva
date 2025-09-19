@@ -16,12 +16,17 @@ const NodeModeButton: React.FC<{
   onClick?: () => void;
   title?: string;
   className?: string;
-}> = ({ children, onClick, title, className }) => (
+  active?: boolean;
+}> = ({ children, onClick, title, className, active }) => (
   <div className="relative">
     <Button 
-      variant="outline" 
+      variant={active ? 'default' : 'outline'} 
       size="sm" 
-      className={cn("p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300", className)}
+      className={cn(
+        "p-0 h-8 w-8 rounded-full",
+        active ? "bg-blue-600 text-white" : "bg-white/50 border-gray-300 hover:bg-blue-50 hover:border-blue-300",
+        className
+      )}
       onClick={onClick}
       title={title}
     >
@@ -450,7 +455,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
     return ['rect', 'circle'].includes(mode);
   };
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, mode } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, mode, toggleFlowEraser, flowEraserActive } = useUIStore();
 
   // 根据模式获取激活状态的按钮样式
   const getActiveButtonStyle = (isActive: boolean) => {
@@ -666,18 +671,19 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
               {/* 线条颜色选择器 */}
               <div className="flex flex-col items-center gap-1">
+                <span className="text-xs text-gray-600 font-medium">线条</span>
                 <ColorPicker
                   value={currentColor}
                   onChange={setCurrentColor}
                   disabled={isEraser}
                   title="线条颜色"
-                  showLabel="L"
                 />
               </div>
 
               {/* 填充控制区域 - 只在支持填充的工具时显示 */}
               {supportsFill(drawMode) && (
                 <div className="flex flex-col items-center gap-1">
+                  <span className="text-xs text-gray-600 font-medium">填充</span>
                   <ColorPicker
                     value={fillColor}
                     onChange={(color) => {
@@ -692,7 +698,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
                     title="填充颜色"
                     showTransparent={true}
                     isTransparent={!hasFill}
-                    showLabel={hasFill ? "F" : undefined}
+                    showFillPattern={hasFill}
                   />
                 </div>
               )}
@@ -715,19 +721,21 @@ const ToolBar: React.FC<ToolBarProps> = ({
         )}
       </div>
 
-      {/* 橡皮擦工具 - 放在画笔工具下方 */}
-      <Button
-        onClick={toggleEraser}
-        variant={isEraser ? "default" : "outline"}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(isEraser)
-        )}
-        title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
-      >
-        <Eraser className="w-4 h-4" />
-      </Button>
+      {/* 橡皮擦工具 - 放在画笔工具下方（仅非Node模式显示） */}
+      {mode !== 'node' && (
+        <Button
+          onClick={toggleEraser}
+          variant={isEraser ? "default" : "outline"}
+          size="sm"
+          className={cn(
+            "p-0 h-8 w-8 rounded-full",
+            getActiveButtonStyle(isEraser)
+          )}
+          title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
+        >
+          <Eraser className="w-4 h-4" />
+        </Button>
+      )}
 
       <Separator orientation="horizontal" className="w-6" />
 
@@ -795,6 +803,10 @@ const ToolBar: React.FC<ToolBarProps> = ({
           </NodeModeButton>
           <NodeModeButton onClick={() => (window as any).tanvaFlow?.addCamera?.()} title="Camera Node">
             <Camera className="w-4 h-4" />
+          </NodeModeButton>
+          {/* 节点擦除工具（带 N 标识） */}
+          <NodeModeButton active={flowEraserActive} onClick={toggleFlowEraser} title={flowEraserActive ? '节点擦除：开启' : '节点擦除：关闭'}>
+            <Eraser className="w-4 h-4" />
           </NodeModeButton>
         </>
       )}

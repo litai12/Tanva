@@ -11,6 +11,7 @@ interface ColorPickerProps {
   showTransparent?: boolean;
   isTransparent?: boolean; // 新增：是否当前为透明状态
   showLabel?: string; // 新增：在颜色块中心显示的字母标签
+  showFillPattern?: boolean; // 新增：是否显示填充图案
 }
 
 // 预设颜色面板 - 1行12列（12个颜色）
@@ -30,6 +31,27 @@ const TransparentIcon: React.FC<{ className?: string }> = ({ className }) => (
   </div>
 );
 
+// 填充图案图标 - 连续斜线填充效果
+const FillPatternIcon: React.FC<{ className?: string; color: string }> = ({ className, color }) => {
+  const patternId = `fillPattern-${Math.random().toString(36).substr(2, 9)}`;
+  
+  return (
+    <div className={cn("relative w-full h-full rounded", className)}>
+      {/* 背景色 */}
+      <div className="absolute inset-0 rounded" style={{ backgroundColor: color }} />
+      {/* 连续斜线图案 */}
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 24 24">
+        <defs>
+          <pattern id={patternId} patternUnits="userSpaceOnUse" width="3" height="3">
+            <line x1="0" y1="3" x2="3" y2="0" stroke="rgba(255,255,255,0.7)" strokeWidth="0.8"/>
+          </pattern>
+        </defs>
+        <rect width="24" height="24" fill={`url(#${patternId})`} />
+      </svg>
+    </div>
+  );
+};
+
 const ColorPicker: React.FC<ColorPickerProps> = ({
   value,
   onChange,
@@ -39,7 +61,8 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
   title,
   showTransparent = false,
   isTransparent = false,
-  showLabel
+  showLabel,
+  showFillPattern = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -85,6 +108,9 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
         {/* 如果是透明状态，显示透明图标 */}
         {isTransparent && !disabled ? (
           <TransparentIcon />
+        ) : showFillPattern && !disabled ? (
+          /* 显示填充图案 */
+          <FillPatternIcon color={value} />
         ) : showLabel ? (
           /* 显示字母标签 */
           <span 

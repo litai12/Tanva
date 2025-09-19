@@ -52,3 +52,9 @@
   box-shadow: 0 4px 10px rgba(0,0,0,0.15);
   pointer-events: none;
 }
+
+/* 擦除模式下的悬停高亮（节点） */
+.tanva-flow-overlay .react-flow__node.eraser-hover > div {
+  box-shadow: 0 0 0 2px #3b82f6 inset !important; /* tailwind blue-500 */
+  border-radius: 8px;
+}

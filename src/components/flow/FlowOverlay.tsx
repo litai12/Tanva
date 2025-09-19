@@ -51,6 +51,10 @@ function FlowInner() {
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
+  const flowEraserActive = useUIStore(s => s.flowEraserActive);
+  const mode = useUIStore(s => s.mode);
+  const [hoverNodeId, setHoverNodeId] = React.useState<string | null>(null);
+  const [hoverEdgeId, setHoverEdgeId] = React.useState<string | null>(null);
 
   // 背景设置改为驱动底层 Canvas 网格
   const showGrid = useUIStore(s => s.showGrid);
@@ -119,6 +123,16 @@ function FlowInner() {
     }
     return () => document.body.classList.remove('tanva-no-select');
   }, [isConnecting]);
+
+  // 擦除模式退出时清除高亮
+  React.useEffect(() => {
+    if (!flowEraserActive) {
+      setNodes(ns => ns.map(n => (n.className === 'eraser-hover' ? { ...n, className: undefined } : n)));
+      setEdges(es => es.map(e => (hoverEdgeId && e.id === hoverEdgeId ? { ...e, style: { ...(e.style || {}), stroke: undefined, strokeWidth: undefined } } : e)));
+      setHoverNodeId(null);
+      setHoverEdgeId(null);
+    }
+  }, [flowEraserActive]);
 
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback((connection: Connection) => {
@@ -430,7 +444,7 @@ function FlowInner() {
   ) : null;
 
   return (
-    <div ref={containerRef} className="tanva-flow-overlay absolute inset-0">
+    <div ref={containerRef} className={"tanva-flow-overlay absolute inset-0 " + (flowEraserActive && mode==='node' ? 'cursor-crosshair' : '')}>
       {FlowToolbar}
       <ReactFlow
         nodes={nodesWithHandlers}
@@ -440,6 +454,45 @@ function FlowInner() {
         onConnect={onConnect}
         onConnectStart={() => setIsConnecting(true)}
         onConnectEnd={() => setIsConnecting(false)}
+        onNodeMouseEnter={(e, n) => {
+          if (flowEraserActive && mode==='node') {
+            setHoverNodeId(n.id);
+            setNodes(ns => ns.map(x => x.id === n.id ? { ...x, className: 'eraser-hover' } : (x.className === 'eraser-hover' ? { ...x, className: undefined } : x)));
+          }
+        }}
+        onNodeMouseLeave={(e, n) => {
+          if (flowEraserActive && mode==='node') {
+            setHoverNodeId(null);
+            setNodes(ns => ns.map(x => x.id === n.id ? { ...x, className: undefined } : x));
+          }
+        }}
+        onEdgeMouseEnter={(e, ed) => {
+          if (flowEraserActive && mode==='node') {
+            setHoverEdgeId(ed.id);
+            setEdges(es => es.map(x => x.id === ed.id ? { ...x, style: { ...(x.style || {}), stroke: '#3b82f6', strokeWidth: 2 } } : x));
+          }
+        }}
+        onEdgeMouseLeave={(e, ed) => {
+          if (flowEraserActive && mode==='node') {
+            setHoverEdgeId(null);
+            setEdges(es => es.map(x => x.id === ed.id ? { ...x, style: { ...(x.style || {}), stroke: undefined, strokeWidth: undefined } } : x));
+          }
+        }}
+        onNodeClick={(e, n) => {
+          if (flowEraserActive && mode==='node') {
+            e.preventDefault();
+            e.stopPropagation();
+            setEdges(es => es.filter(x => x.source !== n.id && x.target !== n.id));
+            setNodes(ns => ns.filter(x => x.id !== n.id));
+          }
+        }}
+        onEdgeClick={(e, ed) => {
+          if (flowEraserActive && mode==='node') {
+            e.preventDefault();
+            e.stopPropagation();
+            setEdges(es => es.filter(x => x.id !== ed.id));
+          }
+        }}
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
         fitView={false}
