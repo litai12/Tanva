@@ -203,12 +203,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
               </div>
             </div>
 
-            {/* 导航提示 */}
-            <div className="p-3">
-              <p className="text-white/70 text-xs text-center">
-                ← → 键盘导航 | 点击切换图片
-              </p>
-            </div>
+            {/* 导航提示移除 */}
           </div>
         )}
 
