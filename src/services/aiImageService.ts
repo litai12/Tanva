@@ -1395,36 +1395,36 @@ ${contextualPrompt}
    * 检测用户是否明确要求分析图片
    */
   private isExplicitImageAnalysisRequest(userInput: string): boolean {
-    const lowerInput = userInput.toLowerCase();
-    
-    // 明确的图片分析关键词
-    const imageAnalysisKeywords = [
-      '分析图片', '分析这张图', '分析图像', '看图', '识别图片', '图片内容',
-      '这图片', '图中', '图上', '画面', '照片', '截图',
-      'analyze image', 'what is in', 'describe image', 'image content',
-      'picture shows', 'photo contains', 'image analysis'
+    const input = (userInput || '').trim();
+    const lower = input.toLowerCase();
+
+    // 更宽松的中英文匹配：允许“分析/看看/识别/描述/讲讲/说说 + (一下|下) + (这张)?(图/图片/照片/截图)”等可选词
+    const cnPatterns: RegExp[] = [
+      /(分[析解]|看|看看|看下|看一下|识别|描述|讲讲|说说|解释|评价).{0,8}((这张)?(图|图片|照片|截图))/i,
+      /((这张)?(图|图片|照片|截图)).{0,8}(分[析解]|看|看看|识别|描述|解释|评价)/i,
+      /(图中|图上|画面).{0,6}(是什么|有什|包含|描述|讲讲|说说)/i
     ];
-    
-    // 检查是否包含明确的图片分析关键词
-    const hasImageKeyword = imageAnalysisKeywords.some(keyword => 
-      lowerInput.includes(keyword)
-    );
-    
-    // 排除数学计算、对话等非图片分析意图
-    const isNonImageIntent = /[\d\+\-\*\/\=]/.test(userInput) || // 数学计算
-                             lowerInput.includes('计算') ||
-                             lowerInput.includes('算') ||
-                             lowerInput.includes('问题') ||
-                             lowerInput.includes('解释');
-    
-    console.log('🔍 图片分析明确性检测:', {
-      用户输入: userInput.substring(0, 50),
-      有图片关键词: hasImageKeyword,
-      是非图片意图: isNonImageIntent,
-      最终判断: hasImageKeyword && !isNonImageIntent
+
+    const enPatterns: RegExp[] = [
+      /(analy[sz]e|describe|explain|identify|what\s+is\s+in|look\s+at).{0,20}(image|photo|picture|screenshot)/i,
+      /(image|photo|picture|screenshot).{0,20}(analy[sz]e|describe|explain|identify)/i
+    ];
+
+    const matchesCN = cnPatterns.some((re) => re.test(input));
+    const matchesEN = enPatterns.some((re) => re.test(lower));
+
+    // 排除明显的非图片分析指令（数学/编程等）
+    const notImage = /[\d\+\-\*\/\=]/.test(input) || /代码|程序|计算|算|证明/.test(input);
+
+    const result = (matchesCN || matchesEN) && !notImage;
+    console.log('🔍 图片分析明确性检测(宽松):', {
+      输入: input.substring(0, 50),
+      匹配中文: matchesCN,
+      匹配英文: matchesEN,
+      非图片意图: notImage,
+      最终: result
     });
-    
-    return hasImageKeyword && !isNonImageIntent;
+    return result;
   }
 
   /**
@@ -1502,13 +1502,16 @@ ${contextualPrompt}
         break;
         
       case 'text':
-        // 🎯 优先尊重AI的判断：既然AI说是text，通常就应该执行文字处理
-        // 只有在用户明确要求分析图片时，才执行图片分析
+        // 如果用户上传了图片，并且用户输入明显与“分析图片”相关，则转为图片分析
+        // 放宽判定，常见“你分析一下这张图”也命中
         const isExplicitImageRequest = this.isExplicitImageAnalysisRequest(userInput);
-        
-        if (isExplicitImageRequest && (userSelectedImageCount > 0 || hasCachedForFallback)) {
+        const mentionsImageWord = /(图|图片|照片|截图|image|photo|picture|screenshot)/i.test(userInput);
+
+        if ((userSelectedImageCount > 0 || hasCachedForFallback) && (isExplicitImageRequest || mentionsImageWord)) {
           selectedTool = 'analyzeImage';
-          logicReasoning = '明确要求分析图片，执行图片分析';
+          logicReasoning = isExplicitImageRequest
+            ? '明确要求分析图片，执行图片分析'
+            : '检测到上传图片且文本提到图片，优先进行图片分析';
         } else {
           selectedTool = 'chatResponse';
           logicReasoning = (userSelectedImageCount > 0 || hasCachedForFallback)
@@ -1576,7 +1579,15 @@ ${contextualPrompt}
     const userSelectedImageCount = imageCount; // 只计算用户显式选择的图片
     const hasCachedForFallback = hasCachedImage && imageCount === 0; // 只有没有显式选择时才考虑缓存
     
-    if (userSelectedImageCount === 0 && !hasCachedForFallback) {
+    const wantAnalysis = this.isExplicitImageAnalysisRequest(userInput) || /(图|图片|照片|截图|image|photo|picture|screenshot)/i.test(userInput);
+
+    if ((userSelectedImageCount > 0 || hasCachedForFallback) && wantAnalysis) {
+      // 有图片且有明显分析意图 → 分析
+      selectedCategory = '图像分析类';
+      selectedTool = 'analyzeImage';
+      reasoning = '检测到上传图片且文本包含分析相关词，执行图片分析';
+      confidence = 0.95;
+    } else if (userSelectedImageCount === 0 && !hasCachedForFallback) {
       // 没有图片，默认生成
       selectedCategory = '图像生成类';
       selectedTool = 'generateImage';
