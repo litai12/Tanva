@@ -9,14 +9,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { useUIStore } from '@/stores';
 import { Send, AlertCircle, Image, X, History, Plus, Maximize2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const AIChatDialog: React.FC = () => {
-  const { mode } = useUIStore();
   const {
     isVisible,
     currentInput,
@@ -269,8 +267,8 @@ const AIChatDialog: React.FC = () => {
     }
   };
 
-  // 如果对话框不可见或在Node模式下，不渲染
-  if (!isVisible || mode === 'node') return null;
+  // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
+  if (!isVisible) return null;
 
   const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating;
 

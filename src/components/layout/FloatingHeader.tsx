@@ -25,7 +25,7 @@ import {
     Palette,
     Check,
     ChevronRight,
-    ToggleRight
+    
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
@@ -41,9 +41,6 @@ const FloatingHeader: React.FC = () => {
         toggleLibraryPanel,
         toggleGrid,
         setShowGrid,
-        mode,
-        toggleMode,
-        setMode
     } = useUIStore();
     
     const { 
@@ -156,27 +153,8 @@ const FloatingHeader: React.FC = () => {
 
                 <div className="hidden sm:block w-px h-6 bg-white/20"></div>
 
-                {/* 右侧区域：次要功能 + 模式切换 */}
+                {/* 右侧区域：次要功能 */}
                 <div className="flex items-center gap-1.5">
-                    {/* 模式切换：收窄样式，中间显示文字，两端为圆形滑钮停靠区 */}
-                    <div className="relative w-[100px] h-8 rounded-full border border-liquid-glass-light bg-white/95 shadow-sm select-none overflow-hidden">
-                      {/* 点击半区 */}
-                      <button onClick={() => setMode('chat')} className="absolute left-0 top-0 h-full w-1/2" aria-label="切换到聊天模式" />
-                      <button onClick={() => setMode('node')} className="absolute right-0 top-0 h-full w-1/2" aria-label="切换到节点模式" />
-
-                      {/* 中间文字（根据模式切换），始终居中显示 */}
-                      <div className="absolute inset-0 flex items-center justify-center text-[11px] pointer-events-none">
-                        <span className={cn('transition-colors', mode === 'chat' ? 'text-gray-900' : 'text-gray-900')}>{mode === 'chat' ? '聊天模式' : '节点模式'}</span>
-                      </div>
-
-                      {/* 滑钮：蓝色主题 */}
-                      <div
-                        aria-hidden
-                        className={cn('absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white transition-all duration-200 border-2 border-blue-600',
-                          mode === 'chat' ? 'left-1' : 'left-[calc(100%-1.25rem-4px)]')}
-                        style={{ boxShadow: '0 2px 6px rgba(0,0,0,0.12)' }}
-                      />
-                    </div>
                     {/* 素材库按钮 */}
                     <Button
                         onClick={toggleLibraryPanel}

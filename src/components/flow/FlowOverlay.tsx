@@ -1,6 +1,5 @@
 import React from 'react';
 import ReactFlow, {
-  Background,
   Controls,
   MiniMap,
   type Connection,
@@ -99,10 +98,7 @@ function FlowInner() {
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
-  const flowEraserActive = useUIStore(s => s.flowEraserActive);
-  const mode = useUIStore(s => s.mode);
-  const [hoverNodeId, setHoverNodeId] = React.useState<string | null>(null);
-  const [hoverEdgeId, setHoverEdgeId] = React.useState<string | null>(null);
+  // 统一画板：节点橡皮已禁用
 
   // 背景设置改为驱动底层 Canvas 网格
   const showGrid = useUIStore(s => s.showGrid);
@@ -174,13 +170,89 @@ function FlowInner() {
 
   // 擦除模式退出时清除高亮
   React.useEffect(() => {
-    if (!flowEraserActive) {
-      setNodes(ns => ns.map(n => (n.className === 'eraser-hover' ? { ...n, className: undefined } : n)));
-      setEdges(es => es.map(e => (hoverEdgeId && e.id === hoverEdgeId ? { ...e, style: { ...(e.style || {}), stroke: undefined, strokeWidth: undefined } } : e)));
-      setHoverNodeId(null);
-      setHoverEdgeId(null);
+    // 节点橡皮已禁用，确保无高亮残留
+    setNodes(ns => ns.map(n => (n.className === 'eraser-hover' ? { ...n, className: undefined } : n)));
+  }, [setNodes]);
+
+  // 双击空白处弹出添加面板
+  const [addPanel, setAddPanel] = React.useState<{ visible: boolean; screen: { x: number; y: number }; world: { x: number; y: number } }>({ visible: false, screen: { x: 0, y: 0 }, world: { x: 0, y: 0 } });
+  const [addTab, setAddTab] = React.useState<'nodes' | 'templates'>('nodes');
+  const addPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const lastPaneClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
+
+  const openAddPanelAt = React.useCallback((clientX: number, clientY: number) => {
+    const world = rf.project({ x: clientX, y: clientY });
+    setAddTab('nodes');
+    setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
+  }, [rf]);
+
+  const onPaneClick = React.useCallback((event: React.MouseEvent) => {
+    // 基于两次快速点击判定双击（ReactFlow Pane 无原生 onDoubleClick 回调）
+    const now = Date.now();
+    const x = event.clientX, y = event.clientY;
+    const last = lastPaneClickRef.current;
+    lastPaneClickRef.current = { t: now, x, y };
+    if (last && (now - last.t) < 500 && Math.hypot(last.x - x, last.y - y) < 10) {
+      // 仅空白区域触发：若点击在节点或边上则忽略
+      const target = event.target as HTMLElement;
+      if (target.closest('.react-flow__node') || target.closest('.react-flow__edge')) return;
+      openAddPanelAt(x, y);
     }
-  }, [flowEraserActive]);
+  }, [openAddPanelAt]);
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddPanel(v => ({ ...v, visible: false })); };
+    const onDown = (e: MouseEvent) => {
+      if (!addPanel.visible) return;
+      const el = addPanelRef.current;
+      if (el && !el.contains(e.target as HTMLElement)) setAddPanel(v => ({ ...v, visible: false }));
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
+  }, [addPanel.visible]);
+
+  // 捕获原生双击（容器空白区域），避免被底层Canvas独占
+  React.useEffect(() => {
+    const onNativeDblClick = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.clientX, y = e.clientY;
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+
+      const target = e.target as HTMLElement;
+      // 忽略：节点/边/句柄/工具栏/添加面板/其他UI
+      if (target.closest('.react-flow__node') || target.closest('.react-flow__edge') || target.closest('.react-flow__handle')) return;
+      if (addPanelRef.current && addPanelRef.current.contains(target)) return;
+      if (target.closest('.tanva-flow-toolbar') || target.closest('[data-prevent-add-panel]')) return;
+
+      // 触发添加面板
+      openAddPanelAt(x, y);
+    };
+    // 使用捕获阶段，尽量在底层监听之前处理
+    window.addEventListener('dblclick', onNativeDblClick, true);
+    return () => window.removeEventListener('dblclick', onNativeDblClick, true);
+  }, [openAddPanelAt]);
+
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'image' | 'generate' | 'three' | 'camera', world: { x: number; y: number }) => {
+    // 以默认尺寸中心对齐放置
+    const size = {
+      textPrompt: { w: 240, h: 180 },
+      image: { w: 260, h: 240 },
+      generate: { w: 260, h: 200 },
+      three: { w: 280, h: 260 },
+      camera: { w: 260, h: 220 },
+    }[type];
+    const id = `${type}_${Date.now()}`;
+    const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
+    const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h }
+      : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
+      : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
+      : { boxW: size.w, boxH: size.h };
+    setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
+    setAddPanel(v => ({ ...v, visible: false }));
+    return id;
+  }, [setNodes]);
 
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback((connection: Connection) => {
@@ -494,8 +566,24 @@ function FlowInner() {
     </div>
   ) : null;
 
+  // 计算添加面板的容器内定位
+  const addPanelStyle = React.useMemo(() => {
+    if (!addPanel.visible) return { display: 'none' } as React.CSSProperties;
+    const rect = containerRef.current?.getBoundingClientRect();
+    const left = (addPanel.screen.x - (rect?.left || 0));
+    const top = (addPanel.screen.y - (rect?.top || 0));
+    return { position: 'absolute', left, top, zIndex: 20 } as React.CSSProperties;
+  }, [addPanel.visible, addPanel.screen.x, addPanel.screen.y]);
+
+  const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (addPanelRef.current && addPanelRef.current.contains(target)) return;
+    if (target.closest('.react-flow__node') || target.closest('.react-flow__edge')) return;
+    openAddPanelAt(e.clientX, e.clientY);
+  }, [openAddPanelAt]);
+
   return (
-    <div ref={containerRef} className={"tanva-flow-overlay absolute inset-0 " + (flowEraserActive && mode==='node' ? 'cursor-crosshair' : '')}>
+    <div ref={containerRef} className={"tanva-flow-overlay absolute inset-0"} onDoubleClick={handleContainerDoubleClick}>
       {FlowToolbar}
       <ReactFlow
         nodes={nodesWithHandlers}
@@ -505,45 +593,8 @@ function FlowInner() {
         onConnect={onConnect}
         onConnectStart={() => setIsConnecting(true)}
         onConnectEnd={() => setIsConnecting(false)}
-        onNodeMouseEnter={(e, n) => {
-          if (flowEraserActive && mode==='node') {
-            setHoverNodeId(n.id);
-            setNodes(ns => ns.map(x => x.id === n.id ? { ...x, className: 'eraser-hover' } : (x.className === 'eraser-hover' ? { ...x, className: undefined } : x)));
-          }
-        }}
-        onNodeMouseLeave={(e, n) => {
-          if (flowEraserActive && mode==='node') {
-            setHoverNodeId(null);
-            setNodes(ns => ns.map(x => x.id === n.id ? { ...x, className: undefined } : x));
-          }
-        }}
-        onEdgeMouseEnter={(e, ed) => {
-          if (flowEraserActive && mode==='node') {
-            setHoverEdgeId(ed.id);
-            setEdges(es => es.map(x => x.id === ed.id ? { ...x, style: { ...(x.style || {}), stroke: '#3b82f6', strokeWidth: 2 } } : x));
-          }
-        }}
-        onEdgeMouseLeave={(e, ed) => {
-          if (flowEraserActive && mode==='node') {
-            setHoverEdgeId(null);
-            setEdges(es => es.map(x => x.id === ed.id ? { ...x, style: { ...(x.style || {}), stroke: undefined, strokeWidth: undefined } } : x));
-          }
-        }}
-        onNodeClick={(e, n) => {
-          if (flowEraserActive && mode==='node') {
-            e.preventDefault();
-            e.stopPropagation();
-            setEdges(es => es.filter(x => x.source !== n.id && x.target !== n.id));
-            setNodes(ns => ns.filter(x => x.id !== n.id));
-          }
-        }}
-        onEdgeClick={(e, ed) => {
-          if (flowEraserActive && mode==='node') {
-            e.preventDefault();
-            e.stopPropagation();
-            setEdges(es => es.filter(x => x.id !== ed.id));
-          }
-        }}
+        onPaneClick={onPaneClick}
+        
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
         fitView={false}
@@ -559,18 +610,37 @@ function FlowInner() {
         <MiniMap pannable zoomable />
         <Controls showInteractive={false} />
       </ReactFlow>
+
+      {/* 添加面板（双击空白处出现） */}
+      <div ref={addPanelRef} style={addPanelStyle} className="tanva-add-panel">
+        {addPanel.visible && (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.08)' }}>
+            <div style={{ display: 'flex', gap: 4, padding: 6, borderBottom: '1px solid #eef0f2' }}>
+              <button onClick={() => setAddTab('nodes')} style={{ padding: '4px 8px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: addTab==='nodes' ? '#111827' : '#fff', color: addTab==='nodes' ? '#fff' : '#111827' }}>节点</button>
+              <button onClick={() => setAddTab('templates')} style={{ padding: '4px 8px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: addTab==='templates' ? '#111827' : '#fff', color: addTab==='templates' ? '#fff' : '#111827' }}>模板</button>
+            </div>
+            {addTab === 'nodes' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, padding: 8 }}>
+                <button onClick={() => createNodeAtWorldCenter('textPrompt', addPanel.world)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
+                <button onClick={() => createNodeAtWorldCenter('image', addPanel.world)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>图片</button>
+                <button onClick={() => createNodeAtWorldCenter('generate', addPanel.world)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
+                <button onClick={() => createNodeAtWorldCenter('three', addPanel.world)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>3D</button>
+                <button onClick={() => createNodeAtWorldCenter('camera', addPanel.world)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>相机</button>
+              </div>
+            ) : (
+              <div style={{ padding: 10, fontSize: 12, color: '#6b7280' }}>模板功能即将推出</div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 export default function FlowOverlay() {
-  const { mode } = useUIStore();
-  
   return (
-    <div style={{ display: mode === 'node' ? 'block' : 'none' }}>
-      <ReactFlowProvider>
-        <FlowInner />
-      </ReactFlowProvider>
-    </div>
+    <ReactFlowProvider>
+      <FlowInner />
+    </ReactFlowProvider>
   );
 }

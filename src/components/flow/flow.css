@@ -11,7 +11,8 @@
 .tanva-flow-overlay .react-flow__minimap,
 .tanva-flow-overlay .react-flow__node-resizer,
 .tanva-flow-overlay .react-flow__node-resizer-handle,
-.tanva-flow-overlay .tanva-flow-toolbar {
+.tanva-flow-overlay .tanva-flow-toolbar,
+.tanva-flow-overlay .tanva-add-panel {
   pointer-events: auto;
 }
 

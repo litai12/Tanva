@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Wand2, Sparkles, Maximize2, Type, GitBranch, Workflow } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -10,46 +10,9 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
 
-// Node模式按钮包装器组件，在右上角显示蓝色"Node"标识
-const NodeModeButton: React.FC<{
-  children: React.ReactNode;
-  onClick?: () => void;
-  title?: string;
-  className?: string;
-  active?: boolean;
-}> = ({ children, onClick, title, className, active }) => (
-  <div className="relative">
-    <Button 
-      variant={active ? 'default' : 'outline'} 
-      size="sm" 
-      className={cn(
-        "p-0 h-8 w-8 rounded-full",
-        active ? "bg-blue-600 text-white" : "bg-white/50 border-gray-300 hover:bg-blue-50 hover:border-blue-300",
-        className
-      )}
-      onClick={onClick}
-      title={title}
-    >
-      {children}
-    </Button>
-    {/* 蓝色"N"标识 */}
-    <div className="absolute -top-1 -right-1 px-1 py-0.5 bg-blue-500 rounded flex items-center justify-center">
-      <span className="text-white text-[8px] font-bold leading-none">N</span>
-    </div>
-  </div>
-);
+// 统一画板：移除 Node 模式专属按钮组件
 
-// 自定义图标组件
-// Flow图标（参考样式：三个小节点+连接线，简洁）
-const FlowIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 16 16" width="16" height="16" className={className}>
-    <circle cx="4" cy="4" r="2" fill="currentColor" />
-    <circle cx="12" cy="4" r="2" fill="currentColor" />
-    <circle cx="12" cy="12" r="2" fill="currentColor" />
-    <path d="M6 4 H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    <path d="M12 6 V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-  </svg>
-);
+// 自定义图标组件（仅保留当前使用的）
 
 // 直线工具图标
 const StraightLineIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -84,274 +47,16 @@ const CircleIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const PolylineIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
-    {/* 多段线路径 */}
-    <path
-      d="M2 12 L6 4 L10 8 L14 2"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="none"
-    />
-    {/* 起始点 */}
-    <circle cx="2" cy="12" r="1.5" fill="currentColor" />
-    {/* 中间节点 */}
-    <circle cx="6" cy="4" r="1" fill="currentColor" />
-    <circle cx="10" cy="8" r="1" fill="currentColor" />
-    {/* 结束点 */}
-    <circle cx="14" cy="2" r="1.5" fill="currentColor" />
-  </svg>
-);
 
-// 填充图标
-const FillIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
-    <path 
-      d="M8 2 L12 6 L8 10 L4 6 Z" 
-      fill="currentColor"
-      stroke="currentColor" 
-      strokeWidth="1"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-// 带蓝色加号的图片图标
-const ImageWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Image className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// 快速图片上传图标（带绿色加号，表示快速添加）
-const QuickImageIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Image className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// 带蓝色加号的3D模型图标
-const BoxWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Box className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// 带蓝色加号的文本图标
-const TypeWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Type className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// 带蓝色加号的照相机图标
-const CameraWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Camera className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// 带蓝色加号的生成器图标
-const WorkflowWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Workflow className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// 带蓝色加号的AI对话图标
-const SparklesWithPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Sparkles className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// Node模式专用：带黑色加号的文本图标
-const TypeWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Type className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// Node模式专用：带黑色加号的图片图标
-const ImageWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Image className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// Node模式专用：带黑色加号的3D模型图标
-const BoxWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Box className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// Node模式专用：带黑色加号的照相机图标
-const CameraWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Camera className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// Node模式专用：带黑色加号的生成器图标（使用星星图标）
-const SparklesWithBlackPlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Sparkles className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-black rounded-full flex items-center justify-center">
-      <svg width="6" height="6" viewBox="0 0 6 6" fill="none">
-        <path d="M3 1 L3 5 M1 3 L5 3" stroke="white" strokeWidth="1" strokeLinecap="round" />
-      </svg>
-    </div>
-  </div>
-);
-
-// AI编辑图像图标（图片+魔法棒）
-const AIEditImageIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <div className="relative">
-    <Image className={className} />
-    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-purple-500 rounded-full flex items-center justify-center">
-      <Sparkles className="w-2 h-2 text-white" />
-    </div>
-  </div>
-);
+// 其他未使用的图标已移除，保持文件精简
 
 
 interface ToolBarProps {
   style?: React.CSSProperties;
-  showLayerPanel?: boolean;
   onClearCanvas?: () => void;
 }
 
-// 自定义水平滑块组件
-const HorizontalSlider: React.FC<{
-  value: number;
-  min: number;
-  max: number;
-  onChange: (value: number) => void;
-  disabled?: boolean;
-}> = ({ value, min, max, onChange, disabled = false }) => {
-  const sliderRef = React.useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = React.useState(false);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (disabled) return;
-    setIsDragging(true);
-    updateValue(e);
-    e.preventDefault();
-  };
-
-  const updateValue = (e: MouseEvent | React.MouseEvent) => {
-    if (!sliderRef.current || disabled) return;
-
-    const rect = sliderRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, x / rect.width));
-    const newValue = Math.round(min + percentage * (max - min));
-    onChange(newValue);
-  };
-
-  React.useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        updateValue(e);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging]);
-
-  // 计算滑块位置
-  const percentage = (value - min) / (max - min);
-  const thumbPosition = percentage * 100;
-
-  return (
-    <div
-      ref={sliderRef}
-      className={`relative w-20 h-2 bg-gray-200 rounded-full cursor-pointer ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-      onMouseDown={handleMouseDown}
-    >
-      {/* 填充的进度条 */}
-      <div
-        className="absolute top-0 left-0 bottom-0 bg-blue-500 rounded-full transition-all duration-150"
-        style={{ width: `${percentage * 100}%` }}
-      />
-      {/* 滑块圆圈 */}
-      <div
-        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transform -translate-y-0.5 -translate-x-1/2 transition-all duration-150"
-        style={{ left: `${thumbPosition}%` }}
-      />
-    </div>
-  );
-};
+// 水平滑块已移除（未使用）
 
 // 自定义垂直滑块组件
 const VerticalSlider: React.FC<{
@@ -430,10 +135,7 @@ const VerticalSlider: React.FC<{
   );
 };
 
-const ToolBar: React.FC<ToolBarProps> = ({
-  showLayerPanel = false,
-  onClearCanvas,
-}) => {
+const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   // 使用 Zustand store
   const {
     drawMode,
@@ -451,11 +153,11 @@ const ToolBar: React.FC<ToolBarProps> = ({
   } = useToolStore();
 
   // 判断当前工具是否支持填充
-  const supportsFill = (mode: DrawMode): boolean => {
+  const supportsFill = (mode: any): boolean => {
     return ['rect', 'circle'].includes(mode);
   };
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, mode, toggleFlowEraser, flowEraserActive } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled } = useUIStore();
 
   // 根据模式获取激活状态的按钮样式
   const getActiveButtonStyle = (isActive: boolean) => {
@@ -721,38 +423,27 @@ const ToolBar: React.FC<ToolBarProps> = ({
         )}
       </div>
 
-      {/* 橡皮擦工具 - 放在画笔工具下方 */}
-      {mode !== 'node' ? (
-        <Button
-          onClick={toggleEraser}
-          variant={isEraser ? "default" : "outline"}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(isEraser)
-          )}
-          title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
-        >
-          <Eraser className="w-4 h-4" />
-        </Button>
-      ) : (
-        <NodeModeButton 
-          active={flowEraserActive} 
-          onClick={toggleFlowEraser} 
-          title={flowEraserActive ? '节点擦除：开启' : '节点擦除：关闭'}
-        >
-          <Eraser className="w-4 h-4" />
-        </NodeModeButton>
-      )}
+      {/* 橡皮擦工具 - 统一画板下仅对绘图生效，节点擦除关闭 */}
+      <Button
+        onClick={toggleEraser}
+        variant={isEraser ? "default" : "outline"}
+        size="sm"
+        className={cn(
+          "p-0 h-8 w-8 rounded-full",
+          getActiveButtonStyle(isEraser)
+        )}
+        title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
+      >
+        <Eraser className="w-4 h-4" />
+      </Button>
 
       <Separator orientation="horizontal" className="w-6" />
 
 
       {/* 独立工具按钮 */}
       <div className="flex flex-col items-center gap-2">
-        {/* 文字工具（仅非Node模式） */}
-        {mode !== 'node' && (
-          <div className="relative">
+        {/* 文字工具 */}
+        <div className="relative">
             <Button
               variant={drawMode === 'text' ? 'default' : 'outline'}
               size="sm"
@@ -794,30 +485,12 @@ const ToolBar: React.FC<ToolBarProps> = ({
                 }}
               />
             )}
-          </div>
-        )}
+        </div>
 
-      {/* Node 模式：主要按钮组（放在照相机上面） */}
-      {mode === 'node' && (
-        <>
-          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addTextPrompt?.()} title="Prompt Node">
-            <Type className="w-4 h-4" />
-          </NodeModeButton>
-          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addImage?.()} title="Image Node">
-            <Image className="w-4 h-4" />
-          </NodeModeButton>
-          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addThree?.()} title="3D Node">
-            <Box className="w-4 h-4" />
-          </NodeModeButton>
-          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addCamera?.()} title="Camera Node">
-            <Camera className="w-4 h-4" />
-          </NodeModeButton>
-        </>
-      )}
+      {/* 统一画板：移除节点快速创建按钮（改为空白处双击弹窗） */}
 
-      {/* 图片工具（仅 Chat 模式） */}
-      {mode === 'chat' && (
-        <>
+      {/* 图片/3D/截图/AI 对话工具 */}
+      <>
           <Button
             variant={drawMode === 'image' ? 'default' : 'outline'}
             size="sm"
@@ -870,8 +543,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
         >
           <Sparkles className="w-4 h-4" />
         </Button>
-        </>
-      )}
+      </>
 
       {/* AI编辑图像工具 - 暂时隐藏 */}
         {/* <Button
@@ -896,22 +568,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
         </Button> */}
       </div>
 
-      {/* 非Node模式下的分隔线 */}
-      {mode !== 'node' && (
-        <Separator orientation="horizontal" className="w-6" />
-      )}
+      <Separator orientation="horizontal" className="w-6" />
 
-      {/* Node 模式：Generate Node（放在图层上面） */}
-      {mode === 'node' && (
-        <NodeModeButton onClick={() => (window as any).tanvaFlow?.addGenerate?.()} title="Generate Node">
-          <Sparkles className="w-4 h-4" />
-        </NodeModeButton>
-      )}
-
-      {/* Node模式下的分隔线（图层上面） */}
-      {mode === 'node' && (
-        <Separator orientation="horizontal" className="w-6" />
-      )}
+      {/* 统一画板：移除 Generate Node 快捷按钮与分隔线 */}
 
       {/* 图层工具 */}
       <Button
