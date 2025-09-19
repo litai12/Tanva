@@ -145,6 +145,14 @@ class ContextManager implements IContextManager {
     
     // 限制历史记录数量，防止请求头过大 (431错误)
     const recentMessages = context.messages.slice(-3); // 减少到最近3条消息
+
+    // 去重：如果最新一条历史就是这次的用户输入，则从历史中移除，避免与“用户当前输入”重复
+    if (recentMessages.length > 0) {
+      const last = recentMessages[recentMessages.length - 1];
+      if (last.type === 'user' && last.content === userInput) {
+        recentMessages.pop();
+      }
+    }
     const recentOperations = context.operations.slice(-2); // 减少到最近2次操作
     
     let contextPrompt = `用户当前输入: ${userInput}\n\n`;
