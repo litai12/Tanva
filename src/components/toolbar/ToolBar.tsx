@@ -10,7 +10,7 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
 
-// Node模式按钮包装器组件，在右上角显示蓝色"N"标识
+// Node模式按钮包装器组件，在右上角显示蓝色"Node"标识
 const NodeModeButton: React.FC<{
   children: React.ReactNode;
   onClick?: () => void;
@@ -33,7 +33,7 @@ const NodeModeButton: React.FC<{
       {children}
     </Button>
     {/* 蓝色"N"标识 */}
-    <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
+    <div className="absolute -top-1 -right-1 px-1 py-0.5 bg-blue-500 rounded flex items-center justify-center">
       <span className="text-white text-[8px] font-bold leading-none">N</span>
     </div>
   </div>
@@ -721,8 +721,8 @@ const ToolBar: React.FC<ToolBarProps> = ({
         )}
       </div>
 
-      {/* 橡皮擦工具 - 放在画笔工具下方（仅非Node模式显示） */}
-      {mode !== 'node' && (
+      {/* 橡皮擦工具 - 放在画笔工具下方 */}
+      {mode !== 'node' ? (
         <Button
           onClick={toggleEraser}
           variant={isEraser ? "default" : "outline"}
@@ -735,6 +735,14 @@ const ToolBar: React.FC<ToolBarProps> = ({
         >
           <Eraser className="w-4 h-4" />
         </Button>
+      ) : (
+        <NodeModeButton 
+          active={flowEraserActive} 
+          onClick={toggleFlowEraser} 
+          title={flowEraserActive ? '节点擦除：开启' : '节点擦除：关闭'}
+        >
+          <Eraser className="w-4 h-4" />
+        </NodeModeButton>
       )}
 
       <Separator orientation="horizontal" className="w-6" />
@@ -803,10 +811,6 @@ const ToolBar: React.FC<ToolBarProps> = ({
           </NodeModeButton>
           <NodeModeButton onClick={() => (window as any).tanvaFlow?.addCamera?.()} title="Camera Node">
             <Camera className="w-4 h-4" />
-          </NodeModeButton>
-          {/* 节点擦除工具（带 N 标识） */}
-          <NodeModeButton active={flowEraserActive} onClick={toggleFlowEraser} title={flowEraserActive ? '节点擦除：开启' : '节点擦除：关闭'}>
-            <Eraser className="w-4 h-4" />
           </NodeModeButton>
         </>
       )}

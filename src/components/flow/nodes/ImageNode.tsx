@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import { useUIStore } from '@/stores';
+import ImagePreviewModal from '../../ui/ImagePreviewModal';
 
 type Props = {
   id: string;
@@ -183,14 +184,12 @@ export default function ImageNode({ id, data, selected }: Props) {
         <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>
       )}
 
-      {preview && src && (
-        <div
-          onClick={() => setPreview(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
-        >
-          <img src={src} alt="" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', background: '#000' }} />
-        </div>
-      )}
+      <ImagePreviewModal
+        isOpen={preview}
+        imageSrc={src || ''}
+        imageTitle={data.label || 'Image 节点预览'}
+        onClose={() => setPreview(false)}
+      />
     </div>
   );
 }

@@ -162,7 +162,8 @@ function FlowInner() {
   const canAcceptConnection = React.useCallback((params: Connection) => {
     if (!params.target || !params.targetHandle) return false;
     const targetNode = rf.getNode(params.target);
-    const incoming = edges.filter(e => e.target === params.target && e.targetHandle === params.targetHandle);
+    const currentEdges = rf.getEdges();
+    const incoming = currentEdges.filter(e => e.target === params.target && e.targetHandle === params.targetHandle);
     if (targetNode?.type === 'generate') {
       if (params.targetHandle === 'text') return incoming.length < 1;
       if (params.targetHandle === 'img') return incoming.length < 6;
@@ -171,7 +172,7 @@ function FlowInner() {
       if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
     }
     return false;
-  }, [edges, rf]);
+  }, [rf]);
 
   const onConnect = React.useCallback((params: Connection) => {
     if (!isValidConnection(params)) return;
@@ -221,7 +222,8 @@ function FlowInner() {
     if (!node || node.type !== 'generate') return;
 
     // 收集 prompt
-    const incomingTextEdge = edges.find(e => e.target === nodeId && e.targetHandle === 'text');
+    const currentEdges = rf.getEdges();
+    const incomingTextEdge = currentEdges.find(e => e.target === nodeId && e.targetHandle === 'text');
     if (!incomingTextEdge) {
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
       return;
@@ -234,7 +236,7 @@ function FlowInner() {
     }
 
     // 收集图片输入（最多6张），来源可为 Image 或 Generate
-    const imgEdges = edges.filter(e => e.target === nodeId && e.targetHandle === 'img').slice(0, 6);
+    const imgEdges = currentEdges.filter(e => e.target === nodeId && e.targetHandle === 'img').slice(0, 6);
     const imageDatas: string[] = [];
     for (const e of imgEdges) {
       const srcNode = rf.getNode(e.source);
@@ -278,7 +280,8 @@ function FlowInner() {
 
       // 若该生成节点连接到 Image 节点，自动把结果写入目标 Image
       if (imgBase64) {
-        const outs = edges.filter(e => e.source === nodeId);
+        const currentEdges = rf.getEdges();
+        const outs = currentEdges.filter(e => e.source === nodeId);
         if (outs.length) {
           setNodes(ns => ns.map(n => {
             const hits = outs.filter(e => e.target === n.id);
@@ -294,7 +297,7 @@ function FlowInner() {
       const msg = err?.message || String(err);
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
     }
-  }, [rf, edges, setNodes]);
+  }, [rf, setNodes]);
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (

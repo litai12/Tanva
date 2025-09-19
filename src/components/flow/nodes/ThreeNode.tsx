@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { Send as SendIcon } from 'lucide-react';
+import ImagePreviewModal from '../../ui/ImagePreviewModal';
 
 type Props = {
   id: string;
@@ -257,11 +258,12 @@ export default function ThreeNode({ id, data, selected }: Props) {
       </div>
       <Handle type="source" position={Position.Right} id="img" onMouseEnter={() => setHover('img-out')} onMouseLeave={() => setHover(null)} />
       {hover === 'img-out' && (<div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>)}
-      {preview && src && (
-        <div onClick={() => setPreview(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <img src={src} alt="" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', background: '#000' }} />
-        </div>
-      )}
+      <ImagePreviewModal
+        isOpen={preview}
+        imageSrc={src || ''}
+        imageTitle="3D 节点预览"
+        onClose={() => setPreview(false)}
+      />
     </div>
   );
 }

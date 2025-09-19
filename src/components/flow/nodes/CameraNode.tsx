@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import { Send as SendIcon, Camera } from 'lucide-react';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
+import ImagePreviewModal from '../../ui/ImagePreviewModal';
 
 type Props = {
   id: string;
@@ -77,11 +78,12 @@ export default function CameraNode({ id, data, selected }: Props) {
       </div>
       <Handle type="source" position={Position.Right} id="img" onMouseEnter={() => setHover('img-out')} onMouseLeave={() => setHover(null)} />
       {hover === 'img-out' && (<div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>)}
-      {preview && src && (
-        <div onClick={() => setPreview(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
-          <img src={src} alt="" style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', background: '#000' }} />
-        </div>
-      )}
+      <ImagePreviewModal
+        isOpen={preview}
+        imageSrc={src || ''}
+        imageTitle="Camera 节点预览"
+        onClose={() => setPreview(false)}
+      />
     </div>
   );
 }
