@@ -10,6 +10,30 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
 
+// Node模式按钮包装器组件，在右上角显示蓝色"N"标识
+const NodeModeButton: React.FC<{
+  children: React.ReactNode;
+  onClick?: () => void;
+  title?: string;
+  className?: string;
+}> = ({ children, onClick, title, className }) => (
+  <div className="relative">
+    <Button 
+      variant="outline" 
+      size="sm" 
+      className={cn("p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300", className)}
+      onClick={onClick}
+      title={title}
+    >
+      {children}
+    </Button>
+    {/* 蓝色"N"标识 */}
+    <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
+      <span className="text-white text-[8px] font-bold leading-none">N</span>
+    </div>
+  </div>
+);
+
 // 自定义图标组件
 // Flow图标（参考样式：三个小节点+连接线，简洁）
 const FlowIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -760,10 +784,18 @@ const ToolBar: React.FC<ToolBarProps> = ({
       {/* Node 模式：主要按钮组（放在照相机上面） */}
       {mode === 'node' && (
         <>
-          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addTextPrompt?.()} title="Prompt Node"><Type className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addImage?.()} title="Image Node"><Image className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addThree?.()} title="3D Node"><Box className="w-4 h-4" /></Button>
-          <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addCamera?.()} title="Camera Node"><Camera className="w-4 h-4" /></Button>
+          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addTextPrompt?.()} title="Prompt Node">
+            <Type className="w-4 h-4" />
+          </NodeModeButton>
+          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addImage?.()} title="Image Node">
+            <Image className="w-4 h-4" />
+          </NodeModeButton>
+          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addThree?.()} title="3D Node">
+            <Box className="w-4 h-4" />
+          </NodeModeButton>
+          <NodeModeButton onClick={() => (window as any).tanvaFlow?.addCamera?.()} title="Camera Node">
+            <Camera className="w-4 h-4" />
+          </NodeModeButton>
         </>
       )}
 
@@ -855,7 +887,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
 
       {/* Node 模式：Generate Node（放在图层上面） */}
       {mode === 'node' && (
-        <Button variant="outline" size="sm" className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300" onClick={() => (window as any).tanvaFlow?.addGenerate?.()} title="Generate Node"><Sparkles className="w-4 h-4" /></Button>
+        <NodeModeButton onClick={() => (window as any).tanvaFlow?.addGenerate?.()} title="Generate Node">
+          <Sparkles className="w-4 h-4" />
+        </NodeModeButton>
       )}
 
       {/* Node模式下的分隔线（图层上面） */}

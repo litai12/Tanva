@@ -1,69 +1,52 @@
-# React + TypeScript + Vite
+# Tanva - 专业绘图与AI创作平台
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+基于React和TypeScript的现代化专业绘图应用程序，集成AI图像生成功能。
 
-Currently, two official plugins are available:
+## 快速开始
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 安装依赖
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 启动开发服务器
+```bash
+npm run dev
 ```
+
+### 构建生产版本
+```bash
+npm run build
+```
+
+## 主要功能
+
+- 🎨 专业绘图工具（基于Paper.js）
+- 🤖 AI图像生成（Gemini 2.5 Flash）
+- 🖼️ 图像编辑和融合
+- 📱 现代化响应式界面
+- 🎛️ 双模式操作（聊天模式 + 节点模式）
+
+## 技术栈
+
+- **前端**: React 19 + TypeScript + Vite
+- **UI**: Tailwind CSS + shadcn/ui
+- **绘图**: Paper.js + Canvas API
+- **状态管理**: Zustand
+- **AI集成**: Google Gemini API
+
+## 文档
+
+详细文档请查看 `docs/` 目录：
+
+- [项目概述](./docs/01-项目概述.md)
+- [节点模式指南](./docs/03-节点模式指南.md)
+- [技术文档](./docs/08-项目总体技术文档.md)
+
+## 许可证
+
+开源许可证（具体待定）
+
+---
+
+*更多信息请参阅详细文档*

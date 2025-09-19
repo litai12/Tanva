@@ -184,9 +184,10 @@ const FloatingHeader: React.FC = () => {
                         size="sm"
                         className={cn(
                             "h-8 text-xs flex items-center rounded-full transition-all duration-200",
-                            "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover",
-                            showLibraryPanel ? "text-blue-600" : "text-gray-600",
-                            "w-8 sm:w-auto px-0 sm:px-2 gap-0 sm:gap-1" // 响应式宽度和padding
+                            "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
+                            "hover:bg-blue-500 hover:text-white hover:border-blue-500",
+                            showLibraryPanel ? "text-blue-600" : "",
+                            "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1" // 响应式宽度和padding，与分享按钮一致
                         )}
                         title={showLibraryPanel ? "关闭素材库" : "打开素材库"}
                     >
@@ -211,9 +212,7 @@ const FloatingHeader: React.FC = () => {
                         className={cn(
                             "h-8 text-xs flex items-center rounded-full transition-all duration-200 w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1",
                             "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
-                            mode === 'chat' 
-                                ? "hover:bg-blue-500 hover:text-white hover:border-blue-500" 
-                                : "hover:bg-black hover:text-white hover:border-black"
+                            "hover:bg-blue-500 hover:text-white hover:border-blue-500"
                         )}
                         onClick={handleShare}
                         title="分享"
