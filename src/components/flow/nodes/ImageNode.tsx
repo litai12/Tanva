@@ -16,6 +16,23 @@ export default function ImageNode({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
+  const [hasInputConnection, setHasInputConnection] = React.useState(false);
+  
+  // 检查输入连线状态
+  React.useEffect(() => {
+    const checkConnections = () => {
+      const edges = rf.getEdges();
+      const hasConnection = edges.some(edge => edge.target === id && edge.targetHandle === 'img');
+      setHasInputConnection(hasConnection);
+    };
+    
+    // 初始检查
+    checkConnections();
+    
+    // 设置定期检查（简单方案）
+    const interval = setInterval(checkConnections, 100);
+    return () => clearInterval(interval);
+  }, [rf, id]);
   
   // 使用全局图片历史记录
   const { history, addImage } = useImageHistoryStore();
@@ -138,6 +155,19 @@ export default function ImageNode({ id, data, selected }: Props) {
             onClick={() => inputRef.current?.click()}
             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}
           >上传</button>
+          {hasInputConnection && (
+          <button
+            onClick={() => {
+              // 只断开输入连线，不清空图片数据
+              try {
+                const edges = rf.getEdges();
+                const remain = edges.filter(e => !(e.target === id && e.targetHandle === 'img'));
+                rf.setEdges(remain);
+              } catch {}
+            }}
+            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}
+          >内置</button>
+          )}
           {data.imageData && (
           <button
             onClick={() => {

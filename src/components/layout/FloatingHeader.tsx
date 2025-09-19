@@ -211,7 +211,13 @@ const FloatingHeader: React.FC = () => {
                                 <Menu className="w-4 h-4" />
                             </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-56" align="end" forceMount>
+                        <DropdownMenuContent 
+                            className="w-56 bg-white/80 backdrop-blur-md" 
+                            align="end" 
+                            side="right"
+                            sideOffset={8}
+                            forceMount
+                        >
                             <DropdownMenuLabel className="font-normal">
                                 <div className="flex flex-col space-y-1">
                                     <p className="text-xs font-medium leading-none">
