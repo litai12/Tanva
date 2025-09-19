@@ -131,30 +131,12 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
           ref={panelRef}
           className="absolute left-0 top-8 z-50 bg-white border border-gray-300 rounded-lg shadow-lg p-3 w-60"
         >
-          {/* 预设颜色网格 - 1行12列 */}
-          <div className="grid grid-cols-12 gap-1 mb-3">
-            {/* 第一排第一个位置：透明选项（如果需要） */}
-            {showTransparent ? (
+          {/* 预设颜色网格 - 1行10列 */}
+          <div className="grid grid-cols-10 gap-1 mb-3">
+            {/* 显示前10个颜色 */}
+            {PRESET_COLORS.slice(0, 10).map((color, index) => (
               <div
-                className="w-5 h-5 cursor-pointer hover:ring-2 hover:ring-blue-400 rounded"
-                onClick={handleTransparentSelect}
-                title="透明（无填充）"
-              >
-                <TransparentIcon />
-              </div>
-            ) : (
-              <div
-                className="w-5 h-5 rounded cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
-                style={{ backgroundColor: PRESET_COLORS[0] }}
-                onClick={() => handleColorSelect(PRESET_COLORS[0])}
-                title={PRESET_COLORS[0]}
-              />
-            )}
-            
-            {/* 其余颜色位置 */}
-            {PRESET_COLORS.slice(showTransparent ? 0 : 1).map((color, index) => (
-              <div
-                key={showTransparent ? index : index + 1}
+                key={index}
                 className="w-5 h-5 rounded cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
                 style={{ backgroundColor: color }}
                 onClick={() => handleColorSelect(color)}
@@ -163,9 +145,21 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
             ))}
           </div>
 
-          {/* 自定义颜色按钮 */}
-          <div className="pt-2 border-t border-gray-200">
-            <label className="block">
+          {/* 无填充和More按钮并列 */}
+          <div className="flex gap-2">
+            {/* 无填充选项（如果需要） */}
+            {showTransparent && (
+              <div
+                className="w-16 h-8 cursor-pointer hover:ring-2 hover:ring-blue-400 rounded border border-gray-300 flex items-center justify-center bg-white"
+                onClick={handleTransparentSelect}
+                title="透明（无填充）"
+              >
+                <TransparentIcon />
+              </div>
+            )}
+            
+            {/* 自定义颜色按钮 */}
+            <label className={cn("block", showTransparent ? "flex-1" : "w-full")}>
               <input
                 type="color"
                 value={value}

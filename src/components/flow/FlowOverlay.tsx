@@ -578,9 +578,17 @@ function FlowInner() {
 
   const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
+    
+    // 阻止面板内部的双击事件
     if (addPanelRef.current && addPanelRef.current.contains(target)) return;
-    if (target.closest('.react-flow__node') || target.closest('.react-flow__edge')) return;
-    openAddPanelAt(e.clientX, e.clientY);
+    
+    // 只允许在 react-flow__pane 元素上双击才触发
+    // react-flow__pane 是 ReactFlow 的画布背景元素
+    if (target.classList.contains('react-flow__pane')) {
+      openAddPanelAt(e.clientX, e.clientY);
+    }
+    
+    // 其他所有情况都不触发面板创建
   }, [openAddPanelAt]);
 
   return (
