@@ -45,6 +45,54 @@ function useViewportSync() {
   }, [rf, zoom, panX, panY]);
 }
 
+// 默认节点配置 - 暂时注释，后面再用
+// const initialNodes: RFNode[] = [
+//   {
+//     id: 'prompt-1',
+//     type: 'textPrompt',
+//     position: { x: 50, y: 200 },
+//     data: { 
+//       text: '画一只猫'
+//     },
+//   },
+//   {
+//     id: 'generate-1',
+//     type: 'generate',
+//     position: { x: 350, y: 150 },
+//     data: {
+//       status: 'idle'
+//     },
+//   },
+//   {
+//     id: 'image-1',
+//     type: 'image',
+//     position: { x: 650, y: 200 },
+//     data: {
+//       label: 'Image'
+//     },
+//   },
+// ];
+
+// 默认连线配置 - 暂时注释，后面再用
+// const initialEdges: Edge[] = [
+//   {
+//     id: 'prompt-generate',
+//     source: 'prompt-1',
+//     target: 'generate-1',
+//     sourceHandle: 'text',
+//     targetHandle: 'text',
+//     type: 'default',
+//   },
+//   {
+//     id: 'generate-image',
+//     source: 'generate-1',
+//     target: 'image-1',
+//     sourceHandle: 'img',
+//     targetHandle: 'img',
+//     type: 'default',
+//   },
+// ];
+
 function FlowInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);

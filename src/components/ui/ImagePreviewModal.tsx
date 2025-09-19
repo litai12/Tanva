@@ -126,7 +126,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
           }}
           variant="ghost"
           size="sm"
-          className="absolute top-4 right-4 h-8 w-8 p-0 text-white hover:bg-white/20 transition-all duration-200 z-[1000000]"
+          className="absolute top-1 right-4 h-8 w-8 p-0 text-white hover:bg-white/20 transition-all duration-200 z-[1000000]"
           title="关闭预览 (ESC)"
         >
           <X className="h-4 w-4" />
@@ -164,8 +164,8 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             {/* 缩略图标题 */}
-            <div className="p-4 border-b border-white/10">
-              <h3 className="text-white text-sm font-medium">图片集合 ({imageCollection.length})</h3>
+            <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+              <h3 className="text-white text-sm font-medium">历史记录</h3>
             </div>
 
             {/* 缩略图滚动容器 */}
@@ -176,7 +176,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                   return (
                     <div
                       key={item.id}
-                      className={`relative cursor-pointer rounded-lg overflow-hidden transition-all duration-200 ${
+                      className={`group relative cursor-pointer rounded-lg overflow-hidden transition-all duration-200 ${
                         isActive 
                           ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-black' 
                           : 'hover:ring-1 hover:ring-white/30'
@@ -191,15 +191,9 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                           loading="lazy"
                         />
                       </div>
-                      {/* 活跃指示器 */}
-                      {isActive && (
-                        <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center">
-                          <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                        </div>
-                      )}
-                      {/* 标题 */}
+                      {/* 标题 - hover时显示 */}
                       {item.title && (
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1">
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/80 p-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                           <p className="text-white text-xs truncate">{item.title}</p>
                         </div>
                       )}
@@ -210,7 +204,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
             </div>
 
             {/* 导航提示 */}
-            <div className="p-3 border-t border-white/10">
+            <div className="p-3">
               <p className="text-white/70 text-xs text-center">
                 ← → 键盘导航 | 点击切换图片
               </p>
