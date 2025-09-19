@@ -1,7 +1,8 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import { useUIStore } from '@/stores';
-import ImagePreviewModal from '../../ui/ImagePreviewModal';
+import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 
 type Props = {
   id: string;
@@ -16,6 +17,18 @@ export default function ImageNode({ id, data, selected }: Props) {
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
+  const [currentImageId, setCurrentImageId] = React.useState<string>('');
+  
+  // 使用全局图片历史记录
+  const { history, addImage } = useImageHistoryStore();
+  const allImages = React.useMemo(() => 
+    history.map(item => ({
+      id: item.id,
+      src: item.src,
+      title: item.title
+    } as ImageItem)), 
+    [history]
+  );
   React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(false); };
@@ -33,6 +46,17 @@ export default function ImageNode({ id, data, selected }: Props) {
       const base64 = result.includes(',') ? result.split(',')[1] : result;
       const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: base64 } } });
       window.dispatchEvent(ev);
+      
+      // 添加到全局历史记录
+      const newImageId = `${id}-${Date.now()}`;
+      addImage({
+        id: newImageId,
+        src: `data:image/png;base64,${base64}`,
+        title: `Image节点上传 ${new Date().toLocaleTimeString()}`,
+        nodeId: id,
+        nodeType: 'image'
+      });
+      setCurrentImageId(newImageId);
     };
     reader.readAsDataURL(file);
   };
@@ -186,9 +210,21 @@ export default function ImageNode({ id, data, selected }: Props) {
 
       <ImagePreviewModal
         isOpen={preview}
-        imageSrc={src || ''}
-        imageTitle={data.label || 'Image 节点预览'}
+        imageSrc={
+          allImages.length > 0 && currentImageId
+            ? allImages.find(item => item.id === currentImageId)?.src || src || ''
+            : src || ''
+        }
+        imageTitle="全局图片预览"
         onClose={() => setPreview(false)}
+        imageCollection={allImages}
+        currentImageId={currentImageId}
+        onImageChange={(imageId: string) => {
+          const selectedImage = allImages.find(item => item.id === imageId);
+          if (selectedImage) {
+            setCurrentImageId(imageId);
+          }
+        }}
       />
     </div>
   );

@@ -2,7 +2,8 @@ import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import { Send as SendIcon, Camera } from 'lucide-react';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
-import ImagePreviewModal from '../../ui/ImagePreviewModal';
+import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 
 type Props = {
   id: string;
@@ -14,7 +15,19 @@ export default function CameraNode({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
+  const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  
+  // 使用全局图片历史记录
+  const { history, addImage } = useImageHistoryStore();
+  const allImages = React.useMemo(() => 
+    history.map(item => ({
+      id: item.id,
+      src: item.src,
+      title: item.title
+    } as ImageItem)), 
+    [history]
+  );
 
   const capture = async () => {
     try {
@@ -24,6 +37,18 @@ export default function CameraNode({ id, data, selected }: Props) {
       if (res.success && res.dataUrl) {
         const base64 = res.dataUrl.split(',')[1];
         rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, imageData: base64 } } : n));
+        
+        // 添加到全局历史记录
+        const newImageId = `${id}-${Date.now()}`;
+        addImage({
+          id: newImageId,
+          src: `data:image/png;base64,${base64}`,
+          title: `Camera节点截图 ${new Date().toLocaleTimeString()}`,
+          nodeId: id,
+          nodeType: 'camera'
+        });
+        setCurrentImageId(newImageId);
+        
         // 向下游 Image 节点传播
         try {
           const outs = rf.getEdges().filter(e => e.source === id);
@@ -80,9 +105,21 @@ export default function CameraNode({ id, data, selected }: Props) {
       {hover === 'img-out' && (<div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>)}
       <ImagePreviewModal
         isOpen={preview}
-        imageSrc={src || ''}
-        imageTitle="Camera 节点预览"
+        imageSrc={
+          allImages.length > 0 && currentImageId
+            ? allImages.find(item => item.id === currentImageId)?.src || src || ''
+            : src || ''
+        }
+        imageTitle="全局图片预览"
         onClose={() => setPreview(false)}
+        imageCollection={allImages}
+        currentImageId={currentImageId}
+        onImageChange={(imageId: string) => {
+          const selectedImage = allImages.find(item => item.id === imageId);
+          if (selectedImage) {
+            setCurrentImageId(imageId);
+          }
+        }}
       />
     </div>
   );

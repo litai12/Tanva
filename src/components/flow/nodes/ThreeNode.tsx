@@ -5,7 +5,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { Send as SendIcon } from 'lucide-react';
-import ImagePreviewModal from '../../ui/ImagePreviewModal';
+import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 
 type Props = {
   id: string;
@@ -33,6 +34,18 @@ export default function ThreeNode({ id, data, selected }: Props) {
   const fileInput = React.useRef<HTMLInputElement | null>(null);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
+  const [currentImageId, setCurrentImageId] = React.useState<string>('');
+  
+  // 使用全局图片历史记录
+  const { history, addImage } = useImageHistoryStore();
+  const allImages = React.useMemo(() => 
+    history.map(item => ({
+      id: item.id,
+      src: item.src,
+      title: item.title
+    } as ImageItem)), 
+    [history]
+  );
 
   const initIfNeeded = React.useCallback(() => {
     if (!containerRef.current) return;
@@ -181,6 +194,18 @@ export default function ThreeNode({ id, data, selected }: Props) {
     const base64 = dataUrl.split(',')[1];
     // 更新自身
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: base64 } } }));
+    
+    // 添加到全局历史记录
+    const newImageId = `${id}-${Date.now()}`;
+    addImage({
+      id: newImageId,
+      src: `data:image/png;base64,${base64}`,
+      title: `3D节点截图 ${new Date().toLocaleTimeString()}`,
+      nodeId: id,
+      nodeType: '3d'
+    });
+    setCurrentImageId(newImageId);
+    
     // 向下游 Image 节点传播
     try {
       const outs = rf.getEdges().filter(e => e.source === id);
@@ -260,9 +285,21 @@ export default function ThreeNode({ id, data, selected }: Props) {
       {hover === 'img-out' && (<div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>)}
       <ImagePreviewModal
         isOpen={preview}
-        imageSrc={src || ''}
-        imageTitle="3D 节点预览"
+        imageSrc={
+          allImages.length > 0 && currentImageId
+            ? allImages.find(item => item.id === currentImageId)?.src || src || ''
+            : src || ''
+        }
+        imageTitle="全局图片预览"
         onClose={() => setPreview(false)}
+        imageCollection={allImages}
+        currentImageId={currentImageId}
+        onImageChange={(imageId: string) => {
+          const selectedImage = allImages.find(item => item.id === imageId);
+          if (selectedImage) {
+            setCurrentImageId(imageId);
+          }
+        }}
       />
     </div>
   );

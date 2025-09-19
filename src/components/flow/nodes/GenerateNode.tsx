@@ -1,7 +1,8 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
 import { Send as SendIcon } from 'lucide-react';
-import ImagePreviewModal from '../../ui/ImagePreviewModal';
+import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 
 type Props = {
   id: string;
@@ -19,14 +20,53 @@ export default function GenerateNode({ id, data }: Props) {
   const { status, error } = data;
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   const [hover, setHover] = React.useState<string | null>(null);
+  const [preview, setPreview] = React.useState(false);
+  const [currentImageId, setCurrentImageId] = React.useState<string>('');
+  
+  // 使用全局图片历史记录
+  const { history, addImage } = useImageHistoryStore();
+  const allImages = React.useMemo(() => 
+    history.map(item => ({
+      id: item.id,
+      src: item.src,
+      title: item.title
+    } as ImageItem)), 
+    [history]
+  );
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
   }, [data, id]);
+  
   const onSend = React.useCallback(() => {
     data.onSend?.(id);
   }, [data, id]);
-  const [preview, setPreview] = React.useState(false);
+
+  // 当图片数据更新时，添加到全局历史记录
+  React.useEffect(() => {
+    if (data.imageData && status === 'succeeded') {
+      const newImageId = `${id}-${Date.now()}`;
+      addImage({
+        id: newImageId,
+        src: `data:image/png;base64,${data.imageData}`,
+        title: `Generate节点 ${new Date().toLocaleTimeString()}`,
+        nodeId: id,
+        nodeType: 'generate'
+      });
+      setCurrentImageId(newImageId);
+    }
+  }, [data.imageData, status, id, addImage]);
+
+  // 处理图片切换
+  const handleImageChange = React.useCallback((imageId: string) => {
+    const selectedImage = allImages.find(item => item.id === imageId);
+    if (selectedImage) {
+      setCurrentImageId(imageId);
+      // 这里可以选择是否更新节点的图片数据
+      // 暂时只更新预览，不更新节点数据
+    }
+  }, [allImages]);
+
   React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(false); };
@@ -137,9 +177,16 @@ export default function GenerateNode({ id, data }: Props) {
 
       <ImagePreviewModal
         isOpen={preview}
-        imageSrc={src || ''}
-        imageTitle="Generate 节点预览"
+        imageSrc={
+          allImages.length > 0 && currentImageId
+            ? allImages.find(item => item.id === currentImageId)?.src || src || ''
+            : src || ''
+        }
+        imageTitle="全局图片预览"
         onClose={() => setPreview(false)}
+        imageCollection={allImages}
+        currentImageId={currentImageId}
+        onImageChange={handleImageChange}
       />
     </div>
   );
