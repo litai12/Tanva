@@ -3,6 +3,8 @@ import paper from 'paper';
 import ReactFlow, {
   Controls,
   MiniMap,
+  Background,
+  BackgroundVariant,
   type Connection,
   addEdge,
   useEdgesState,
@@ -14,7 +16,6 @@ import ReactFlow, {
 import { ReactFlowProvider } from 'reactflow';
 import 'reactflow/dist/style.css';
 import './flow.css';
-import { Sparkles } from 'lucide-react';
 import type { FlowTemplate, TemplateIndexEntry } from '@/types/template';
 import { loadBuiltInTemplateIndex, loadBuiltInTemplateByPath, listUserTemplates, getUserTemplate, saveUserTemplate, generateId } from '@/services/templateStore';
 
@@ -23,7 +24,7 @@ import ImageNode from './nodes/ImageNode';
 import GenerateNode from './nodes/GenerateNode';
 import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
-import { useCanvasStore } from '@/stores';
+import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useUIStore } from '@/stores';
 import { aiImageService } from '@/services/aiImageService';
 import type { AIImageResult } from '@/types/ai';
@@ -38,14 +39,25 @@ const nodeTypes = {
   camera: CameraNode,
 };
 
-function useViewportSync() {
-  const { zoom, panX, panY } = useCanvasStore();
+// Flow独立的视口管理，不再与Canvas同步
+function useFlowViewport() {
+  const { flowZoom, flowPanX, flowPanY, setFlowZoom, setFlowPan } = useFlowStore();
   const rf = useReactFlow();
-  React.useEffect(() => {
+  
+  const updateViewport = React.useCallback((x: number, y: number, zoom: number) => {
     try {
-      rf.setViewport({ x: panX, y: panY, zoom }, { duration: 0 });
+      rf.setViewport({ x, y, zoom }, { duration: 0 });
+      setFlowPan(x, y);
+      setFlowZoom(zoom);
     } catch (_) {}
-  }, [rf, zoom, panX, panY]);
+  }, [rf, setFlowPan, setFlowZoom]);
+
+  return { 
+    zoom: flowZoom, 
+    panX: flowPanX, 
+    panY: flowPanY, 
+    updateViewport 
+  };
 }
 
 // 默认节点配置 - 暂时注释，后面再用
@@ -105,62 +117,44 @@ function FlowInner() {
   // 统一画板：节点橡皮已禁用
 
   // 背景设置改为驱动底层 Canvas 网格
-  const showGrid = useUIStore(s => s.showGrid);
-  const setShowGrid = useUIStore(s => s.setShowGrid);
-  const gridStyle = useCanvasStore(s => s.gridStyle);
-  const setGridStyle = useCanvasStore(s => s.setGridStyle);
-  const gridSize = useCanvasStore(s => s.gridSize);
-  const setGridSize = useCanvasStore(s => s.setGridSize);
-  const gridDotSize = useCanvasStore(s => s.gridDotSize);
-  const setGridDotSize = useCanvasStore(s => s.setGridDotSize);
-  const gridColor = useCanvasStore(s => s.gridColor);
-  const setGridColor = useCanvasStore(s => s.setGridColor);
-  const gridBgColor = useCanvasStore(s => s.gridBgColor);
-  const setGridBgColor = useCanvasStore(s => s.setGridBgColor);
-  const gridBgEnabled = useCanvasStore(s => s.gridBgEnabled);
-  const setGridBgEnabled = useCanvasStore(s => s.setGridBgEnabled);
+  // 使用独立的Flow状态
+  const {
+    backgroundEnabled,
+    backgroundVariant,
+    backgroundGap,
+    backgroundSize,
+    backgroundColor,
+    backgroundOpacity,
+    setBackgroundEnabled,
+    setBackgroundVariant,
+    setBackgroundGap,
+    setBackgroundSize,
+    setBackgroundColor,
+    setBackgroundOpacity,
+  } = useFlowStore();
 
-  const [bgEnabled, setBgEnabled] = React.useState(showGrid);
-  const [bgVariant, setBgVariant] = React.useState<'dots' | 'lines' | 'solid'>(
-    gridStyle === 'dots' ? 'dots' : gridStyle === 'solid' ? 'solid' : 'lines'
-  );
-  const [bgColorLocal, setBgColorLocal] = React.useState<string>(gridColor || '#e5e7eb');
-  const [bgFillLocal, setBgFillLocal] = React.useState<string>(gridBgColor || '#f7f7f7');
-  const [bgFillEnabled, setBgFillEnabled] = React.useState<boolean>(gridBgEnabled);
-  const [bgGap, setBgGap] = React.useState<number>(gridSize || 16);
-  const [bgSize, setBgSize] = React.useState<number>(gridDotSize || 1);
-  const [bgGapInput, setBgGapInput] = React.useState<string>(String(bgGap));
-  const [bgSizeInput, setBgSizeInput] = React.useState<string>(String(bgSize));
+  // Flow独立的背景状态管理，不再同步到Canvas
+  const [bgGapInput, setBgGapInput] = React.useState<string>(String(backgroundGap));
+  const [bgSizeInput, setBgSizeInput] = React.useState<string>(String(backgroundSize));
 
   // 同步输入框字符串与实际数值
-  React.useEffect(() => { setBgGapInput(String(bgGap)); }, [bgGap]);
-  React.useEffect(() => { setBgSizeInput(String(bgSize)); }, [bgSize]);
-
-  // 将本地设置同步到底层画布
-  React.useEffect(() => { setShowGrid(bgEnabled); }, [bgEnabled, setShowGrid]);
-  React.useEffect(() => {
-    const style = bgVariant === 'dots' ? 'dots' : (bgVariant === 'solid' ? 'solid' : 'lines');
-    setGridStyle(style as any);
-  }, [bgVariant, setGridStyle]);
-  React.useEffect(() => { setGridSize(bgGap); }, [bgGap, setGridSize]);
-  React.useEffect(() => { setGridDotSize(bgSize); }, [bgSize, setGridDotSize]);
-  React.useEffect(() => { setGridColor(bgColorLocal); }, [bgColorLocal, setGridColor]);
-  React.useEffect(() => { setGridBgColor(bgFillLocal); }, [bgFillLocal, setGridBgColor]);
-  React.useEffect(() => { setGridBgEnabled(bgFillEnabled); }, [bgFillEnabled, setGridBgEnabled]);
+  React.useEffect(() => { setBgGapInput(String(backgroundGap)); }, [backgroundGap]);
+  React.useEffect(() => { setBgSizeInput(String(backgroundSize)); }, [backgroundSize]);
 
   const commitGap = React.useCallback((val: string) => {
-    const n = Math.max(4, Math.min(64, Math.floor(Number(val)) || bgGap));
-    setBgGap(n);
+    const n = Math.max(4, Math.min(100, Math.floor(Number(val)) || backgroundGap));
+    setBackgroundGap(n);
     setBgGapInput(String(n));
-  }, [bgGap]);
+  }, [backgroundGap, setBackgroundGap]);
 
   const commitSize = React.useCallback((val: string) => {
-    const n = Math.max(1, Math.min(4, Math.floor(Number(val)) || bgSize));
-    setBgSize(n);
+    const n = Math.max(0.5, Math.min(10, Math.floor(Number(val)) || backgroundSize));
+    setBackgroundSize(n);
     setBgSizeInput(String(n));
-  }, [bgSize]);
+  }, [backgroundSize, setBackgroundSize]);
 
-  useViewportSync();
+  // 使用Flow独立的视口管理
+  useFlowViewport();
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
@@ -189,7 +183,7 @@ function FlowInner() {
   const [tplLoading, setTplLoading] = React.useState(false);
 
   const openAddPanelAt = React.useCallback((clientX: number, clientY: number) => {
-    const world = rf.project({ x: clientX, y: clientY });
+    const world = rf.screenToFlowPosition({ x: clientX, y: clientY });
     setAddTab('nodes');
     setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
   }, [rf]);
@@ -611,29 +605,36 @@ function FlowInner() {
     }
   }, [rf, setNodes]);
 
+  // 定义稳定的onSend回调
+  const onSendHandler = React.useCallback((id: string) => {
+    const node = rf.getNode(id);
+    const img = (node?.data as any)?.imageData as string | undefined;
+    if (!img) return;
+    const mime = `image/png`;
+    const dataUrl = `data:${mime};base64,${img}`;
+    const fileName = `flow_${Date.now()}.png`;
+    window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+      detail: {
+        imageData: dataUrl,
+        fileName,
+        operationType: 'generate',
+        smartPosition: undefined,
+        sourceImageId: undefined,
+        sourceImages: undefined,
+      }
+    }));
+  }, [rf]);
+
+  // 连接状态回调
+  const onConnectStart = React.useCallback(() => setIsConnecting(true), [setIsConnecting]);
+  const onConnectEnd = React.useCallback(() => setIsConnecting(false), [setIsConnecting]);
+
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
     n.type === 'generate'
-      ? { ...n, data: { ...n.data, onRun: runNode, onSend: (id: string) => {
-          const node = rf.getNode(id);
-          const img = (node?.data as any)?.imageData as string | undefined;
-          if (!img) return;
-          const mime = `image/png`;
-          const dataUrl = `data:${mime};base64,${img}`;
-          const fileName = `flow_${Date.now()}.png`;
-          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-            detail: {
-              imageData: dataUrl,
-              fileName,
-              operationType: 'generate',
-              smartPosition: undefined,
-              sourceImageId: undefined,
-              sourceImages: undefined,
-            }
-          }));
-        } } }
+      ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
       : n
-  )), [nodes, runNode]);
+  )), [nodes, runNode, onSendHandler]);
 
   // 简单的全局调试API，便于从控制台添加节点
   React.useEffect(() => {
@@ -681,7 +682,7 @@ function FlowInner() {
       x: (rect?.width || window.innerWidth) / 2,
       y: (rect?.height || window.innerHeight) / 2,
     };
-    const center = rf.project(centerScreen);
+    const center = rf.screenToFlowPosition(centerScreen);
     const id = `${type}_${Date.now()}`;
     const base: any = { id, type, position: center, data: type === 'textPrompt' ? { text: '' } : (type === 'generate' ? { status: 'idle' } : { imageData: undefined }) };
     setNodes(ns => ns.concat([base]));
@@ -700,20 +701,24 @@ function FlowInner() {
       <button onClick={() => addAtCenter('generate')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
       <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-        <input type="checkbox" checked={bgEnabled} onChange={(e) => setBgEnabled(e.target.checked)} /> 背景
+        <input type="checkbox" checked={backgroundEnabled} onChange={(e) => setBackgroundEnabled(e.target.checked)} /> Flow背景
       </label>
-      {bgEnabled && (
+      {backgroundEnabled && (
         <>
-          <select value={bgVariant} onChange={(e) => setBgVariant(e.target.value as 'dots' | 'lines' | 'solid')} style={{ fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 6px', background: '#fff' }}>
-            <option value="dots">点阵</option>
-            <option value="lines">网格线</option>
-            <option value="solid">纯色</option>
+          <select 
+            value={backgroundVariant} 
+            onChange={(e) => setBackgroundVariant(e.target.value as FlowBackgroundVariant)} 
+            style={{ fontSize: 12, border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 6px', background: '#fff' }}
+          >
+            <option value={FlowBackgroundVariant.DOTS}>点阵</option>
+            <option value={FlowBackgroundVariant.LINES}>网格线</option>
+            <option value={FlowBackgroundVariant.CROSS}>十字网格</option>
           </select>
           <input
             type="color"
-            value={bgColorLocal}
-            onChange={(e) => { const v = e.target.value; setBgColorLocal(v); setGridColor(v); }}
-            title="颜色"
+            value={backgroundColor}
+            onChange={(e) => setBackgroundColor(e.target.value)}
+            title="背景颜色"
             style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent' }}
           />
           <label style={{ fontSize: 12 }}>间距
@@ -721,7 +726,7 @@ function FlowInner() {
               type="number"
               inputMode="numeric"
               min={4}
-              max={64}
+              max={100}
               value={bgGapInput}
               onChange={(e) => setBgGapInput(e.target.value)}
               onBlur={(e) => commitGap(e.target.value)}
@@ -733,8 +738,9 @@ function FlowInner() {
             <input
               type="number"
               inputMode="numeric"
-              min={1}
-              max={4}
+              min={0.5}
+              max={10}
+              step={0.5}
               value={bgSizeInput}
               onChange={(e) => setBgSizeInput(e.target.value)}
               onBlur={(e) => commitSize(e.target.value)}
@@ -742,17 +748,17 @@ function FlowInner() {
               style={{ width: 44, marginLeft: 4, border: '1px solid #e5e7eb', borderRadius: 6, padding: '2px 6px' }}
             />
           </label>
-          <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            <input type="checkbox" checked={bgFillEnabled} onChange={(e) => setBgFillEnabled(e.target.checked)} /> 底色
+          <label style={{ fontSize: 12 }}>透明度
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.1}
+              value={backgroundOpacity}
+              onChange={(e) => setBackgroundOpacity(Number(e.target.value))}
+              style={{ width: 60, marginLeft: 4 }}
+            />
           </label>
-          <input
-            type="color"
-            value={bgFillLocal}
-            onChange={(e) => { const v = e.target.value; setBgFillLocal(v); setGridBgColor(v); }}
-            title="设置底层纯色背景"
-            style={{ width: 28, height: 28, padding: 0, border: 'none', background: 'transparent', opacity: bgFillEnabled ? 1 : 0.5, pointerEvents: bgFillEnabled ? 'auto' : 'none' }}
-          />
         </>
       )}
     </div>
@@ -843,8 +849,8 @@ function FlowInner() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onConnectStart={() => setIsConnecting(true)}
-        onConnectEnd={() => setIsConnecting(false)}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
         onPaneClick={onPaneClick}
         
         isValidConnection={isValidConnection}
@@ -861,6 +867,21 @@ function FlowInner() {
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
       >
+        {backgroundEnabled && (
+          <Background
+            variant={
+              backgroundVariant === FlowBackgroundVariant.DOTS 
+                ? BackgroundVariant.Dots
+                : backgroundVariant === FlowBackgroundVariant.LINES
+                ? BackgroundVariant.Lines
+                : BackgroundVariant.Cross
+            }
+            gap={backgroundGap}
+            size={backgroundSize}
+            color={backgroundColor}
+            style={{ opacity: backgroundOpacity }}
+          />
+        )}
         <MiniMap pannable zoomable />
         <Controls showInteractive={false} />
       </ReactFlow>

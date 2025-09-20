@@ -17,6 +17,13 @@ export {
 } from './toolStore';
 export { useLayerStore } from './layerStore';
 export { useAIChatStore } from './aiChatStore';
+export { 
+  useFlowStore, 
+  useFlowBackground, 
+  useFlowViewport, 
+  useFlowInteraction,
+  FlowBackgroundVariant 
+} from './flowStore';
 
 // 性能优化的复合选择器
 export {
