@@ -66,6 +66,9 @@ DropdownMenuTrigger.displayName = "DropdownMenuTrigger"
 
 export interface DropdownMenuContentProps extends React.HTMLAttributes<HTMLDivElement> {
   align?: 'start' | 'center' | 'end'
+  // 兼容 shadcn/radix API（避免将未知属性传给 DOM）
+  side?: 'top' | 'right' | 'bottom' | 'left'
+  sideOffset?: number
   forceMount?: boolean
   isOpen?: boolean
   onClose?: () => void
@@ -75,6 +78,8 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   children, 
   className, 
   align = 'end',
+  side,
+  sideOffset,
   forceMount,
   isOpen = false,
   onClose,
@@ -100,6 +105,9 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
 
   if (!isOpen) return null;
 
+  // 处理方位与偏移，仅用于样式，不透传到 DOM
+  const offsetStyle: React.CSSProperties | undefined = sideOffset ? { marginTop: side === 'top' ? undefined : side === 'bottom' || !side ? sideOffset : undefined, marginLeft: side === 'right' ? sideOffset : side === 'left' ? undefined : undefined } : undefined;
+
   return (
     <div 
       className={cn(
@@ -107,7 +115,8 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
         align === 'start' && 'left-0 right-auto',
         align === 'center' && 'left-1/2 -translate-x-1/2',
         className
-      )} 
+      )}
+      style={offsetStyle}
       {...props}
     >
       {children}

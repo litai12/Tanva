@@ -23,25 +23,19 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // 避免在开发 StrictMode 下重复 setup 导致 project 被重置
-    if (!setupDoneRef.current) {
-      // 若同一 canvas 已被 setup 过，打上标记避免重复
-      const alreadySetup = (canvas as any).dataset?.paperSetup === '1';
-      if (!alreadySetup) {
-        paper.setup(canvas);
-        try { (canvas as any).dataset.paperSetup = '1'; } catch {}
-        // 禁用Paper.js的默认交互行为
-        if (paper.view) {
-          paper.view.onMouseDown = null;
-          paper.view.onMouseDrag = null;
-          paper.view.onMouseUp = null;
-        }
-        setupDoneRef.current = true;
-        // console.debug('[PaperCanvasManager] paper.setup executed');
-      } else {
-        setupDoneRef.current = true;
-        // console.debug('[PaperCanvasManager] paper.setup skipped (already)');
+    // 在以下任一情况重新 setup：
+    // 1) 首次初始化；2) 当前 paper.view 未绑定；3) 绑定的 canvas 与现有不一致（HMR/刷新后重建 DOM）
+    const needSetup = !setupDoneRef.current || !paper.view || (paper.view as any)?.element !== canvas;
+    if (needSetup) {
+      paper.setup(canvas);
+      // 禁用Paper.js的默认交互行为
+      if (paper.view) {
+        paper.view.onMouseDown = null;
+        paper.view.onMouseDrag = null;
+        paper.view.onMouseUp = null;
       }
+      setupDoneRef.current = true;
+      // console.debug('[PaperCanvasManager] paper.setup executed (needSetup=%s)', needSetup);
     }
 
     // let isInitialized = false; // 替换为 initNotifiedRef 持久化
