@@ -145,7 +145,7 @@ export default function GenerateNode({ id, data }: Props) {
         type="target"
         position={Position.Left}
         id="img"
-        style={{ top: 30 }}
+        style={{ top: 'calc(50% - 24px)' }}
         onMouseEnter={() => setHover('img-in')}
         onMouseLeave={() => setHover(null)}
       />
@@ -153,7 +153,7 @@ export default function GenerateNode({ id, data }: Props) {
         type="target"
         position={Position.Left}
         id="text"
-        style={{ top: 70 }}
+        style={{ top: 'calc(50% + 24px)' }}
         onMouseEnter={() => setHover('prompt-in')}
         onMouseLeave={() => setHover(null)}
       />
@@ -166,10 +166,10 @@ export default function GenerateNode({ id, data }: Props) {
       />
 
       {hover === 'img-in' && (
-        <div className="flow-tooltip" style={{ left: -8, top: 30, transform: 'translate(-100%, -50%)' }}>image</div>
+        <div className="flow-tooltip" style={{ left: -8, top: 'calc(50% - 24px)', transform: 'translate(-100%, -50%)' }}>image</div>
       )}
       {hover === 'prompt-in' && (
-        <div className="flow-tooltip" style={{ left: -8, top: 70, transform: 'translate(-100%, -50%)' }}>prompt</div>
+        <div className="flow-tooltip" style={{ left: -8, top: 'calc(50% + 24px)', transform: 'translate(-100%, -50%)' }}>prompt</div>
       )}
       {hover === 'img-out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>image</div>
