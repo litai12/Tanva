@@ -15,6 +15,8 @@ import { ReactFlowProvider } from 'reactflow';
 import 'reactflow/dist/style.css';
 import './flow.css';
 import { Sparkles } from 'lucide-react';
+import type { FlowTemplate, TemplateIndexEntry } from '@/types/template';
+import { loadBuiltInTemplateIndex, loadBuiltInTemplateByPath, listUserTemplates, getUserTemplate, saveUserTemplate, generateId } from '@/services/templateStore';
 
 import TextPromptNode from './nodes/TextPromptNode';
 import ImageNode from './nodes/ImageNode';
@@ -181,6 +183,10 @@ function FlowInner() {
   const [addTab, setAddTab] = React.useState<'nodes' | 'templates'>('nodes');
   const addPanelRef = React.useRef<HTMLDivElement | null>(null);
   const lastPaneClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
+  // 模板相关状态
+  const [tplIndex, setTplIndex] = React.useState<TemplateIndexEntry[] | null>(null);
+  const [userTplList, setUserTplList] = React.useState<Array<{id:string;name:string;category?:string;tags?:string[];thumbnail?:string;createdAt:string;updatedAt:string}>>([]);
+  const [tplLoading, setTplLoading] = React.useState(false);
 
   const openAddPanelAt = React.useCallback((clientX: number, clientY: number) => {
     const world = rf.project({ x: clientX, y: clientY });
@@ -354,6 +360,26 @@ function FlowInner() {
     window.addEventListener('mousedown', onDown);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
   }, [addPanel.visible]);
+
+  // 在打开模板页签时加载内置与用户模板
+  React.useEffect(() => {
+    if (!addPanel.visible || addTab !== 'templates') return;
+    let cancelled = false;
+    (async () => {
+      setTplLoading(true);
+      try {
+        if (!tplIndex) {
+          const idx = await loadBuiltInTemplateIndex();
+          if (!cancelled) setTplIndex(idx);
+        }
+        const list = await listUserTemplates();
+        if (!cancelled) setUserTplList(list);
+      } finally {
+        if (!cancelled) setTplLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [addPanel.visible, addTab, tplIndex]);
 
   // 捕获原生双击，仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
@@ -743,6 +769,69 @@ function FlowInner() {
     if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY);
   }, [openAddPanelAt, isBlankArea]);
 
+  // -------- 模板：实例化与保存 --------
+  const instantiateTemplateAt = React.useCallback(async (tpl: FlowTemplate, world: { x: number; y: number }) => {
+    if (!tpl?.nodes?.length) return;
+    const minX = Math.min(...tpl.nodes.map(n => n.position?.x || 0));
+    const minY = Math.min(...tpl.nodes.map(n => n.position?.y || 0));
+    const idMap = new Map<string,string>();
+    const newNodes = tpl.nodes.map(n => {
+      const newId = generateId(n.type || 'n');
+      idMap.set(n.id, newId);
+      const data: any = { ...(n.data || {}) };
+      delete data.onRun; delete data.onSend; delete data.status; delete data.error;
+      return {
+        id: newId,
+        type: n.type as any,
+        position: { x: world.x + (n.position.x - minX), y: world.y + (n.position.y - minY) },
+        data,
+      } as any;
+    });
+    const newEdges = (tpl.edges || []).map(e => ({
+      id: generateId('e'),
+      source: idMap.get(e.source) || e.source,
+      target: idMap.get(e.target) || e.target,
+      sourceHandle: (e as any).sourceHandle,
+      targetHandle: (e as any).targetHandle,
+      type: e.type || 'default',
+    })) as any[];
+    setNodes(ns => ns.concat(newNodes));
+    setEdges(es => es.concat(newEdges));
+    setAddPanel(v => ({ ...v, visible: false }));
+  }, [setNodes, setEdges]);
+
+  const saveCurrentAsTemplate = React.useCallback(async () => {
+    const allNodes = rf.getNodes();
+    const selected = allNodes.filter((n: any) => n.selected);
+    const nodesToSave = selected.length ? selected : allNodes;
+    if (!nodesToSave.length) return;
+    const edgesAll = rf.getEdges();
+    const nodeIdSet = new Set(nodesToSave.map(n => n.id));
+    const edgesToSave = edgesAll.filter(e => nodeIdSet.has(e.source) && nodeIdSet.has(e.target));
+    const name = prompt('模板名称', `模板_${new Date().toLocaleString()}`) || `模板_${Date.now()}`;
+    const id = generateId('tpl');
+    const minX = Math.min(...nodesToSave.map(n => n.position.x));
+    const minY = Math.min(...nodesToSave.map(n => n.position.y));
+    const tpl: FlowTemplate = {
+      schemaVersion: 1,
+      id,
+      name,
+      nodes: nodesToSave.map(n => ({
+        id: n.id,
+        type: n.type || 'default',
+        position: { x: n.position.x - minX, y: n.position.y - minY },
+        data: (() => { const d: any = { ...(n.data || {}) }; delete d.onRun; delete d.onSend; delete d.status; delete d.error; return d; })(),
+        boxW: (n as any).data?.boxW,
+        boxH: (n as any).data?.boxH,
+      })) as any,
+      edges: edgesToSave.map(e => ({ id: e.id, source: e.source, target: e.target, sourceHandle: (e as any).sourceHandle, targetHandle: (e as any).targetHandle, type: e.type || 'default' })) as any,
+    };
+    await saveUserTemplate(tpl);
+    const list = await listUserTemplates();
+    setUserTplList(list);
+    alert('已保存为模板');
+  }, [rf]);
+
   return (
     <div ref={containerRef} className={"tanva-flow-overlay absolute inset-0"} onDoubleClick={handleContainerDoubleClick}>
       {FlowToolbar}
@@ -1013,20 +1102,76 @@ function FlowInner() {
                 </button>
                 </div>
               </div>
-            ) : (
-              <div style={{ 
-                padding: 32, 
-                textAlign: 'center',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 8
-              }}>
-                <Sparkles size={24} style={{ color: '#9ca3af' }} />
-                <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>模板功能即将推出</div>
-                <div style={{ fontSize: 11, color: '#9ca3af' }}>预设工作流模板让你快速开始</div>
+            ) : addTab === 'templates' ? (
+              <div style={{ maxHeight: 320, overflowY: 'auto', padding: 12 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280' }}>{tplLoading ? '加载中…' : '模板库'}</div>
+                  <div style={{ display:'flex', gap: 6 }}>
+                    <button onClick={saveCurrentAsTemplate} title="将当前选中（或全部）另存为模板" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer' }}>保存为模板</button>
+                  </div>
+                </div>
+                {tplIndex && tplIndex.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, margin: '6px 0' }}>内置模板</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap: 6 }}>
+                      {tplIndex.map(item => (
+                        <div key={item.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap: 10 }}>
+                            <div style={{ width: 36, height: 24, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
+                              {item.thumbnail ? <img src={item.thumbnail} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
+                              {item.description ? <div style={{ fontSize: 12, color:'#6b7280' }}>{item.description}</div> : null}
+                            </div>
+                          </div>
+                          <div>
+                            <button
+                              style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff', cursor: 'pointer' }}
+                              onClick={async () => {
+                                const tpl = await loadBuiltInTemplateByPath(item.path);
+                                if (tpl) instantiateTemplateAt(tpl, addPanel.world);
+                              }}
+                            >插入</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, margin: '6px 0' }}>我的模板</div>
+                  {userTplList.length === 0 ? (
+                    <div style={{ fontSize: 12, color:'#6b7280' }}>暂无保存的模板</div>
+                  ) : (
+                    <div style={{ display:'flex', flexDirection:'column', gap: 6 }}>
+                      {userTplList.map(item => (
+                        <div key={item.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap: 10 }}>
+                            <div style={{ width: 36, height: 24, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
+                              {item.thumbnail ? <img src={item.thumbnail} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
+                              <div style={{ fontSize: 11, color:'#9ca3af' }}>更新于 {new Date(item.updatedAt).toLocaleString()}</div>
+                            </div>
+                          </div>
+                          <div>
+                            <button
+                              style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff', cursor: 'pointer' }}
+                              onClick={async () => {
+                                const tpl = await getUserTemplate(item.id);
+                                if (tpl) instantiateTemplateAt(tpl, addPanel.world);
+                              }}
+                            >插入</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>
