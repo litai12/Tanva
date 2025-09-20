@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "tpl_1758351938330",
+  "name": "导出模板_2025/9/20 15:05:38",
+  "nodes": [
+    {
+      "id": "textPrompt_mfrxb8c0_m9kw",
+      "type": "textPrompt",
+      "position": {
+        "x": 96,
+        "y": -201
+      },
+      "data": {
+        "text": "画一只可爱的狗狗",
+        "boxW": 240,
+        "boxH": 180
+      }
+    },
+    {
+      "id": "generate_mfrxb8c0_sx5v",
+      "type": "generate",
+      "position": {
+        "x": 433,
+        "y": -221
+      },
+      "data": {
+        "boxW": 260,
+        "boxH": 200
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_mfrxb8c0_9j09",
+      "source": "textPrompt_mfrxb8c0_m9kw",
+      "target": "generate_mfrxb8c0_sx5v",
+      "sourceHandle": "text",
+      "targetHandle": "text",
+      "type": "default"
+    }
+  ]
+}

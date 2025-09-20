@@ -204,16 +204,18 @@ function FlowInner() {
 
   const exportFlow = React.useCallback(() => {
     try {
+      // 导出为可内置的模板格式（与内置模板一致）
       const payload = {
-        version: 1,
-        createdAt: new Date().toISOString(),
+        schemaVersion: 1 as const,
+        id: `tpl_${Date.now()}`,
+        name: `导出模板_${new Date().toLocaleString()}`,
         nodes: nodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: cleanNodeData(n.data) })),
         edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target, sourceHandle: (e as any).sourceHandle, targetHandle: (e as any).targetHandle, type: e.type || 'default' })),
-      } as const;
+      };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `tanva-flow-${Date.now()}.json`;
+      a.download = `tanva-template-${Date.now()}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     } catch (err) {
