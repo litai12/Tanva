@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 import paper from 'paper';
 import ReactFlow, {
   Controls,
@@ -40,6 +40,21 @@ const nodeTypes = {
   camera: CameraNode,
 };
 
+const BUILTIN_TEMPLATE_CATEGORIES: Array<{ value: string; label: string }> = [
+  { value: '摄影', label: '摄影' },
+  { value: '建筑设计', label: '建筑设计' },
+  { value: '室内设计', label: '室内设计' },
+  { value: '平面设计', label: '平面设计' },
+  { value: '其他', label: '其他' },
+];
+
+const BUILTIN_CATEGORY_VALUE_SET = new Set(BUILTIN_TEMPLATE_CATEGORIES.map(c => c.value));
+
+function normalizeBuiltinCategory(category?: string): string {
+  if (!category) return '其他';
+  return BUILTIN_CATEGORY_VALUE_SET.has(category) ? category : '其他';
+}
+
 // 用户模板卡片组件
 const UserTemplateCard: React.FC<{
   item: {id:string;name:string;category?:string;tags?:string[];thumbnail?:string;createdAt:string;updatedAt:string};
@@ -47,26 +62,29 @@ const UserTemplateCard: React.FC<{
   onDelete: () => Promise<void>;
 }> = ({ item, onInstantiate, onDelete }) => {
   const [isHovered, setIsHovered] = React.useState(false);
-  
+
   return (
-    <div 
-      style={{ 
-        display:'flex', 
-        alignItems:'center', 
-        justifyContent:'space-between', 
-        border: '1px solid #e5e7eb', 
-        borderRadius: 8, 
-        padding: '10px 12px', 
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        gap: 18,
+        border: '1px solid #e5e7eb',
+        borderRadius: 12,
+        padding: '18px 20px',
         background: '#fff',
         cursor: 'pointer',
         transition: 'all 0.2s ease',
-        position: 'relative'
+        position: 'relative',
+        minHeight: 160,
+        height: 160,
+        overflow: 'hidden'
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = '#3b82f6';
-        e.currentTarget.style.background = '#f8fafc';
-        e.currentTarget.style.transform = 'translateY(-1px)';
-        e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.15)';
+        e.currentTarget.style.borderColor = '#2563eb';
+        e.currentTarget.style.background = '#f1f5ff';
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.boxShadow = '0 16px 32px rgba(37, 99, 235, 0.12)';
         setIsHovered(true);
       }}
       onMouseLeave={(e) => {
@@ -77,28 +95,45 @@ const UserTemplateCard: React.FC<{
         setIsHovered(false);
       }}
       onClick={async (e) => {
-        // 如果点击的是删除按钮，不执行插入操作
         if ((e.target as HTMLElement).closest('.delete-btn')) return;
         await onInstantiate();
       }}
     >
-      <div style={{ display:'flex', alignItems:'center', gap: 10 }}>
-        <div style={{ width: 36, height: 24, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
-          {item.thumbnail ? <img src={item.thumbnail} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
-        </div>
+      <div
+        style={{
+          flex: '0 0 50%',
+          maxWidth: '50%',
+        height: '100%',
+        background: item.thumbnail ? 'transparent' : '#f3f4f6',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden'
+        }}
+      >
+        {item.thumbnail ? (
+          <img src={item.thumbnail} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <div style={{ fontSize: 12, color: '#9ca3af' }}>暂无预览</div>
+        )}
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'center' }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
-          <div style={{ fontSize: 11, color:'#9ca3af' }}>更新于 {new Date(item.updatedAt).toLocaleString()}</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#111827', marginBottom: 6 }}>{item.name}</div>
+          <div style={{ fontSize: 12, color: '#6b7280' }}>更新于 {new Date(item.updatedAt).toLocaleString()}</div>
         </div>
+        {item.category ? <div style={{ fontSize: 12, color: '#9ca3af' }}>分类：{item.category}</div> : null}
+        {item.tags?.length ? (
+          <div style={{ fontSize: 12, color: '#9ca3af' }}>标签：{item.tags.join(' / ')}</div>
+        ) : null}
       </div>
       {isHovered && (
         <button
           className="delete-btn"
-          style={{ 
+          style={{
             position: 'absolute',
-            right: 10,
-            top: '50%',
-            transform: 'translateY(-50%)',
+            right: 16,
+            top: 16,
             width: 28,
             height: 28,
             borderRadius: 6,
@@ -118,12 +153,12 @@ const UserTemplateCard: React.FC<{
           onMouseEnter={(e) => {
             e.currentTarget.style.background = '#fee2e2';
             e.currentTarget.style.borderColor = '#fca5a5';
-            e.currentTarget.style.transform = 'translateY(-50%) scale(1.05)';
+            e.currentTarget.style.transform = 'scale(1.05)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = '#fff';
             e.currentTarget.style.borderColor = '#fecaca';
-            e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+            e.currentTarget.style.transform = 'scale(1)';
           }}
           title="删除模板"
         >
@@ -133,6 +168,97 @@ const UserTemplateCard: React.FC<{
     </div>
   );
 };
+
+const AddTemplateCard: React.FC<{ onAdd: () => Promise<void>; label?: string }> = ({ onAdd, label }) => {
+  const [isLoading, setIsLoading] = React.useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (isLoading) return;
+        setIsLoading(true);
+        try {
+          await onAdd();
+        } finally {
+          setIsLoading(false);
+        }
+      }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '1px dashed #cbd5f5',
+        borderRadius: 12,
+        padding: '18px 20px',
+        minHeight: 160,
+        height: 160,
+        background: '#f8fbff',
+        color: '#2563eb',
+        cursor: isLoading ? 'wait' : 'pointer',
+        transition: 'all 0.15s ease',
+        gap: 10,
+        fontSize: 13,
+        fontWeight: 500
+      }}
+      onMouseEnter={(e) => {
+        if (isLoading) return;
+        e.currentTarget.style.background = '#eef2ff';
+        e.currentTarget.style.borderColor = '#93c5fd';
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.boxShadow = '0 12px 24px rgba(37, 99, 235, 0.12)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = '#f8fbff';
+        e.currentTarget.style.borderColor = '#cbd5f5';
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = 'none';
+      }}
+      disabled={isLoading}
+    >
+      <Plus size={24} strokeWidth={2.5} />
+      <div>{isLoading ? '保存中…' : label || '保存为模板'}</div>
+    </button>
+  );
+};
+
+const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'stretch',
+      gap: 18,
+      border: '1px dashed #d1d5db',
+      borderRadius: 12,
+      padding: '18px 20px',
+      minHeight: 160,
+      height: 160,
+      background: '#f9fafb',
+      transition: 'all 0.2s ease'
+    }}
+  >
+    <div
+      style={{
+        flex: '0 0 50%',
+        maxWidth: '50%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#f3f4f6',
+        borderRadius: 8,
+        color: '#94a3b8'
+      }}
+    >
+      <Plus size={28} strokeWidth={2} />
+    </div>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
+      <div style={{ fontSize: 15, fontWeight: 600 }}>{label || '敬请期待更多模板'}</div>
+      <div>我们正在准备更多创意模板</div>
+    </div>
+  </div>
+);
 
 // Flow独立的视口管理，不再与Canvas同步
 function useFlowViewport() {
@@ -276,6 +402,22 @@ function FlowInner() {
   const [tplIndex, setTplIndex] = React.useState<TemplateIndexEntry[] | null>(null);
   const [userTplList, setUserTplList] = React.useState<Array<{id:string;name:string;category?:string;tags?:string[];thumbnail?:string;createdAt:string;updatedAt:string}>>([]);
   const [tplLoading, setTplLoading] = React.useState(false);
+  const [templateScope, setTemplateScope] = React.useState<'public' | 'mine'>('public');
+  const [activeBuiltinCategory, setActiveBuiltinCategory] = React.useState<string>(BUILTIN_TEMPLATE_CATEGORIES[0].value);
+
+  const filteredTplIndex = React.useMemo(() => {
+    if (!tplIndex) return [];
+    return tplIndex.filter(item => normalizeBuiltinCategory(item.category) === activeBuiltinCategory);
+  }, [tplIndex, activeBuiltinCategory]);
+
+  const getPlaceholderCount = React.useCallback((len: number, opts?: { columns?: number; minVisible?: number }) => {
+    const columns = opts?.columns ?? 2;
+    const minVisible = opts?.minVisible ?? 0;
+    const minFill = len < minVisible ? minVisible - len : 0;
+    const remainder = len % columns;
+    const columnFill = remainder ? columns - remainder : 0;
+    return Math.max(minFill, columnFill);
+  }, []);
 
   const openAddPanelAt = React.useCallback((clientX: number, clientY: number) => {
     const world = rf.screenToFlowPosition({ x: clientX, y: clientY });
@@ -461,7 +603,16 @@ function FlowInner() {
       try {
         if (!tplIndex) {
           const idx = await loadBuiltInTemplateIndex();
-          if (!cancelled) setTplIndex(idx);
+          const normalizedIdx = idx.map(item => ({ ...item, category: normalizeBuiltinCategory(item.category) }));
+          if (!cancelled) {
+            setTplIndex(normalizedIdx);
+            setActiveBuiltinCategory(prev => {
+              const hasPrev = normalizedIdx.some(item => normalizeBuiltinCategory(item.category) === prev);
+              if (hasPrev) return prev;
+              const fallback = BUILTIN_TEMPLATE_CATEGORIES.find(cat => normalizedIdx.some(item => normalizeBuiltinCategory(item.category) === cat.value));
+              return fallback ? fallback.value : BUILTIN_TEMPLATE_CATEGORIES[0].value;
+            });
+          }
         }
         const list = await listUserTemplates();
         if (!cancelled) setUserTplList(list);
@@ -987,9 +1138,11 @@ function FlowInner() {
           <div style={{ 
             background: '#fff', 
             border: '1px solid #e5e7eb', 
-            borderRadius: 12, 
-            boxShadow: '0 10px 25px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05)',
-            minWidth: 320
+            borderRadius: 16, 
+            boxShadow: '0 18px 45px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.08)',
+            width: '60vw',
+            minWidth: 720,
+            maxWidth: 960
           }}>
             <div style={{ 
               display: 'flex', 
@@ -1043,15 +1196,16 @@ function FlowInner() {
             </div>
             {addTab === 'nodes' ? (
               <div style={{ 
-                maxHeight: 300,
+                maxHeight: '60vh',
                 overflowY: 'auto',
-                overflowX: 'hidden'
+                overflowX: 'hidden',
+                paddingTop: 8
               }}>
                 <div style={{ 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  gap: 6, 
-                  padding: 16 
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: 12,
+                  padding: 20
                 }}>
                 <button 
                   onClick={() => createNodeAtWorldCenter('textPrompt', addPanel.world)} 
@@ -1221,36 +1375,91 @@ function FlowInner() {
                 </div>
               </div>
             ) : addTab === 'templates' ? (
-              <div style={{ maxHeight: 320, overflowY: 'auto', padding: 12 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 8 }}>
-                  <div style={{ fontSize: 12, color: '#6b7280' }}>{tplLoading ? '加载中…' : '模板库'}</div>
-                  <div style={{ display:'flex', gap: 6 }}>
-                    <button onClick={saveCurrentAsTemplate} title="将当前选中（或全部）另存为模板" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer' }}>保存为模板</button>
+              <div style={{ maxHeight: '70vh', overflowY: 'auto', padding: '12px 18px 18px' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, color: '#6b7280' }}>{tplLoading ? '加载中…' : ''}</div>
+                  <div style={{ display:'flex', gap: 8 }}>
+                    <button
+                      onClick={() => setTemplateScope('public')}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 999,
+                        border: '1px solid ' + (templateScope === 'public' ? '#2563eb' : '#e5e7eb'),
+                        background: templateScope === 'public' ? '#2563eb' : '#fff',
+                        color: templateScope === 'public' ? '#fff' : '#374151',
+                        fontSize: 12,
+                        fontWeight: templateScope === 'public' ? 600 : 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >公共模板</button>
+                    <button
+                      onClick={() => setTemplateScope('mine')}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 999,
+                        border: '1px solid ' + (templateScope === 'mine' ? '#2563eb' : '#e5e7eb'),
+                        background: templateScope === 'mine' ? '#2563eb' : '#fff',
+                        color: templateScope === 'mine' ? '#fff' : '#374151',
+                        fontSize: 12,
+                        fontWeight: templateScope === 'mine' ? 600 : 500,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >我的模板</button>
                   </div>
                 </div>
-                {tplIndex && tplIndex.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, margin: '6px 0' }}>内置模板</div>
-                    <div style={{ display:'flex', flexDirection:'column', gap: 6 }}>
-                      {tplIndex.map(item => (
+                {tplIndex && templateScope === 'public' ? (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 24, fontWeight: 700, margin: '0 0 14px 0', lineHeight: 1.2 }}>公共模板</div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                      {BUILTIN_TEMPLATE_CATEGORIES.map(cat => {
+                        const isActive = cat.value === activeBuiltinCategory;
+                        return (
+                          <button
+                            key={cat.value}
+                            onClick={() => setActiveBuiltinCategory(cat.value)}
+                            style={{
+                              padding: '6px 14px',
+                              borderRadius: 999,
+                              border: '1px solid ' + (isActive ? '#2563eb' : '#e5e7eb'),
+                              background: isActive ? '#2563eb' : '#fff',
+                              color: isActive ? '#fff' : '#374151',
+                              fontSize: 12,
+                              fontWeight: isActive ? 600 : 500,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              boxShadow: isActive ? '0 10px 18px rgba(37, 99, 235, 0.18)' : 'none'
+                            }}
+                          >
+                            {cat.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20 }}>
+                      {filteredTplIndex.map(item => (
                         <div 
                           key={item.id} 
                           style={{ 
-                            display:'flex', 
-                            alignItems:'center', 
-                            justifyContent:'space-between', 
-                            border: '1px solid #e5e7eb', 
-                            borderRadius: 8, 
-                            padding: '10px 12px', 
+                            display: 'flex',
+                            alignItems: 'stretch',
+                            gap: 20,
+                            border: '1px solid #e5e7eb',
+                            borderRadius: 12,
+                            padding: '18px 20px',
                             background: '#fff',
                             cursor: 'pointer',
-                            transition: 'all 0.2s ease'
+                            transition: 'all 0.2s ease',
+                            minHeight: 160,
+                            height: 160,
+                            overflow: 'hidden'
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.borderColor = '#3b82f6';
-                            e.currentTarget.style.background = '#f8fafc';
-                            e.currentTarget.style.transform = 'translateY(-1px)';
-                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.15)';
+                            e.currentTarget.style.borderColor = '#2563eb';
+                            e.currentTarget.style.background = '#f1f5ff';
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 18px 36px rgba(37, 99, 235, 0.12)';
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.borderColor = '#e5e7eb';
@@ -1263,26 +1472,45 @@ function FlowInner() {
                             if (tpl) instantiateTemplateAt(tpl, addPanel.world);
                           }}
                         >
-                          <div style={{ display:'flex', alignItems:'center', gap: 10 }}>
-                            <div style={{ width: 36, height: 24, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
-                              {item.thumbnail ? <img src={item.thumbnail} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
-                              {item.description ? <div style={{ fontSize: 12, color:'#6b7280' }}>{item.description}</div> : null}
-                            </div>
+                          <div
+                            style={{
+                              flex: '0 0 50%',
+                              maxWidth: '50%',
+                              height: '100%',
+                              background: item.thumbnail ? 'transparent' : '#f3f4f6',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              overflow: 'hidden'
+                            }}
+                          >
+                            {item.thumbnail ? (
+                              <img src={item.thumbnail} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <div style={{ fontSize: 12, color: '#9ca3af' }}>暂无预览</div>
+                            )}
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, justifyContent: 'center' }}>
+                            <div style={{ fontSize: 16, fontWeight: 600, color: '#111827' }}>{item.name}</div>
+                            {item.description ? <div style={{ fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>{item.description}</div> : null}
+                            {item.tags?.length ? <div style={{ fontSize: 12, color: '#9ca3af' }}>标签：{item.tags.join(' / ')}</div> : null}
                           </div>
                         </div>
                       ))}
+                      {Array.from({ length: getPlaceholderCount(filteredTplIndex.length, { minVisible: 4 }) }).map((_, idx) => (
+                        <TemplatePlaceholder key={`builtin-placeholder-${idx}`} label="敬请期待更多模板" />
+                      ))}
                     </div>
                   </div>
-                )}
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, margin: '6px 0' }}>我的模板</div>
-                  {userTplList.length === 0 ? (
-                    <div style={{ fontSize: 12, color:'#6b7280' }}>暂无保存的模板</div>
-                  ) : (
-                    <div style={{ display:'flex', flexDirection:'column', gap: 6 }}>
+                ) : null}
+                {templateScope === 'mine' ? (
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, margin: '0 0 14px 0', lineHeight: 1.2 }}>我的模板</div>
+                    <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20 }}>
+                      <AddTemplateCard
+                        onAdd={saveCurrentAsTemplate}
+                        label={userTplList.length ? '保存当前为新模板' : '创建我的第一个模板'}
+                      />
                       {userTplList.map(item => {
                         return (
                           <UserTemplateCard 
@@ -1307,9 +1535,12 @@ function FlowInner() {
                           />
                         );
                       })}
+                      {Array.from({ length: userTplList.length === 0 ? 0 : getPlaceholderCount(userTplList.length + 1, { minVisible: 4 }) }).map((_, idx) => (
+                        <TemplatePlaceholder key={`user-placeholder-${idx}`} />
+                      ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
