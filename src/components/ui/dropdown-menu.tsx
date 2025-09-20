@@ -66,6 +66,8 @@ DropdownMenuTrigger.displayName = "DropdownMenuTrigger"
 
 export interface DropdownMenuContentProps extends React.HTMLAttributes<HTMLDivElement> {
   align?: 'start' | 'center' | 'end'
+  side?: 'top' | 'right' | 'bottom' | 'left'
+  sideOffset?: number
   forceMount?: boolean
   isOpen?: boolean
   onClose?: () => void
@@ -75,6 +77,8 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   children, 
   className, 
   align = 'end',
+  side,
+  sideOffset,
   forceMount,
   isOpen = false,
   onClose,
