@@ -1149,22 +1149,24 @@ function FlowInner() {
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: 8, 
-              padding: 8, 
-              borderBottom: '1px solid #f3f4f6',
-              background: '#fafafa',
-              borderRadius: '12px 12px 0 0'
+              padding: '10px 12px 0', 
+              borderBottom: 'none',
+              background: '#f5f7fa',
+              borderTopLeftRadius: 16,
+              borderTopRightRadius: 16
             }}>
               <div style={{ display: 'flex', gap: 2 }}>
                 <button 
                 onClick={() => setAddTab('nodes')} 
                 style={{ 
-                  padding: '8px 16px', 
+                  padding: '10px 18px 14px', 
                   fontSize: 13,
                   fontWeight: addTab === 'nodes' ? 600 : 500,
-                  borderRadius: 8, 
+                  borderRadius: '8px 8px 0 0', 
                   border: 'none',
-                  background: addTab === 'nodes' ? '#111827' : 'transparent', 
-                  color: addTab === 'nodes' ? '#fff' : '#374151',
+                  background: addTab === 'nodes' ? '#fff' : 'transparent', 
+                  color: addTab === 'nodes' ? '#111827' : '#374151',
+                  marginBottom: -2,
                   transition: 'all 0.15s ease',
                   cursor: 'pointer'
                 }}
@@ -1174,13 +1176,14 @@ function FlowInner() {
               <button 
                 onClick={() => setAddTab('templates')} 
                 style={{ 
-                  padding: '8px 16px', 
+                  padding: '10px 18px 14px', 
                   fontSize: 13,
                   fontWeight: addTab === 'templates' ? 600 : 500,
-                  borderRadius: 8, 
+                  borderRadius: '8px 8px 0 0', 
                   border: 'none',
-                  background: addTab === 'templates' ? '#111827' : 'transparent', 
-                  color: addTab === 'templates' ? '#fff' : '#374151',
+                  background: addTab === 'templates' ? '#fff' : 'transparent', 
+                  color: addTab === 'templates' ? '#111827' : '#374151',
+                  marginBottom: -2,
                   transition: 'all 0.15s ease',
                   cursor: 'pointer'
                 }}
@@ -1376,42 +1379,46 @@ function FlowInner() {
               </div>
             ) : addTab === 'templates' ? (
               <div style={{ maxHeight: '70vh', overflowY: 'auto', padding: '12px 18px 18px' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, color: '#6b7280' }}>{tplLoading ? '加载中…' : ''}</div>
-                  <div style={{ display:'flex', gap: 8 }}>
-                    <button
-                      onClick={() => setTemplateScope('public')}
-                      style={{
-                        padding: '6px 14px',
-                        borderRadius: 999,
-                        border: '1px solid ' + (templateScope === 'public' ? '#2563eb' : '#e5e7eb'),
-                        background: templateScope === 'public' ? '#2563eb' : '#fff',
-                        color: templateScope === 'public' ? '#fff' : '#374151',
-                        fontSize: 12,
-                        fontWeight: templateScope === 'public' ? 600 : 500,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >公共模板</button>
-                    <button
-                      onClick={() => setTemplateScope('mine')}
-                      style={{
-                        padding: '6px 14px',
-                        borderRadius: 999,
-                        border: '1px solid ' + (templateScope === 'mine' ? '#2563eb' : '#e5e7eb'),
-                        background: templateScope === 'mine' ? '#2563eb' : '#fff',
-                        color: templateScope === 'mine' ? '#fff' : '#374151',
-                        fontSize: 12,
-                        fontWeight: templateScope === 'mine' ? 600 : 500,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >我的模板</button>
+                <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap: 12, marginBottom: templateScope === 'public' ? 12 : 18 }}>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>{templateScope === 'public' ? '公共模板' : '我的模板'}</div>
+                    {tplLoading ? <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>加载中…</div> : null}
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap: 8 }}>
+                    <div style={{ display:'flex', alignItems:'center', padding: 2, border: '1px solid #d4d8de', borderRadius: 999, background: '#fff' }}>
+                      <button
+                        onClick={() => setTemplateScope('public')}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 999,
+                          border: 'none',
+                          background: templateScope === 'public' ? '#2563eb' : 'transparent',
+                          color: templateScope === 'public' ? '#fff' : '#374151',
+                          fontSize: 12,
+                          fontWeight: templateScope === 'public' ? 600 : 500,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >公共模板</button>
+                      <button
+                        onClick={() => setTemplateScope('mine')}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 999,
+                          border: 'none',
+                          background: templateScope === 'mine' ? '#2563eb' : 'transparent',
+                          color: templateScope === 'mine' ? '#fff' : '#374151',
+                          fontSize: 12,
+                          fontWeight: templateScope === 'mine' ? 600 : 500,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >我的模板</button>
+                    </div>
                   </div>
                 </div>
-                {tplIndex && templateScope === 'public' ? (
+                {templateScope === 'public' && tplIndex ? (
                   <div style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: 24, fontWeight: 700, margin: '0 0 14px 0', lineHeight: 1.2 }}>公共模板</div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
                       {BUILTIN_TEMPLATE_CATEGORIES.map(cat => {
                         const isActive = cat.value === activeBuiltinCategory;
@@ -1504,9 +1511,7 @@ function FlowInner() {
                   </div>
                 ) : null}
                 {templateScope === 'mine' ? (
-                  <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, margin: '0 0 14px 0', lineHeight: 1.2 }}>我的模板</div>
-                    <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20 }}>
+                  <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20 }}>
                       <AddTemplateCard
                         onAdd={saveCurrentAsTemplate}
                         label={userTplList.length ? '保存当前为新模板' : '创建我的第一个模板'}
@@ -1539,7 +1544,6 @@ function FlowInner() {
                         <TemplatePlaceholder key={`user-placeholder-${idx}`} />
                       ))}
                     </div>
-                  </div>
                 ) : null}
               </div>
             ) : null}
