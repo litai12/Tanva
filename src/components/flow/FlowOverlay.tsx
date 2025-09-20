@@ -1,4 +1,5 @@
 import React from 'react';
+import { Trash2 } from 'lucide-react';
 import paper from 'paper';
 import ReactFlow, {
   Controls,
@@ -17,7 +18,7 @@ import { ReactFlowProvider } from 'reactflow';
 import 'reactflow/dist/style.css';
 import './flow.css';
 import type { FlowTemplate, TemplateIndexEntry } from '@/types/template';
-import { loadBuiltInTemplateIndex, loadBuiltInTemplateByPath, listUserTemplates, getUserTemplate, saveUserTemplate, generateId } from '@/services/templateStore';
+import { loadBuiltInTemplateIndex, loadBuiltInTemplateByPath, listUserTemplates, getUserTemplate, saveUserTemplate, deleteUserTemplate, generateId } from '@/services/templateStore';
 
 import TextPromptNode from './nodes/TextPromptNode';
 import ImageNode from './nodes/ImageNode';
@@ -37,6 +38,100 @@ const nodeTypes = {
   generate: GenerateNode,
   three: ThreeNode,
   camera: CameraNode,
+};
+
+// 用户模板卡片组件
+const UserTemplateCard: React.FC<{
+  item: {id:string;name:string;category?:string;tags?:string[];thumbnail?:string;createdAt:string;updatedAt:string};
+  onInstantiate: () => Promise<void>;
+  onDelete: () => Promise<void>;
+}> = ({ item, onInstantiate, onDelete }) => {
+  const [isHovered, setIsHovered] = React.useState(false);
+  
+  return (
+    <div 
+      style={{ 
+        display:'flex', 
+        alignItems:'center', 
+        justifyContent:'space-between', 
+        border: '1px solid #e5e7eb', 
+        borderRadius: 8, 
+        padding: '10px 12px', 
+        background: '#fff',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        position: 'relative'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = '#3b82f6';
+        e.currentTarget.style.background = '#f8fafc';
+        e.currentTarget.style.transform = 'translateY(-1px)';
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.15)';
+        setIsHovered(true);
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = '#e5e7eb';
+        e.currentTarget.style.background = '#fff';
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = 'none';
+        setIsHovered(false);
+      }}
+      onClick={async (e) => {
+        // 如果点击的是删除按钮，不执行插入操作
+        if ((e.target as HTMLElement).closest('.delete-btn')) return;
+        await onInstantiate();
+      }}
+    >
+      <div style={{ display:'flex', alignItems:'center', gap: 10 }}>
+        <div style={{ width: 36, height: 24, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
+          {item.thumbnail ? <img src={item.thumbnail} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
+        </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
+          <div style={{ fontSize: 11, color:'#9ca3af' }}>更新于 {new Date(item.updatedAt).toLocaleString()}</div>
+        </div>
+      </div>
+      {isHovered && (
+        <button
+          className="delete-btn"
+          style={{ 
+            position: 'absolute',
+            right: 10,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            border: '1px solid #fecaca',
+            background: '#fff',
+            color: '#ef4444',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onClick={async (e) => {
+            e.stopPropagation();
+            await onDelete();
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = '#fee2e2';
+            e.currentTarget.style.borderColor = '#fca5a5';
+            e.currentTarget.style.transform = 'translateY(-50%) scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = '#fff';
+            e.currentTarget.style.borderColor = '#fecaca';
+            e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
+          }}
+          title="删除模板"
+        >
+          <Trash2 size={16} strokeWidth={2} />
+        </button>
+      )}
+    </div>
+  );
 };
 
 // Flow独立的视口管理，不再与Canvas同步
@@ -1138,7 +1233,36 @@ function FlowInner() {
                     <div style={{ fontSize: 12, fontWeight: 600, margin: '6px 0' }}>内置模板</div>
                     <div style={{ display:'flex', flexDirection:'column', gap: 6 }}>
                       {tplIndex.map(item => (
-                        <div key={item.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
+                        <div 
+                          key={item.id} 
+                          style={{ 
+                            display:'flex', 
+                            alignItems:'center', 
+                            justifyContent:'space-between', 
+                            border: '1px solid #e5e7eb', 
+                            borderRadius: 8, 
+                            padding: '10px 12px', 
+                            background: '#fff',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = '#3b82f6';
+                            e.currentTarget.style.background = '#f8fafc';
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.15)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = '#e5e7eb';
+                            e.currentTarget.style.background = '#fff';
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
+                          onClick={async () => {
+                            const tpl = await loadBuiltInTemplateByPath(item.path);
+                            if (tpl) instantiateTemplateAt(tpl, addPanel.world);
+                          }}
+                        >
                           <div style={{ display:'flex', alignItems:'center', gap: 10 }}>
                             <div style={{ width: 36, height: 24, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
                               {item.thumbnail ? <img src={item.thumbnail} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
@@ -1147,15 +1271,6 @@ function FlowInner() {
                               <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
                               {item.description ? <div style={{ fontSize: 12, color:'#6b7280' }}>{item.description}</div> : null}
                             </div>
-                          </div>
-                          <div>
-                            <button
-                              style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff', cursor: 'pointer' }}
-                              onClick={async () => {
-                                const tpl = await loadBuiltInTemplateByPath(item.path);
-                                if (tpl) instantiateTemplateAt(tpl, addPanel.world);
-                              }}
-                            >插入</button>
                           </div>
                         </div>
                       ))}
@@ -1168,28 +1283,30 @@ function FlowInner() {
                     <div style={{ fontSize: 12, color:'#6b7280' }}>暂无保存的模板</div>
                   ) : (
                     <div style={{ display:'flex', flexDirection:'column', gap: 6 }}>
-                      {userTplList.map(item => (
-                        <div key={item.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 12px', background: '#fff' }}>
-                          <div style={{ display:'flex', alignItems:'center', gap: 10 }}>
-                            <div style={{ width: 36, height: 24, background:'#f3f4f6', borderRadius:4, overflow:'hidden' }}>
-                              {item.thumbnail ? <img src={item.thumbnail} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.name}</div>
-                              <div style={{ fontSize: 11, color:'#9ca3af' }}>更新于 {new Date(item.updatedAt).toLocaleString()}</div>
-                            </div>
-                          </div>
-                          <div>
-                            <button
-                              style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff', cursor: 'pointer' }}
-                              onClick={async () => {
-                                const tpl = await getUserTemplate(item.id);
-                                if (tpl) instantiateTemplateAt(tpl, addPanel.world);
-                              }}
-                            >插入</button>
-                          </div>
-                        </div>
-                      ))}
+                      {userTplList.map(item => {
+                        return (
+                          <UserTemplateCard 
+                            key={item.id}
+                            item={item}
+                            onInstantiate={async () => {
+                              const tpl = await getUserTemplate(item.id);
+                              if (tpl) instantiateTemplateAt(tpl, addPanel.world);
+                            }}
+                            onDelete={async () => {
+                              if (confirm(`确定要删除模板 "${item.name}" 吗？此操作无法撤销。`)) {
+                                try {
+                                  await deleteUserTemplate(item.id);
+                                  const list = await listUserTemplates();
+                                  setUserTplList(list);
+                                } catch (err) {
+                                  console.error('删除模板失败:', err);
+                                  alert('删除模板失败');
+                                }
+                              }
+                            }}
+                          />
+                        );
+                      })}
                     </div>
                   )}
                 </div>
