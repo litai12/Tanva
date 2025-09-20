@@ -334,7 +334,20 @@ const AIChatDialog: React.FC = () => {
     setIsMaximized(v => !v);
   };
 
-  // 🔧 统一的双击事件处理器：高优先级拦截，避免与Flow节点面板冲突
+  // 捕获阶段拦截双击：只执行对话框放大/缩小，并阻止事件继续到画布
+  const handleDoubleClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    // 忽略在交互控件上的双击（但仍阻止冒泡，防误触画布）
+    const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+    e.preventDefault();
+    e.stopPropagation();
+    // 尽力阻断同层监听
+    // @ts-ignore
+    e.nativeEvent?.stopImmediatePropagation?.();
+    if (interactive) return;
+    // 与外层逻辑保持一致：双击即切换大小
+    setIsMaximized(v => !v);
+  };
   // 注意：Hook 需在任何 early return 之前声明，避免 Hook 次序不一致
   useEffect(() => {
     const onDbl = (ev: MouseEvent) => {
@@ -444,7 +457,7 @@ const AIChatDialog: React.FC = () => {
       isMaximized
         ? "top-32 left-16 right-16 bottom-4" // 最大化时，64px边距
         : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4"
-    )} onDoubleClick={handleOuterDoubleClick}>
+    )} onDoubleClick={handleOuterDoubleClick} onDoubleClickCapture={handleDoubleClickCapture}>
       <div
         ref={dialogRef}
         data-prevent-add-panel
@@ -453,6 +466,7 @@ const AIChatDialog: React.FC = () => {
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
         onDoubleClick={handleOuterDoubleClick}
+        onDoubleClickCapture={handleDoubleClickCapture}
       >
         {/* 进度条 - 贴着对话框顶部，避免触碰圆角 */}
         {generationStatus.isGenerating && (

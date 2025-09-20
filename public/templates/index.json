@@ -1,0 +1,20 @@
+[
+  {
+    "id": "basic-text-to-image",
+    "name": "Prompt → Generate → Image",
+    "category": "内置",
+    "description": "基础流程：文本提示连接到生成节点，并显示到图像节点",
+    "tags": ["basic", "generate"],
+    "thumbnail": "/templates/thumbs/basic-text-to-image.png",
+    "path": "/templates/core/basic-text-to-image.json"
+  },
+  {
+    "id": "basic-dog",
+    "name": "Dog: Prompt → Generate",
+    "category": "内置",
+    "description": "文本提示生成狗狗（仅生成节点示例）",
+    "tags": ["basic", "generate", "dog"],
+    "thumbnail": "/templates/thumbs/basic-dog.svg",
+    "path": "/templates/core/basic-dog.json"
+  }
+]
