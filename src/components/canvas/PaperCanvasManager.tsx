@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 
@@ -12,23 +12,39 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
   onInitialized 
 }) => {
   const { zoom, panX, panY, setPan } = useCanvasStore();
+  // 守护只初始化一次（跨 StrictMode 双执行）
+  const setupDoneRef = useRef(false);
+  const initNotifiedRef = useRef(false);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const pendingRafRef = useRef<number | null>(null);
 
   // Paper.js 初始化和画布尺寸管理
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // 初始化Paper.js
-    paper.setup(canvas);
-    
-    // 禁用Paper.js的默认交互行为
-    if (paper.view) {
-      paper.view.onMouseDown = null;
-      paper.view.onMouseDrag = null;
-      paper.view.onMouseUp = null;
+    // 避免在开发 StrictMode 下重复 setup 导致 project 被重置
+    if (!setupDoneRef.current) {
+      // 若同一 canvas 已被 setup 过，打上标记避免重复
+      const alreadySetup = (canvas as any).dataset?.paperSetup === '1';
+      if (!alreadySetup) {
+        paper.setup(canvas);
+        try { (canvas as any).dataset.paperSetup = '1'; } catch {}
+        // 禁用Paper.js的默认交互行为
+        if (paper.view) {
+          paper.view.onMouseDown = null;
+          paper.view.onMouseDrag = null;
+          paper.view.onMouseUp = null;
+        }
+        setupDoneRef.current = true;
+        // console.debug('[PaperCanvasManager] paper.setup executed');
+      } else {
+        setupDoneRef.current = true;
+        // console.debug('[PaperCanvasManager] paper.setup skipped (already)');
+      }
     }
 
-    let isInitialized = false;
+    // let isInitialized = false; // 替换为 initNotifiedRef 持久化
     
     const resizeCanvas = () => {
       const parent = canvas.parentElement;
@@ -37,6 +53,12 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         const pixelRatio = window.devicePixelRatio || 1;
         const displayWidth = parent.clientWidth;
         const displayHeight = parent.clientHeight;
+        // 若容器尚未完成布局，延迟一次再尝试
+        if (!displayWidth || !displayHeight) {
+          if (pendingRafRef.current) cancelAnimationFrame(pendingRafRef.current);
+          pendingRafRef.current = requestAnimationFrame(() => resizeCanvas());
+          return;
+        }
         
         // 设置画布的实际尺寸（考虑设备像素比）
         canvas.width = displayWidth * pixelRatio;
@@ -51,11 +73,11 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         paper.view.viewSize.height = canvas.height;
         
         // 初始化时将坐标轴移动到画布中心（仅执行一次）
-        if (!isInitialized) {
+        if (!initNotifiedRef.current) {
           const centerX = displayWidth / 2;
           const centerY = displayHeight / 2;
           setPan(centerX, centerY);
-          isInitialized = true;
+          initNotifiedRef.current = true;
           
           // 通知外部组件初始化完成
           if (onInitialized) {
@@ -77,8 +99,8 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       paper.view.matrix = matrix;
     };
 
-    // 初始化画布
-    resizeCanvas();
+    // 初始化画布（推迟到下一帧，确保布局完成）
+    pendingRafRef.current = requestAnimationFrame(() => resizeCanvas());
 
     // 监听窗口大小变化
     const handleResize = () => {
@@ -86,8 +108,24 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     };
     window.addEventListener('resize', handleResize);
 
+    // 监听父容器尺寸变化，覆盖非窗口来源的布局变更
+    const parent = canvas.parentElement;
+    if (parent && 'ResizeObserver' in window) {
+      const ro = new ResizeObserver(() => resizeCanvas());
+      ro.observe(parent);
+      resizeObserverRef.current = ro;
+    }
+
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (resizeObserverRef.current) {
+        try { resizeObserverRef.current.disconnect(); } catch {}
+        resizeObserverRef.current = null;
+      }
+      if (pendingRafRef.current) {
+        cancelAnimationFrame(pendingRafRef.current);
+        pendingRafRef.current = null;
+      }
     };
   }, [canvasRef, setPan, onInitialized]);
 
