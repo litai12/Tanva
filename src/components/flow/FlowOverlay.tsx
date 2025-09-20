@@ -363,6 +363,19 @@ function FlowInner() {
       const x = e.clientX, y = e.clientY;
       if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
 
+      // 若事件来源路径中包含受保护元素（AI 对话框等），直接忽略
+      try {
+        const path = (e.composedPath && e.composedPath()) || [];
+        for (const n of path) {
+          if (n && (n as any).closest && (n as HTMLElement).closest?.('[data-prevent-add-panel]')) {
+            return;
+          }
+          if (n instanceof HTMLElement && n.getAttribute && n.getAttribute('data-prevent-add-panel') !== null) {
+            return;
+          }
+        }
+      } catch {}
+
       // 若在屏蔽元素或其外侧保护带内，忽略
       try {
         const shield = 24;
