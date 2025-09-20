@@ -334,12 +334,20 @@ const AIChatDialog: React.FC = () => {
     setIsMaximized(v => !v);
   };
 
-  // 全局兜底：允许在卡片外侧“环形区域”双击触发（更灵敏）
+  // 🔧 统一的双击事件处理器：高优先级拦截，避免与Flow节点面板冲突
   // 注意：Hook 需在任何 early return 之前声明，避免 Hook 次序不一致
   useEffect(() => {
     const onDbl = (ev: MouseEvent) => {
       const card = dialogRef.current;
       if (!card) return;
+      
+      console.log('🔧 AI对话框双击事件捕获:', { 
+        x: ev.clientX, 
+        y: ev.clientY, 
+        target: (ev.target as HTMLElement)?.tagName,
+        timestamp: Date.now() 
+      });
+      
       const x = ev.clientX, y = ev.clientY;
       const r = card.getBoundingClientRect();
       const content = contentRef.current;
@@ -349,34 +357,50 @@ const AIChatDialog: React.FC = () => {
       const insideContent = cr ? (x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom) : false;
       const distToCardEdge = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
 
-      // 定义外侧环形区域（卡片外扩24px以内，但不包含卡片外太远区域）
-      // 外环禁用，只允许卡片内触发
+      // 🎯 AI对话框保护区域：扩大到32px，更强的保护
+      const protectionRadius = 32;
+      const inProtectionZone = x >= r.left - protectionRadius && x <= r.right + protectionRadius && 
+                               y >= r.top - protectionRadius && y <= r.bottom + protectionRadius;
 
-      // 触发条件：
-      // 1) 卡片padding/边框区域
-      // 2) 外侧环形区域
-      // 3) 在最大化时，即使在内容区内，只要不是交互控件也允许
-      const tgt = ev.target as HTMLElement;
-      const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
-      const inTopBand = cr ? y <= cr.top + 24 : false;
-      const inInnerEdgeBand = distToCardEdge <= 24;
-      const allowInsideContent = ((isMaximized || inTopBand || inInnerEdgeBand) && !interactive);
-      if (insideCard && (!insideContent || allowInsideContent)) {
+      if (inProtectionZone) {
+        console.log('🛡️ AI对话框保护区域内，阻止Flow面板触发');
         ev.stopPropagation();
         ev.preventDefault();
-        setIsMaximized(v => !v);
-      }
-
-      // 外部屏蔽：卡片外侧一定范围内，阻止冒泡，防止 Flow 弹出节点面板
-      const inOuterShield = x >= r.left - 24 && x <= r.right + 24 && y >= r.top - 24 && y <= r.bottom + 24 && !insideCard;
-      if (inOuterShield) {
-        ev.stopPropagation();
-        ev.preventDefault();
+        
+        // 只有在AI对话框内部才切换最大化状态
+        if (insideCard) {
+          const tgt = ev.target as HTMLElement;
+          const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+          const inTopBand = cr ? y <= cr.top + 24 : false;
+          const inInnerEdgeBand = distToCardEdge <= 24;
+          const allowInsideContent = ((isMaximized || inTopBand || inInnerEdgeBand) && !interactive);
+          
+          if (!insideContent || allowInsideContent) {
+            console.log('✅ 触发AI对话框最大化切换');
+            
+            // 🧪 触发测试事件
+            if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+              window.dispatchEvent(new CustomEvent('ai-dialog-double-click', {
+                detail: { 
+                  action: 'toggle-maximize', 
+                  x: ev.clientX, 
+                  y: ev.clientY,
+                  target: (ev.target as HTMLElement)?.tagName 
+                }
+              }));
+            }
+            
+            setIsMaximized(v => !v);
+          }
+        }
+        return;
       }
     };
-    window.addEventListener('dblclick', onDbl, true);
+    
+    // 🚀 提高事件优先级：使用更早的事件阶段和立即执行
+    window.addEventListener('dblclick', onDbl, { capture: true, passive: false });
     return () => window.removeEventListener('dblclick', onDbl, true);
-  }, []);
+  }, [isMaximized]);
 
   // 根据鼠标位置动态设置光标（zoom-in / zoom-out），明确可触发切换的区域
   // 放在 early return 之前，避免 Hook 顺序问题
@@ -407,25 +431,7 @@ const AIChatDialog: React.FC = () => {
     return () => window.removeEventListener('mousemove', onMove, true);
   }, [isMaximized]);
 
-  // 捕获阶段拦截双击，避免触发 Flow 节点面板；并在非交互控件下切换大小
-  // 放在 early return 之前，避免 Hook 顺序问题
-  useEffect(() => {
-    const handler = (ev: MouseEvent) => {
-      const target = ev.target as HTMLElement;
-      const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
-      if (interactive) {
-        // 在交互控件上双击：只阻止冒泡，不切换
-        ev.stopPropagation();
-        return;
-      }
-      ev.stopPropagation();
-      ev.preventDefault();
-      setIsMaximized(v => !v);
-    };
-    const el = containerRef.current;
-    if (el) el.addEventListener('dblclick', handler, true);
-    return () => { if (el) el.removeEventListener('dblclick', handler, true); };
-  }, []);
+  // 🗑️ 已移除重复的局部事件监听器，统一使用上方的全局高优先级处理器
 
   // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
   if (!isVisible) return null;

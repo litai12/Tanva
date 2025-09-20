@@ -358,27 +358,60 @@ function FlowInner() {
   // 捕获原生双击，仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
     const onNativeDblClick = (e: MouseEvent) => {
+      console.log('🎯 Flow面板双击事件捕获:', { 
+        x: e.clientX, 
+        y: e.clientY, 
+        target: (e.target as HTMLElement)?.tagName,
+        timestamp: Date.now() 
+      });
+      
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX, y = e.clientY;
-      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+        console.log('🚫 Flow面板：坐标超出容器范围');
+        return;
+      }
 
       // 若在屏蔽元素或其外侧保护带内，忽略
       try {
-        const shield = 24;
+        const shield = 32; // 🔧 增加保护带到32px，与AI对话框保持一致
         const preventEls = Array.from(document.querySelectorAll('[data-prevent-add-panel]')) as HTMLElement[];
         for (const el of preventEls) {
           const r = el.getBoundingClientRect();
           if (x >= r.left - shield && x <= r.right + shield && y >= r.top - shield && y <= r.bottom + shield) {
+            console.log('🛡️ Flow面板：在保护区域内，跳过处理', { 
+              element: el.tagName, 
+              bounds: r,
+              shield 
+            });
             return;
           }
         }
-      } catch {}
+      } catch (error) {
+        console.warn('🚨 Flow面板保护检查失败:', error);
+      }
 
       if (isBlankArea(x, y)) {
+        console.log('✅ Flow面板：空白区域双击，创建节点面板');
+        
+        // 🧪 触发测试事件
+        if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+          window.dispatchEvent(new CustomEvent('flow-panel-double-click', {
+            detail: { 
+              action: 'create-node-panel', 
+              x: e.clientX, 
+              y: e.clientY,
+              target: (e.target as HTMLElement)?.tagName 
+            }
+          }));
+        }
+        
         e.stopPropagation();
         e.preventDefault();
         openAddPanelAt(x, y);
+      } else {
+        console.log('🚫 Flow面板：非空白区域，跳过处理');
       }
     };
     window.addEventListener('dblclick', onNativeDblClick, true);
