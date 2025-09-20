@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80">
+  <rect x="0" y="0" width="120" height="80" rx="10" fill="#f3f4f6" stroke="#e5e7eb"/>
+  <text x="60" y="24" text-anchor="middle" font-size="12" fill="#374151" font-family="-apple-system,Segoe UI,Arial,Helvetica,sans-serif">Dog Template</text>
+  <g transform="translate(60,50)">
+    <circle cx="-18" cy="-4" r="9" fill="#ffffff" stroke="#9ca3af"/>
+    <circle cx="18" cy="-4" r="9" fill="#ffffff" stroke="#9ca3af"/>
+    <circle cx="0" cy="0" r="16" fill="#ffffff" stroke="#6b7280"/>
+    <circle cx="-5" cy="-2" r="2" fill="#374151"/>
+    <circle cx="5" cy="-2" r="2" fill="#374151"/>
+    <path d="M -6 6 Q 0 10 6 6" stroke="#6b7280" fill="none" stroke-linecap="round" stroke-width="1.5"/>
+  </g>
+</svg>

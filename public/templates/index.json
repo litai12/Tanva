@@ -14,7 +14,7 @@
     "category": "内置",
     "description": "文本提示生成狗狗（仅生成节点示例）",
     "tags": ["basic", "generate", "dog"],
-    "thumbnail": "/templates/thumbs/basic-dog.png",
+    "thumbnail": "/templates/thumbs/basic-dog.svg",
     "path": "/templates/core/basic-dog.json"
   }
 ]
