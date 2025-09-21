@@ -717,7 +717,7 @@ function FlowInner() {
     const currentEdges = rf.getEdges();
     const incoming = currentEdges.filter(e => e.target === params.target && e.targetHandle === params.targetHandle);
     if (targetNode?.type === 'generate') {
-      if (params.targetHandle === 'text') return incoming.length < 1;
+      if (params.targetHandle === 'text') return true; // 允许连接，新线会替换旧线
       if (params.targetHandle === 'img') return incoming.length < 6;
     }
     if (targetNode?.type === 'image') {
@@ -732,11 +732,18 @@ function FlowInner() {
 
     setEdges((eds) => {
       let next = eds;
-      // 如果是连接到 Image(img)，先移除旧的输入线，再添加新线
       const tgt = rf.getNode(params.target!);
+      
+      // 如果是连接到 Image(img)，先移除旧的输入线，再添加新线
       if (tgt?.type === 'image' && params.targetHandle === 'img') {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'img'));
       }
+      
+      // 如果是连接到 Generate(text)，先移除旧的输入线，再添加新线
+      if (tgt?.type === 'generate' && params.targetHandle === 'text') {
+        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'text'));
+      }
+      
       return addEdge({ ...params, type: 'default' }, next);
     });
 
