@@ -1202,7 +1202,7 @@ function FlowInner() {
             </div>
             {addTab === 'nodes' ? (
               <div style={{ 
-                height: '70vh',
+                height: 'min(70vh, 640px)',
                 overflowY: 'auto',
                 overflowX: 'hidden',
                 paddingTop: 8
@@ -1381,7 +1381,7 @@ function FlowInner() {
                 </div>
               </div>
             ) : addTab === 'templates' ? (
-              <div style={{ height: '70vh', overflowY: 'auto', overflowX: 'hidden', padding: '12px 18px 18px' }}>
+              <div style={{ height: 'min(70vh, 640px)', overflowY: 'auto', overflowX: 'hidden', padding: '12px 18px 18px' }}>
                 <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap: 12, marginBottom: templateScope === 'public' ? 12 : 18 }}>
                   <div>
                     <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>{templateScope === 'public' ? '公共模板' : '我的模板'}</div>
@@ -1565,7 +1565,7 @@ function FlowInner() {
                           </div>
                         </div>
                       ))}
-                      {Array.from({ length: getPlaceholderCount(filteredTplIndex.length, { minVisible: 4 }) }).map((_, idx) => (
+                      {Array.from({ length: getPlaceholderCount(filteredTplIndex.length, { minVisible: 6 }) }).map((_, idx) => (
                         <TemplatePlaceholder key={`builtin-placeholder-${idx}`} label="敬请期待更多模板" />
                       ))}
                     </div>
