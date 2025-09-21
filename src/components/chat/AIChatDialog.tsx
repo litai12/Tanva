@@ -781,7 +781,7 @@ const AIChatDialog: React.FC = () => {
                 placeholder={getSmartPlaceholder()}
                 disabled={generationStatus.isGenerating}
                 className={cn(
-                  "resize-none pr-40 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
+                  "resize-none pr-4 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
                   generationStatus.isGenerating && "opacity-75"
                 )}
                 rows={showHistory ? 3 : 1}
