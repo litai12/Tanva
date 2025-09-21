@@ -1170,7 +1170,7 @@ function FlowInner() {
                   padding: '10px 18px 14px', 
                   fontSize: 13,
                   fontWeight: addTab === 'nodes' ? 600 : 500,
-                  borderRadius: '8px 8px 0 0', 
+                  borderRadius: '24px 24px 0 0', 
                   border: 'none',
                   background: addTab === 'nodes' ? '#fff' : 'transparent', 
                   color: addTab === 'nodes' ? '#111827' : '#374151',
@@ -1187,7 +1187,7 @@ function FlowInner() {
                   padding: '10px 18px 14px', 
                   fontSize: 13,
                   fontWeight: addTab === 'templates' ? 600 : 500,
-                  borderRadius: '8px 8px 0 0', 
+                  borderRadius: '24px 24px 0 0', 
                   border: 'none',
                   background: addTab === 'templates' ? '#fff' : 'transparent', 
                   color: addTab === 'templates' ? '#111827' : '#374151',
@@ -1394,9 +1394,9 @@ function FlowInner() {
                         onClick={exportFlow}
                         title="导出当前编排为JSON"
                         style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 8,
+                          width: 32,
+                          height: 32,
+                          borderRadius: '50%',
                           border: '1px solid #e5e7eb',
                           background: '#fff',
                           color: '#374151',
@@ -1421,9 +1421,9 @@ function FlowInner() {
                         onClick={handleImportClick}
                         title="导入JSON并复现编排"
                         style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 8,
+                          width: 32,
+                          height: 32,
+                          borderRadius: '50%',
                           border: '1px solid #e5e7eb',
                           background: '#fff',
                           color: '#374151',
