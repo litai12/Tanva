@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'image' | 'generate';
+export type NodeKind = 'textPrompt' | 'promptOptimize' | 'image' | 'generate';
 
 export type TextPromptData = {
   text: string;
@@ -20,8 +20,12 @@ export type GenerateData = {
   error?: string;
 };
 
-export type AnyNodeData = TextPromptData | ImageData | GenerateData;
+export type PromptOptimizeData = {
+  text?: string; // input or selected output
+  expandedText?: string; // optimized preview/output
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;
-

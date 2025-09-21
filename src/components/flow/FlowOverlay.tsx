@@ -25,6 +25,7 @@ import ImageNode from './nodes/ImageNode';
 import GenerateNode from './nodes/GenerateNode';
 import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
+import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useUIStore } from '@/stores';
 import { aiImageService } from '@/services/aiImageService';
@@ -34,6 +35,7 @@ type RFNode = Node<any>;
 
 const nodeTypes = {
   textPrompt: TextPromptNode,
+  promptOptimize: PromptOptimizeNode,
   image: ImageNode,
   generate: GenerateNode,
   three: ThreeNode,
@@ -666,10 +668,11 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'image' | 'generate' | 'three' | 'camera', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'three' | 'camera', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
+      promptOptimize: { w: 360, h: 300 },
       image: { w: 260, h: 240 },
       generate: { w: 260, h: 200 },
       three: { w: 280, h: 260 },
@@ -678,6 +681,7 @@ function FlowInner() {
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
     const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h }
+      : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
@@ -696,15 +700,19 @@ function FlowInner() {
     const targetNode = rf.getNode(target);
     if (!sourceNode || !targetNode) return false;
 
-    // 允许连接到 Generate 和 Image
+    // 允许连接到 Generate / Image / PromptOptimizer
     if (targetNode.type === 'generate') {
-      if (targetHandle === 'text') return sourceNode.type === 'textPrompt';
+      if (targetHandle === 'text') return ['textPrompt','promptOptimize'].includes(sourceNode.type || '');
       if (targetHandle === 'img') return ['image','generate','three','camera'].includes(sourceNode.type || '');
       return false;
     }
 
     if (targetNode.type === 'image') {
       if (targetHandle === 'img') return ['image','generate','three','camera'].includes(sourceNode.type || '');
+      return false;
+    }
+    if (targetNode.type === 'promptOptimize') {
+      if (targetHandle === 'text') return ['textPrompt','promptOptimize'].includes(sourceNode.type || '');
       return false;
     }
     return false;
@@ -723,6 +731,9 @@ function FlowInner() {
     if (targetNode?.type === 'image') {
       if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
     }
+    if (targetNode?.type === 'promptOptimize') {
+      if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
+    }
     return false;
   }, [rf]);
 
@@ -739,8 +750,8 @@ function FlowInner() {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'img'));
       }
       
-      // 如果是连接到 Generate(text)，先移除旧的输入线，再添加新线
-      if (tgt?.type === 'generate' && params.targetHandle === 'text') {
+      // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
+      if ((tgt?.type === 'generate' || tgt?.type === 'promptOptimize') && params.targetHandle === 'text') {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'text'));
       }
       
@@ -929,7 +940,7 @@ function FlowInner() {
     return () => { delete (window as any).tanvaFlow; };
   }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
 
-  const addAtCenter = React.useCallback((type: 'textPrompt' | 'image' | 'generate') => {
+  const addAtCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate') => {
     const rect = containerRef.current?.getBoundingClientRect();
     const centerScreen = {
       x: (rect?.width || window.innerWidth) / 2,
@@ -937,7 +948,7 @@ function FlowInner() {
     };
     const center = rf.screenToFlowPosition(centerScreen);
     const id = `${type}_${Date.now()}`;
-    const base: any = { id, type, position: center, data: type === 'textPrompt' ? { text: '' } : (type === 'generate' ? { status: 'idle' } : { imageData: undefined }) };
+    const base: any = { id, type, position: center, data: type === 'textPrompt' ? { text: '' } : (type === 'promptOptimize' ? { text: '', expandedText: '' } : (type === 'generate' ? { status: 'idle' } : { imageData: undefined })) };
     setNodes(ns => ns.concat([base]));
     return id;
   }, [rf, setNodes]);
@@ -950,6 +961,7 @@ function FlowInner() {
       style={{ position: 'absolute', top: 56, right: 16, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(255,255,255,0.9)', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}
     >
       <button onClick={() => addAtCenter('textPrompt')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
+      <button onClick={() => addAtCenter('promptOptimize')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>优化</button>
       <button onClick={() => addAtCenter('image')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>图片</button>
       <button onClick={() => addAtCenter('generate')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
       <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
@@ -1245,6 +1257,39 @@ function FlowInner() {
                 >
                   <span>Prompt Node</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词</span>
+                </button>
+                <button 
+                  onClick={() => createNodeAtWorldCenter('promptOptimize', addPanel.world)} 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13, 
+                    fontWeight: 500,
+                    padding: '12px 16px', 
+                    borderRadius: 8, 
+                    border: '1px solid #e5e7eb', 
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Prompt Optimizer</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词优化</span>
                 </button>
                 <button 
                   onClick={() => createNodeAtWorldCenter('image', addPanel.world)} 
