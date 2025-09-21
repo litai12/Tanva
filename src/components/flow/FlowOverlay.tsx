@@ -1202,7 +1202,7 @@ function FlowInner() {
             </div>
             {addTab === 'nodes' ? (
               <div style={{ 
-                maxHeight: '60vh',
+                height: '70vh',
                 overflowY: 'auto',
                 overflowX: 'hidden',
                 paddingTop: 8
@@ -1381,7 +1381,7 @@ function FlowInner() {
                 </div>
               </div>
             ) : addTab === 'templates' ? (
-              <div style={{ maxHeight: '70vh', overflowY: 'auto', padding: '12px 18px 18px' }}>
+              <div style={{ height: '70vh', overflowY: 'auto', overflowX: 'hidden', padding: '12px 18px 18px' }}>
                 <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap: 12, marginBottom: templateScope === 'public' ? 12 : 18 }}>
                   <div>
                     <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>{templateScope === 'public' ? '公共模板' : '我的模板'}</div>
