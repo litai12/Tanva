@@ -90,6 +90,8 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
         }
       } catch {}
     }
+    // 再次兜底：使用当前预览/编辑内容
+    if (!text && expandedText?.trim()) text = expandedText.trim();
     if (!text) return;
 
     reset();
@@ -112,7 +114,7 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
       background: '#fff',
       border: '1px solid #e5e7eb',
       borderRadius: 8,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+      boxShadow: 'none',
       display: 'flex',
       flexDirection: 'column',
       position: 'relative'
@@ -168,8 +170,13 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
         <label style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, display: 'block' }}>优化预览</label>
         <div style={{ position: 'relative', flex: 1 }}>
           <textarea
-            readOnly
             value={loading ? '' : expandedText}
+            onChange={(e) => {
+              const v = e.target.value;
+              setExpandedText(v);
+              // 编辑即生效：向右输出编辑后的文本
+              updateNodeData({ expandedText: v, text: v });
+            }}
             placeholder={loading ? '' : '生成预览后将在此处展示扩写结果'}
             style={{
               width: '100%',
@@ -180,7 +187,7 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
               border: '1px solid #e5e7eb',
               borderRadius: 6,
               padding: 8,
-              background: '#f8fafc',
+              background: '#fff',
               outline: 'none'
             }}
           />
