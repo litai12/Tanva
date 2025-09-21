@@ -9,11 +9,31 @@ import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, Search } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AIStreamProgressEvent } from '@/types/ai';
+import PromptOptimizationPanel from '@/components/chat/PromptOptimizationPanel';
+import type { PromptOptimizationSettings } from '@/components/chat/PromptOptimizationPanel';
+import promptOptimizationService from '@/services/promptOptimizationService';
+
+const MinimalGlobeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5c2.1 2 3.5 5 3.5 8.5s-1.4 6.5-3.5 8.5c-2.1-2-3.5-5-3.5-8.5s1.4-6.5 3.5-8.5Z" />
+    <path d="M4 12h16" />
+  </svg>
+);
 
 const AIChatDialog: React.FC = () => {
   const {
@@ -53,6 +73,20 @@ const AIChatDialog: React.FC = () => {
   // 流式文本渲染状态（仅文本对话）
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [autoOptimizeEnabled, setAutoOptimizeEnabled] = useState(false);
+  const [autoOptimizing, setAutoOptimizing] = useState(false);
+  const [isPromptPanelOpen, setIsPromptPanelOpen] = useState(false);
+  const promptButtonRef = useRef<HTMLButtonElement>(null);
+  const promptPanelRef = useRef<HTMLDivElement>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const [promptSettings, setPromptSettings] = useState<PromptOptimizationSettings>({
+    language: '中文',
+    tone: '',
+    focus: '',
+    lengthPreference: 'balanced'
+  });
+  const LONG_PRESS_DURATION = 550;
   
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
@@ -65,13 +99,42 @@ const AIChatDialog: React.FC = () => {
     initializeContext();
   }, [initializeContext]);
 
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
   // 对话框关闭时重置手动关闭标志
   useEffect(() => {
     if (!isVisible) {
       setManuallyClosedHistory(false);
       setShowHistory(false);
+      setIsPromptPanelOpen(false);
     }
   }, [isVisible]);
+
+  // 面板外点击关闭
+  useEffect(() => {
+    if (!isPromptPanelOpen) return;
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (promptPanelRef.current && promptPanelRef.current.contains(target)) return;
+      if (promptButtonRef.current && promptButtonRef.current.contains(target)) return;
+      setIsPromptPanelOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, [isPromptPanelOpen]);
 
   // 智能历史记录显示：纯对话模式自动打开，绘图模式不打开
   useEffect(() => {
@@ -243,6 +306,78 @@ const AIChatDialog: React.FC = () => {
     }
   };
 
+  const startPromptButtonLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setIsPromptPanelOpen(true);
+    }, LONG_PRESS_DURATION);
+  };
+
+  const cancelPromptButtonLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handlePromptButtonPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (generationStatus.isGenerating || autoOptimizing) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+    }
+    longPressTriggeredRef.current = false;
+    startPromptButtonLongPress();
+  };
+
+  const handlePromptButtonPointerUp = () => {
+    if (generationStatus.isGenerating || autoOptimizing) return;
+    cancelPromptButtonLongPress();
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    setAutoOptimizeEnabled((prev) => !prev);
+  };
+
+  const handlePromptButtonPointerLeave = () => {
+    cancelPromptButtonLongPress();
+    longPressTriggeredRef.current = false;
+  };
+
+  const handlePromptButtonPointerCancel = () => {
+    cancelPromptButtonLongPress();
+    longPressTriggeredRef.current = false;
+  };
+
+  const handlePromptSettingsChange = (next: PromptOptimizationSettings) => {
+    setPromptSettings(next);
+  };
+
+  const handleApplyOptimizedToInput = (optimized: string) => {
+    setCurrentInput(optimized);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
+  const handleSendOptimizedFromPanel = async (optimized: string) => {
+    if (generationStatus.isGenerating || autoOptimizing) return;
+    const trimmed = optimized.trim();
+    if (!trimmed) return;
+
+    setCurrentInput(trimmed);
+    setIsPromptPanelOpen(false);
+    await processUserInput(trimmed);
+    clearInput();
+  };
+
   // 移除源图像
   const handleRemoveSourceImage = () => {
     setSourceImageForEditing(null);
@@ -251,10 +386,35 @@ const AIChatDialog: React.FC = () => {
   // 处理发送 - 使用AI智能工具选择
   const handleSend = async () => {
     const trimmedInput = currentInput.trim();
-    if (!trimmedInput || generationStatus.isGenerating) return;
+    if (!trimmedInput || generationStatus.isGenerating || autoOptimizing) return;
 
-    // 使用智能处理入口
-    await processUserInput(trimmedInput);
+    let promptToSend = trimmedInput;
+
+    if (autoOptimizeEnabled) {
+      setAutoOptimizing(true);
+      try {
+        const response = await promptOptimizationService.optimizePrompt({
+          input: trimmedInput,
+          language: promptSettings.language,
+          tone: promptSettings.tone || undefined,
+          focus: promptSettings.focus || undefined,
+          lengthPreference: promptSettings.lengthPreference
+        });
+
+        if (response.success && response.data) {
+          promptToSend = response.data.optimizedPrompt;
+          setCurrentInput(promptToSend);
+        } else if (response.error) {
+          console.warn('⚠️ 提示词自动扩写失败，将使用原始提示词继续。', response.error);
+        }
+      } catch (error) {
+        console.error('❌ 自动扩写提示词时发生异常，将使用原始提示词继续。', error);
+      } finally {
+        setAutoOptimizing(false);
+      }
+    }
+
+    await processUserInput(promptToSend);
     clearInput();
   };
 
@@ -445,7 +605,7 @@ const AIChatDialog: React.FC = () => {
   // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
   if (!isVisible) return null;
 
-  const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating;
+  const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating && !autoOptimizing;
 
   return (
     <div ref={containerRef} data-prevent-add-panel className={cn(
@@ -618,7 +778,7 @@ const AIChatDialog: React.FC = () => {
                 placeholder={getSmartPlaceholder()}
                 disabled={generationStatus.isGenerating}
                 className={cn(
-                  "resize-none pr-20 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
+                  "resize-none pr-40 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
                   generationStatus.isGenerating && "opacity-75"
                 )}
                 rows={showHistory ? 3 : 1}
@@ -632,7 +792,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   // 移除最大化按钮后，收紧到右侧
-                  "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   !generationStatus.isGenerating
                     ? enableWebSearch 
@@ -642,7 +802,7 @@ const AIChatDialog: React.FC = () => {
                 )}
                 title={`联网搜索: ${enableWebSearch ? '开启' : '关闭'} - 让AI获取实时信息`}
               >
-                <Search className="h-3.5 w-3.5" />
+                <MinimalGlobeIcon className="h-3.5 w-3.5" />
               </Button>
 
               {/* 历史记录按钮 */}
@@ -653,7 +813,7 @@ const AIChatDialog: React.FC = () => {
                   size="sm"
                   variant="outline"
                   className={cn(
-                    "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     isMaximized
                       ? "opacity-30 cursor-not-allowed text-gray-400"
@@ -666,6 +826,35 @@ const AIChatDialog: React.FC = () => {
                   <History className="h-3.5 w-3.5" />
                 </Button>
               </div>
+
+              {/* 提示词扩写按钮：单击切换自动扩写，长按打开配置面板 */}
+              <Button
+                ref={promptButtonRef}
+                size="sm"
+                variant="outline"
+                disabled={generationStatus.isGenerating || autoOptimizing}
+                className={cn(
+                  "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                  autoOptimizeEnabled
+                    ? "bg-blue-500 text-white border-blue-500 hover:bg-blue-500/90"
+                    : !generationStatus.isGenerating && !autoOptimizing
+                      ? "hover:bg-liquid-glass-hover text-gray-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                )}
+                title={autoOptimizeEnabled ? "自动扩写已开启（单击关闭，长按打开设置面板）" : "单击开启自动扩写，长按打开扩写设置面板"}
+                onPointerDown={handlePromptButtonPointerDown}
+                onPointerUp={handlePromptButtonPointerUp}
+                onPointerLeave={handlePromptButtonPointerLeave}
+                onPointerCancel={handlePromptButtonPointerCancel}
+                aria-pressed={autoOptimizeEnabled}
+              >
+                {autoOptimizing ? (
+                  <LoadingSpinner size="sm" />
+                ) : (
+                  <BookOpen className="h-3.5 w-3.5" />
+                )}
+              </Button>
 
               {/* 统一的图片上传按钮 */}
               <Button
@@ -706,6 +895,19 @@ const AIChatDialog: React.FC = () => {
                 )}
               </Button>
             </div>
+
+            <PromptOptimizationPanel
+              ref={promptPanelRef}
+              isOpen={isPromptPanelOpen}
+              currentInput={currentInput}
+              settings={promptSettings}
+              onSettingsChange={handlePromptSettingsChange}
+              onClose={() => setIsPromptPanelOpen(false)}
+              onApplyToInput={handleApplyOptimizedToInput}
+              onSendOptimized={handleSendOptimizedFromPanel}
+              autoOptimizeEnabled={autoOptimizeEnabled}
+              anchorRef={promptButtonRef}
+            />
 
             {/* 统一的文件输入 - 支持多选 */}
             <input
@@ -788,7 +990,7 @@ const AIChatDialog: React.FC = () => {
                             {/* 显示联网搜索标识 */}
                             {message.webSearchResult?.hasSearchResults && (
                               <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                                <Search className="w-3 h-3" />
+                                <MinimalGlobeIcon className="w-3 h-3" />
                                 <span>已联网</span>
                               </div>
                             )}
