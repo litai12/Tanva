@@ -905,11 +905,11 @@ const AIChatDialog: React.FC = () => {
               currentInput={currentInput}
               settings={promptSettings}
               onSettingsChange={handlePromptSettingsChange}
-              onClose={() => setIsPromptPanelOpen(false)}
               onApplyToInput={handleApplyOptimizedToInput}
               onSendOptimized={handleSendOptimizedFromPanel}
               autoOptimizeEnabled={autoOptimizeEnabled}
               anchorRef={promptButtonRef}
+              containerRef={dialogRef}
             />
 
             {/* 统一的文件输入 - 支持多选 */}

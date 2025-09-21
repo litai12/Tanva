@@ -11,7 +11,6 @@ import usePromptOptimization from '@/hooks/usePromptOptimization';
 import type { PromptOptimizationRequest } from '@/services/promptOptimizationService';
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 export interface PromptOptimizationSettings {
@@ -24,26 +23,26 @@ export interface PromptOptimizationSettings {
 interface PromptOptimizationPanelProps {
   isOpen: boolean;
   currentInput: string;
-  onClose: () => void;
   onApplyToInput: (optimized: string) => void;
   onSendOptimized: (optimized: string) => Promise<void>;
   settings: PromptOptimizationSettings;
   onSettingsChange: (settings: PromptOptimizationSettings) => void;
   autoOptimizeEnabled: boolean;
   anchorRef?: React.RefObject<HTMLElement>;
+  containerRef?: React.RefObject<HTMLElement>;
 }
 
 const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizationPanelProps>((props, ref) => {
   const {
     isOpen,
     currentInput,
-    onClose,
     onApplyToInput,
     onSendOptimized,
     settings,
     onSettingsChange,
     autoOptimizeEnabled,
-    anchorRef
+    anchorRef,
+    containerRef
   } = props;
 
   const { optimize, loading, result, error, reset } = usePromptOptimization();
@@ -67,23 +66,34 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
 
     const updatePosition = () => {
       const anchorEl = anchorRef?.current;
+      const containerEl = containerRef?.current;
       const panelEl = panelRef.current;
       if (!anchorEl || !panelEl) return;
 
       const anchorRect = anchorEl.getBoundingClientRect();
+      const containerRect = containerEl?.getBoundingClientRect();
       const panelWidth = panelEl.offsetWidth;
       const panelHeight = panelEl.offsetHeight;
       const offset = 12;
 
-      let top = anchorRect.top - panelHeight - offset;
-      let left = anchorRect.right - panelWidth;
-
-      // 如果上方空间不足，则显示在按钮下方
-      if (top < 12) {
-        top = anchorRect.bottom + offset;
+      let top: number;
+      if (containerRect) {
+        top = containerRect.top - panelHeight - offset;
+      } else {
+        top = anchorRect.top - panelHeight - offset;
       }
 
-      // 边界保护
+      let left: number;
+      if (containerRect) {
+        left = containerRect.left + containerRect.width / 2 - panelWidth / 2;
+      } else {
+        left = anchorRect.right - panelWidth;
+      }
+
+      if (top < 12) {
+        top = (containerRect ? containerRect.bottom : anchorRect.bottom) + offset;
+      }
+
       const maxLeft = window.innerWidth - panelWidth - 12;
       if (left > maxLeft) {
         left = maxLeft;
@@ -106,7 +116,7 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [isOpen, anchorRef, result]);
+  }, [isOpen, anchorRef, containerRef, result]);
 
   const handleOptimize = async () => {
     const trimmed = currentInput.trim();
@@ -163,21 +173,7 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
         visibility: ready ? 'visible' : 'hidden'
       }}
     >
-      <div className="px-4 py-3 border-b border-slate-100">
-        <h3 className="text-sm font-semibold text-slate-800">提示词扩写面板</h3>
-      </div>
-
-      <div className="px-4 py-3 space-y-4 text-sm text-slate-700">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>当前输入</span>
-            <span>{currentInput.trim().length ? `${currentInput.trim().length} 字符` : '未输入'}</span>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 max-h-24 overflow-y-auto">
-            {currentInput.trim() || '请在对话框输入提示词后再扩写'}
-          </div>
-        </div>
-
+      <div className="px-4 pt-4 pb-3 space-y-4 text-sm text-slate-700">
         <div className="grid grid-cols-2 gap-3">
           <label className="space-y-1 text-xs">
             <span className="text-slate-500">输出语言</span>
