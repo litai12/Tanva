@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, Upload, Download } from 'lucide-react';
 import paper from 'paper';
 import ReactFlow, {
   Controls,
@@ -1021,10 +1021,11 @@ function FlowInner() {
   const addPanelStyle = React.useMemo(() => {
     if (!addPanel.visible) return { display: 'none' } as React.CSSProperties;
     const rect = containerRef.current?.getBoundingClientRect();
-    const left = (addPanel.screen.x - (rect?.left || 0));
-    const top = (addPanel.screen.y - (rect?.top || 0));
-    return { position: 'absolute', left, top, zIndex: 20 } as React.CSSProperties;
-  }, [addPanel.visible, addPanel.screen.x, addPanel.screen.y]);
+    const left = rect ? rect.width / 2 : window.innerWidth / 2;
+    const top = rect ? rect.height / 2 : window.innerHeight / 2;
+    // 始终在视窗（容器）中心显示：用 translate(-50%, -50%) 校正为居中
+    return { position: 'absolute', left, top, transform: 'translate(-50%, -50%)', zIndex: 20 } as React.CSSProperties;
+  }, [addPanel.visible]);
 
   const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY);
@@ -1197,11 +1198,6 @@ function FlowInner() {
               >
                 模板
               </button>
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={exportFlow} title="导出当前编排为JSON" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer' }}>导出</button>
-                <button onClick={handleImportClick} title="导入JSON并复现编排" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', color: '#374151', cursor: 'pointer' }}>导入</button>
-                <input ref={importInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={(e) => handleImportFiles(e.target.files)} />
               </div>
             </div>
             {addTab === 'nodes' ? (
@@ -1392,6 +1388,64 @@ function FlowInner() {
                     {tplLoading ? <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>加载中…</div> : null}
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap: 8 }}>
+                    {/* 小图标：导出/导入，仅在模板页签显示 */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        onClick={exportFlow}
+                        title="导出当前编排为JSON"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 8,
+                          border: '1px solid #e5e7eb',
+                          background: '#fff',
+                          color: '#374151',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f9fafb';
+                          e.currentTarget.style.borderColor = '#d1d5db';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#fff';
+                          e.currentTarget.style.borderColor = '#e5e7eb';
+                        }}
+                      >
+                        <Download size={16} strokeWidth={2} />
+                      </button>
+                      <button
+                        onClick={handleImportClick}
+                        title="导入JSON并复现编排"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 8,
+                          border: '1px solid #e5e7eb',
+                          background: '#fff',
+                          color: '#374151',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f9fafb';
+                          e.currentTarget.style.borderColor = '#d1d5db';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#fff';
+                          e.currentTarget.style.borderColor = '#e5e7eb';
+                        }}
+                      >
+                        <Upload size={16} strokeWidth={2} />
+                      </button>
+                      <input ref={importInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={(e) => handleImportFiles(e.target.files)} />
+                    </div>
                     <div style={{ display:'flex', alignItems:'center', padding: 2, border: '1px solid #d4d8de', borderRadius: 999, background: '#fff' }}>
                       <button
                         onClick={() => setTemplateScope('public')}
