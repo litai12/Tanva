@@ -365,6 +365,8 @@ const AIChatDialog: React.FC = () => {
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
+    setIsPromptPanelOpen(false);
+    setAutoOptimizeEnabled(false);
   };
 
   const handleSendOptimizedFromPanel = async (optimized: string) => {
@@ -374,6 +376,7 @@ const AIChatDialog: React.FC = () => {
 
     setCurrentInput(trimmed);
     setIsPromptPanelOpen(false);
+    setAutoOptimizeEnabled(false);
     await processUserInput(trimmed);
     clearInput();
   };
