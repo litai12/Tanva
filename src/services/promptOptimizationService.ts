@@ -67,6 +67,34 @@ class PromptOptimizationService {
     }
   }
 
+  private async withRetry<T>(
+    operation: (attempt: number) => Promise<T>,
+    retryCount: number = 5,
+    baseDelayMs: number = 600
+  ): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= retryCount + 1; attempt++) {
+      try {
+        return await operation(attempt);
+      } catch (error) {
+        lastError = error;
+        if (attempt > retryCount) {
+          break;
+        }
+
+        const delay = baseDelayMs * attempt;
+        console.warn(`⚠️ Prompt optimization attempt ${attempt} failed, retrying in ${delay}ms`, error);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new Error('Prompt optimization failed after retries');
+  }
+
   private buildInstruction(request: PromptOptimizationRequest): string {
     const language = request.language || '中文';
     const tone = request.tone ? `语气倾向：${request.tone}` : '语气倾向：专业、友好';
@@ -131,12 +159,14 @@ class PromptOptimizationService {
       const instruction = this.buildInstruction(request);
       const language = request.language || '中文';
 
-      const apiCall = this.genAI.models.generateContent({
-        model: this.DEFAULT_MODEL,
-        contents: [{ text: instruction }]
-      });
+      const response = await this.withRetry((attempt) => {
+        const apiCall = this.genAI!.models.generateContent({
+          model: this.DEFAULT_MODEL,
+          contents: [{ text: instruction }]
+        });
 
-      const response = await this.withTimeout(apiCall, this.DEFAULT_TIMEOUT, 'Prompt optimization');
+        return this.withTimeout(apiCall, this.DEFAULT_TIMEOUT, `Prompt optimization (attempt ${attempt})`);
+      }, 5);
       const optimized = response.text?.trim();
 
       if (!optimized) {
