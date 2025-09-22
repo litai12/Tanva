@@ -15,6 +15,7 @@ import ReactFlow, {
   type Node
 } from 'reactflow';
 import { ReactFlowProvider } from 'reactflow';
+import { useCanvasStore } from '@/stores';
 import 'reactflow/dist/style.css';
 import './flow.css';
 import type { FlowTemplate, TemplateIndexEntry } from '@/types/template';
@@ -341,20 +342,19 @@ function FlowInner() {
 
   // 背景设置改为驱动底层 Canvas 网格
   // 使用独立的Flow状态
-  const {
-    backgroundEnabled,
-    backgroundVariant,
-    backgroundGap,
-    backgroundSize,
-    backgroundColor,
-    backgroundOpacity,
-    setBackgroundEnabled,
-    setBackgroundVariant,
-    setBackgroundGap,
-    setBackgroundSize,
-    setBackgroundColor,
-    setBackgroundOpacity,
-  } = useFlowStore();
+  // 分别选择，避免一次性取整个 store 导致不必要的重渲染/快照警告
+  const backgroundEnabled = useFlowStore(s => s.backgroundEnabled);
+  const backgroundVariant = useFlowStore(s => s.backgroundVariant);
+  const backgroundGap = useFlowStore(s => s.backgroundGap);
+  const backgroundSize = useFlowStore(s => s.backgroundSize);
+  const backgroundColor = useFlowStore(s => s.backgroundColor);
+  const backgroundOpacity = useFlowStore(s => s.backgroundOpacity);
+  const setBackgroundEnabled = useFlowStore(s => s.setBackgroundEnabled);
+  const setBackgroundVariant = useFlowStore(s => s.setBackgroundVariant);
+  const setBackgroundGap = useFlowStore(s => s.setBackgroundGap);
+  const setBackgroundSize = useFlowStore(s => s.setBackgroundSize);
+  const setBackgroundColor = useFlowStore(s => s.setBackgroundColor);
+  const setBackgroundOpacity = useFlowStore(s => s.setBackgroundOpacity);
 
   // Flow独立的背景状态管理，不再同步到Canvas
   const [bgGapInput, setBgGapInput] = React.useState<string>(String(backgroundGap));
@@ -376,8 +376,28 @@ function FlowInner() {
     setBgSizeInput(String(n));
   }, [backgroundSize, setBackgroundSize]);
 
-  // 使用Flow独立的视口管理
-  useFlowViewport();
+  // 使用Canvas → Flow 单向同步：保证节点随画布平移/缩放
+  // 使用数组选择器而非对象，避免 React 19 对 getSnapshot 的新警告
+  const cvZoom = useCanvasStore(s => s.zoom);
+  const cvPanX = useCanvasStore(s => s.panX);
+  const cvPanY = useCanvasStore(s => s.panY);
+  const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(null);
+  React.useEffect(() => {
+    const z = cvZoom || 1;
+    // Paper: screen = z * world + pan; ReactFlow: screen = z * (world + x)
+    // => x = pan / z
+    const x = cvPanX / z;
+    const y = cvPanY / z;
+    const prev = lastApplied.current;
+    const eps = 1e-6;
+    if (prev && Math.abs(prev.x - x) < eps && Math.abs(prev.y - y) < eps && Math.abs(prev.z - z) < eps) return;
+    lastApplied.current = { x, y, z };
+    let raf = 0;
+    raf = requestAnimationFrame(() => {
+      try { rf.setViewport({ x, y, zoom: z }, { duration: 0 }); } catch { /* noop */ }
+    });
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, [rf, cvZoom, cvPanX, cvPanY]);
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
@@ -393,7 +413,7 @@ function FlowInner() {
   React.useEffect(() => {
     // 节点橡皮已禁用，确保无高亮残留
     setNodes(ns => ns.map(n => (n.className === 'eraser-hover' ? { ...n, className: undefined } : n)));
-  }, [setNodes]);
+  }, []);
 
   // 双击空白处弹出添加面板
   const [addPanel, setAddPanel] = React.useState<{ visible: boolean; screen: { x: number; y: number }; world: { x: number; y: number } }>({ visible: false, screen: { x: 0, y: 0 }, world: { x: 0, y: 0 } });
@@ -1148,7 +1168,8 @@ function FlowInner() {
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        <MiniMap pannable zoomable />
+        {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
+        <MiniMap pannable={false} zoomable={false} />
         <Controls showInteractive={false} />
       </ReactFlow>
 
