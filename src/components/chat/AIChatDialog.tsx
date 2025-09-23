@@ -343,7 +343,14 @@ const AIChatDialog: React.FC = () => {
       longPressTriggeredRef.current = false;
       return;
     }
-    setAutoOptimizeEnabled((prev) => !prev);
+    setAutoOptimizeEnabled((prev) => {
+      const next = !prev;
+      if (!next) {
+        // 关闭功能时，同时隐藏面板
+        setIsPromptPanelOpen(false);
+      }
+      return next;
+    });
   };
 
   const handlePromptButtonPointerLeave = () => {
