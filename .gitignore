@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+ 
+# Local server secrets (do not commit)
+server/aliyun-oss-config.json
+server/.env

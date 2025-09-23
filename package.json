@@ -24,13 +24,17 @@
     "@types/paper": "^0.11.14",
     "@types/three": "^0.179.0",
     "@types/uuid": "^10.0.0",
+    
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    
     "lucide-react": "^0.539.0",
+    
     "paper": "^0.12.18",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",
+    "react-router-dom": "^6.28.0",
     "reactflow": "^11.11.4",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.3.1",

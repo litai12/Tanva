@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+
+model User {
+  id            String       @id @default(uuid())
+  email         String?      @unique
+  phone         String       @unique
+  passwordHash  String
+  name          String?
+  avatarUrl     String?
+  role          String       @default("user")
+  status        String       @default("active")
+  lastLoginAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  tokenHash  String
+  userAgent  String?
+  ip         String?
+  isRevoked  Boolean  @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([userId, isRevoked])
+}
