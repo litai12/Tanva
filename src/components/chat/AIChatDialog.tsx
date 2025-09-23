@@ -423,10 +423,13 @@ const AIChatDialog: React.FC = () => {
 
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 发送快捷键：Ctrl/Cmd + Enter；普通 Enter 保留换行
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       handleSend();
-    } else if (e.key === 'Escape') {
+      return;
+    }
+    if (e.key === 'Escape') {
       hideDialog();
     }
   };
