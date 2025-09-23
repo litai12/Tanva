@@ -27,7 +27,7 @@ class PromptOptimizationService {
   private initializeClient(): void {
     const apiKey = typeof import.meta !== 'undefined' && import.meta.env
       ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
-      : process.env.VITE_GOOGLE_GEMINI_API_KEY;
+      : (typeof process !== 'undefined' ? (process as any).env?.VITE_GOOGLE_GEMINI_API_KEY : undefined);
 
     const defaultApiKey = 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw';
     const finalApiKey = apiKey || defaultApiKey;

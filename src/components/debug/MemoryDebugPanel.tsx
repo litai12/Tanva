@@ -166,7 +166,7 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
           </div>
 
           {/* Debug Info */}
-          {process.env.NODE_ENV === 'development' && (
+          {import.meta.env.DEV && (
             <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
               <pre className="whitespace-pre-wrap font-mono text-[10px]">
                 {memoryMonitor.getMemorySummary()}

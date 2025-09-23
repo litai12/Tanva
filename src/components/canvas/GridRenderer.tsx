@@ -433,7 +433,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     memoryMonitor.markCleanup();
     
     // 开发模式下触发手动垃圾回收
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
       memoryMonitor.forceCleanup();
     }
 

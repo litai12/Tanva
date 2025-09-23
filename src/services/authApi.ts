@@ -155,25 +155,15 @@ export const authApi = {
       return loadSession();
     }
     const res = await fetch(`${base}/api/auth/me`, { credentials: 'include' });
-    const rawText = await res.text();
-    console.log('Raw API response:', rawText);
-    
-    let result;
-    try {
-      result = JSON.parse(rawText);
-    } catch (e) {
-      console.error('Failed to parse response:', e);
-      throw new Error('Invalid JSON response');
+    if (!res.ok) {
+      // 常见是 401 未登录：返回 null，由路由处理跳转
+      console.warn('authApi.me not ok:', res.status);
+      return null;
     }
-    
-    console.log('authApi.me parsed result:', result);
-    // 处理嵌套的user对象
-    if (result && typeof result === 'object' && 'user' in result) {
-      console.log('Returning nested user:', result.user);
-      return result.user;
-    }
-    console.log('Returning direct result:', result);
-    return result as UserInfo | null;
+    const data = await res.json().catch(() => null);
+    if (!data) return null;
+    // 兼容 { user: {...} } 与直接返回用户
+    return (data && typeof data === 'object' && 'user' in data) ? (data.user as UserInfo) : (data as UserInfo);
   },
   async logout() {
     if (isMock) {

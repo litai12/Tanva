@@ -14,7 +14,8 @@ type AuthState = {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  loading: false,
+  // 初始为 true，避免刷新首帧因未完成初始化被重定向
+  loading: true,
   error: null,
   init: async () => {
     set({ loading: true, error: null });

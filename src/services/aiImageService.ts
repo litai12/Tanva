@@ -39,7 +39,7 @@ class AIImageService {
     // 兼容 Vite 和 Node.js 环境
     const apiKey = typeof import.meta !== 'undefined' && import.meta.env
       ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
-      : process.env.VITE_GOOGLE_GEMINI_API_KEY;
+      : (typeof process !== 'undefined' ? (process as any).env?.VITE_GOOGLE_GEMINI_API_KEY : undefined);
 
     // 临时使用默认密钥进行测试（生产环境应该移除）
     const defaultApiKey = 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw';
@@ -1097,7 +1097,7 @@ class AIImageService {
   isAvailable(): boolean {
     const apiKey = typeof import.meta !== 'undefined' && import.meta.env
       ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
-      : process.env.VITE_GOOGLE_GEMINI_API_KEY;
+      : (typeof process !== 'undefined' ? (process as any).env?.VITE_GOOGLE_GEMINI_API_KEY : undefined);
     const defaultApiKey = 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw';
     const finalApiKey = apiKey || defaultApiKey;
     const available = !!this.genAI && !!finalApiKey;

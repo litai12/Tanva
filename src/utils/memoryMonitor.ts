@@ -144,7 +144,7 @@ export class MemoryMonitor {
     if (typeof (window as any).gc === 'function') {
       (window as any).gc();
       console.log('手动垃圾回收已触发');
-    } else if (process.env.NODE_ENV === 'development') {
+    } else if (import.meta.env.DEV) {
       console.warn('手动垃圾回收不可用。使用 --js-flags="--expose-gc" 启动Chrome以启用此功能。');
     }
     this.markCleanup();

@@ -417,7 +417,7 @@ const FloatingHeader: React.FC = () => {
                             </DropdownMenuItem>
                             
                             {/* 开发模式下显示内存调试选项 */}
-                            {process.env.NODE_ENV === 'development' && (
+                            {import.meta.env.DEV && (
                                 <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
