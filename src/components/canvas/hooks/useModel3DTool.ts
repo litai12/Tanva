@@ -170,7 +170,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       isHelper: false
     };
 
-    // 添加选择边框（默认隐藏）
+    // 添加选择边框（默认隐藏，且不随选中显示，以避免与屏幕坐标的蓝色框重复）
     const selectionRect = new paper.Path.Rectangle({
       rectangle: new paper.Rectangle(
         paperBounds.x,
@@ -178,7 +178,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
         paperBounds.width,
         paperBounds.height
       ),
-      strokeColor: new paper.Color('#8b5cf6'),
+      strokeColor: null, // 不渲染描边
       strokeWidth: 1,
       fillColor: null,
       visible: false, // 默认隐藏选择框
@@ -221,10 +221,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   const updateModel3DSelectionVisuals = useCallback((selectedIds: string[]) => {
     setModel3DInstances(prev => prev.map(model => {
       const isSelected = selectedIds.includes(model.id);
-      // 控制选择边框的可见性
-      if (model.selectionRect) {
-        model.selectionRect.visible = isSelected;
-      }
+      // 选择框由屏幕坐标的容器负责可视反馈；Paper内的 selectionRect 仅用于选择逻辑，不显示
+      if (model.selectionRect) model.selectionRect.visible = false;
       return {
         ...model,
         isSelected
@@ -297,7 +295,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           }
         });
 
-        // 更新选择边框位置
+        // 更新选择边框位置（内部使用，不显示）
         if (model.selectionRect) {
           model.selectionRect.bounds = new paper.Rectangle(
             newBounds.x,
@@ -305,6 +303,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
             newBounds.width,
             newBounds.height
           );
+          model.selectionRect.visible = false;
         }
 
         eventHandlers.onModel3DMove?.(modelId, newPosition);
@@ -342,7 +341,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           }
         });
 
-        // 更新选择边框
+        // 更新选择边框（内部使用，不显示）
         if (model.selectionRect) {
           model.selectionRect.bounds = new paper.Rectangle(
             newBounds.x,
@@ -350,6 +349,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
             newBounds.width,
             newBounds.height
           );
+          model.selectionRect.visible = false;
         }
 
         eventHandlers.onModel3DResize?.(modelId, newBounds);

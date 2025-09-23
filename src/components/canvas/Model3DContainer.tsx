@@ -86,8 +86,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     };
   }, []);
 
-  // 缓存屏幕坐标计算，但只依赖bounds变化
-  const screenBounds = useMemo(() => convertToScreenBounds(bounds), [bounds]);
+  // 缓存屏幕坐标：当 bounds 或 画布视图(pan/zoom)变化时重新计算
+  const screenBounds = useMemo(
+    () => convertToScreenBounds(bounds),
+    [bounds, zoom, panX, panY]
+  );
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
