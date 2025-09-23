@@ -31,7 +31,7 @@ export class BoundsCalculator {
     model3DInstances: Model3DInstance[],
     padding: number = 0
   ): ContentBounds {
-    console.log('📏 以图片为基础计算截图边界...');
+    console.log('📏 计算截图边界（包含 2D/图片/3D 全部内容）...');
     
     // 第一步：收集所有可见图片和3D模型作为基础边界
     const baseBounds: Bounds[] = [];
@@ -58,74 +58,13 @@ export class BoundsCalculator {
       }
     }
     
-    // 如果没有图片和3D模型，则收集所有Paper.js绘制内容作为边界
-    if (baseBounds.length === 0) {
-      console.log('⚠️ 没有图片和3D模型，使用Paper.js绘制内容作为边界');
-      
-      if (paper.project && paper.project.layers) {
-        for (const layer of paper.project.layers) {
-          if (!layer.visible) continue;
-          
-          for (const item of layer.children) {
-            if (item.data?.isHelper || !item.visible) continue;
-            
-            if ((item instanceof paper.Path && item.segments && item.segments.length > 0) ||
-                (item instanceof paper.Group) ||
-                (item instanceof paper.Raster && !item.data?.isHelper)) {
-              if (item.bounds && this.isValidBounds(item.bounds)) {
-                baseBounds.push({
-                  x: item.bounds.x,
-                  y: item.bounds.y,
-                  width: item.bounds.width,
-                  height: item.bounds.height
-                });
-              }
-            }
-          }
-        }
-      }
-    } else {
-      // 第二步：如果有图片/3D模型，只使用它们的边界作为截图区域
-      console.log('🎨 以图片/3D模型的边界作为截图区域，不包含超出范围的绘制内容');
-      
-      // 只计算Paper.js元素数量用于统计，但不将它们的边界加入baseBounds
-      let paperElementCount = 0;
-      if (paper.project && paper.project.layers) {
-        for (const layer of paper.project.layers) {
-          if (!layer.visible) continue;
-          
-          for (const item of layer.children) {
-            if (item.data?.isHelper || !item.visible) continue;
-            
-            if ((item instanceof paper.Path && item.segments && item.segments.length > 0) ||
-                (item instanceof paper.Group) ||
-                (item instanceof paper.Raster && !item.data?.isHelper)) {
-              if (item.bounds && this.isValidBounds(item.bounds)) {
-                const imageBounds = this.calculateUnionBounds(baseBounds);
-                const itemBounds = {
-                  x: item.bounds.x,
-                  y: item.bounds.y,
-                  width: item.bounds.width,
-                  height: item.bounds.height
-                };
-                
-                if (this.boundsIntersect(imageBounds, itemBounds)) {
-                  paperElementCount++;
-                  console.log(`  ✓ Paper.js元素 ${item.className} 与图片重叠: ${Math.round(item.bounds.x)},${Math.round(item.bounds.y)} ${Math.round(item.bounds.width)}x${Math.round(item.bounds.height)}`);
-                } else {
-                  console.log(`  × Paper.js元素 ${item.className} 超出图片范围，将被裁剪`);
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      console.log(`📊 找到 ${paperElementCount} 个与图片重叠的Paper.js元素`);
-    }
+    // 第二步：无论是否存在图片/3D模型，都合并 2D 绘制内容的边界
+    const paperDrawingBounds = this.getPaperDrawingBounds();
+    console.log(`✏️ 可见的 2D 绘制元素边界数量: ${paperDrawingBounds.length}`);
+    const allBounds: Bounds[] = baseBounds.concat(paperDrawingBounds);
 
     // 第三步：计算最终边界
-    if (baseBounds.length === 0) {
+    if (allBounds.length === 0) {
       console.log('⚠️ 没有找到任何内容元素，使用默认边界');
       return {
         x: 0,
@@ -137,18 +76,19 @@ export class BoundsCalculator {
       };
     }
 
-    // 严格使用图片/3D模型的边界，不包含超出部分
-    const finalBounds = this.calculateUnionBounds(baseBounds);
-    console.log(`📏 最终截图边界（严格按图片边界）: ${Math.round(finalBounds.x)},${Math.round(finalBounds.y)} ${Math.round(finalBounds.width)}x${Math.round(finalBounds.height)}`);
+    // 使用所有内容的联合边界（图片/3D/2D线条）
+    const finalBounds = this.calculateUnionBounds(allBounds);
+    console.log(`📏 最终截图边界（合并 2D/图片/3D）: ${Math.round(finalBounds.x)},${Math.round(finalBounds.y)} ${Math.round(finalBounds.width)}x${Math.round(finalBounds.height)}`);
     
-    // 不添加边距，严格按照图片边界截图
+    // 应用可选边距
+    const pad = Math.max(0, padding || 0);
     return {
-      x: finalBounds.x,
-      y: finalBounds.y,
-      width: finalBounds.width,
-      height: finalBounds.height,
+      x: finalBounds.x - pad,
+      y: finalBounds.y - pad,
+      width: finalBounds.width + pad * 2,
+      height: finalBounds.height + pad * 2,
       isEmpty: false,
-      elementCount: baseBounds.length
+      elementCount: allBounds.length
     };
   }
 
@@ -221,6 +161,8 @@ export class BoundsCalculator {
 
     for (const layer of paper.project.layers) {
       if (!layer.visible) continue;
+      // 跳过网格/背景等非内容图层
+      if (layer.name === 'grid' || layer.name === 'background') continue;
 
       for (const item of layer.children) {
         // 只包含实际的绘制内容
