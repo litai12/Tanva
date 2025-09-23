@@ -266,8 +266,9 @@ export class AutoScreenshotService {
     console.log(`🎭 收集3D模型实例: 找到 ${visibleModels.length} 个可见模型`);
     
     for (const model of visibleModels) {
-      // 3D模型使用其真实的 layerIndex，乘以1000确保在正确的图层级别
-      const modelLayerIndex = (model.layerIndex || 0) * 1000;
+      // 3D模型在截图中默认置于最上层，避免被2D线条遮挡
+      // 采用一个远高于Paper层的权重，必要时可改为读取显式zIndex
+      const modelLayerIndex = 1_000_000_000; // always on top
       
       console.log(`✅ 收集3D模型实例: ${model.id} (layer: ${modelLayerIndex})`, {
         bounds: `${Math.round(model.bounds.x)},${Math.round(model.bounds.y)} ${Math.round(model.bounds.width)}x${Math.round(model.bounds.height)}`,
