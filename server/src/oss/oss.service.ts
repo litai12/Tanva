@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import crypto from 'crypto';
+import OSS from 'ali-oss';
 
 type PresignPolicy = {
   host: string;
@@ -22,6 +23,7 @@ export class OssService {
       accessKeyId: this.config.get<string>('OSS_ACCESS_KEY_ID') || 'test-id',
       accessKeySecret: this.config.get<string>('OSS_ACCESS_KEY_SECRET') || 'test-secret',
       cdnHost: this.config.get<string>('OSS_CDN_HOST') || '',
+      endpoint: this.config.get<string>('OSS_ENDPOINT') || undefined,
     };
   }
 
@@ -41,5 +43,22 @@ export class OssService {
     const signature = crypto.createHmac('sha1', accessKeySecret).update(policy).digest('base64');
     return { host, dir, expire, accessId: accessKeyId, policy, signature };
   }
-}
 
+  private client(): OSS {
+    const { region, bucket, accessKeyId, accessKeySecret, endpoint } = this.conf;
+    return new OSS({ region, bucket, accessKeyId, accessKeySecret, endpoint });
+  }
+
+  async putJSON(key: string, data: unknown) {
+    const client = this.client();
+    const body = Buffer.from(JSON.stringify(data));
+    await client.put(key, body, { headers: { 'Content-Type': 'application/json' } });
+    return key;
+  }
+
+  publicUrl(key: string): string {
+    const { cdnHost, bucket, region } = this.conf;
+    const host = cdnHost || `${bucket}.${region}.aliyuncs.com`;
+    return `https://${host}/${key}`;
+  }
+}

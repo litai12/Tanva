@@ -68,16 +68,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     if (!paper.view) return paperBounds;
 
     try {
+      const dpr = window.devicePixelRatio || 1;
       // 使用更精确的坐标转换
       const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
       const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
 
       // 添加数值验证，防止NaN或无限值
       const result = {
-        x: isFinite(topLeft.x) ? topLeft.x : paperBounds.x,
-        y: isFinite(topLeft.y) ? topLeft.y : paperBounds.y,
-        width: isFinite(bottomRight.x - topLeft.x) ? bottomRight.x - topLeft.x : paperBounds.width,
-        height: isFinite(bottomRight.y - topLeft.y) ? bottomRight.y - topLeft.y : paperBounds.height
+        x: isFinite(topLeft.x) ? topLeft.x / dpr : paperBounds.x,
+        y: isFinite(topLeft.y) ? topLeft.y / dpr : paperBounds.y,
+        width: isFinite(bottomRight.x - topLeft.x) ? (bottomRight.x - topLeft.x) / dpr : paperBounds.width,
+        height: isFinite(bottomRight.y - topLeft.y) ? (bottomRight.y - topLeft.y) / dpr : paperBounds.height
       };
 
       return result;

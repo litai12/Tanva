@@ -46,17 +46,26 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         canvas.style.width = displayWidth + 'px';
         canvas.style.height = displayHeight + 'px';
         
-        // 更新Paper.js视图尺寸
-        paper.view.viewSize.width = canvas.width;
-        paper.view.viewSize.height = canvas.height;
+        // 更新Paper.js视图尺寸（使用实际像素尺寸，与 canvas.width/height 一致）
+        // Paper 会基于此尺寸进行变换；事件→视图坐标需自行考虑 devicePixelRatio
+        if (paper.view && paper.view.viewSize) {
+          (paper.view.viewSize as any).width = canvas.width;
+          (paper.view.viewSize as any).height = canvas.height;
+        }
         
-        // 初始化时将坐标轴移动到画布中心（仅执行一次）
+        // 初始化时，只有在没有保存的视口状态时才将坐标轴移动到画布中心
         if (!isInitialized) {
-          const centerX = displayWidth / 2;
-          const centerY = displayHeight / 2;
-          setPan(centerX, centerY);
+          const { panX: savedPanX, panY: savedPanY, zoom: savedZoom } = useCanvasStore.getState();
+
+          // 如果没有保存的pan值（都为0），说明是首次访问，需要居中
+          if (savedPanX === 0 && savedPanY === 0 && savedZoom === 1.0) {
+            const centerX = (displayWidth / 2) * pixelRatio; // 世界坐标以设备像素为基准
+            const centerY = (displayHeight / 2) * pixelRatio;
+            setPan(centerX, centerY);
+          }
+
           isInitialized = true;
-          
+
           // 通知外部组件初始化完成
           if (onInitialized) {
             onInitialized();
@@ -70,15 +79,20 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
 
     // 应用视口变换 - 使用Paper.js默认左上角坐标系
     const applyViewTransform = () => {
-      // 构建新的变换矩阵，避免频繁重置
-      const matrix = new paper.Matrix();
-      matrix.scale(zoom);
-      matrix.translate(panX, panY);
+      // 视口变换：screen = zoom * (world + pan)
+      // 我们的 pan 存储在“世界坐标”单位中，因此需要乘以 zoom 才能作为视图平移
+      // 等价于在矩阵中使用缩放与已缩放平移量
+      const tx = panX * zoom;
+      const ty = panY * zoom;
+      const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
       paper.view.matrix = matrix;
     };
 
     // 初始化画布
     resizeCanvas();
+    // 在下一帧和短延迟后再尝试一次，避免首屏布局尚未稳定
+    requestAnimationFrame(resizeCanvas);
+    setTimeout(resizeCanvas, 50);
 
     // 监听窗口大小变化
     const handleResize = () => {
@@ -86,8 +100,19 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     };
     window.addEventListener('resize', handleResize);
 
+    // 监听父元素尺寸变化（更可靠）
+    let ro: ResizeObserver | null = null;
+    if (canvas.parentElement && 'ResizeObserver' in window) {
+      ro = new ResizeObserver(() => resizeCanvas());
+      ro.observe(canvas.parentElement);
+    }
+
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (ro) {
+        try { ro.disconnect(); } catch {}
+        ro = null;
+      }
     };
   }, [canvasRef, setPan, onInitialized]);
 
@@ -95,10 +120,10 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
   useEffect(() => {
     if (!canvasRef.current) return;
     
-    // 应用视口变换
-    const matrix = new paper.Matrix();
-    matrix.scale(zoom);
-    matrix.translate(panX, panY);
+    // 应用视口变换（同上：screen = zoom * (world + pan)）
+    const tx = panX * zoom;
+    const ty = panY * zoom;
+    const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
     paper.view.matrix = matrix;
     
   }, [zoom, panX, panY, canvasRef]);

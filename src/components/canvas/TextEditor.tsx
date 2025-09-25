@@ -24,6 +24,7 @@ import { useToolStore } from '@/stores/toolStore';
 import { cn } from '@/lib/utils';
 import type { TextStyle, TextFormatOptions } from '@/types/text';
 import paper from 'paper';
+import { projectToClient } from '@/utils/paperCoords';
 
 interface TextEditorProps {
   className?: string;
@@ -71,14 +72,11 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
     
     try {
       const bounds = activeText.paperItem.bounds;
-      const canvasRect = paper.view.element.getBoundingClientRect();
-      
-      // 将Paper.js坐标转换为屏幕坐标
-      const viewPoint = paper.view.projectToView(bounds.topLeft);
-      
+      const canvasEl = paper.view.element as HTMLCanvasElement;
+      const tl = projectToClient(canvasEl, bounds.topLeft);
       setToolbarPosition({
-        x: canvasRect.left + viewPoint.x,
-        y: canvasRect.top + viewPoint.y - 50 // 工具栏显示在文本上方
+        x: tl.x,
+        y: tl.y - 50 // 工具栏显示在文本上方
       });
     } catch (error) {
       console.warn('计算工具栏位置失败:', error);

@@ -40,7 +40,8 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
     const canvas = canvasRef.current;
     if (!canvas || !paper.project) return;
 
-    const canvasWidth = canvas.width;
+    const dpr = window.devicePixelRatio || 1;
+    const canvasWidth = canvas.width; // 设备像素
     const canvasHeight = canvas.height;
 
     // 计算比例尺的合适长度和显示值
@@ -77,7 +78,8 @@ const ScaleBarRenderer: React.FC<ScaleBarRendererProps> = ({ canvasRef, isPaperI
 
     // 考虑视口变换的右下角定位
     // 将屏幕坐标转换为 Paper.js 世界坐标
-    const screenBottomRight = new paper.Point(canvasWidth - marginRight, canvasHeight - marginBottom);
+    // 将 CSS 像素边距转换为设备像素再进入 view 坐标
+    const screenBottomRight = new paper.Point(canvasWidth - marginRight * dpr, canvasHeight - marginBottom * dpr);
     const worldBottomRight = paper.view.viewToProject(screenBottomRight);
 
     const startX = worldBottomRight.x - barLength;

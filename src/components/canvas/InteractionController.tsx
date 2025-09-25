@@ -52,6 +52,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     const handleMouseMove = (event: MouseEvent) => {
       if (isDragging && lastScreenPoint) {
         const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
         const currentScreenPoint = {
           x: event.clientX - rect.left,
           y: event.clientY - rect.top
@@ -62,8 +63,9 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         const screenDeltaY = currentScreenPoint.y - lastScreenPoint.y;
         
         // 使用缓存的缩放值转换为世界坐标增量
-        const worldDeltaX = screenDeltaX / zoomRef.current;
-        const worldDeltaY = screenDeltaY / zoomRef.current;
+        // 将 CSS 像素增量转换到 Paper 视图坐标（设备像素），再转世界坐标
+        const worldDeltaX = (screenDeltaX * dpr) / zoomRef.current;
+        const worldDeltaY = (screenDeltaY * dpr) / zoomRef.current;
         
         // 更新平移值
         const newPanX = dragStartPanX + worldDeltaX;
@@ -104,9 +106,10 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
       
       // 检测触控板双指滑动或鼠标滚轮
       if (Math.abs(event.deltaX) > 0 || Math.abs(event.deltaY) > 0) {
+        const dpr = window.devicePixelRatio || 1;
         // 转换为画布坐标系的平移（考虑当前缩放级别）
-        const worldDeltaX = -event.deltaX / zoomRef.current;
-        const worldDeltaY = -event.deltaY / zoomRef.current;
+        const worldDeltaX = (-event.deltaX * dpr) / zoomRef.current;
+        const worldDeltaY = (-event.deltaY * dpr) / zoomRef.current;
         
         // 获取当前状态并更新画布位置
         const currentState = useCanvasStore.getState();

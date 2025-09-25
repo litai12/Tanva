@@ -75,14 +75,15 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
     if (!paper.view) return paperBounds;
 
+    const dpr = window.devicePixelRatio || 1;
     const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
     const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
 
     return {
-      x: topLeft.x,
-      y: topLeft.y,
-      width: bottomRight.x - topLeft.x,
-      height: bottomRight.y - topLeft.y
+      x: topLeft.x / dpr,
+      y: topLeft.y / dpr,
+      width: (bottomRight.x - topLeft.x) / dpr,
+      height: (bottomRight.y - topLeft.y) / dpr
     };
   }, []);
 
@@ -96,8 +97,9 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
     if (!paper.view) return screenBounds;
 
-    const topLeft = paper.view.viewToProject(new paper.Point(screenBounds.x, screenBounds.y));
-    const bottomRight = paper.view.viewToProject(new paper.Point(screenBounds.x + screenBounds.width, screenBounds.y + screenBounds.height));
+    const dpr = window.devicePixelRatio || 1;
+    const topLeft = paper.view.viewToProject(new paper.Point(screenBounds.x * dpr, screenBounds.y * dpr));
+    const bottomRight = paper.view.viewToProject(new paper.Point((screenBounds.x + screenBounds.width) * dpr, (screenBounds.y + screenBounds.height) * dpr));
 
     return {
       x: topLeft.x,
@@ -185,7 +187,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       const newScreenY = e.clientY - dragStart.y;
 
       // 转换屏幕坐标为Paper.js坐标
-      const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX, newScreenY)) : { x: newScreenX, y: newScreenY };
+      const dpr = window.devicePixelRatio || 1;
+      const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX * dpr, newScreenY * dpr)) : { x: newScreenX, y: newScreenY } as any;
       onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
       const now = Date.now();

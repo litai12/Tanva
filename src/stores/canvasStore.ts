@@ -113,7 +113,7 @@ export const useCanvasStore = create<CanvasState>()(
       }),
       {
         name: 'canvas-settings', // localStorage 键名
-        // 只持久化特定的状态，不包括视口状态（zoom, panX, panY）
+        // 持久化所有重要状态，包括视口状态以保持用户体验
         partialize: (state) => ({
           gridSize: state.gridSize,
           gridStyle: state.gridStyle,
@@ -121,6 +121,9 @@ export const useCanvasStore = create<CanvasState>()(
           gridColor: state.gridColor,
           gridBgColor: state.gridBgColor,
           gridBgEnabled: state.gridBgEnabled,
+          zoom: state.zoom,
+          panX: state.panX,
+          panY: state.panY,
           units: state.units,
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,

@@ -386,10 +386,11 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(null);
   React.useEffect(() => {
     const z = cvZoom || 1;
-    // Paper: screen = z * world + pan; ReactFlow: screen = z * (world + x)
-    // => x = pan / z
-    const x = cvPanX / z;
-    const y = cvPanY / z;
+    // Canvas: screen = z * (world + panWorld)
+    // ReactFlow: screen = z * world + translate
+    // => translate = z * panWorld
+    const x = (cvPanX || 0) * z;
+    const y = (cvPanY || 0) * z;
     const prev = lastApplied.current;
     const eps = 1e-6;
     if (prev && Math.abs(prev.x - x) < eps && Math.abs(prev.y - y) < eps && Math.abs(prev.z - z) < eps) return;
@@ -565,10 +566,12 @@ function FlowInner() {
     
     // 进一步：命中检测 Paper.js 物体（文本/图像/形状等）
     try {
-      const canvasRect = (paper?.view?.element as HTMLCanvasElement | undefined)?.getBoundingClientRect();
-      if (canvasRect) {
-        const vx = clientX - canvasRect.left;
-        const vy = clientY - canvasRect.top;
+      const canvas = paper?.view?.element as HTMLCanvasElement | undefined;
+      if (canvas) {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        const vx = (clientX - rect.left) * dpr;
+        const vy = (clientY - rect.top) * dpr;
         const pt = paper.view.viewToProject(new paper.Point(vx, vy));
         const hit = paper.project.hitTest(pt, {
           segments: true,

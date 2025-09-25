@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
 import paper from 'paper';
+import { projectToClient } from '@/utils/paperCoords';
 import { useToolStore } from '@/stores/toolStore';
 
 interface SimpleTextEditorProps {
@@ -38,14 +39,11 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
     try {
       const paperText = currentEditingText.paperText;
       const bounds = paperText.bounds;
-      const canvasRect = paper.view.element.getBoundingClientRect();
-      
-      // 将Paper.js坐标转换为屏幕坐标
-      const viewPoint = paper.view.projectToView(bounds.topLeft);
-      
+      const canvasEl = paper.view.element as HTMLCanvasElement;
+      const tl = projectToClient(canvasEl, bounds.topLeft);
       return {
-        left: canvasRect.left + viewPoint.x,
-        top: canvasRect.top + viewPoint.y,
+        left: tl.x,
+        top: tl.y,
         width: Math.max(bounds.width, 100)
       };
     } catch (error) {

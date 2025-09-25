@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { clientToProject } from '@/utils/paperCoords';
 import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 
@@ -108,15 +109,33 @@ export const useInteractionController = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-
-    // 转换为 Paper.js 坐标系
-    const point = paper.view.viewToProject(new paper.Point(x, y));
+    // 转换为 Paper.js 项目坐标（考虑 devicePixelRatio）
+    const point = clientToProject(canvas, event.clientX, event.clientY);
 
     // ========== 选择模式处理 ==========
     if (drawMode === 'select') {
+      // 先检查是否点击了图片占位框（Paper 组 data.type === 'image-placeholder'）
+      try {
+        const hit = paper.project.hitTest(point, {
+          segments: false,
+          stroke: true,
+          fill: true,
+          tolerance: 2 / Math.max(zoom, 0.0001),
+        } as any);
+        if (hit && hit.item) {
+          let node: any = hit.item;
+          while (node && !node.data?.type && node.parent) node = node.parent;
+          const isPlaceholder = !!node && node.data?.type === 'image-placeholder';
+          if (isPlaceholder) {
+            // 将该占位组设置为当前占位，并触发上传
+            try { (imageTool as any).currentPlaceholderRef.current = node; } catch {}
+            try { (imageTool as any).setTriggerImageUpload(true); } catch {}
+            logger.upload('📸 命中图片占位框，触发上传');
+            return;
+          }
+        }
+      } catch {}
+
       // 首先检查是否点击在图像的调整控制点上
       const resizeHandleHit = paper.project.hitTest(point, {
         fill: true,
@@ -182,7 +201,7 @@ export const useInteractionController = ({
     }
 
     // ========== 绘图模式处理 ==========
-    logger.drawing(`开始绘制: 模式=${drawMode}, 坐标=(${x.toFixed(1)}, ${y.toFixed(1)})`);
+    logger.drawing(`开始绘制: 模式=${drawMode}, 坐标=(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
 
     if (drawMode === 'free') {
       drawingTools.startFreeDraw(point);
@@ -227,10 +246,7 @@ export const useInteractionController = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const point = paper.view.viewToProject(new paper.Point(x, y));
+    const point = clientToProject(canvas, event.clientX, event.clientY);
 
     // ========== 选择模式处理 ==========
     if (drawMode === 'select') {
@@ -328,10 +344,7 @@ export const useInteractionController = ({
     if (drawMode === 'select') {
       // 处理路径编辑结束
       const pathEditResult = pathEditor.handlePathEditInteraction(
-        paper.view.viewToProject(new paper.Point(
-          event.clientX - canvas.getBoundingClientRect().left,
-          event.clientY - canvas.getBoundingClientRect().top
-        )),
+        clientToProject(canvas, event.clientX, event.clientY),
         selectionTool.selectedPath,
         'mouseup'
       );
@@ -364,10 +377,7 @@ export const useInteractionController = ({
 
       // 处理选择框完成
       if (selectionTool.isSelectionDragging) {
-        const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        const point = paper.view.viewToProject(new paper.Point(x, y));
+    const point = clientToProject(canvas, event.clientX, event.clientY);
         selectionTool.finishSelectionBox(point);
         return;
       }
@@ -562,10 +572,7 @@ export const useInteractionController = ({
 
     // 双击事件处理
     const handleDoubleClick = (event: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const point = paper.view.viewToProject(new paper.Point(x, y));
+      const point = clientToProject(canvas, event.clientX, event.clientY);
       
       console.log('🎯 检测到原生双击事件，当前模式:', drawMode);
       

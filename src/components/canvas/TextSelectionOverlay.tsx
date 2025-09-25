@@ -5,6 +5,7 @@
 
 import React, { useCallback, useMemo, useRef, useEffect } from 'react';
 import paper from 'paper';
+import { projectRectToClient, clientToProject } from '@/utils/paperCoords';
 
 interface TextSelectionOverlayProps {
   textItems: Array<{
@@ -53,19 +54,15 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
 
     try {
       const bounds = selectedText.paperText.bounds;
-      const canvasRect = paper.view.element.getBoundingClientRect();
-      
-      // 将Paper.js坐标转换为屏幕坐标
-      const topLeft = paper.view.projectToView(bounds.topLeft);
-      const bottomRight = paper.view.projectToView(bounds.bottomRight);
-      
       const padding = 4; // 选择框的内边距
-      
+
+      const canvasEl = paper.view.element as HTMLCanvasElement;
+      const r = projectRectToClient(canvasEl, bounds);
       return {
-        left: canvasRect.left + topLeft.x - padding,
-        top: canvasRect.top + topLeft.y - padding,
-        width: bottomRight.x - topLeft.x + padding * 2,
-        height: bottomRight.y - topLeft.y + padding * 2
+        left: r.left - padding,
+        top: r.top - padding,
+        width: r.width + padding * 2,
+        height: r.height + padding * 2,
       };
     } catch (error) {
       console.warn('计算文本选择框位置失败:', error);
@@ -81,11 +78,8 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       return new paper.Point(clientX, clientY);
     }
     
-    const canvasRect = paper.view.element.getBoundingClientRect();
-    const x = clientX - canvasRect.left;
-    const y = clientY - canvasRect.top;
-    
-    return paper.view.viewToProject(new paper.Point(x, y));
+    const canvasEl = paper.view.element as HTMLCanvasElement;
+    return clientToProject(canvasEl, clientX, clientY);
   }, []);
 
   // 处理选择框边框拖拽（移动）
