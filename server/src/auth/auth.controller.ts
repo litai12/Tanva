@@ -23,7 +23,7 @@ export class AuthController {
   async login(@Body() dto: LoginDto, @Req() req: any, @Res({ passthrough: true }) res: any) {
     const user = await this.auth.validateUser(dto.phone, dto.password);
     const tokens = await this.auth.login(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user.id, email: user.email || '', role: user.role },
       { ip: req.ip, ua: req.headers['user-agent'] },
     );
     this.auth.setAuthCookies(res, tokens);

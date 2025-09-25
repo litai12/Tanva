@@ -35,7 +35,10 @@ export class AuthService {
   private cookieOptions() {
     const secure = (this.config.get('COOKIE_SECURE') ?? 'false') === 'true';
     const sameSite = (this.config.get('COOKIE_SAMESITE') as any) || 'lax';
-    const domain = this.config.get('COOKIE_DOMAIN') || undefined;
+    const rawDomain = this.config.get<string>('COOKIE_DOMAIN');
+    // 注意：localhost/127.0.0.1 不能作为 Cookie Domain；开发环境不要设置 domain
+    const invalidLocal = rawDomain === 'localhost' || rawDomain === '127.0.0.1' || rawDomain === '';
+    const domain = invalidLocal ? undefined : rawDomain;
     return { httpOnly: true, secure, sameSite, domain, path: '/' } as const;
   }
 
@@ -86,7 +89,7 @@ export class AuthService {
     if (code !== '336699') throw new UnauthorizedException('验证码错误');
     const user = await this.usersService.findByPhone(phone);
     if (!user) throw new UnauthorizedException('用户不存在，请先注册');
-    const tokens = await this.login({ id: user.id, email: user.email, role: user.role }, meta);
+    const tokens = await this.login({ id: user.id, email: user.email || '', role: user.role }, meta);
     return { user, tokens };
   }
 
