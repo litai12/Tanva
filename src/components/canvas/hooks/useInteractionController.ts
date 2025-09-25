@@ -133,6 +133,13 @@ export const useInteractionController = ({
             logger.upload('📸 命中图片占位框，触发上传');
             return;
           }
+          const isModelPlaceholder = !!node && node.data?.type === '3d-model-placeholder';
+          if (isModelPlaceholder) {
+            try { (model3DTool as any).currentModel3DPlaceholderRef.current = node; } catch {}
+            try { (model3DTool as any).setTriggerModel3DUpload(true); } catch {}
+            logger.upload('🎲 命中3D模型占位框，触发上传');
+            return;
+          }
         }
       } catch {}
 

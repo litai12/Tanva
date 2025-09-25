@@ -28,6 +28,8 @@ import {
     
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
+import { useProjectStore } from '@/stores/projectStore';
+import ProjectManagerModal from '@/components/projects/ProjectManagerModal';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
@@ -57,6 +59,30 @@ const FloatingHeader: React.FC = () => {
         setGridBgColor,
         setGridBgEnabled
     } = useCanvasStore();
+
+    // 项目（文件）管理
+    const { currentProject, openModal, create, rename, optimisticRenameLocal } = useProjectStore();
+    const [editingTitle, setEditingTitle] = useState(false);
+    const [titleInput, setTitleInput] = useState('');
+    useEffect(() => {
+        setTitleInput(currentProject?.name || '未命名');
+    }, [currentProject?.id, currentProject?.name]);
+    const commitTitle = async () => {
+        const name = titleInput.trim() || '未命名';
+        try {
+            if (currentProject) {
+                if (name !== currentProject.name) {
+                    // 先本地乐观更新，提升体验
+                    optimisticRenameLocal(currentProject.id, name);
+                    await rename(currentProject.id, name);
+                }
+            } else {
+                await create(name);
+            }
+        } finally {
+            setEditingTitle(false);
+        }
+    };
 
     // 单位/比例功能已移除
     const [showMemoryDebug, setShowMemoryDebug] = useState(false);
@@ -123,10 +149,10 @@ const FloatingHeader: React.FC = () => {
 
     return (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
-            <div className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3.5 py-2 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300">
+            <div className="grid grid-cols-3 items-center gap-2 md:gap-3 px-4 md:px-6 py-2 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 min-w-[640px]">
                 
                 {/* 左侧区域：Logo + Beta */}
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 justify-self-start">
                     <div
                         className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity select-none"
                         onClick={handleLogoClick}
@@ -144,18 +170,34 @@ const FloatingHeader: React.FC = () => {
                     </Badge>
                 </div>
 
-                <div className="hidden sm:block w-px h-6 bg-white/20"></div>
-
-                {/* 中间区域：保留空间（功能已移至设置菜单） */}
-                <div className="hidden sm:flex items-center gap-2">
-                    {/* 空间占位，保持布局宽度 */}
-                    <div className="w-32 h-8"></div>
+                {/* 中间区域：仅显示当前文件名（纯文字），双击可重命名；在网格中严格居中 */}
+                <div className="hidden sm:flex items-center gap-2 justify-self-center">
+                    {editingTitle ? (
+                        <input
+                            autoFocus
+                            className="h-7 text-sm px-2 rounded border border-slate-300 bg-white/90 min-w-[240px] max-w-[440px]"
+                            value={titleInput}
+                            onChange={(e) => setTitleInput(e.target.value)}
+                            onBlur={commitTitle}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitTitle();
+                                if (e.key === 'Escape') setEditingTitle(false);
+                                e.stopPropagation();
+                            }}
+                        />
+                    ) : (
+                        <div
+                            className="h-7 flex items-center px-1 text-sm text-gray-800 max-w-[440px] min-w-[240px] cursor-text"
+                            title="双击重命名"
+                            onDoubleClick={() => setEditingTitle(true)}
+                        >
+                            <span className="truncate">{currentProject?.name || '未命名'}</span>
+                        </div>
+                    )}
                 </div>
 
-                <div className="hidden sm:block w-px h-6 bg-white/20"></div>
-
                 {/* 右侧区域：次要功能 */}
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 justify-self-end">
                     {/* 素材库按钮 */}
                     <Button
                         onClick={toggleLibraryPanel}
@@ -229,6 +271,16 @@ const FloatingHeader: React.FC = () => {
                                     </p>
                                 </div>
                             </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+
+                            {/* 文件管理 */}
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                文件
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem className="text-xs cursor-pointer" onClick={openModal}>
+                                <Square className="mr-2 h-3 w-3" />
+                                <span>打开/管理文件</span>
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
 
                             {/* 视图控制 */}
@@ -448,6 +500,9 @@ const FloatingHeader: React.FC = () => {
                 isVisible={showMemoryDebug} 
                 onClose={() => setShowMemoryDebug(false)} 
             />
+
+            {/* 项目管理器（文件选择弹窗） */}
+            <ProjectManagerModal />
         </div>
     );
 };

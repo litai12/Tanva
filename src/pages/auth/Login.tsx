@@ -19,10 +19,10 @@ export default function LoginPage() {
     e.preventDefault();
     if (tab === 'password') {
       await login(phone, password);
-      navigate('/app');
+      navigate('/workspace');
     } else {
       await loginWithSms(phone, code || '');
-      navigate('/app');
+      navigate('/workspace');
     }
   };
 
