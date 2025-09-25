@@ -239,27 +239,7 @@ export class AutoScreenshotService {
       console.warn('⚠️ 未找到Paper.js项目或图层');
     }
 
-    // 2. 收集图片实例
-    const visibleImages = imageInstances.filter(img => img.visible);
-    console.log(`🖼️ 收集图片实例: 找到 ${visibleImages.length} 个可见图片`);
-    
-    for (const image of visibleImages) {
-      // 图片实例使用其真实的 layerIndex，乘以1000确保在正确的图层级别
-      const imageLayerIndex = (image.layerIndex || 0) * 1000;
-      
-      console.log(`✅ 收集图片实例: ${image.id} (layer: ${imageLayerIndex})`, {
-        bounds: `${Math.round(image.bounds.x)},${Math.round(image.bounds.y)} ${Math.round(image.bounds.width)}x${Math.round(image.bounds.height)}`,
-        layerIndex: imageLayerIndex,
-        visible: image.visible
-      });
-      
-      elements.push({
-        type: 'image',
-        layerIndex: imageLayerIndex,
-        bounds: image.bounds,
-        data: image
-      });
-    }
+    // 2. 不再单独收集图片实例，直接依赖 Paper.Raster；避免“实例边界未更新”导致裁切异常
 
     // 3. 收集3D模型实例
     const visibleModels = model3DInstances.filter(model => model.visible);
@@ -284,7 +264,7 @@ export class AutoScreenshotService {
       });
     }
 
-    // 4. 按层级排序（从底层到顶层）
+    // 3. 按层级排序（从底层到顶层）
     elements.sort((a, b) => a.layerIndex - b.layerIndex);
     
     // 详细的收集统计信息

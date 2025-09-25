@@ -232,20 +232,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       paper.view.update();
     };
 
-    // 创建一个透明矩形用于交互
-    const imageRect = new paper.Path.Rectangle({
-      rectangle: new paper.Rectangle(
-        paperBounds.x,
-        paperBounds.y,
-        paperBounds.width,
-        paperBounds.height
-      ),
-      fillColor: null,
-      strokeColor: null
-    });
-
-    // 创建Paper.js组来包含所有相关元素
-    const imageGroup = new paper.Group([imageRect, raster]);
+    // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
+    const imageGroup = new paper.Group([raster]);
     imageGroup.data = {
       type: 'image',
       imageId: imageId,

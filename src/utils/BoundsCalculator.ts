@@ -33,21 +33,10 @@ export class BoundsCalculator {
   ): ContentBounds {
     console.log('📏 计算截图边界（包含 2D/图片/3D 全部内容）...');
     
-    // 第一步：收集所有可见图片和3D模型作为基础边界
+    // 第一步：收集所有可见3D模型作为基础边界（图片以 Paper.Raster 为准，避免重复统计）
     const baseBounds: Bounds[] = [];
     
-    // 1. 收集可见图片实例作为主要边界
-    const visibleImages = imageInstances.filter(img => img.visible);
-    console.log(`🖼️ 找到 ${visibleImages.length} 个可见图片实例`);
-    
-    for (const image of visibleImages) {
-      if (this.isValidBounds(image.bounds)) {
-        baseBounds.push(image.bounds);
-        console.log(`  - 图片 ${image.id}: ${Math.round(image.bounds.x)},${Math.round(image.bounds.y)} ${Math.round(image.bounds.width)}x${Math.round(image.bounds.height)}`);
-      }
-    }
-
-    // 2. 收集可见3D模型实例
+    // 1. 收集可见3D模型实例
     const visibleModels = model3DInstances.filter(model => model.visible);
     console.log(`🎭 找到 ${visibleModels.length} 个可见3D模型`);
     
@@ -58,7 +47,7 @@ export class BoundsCalculator {
       }
     }
     
-    // 第二步：无论是否存在图片/3D模型，都合并 2D 绘制内容的边界
+    // 第二步：无论是否存在3D模型，都合并 2D 绘制内容的边界（包含图片的 Paper.Raster）
     const paperDrawingBounds = this.getPaperDrawingBounds();
     console.log(`✏️ 可见的 2D 绘制元素边界数量: ${paperDrawingBounds.length}`);
     const allBounds: Bounds[] = baseBounds.concat(paperDrawingBounds);
@@ -150,43 +139,53 @@ export class BoundsCalculator {
   }
 
   /**
-   * 获取Paper.js中所有绘制路径的边界（不包括辅助元素）
+   * 获取Paper.js中所有绘制元素的边界（不包括辅助元素），优先使用 strokeBounds 以包含线宽
    */
   static getPaperDrawingBounds(): Bounds[] {
-    const bounds: Bounds[] = [];
+    const out: Bounds[] = [];
 
-    if (!paper.project || !paper.project.layers) {
-      return bounds;
-    }
+    if (!paper.project || !paper.project.layers) return out;
+
+    const pushBounds = (rect: paper.Rectangle | null | undefined) => {
+      if (!rect) return;
+      const b = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      if (this.isValidBounds(b)) out.push(b);
+    };
+
+    const visit = (item: paper.Item) => {
+      if (!item || !item.visible || (item.data as any)?.isHelper) return;
+
+      // 跳过网格/背景层元素
+      const layerName = (item.layer && item.layer.name) || '';
+      if (layerName === 'grid' || layerName === 'background') return;
+
+      // 计算包含线宽的边界
+      const rect = (item as any).strokeBounds || item.bounds || null;
+
+      if (item instanceof paper.Group) {
+        // 组：不直接使用组的边界，逐个遍历可见子项，避免隐形子项扩大边界
+        for (const child of item.children) visit(child);
+      } else if (
+        item instanceof paper.Path ||
+        item instanceof paper.Raster ||
+        item instanceof paper.PointText
+      ) {
+        // 对 Path，如既无描边也无填充，视为不可见
+        if (item instanceof paper.Path) {
+          const hasStroke = !!(item as any).strokeColor && (item as any).strokeWidth !== 0;
+          const hasFill = !!(item as any).fillColor;
+          if (!hasStroke && !hasFill) return;
+        }
+        pushBounds(rect);
+      }
+    };
 
     for (const layer of paper.project.layers) {
       if (!layer.visible) continue;
-      // 跳过网格/背景等非内容图层
-      if (layer.name === 'grid' || layer.name === 'background') continue;
-
-      for (const item of layer.children) {
-        // 只包含实际的绘制内容
-        if (
-          item.visible &&
-          !item.data?.isHelper &&
-          item.bounds &&
-          this.isValidBounds(item.bounds) &&
-          // 确保是用户绘制的内容
-          (item instanceof paper.Path || 
-           item instanceof paper.Group || 
-           item instanceof paper.Raster)
-        ) {
-          bounds.push({
-            x: item.bounds.x,
-            y: item.bounds.y,
-            width: item.bounds.width,
-            height: item.bounds.height
-          });
-        }
-      }
+      for (const item of layer.children) visit(item);
     }
 
-    return bounds;
+    return out;
   }
 
   /**
