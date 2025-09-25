@@ -125,7 +125,7 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
         minHeight={220}
         color="transparent"
         lineStyle={{ display: 'none' }}
-        handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, opacity: 0, cursor: 'nwse-resize' }}
+        handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0, cursor: 'nwse-resize' }}
         onResize={(evt, params) => {
           rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: params.width, boxH: params.height } } : n));
         }}

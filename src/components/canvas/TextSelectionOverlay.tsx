@@ -207,10 +207,10 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          top: -3,
-          left: -3,
-          width: 6,
-          height: 6,
+          top: -6,
+          left: -6,
+          width: 12,
+          height: 12,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',
@@ -222,10 +222,10 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          top: -3,
-          right: -3,
-          width: 6,
-          height: 6,
+          top: -6,
+          right: -6,
+          width: 12,
+          height: 12,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',
@@ -237,10 +237,10 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          bottom: -3,
-          left: -3,
-          width: 6,
-          height: 6,
+          bottom: -6,
+          left: -6,
+          width: 12,
+          height: 12,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',
@@ -252,10 +252,10 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          bottom: -3,
-          right: -3,
-          width: 6,
-          height: 6,
+          bottom: -6,
+          right: -6,
+          width: 12,
+          height: 12,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',

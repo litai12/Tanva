@@ -146,7 +146,7 @@ export const useInteractionController = ({
       // 首先检查是否点击在图像的调整控制点上
       const resizeHandleHit = paper.project.hitTest(point, {
         fill: true,
-        tolerance: 5 / zoom
+        tolerance: 10 / zoom
       });
 
       if (resizeHandleHit && resizeHandleHit.item.data?.isResizeHandle) {
@@ -527,7 +527,7 @@ export const useInteractionController = ({
     // 首先检查是否悬停在图像调整控制点上
     const hoverHit = paper.project.hitTest(point, {
       fill: true,
-      tolerance: 5 / zoom
+      tolerance: 10 / zoom
     });
 
     if (hoverHit && hoverHit.item.data?.isResizeHandle) {

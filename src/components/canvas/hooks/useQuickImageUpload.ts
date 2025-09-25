@@ -325,7 +325,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                 };
 
                 // 添加四个角的调整控制点（默认隐藏）
-                const handleSize = 6;
+                const handleSize = 12;
                 const handleColor = new paper.Color('#3b82f6');
                 const bounds = raster.bounds;
 
@@ -356,15 +356,8 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     handleElements.push(handle);
                 });
 
-                // 创建透明矩形用于交互
-                const imageRect = new paper.Path.Rectangle({
-                    rectangle: raster.bounds,
-                    fillColor: null,
-                    strokeColor: null
-                });
-
-                // 创建组合，包含所有元素
-                const imageGroup = new paper.Group([imageRect, raster, selectionBorder, ...handleElements]);
+                // 创建组合：仅包含 Raster 与可视辅助，避免隐形交互矩形扩大边界
+                const imageGroup = new paper.Group([raster, selectionBorder, ...handleElements]);
                 imageGroup.data = {
                     type: 'image',
                     imageId: imageId,

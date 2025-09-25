@@ -28,7 +28,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   const getSegmentAt = useCallback((point: paper.Point, path: paper.Path): paper.Segment | null => {
     if (!path.segments) return null;
 
-    const tolerance = 8 / zoom; // 根据缩放调整容差
+    const tolerance = 14 / zoom; // 放大控制点命中区域
 
     for (let i = 0; i < path.segments.length; i++) {
       const segment = path.segments[i];

@@ -110,7 +110,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   }, []); // 移除依赖，通过强制重渲染确保同步
 
   // 计算控制点偏移量 - 与边框精确对齐
-  const handleSize = 6; // 控制点尺寸（固定屏幕像素大小）
+  const handleSize = 12; // 控制点尺寸（固定屏幕像素大小）
   // 控制点位置：边框外侧，中心对齐边框边缘
   const handleOffset = -(handleSize / 2); // 控制点中心对齐边框边缘
 

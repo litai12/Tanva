@@ -159,7 +159,7 @@ export const useAIImageDisplay = () => {
             };
 
             // 添加四个角的调整控制点（默认隐藏）
-            const handleSize = 6;
+            const handleSize = 12;
             const handleColor = new paper.Color('#3b82f6');
             const bounds = raster.bounds;
 
