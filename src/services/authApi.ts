@@ -70,6 +70,40 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const authApi = {
+  async meDetailed(): Promise<{ user: UserInfo | null; source: 'mock' | 'server' | 'refresh' | 'local' | null }> {
+    if (isMock) {
+      await delay(200);
+      return { user: loadSession(), source: 'mock' };
+    }
+    try {
+      let res = await fetch(`${base}/api/auth/me`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        const user = data && typeof data === 'object' && 'user' in data ? (data.user as UserInfo) : (data as UserInfo);
+        return { user, source: 'server' };
+      }
+      if (res.status === 401 || res.status === 403) {
+        try {
+          const r = await fetch(`${base}/api/auth/refresh`, { method: 'POST', credentials: 'include' });
+          if (r.ok) {
+            res = await fetch(`${base}/api/auth/me`, { credentials: 'include' });
+            if (res.ok) {
+              const data = await res.json().catch(() => null);
+              const user = data && typeof data === 'object' && 'user' in data ? (data.user as UserInfo) : (data as UserInfo);
+              return { user, source: 'refresh' };
+            }
+          }
+        } catch (e) {
+          console.warn('authApi.refresh failed:', e);
+        }
+      }
+      console.warn('authApi.me not ok:', res.status);
+      return { user: loadSession(), source: 'local' };
+    } catch (e) {
+      console.warn('authApi.me network error:', e);
+      return { user: loadSession(), source: 'local' };
+    }
+  },
   async register(payload: { phone: string; password: string; name?: string; email?: string }) {
     if (isMock) {
       await delay(300);
@@ -116,7 +150,10 @@ export const authApi = {
       body: JSON.stringify(payload),
       credentials: 'include',
     });
-    return json<{ user: UserInfo }>(res);
+    const out = await json<{ user: UserInfo }>(res);
+    // 本地持久化用户，提升刷新体验（用于开发环境或后端短暂不可用时）
+    saveSession(out.user);
+    return out;
   },
   async loginWithSms(payload: { phone: string; code: string }) {
     if (isMock) {
@@ -135,7 +172,9 @@ export const authApi = {
       body: JSON.stringify(payload),
       credentials: 'include',
     });
-    return json<{ user: UserInfo }>(res);
+    const out = await json<{ user: UserInfo }>(res);
+    saveSession(out.user);
+    return out;
   },
   async sendSms(payload: { phone: string }) {
     if (isMock) {
@@ -154,16 +193,33 @@ export const authApi = {
       await delay(200);
       return loadSession();
     }
-    const res = await fetch(`${base}/api/auth/me`, { credentials: 'include' });
-    if (!res.ok) {
-      // 常见是 401 未登录：返回 null，由路由处理跳转
-      console.warn('authApi.me not ok:', res.status);
-      return null;
+    try {
+      let res = await fetch(`${base}/api/auth/me`, { credentials: 'include' });
+      if (!res.ok) {
+        // 常见 401：尝试使用 refresh cookie 刷新一次
+        if (res.status === 401 || res.status === 403) {
+          try {
+            const r = await fetch(`${base}/api/auth/refresh`, { method: 'POST', credentials: 'include' });
+            if (r.ok) {
+              res = await fetch(`${base}/api/auth/me`, { credentials: 'include' });
+            }
+          } catch (e) {
+            console.warn('authApi.refresh failed:', e);
+          }
+        }
+      }
+      if (!res.ok) {
+        console.warn('authApi.me not ok:', res.status);
+        // 尝试使用本地持久化的用户，避免开发场景下的闪跳登录
+        return loadSession();
+      }
+      const data = await res.json().catch(() => null);
+      if (!data) return null;
+      return (data && typeof data === 'object' && 'user' in data) ? (data.user as UserInfo) : (data as UserInfo);
+    } catch (e) {
+      console.warn('authApi.me network error:', e);
+      return loadSession();
     }
-    const data = await res.json().catch(() => null);
-    if (!data) return null;
-    // 兼容 { user: {...} } 与直接返回用户
-    return (data && typeof data === 'object' && 'user' in data) ? (data.user as UserInfo) : (data as UserInfo);
   },
   async logout() {
     if (isMock) {
@@ -172,6 +228,8 @@ export const authApi = {
       return { ok: true } as { ok: boolean };
     }
     const res = await fetch(`${base}/api/auth/logout`, { method: 'POST', credentials: 'include' });
-    return json<{ ok: boolean }>(res);
+    const out = await json<{ ok: boolean }>(res);
+    clearSession();
+    return out;
   },
 };
