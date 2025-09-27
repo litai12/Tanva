@@ -33,7 +33,21 @@ export class DrawingLayerManager {
             return activeLayer;
         } catch (e) {
             console.warn('获取活动图层失败，使用兜底方案:', e);
-            // 兜底：在极端情况下仍然保证有可用图层
+            // 优先尝试通过全局层存储创建一个“正式”的用户图层
+            try {
+                const state = useLayerStore.getState();
+                const newId = state.createLayer('图层 1', true);
+                const created = paper.project?.layers.find(l => l.name === `layer_${newId}`) || null;
+                if (created && created.project) {
+                    created.activate();
+                    this.drawingLayerRef = created;
+                    return created;
+                }
+            } catch (ee) {
+                console.warn('通过全局层存储创建图层失败，继续使用兜底图层:', ee);
+            }
+
+            // 兜底：仍然保证可绘制
             let drawingLayer = this.drawingLayerRef;
             if (!drawingLayer || this.isLayerDeleted(drawingLayer)) {
                 drawingLayer = new paper.Layer();

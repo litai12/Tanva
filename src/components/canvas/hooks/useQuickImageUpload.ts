@@ -7,6 +7,7 @@ import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { useUIStore } from '@/stores/uiStore';
+import { useCanvasStore } from '@/stores/canvasStore';
 import type { DrawingContext } from '@/types/canvas';
 
 interface UseQuickImageUploadProps {
@@ -86,7 +87,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
         sourceImageId?: string,
         sourceImages?: string[]
     ) => {
-        const getSpacing = () => useUIStore.getState().smartPlacementOffset || 522;
+        const getSpacing = () => useUIStore.getState().smartPlacementOffset || 778;
         const existingImages = getAllCanvasImages();
 
         console.log('🧠 智能排版计算:', {
@@ -196,22 +197,27 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                 targetPosition = new paper.Point(calculated.x, calculated.y);
                 logger.upload(`📍 快速上传：计算智能位置 (${calculated.x}, ${calculated.y}) 操作类型: ${operationType}`);
             } else {
-                // 默认使用坐标原点
-                targetPosition = new paper.Point(0, 0);
-                logger.upload(`📍 快速上传：默认位置 (0, 0)`);
+                // 默认使用当前视口中心（世界坐标），避免因平移导致"看起来不在中间"
+                const center = paper.view && (paper.view as any).center
+                  ? (paper.view as any).center
+                  : new paper.Point(0, 0);
+                targetPosition = new paper.Point(center.x, center.y);
+                logger.upload(`📍 快速上传：默认使用视口中心 (${targetPosition.x.toFixed(1)}, ${targetPosition.y.toFixed(1)})`);
             }
 
             // 生成唯一ID
             const imageId = `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-            // 创建图片的Raster对象
-            const raster = new paper.Raster({
-                source: imageData,
-                position: targetPosition
-            });
+            // 创建图片的 Raster 对象（先绑定 onLoad 再设置 source，避免极快缓存触发导致丢失回调）
+            const raster = new paper.Raster();
+            raster.position = targetPosition;
+            
+            // 提前记录，便于排查定位
+            try { console.log('[QuickUpload] 准备加载图片', { targetPosition }); } catch {}
 
             // 等待图片加载完成
             raster.onLoad = () => {
+                try { console.log('[QuickUpload] 图片加载完成', { w: raster.width, h: raster.height }); } catch {}
                 // 获取原始尺寸
                 const originalWidth = raster.width;
                 const originalHeight = raster.height;
@@ -274,7 +280,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                     // 没有占位框，使用原有的逻辑
                     if (!useOriginalSize) {
                         // 标准模式：限制最大显示尺寸
-                        const maxSize = 512;
+                        const maxSize = 768;
                         if (originalWidth > maxSize || originalHeight > maxSize) {
                             const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
                             displayWidth = originalWidth * scale;
@@ -395,12 +401,34 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
 
                 const positionInfo = selectedImageBounds ? '选中图片位置' : (placeholder ? '占位框位置' : '坐标原点');
                 logger.upload(`✅ 快速上传成功：图片已添加到${positionInfo} - ${fileName || 'uploaded-image'}`);
+
+                // 若图片落点不在当前视口内，自动将视口平移到图片中心，避免“已成功但看不见”的困扰
+                try {
+                    const vb = paper.view.bounds;
+                    const inView = vb && vb.intersects(raster.bounds);
+                    if (!inView) {
+                        const { zoom: z, setPan } = useCanvasStore.getState();
+                        const vs = paper.view.viewSize;
+                        const cx = vs.width / 2; // 屏幕中心（项目坐标）
+                        const cy = vs.height / 2;
+                        const desiredPanX = (cx / z) - raster.position.x;
+                        const desiredPanY = (cy / z) - raster.position.y;
+                        setPan(desiredPanX, desiredPanY);
+                        try { console.log('[QuickUpload] 自动居中到新图片', { desiredPanX, desiredPanY, z }); } catch {}
+                    }
+                } catch (e) {
+                    try { console.warn('[QuickUpload] 自动居中失败', e); } catch {}
+                }
                 paper.view.update();
             };
 
-            raster.onError = () => {
+            raster.onError = (e: any) => {
                 logger.error('图片加载失败');
+                try { console.error('[QuickUpload] 图片加载失败', e); } catch {}
             };
+
+            // 触发加载
+            raster.source = imageData;
         } catch (error) {
             logger.error('快速上传图片时出错:', error);
             console.error('快速上传图片时出错:', error);

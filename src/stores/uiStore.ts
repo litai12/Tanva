@@ -13,7 +13,7 @@ interface UIState {
   flowEraserActive: boolean; // 节点擦除工具开关（仅 Node 模式）
 
   // 智能落位配置
-  smartPlacementOffset: number; // px，默认 522
+  smartPlacementOffset: number; // px，默认 778
 
   // 操作方法
   toggleLibraryPanel: () => void;
@@ -40,11 +40,20 @@ interface UIState {
 
 const initialOffset = (() => {
   if (typeof window !== 'undefined') {
-    const val = localStorage.getItem('tanva-smart-offset');
-    const n = val ? parseInt(val, 10) : NaN;
-    if (!isNaN(n) && n > 0 && n < 10000) return n;
+    try {
+      const val = localStorage.getItem('tanva-smart-offset');
+      const migrated = localStorage.getItem('tanva-offset-migrated');
+      // 一次性迁移：旧默认值 522 → 新默认值 778
+      if (!migrated && val === '522') {
+        localStorage.setItem('tanva-smart-offset', '778');
+        localStorage.setItem('tanva-offset-migrated', '1');
+        return 778;
+      }
+      const n = val ? parseInt(val, 10) : NaN;
+      if (!isNaN(n) && n > 0 && n < 10000) return n;
+    } catch {}
   }
-  return 522; // 默认 512 + 10
+  return 778; // 新默认偏移
 })();
 
 export const useUIStore = create<UIState>((set) => ({

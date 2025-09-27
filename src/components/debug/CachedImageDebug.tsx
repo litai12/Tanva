@@ -13,6 +13,7 @@ interface CachedImageInfo {
 // 注意：这是临时测试功能，后续可移除或加开关
 const CachedImageDebug: React.FC = () => {
   const [cached, setCached] = useState<CachedImageInfo | null>(null);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [expanded, setExpanded] = useState(true);
   const lastKeyRef = useRef<string | null>(null);
   const [mode, setMode] = useState<string | null>(null);
@@ -121,6 +122,20 @@ const CachedImageDebug: React.FC = () => {
     };
   }, [cached?.bounds]);
 
+  // 计算原始图片尺寸（naturalWidth/Height）
+  useEffect(() => {
+    setNaturalSize(null);
+    const src = cached?.imageData || '';
+    if (!src || !src.startsWith('data:image')) return;
+    try {
+      const img = new Image();
+      img.onload = () => {
+        setNaturalSize({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
+      };
+      img.src = src;
+    } catch {}
+  }, [cached?.imageData]);
+
   const handlePreview = () => {
     if (cached?.imageData) {
       try {
@@ -204,11 +219,13 @@ const CachedImageDebug: React.FC = () => {
     };
   }, []);
 
+  // 预设默认位置：向下、向左一些，避免遮挡右上角账号区
+  // 注意：拖拽后会切换为 left/top 布局（并将 right/bottom 置为 auto）
   return (
     <div
       ref={panelRef}
       className="fixed right-3 top-3 z-[60] pointer-events-none"
-      style={{ maxWidth: 260 }}
+      style={{ maxWidth: 260, top: 72, right: 280 }}
     >
       <div className="pointer-events-auto select-none rounded-md border border-gray-300 bg-white/90 shadow-lg backdrop-blur p-2">
         <div className="flex items-center justify-between gap-2" data-drag-handle>
@@ -236,6 +253,10 @@ const CachedImageDebug: React.FC = () => {
                 </div>
                 <div className="text-[10px] text-gray-600">
                   中心: {center ? `cx=${Math.round(center.cx)}, cy=${Math.round(center.cy)}` : '—'}
+                </div>
+                <div className="text-[10px] text-gray-600">
+                  尺寸: {cached?.bounds ? `${Math.round(cached.bounds.width)}×${Math.round(cached.bounds.height)}` : '—'}
+                  {naturalSize ? `（原图 ${naturalSize.w}×${naturalSize.h}）` : ''}
                 </div>
                 <div className="text-[10px] text-gray-600">
                   图层: {cached.layerId || '—'}

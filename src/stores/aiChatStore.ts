@@ -290,14 +290,14 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
           const fileName = `ai_generated_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
-          // 计算智能位置：基于缓存图片中心 → 向下522
+          // 计算智能位置：基于缓存图片中心 → 向下（偏移量由 smartPlacementOffset 决定）
           let smartPosition: { x: number; y: number } | undefined = undefined;
           try {
             const cached = contextManager.getCachedImage();
             if (cached?.bounds) {
               const cx = cached.bounds.x + cached.bounds.width / 2;
               const cy = cached.bounds.y + cached.bounds.height / 2;
-              const offset = useUIStore.getState().smartPlacementOffset || 522;
+              const offset = useUIStore.getState().smartPlacementOffset || 778;
               smartPosition = { x: cx, y: cy + offset };
               console.log('📍 生成图智能位置(相对缓存 → 下移)', offset, 'px:', smartPosition);
             } else {
@@ -491,21 +491,21 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
             console.warn('获取选中图片信息失败:', error);
           }
 
-          // 计算智能位置：基于缓存图片中心 → 向右522
+          // 计算智能位置：基于缓存图片中心 → 向右（偏移量由 smartPlacementOffset 决定）
           let smartPosition: { x: number; y: number } | undefined = undefined;
           try {
             const cached = contextManager.getCachedImage();
             if (cached?.bounds) {
               const cx = cached.bounds.x + cached.bounds.width / 2;
               const cy = cached.bounds.y + cached.bounds.height / 2;
-              const offset = useUIStore.getState().smartPlacementOffset || 522;
+              const offset = useUIStore.getState().smartPlacementOffset || 778;
               smartPosition = { x: cx + offset, y: cy };
               console.log('📍 编辑产出智能位置(相对缓存 → 右移)', offset, 'px:', smartPosition);
             } else if (selectedImageBounds) {
               // 兼容：若无缓存但传入了选中图片边界，则基于选中图向右
               const cx = selectedImageBounds.x + selectedImageBounds.width / 2;
               const cy = selectedImageBounds.y + selectedImageBounds.height / 2;
-              const offset = useUIStore.getState().smartPlacementOffset || 522;
+              const offset = useUIStore.getState().smartPlacementOffset || 778;
               smartPosition = { x: cx + offset, y: cy };
               console.log('📍 编辑产出智能位置(相对选中图 → 右移)', offset, 'px:', smartPosition);
             } else {
@@ -708,7 +708,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
                   if (cached?.bounds) {
                     const cx = cached.bounds.x + cached.bounds.width / 2;
                     const cy = cached.bounds.y + cached.bounds.height / 2;
-                    const offset = useUIStore.getState().smartPlacementOffset || 522;
+                    const offset = useUIStore.getState().smartPlacementOffset || 778;
                     const pos = { x: cx + offset, y: cy };
                     console.log('📍 融合产出智能位置(相对缓存 → 右移)', offset, 'px:', pos);
                     return pos;

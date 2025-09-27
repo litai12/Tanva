@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
+import { useLayerStore } from '@/stores/layerStore';
 
 interface PaperCanvasManagerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -69,6 +70,14 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
           // 通知外部组件初始化完成
           if (onInitialized) {
             onInitialized();
+          }
+
+          // 确保存在一个有效的用户图层（避免后续绘制落在兜底层或 grid 上）
+          try {
+            const ensure = useLayerStore.getState().ensureActiveLayer;
+            if (typeof ensure === 'function') ensure();
+          } catch (e) {
+            console.warn('ensureActiveLayer failed during Paper init:', e);
           }
         } else {
           // 应用视口变换
