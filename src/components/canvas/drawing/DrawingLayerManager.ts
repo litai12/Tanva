@@ -36,7 +36,8 @@ export class DrawingLayerManager {
             // 优先尝试通过全局层存储创建一个“正式”的用户图层
             try {
                 const state = useLayerStore.getState();
-                const newId = state.createLayer('图层 1', true);
+                // 不强制名称，交由 store 依据现有层自动生成“图层 2/3/...”，避免重名
+                const newId = state.createLayer(undefined, true);
                 const created = paper.project?.layers.find(l => l.name === `layer_${newId}`) || null;
                 if (created && created.project) {
                     created.activate();
