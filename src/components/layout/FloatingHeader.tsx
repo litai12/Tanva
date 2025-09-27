@@ -456,18 +456,6 @@ const FloatingHeader: React.FC = () => {
                                 </div>
                             </div>
 
-                            <DropdownMenuSeparator />
-
-                            {/* 用户设置 */}
-                            <DropdownMenuItem className="text-xs">
-                                <User className="mr-2 h-3 w-3" />
-                                <span>个人资料</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-xs">
-                                <Settings className="mr-2 h-3 w-3" />
-                                <span>设置</span>
-                            </DropdownMenuItem>
-                            
                             {/* 开发模式下显示内存调试选项 */}
                             {import.meta.env.DEV && (
                                 <>
