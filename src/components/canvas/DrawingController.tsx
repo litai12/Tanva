@@ -53,6 +53,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         console.log('🧪 Testing Paper.js save manually...');
         paperSaveService.triggerAutoSave();
       };
+
+      (window as any).testPaperState = () => {
+        console.log('🔍 Paper.js状态检查:', {
+          hasPaper: !!paper,
+          hasProject: !!paper?.project,
+          hasView: !!paper?.view,
+          projectLayers: paper?.project?.layers?.length || 0,
+          layerNames: paper?.project?.layers?.map(l => l.name) || []
+        });
+      };
     }
 
     // 监听 Paper.js 项目恢复事件

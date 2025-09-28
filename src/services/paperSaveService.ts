@@ -3,7 +3,7 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
-  private readonly SAVE_DELAY = 2000; // 2秒延迟保存
+  private readonly SAVE_DELAY = 200; // 在绘制结束后尽快序列化写入store
   private isInitialized = false;
 
   /**
@@ -20,7 +20,7 @@ class PaperSaveService {
    */
   private isPaperProjectReady(): boolean {
     try {
-      return !!(paper && paper.project && paper.view && !paper.project.isEmpty);
+      return !!(paper && paper.project && paper.view);
     } catch (error) {
       console.warn('Paper.js 项目状态检查失败:', error);
       return false;
@@ -37,40 +37,14 @@ class PaperSaveService {
         return null;
       }
 
-      // 过滤掉系统图层（网格、背景等）
-      const userLayers = paper.project.layers.filter(layer => {
-        const name = layer.name;
-        return name &&
-               !name.startsWith('grid') &&
-               !name.startsWith('background') &&
-               !name.startsWith('scalebar') &&
-               name.startsWith('layer_'); // 只保存用户图层
-      });
-
-      // 如果没有用户图层，返回空项目
-      if (userLayers.length === 0) {
-        return JSON.stringify({
-          layers: []
-        });
+      // 直接导出当前项目；导入时再清理系统层/辅助元素
+      const jsonString = (paper.project as any).exportJSON({ asString: true });
+      if (!jsonString || (typeof jsonString === 'string' && jsonString.length === 0)) {
+        return JSON.stringify({ layers: [] });
       }
 
-      // 创建临时项目来导出用户内容
-      const tempProject = new paper.Project();
-
-      // 复制用户图层到临时项目
-      userLayers.forEach(layer => {
-        const clonedLayer = layer.clone();
-        tempProject.addLayer(clonedLayer);
-      });
-
-      // 导出JSON
-      const jsonString = tempProject.exportJSON();
-
-      // 清理临时项目
-      tempProject.remove();
-
       console.log('✅ Paper.js项目序列化成功');
-      return jsonString;
+      return jsonString as string;
     } catch (error) {
       console.error('❌ Paper.js项目序列化失败:', error);
       return null;
@@ -92,30 +66,29 @@ class PaperSaveService {
         return true;
       }
 
-      // 清除现有的用户图层（保留系统图层）
-      const userLayers = paper.project.layers.filter(layer => {
-        const name = layer.name;
-        return name && name.startsWith('layer_');
-      });
+      // 导入保存的内容（此操作会替换当前项目内容）
+      (paper.project as any).importJSON(jsonString);
 
-      userLayers.forEach(layer => {
-        try {
-          layer.remove();
-        } catch (error) {
-          console.warn('移除图层失败:', error);
+      // 清理系统图层与辅助元素
+      const toRemove: paper.Layer[] = [];
+      (paper.project.layers || []).forEach((layer: any) => {
+        const name = layer?.name || '';
+        if (name === 'grid' || name === 'background' || name === 'scalebar') {
+          toRemove.push(layer);
+          return;
         }
+        // 清理辅助元素
+        try {
+          const children = layer?.children || [];
+          children.forEach((child: any) => {
+            if (child?.data?.isHelper) child.remove();
+          });
+        } catch {}
       });
-
-      // 导入保存的内容
-      paper.project.importJSON(jsonString);
+      toRemove.forEach(l => l.remove());
 
       console.log('✅ Paper.js项目反序列化成功');
-
-      // 确保视图更新
-      if (paper.view) {
-        paper.view.update();
-      }
-
+      if (paper.view) (paper.view as any).update();
       return true;
     } catch (error) {
       console.error('❌ Paper.js项目反序列化失败:', error);
@@ -147,6 +120,8 @@ class PaperSaveService {
    * 触发自动保存（防抖）
    */
   triggerAutoSave() {
+    console.log('🔔 Paper.js自动保存被触发');
+
     // 清除之前的保存计时器
     if (this.saveTimeoutId) {
       window.clearTimeout(this.saveTimeoutId);
@@ -154,8 +129,11 @@ class PaperSaveService {
 
     // 设置新的保存计时器
     this.saveTimeoutId = window.setTimeout(() => {
+      console.log('⏰ Paper.js自动保存延迟时间到，开始执行保存...');
       this.performSave();
     }, this.SAVE_DELAY);
+
+    console.log(`⏱️ Paper.js自动保存已安排，将在${this.SAVE_DELAY}ms后执行`);
   }
 
   /**
