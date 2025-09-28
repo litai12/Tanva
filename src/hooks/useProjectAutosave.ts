@@ -62,7 +62,10 @@ export function useProjectAutosave(projectId: string | null) {
     } catch (err: any) {
       console.warn(`❌ 项目保存失败 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
 
-      const errorMessage = err?.message || '自动保存失败';
+      const rawMessage = err?.message || '';
+      const errorMessage = rawMessage.includes('413') || rawMessage.toLowerCase().includes('too large')
+        ? '内容过大，无法保存，请尝试清理或拆分项目'
+        : (rawMessage || '自动保存失败');
       saveMonitor.push(currentProjectId, 'save_error', {
         message: errorMessage,
         attempt,

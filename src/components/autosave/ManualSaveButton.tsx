@@ -49,7 +49,10 @@ export default function ManualSaveButton() {
     } catch (error) {
       const store = useProjectContentStore.getState();
       const currentProjectId = store.projectId;
-      const message = error instanceof Error ? error.message : '保存失败';
+      const rawMessage = error instanceof Error ? error.message : '';
+      const message = rawMessage.includes('413') || rawMessage.toLowerCase().includes('too large')
+        ? '保存失败：内容过大，请尝试清理或拆分项目'
+        : (rawMessage || '保存失败');
       if (currentProjectId) {
         try {
           saveMonitor.push(currentProjectId, 'manual_save_error', { message });
