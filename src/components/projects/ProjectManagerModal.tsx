@@ -73,7 +73,19 @@ export default function ProjectManagerModal() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start overflow-y-auto pr-1 flex-1">
             {projects.map((p) => (
-              <div key={p.id} className="group border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow transition">
+              <div
+                key={p.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => open(p.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    open(p.id);
+                  }
+                }}
+                className="group border rounded-lg overflow-hidden bg-white shadow-sm transition cursor-pointer hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:border-sky-400 focus-within:border-sky-400"
+              >
                 {/* 更扁的预览比例，整体卡片更矮 */}
                 <div className="aspect-[2/1] bg-slate-100 overflow-hidden">
                   <img src={p.thumbnailUrl || placeholderThumb} alt={p.name} className="w-full h-full object-cover" />
@@ -83,29 +95,44 @@ export default function ProjectManagerModal() {
                     <div className="text-sm font-medium truncate" title={p.name}>{p.name || 'Untitled'}</div>
                     <div className="text-[11px] leading-4 text-slate-500">更新于 {formatDate(p.updatedAt)}</div>
                   </div>
-                  <div className="flex gap-1 shrink-0">
-                    <Button size="sm" className="h-6 px-2 text-[11px]" variant="outline" onClick={() => open(p.id)}>打开</Button>
-                    <Button size="sm" className="h-6 px-2 text-[11px]" variant="ghost" onClick={async () => {
-                      const name = prompt('重命名为：', p.name);
-                      if (name && name !== p.name) {
-                        try {
-                          await rename(p.id, name);
-                        } catch (e) {
-                          alert('重命名失败：' + (e as Error).message);
-                        }
-                      }
-                    }}>重命名</Button>
-                    {/* 当前打开的项目不允许删除 */}
-                    {p.id !== currentProjectId && (
-                      <Button size="sm" className="h-6 px-2 text-[11px]" variant="ghost" onClick={async () => {
-                        if (confirm('确定删除该项目？')) {
+                  <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
+                    <Button
+                      size="sm"
+                      className="h-6 px-2 text-[11px]"
+                      variant="ghost"
+                      onClick={async (event) => {
+                        event.stopPropagation();
+                        const name = prompt('重命名为：', p.name);
+                        if (name && name !== p.name) {
                           try {
-                            await remove(p.id);
+                            await rename(p.id, name);
                           } catch (e) {
-                            alert('删除失败：' + (e as Error).message);
+                            alert('重命名失败：' + (e as Error).message);
                           }
                         }
-                      }}>删除</Button>
+                      }}
+                    >
+                      重命名
+                    </Button>
+                    {/* 当前打开的项目不允许删除 */}
+                    {p.id !== currentProjectId && (
+                      <Button
+                        size="sm"
+                        className="h-6 px-2 text-[11px]"
+                        variant="ghost"
+                        onClick={async (event) => {
+                          event.stopPropagation();
+                          if (confirm('确定删除该项目？')) {
+                            try {
+                              await remove(p.id);
+                            } catch (e) {
+                              alert('删除失败：' + (e as Error).message);
+                            }
+                          }
+                        }}
+                      >
+                        删除
+                      </Button>
                     )}
                   </div>
                 </div>
