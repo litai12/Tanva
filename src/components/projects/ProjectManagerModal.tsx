@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button';
 function formatDate(iso: string) {
   try {
     const d = new Date(iso);
-    return d.toLocaleString();
+    // 更紧凑：仅显示到分钟，避免换行
+    const date = d.toLocaleDateString();
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `${date} ${time}`;
   } catch {
     return iso;
   }
@@ -18,6 +21,7 @@ const placeholderThumb = 'data:image/svg+xml;utf8,' + encodeURIComponent(
 
 export default function ProjectManagerModal() {
   const { modalOpen, closeModal, projects, create, open, rename, remove, loading, load, error } = useProjectStore();
+  const currentProjectId = useProjectStore((s) => s.currentProjectId);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
 
@@ -67,20 +71,21 @@ export default function ProjectManagerModal() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pr-1 flex-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start overflow-y-auto pr-1 flex-1">
             {projects.map((p) => (
               <div key={p.id} className="group border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow transition">
-                <div className="aspect-[3/2] bg-slate-100 overflow-hidden">
+                {/* 更扁的预览比例，整体卡片更矮 */}
+                <div className="aspect-[2/1] bg-slate-100 overflow-hidden">
                   <img src={p.thumbnailUrl || placeholderThumb} alt={p.name} className="w-full h-full object-cover" />
                 </div>
-                <div className="p-3 flex items-center justify-between gap-2">
+                <div className="px-3 py-1.5 flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate" title={p.name}>{p.name || 'Untitled'}</div>
-                    <div className="text-xs text-slate-500">更新于 {formatDate(p.updatedAt)}</div>
+                    <div className="text-[11px] leading-4 text-slate-500">更新于 {formatDate(p.updatedAt)}</div>
                   </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button size="sm" variant="outline" onClick={() => open(p.id)}>打开</Button>
-                    <Button size="sm" variant="ghost" onClick={async () => {
+                  <div className="flex gap-1 shrink-0">
+                    <Button size="sm" className="h-6 px-2 text-[11px]" variant="outline" onClick={() => open(p.id)}>打开</Button>
+                    <Button size="sm" className="h-6 px-2 text-[11px]" variant="ghost" onClick={async () => {
                       const name = prompt('重命名为：', p.name);
                       if (name && name !== p.name) {
                         try {
@@ -90,15 +95,18 @@ export default function ProjectManagerModal() {
                         }
                       }
                     }}>重命名</Button>
-                    <Button size="sm" variant="ghost" onClick={async () => {
-                      if (confirm('确定删除该项目？')) {
-                        try {
-                          await remove(p.id);
-                        } catch (e) {
-                          alert('删除失败：' + (e as Error).message);
+                    {/* 当前打开的项目不允许删除 */}
+                    {p.id !== currentProjectId && (
+                      <Button size="sm" className="h-6 px-2 text-[11px]" variant="ghost" onClick={async () => {
+                        if (confirm('确定删除该项目？')) {
+                          try {
+                            await remove(p.id);
+                          } catch (e) {
+                            alert('删除失败：' + (e as Error).message);
+                          }
                         }
-                      }
-                    }}>删除</Button>
+                      }}>删除</Button>
+                    )}
                   </div>
                 </div>
               </div>

@@ -119,6 +119,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   remove: async (id) => {
+    // 不允许删除当前打开的项目
+    if (get().currentProjectId === id) {
+      throw new Error('当前项目不可删除');
+    }
     await projectApi.remove(id);
     set((s) => {
       const projects = s.projects.filter((p) => p.id !== id);
