@@ -5,6 +5,7 @@ import PromptOptimizerDemo from '@/pages/PromptOptimizerDemo';
 import AccountBadge from '@/components/AccountBadge';
 import ProjectAutosaveManager from '@/components/autosave/ProjectAutosaveManager';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
+import ManualSaveButton from '@/components/autosave/ManualSaveButton';
 import SaveDebugPanel from '@/components/autosave/SaveDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
 
@@ -42,25 +43,30 @@ const App: React.FC = () => {
     return <PromptOptimizerDemo />;
   }
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const paramProjectId = searchParams.get('projectId');
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
   const openProject = useProjectStore((state) => state.open);
-  const projects = useProjectStore((state) => state.projects);
-
   useEffect(() => {
-    if (paramProjectId) {
-      openProject(paramProjectId);
+    if (!paramProjectId) {
+      return;
     }
+    openProject(paramProjectId);
   }, [paramProjectId, openProject]);
 
-  useEffect(() => {
-    if (paramProjectId && projects.length > 0) {
-      openProject(paramProjectId);
-    }
-  }, [paramProjectId, projects, openProject]);
+  const projectId = useMemo(() => currentProjectId || paramProjectId, [paramProjectId, currentProjectId]);
 
-  const projectId = useMemo(() => paramProjectId || currentProjectId, [paramProjectId, currentProjectId]);
+  useEffect(() => {
+    if (!currentProjectId) {
+      return;
+    }
+    if (paramProjectId === currentProjectId) {
+      return;
+    }
+    const next = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+    next.set('projectId', currentProjectId);
+    setSearchParams(next, { replace: true });
+  }, [currentProjectId, paramProjectId, setSearchParams]);
 
   return (
     <div className="h-screen w-screen">
@@ -68,6 +74,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-2 bg-white/90 border rounded px-2 py-1 shadow-sm">
           <AccountBadge />
           <a href="/" className="text-xs text-sky-600">返回首页</a>
+          <ManualSaveButton />
           <AutosaveStatus />
         </div>
       </div>

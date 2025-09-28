@@ -18,7 +18,7 @@ export default function AutosaveStatus() {
 
   const { label, className } = useMemo(() => {
     if (saving) {
-      return { label: '自动保存中…', className: 'text-sky-600' };
+      return { label: '保存中…', className: 'text-sky-600' };
     }
     if (lastError) {
       return { label: `保存失败：${lastError}`, className: 'text-red-500' };

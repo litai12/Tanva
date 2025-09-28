@@ -3,7 +3,7 @@ import { projectApi } from '@/services/projectApi';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 
-const AUTOSAVE_DELAY = 1500;
+const AUTOSAVE_DELAY = 60000;
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 2000;
 
