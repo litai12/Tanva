@@ -7,6 +7,8 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { createEmptyProjectContent } from '@/types/project';
 import { useProjectAutosave } from '@/hooks/useProjectAutosave';
 import { paperSaveService } from '@/services/paperSaveService';
+import { saveMonitor } from '@/utils/saveMonitor';
+import { useProjectStore } from '@/stores/projectStore';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -36,12 +38,23 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         if (cancelled) return;
 
         hydrate(data.content, data.version, data.updatedAt ?? null);
+        saveMonitor.push(projectId, 'hydrate_loaded', {
+          version: data.version,
+          hasPaper: !!(data.content as any)?.paperJson,
+          paperJsonLen: (data.content as any)?.meta?.paperJsonLen || (data.content as any)?.paperJson?.length || 0,
+          layers: (data.content as any)?.layers?.length || 0,
+        });
 
         // 恢复Paper.js绘制内容（等待 Paper 初始化）
         if (data.content?.paperJson) {
           const attempt = async () => {
             const ok = paperSaveService.deserializePaperProject(data.content!.paperJson!);
-            if (ok) console.log('✅ Paper.js绘制内容恢复成功');
+            if (ok) {
+              console.log('✅ Paper.js绘制内容恢复成功');
+              saveMonitor.push(projectId, 'hydrate_success', {
+                paperJsonLen: (data.content as any)?.paperJson?.length || 0,
+              });
+            }
             return ok;
           };
 
@@ -68,11 +81,21 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           }
         }
 
+        // 同步层级与活动层到层store（无论是否有paperJson，都以内容为准刷新UI）
+        try {
+          useLayerStore.getState().hydrateFromContent(
+            (data.content as any).layers || [],
+            (data.content as any).activeLayerId ?? null,
+          );
+          // 用后端项目信息刷新 header 显示（避免列表尚未包含该项目时显示空/旧名）
+          try { useProjectStore.getState().open(projectId); } catch {}
+        } catch {}
+
         hydrationReadyRef.current = true;
       } catch (err: any) {
         if (cancelled) return;
+        // 不再用空内容覆盖当前画布，避免“闪一下又消失”
         setError(err?.message || '加载项目内容失败');
-        hydrate(createEmptyProjectContent(), 1, null);
         hydrationReadyRef.current = true;
       }
     })();

@@ -49,6 +49,10 @@ export const projectApi = {
     });
     return json<Project>(res);
   },
+  async get(id: string): Promise<Project> {
+    const res = await fetchWithAuth(`${base}/api/projects/${id}`);
+    return json<Project>(res);
+  },
   async update(id: string, payload: { name?: string }): Promise<Project> {
     const res = await fetchWithAuth(`${base}/api/projects/${id}`, {
       method: 'PUT',

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 import paper from 'paper';
 
 export interface LayerMeta {
@@ -16,6 +17,7 @@ interface LayerState {
     getPaperLayerById: (id: string) => paper.Layer | null;
 
     // actions
+    hydrateFromContent: (layers: LayerMeta[], activeLayerId: string | null) => void;
     createLayer: (name?: string, activate?: boolean) => string;
     deleteLayer: (id: string) => void;
     toggleVisibility: (id: string) => void;
@@ -42,9 +44,21 @@ function insertAboveGrid(newLayer: paper.Layer) {
     }
 }
 
-export const useLayerStore = create<LayerState>((set, get) => ({
+export const useLayerStore = create<LayerState>()(subscribeWithSelector((set, get) => ({
     layers: [],
     activeLayerId: null,
+
+    hydrateFromContent: (layers, activeLayerId) => {
+        // 仅同步 store，不主动创建/删除 Paper 图层；由反序列化负责
+        set({ layers, activeLayerId });
+        // 尝试激活对应 Paper 图层
+        try {
+            if (activeLayerId) {
+                const paperLayer = findLayerByStoreId(activeLayerId);
+                if (paperLayer) paperLayer.activate();
+            }
+        } catch {}
+    },
 
     getPaperLayerById: (id) => {
         return findLayerByStoreId(id);
@@ -282,7 +296,23 @@ export const useLayerStore = create<LayerState>((set, get) => ({
             if (firstLayer) return firstLayer;
         }
 
-        // 最后的兜底方案
+        // 最后的兜底方案：强制创建一个新的Paper图层并同步到store
+        if (paper.project) {
+            const fallbackId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const fallbackLayer = new paper.Layer();
+            fallbackLayer.name = `layer_${fallbackId}`;
+            fallbackLayer.visible = true;
+            insertAboveGrid(fallbackLayer);
+            fallbackLayer.activate();
+
+            const fallbackName = `图层 ${state.layers.length + 1}`;
+            set((current) => ({
+                layers: [...current.layers, { id: fallbackId, name: fallbackName, visible: true, locked: false }],
+                activeLayerId: fallbackId
+            }));
+            return fallbackLayer;
+        }
+
         throw new Error('无法创建或获取活动图层');
     }
-}));
+})));

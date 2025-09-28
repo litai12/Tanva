@@ -11,6 +11,12 @@ export interface ProjectContentSnapshot {
   activeLayerId: string | null;
   canvas: CanvasViewStateSnapshot;
   paperJson?: string; // Paper.js项目序列化的JSON字符串
+  meta?: {
+    paperJsonLen?: number;
+    layerCount?: number;
+    itemCount?: number;
+    savedAt?: string;
+  };
   updatedAt: string;
 }
 

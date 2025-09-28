@@ -1,5 +1,6 @@
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { saveMonitor } from '@/utils/saveMonitor';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -153,11 +154,24 @@ class PaperSaveService {
 
       if (this.isPaperProjectReady()) {
         paperJson = this.serializePaperProject();
-        console.log('💾 更新项目内容store中的paperJson...', {
-          projectId: contentStore.projectId,
-          hasPaperContent: !!paperJson,
-          paperJsonLength: paperJson?.length || 0
-        });
+        // 统计层/元素数量
+        let layerCount = 0; let itemCount = 0;
+        try {
+          (paper.project.layers || []).forEach((layer: any) => {
+            const name = layer?.name || '';
+            if (name === 'grid' || name === 'background' || name === 'scalebar') return;
+            layerCount += 1;
+            itemCount += (layer?.children?.length || 0);
+          });
+        } catch {}
+        const meta = {
+          paperJsonLen: paperJson?.length || 0,
+          layerCount,
+          itemCount,
+          savedAt: new Date().toISOString(),
+        };
+        console.log('💾 更新项目内容store中的paperJson...', { projectId: contentStore.projectId, hasPaperContent: !!paperJson, ...meta });
+        saveMonitor.push(contentStore.projectId, 'serialize', meta);
       } else {
         console.warn('⚠️ Paper.js项目状态异常，尝试恢复...');
         this.triggerProjectRecovery();
@@ -169,6 +183,7 @@ class PaperSaveService {
       // 更新项目内容store中的paperJson，这将触发现有的useProjectAutosave
       contentStore.updatePartial({
         paperJson: paperJson || undefined,
+        meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
         updatedAt: new Date().toISOString()
       }, { markDirty: true });
 
