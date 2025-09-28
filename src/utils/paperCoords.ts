@@ -11,14 +11,24 @@ export function clientToProject(canvas: HTMLCanvasElement, clientX: number, clie
   const dpr = getDpr();
   const vx = (clientX - rect.left) * dpr;
   const vy = (clientY - rect.top) * dpr;
-  return paper.view.viewToProject(new paper.Point(vx, vy));
+  try {
+    if (paper && paper.view && (paper.view as any).viewToProject) {
+      return (paper.view as any).viewToProject(new paper.Point(vx, vy));
+    }
+  } catch {}
+  return new paper.Point(vx, vy);
 }
 
 // 将 Paper 的 project 点转换为浏览器屏幕的 client 坐标
 export function projectToClient(canvas: HTMLCanvasElement, projectPoint: paper.Point): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
   const dpr = getDpr();
-  const v = paper.view.projectToView(projectPoint);
+  let v = { x: projectPoint.x, y: projectPoint.y } as any;
+  try {
+    if (paper && paper.view && (paper.view as any).projectToView) {
+      v = (paper.view as any).projectToView(projectPoint);
+    }
+  } catch {}
   return { x: rect.left + v.x / dpr, y: rect.top + v.y / dpr };
 }
 
@@ -28,4 +38,3 @@ export function projectRectToClient(canvas: HTMLCanvasElement, rectInProject: pa
   const br = projectToClient(canvas, rectInProject.bottomRight);
   return { left: tl.x, top: tl.y, width: br.x - tl.x, height: br.y - tl.y };
 }
-

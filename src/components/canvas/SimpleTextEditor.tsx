@@ -145,7 +145,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
         fontSize: '20px',
         fontFamily: 'Arial',
-        color: currentEditingText.paperText.fillColor?.toCSS?.() || '#000000',
+        color: currentEditingText.paperText.fillColor?.toCSS?.(true) || '#000000',
         outline: 'none',
         zIndex: 1000,
         pointerEvents: 'auto'

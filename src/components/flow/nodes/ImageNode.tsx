@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';

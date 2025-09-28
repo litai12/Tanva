@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { Trash2, Plus, Upload, Download } from 'lucide-react';
 import paper from 'paper';

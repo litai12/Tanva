@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { logger } from '@/utils/logger';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';

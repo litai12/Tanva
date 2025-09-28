@@ -72,6 +72,9 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
             onInitialized();
           }
 
+          // 广播全局事件，便于其他模块（如自动保存管理器）得知 Paper 已就绪
+          try { window.dispatchEvent(new CustomEvent('paper-ready')); } catch {}
+
           // 确保存在一个有效的用户图层（避免后续绘制落在兜底层或 grid 上）
           try {
             const ensure = useLayerStore.getState().ensureActiveLayer;
@@ -128,13 +131,16 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
   // 处理视口变换的effect
   useEffect(() => {
     if (!canvasRef.current) return;
+    if (!paper || !paper.project || !paper.view) return;
     
     // 应用视口变换（同上：screen = zoom * (world + pan)）
     const tx = panX * zoom;
     const ty = panY * zoom;
-    const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
-    paper.view.matrix = matrix;
-    
+    try {
+      const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
+      (paper.view as any).matrix = matrix;
+    } catch {}
+  
   }, [zoom, panX, panY, canvasRef]);
 
   return null; // 这个组件不渲染任何DOM

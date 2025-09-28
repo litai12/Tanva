@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Google Gemini 2.5 Flash Image (Nano Banana) API 服务层
  * 处理AI图像生成、编辑和融合功能

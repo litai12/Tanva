@@ -4,6 +4,8 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 
 const AUTOSAVE_DELAY = 1500;
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY = 2000;
 
 export function useProjectAutosave(projectId: string | null) {
   const content = useProjectContentStore((state) => state.content);
@@ -17,13 +19,76 @@ export function useProjectAutosave(projectId: string | null) {
   const setError = useProjectContentStore((state) => state.setError);
 
   const timerRef = useRef<number | null>(null);
+  const retryCountRef = useRef<number>(0);
+  const retryTimerRef = useRef<number | null>(null);
 
   useEffect(() => () => {
     if (timerRef.current) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    if (retryTimerRef.current) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
   }, []);
+
+  const performSave = async (currentProjectId: string, currentContent: any, currentVersion: number, attempt: number = 1) => {
+    try {
+      setSaving(true);
+      const result = await projectApi.saveContent(currentProjectId, { content: currentContent, version: currentVersion });
+
+      markSaved(result.version, result.updatedAt ?? new Date().toISOString());
+      retryCountRef.current = 0; // 重置重试计数
+
+      // 记录事件并写入本地良好快照（兜底恢复用）
+      try {
+        saveMonitor.push(currentProjectId, 'save_success', {
+          version: result.version,
+          updatedAt: result.updatedAt,
+          paperJsonLen: (currentContent as any)?.meta?.paperJsonLen || (currentContent as any)?.paperJson?.length || 0,
+          layerCount: (currentContent as any)?.layers?.length || 0,
+          attempt,
+        });
+        const paperJson = (currentContent as any)?.paperJson as string | undefined;
+        if (paperJson && paperJson.length > 0) {
+          const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
+          localStorage.setItem(`tanva_last_good_snapshot_${currentProjectId}`, JSON.stringify(backup));
+        }
+      } catch {}
+
+      console.log(`✅ 项目保存成功 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS})`);
+
+    } catch (err: any) {
+      console.warn(`❌ 项目保存失败 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
+
+      const errorMessage = err?.message || '自动保存失败';
+      saveMonitor.push(currentProjectId, 'save_error', {
+        message: errorMessage,
+        attempt,
+        maxAttempts: MAX_RETRY_ATTEMPTS
+      });
+
+      // 如果还有重试机会，则安排重试
+      if (attempt < MAX_RETRY_ATTEMPTS) {
+        console.log(`⏰ 将在 ${RETRY_DELAY}ms 后重试保存 (${attempt + 1}/${MAX_RETRY_ATTEMPTS})`);
+
+        retryTimerRef.current = window.setTimeout(() => {
+          // 重新检查当前状态，确保项目和内容没有变化
+          const store = useProjectContentStore.getState();
+          if (store.projectId === currentProjectId && store.dirty && !store.saving) {
+            performSave(currentProjectId, store.content, store.version, attempt + 1);
+          }
+        }, RETRY_DELAY * attempt); // 渐进式延迟
+
+      } else {
+        // 重试次数用尽，设置错误状态
+        setError(`${errorMessage} (已重试 ${MAX_RETRY_ATTEMPTS} 次)`);
+        setSaving(false);
+        retryCountRef.current = 0;
+      }
+    }
+  };
 
   useEffect(() => {
     if (!projectId || !dirty || !dirtySince || !content || saving) {
@@ -37,28 +102,11 @@ export function useProjectAutosave(projectId: string | null) {
       window.clearTimeout(timerRef.current);
     }
 
-    timerRef.current = window.setTimeout(async () => {
-      try {
-        setSaving(true);
-        const result = await projectApi.saveContent(projectId, { content, version });
-        markSaved(result.version, result.updatedAt ?? new Date().toISOString());
-        // 记录事件并写入本地良好快照（兜底恢复用）
-        try {
-          saveMonitor.push(projectId, 'save_success', {
-            version: result.version,
-            updatedAt: result.updatedAt,
-            paperJsonLen: (content as any)?.meta?.paperJsonLen || (content as any)?.paperJson?.length || 0,
-            layerCount: (content as any)?.layers?.length || 0,
-          });
-          const paperJson = (content as any)?.paperJson as string | undefined;
-          if (paperJson && paperJson.length > 0) {
-            const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
-            localStorage.setItem(`tanva_last_good_snapshot_${projectId}`, JSON.stringify(backup));
-          }
-        } catch {}
-      } catch (err: any) {
-        setError(err?.message || '自动保存失败');
-        saveMonitor.push(projectId, 'save_error', { message: err?.message });
+    timerRef.current = window.setTimeout(() => {
+      // 再次检查状态，确保仍然需要保存
+      const currentStore = useProjectContentStore.getState();
+      if (currentStore.projectId === projectId && currentStore.dirty && !currentStore.saving) {
+        performSave(projectId, currentStore.content, currentStore.version);
       }
     }, delay);
 
@@ -68,5 +116,5 @@ export function useProjectAutosave(projectId: string | null) {
         timerRef.current = null;
       }
     };
-  }, [projectId, dirty, dirtyCounter, dirtySince, content, version, saving, setSaving, markSaved, setError]);
+  }, [projectId, dirty, dirtyCounter, dirtySince, content, version, saving]);
 }

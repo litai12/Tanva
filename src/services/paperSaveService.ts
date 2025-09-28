@@ -4,8 +4,9 @@ import { saveMonitor } from '@/utils/saveMonitor';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
-  private readonly SAVE_DELAY = 200; // 在绘制结束后尽快序列化写入store
+  private readonly SAVE_DELAY = 150; // 减少延迟，更快响应
   private isInitialized = false;
+  private scheduledForProjectId: string | null = null;
 
   /**
    * 初始化自动保存服务
@@ -89,6 +90,7 @@ class PaperSaveService {
       toRemove.forEach(l => l.remove());
 
       console.log('✅ Paper.js项目反序列化成功');
+      try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
       if (paper.view) (paper.view as any).update();
       return true;
     } catch (error) {
@@ -128,6 +130,15 @@ class PaperSaveService {
       window.clearTimeout(this.saveTimeoutId);
     }
 
+    // 记录当前项目ID，防止项目切换后把上一份内容写到新项目里
+    try {
+      this.scheduledForProjectId = useProjectContentStore.getState().projectId;
+    } catch { this.scheduledForProjectId = null; }
+    if (!this.scheduledForProjectId) {
+      console.warn('⚠️ 无活动项目，跳过调度保存');
+      return;
+    }
+
     // 设置新的保存计时器
     this.saveTimeoutId = window.setTimeout(() => {
       console.log('⏰ Paper.js自动保存延迟时间到，开始执行保存...');
@@ -146,6 +157,21 @@ class PaperSaveService {
 
       if (!contentStore.projectId) {
         console.warn('没有活动项目，跳过保存');
+        return;
+      }
+
+      // 若在调度后项目已切换，直接丢弃这次保存
+      if (this.scheduledForProjectId && this.scheduledForProjectId !== contentStore.projectId) {
+        console.warn('⚠️ 项目已切换，取消过期的保存任务', {
+          scheduledFor: this.scheduledForProjectId,
+          current: contentStore.projectId,
+        });
+        return;
+      }
+
+      // 检查是否正在保存中，避免重复保存
+      if (contentStore.saving) {
+        console.warn('⚠️ 保存进行中，跳过重复保存');
         return;
       }
 
@@ -194,6 +220,9 @@ class PaperSaveService {
       // 标记保存错误
       const contentStore = useProjectContentStore.getState();
       contentStore.setError(error instanceof Error ? error.message : '更新Paper.js内容失败');
+    } finally {
+      // 清理调度状态
+      this.scheduledForProjectId = null;
     }
   }
 
@@ -205,7 +234,15 @@ class PaperSaveService {
       window.clearTimeout(this.saveTimeoutId);
       this.saveTimeoutId = null;
     }
-    this.performSave();
+    await this.performSave();
+  }
+
+  cancelPending() {
+    if (this.saveTimeoutId) {
+      window.clearTimeout(this.saveTimeoutId);
+      this.saveTimeoutId = null;
+    }
+    this.scheduledForProjectId = null;
   }
 
   /**

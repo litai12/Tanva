@@ -14,7 +14,7 @@ import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 interface SelectionTool {
   isSelectionDragging: boolean;
   selectedPath: paper.Path | null;
-  handleSelectionClick: (point: paper.Point) => any;
+  handleSelectionClick: (point: paper.Point, multiSelect?: boolean) => any;
   updateSelectionBox: (point: paper.Point) => void;
   finishSelectionBox: (point: paper.Point) => void;
 }

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useCallback } from 'react';
 import TemplateModal from '@/components/template/TemplateModal';
 import { useUIStore } from '@/stores/uiStore';

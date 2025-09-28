@@ -66,7 +66,7 @@ export const useTextTool = ({
 
     // 设置文本样式
     if (textInstance.style.fontStyle === 'italic') {
-      paperText.fontStyle = 'italic';
+      (paperText as any).fontStyle = 'italic';
     }
     
     // 设置透明度
@@ -82,7 +82,7 @@ export const useTextTool = ({
     };
 
     // 设置图层
-    paperText.layer = drawingLayer;
+    drawingLayer.addChild(paperText);
 
     logger.debug(`📝 创建Paper.js文本对象: ${textInstance.id}`);
     return paperText;
@@ -92,7 +92,7 @@ export const useTextTool = ({
   const updatePaperText = useCallback((textInstance: TextInstance) => {
     if (!textInstance.paperItem) return;
 
-    const paperText = textInstance.paperItem;
+    const paperText = textInstance.paperItem as paper.PointText;
     
     // 更新内容
     if (paperText.content !== textInstance.content) {
@@ -107,7 +107,7 @@ export const useTextTool = ({
     paperText.fontSize = textInstance.style.fontSize;
     paperText.fontFamily = textInstance.style.fontFamily;
     paperText.fontWeight = textInstance.style.fontWeight === 'bold' ? 'bold' : 'normal';
-    paperText.fontStyle = textInstance.style.fontStyle === 'italic' ? 'italic' : 'normal';
+    (paperText as any).fontStyle = textInstance.style.fontStyle === 'italic' ? 'italic' : 'normal';
     paperText.opacity = textInstance.style.opacity;
     paperText.visible = textInstance.visible;
 
@@ -127,8 +127,8 @@ export const useTextTool = ({
   }, [textActions]);
 
   // 创建选择框
-  const createSelectionRect = useCallback((textInstance: TextInstance): paper.Path | null => {
-    if (!textInstance.paperItem) return null;
+  const createSelectionRect = useCallback((textInstance: TextInstance): paper.Path | undefined => {
+    if (!textInstance.paperItem) return undefined;
 
     const bounds = textInstance.paperItem.bounds;
     const padding = 4;

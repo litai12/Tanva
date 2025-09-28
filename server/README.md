@@ -29,6 +29,8 @@ npm run build && npm start
 - `POST /api/auth/logout`
 - `GET /api/users/me`
 - `POST /api/uploads/presign` {dir?, maxSize?}
+- `GET /api/projects/:id/content`
+- `PUT /api/projects/:id/content` {content, version?}
 
 Swagger: `GET /api/docs`
 
@@ -37,4 +39,3 @@ Swagger: `GET /api/docs`
 - Cookies: `access_token`, `refresh_token` (HttpOnly)
 - OSS direct upload: Use `presign` response to POST to `https://<bucket>.<region>.aliyuncs.com` with returned fields and your file.
 - Next: add Project/Asset models and AI proxy endpoints.
-

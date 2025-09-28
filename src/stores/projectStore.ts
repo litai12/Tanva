@@ -72,17 +72,50 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   open: (id: string) => {
-    const p = get().projects.find((x) => x.id === id) || null;
-    set({ currentProjectId: p?.id || null, currentProject: p, modalOpen: false });
-    try { if (p) localStorage.setItem(LS_CURRENT_PROJECT, p.id); } catch {}
+    const found = get().projects.find((x) => x.id === id) || null;
+
+    if (found) {
+      set({ currentProjectId: found.id, currentProject: found, modalOpen: false });
+      try { localStorage.setItem(LS_CURRENT_PROJECT, found.id); } catch {}
+      return;
+    }
+
+    // 未在本地列表中，尝试从后端获取并补充
+    (async () => {
+      try {
+        const proj = await projectApi.get(id);
+        set((s) => {
+          const exists = s.projects.some((p) => p.id === proj.id);
+          const projects = exists ? s.projects.map((p) => p.id === proj.id ? proj : p) : [proj, ...s.projects];
+          return {
+            projects,
+            currentProjectId: proj.id,
+            currentProject: proj,
+            modalOpen: false, // 确保关闭模态框
+            error: null // 清除任何之前的错误
+          };
+        });
+        try { localStorage.setItem(LS_CURRENT_PROJECT, id); } catch {}
+      } catch (e: any) {
+        console.warn('Failed to load project:', e);
+        set({ error: e?.message || '无法加载项目', modalOpen: true });
+      }
+    })();
   },
 
   rename: async (id, name) => {
-    const project = await projectApi.update(id, { name });
-    set((s) => ({
-      projects: s.projects.map((p) => (p.id === id ? project : p)),
-      currentProject: s.currentProject?.id === id ? project : s.currentProject,
-    }));
+    try {
+      const project = await projectApi.update(id, { name });
+      set((s) => ({
+        projects: s.projects.map((p) => (p.id === id ? project : p)),
+        currentProject: s.currentProject?.id === id ? project : s.currentProject,
+        error: null // 清除任何错误
+      }));
+    } catch (e: any) {
+      console.warn('Failed to rename project:', e);
+      set({ error: e?.message || '重命名失败' });
+      throw e; // 重新抛出错误让调用者处理
+    }
   },
 
   remove: async (id) => {
@@ -90,9 +123,31 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((s) => {
       const projects = s.projects.filter((p) => p.id !== id);
       const isCurrent = s.currentProjectId === id;
-      const current = isCurrent ? null : s.currentProject;
-      if (isCurrent) try { localStorage.removeItem(LS_CURRENT_PROJECT); } catch {}
-      return { projects, currentProjectId: current?.id || null, currentProject: current };
+
+      if (isCurrent) {
+        try { localStorage.removeItem(LS_CURRENT_PROJECT); } catch {}
+
+        // 如果删除的是当前项目，尝试自动切换到下一个项目
+        if (projects.length > 0) {
+          const nextProject = projects[0];
+          try { localStorage.setItem(LS_CURRENT_PROJECT, nextProject.id); } catch {}
+          return {
+            projects,
+            currentProjectId: nextProject.id,
+            currentProject: nextProject
+          };
+        } else {
+          // 没有其他项目了，清空当前项目并显示项目管理器
+          return {
+            projects,
+            currentProjectId: null,
+            currentProject: null,
+            modalOpen: true
+          };
+        }
+      }
+
+      return { projects, currentProjectId: s.currentProjectId, currentProject: s.currentProject };
     });
   },
   optimisticRenameLocal: (id, name) => set((s) => ({

@@ -24,12 +24,14 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
   useEffect(() => {
     if (!projectId) {
+      paperSaveService.cancelPending();
       setProject(null);
       return undefined;
     }
 
     let cancelled = false;
     hydrationReadyRef.current = false;
+    paperSaveService.cancelPending();
     setProject(projectId);
 
     (async () => {
@@ -95,7 +97,37 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       } catch (err: any) {
         if (cancelled) return;
         // 不再用空内容覆盖当前画布，避免“闪一下又消失”
-        setError(err?.message || '加载项目内容失败');
+        const msg = err?.message || '加载项目内容失败';
+        setError(msg);
+
+        // 若后端提示项目不存在，做容错处理：
+        // - 清理无效的 projectId URL 参数
+        // - 重置当前项目内容状态，避免后续保存报错
+        // - 打开项目管理器并刷新项目列表，便于用户重新选择
+        if (typeof msg === 'string' && msg.includes('项目不存在')) {
+          try {
+            // 清理 URL 查询参数中的无效 projectId
+            const url = new URL(window.location.href);
+            if (url.searchParams.has('projectId')) {
+              url.searchParams.delete('projectId');
+              window.history.replaceState({}, '', `${url.pathname}${url.search ? `?${url.searchParams.toString()}` : ''}${url.hash}`);
+            }
+          } catch {}
+          try {
+            // 清理本地最近项目记录（若为无效ID）
+            localStorage.removeItem('current_project_id');
+          } catch {}
+          try {
+            // 重置内容态，防止后续自动保存继续以无效ID工作
+            setProject(null);
+          } catch {}
+          try {
+            // 打开管理器并刷新列表
+            const store = useProjectStore.getState();
+            store.openModal();
+            store.load().catch(() => {});
+          } catch {}
+        }
         hydrationReadyRef.current = true;
       }
     })();

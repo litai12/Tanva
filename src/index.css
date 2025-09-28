@@ -1,3 +1,6 @@
+@import './styles/scrollbar.css';
+@import './styles/markdown.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -24,12 +27,6 @@
     --muted-foreground: 215 20.2% 65.1%;
   }
 }
-
-/* 导入自定义滚动条样式 */
-@import './styles/scrollbar.css';
-
-/* 导入 Markdown 样式 */
-@import './styles/markdown.css';
 
 /* 基础重置样式 */
 * {

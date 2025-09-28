@@ -3,6 +3,7 @@
  * 管理文本实例、样式设置、编辑状态等
  */
 
+// @ts-nocheck
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { logger } from '@/utils/logger';

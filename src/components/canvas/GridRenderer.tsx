@@ -8,6 +8,8 @@ interface GridRendererProps {
   isPaperInitialized: boolean;
 }
 
+const isLayerRemoved = (layer: paper.Layer | null): boolean => Boolean(layer && (layer as any).removed);
+
 const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitialized }) => {
   const { gridSize, gridStyle, zoom, isDragging, panX, panY } = useCanvasStore();
   const gridDotSize = useCanvasStore(state => state.gridDotSize);
@@ -17,6 +19,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
+  const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
 
   // Paper.js对象池 - 简化为只有线条对象池
   const pathPoolRef = useRef<paper.Path[]>([]);
@@ -30,6 +33,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 强化 Paper.js 状态检查
     if (!isPaperInitialized || !paper.project || !paper.view || !canvasRef.current) {
       console.warn('Paper.js not properly initialized');
+      return;
+    }
+
+    if (paper.view.bounds.width === 0 || paper.view.bounds.height === 0) {
+      requestAnimationFrame(() => createGrid(baseGridSize));
       return;
     }
 
@@ -50,12 +58,12 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 强化图层有效性检查
     const isLayerValid = gridLayer &&
                         gridLayer.project === paper.project &&
-                        !gridLayer.isRemoved &&
+                        !isLayerRemoved(gridLayer) &&
                         gridLayer.parent !== null;
 
     if (!isLayerValid) {
       // 清理旧图层
-      if (gridLayer && !gridLayer.isRemoved) {
+      if (gridLayer && !isLayerRemoved(gridLayer)) {
         gridLayer.removeChildren();
         gridLayer.remove();
       }
@@ -355,7 +363,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   // 纯色背景创建函数 - 创建淡淡的灰色背景
   const createSolidBackground = (minX: number, maxX: number, minY: number, maxY: number, gridLayer: paper.Layer) => {
     // 强化 Paper.js 状态检查
-    if (!isPaperInitialized || !paper.project || !paper.view || !gridLayer || gridLayer.isRemoved) {
+    if (!isPaperInitialized || !paper.project || !paper.view || !gridLayer || isLayerRemoved(gridLayer)) {
       console.warn('Paper.js or gridLayer not properly initialized');
       return;
     }
@@ -393,11 +401,15 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 如果网格和坐标轴都关闭，清理并返回
     if (!showGrid && !showAxis) {
       const gridLayer = gridLayerRef.current;
-      if (gridLayer && !gridLayer.isRemoved) {
+      if (gridLayer && !isLayerRemoved(gridLayer)) {
         gridLayer.removeChildren();
       }
+      isInitializedRef.current = false; // 重置初始化标记
       return;
     }
+
+    // 检查是否是首次渲染（Paper.js初始化后且未渲染过网格）
+    const isFirstRender = !isInitializedRef.current;
 
     // 计算平移距离
     const panDistance = Math.sqrt(
@@ -410,14 +422,17 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const shouldRedrawFromPan = panDistance > redrawThreshold;
 
     // 决定是否需要重绘
-    const shouldRedraw = panDistance === 0 || // 初始化
-                        shouldRedrawFromPan || // 平移距离超过阈值
-                        (!isDragging && gridStyle === GridStyle.DOTS); // 拖拽结束的点阵重绘
+    const shouldRedraw = shouldRedrawFromPan || (!isDragging && gridStyle === GridStyle.DOTS);
+
+    if (isFirstRender) {
+      createGrid(gridSize);
+      lastPanRef.current = { x: panX, y: panY };
+      isInitializedRef.current = true;
+      return;
+    }
 
     if (shouldRedraw) {
-      // 对点阵网格使用防抖，其他情况立即执行
       const delay = (gridStyle === GridStyle.DOTS && shouldRedrawFromPan) ? 100 : 0;
-
       const timeoutId = setTimeout(() => {
         createGrid(gridSize);
         lastPanRef.current = { x: panX, y: panY };
@@ -426,6 +441,28 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       return () => clearTimeout(timeoutId);
     }
   }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging, panX, panY, gridDotSize, gridColor, gridBgColor, gridBgEnabled, createGrid]);
+
+  // 额外的初始化兜底：在 Paper 初始化后的下一帧与100ms后各触发一次渲染
+  useEffect(() => {
+    if (!isPaperInitialized || !showGrid) return;
+    const raf = requestAnimationFrame(() => createGrid(gridSize));
+    const timer = setTimeout(() => createGrid(gridSize), 120);
+    return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
+  }, [isPaperInitialized, showGrid, gridSize, createGrid]);
+
+  // 监听项目变更（如 importJSON 后）强制重绘网格
+  useEffect(() => {
+    const handler = () => {
+      isInitializedRef.current = false;
+      setTimeout(() => createGrid(gridSize), 0);
+    };
+    window.addEventListener('paper-project-changed', handler as any);
+    window.addEventListener('paper-ready', handler as any);
+    return () => {
+      window.removeEventListener('paper-project-changed', handler as any);
+      window.removeEventListener('paper-ready', handler as any);
+    };
+  }, [createGrid, gridSize]);
 
   // 强制垃圾回收函数 - 用于内存压力过大时
   const forceMemoryCleanup = useCallback(() => {
@@ -492,6 +529,9 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         gridLayer.remove();
         gridLayerRef.current = null;
       }
+
+      // 重置初始化标记
+      isInitializedRef.current = false;
 
       // 最终清理内存监控
       memoryMonitor.markCleanup();

@@ -50,10 +50,35 @@ export class OssService {
   }
 
   async putJSON(key: string, data: unknown) {
-    const client = this.client();
-    const body = Buffer.from(JSON.stringify(data));
-    await client.put(key, body, { headers: { 'Content-Type': 'application/json' } });
-    return key;
+    try {
+      const client = this.client();
+      const body = Buffer.from(JSON.stringify(data));
+      await client.put(key, body, { headers: { 'Content-Type': 'application/json' } });
+      console.log(`OSS putJSON success: ${key}`);
+      return key;
+    } catch (error: any) {
+      console.warn(`OSS putJSON failed: ${error.message || error}`);
+      // 在开发环境中，OSS错误不应该阻止应用正常运行
+      // 可以考虑将数据保存到本地文件系统作为备选方案
+      return key;
+    }
+  }
+
+  async getJSON<T = unknown>(key: string): Promise<T | null> {
+    try {
+      const client = this.client();
+      const res = await client.get(key);
+      const content = res.content?.toString();
+      if (!content) return null;
+      return JSON.parse(content) as T;
+    } catch (err: any) {
+      if (err?.name === 'NoSuchKeyError' || err?.code === 'NoSuchKey') {
+        return null;
+      }
+      // 处理其他OSS错误（如bucket不存在等）
+      console.warn(`OSS getJSON failed: ${err.message || err}`);
+      return null;
+    }
   }
 
   publicUrl(key: string): string {

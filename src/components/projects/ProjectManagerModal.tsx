@@ -17,7 +17,7 @@ const placeholderThumb = 'data:image/svg+xml;utf8,' + encodeURIComponent(
 );
 
 export default function ProjectManagerModal() {
-  const { modalOpen, closeModal, projects, create, open, rename, remove, loading, load } = useProjectStore();
+  const { modalOpen, closeModal, projects, create, open, rename, remove, loading, load, error } = useProjectStore();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
 
@@ -41,6 +41,13 @@ export default function ProjectManagerModal() {
         </div>
 
         <div className="p-4 h-[calc(600px-48px)] flex flex-col">
+          {/* 错误提示 */}
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+
           <div className="mb-4 flex gap-2">
             <Button disabled={creating} onClick={async () => {
               setCreating(true);
@@ -75,10 +82,22 @@ export default function ProjectManagerModal() {
                     <Button size="sm" variant="outline" onClick={() => open(p.id)}>打开</Button>
                     <Button size="sm" variant="ghost" onClick={async () => {
                       const name = prompt('重命名为：', p.name);
-                      if (name && name !== p.name) await rename(p.id, name);
+                      if (name && name !== p.name) {
+                        try {
+                          await rename(p.id, name);
+                        } catch (e) {
+                          alert('重命名失败：' + (e as Error).message);
+                        }
+                      }
                     }}>重命名</Button>
                     <Button size="sm" variant="ghost" onClick={async () => {
-                      if (confirm('确定删除该项目？')) await remove(p.id);
+                      if (confirm('确定删除该项目？')) {
+                        try {
+                          await remove(p.id);
+                        } catch (e) {
+                          alert('删除失败：' + (e as Error).message);
+                        }
+                      }
                     }}>删除</Button>
                   </div>
                 </div>
