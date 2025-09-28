@@ -37,14 +37,14 @@ export default function ProjectManagerModal() {
     <div className="fixed inset-0 z-[1000] flex items-center justify-center">
       {/* 背景透明，仅用于点击关闭 */}
       <div className="absolute inset-0 bg-transparent" onClick={closeModal} />
-      <div className="relative bg-white rounded-xl shadow-xl w-[1000px] h-[600px] overflow-hidden border">
+      <div className="relative bg-white rounded-xl shadow-xl w-[1000px] h-[560px] overflow-hidden border">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-medium">项目管理</div>
           {/* 右上角关闭按钮移除，点击空白区域即可关闭 */}
           <div />
         </div>
 
-        <div className="p-4 h-[calc(600px-48px)] flex flex-col">
+        <div className="p-4 h-[calc(560px-48px)] flex flex-col">
           {/* 错误提示 */}
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -71,7 +71,7 @@ export default function ProjectManagerModal() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start overflow-y-auto pr-1 flex-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-3 gap-y-4 items-start overflow-y-auto pr-1 flex-1">
             {projects.map((p) => (
               <div
                 key={p.id}
