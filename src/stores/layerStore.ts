@@ -272,6 +272,35 @@ export const useLayerStore = create<LayerState>()(subscribeWithSelector((set, ge
     ensureActiveLayer: () => {
         const state = get();
 
+        if (paper && paper.project) {
+            try {
+                const knownLayerNames = new Set(state.layers.map((meta) => `layer_${meta.id}`));
+
+                const orphanLayers = (paper.project.layers || []).filter((layer: paper.Layer) => {
+                    const name = layer?.name || '';
+                    if (!name) return true;
+                    if (SYSTEM_LAYER_NAMES.has(name)) return false;
+                    return !knownLayerNames.has(name);
+                });
+                orphanLayers.forEach((layer) => {
+                    try { layer.remove(); } catch {}
+                });
+
+                state.layers.forEach((meta) => {
+                    let paperLayer = findLayerByStoreId(meta.id);
+                    if (!paperLayer) {
+                        paperLayer = new paper.Layer();
+                        paperLayer.name = `layer_${meta.id}`;
+                        paperLayer.visible = meta.visible;
+                        if (meta.locked) {
+                            try { (paperLayer as any).locked = true; } catch {}
+                        }
+                        insertAboveGrid(paperLayer);
+                    }
+                });
+            } catch {}
+        }
+
         // 如果有活动图层，返回它
         if (state.activeLayerId) {
             const paperLayer = findLayerByStoreId(state.activeLayerId);
