@@ -47,15 +47,9 @@ export const useToolStore = create<ToolState>()(
         // 设置方法
         setDrawMode: (mode) => {
           logger.debug(`🔧 切换工具模式: ${get().drawMode} -> ${mode}`);
-          // 切换到绘图模式时，自动关闭橡皮擦
+          // 切换到绘图模式时，自动关闭橡皮擦；且默认不自动开启填充
           if (DRAWING_TOOLS.includes(mode)) {
-            // 对于支持填充的工具，自动启用填充
-            const supportsFill = ['rect', 'circle'].includes(mode);
-            set({ 
-              drawMode: mode, 
-              isEraser: false,
-              hasFill: supportsFill 
-            });
+            set({ drawMode: mode, isEraser: false });
           } else {
             set({ drawMode: mode });
           }
