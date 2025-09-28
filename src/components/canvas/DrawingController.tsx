@@ -24,6 +24,7 @@ import { useSimpleTextTool } from './hooks/useSimpleTextTool';
 import SimpleTextEditor from './SimpleTextEditor';
 import TextSelectionOverlay from './TextSelectionOverlay';
 import type { DrawingContext } from '@/types/canvas';
+import { paperSaveService } from '@/services/paperSaveService';
 
 interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -42,20 +43,90 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (!drawingLayerManagerRef.current) {
       drawingLayerManagerRef.current = new DrawingLayerManager();
     }
+
+    // 初始化Paper.js保存服务
+    paperSaveService.init();
+
+    // Expose paperSaveService globally for testing (development only)
+    if (import.meta.env.DEV) {
+      (window as any).testPaperSave = () => {
+        console.log('🧪 Testing Paper.js save manually...');
+        paperSaveService.triggerAutoSave();
+      };
+    }
+
+    // 监听 Paper.js 项目恢复事件
+    const handleProjectRecovery = (event: CustomEvent) => {
+      console.log('🔄 收到Paper.js项目恢复请求，重新初始化图层管理器...');
+
+      try {
+        // 重新创建图层管理器
+        if (drawingLayerManagerRef.current) {
+          drawingLayerManagerRef.current.cleanup();
+        }
+        drawingLayerManagerRef.current = new DrawingLayerManager();
+
+        // 触发 paper-ready 事件
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('paper-ready', {
+            detail: { recovered: true, timestamp: Date.now() }
+          }));
+        }, 100);
+
+        console.log('✅ Paper.js项目恢复完成');
+      } catch (error) {
+        console.error('❌ Paper.js项目恢复失败:', error);
+      }
+    };
+
+    // 添加恢复事件监听器
+    window.addEventListener('paper-project-recovery-needed', handleProjectRecovery as EventListener);
+
     return () => {
       if (drawingLayerManagerRef.current) {
         drawingLayerManagerRef.current.cleanup();
         drawingLayerManagerRef.current = null;
       }
+      // 清理保存服务
+      paperSaveService.cleanup();
+
+      // 移除恢复事件监听器
+      window.removeEventListener('paper-project-recovery-needed', handleProjectRecovery as EventListener);
     };
   }, []);
 
   // 确保绘图图层存在并激活
   const ensureDrawingLayer = () => {
+    // 首先检查 Paper.js 项目状态
+    if (!paper || !paper.project || !paper.view) {
+      console.warn('⚠️ Paper.js项目未初始化，尝试恢复...');
+
+      // 触发项目恢复
+      window.dispatchEvent(new CustomEvent('paper-project-recovery-needed', {
+        detail: { source: 'ensureDrawingLayer', timestamp: Date.now() }
+      }));
+
+      return null;
+    }
+
     if (!drawingLayerManagerRef.current) {
       drawingLayerManagerRef.current = new DrawingLayerManager();
     }
-    return drawingLayerManagerRef.current.ensureDrawingLayer();
+
+    try {
+      return drawingLayerManagerRef.current.ensureDrawingLayer();
+    } catch (error) {
+      console.error('❌ 确保绘图图层失败:', error);
+
+      // 尝试重新创建图层管理器
+      try {
+        drawingLayerManagerRef.current = new DrawingLayerManager();
+        return drawingLayerManagerRef.current.ensureDrawingLayer();
+      } catch (retryError) {
+        console.error('❌ 重试创建绘图图层失败:', retryError);
+        return null;
+      }
+    }
   };
 
   // ========== 初始化绘图上下文 ==========
@@ -199,10 +270,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     isEraser,
     hasFill,
     eventHandlers: {
-      onPathCreate: (path) => console.log('路径创建:', path),
-      onPathComplete: (path) => console.log('路径完成:', path),
-      onDrawStart: (mode) => console.log('开始绘制:', mode),
-      onDrawEnd: (mode) => console.log('结束绘制:', mode)
+      onPathCreate: (path) => {
+        console.log('路径创建:', path);
+      },
+      onPathComplete: (path) => {
+        console.log('路径完成:', path);
+
+        // 检查 Paper.js 项目状态后再触发保存
+        if (paper && paper.project && paper.view) {
+          paperSaveService.triggerAutoSave();
+        } else {
+          console.warn('⚠️ Paper.js项目状态异常，跳过自动保存');
+        }
+      },
+      onDrawStart: (mode) => {
+        console.log('开始绘制:', mode);
+      },
+      onDrawEnd: (mode) => {
+        console.log('结束绘制:', mode);
+
+        // 检查 Paper.js 项目状态后再触发保存
+        if (paper && paper.project && paper.view) {
+          paperSaveService.triggerAutoSave();
+        } else {
+          console.warn('⚠️ Paper.js项目状态异常，跳过自动保存');
+        }
+      }
     }
   });
 
