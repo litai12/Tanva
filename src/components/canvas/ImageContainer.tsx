@@ -393,16 +393,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
-      {imageData.pendingUpload && (
-        <div
-          className="absolute left-2 top-2 z-30 rounded-full bg-amber-500/90 px-2 py-1 text-[10px] font-medium text-white shadow-sm"
-          style={{ pointerEvents: 'auto' }}
-          title="该图片存储于本地，尚未上传到云端"
-        >
-          本地
-        </div>
-      )}
-
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部 */}
       {isSelected && (
         <div
@@ -482,7 +472,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             size="sm"
             className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-green-50 hover:border-green-300"
             onClick={handleDownload}
-            title={imageData.pendingUpload ? '当前图片尚未上传，下载的是本地备份' : '下载原始图片'}
+            title="下载图片"
             style={{
               backdropFilter: 'blur(12px)',
               background: 'rgba(255, 255, 255, 0.8)',

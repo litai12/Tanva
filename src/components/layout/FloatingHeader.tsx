@@ -11,8 +11,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { 
-    Settings, 
-    User, 
     LogOut, 
     HelpCircle, 
     Share, 
@@ -25,6 +23,7 @@ import {
     Palette,
     Check,
     ChevronRight,
+    Home,
     
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
@@ -33,6 +32,9 @@ import ProjectManagerModal from '@/components/projects/ProjectManagerModal';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/authStore';
+import ManualSaveButton from '@/components/autosave/ManualSaveButton';
+import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 
 const FloatingHeader: React.FC = () => {
     const {
@@ -147,6 +149,19 @@ const FloatingHeader: React.FC = () => {
         }
     };
 
+    const { user, logout, loading, connection } = useAuthStore();
+    const displayName = user?.name || user?.phone?.slice(-4) || user?.email || user?.id?.slice(-4) || '用户';
+    const secondaryId = user?.email || (user?.phone ? `${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : '') || '';
+    const status = (() => {
+        switch (connection) {
+            case 'server': return { label: '在线', color: '#16a34a' };
+            case 'refresh': return { label: '已续期', color: '#f59e0b' };
+            case 'local': return { label: '本地会话', color: '#6b7280' };
+            case 'mock': return { label: 'Mock', color: '#8b5cf6' };
+            default: return { label: '未知', color: '#9ca3af' };
+        }
+    })();
+
     return (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
             <div className="grid grid-cols-3 items-center gap-2 md:gap-3 px-4 md:px-6 py-2 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 min-w-[640px]">
@@ -255,22 +270,41 @@ const FloatingHeader: React.FC = () => {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent 
-                            className="w-56 bg-white/80 backdrop-blur-md" 
+                            className="w-64 bg-white/80 backdrop-blur-md" 
                             align="end" 
                             side="right"
                             sideOffset={8}
                             forceMount
                         >
-                            <DropdownMenuLabel className="font-normal">
-                                <div className="flex flex-col space-y-1">
-                                    <p className="text-xs font-medium leading-none">
-                                        智绘用户
-                                    </p>
-                                    <p className="text-[10px] leading-none text-muted-foreground">
-                                        @user
-                                    </p>
+                            <div className="px-3 pt-3 pb-2 space-y-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                            <span>你好，{displayName}</span>
+                                            <span
+                                                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
+                                                style={{ borderColor: status.color, color: status.color }}
+                                                title={`认证来源：${status.label}`}
+                                            >
+                                                <span
+                                                    style={{ width: 6, height: 6, borderRadius: 9999, background: status.color, display: 'inline-block' }}
+                                                />
+                                                {status.label}
+                                            </span>
+                                        </div>
+                                        {secondaryId && (
+                                            <div className="mt-1 text-xs text-muted-foreground truncate">{secondaryId}</div>
+                                        )}
+                                    </div>
+                                    <div className="shrink-0">
+                                        <ManualSaveButton />
+                                    </div>
                                 </div>
-                            </DropdownMenuLabel>
+                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>自动保存</span>
+                                    <span className="text-slate-600"><AutosaveStatus /></span>
+                                </div>
+                            </div>
                             <DropdownMenuSeparator />
 
                             {/* 文件管理 */}
@@ -280,6 +314,13 @@ const FloatingHeader: React.FC = () => {
                             <DropdownMenuItem className="text-xs cursor-pointer" onClick={openModal}>
                                 <Square className="mr-2 h-3 w-3" />
                                 <span>打开/管理文件</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer"
+                                onSelect={() => { window.location.href = '/'; }}
+                            >
+                                <Home className="mr-2 h-3 w-3" />
+                                <span>返回首页</span>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
 
@@ -472,11 +513,14 @@ const FloatingHeader: React.FC = () => {
                             
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                                className="text-xs cursor-pointer"
-                                onClick={() => logger.debug('退出登录')}
+                                className="text-xs cursor-pointer text-red-500 focus:text-red-500"
+                                disabled={loading}
+                                onSelect={() => {
+                                    if (!loading) logout();
+                                }}
                             >
                                 <LogOut className="mr-2 h-3 w-3" />
-                                <span>退出登录</span>
+                                <span>{loading ? '正在退出…' : '退出登录'}</span>
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>

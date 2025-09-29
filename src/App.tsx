@@ -70,14 +70,6 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen">
-      <div className="absolute right-3 top-3 z-50">
-        <div className="flex items-center gap-2 bg-white/90 border rounded px-2 py-1 shadow-sm">
-          <AccountBadge />
-          <a href="/" className="text-xs text-sky-600">返回首页</a>
-          <ManualSaveButton />
-          <AutosaveStatus />
-        </div>
-      </div>
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
       <SaveDebugPanel />
