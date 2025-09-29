@@ -204,13 +204,15 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         onMouseDown={handleBorderMouseDown}
       />
       {/* 四个角的方块手柄 - 白色填充，蓝色边框 */}
+      {(() => { const handleSize = 8; const offset = -(handleSize / 2); return (
+      <>
       <div
         style={{
           position: 'absolute',
-          top: -6,
-          left: -6,
-          width: 12,
-          height: 12,
+          top: offset,
+          left: offset,
+          width: handleSize,
+          height: handleSize,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',
@@ -222,10 +224,10 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          top: -6,
-          right: -6,
-          width: 12,
-          height: 12,
+          top: offset,
+          right: offset,
+          width: handleSize,
+          height: handleSize,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',
@@ -237,10 +239,10 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          bottom: -6,
-          left: -6,
-          width: 12,
-          height: 12,
+          bottom: offset,
+          left: offset,
+          width: handleSize,
+          height: handleSize,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',
@@ -252,10 +254,10 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          bottom: -6,
-          right: -6,
-          width: 12,
-          height: 12,
+          bottom: offset,
+          right: offset,
+          width: handleSize,
+          height: handleSize,
           backgroundColor: 'white',
           border: '1px solid #007AFF',
           borderRadius: '1px',
@@ -264,6 +266,8 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         }}
         onMouseDown={handleCornerMouseDown('se')}
       />
+      </>
+      ); })()}
     </div>
   );
 };

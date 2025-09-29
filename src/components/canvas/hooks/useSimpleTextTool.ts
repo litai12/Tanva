@@ -61,8 +61,8 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     // 系统默认：中文优先选择黑体族（Heiti/SimHei），英文字体回退 sans-serif
     fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
     fontWeight: 'bold',
-    fontSize: 24,
-    color: currentColor,
+    fontSize: 72,
+    color: '#000000',
     align: 'left',
     italic: false
   });
@@ -158,6 +158,14 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       ...item,
       isEditing: item.id === textId
     })));
+    // 在编辑时隐藏原始 Paper 文本，避免与输入框重叠造成“错位”观感
+    try {
+      const t = textItems.find(i => i.id === textId);
+      if (t?.paperText) {
+        (t.paperText as any).data.__prevOpacity = t.paperText.opacity;
+        t.paperText.opacity = 0;
+      }
+    } catch {}
   }, []);
 
   // 停止编辑文本
@@ -167,6 +175,17 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       ...item,
       isEditing: false
     })));
+    // 恢复被隐藏的原始 Paper 文本
+    try {
+      textItems.forEach(t => {
+        if ((t.paperText as any)?.data?.__prevOpacity !== undefined) {
+          t.paperText.opacity = (t.paperText as any).data.__prevOpacity;
+          delete (t.paperText as any).data.__prevOpacity;
+        } else {
+          t.paperText.opacity = 1;
+        }
+      });
+    } catch {}
   }, []);
 
   // 更新文本内容
@@ -622,6 +641,22 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   }, [selectText, startEditText, editingTextId, textItems]);
 
   const hydrateFromSnapshot = useCallback((snapshots: TextAssetSnapshot[]) => {
+    // 先清理 Paper.js 中现有的文本对象，避免重复（开发模式/严格模式下的双执行）
+    try {
+      if (paper && paper.project) {
+        const toRemove: paper.Item[] = [];
+        (paper.project.layers || []).forEach((layer: any) => {
+          const children = layer?.children || [];
+          children.forEach((child: any) => {
+            if (child?.data?.type === 'text' || child instanceof paper.PointText) {
+              toRemove.push(child);
+            }
+          });
+        });
+        toRemove.forEach((item) => { try { item.remove(); } catch {} });
+      }
+    } catch {}
+
     try {
       textItems.forEach(item => {
         try { item.paperText.remove(); } catch {}

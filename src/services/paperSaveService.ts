@@ -221,6 +221,34 @@ class PaperSaveService {
   }
 
   /**
+   * 清空当前 Paper 项目（保留系统层，如 grid/background/scalebar，但清理其子元素）
+   * 用于切换到“新建空项目”或在加载新项目前的画布重置
+   */
+  clearProject() {
+    try {
+      if (!this.isPaperProjectReady()) return;
+
+      const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
+      const layers = (paper.project.layers || []).slice();
+      layers.forEach((layer: any) => {
+        const name = layer?.name || '';
+        if (SYSTEM_LAYER_NAMES.has(name)) {
+          // 保留系统层，但清空其子元素
+          try { layer.removeChildren(); } catch {}
+        } else {
+          try { layer.remove(); } catch {}
+        }
+      });
+
+      // 更新视图并广播
+      try { (paper.view as any)?.update?.(); } catch {}
+      try { window.dispatchEvent(new CustomEvent('paper-project-cleared')); } catch {}
+    } catch (e) {
+      console.warn('清空 Paper 项目失败:', e);
+    }
+  }
+
+  /**
    * 触发项目恢复机制
    */
   private triggerProjectRecovery() {

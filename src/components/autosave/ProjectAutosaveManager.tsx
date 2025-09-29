@@ -30,6 +30,11 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       setProject(null);
       try { contextManager.clearImageCache(); } catch {}
       try { useImageHistoryStore.getState().clearHistory(); } catch {}
+      // 清空画布与运行时实例
+      try { paperSaveService.clearProject(); } catch {}
+      try { (window as any).tanvaImageInstances = []; } catch {}
+      try { (window as any).tanvaModel3DInstances = []; } catch {}
+      try { (window as any).tanvaTextItems = []; } catch {}
       return undefined;
     }
 
@@ -39,6 +44,11 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     // 切换项目时清理跨项目的缓存/历史，避免“隐藏图片信息继承”
     try { contextManager.clearImageCache(); } catch {}
     try { useImageHistoryStore.getState().clearHistory(); } catch {}
+    // 立即清空当前画布，避免在新建空项目时残留旧图像
+    try { paperSaveService.clearProject(); } catch {}
+    try { (window as any).tanvaImageInstances = []; } catch {}
+    try { (window as any).tanvaModel3DInstances = []; } catch {}
+    try { (window as any).tanvaTextItems = []; } catch {}
     setProject(projectId);
 
     (async () => {

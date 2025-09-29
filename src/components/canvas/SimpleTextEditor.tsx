@@ -143,7 +143,8 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
         border: '1px solid #007AFF',
         borderRadius: '2px',
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        fontSize: '20px',
+        // 编辑时的输入字号固定为 24px，便于输入
+        fontSize: '24px',
         fontFamily: 'Arial',
         color: currentEditingText.paperText.fillColor?.toCSS?.(true) || '#000000',
         outline: 'none',
