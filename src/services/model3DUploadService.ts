@@ -1,164 +1,120 @@
 import { logger } from '@/utils/logger';
-/**
- * 3D模型文件上传服务
- * 支持GLB格式的3D模型处理和上传
- */
+import { uploadToOSS, type OssUploadOptions } from './ossUploadService';
+
+export type Model3DFormat = 'glb' | 'gltf';
+
+export interface Model3DUploadOptions extends OssUploadOptions {
+  maxFileSize?: number;
+}
 
 export interface Model3DUploadResult {
   success: boolean;
-  url?: string;
   error?: string;
-  data?: string; // base64 data
-  metadata?: {
-    fileName: string;
-    fileSize: number;
-    format: 'glb' | 'gltf';
-  };
+  asset?: Model3DAsset;
+}
+
+export interface Model3DAsset {
+  url: string;
+  key?: string;
+  fileName: string;
+  fileSize: number;
+  format: Model3DFormat;
+  contentType?: string;
 }
 
 export interface Model3DData {
-  path: string;
-  format: 'glb' | 'gltf';
+  url: string;
+  key?: string;
+  format: Model3DFormat;
   fileName: string;
   fileSize: number;
   defaultScale: { x: number; y: number; z: number };
   defaultRotation: { x: number; y: number; z: number };
   timestamp: number;
+  /** @deprecated 使用 url */
+  path?: string;
 }
 
-class Model3DUploadService {
-  private readonly supportedFormats = ['.glb', '.gltf'];
-  private readonly maxFileSize = 50 * 1024 * 1024; // 50MB
+const SUPPORTED_MODEL_EXTENSIONS: Record<string, Model3DFormat> = {
+  '.glb': 'glb',
+  '.gltf': 'gltf',
+};
 
-  /**
-   * 处理3D模型文件，返回base64数据
-   */
-  async processModel3DFile(file: File): Promise<Model3DUploadResult> {
-    try {
-      // 验证文件格式
-      if (!this.isValidModel3DType(file)) {
-        return {
-          success: false,
-          error: '不支持的3D模型格式，请选择 GLB 或 GLTF 格式的文件'
-        };
-      }
-
-      // 验证文件大小
-      if (file.size > this.maxFileSize) {
-        return {
-          success: false,
-          error: '3D模型文件过大，请选择小于50MB的文件'
-        };
-      }
-
-      logger.upload('🎲 开始处理3D模型文件:', file.name, `(${(file.size / 1024 / 1024).toFixed(2)}MB)`);
-
-      const dataUrl = await this.fileToDataURL(file);
-      const format = this.getFileFormat(file.name);
-
-      return {
-        success: true,
-        data: dataUrl,
-        url: dataUrl,
-        metadata: {
-          fileName: file.name,
-          fileSize: file.size,
-          format: format
-        }
-      };
-    } catch (error) {
-      console.error('❌ 3D模型处理失败:', error);
-      return {
-        success: false,
-        error: '3D模型处理失败，请重试'
-      };
+function inferFormat(fileName: string): Model3DFormat | null {
+  const lower = fileName.toLowerCase();
+  for (const ext of Object.keys(SUPPORTED_MODEL_EXTENSIONS)) {
+    if (lower.endsWith(ext)) {
+      return SUPPORTED_MODEL_EXTENSIONS[ext];
     }
   }
+  return null;
+}
 
-  /**
-   * 创建3D模型数据对象
-   */
-  createModel3DData(result: Model3DUploadResult): Model3DData | null {
-    if (!result.success || !result.data || !result.metadata) {
-      return null;
-    }
-
+async function uploadModelFile(file: File, options: Model3DUploadOptions = {}): Promise<Model3DUploadResult> {
+  const format = inferFormat(file.name);
+  if (!format) {
     return {
-      path: result.data,
-      format: result.metadata.format,
-      fileName: result.metadata.fileName,
-      fileSize: result.metadata.fileSize,
-      defaultScale: { x: 1, y: 1, z: 1 },
-      defaultRotation: { x: 0, y: 0, z: 0 },
-      timestamp: Date.now()
+      success: false,
+      error: '不支持的3D模型格式，请选择 GLB 或 GLTF 文件',
     };
   }
 
-  /**
-   * 验证3D模型文件类型
-   */
-  private isValidModel3DType(file: File): boolean {
-    const fileName = file.name.toLowerCase();
-    return this.supportedFormats.some(format => fileName.endsWith(format));
+  const sizeLimit = options.maxFileSize ?? 50 * 1024 * 1024;
+  if (file.size > sizeLimit) {
+    return {
+      success: false,
+      error: `3D模型文件过大，请选择小于 ${(sizeLimit / 1024 / 1024).toFixed(1)}MB 的文件`,
+    };
   }
 
-  /**
-   * 获取文件格式
-   */
-  private getFileFormat(fileName: string): 'glb' | 'gltf' {
-    const name = fileName.toLowerCase();
-    if (name.endsWith('.glb')) {
-      return 'glb';
-    } else if (name.endsWith('.gltf')) {
-      return 'gltf';
-    }
-    return 'glb'; // 默认格式
-  }
-
-  /**
-   * 将文件转换为DataURL
-   */
-  private fileToDataURL(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          resolve(e.target.result as string);
-        } else {
-          reject(new Error('文件读取失败'));
-        }
-      };
-      reader.onerror = () => {
-        reject(new Error('文件读取错误'));
-      };
-      reader.readAsDataURL(file);
+  try {
+    const dir = options.dir || (options.projectId ? `projects/${options.projectId}/models/` : 'uploads/models/');
+    const uploadResult = await uploadToOSS(file, {
+      ...options,
+      dir,
+      fileName: options.fileName || file.name,
+      maxSize: options.maxSize ?? options.maxFileSize ?? sizeLimit,
+      contentType: file.type || (format === 'glb' ? 'model/gltf-binary' : 'model/gltf+json'),
     });
-  }
 
+    if (!uploadResult.success || !uploadResult.url) {
+      return {
+        success: false,
+        error: uploadResult.error || '3D模型上传失败',
+      };
+    }
 
-  /**
-   * 获取支持的文件格式列表
-   */
-  getSupportedFormats(): string[] {
-    return [...this.supportedFormats];
-  }
+    const asset: Model3DAsset = {
+      url: uploadResult.url,
+      key: uploadResult.key,
+      fileName: options.fileName || file.name,
+      fileSize: file.size,
+      format,
+      contentType: file.type,
+    };
 
-  /**
-   * 获取最大文件大小限制
-   */
-  getMaxFileSize(): number {
-    return this.maxFileSize;
-  }
-
-  /**
-   * 格式化文件大小显示
-   */
-  formatFileSize(bytes: number): string {
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    if (bytes === 0) return '0 Bytes';
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+    return { success: true, asset };
+  } catch (error: any) {
+    logger.error('3D 模型上传失败:', error);
+    return { success: false, error: error?.message || '3D模型上传失败，请重试' };
   }
 }
 
-export const model3DUploadService = new Model3DUploadService();
+function createModel3DData(asset: Model3DAsset): Model3DData {
+  return {
+    url: asset.url,
+    key: asset.key,
+    path: asset.url,
+    format: asset.format,
+    fileName: asset.fileName,
+    fileSize: asset.fileSize,
+    defaultScale: { x: 1, y: 1, z: 1 },
+    defaultRotation: { x: 0, y: 0, z: 0 },
+    timestamp: Date.now(),
+  };
+}
+
+export const model3DUploadService = {
+  uploadModelFile,
+  createModel3DData,
+};

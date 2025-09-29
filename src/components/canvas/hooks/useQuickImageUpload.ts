@@ -8,14 +8,16 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import type { DrawingContext } from '@/types/canvas';
+import { imageUploadService } from '@/services/imageUploadService';
+import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
 
 interface UseQuickImageUploadProps {
     context: DrawingContext;
     canvasRef?: React.RefObject<HTMLCanvasElement | null>;
+    projectId?: string | null;
 }
 
-export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadProps) => {
+export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickImageUploadProps) => {
     const { ensureDrawingLayer, zoom } = context;
     const [triggerQuickUpload, setTriggerQuickUpload] = useState(false);
 
@@ -172,15 +174,52 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
     }, []);
 
     // 处理快速图片上传 - 支持智能位置排版
-    const handleQuickImageUploaded = useCallback((
-        imageData: string, 
-        fileName?: string, 
+    const handleQuickImageUploaded = useCallback(async (
+        imagePayload: string | StoredImageAsset,
+        fileName?: string,
         selectedImageBounds?: any,
         smartPosition?: { x: number; y: number },
         operationType?: string,
         sourceImageId?: string,
         sourceImages?: string[]
     ) => {
+        let asset: StoredImageAsset | null = null;
+        if (typeof imagePayload === 'string') {
+            const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
+            const uploadResult = await imageUploadService.uploadImageDataUrl(imagePayload, {
+                projectId,
+                dir: uploadDir,
+                fileName,
+            });
+            if (uploadResult.success && uploadResult.asset) {
+                asset = { ...uploadResult.asset, src: uploadResult.asset.url };
+                fileName = asset.fileName || fileName;
+            } else {
+                const errMsg = uploadResult.error || '图片上传失败';
+                logger.error('快速上传图片失败:', errMsg);
+                asset = {
+                    id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    url: imagePayload,
+                    src: imagePayload,
+                    fileName: fileName,
+                    pendingUpload: true,
+                    localDataUrl: imagePayload,
+                };
+            }
+        } else {
+            asset = {
+                ...imagePayload,
+                src: imagePayload.url || imagePayload.src,
+            };
+            fileName = asset.fileName || fileName;
+        }
+
+        if (!asset || !asset.url) {
+            logger.error('快速上传未获取到有效图片资源');
+            return;
+        }
+
+        const imageData = asset.url;
         try {
             ensureDrawingLayer();
 
@@ -206,7 +245,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
             }
 
             // 生成唯一ID
-            const imageId = `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const imageId = asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
             // 创建图片的 Raster 对象（先绑定 onLoad 再设置 source，避免极快缓存触发导致丢失回调）
             const raster = new paper.Raster();
@@ -217,6 +256,10 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
 
             // 等待图片加载完成
             raster.onLoad = () => {
+                if (!asset) {
+                    logger.error('快速上传：缺少图片资源');
+                    return;
+                }
                 try { console.log('[QuickUpload] 图片加载完成', { w: raster.width, h: raster.height }); } catch {}
                 // 获取原始尺寸
                 const originalWidth = raster.width;
@@ -379,8 +422,13 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
                         id: imageId,
                         imageData: {
                             id: imageId,
-                            src: imageData,
-                            fileName: fileName
+                            url: asset.url,
+                            src: asset.url,
+                            key: asset.key,
+                            fileName: fileName,
+                            width: raster.bounds.width,
+                            height: raster.bounds.height,
+                            contentType: asset.contentType,
                         },
                         bounds: {
                             x: raster.bounds.x,
@@ -433,7 +481,7 @@ export const useQuickImageUpload = ({ context, canvasRef }: UseQuickImageUploadP
             logger.error('快速上传图片时出错:', error);
             console.error('快速上传图片时出错:', error);
         }
-    }, [ensureDrawingLayer, findImagePlaceholder]);
+    }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, projectId]);
 
     // 处理上传错误
     const handleQuickUploadError = useCallback((error: string) => {

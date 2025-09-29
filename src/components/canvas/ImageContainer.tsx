@@ -9,8 +9,10 @@ import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
 
 interface ImageData {
   id: string;
-  src: string;
+  url?: string;
+  src?: string;
   fileName?: string;
+  pendingUpload?: boolean;
 }
 
 interface ImageContainerProps {
@@ -342,8 +344,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       
       // 备用方案：使用imageData.src
       if (!imageDataUrl) {
-        imageDataUrl = imageData.src;
-        console.log('💾 下载：使用imageData.src');
+        imageDataUrl = imageData.url || imageData.src || null;
+        console.log('💾 下载：使用 imageData 原始链接');
       }
       
       if (!imageDataUrl) {
@@ -361,7 +363,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     } catch (error) {
       console.error('❌ 图片下载失败:', error);
     }
-  }, [imageData.id, imageData.src, imageData.fileName, getImageDataForEditing]);
+  }, [imageData.id, imageData.url, imageData.src, imageData.fileName, getImageDataForEditing]);
 
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
@@ -390,6 +392,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           pointerEvents: 'none'
         }}
       />
+
+      {imageData.pendingUpload && (
+        <div
+          className="absolute left-2 top-2 z-30 rounded-full bg-amber-500/90 px-2 py-1 text-[10px] font-medium text-white shadow-sm"
+          style={{ pointerEvents: 'auto' }}
+          title="该图片存储于本地，尚未上传到云端"
+        >
+          本地
+        </div>
+      )}
 
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部 */}
       {isSelected && (
@@ -470,7 +482,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             size="sm"
             className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-green-50 hover:border-green-300"
             onClick={handleDownload}
-            title="下载原始图片"
+            title={imageData.pendingUpload ? '当前图片尚未上传，下载的是本地备份' : '下载原始图片'}
             style={{
               backdropFilter: 'blur(12px)',
               background: 'rgba(255, 255, 255, 0.8)',
@@ -554,7 +566,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       {/* 图片预览模态框 */}
       <ImagePreviewModal
         isOpen={showPreview}
-        imageSrc={getImageDataForEditing ? (getImageDataForEditing(imageData.id) || imageData.src) : imageData.src}
+        imageSrc={getImageDataForEditing ? (getImageDataForEditing(imageData.id) || imageData.url || imageData.src || '') : (imageData.url || imageData.src || '')}
         imageTitle={imageData.fileName || `图片 ${imageData.id}`}
         onClose={() => setShowPreview(false)}
       />

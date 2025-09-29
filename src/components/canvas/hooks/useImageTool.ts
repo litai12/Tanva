@@ -11,8 +11,11 @@ import type {
   ImageDragState,
   ImageResizeState,
   ImageToolEventHandlers,
-  DrawingContext
+  DrawingContext,
+  StoredImageAsset,
 } from '@/types/canvas';
+import type { ImageAssetSnapshot } from '@/types/project';
+import { useLayerStore } from '@/stores/layerStore';
 
 interface UseImageToolProps {
   context: DrawingContext;
@@ -129,17 +132,22 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   }, [ensureDrawingLayer]);
 
   // ========== 处理图片上传成功 ==========
-  const handleImageUploaded = useCallback((imageData: string, fileName?: string) => {
+  const handleImageUploaded = useCallback((asset: StoredImageAsset) => {
     const placeholder = currentPlaceholderRef.current;
     if (!placeholder || !placeholder.data?.bounds) {
       logger.error('没有找到图片占位框');
       return;
     }
 
+    if (!asset || !asset.url) {
+      logger.error('无有效图片资源');
+      return;
+    }
+
     logger.upload('✅ 图片上传成功，创建图片实例');
 
     const paperBounds = placeholder.data.bounds;
-    const imageId = `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const imageId = asset.id || `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     logger.upload('📍 图片使用Paper.js坐标:', paperBounds);
 
@@ -148,8 +156,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 创建Paper.js的Raster对象来显示图片
     const raster = new paper.Raster({
-      source: imageData
+      source: asset.url
     });
+    (raster as any).crossOrigin = 'anonymous';
 
     // 等待图片加载完成后设置位置
     raster.onLoad = () => {
@@ -225,6 +234,18 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             y: finalBounds.y,
             width: finalBounds.width,
             height: finalBounds.height
+          },
+          imageData: {
+            ...img.imageData,
+            url: asset.url,
+            src: asset.url,
+            key: asset.key || img.imageData.key,
+            fileName: asset.fileName || img.imageData.fileName,
+            width: originalWidth,
+            height: originalHeight,
+            contentType: asset.contentType || img.imageData.contentType,
+            pendingUpload: asset.pendingUpload,
+            localDataUrl: asset.localDataUrl,
           }
         } : img
       ));
@@ -245,8 +266,15 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       id: imageId,
       imageData: {
         id: imageId,
-        src: imageData,
-        fileName: fileName
+        url: asset.url,
+        src: asset.url,
+        key: asset.key,
+        fileName: asset.fileName,
+        width: asset.width,
+        height: asset.height,
+        contentType: asset.contentType,
+        pendingUpload: asset.pendingUpload,
+        localDataUrl: asset.localDataUrl,
       },
       bounds: {
         x: paperBounds.x,
@@ -331,9 +359,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     try {
       // 🎯 优先使用原始图片数据（高质量）
       // 这样可以避免canvas缩放导致的质量损失
-      if (imageInstance.imageData?.src) {
-        // console.log('🎨 AI编辑：使用原始图片数据（高质量）');
-        return imageInstance.imageData.src;
+      const primarySrc = imageInstance.imageData?.url || imageInstance.imageData?.src;
+      if (primarySrc) {
+        return primarySrc;
       }
 
       // 备用方案：从Paper.js获取（已缩放，可能质量较低）
@@ -663,6 +691,70 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     setTriggerImageUpload(false);
   }, []);
 
+  const hydrateFromSnapshot = useCallback((snapshots: ImageAssetSnapshot[]) => {
+    if (!Array.isArray(snapshots) || snapshots.length === 0) {
+      setImageInstances([]);
+      setSelectedImageIds([]);
+      return;
+    }
+
+    setImageInstances([]);
+    setSelectedImageIds([]);
+
+    snapshots.forEach((snap) => {
+      const resolvedUrl = snap?.url || snap?.localDataUrl;
+      if (!snap || !resolvedUrl || !snap.bounds) return;
+      if (snap.layerId) {
+        try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
+      }
+      const start = new paper.Point(snap.bounds.x, snap.bounds.y);
+      const end = new paper.Point(snap.bounds.x + snap.bounds.width, snap.bounds.y + snap.bounds.height);
+      const placeholder = createImagePlaceholder(start, end);
+      if (placeholder) {
+        currentPlaceholderRef.current = placeholder;
+        handleImageUploaded({
+          id: snap.id,
+          url: resolvedUrl,
+          src: resolvedUrl,
+          key: snap.key,
+          fileName: snap.fileName,
+          width: snap.width,
+          height: snap.height,
+          contentType: snap.contentType,
+          pendingUpload: snap.pendingUpload,
+          localDataUrl: snap.localDataUrl ?? resolvedUrl,
+        });
+      }
+    });
+
+    setImageInstances(prev => prev.map((img) => {
+      const snap = snapshots.find((s) => s.id === img.id);
+      if (!snap) return img;
+      return {
+        ...img,
+        layerId: snap.layerId ?? img.layerId,
+        bounds: {
+          x: snap.bounds.x,
+          y: snap.bounds.y,
+          width: snap.bounds.width,
+          height: snap.bounds.height,
+        },
+        imageData: {
+          ...img.imageData,
+          url: snap.url ?? img.imageData.url ?? snap.localDataUrl,
+          src: snap.url ?? snap.localDataUrl ?? img.imageData.src,
+          key: snap.key ?? img.imageData.key,
+          fileName: snap.fileName ?? img.imageData.fileName,
+          width: snap.width ?? img.imageData.width,
+          height: snap.height ?? img.imageData.height,
+          contentType: snap.contentType ?? img.imageData.contentType,
+          pendingUpload: snap.pendingUpload ?? img.imageData.pendingUpload,
+          localDataUrl: snap.localDataUrl ?? img.imageData.localDataUrl,
+        },
+      };
+    }));
+  }, [createImagePlaceholder, handleImageUploaded, setImageInstances, setSelectedImageIds]);
+
   return {
     // 状态
     imageInstances,
@@ -700,5 +792,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // AI编辑功能
     getImageDataForEditing,
+    hydrateFromSnapshot,
   };
 };

@@ -1,166 +1,95 @@
-/**
- * 图片上传服务
- * 提供基础的图片处理和上传功能
- */
+import { logger } from '@/utils/logger';
+import { dataURLToBlob, getImageDimensions, uploadToOSS, type OssUploadOptions } from './ossUploadService';
 
-export interface UploadResult {
+export interface ImageUploadOptions extends OssUploadOptions {
+  /** 允许的最大文件大小，默认 10MB */
+  maxFileSize?: number;
+}
+
+export interface ImageUploadResult {
   success: boolean;
-  url?: string;
   error?: string;
-  data?: string; // base64 data
-}
-
-export interface ImageProcessOptions {
-  maxWidth?: number;
-  maxHeight?: number;
-  quality?: number; // 0.0-1.0
-}
-
-class ImageUploadService {
-  private readonly defaultOptions: ImageProcessOptions = {
-    maxWidth: 4096,     // 提高到4K分辨率
-    maxHeight: 4096,    // 提高到4K分辨率
-    quality: 0.95,      // 提高压缩质量到95%
+  asset?: {
+    id: string;
+    url: string;
+    key?: string;
+    fileName?: string;
+    width?: number;
+    height?: number;
+    contentType?: string;
   };
+}
 
-  /**
-   * 处理图片文件，返回base64数据
-   */
-  async processImageFile(file: File, options?: ImageProcessOptions): Promise<UploadResult> {
-    try {
-      // 验证文件类型
-      if (!this.isValidImageType(file)) {
-        return {
-          success: false,
-          error: '不支持的图片格式，请选择 PNG、JPG、JPEG、GIF、WebP 格式的图片'
-        };
-      }
+const SUPPORTED_IMAGE_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+];
 
-      // 验证文件大小（默认最大10MB）
-      if (file.size > 10 * 1024 * 1024) {
-        return {
-          success: false,
-          error: '图片文件过大，请选择小于10MB的图片'
-        };
-      }
+function validateImageFile(file: File, options?: ImageUploadOptions): string | null {
+  if (!SUPPORTED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
+    return '不支持的图片格式，请选择 PNG、JPG、JPEG、GIF 或 WebP 图片';
+  }
+  const limit = options?.maxFileSize ?? 10 * 1024 * 1024;
+  if (file.size > limit) {
+    return `图片文件过大，请选择小于 ${(limit / 1024 / 1024).toFixed(1)}MB 的图片`;
+  }
+  return null;
+}
 
-      const processOptions = { ...this.defaultOptions, ...options };
-      const processedDataUrl = await this.processImage(file, processOptions);
-
-      return {
-        success: true,
-        data: processedDataUrl,
-        url: processedDataUrl
-      };
-    } catch (error) {
-      console.error('图片处理失败:', error);
-      return {
-        success: false,
-        error: '图片处理失败，请重试'
-      };
-    }
+async function uploadImageFile(file: File, options: ImageUploadOptions = {}): Promise<ImageUploadResult> {
+  const validationError = validateImageFile(file, options);
+  if (validationError) {
+    return { success: false, error: validationError };
   }
 
-  /**
-   * 验证图片文件类型
-   */
-  private isValidImageType(file: File): boolean {
-    const validTypes = [
-      'image/png',
-      'image/jpeg',
-      'image/jpg',
-      'image/gif',
-      'image/webp'
-    ];
-    return validTypes.includes(file.type.toLowerCase());
-  }
-
-  /**
-   * 处理图片：压缩、调整大小
-   */
-  private async processImage(file: File, options: ImageProcessOptions): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      if (!ctx) {
-        reject(new Error('无法创建Canvas上下文'));
-        return;
-      }
-
-      img.onload = () => {
-        const { width, height } = this.calculateDimensions(
-          img.width,
-          img.height,
-          options.maxWidth!,
-          options.maxHeight!
-        );
-
-        canvas.width = width;
-        canvas.height = height;
-
-        // 绘制图片到canvas
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // 转换为base64 - 使用PNG格式保持无损质量
-        const dataUrl = canvas.toDataURL('image/png');
-        resolve(dataUrl);
-      };
-
-      img.onerror = () => {
-        reject(new Error('图片加载失败'));
-      };
-
-      // 加载图片
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        img.src = e.target?.result as string;
-      };
-      reader.onerror = () => {
-        reject(new Error('文件读取失败'));
-      };
-      reader.readAsDataURL(file);
+  try {
+    const { width, height } = await getImageDimensions(file);
+    const uploadResult = await uploadToOSS(file, {
+      ...options,
+      fileName: options.fileName || file.name,
+      maxSize: options.maxSize ?? options.maxFileSize ?? 20 * 1024 * 1024,
+      contentType: file.type,
     });
-  }
 
-  /**
-   * 计算缩放后的尺寸，保持宽高比
-   */
-  private calculateDimensions(
-    originalWidth: number,
-    originalHeight: number,
-    maxWidth: number,
-    maxHeight: number
-  ): { width: number; height: number } {
-    // 如果原始尺寸都小于最大值，不需要缩放
-    if (originalWidth <= maxWidth && originalHeight <= maxHeight) {
-      return { width: originalWidth, height: originalHeight };
+    if (!uploadResult.success || !uploadResult.url) {
+      return { success: false, error: uploadResult.error || 'OSS 上传失败' };
     }
-
-    // 计算缩放比例
-    const widthRatio = maxWidth / originalWidth;
-    const heightRatio = maxHeight / originalHeight;
-    const ratio = Math.min(widthRatio, heightRatio);
 
     return {
-      width: Math.round(originalWidth * ratio),
-      height: Math.round(originalHeight * ratio)
+      success: true,
+      asset: {
+        id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        url: uploadResult.url,
+        key: uploadResult.key,
+        fileName: options.fileName || file.name,
+        width,
+        height,
+        contentType: file.type,
+      },
     };
-  }
-
-  /**
-   * 从URL创建图片对象（用于预加载）
-   */
-  async createImageFromUrl(url: string): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('图片加载失败'));
-      img.crossOrigin = 'anonymous'; // 处理跨域图片
-      img.src = url;
-    });
+  } catch (error: any) {
+    logger.error('图片上传失败:', error);
+    return { success: false, error: error?.message || '图片上传失败，请重试' };
   }
 }
 
-export const imageUploadService = new ImageUploadService();
+async function uploadImageDataUrl(dataUrl: string, options: ImageUploadOptions = {}): Promise<ImageUploadResult> {
+  try {
+    const blob = dataURLToBlob(dataUrl);
+    const fileName = options.fileName || `image_${Date.now()}.png`;
+    const file = new File([blob], fileName, { type: blob.type || 'image/png' });
+    return uploadImageFile(file, { ...options, fileName });
+  } catch (error: any) {
+    logger.error('图片数据上传失败:', error);
+    return { success: false, error: error?.message || '图片上传失败，请重试' };
+  }
+}
+
+export const imageUploadService = {
+  uploadImageFile,
+  uploadImageDataUrl,
+  validateImageFile,
+};

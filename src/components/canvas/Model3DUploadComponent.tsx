@@ -8,6 +8,7 @@ interface Model3DUploadComponentProps {
   onUploadError: (error: string) => void;
   trigger: boolean; // 外部控制触发上传
   onTriggerHandled: () => void; // 触发处理完成的回调
+  projectId?: string | null;
 }
 
 const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
@@ -15,6 +16,7 @@ const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
   onUploadError,
   trigger,
   onTriggerHandled,
+  projectId,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -25,19 +27,18 @@ const Model3DUploadComponent: React.FC<Model3DUploadComponentProps> = ({
 
     try {
       logger.debug('🎲 开始处理3D模型文件:', file.name);
-      
-      // 处理3D模型文件
-      const result = await model3DUploadService.processModel3DFile(file);
 
-      if (result.success) {
-        const modelData = model3DUploadService.createModel3DData(result);
-        if (modelData) {
-          logger.debug('✅ 3D模型处理成功:', modelData.fileName);
-          onModel3DUploaded(modelData);
-        } else {
-          console.error('❌ 3D模型数据创建失败');
-          onUploadError('3D模型数据创建失败');
-        }
+      const uploadDir = projectId ? `projects/${projectId}/models/` : 'uploads/models/';
+      const result = await model3DUploadService.uploadModelFile(file, {
+        projectId,
+        dir: uploadDir,
+        fileName: file.name,
+      });
+
+      if (result.success && result.asset) {
+        const modelData = model3DUploadService.createModel3DData(result.asset);
+        logger.debug('✅ 3D模型上传成功:', modelData.fileName);
+        onModel3DUploaded(modelData);
       } else {
         console.error('❌ 3D模型处理失败:', result.error);
         onUploadError(result.error || '3D模型处理失败');

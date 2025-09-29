@@ -8,13 +8,22 @@ import type { Model3DData } from '@/services/model3DUploadService';
 import paper from 'paper';
 
 // 2D图片实例类型
+export interface StoredImageAsset {
+  id: string;
+  url: string;
+  key?: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+  contentType?: string;
+  src?: string;
+  pendingUpload?: boolean;
+  localDataUrl?: string;
+}
+
 export interface ImageInstance {
   id: string;
-  imageData: {
-    id: string;
-    src: string;
-    fileName?: string;
-  };
+  imageData: StoredImageAsset;
   bounds: {
     x: number;
     y: number;
@@ -40,6 +49,7 @@ export interface Model3DInstance {
   isSelected: boolean;
   visible: boolean;
   selectionRect?: paper.Path;
+  layerId?: string;
 }
 
 // 图片拖拽状态类型

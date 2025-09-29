@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import paper from 'paper';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
@@ -35,6 +36,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { zoom } = useCanvasStore();
   const { toggleVisibility } = useLayerStore();
   const { setSourceImageForEditing, showDialog: showAIDialog } = useAIChatStore();
+  const projectId = useProjectContentStore((s) => s.projectId);
+  const projectAssets = useProjectContentStore((s) => s.content?.assets);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   const lastDrawModeRef = useRef<string>(drawMode);
 
@@ -141,8 +144,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // ========== 初始化绘图上下文 ==========
   const drawingContext: DrawingContext = {
-    ensureDrawingLayer,
-    zoom
+    ensureDrawingLayer: () => ensureDrawingLayer() ?? useLayerStore.getState().ensureActiveLayer(),
+    zoom,
   };
 
   // ========== 初始化图片工具Hook ==========
@@ -158,7 +161,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // ========== 初始化快速图片上传Hook ==========
   const quickImageUpload = useQuickImageUpload({
     context: drawingContext,
-    canvasRef
+    canvasRef,
+    projectId,
   });
 
   // ========== 监听drawMode变化，处理快速上传 ==========
@@ -359,8 +363,40 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // ========== 初始化简单文本工具Hook ==========
   const simpleTextTool = useSimpleTextTool({
     currentColor,
-    ensureDrawingLayer
+    ensureDrawingLayer: drawingContext.ensureDrawingLayer,
   });
+
+  useEffect(() => {
+    if (!projectAssets) return;
+    if (!paper || !paper.project) return;
+    const hasExisting =
+      imageTool.imageInstances.length > 0 ||
+      model3DTool.model3DInstances.length > 0 ||
+      simpleTextTool.textItems.length > 0;
+    if (hasExisting) return;
+
+    try {
+      if (projectAssets.images?.length) {
+        imageTool.hydrateFromSnapshot(projectAssets.images);
+      }
+      if (projectAssets.models?.length) {
+        model3DTool.hydrateFromSnapshot(projectAssets.models);
+      }
+      if (projectAssets.texts?.length) {
+        simpleTextTool.hydrateFromSnapshot(projectAssets.texts);
+      }
+    } catch (error) {
+      console.warn('资产回填失败:', error);
+    }
+  }, [
+    projectAssets,
+    imageTool.imageInstances,
+    model3DTool.model3DInstances,
+    simpleTextTool.textItems,
+    imageTool.hydrateFromSnapshot,
+    model3DTool.hydrateFromSnapshot,
+    simpleTextTool.hydrateFromSnapshot,
+  ]);
 
   // 暴露文本工具状态到全局，供工具栏使用
   useEffect(() => {
@@ -621,7 +657,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     (window as any).tanvaImageInstances = imageTool.imageInstances;
     (window as any).tanvaModel3DInstances = model3DTool.model3DInstances;
-  }, [imageTool.imageInstances, model3DTool.model3DInstances]);
+    (window as any).tanvaTextItems = simpleTextTool.textItems;
+  }, [imageTool.imageInstances, model3DTool.model3DInstances, simpleTextTool.textItems]);
 
   // 监听图层顺序变化并更新图像的layerId
   useEffect(() => {
@@ -752,6 +789,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onUploadError={imageTool.handleImageUploadError}
         trigger={imageTool.triggerImageUpload}
         onTriggerHandled={imageTool.handleUploadTriggerHandled}
+        projectId={projectId}
       />
 
       {/* 快速图片上传组件（居中） */}
@@ -760,6 +798,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onUploadError={quickImageUpload.handleQuickUploadError}
         trigger={quickImageUpload.triggerQuickUpload}
         onTriggerHandled={quickImageUpload.handleQuickUploadTriggerHandled}
+        projectId={projectId}
       />
 
       {/* 3D模型上传组件 */}
@@ -768,6 +807,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onUploadError={model3DTool.handleModel3DUploadError}
         trigger={model3DTool.triggerModel3DUpload}
         onTriggerHandled={model3DTool.handleModel3DUploadTriggerHandled}
+        projectId={projectId}
       />
 
       {/* 图片UI覆盖层实例 */}
@@ -778,8 +818,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             key={image.id}
             imageData={{
               id: image.id,
-              src: image.imageData?.src || '',
-              fileName: image.imageData?.fileName
+              url: image.imageData?.url,
+              src: image.imageData?.src,
+              fileName: image.imageData?.fileName,
+              pendingUpload: image.imageData?.pendingUpload,
             }}
             bounds={image.bounds}
             isSelected={imageTool.selectedImageIds.includes(image.id)}

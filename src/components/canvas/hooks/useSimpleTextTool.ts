@@ -6,6 +6,8 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { useLayerStore } from '@/stores/layerStore';
+import type { TextAssetSnapshot } from '@/types/project';
 
 interface TextStyle {
   fontFamily: string;
@@ -72,9 +74,21 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   }, [textItems, selectedTextId, defaultStyle]);
 
   // 创建新文本
-  const createText = useCallback((point: paper.Point, content: string = '文本', style?: Partial<TextStyle>) => {
-    const drawingLayer = ensureDrawingLayer();
-    const id = `text_${++textIdCounter.current}`;
+  const createText = useCallback((point: paper.Point, content: string = '文本', style?: Partial<TextStyle>, idOverride?: string) => {
+    const drawingLayer = ensureDrawingLayer() as paper.Layer;
+    let id: string;
+    if (idOverride) {
+      id = idOverride;
+      const match = /text_(\d+)/.exec(idOverride);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!Number.isNaN(num)) {
+          textIdCounter.current = Math.max(textIdCounter.current, num);
+        }
+      }
+    } else {
+      id = `text_${++textIdCounter.current}`;
+    }
     
     const textStyle = { ...defaultStyle, ...style };
     
@@ -607,6 +621,66 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     }
   }, [selectText, startEditText, editingTextId, textItems]);
 
+  const hydrateFromSnapshot = useCallback((snapshots: TextAssetSnapshot[]) => {
+    try {
+      textItems.forEach(item => {
+        try { item.paperText.remove(); } catch {}
+      });
+    } catch {}
+
+    if (!Array.isArray(snapshots) || snapshots.length === 0) {
+      setTextItems([]);
+      setSelectedTextId(null);
+      setEditingTextId(null);
+      return;
+    }
+
+    const hydrated: TextItem[] = [];
+    snapshots.forEach((snap) => {
+      if (!snap) return;
+      if (snap.layerId) {
+        try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
+      }
+
+      const drawingLayer = ensureDrawingLayer() as paper.Layer;
+      const paperText = new paper.PointText({
+        point: [snap.position.x, snap.position.y],
+        content: snap.content,
+        fillColor: new paper.Color(snap.style.color || '#000000'),
+        fontSize: snap.style.fontSize,
+        fontFamily: snap.style.fontFamily,
+        fontWeight: snap.style.fontWeight === 'bold' ? 'bold' : 'normal',
+        justification: snap.style.align,
+        visible: true
+      });
+      (paperText as any).fontStyle = snap.style.italic ? 'italic' : 'normal';
+      paperText.data = {
+        type: 'text',
+        textId: snap.id
+      };
+      drawingLayer.addChild(paperText);
+
+      hydrated.push({
+        id: snap.id,
+        paperText,
+        isSelected: false,
+        isEditing: false,
+        style: {
+          fontFamily: snap.style.fontFamily,
+          fontWeight: snap.style.fontWeight,
+          fontSize: snap.style.fontSize,
+          color: snap.style.color,
+          align: snap.style.align,
+          italic: snap.style.italic,
+        }
+      });
+    });
+
+    setTextItems(hydrated);
+    setSelectedTextId(null);
+    setEditingTextId(null);
+  }, [ensureDrawingLayer, textItems]);
+
   return {
     // 状态
     textItems,
@@ -642,6 +716,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     resizeText,
     startTextResize,
     resizeTextDrag,
-    endTextResize
+    endTextResize,
+    hydrateFromSnapshot
   };
 };

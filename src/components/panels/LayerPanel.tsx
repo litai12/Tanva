@@ -440,7 +440,7 @@ const LayerPanel: React.FC = () => {
             );
 
             if (imageInstance?.imageData?.src) {
-                return imageInstance.imageData.src; // 直接返回图片数据
+                return imageInstance.imageData.url || imageInstance.imageData.src; // 直接返回图片数据
             }
 
             return null;

@@ -12,6 +12,8 @@ import type {
   DrawingContext 
 } from '@/types/canvas';
 import type { Model3DData } from '@/services/model3DUploadService';
+import type { ModelAssetSnapshot } from '@/types/project';
+import { useLayerStore } from '@/stores/layerStore';
 import type { DrawMode } from '@/stores/toolStore';
 
 interface UseModel3DToolProps {
@@ -133,7 +135,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   }, [ensureDrawingLayer]);
 
   // ========== 处理3D模型上传成功 ==========
-  const handleModel3DUploaded = useCallback((modelData: Model3DData) => {
+  const handleModel3DUploaded = useCallback((modelData: Model3DData, overrideId?: string) => {
     const placeholder = currentModel3DPlaceholderRef.current;
     if (!placeholder || !placeholder.data?.bounds) {
       logger.error('没有找到3D模型占位框');
@@ -143,7 +145,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     logger.upload('✅ 3D模型上传成功，创建3D渲染实例:', modelData.fileName);
 
     const paperBounds = placeholder.data.bounds;
-    const modelId = `model3d_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const modelId = overrideId || `model3d_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     logger.upload('📍 3D模型使用Paper.js坐标:', paperBounds);
 
@@ -374,6 +376,68 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     setTriggerModel3DUpload(false);
   }, []);
 
+  const hydrateFromSnapshot = useCallback((snapshots: ModelAssetSnapshot[]) => {
+    if (!Array.isArray(snapshots) || snapshots.length === 0) {
+      setModel3DInstances([]);
+      setSelectedModel3DIds([]);
+      return;
+    }
+
+    setModel3DInstances([]);
+    setSelectedModel3DIds([]);
+
+    snapshots.forEach((snap) => {
+      if (!snap || !snap.url || !snap.bounds) return;
+      if (snap.layerId) {
+        try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
+      }
+      const start = new paper.Point(snap.bounds.x, snap.bounds.y);
+      const end = new paper.Point(snap.bounds.x + snap.bounds.width, snap.bounds.y + snap.bounds.height);
+      const placeholder = create3DModelPlaceholder(start, end);
+      if (placeholder) {
+        currentModel3DPlaceholderRef.current = placeholder;
+        handleModel3DUploaded({
+          url: snap.url,
+          path: snap.url,
+          key: snap.key,
+          format: snap.format,
+          fileName: snap.fileName,
+          fileSize: snap.fileSize,
+          defaultScale: snap.defaultScale,
+          defaultRotation: snap.defaultRotation,
+          timestamp: snap.timestamp,
+        }, snap.id);
+      }
+    });
+
+    setModel3DInstances(prev => prev.map((model) => {
+      const snap = snapshots.find((s) => s.id === model.id);
+      if (!snap) return model;
+      return {
+        ...model,
+        modelData: {
+          ...model.modelData,
+          url: snap.url,
+          path: snap.url,
+          key: snap.key ?? model.modelData.key,
+          format: snap.format,
+          fileName: snap.fileName ?? model.modelData.fileName,
+          fileSize: snap.fileSize ?? model.modelData.fileSize,
+          defaultScale: snap.defaultScale ?? model.modelData.defaultScale,
+          defaultRotation: snap.defaultRotation ?? model.modelData.defaultRotation,
+          timestamp: snap.timestamp ?? model.modelData.timestamp,
+        },
+        bounds: {
+          x: snap.bounds.x,
+          y: snap.bounds.y,
+          width: snap.bounds.width,
+          height: snap.bounds.height,
+        },
+        layerId: snap.layerId ?? model.layerId,
+      };
+    }));
+  }, [create3DModelPlaceholder, handleModel3DUploaded]);
+
   // ========== 同步3D模型可见性 ==========
   const syncModel3DVisibility = useCallback(() => {
     setModel3DInstances(prev => prev.map(model => {
@@ -423,5 +487,6 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     setModel3DInstances,
     setSelectedModel3DIds,  // 设置多选状态
     setTriggerModel3DUpload,
+    hydrateFromSnapshot,
   };
 };

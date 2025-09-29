@@ -369,7 +369,11 @@ export class AutoScreenshotService {
     const relativeY = imageInstance.bounds.y - bounds.y;
 
     // 加载图片
-    const img = await this.loadImageFromSrc(imageInstance.imageData.src);
+    const source = imageInstance.imageData.url || imageInstance.imageData.src;
+    if (!source) {
+      throw new Error('无法获取图片资源');
+    }
+    const img = await this.loadImageFromSrc(source);
     
     // 绘制图片
     ctx.drawImage(
@@ -737,7 +741,9 @@ export class AutoScreenshotService {
         const relativeY = imageInstance.bounds.y - bounds.y;
 
         // 加载图片
-        const img = await this.loadImageFromSrc(imageInstance.imageData.src);
+        const src = imageInstance.imageData.url || imageInstance.imageData.src;
+        if (!src) continue;
+        const img = await this.loadImageFromSrc(src);
         
         // 绘制图片
         ctx.drawImage(

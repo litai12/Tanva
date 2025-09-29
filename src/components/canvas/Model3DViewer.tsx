@@ -248,8 +248,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               />
 
               {/* 3D模型 */}
-              <Model3D
-                modelPath={modelData.path}
+        <Model3D
+          modelPath={modelData.url || modelData.path || ''}
                 width={width}
                 height={height}
                 onLoaded={handleModelLoaded}

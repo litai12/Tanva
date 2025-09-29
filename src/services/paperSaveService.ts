@@ -1,5 +1,7 @@
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
+import type { Model3DData } from '@/services/model3DUploadService';
 import { saveMonitor } from '@/utils/saveMonitor';
 
 class PaperSaveService {
@@ -7,6 +9,121 @@ class PaperSaveService {
   private readonly SAVE_DELAY = 150; // 减少延迟，更快响应
   private isInitialized = false;
   private scheduledForProjectId: string | null = null;
+
+  private normalizeLayerId(name?: string | undefined | null): string | null {
+    if (!name) return null;
+    if (name.startsWith('layer_')) return name.replace('layer_', '');
+    return name;
+  }
+
+  private gatherAssets(): { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[] } {
+    const images: ImageAssetSnapshot[] = [];
+    const models: ModelAssetSnapshot[] = [];
+    const texts: TextAssetSnapshot[] = [];
+
+    try {
+      const instances = (window as any)?.tanvaImageInstances as any[] | undefined;
+      if (Array.isArray(instances)) {
+        instances.forEach((instance) => {
+          const data = instance?.imageData;
+          const bounds = instance?.bounds;
+          const url = data?.url || data?.localDataUrl || data?.src;
+          if (!url) return;
+          images.push({
+            id: instance.id,
+            url,
+            key: data?.key,
+            fileName: data?.fileName,
+            width: data?.width,
+            height: data?.height,
+            contentType: data?.contentType,
+            pendingUpload: !!data?.pendingUpload,
+            localDataUrl: data?.localDataUrl,
+            bounds: {
+              x: bounds?.x ?? 0,
+              y: bounds?.y ?? 0,
+              width: bounds?.width ?? 0,
+              height: bounds?.height ?? 0,
+            },
+            layerId: this.normalizeLayerId(instance?.layerId || instance?.layer?.name),
+            src: url,
+          });
+        });
+      }
+    } catch (error) {
+      console.warn('采集图片实例失败:', error);
+    }
+
+    try {
+      const instances = (window as any)?.tanvaModel3DInstances as any[] | undefined;
+      if (Array.isArray(instances)) {
+        instances.forEach((instance) => {
+          const data: Model3DData | undefined = instance?.modelData;
+          const bounds = instance?.bounds;
+          const url = data?.url || (data as any)?.path;
+          if (!url) return;
+          models.push({
+            id: instance.id,
+            url,
+            key: data?.key,
+            path: url,
+            format: data?.format || 'glb',
+            fileName: data?.fileName || 'model',
+            fileSize: data?.fileSize || 0,
+            defaultScale: data?.defaultScale || { x: 1, y: 1, z: 1 },
+            defaultRotation: data?.defaultRotation || { x: 0, y: 0, z: 0 },
+            timestamp: data?.timestamp || Date.now(),
+            bounds: {
+              x: bounds?.x ?? 0,
+              y: bounds?.y ?? 0,
+              width: bounds?.width ?? 0,
+              height: bounds?.height ?? 0,
+            },
+            layerId: this.normalizeLayerId(instance?.layerId),
+          });
+        });
+      }
+    } catch (error) {
+      console.warn('采集3D模型实例失败:', error);
+    }
+
+    try {
+      const items = (window as any)?.tanvaTextItems as any[] | undefined;
+      if (Array.isArray(items)) {
+        items.forEach((item) => {
+          const paperText = item?.paperText;
+          const style = item?.style || {};
+          const position = paperText?.position;
+          const color = typeof style?.color === 'string'
+            ? style.color
+            : (paperText?.fillColor && typeof paperText.fillColor.toCSS === 'function'
+              ? paperText.fillColor.toCSS(true)
+              : '#000000');
+          texts.push({
+            id: item?.id,
+            content: paperText?.content ?? '',
+            position: {
+              x: position?.x ?? 0,
+              y: position?.y ?? 0,
+            },
+            style: {
+              fontFamily: style?.fontFamily || 'sans-serif',
+              fontWeight: style?.fontWeight === 'bold' ? 'bold' : 'normal',
+              fontSize: style?.fontSize ?? 24,
+              color,
+              align: style?.align || 'left',
+              italic: !!style?.italic,
+            },
+            layerId: this.normalizeLayerId(paperText?.layer?.name),
+          });
+        });
+      }
+    } catch (error) {
+      console.warn('采集文本实例失败:', error);
+    }
+
+    return { images, models, texts };
+  }
 
   /**
    * 初始化自动保存服务
@@ -206,10 +323,31 @@ class PaperSaveService {
         console.log('💾 Paper.js项目异常，但仍保存其他项目内容...');
       }
 
+      const assets = this.gatherAssets();
+      const hasPendingImages = assets.images.some((img) => img.pendingUpload);
+      if (hasPendingImages) {
+        try {
+          const currentError = (contentStore as any).lastError as string | null;
+          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          if (currentError !== pendingMsg) {
+            contentStore.setError(pendingMsg);
+          }
+        } catch {}
+      } else {
+        try {
+          const currentError = (contentStore as any).lastError as string | null;
+          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          if (currentError === pendingMsg) {
+            contentStore.setError(null);
+          }
+        } catch {}
+      }
+
       // 更新项目内容store中的paperJson，这将触发现有的useProjectAutosave
       contentStore.updatePartial({
         paperJson: paperJson || undefined,
         meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
+        assets,
         updatedAt: new Date().toISOString()
       }, { markDirty: true });
 
