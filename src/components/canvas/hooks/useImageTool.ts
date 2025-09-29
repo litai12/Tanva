@@ -698,6 +698,24 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return;
     }
 
+    // 为了避免重复，先清理当前 Paper.js 里的图片分组（data.type === 'image'）
+    try {
+      if (paper && paper.project) {
+        const toRemove: paper.Item[] = [];
+        (paper.project.layers || []).forEach((layer: any) => {
+          const children = layer?.children || [];
+          children.forEach((child: any) => {
+            if (child?.data?.type === 'image') {
+              toRemove.push(child);
+            }
+          });
+        });
+        toRemove.forEach((item) => {
+          try { item.remove(); } catch {}
+        });
+      }
+    } catch {}
+
     setImageInstances([]);
     setSelectedImageIds([]);
 

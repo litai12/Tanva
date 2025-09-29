@@ -369,6 +369,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     if (!projectAssets) return;
     if (!paper || !paper.project) return;
+    // 如果已经从 paperJson 恢复过内容，则跳过基于快照的再创建，避免重复元素
+    const restoredFromPaper = typeof window !== 'undefined' && (window as any).tanvaPaperRestored;
+    if (restoredFromPaper) {
+      console.log('🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复');
+      // 清掉标记，仅在这一轮生效
+      try { (window as any).tanvaPaperRestored = false; } catch {}
+      return;
+    }
+
     const hasExisting =
       imageTool.imageInstances.length > 0 ||
       model3DTool.model3DInstances.length > 0 ||

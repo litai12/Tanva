@@ -9,6 +9,8 @@ import { useProjectAutosave } from '@/hooks/useProjectAutosave';
 import { paperSaveService } from '@/services/paperSaveService';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { useProjectStore } from '@/stores/projectStore';
+import { contextManager } from '@/services/contextManager';
+import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -26,12 +28,17 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     if (!projectId) {
       paperSaveService.cancelPending();
       setProject(null);
+      try { contextManager.clearImageCache(); } catch {}
+      try { useImageHistoryStore.getState().clearHistory(); } catch {}
       return undefined;
     }
 
     let cancelled = false;
     hydrationReadyRef.current = false;
     paperSaveService.cancelPending();
+    // 切换项目时清理跨项目的缓存/历史，避免“隐藏图片信息继承”
+    try { contextManager.clearImageCache(); } catch {}
+    try { useImageHistoryStore.getState().clearHistory(); } catch {}
     setProject(projectId);
 
     (async () => {
@@ -40,6 +47,9 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         if (cancelled) return;
 
         hydrate(data.content, data.version, data.updatedAt ?? null);
+        // 任意一次成功的 hydrate 都清空跨文件缓存，避免“图片缓存继承”
+        try { contextManager.clearImageCache(); } catch {}
+        try { useImageHistoryStore.getState().clearHistory(); } catch {}
         saveMonitor.push(projectId, 'hydrate_loaded', {
           version: data.version,
           hasPaper: !!(data.content as any)?.paperJson,
@@ -56,6 +66,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
               saveMonitor.push(projectId, 'hydrate_success', {
                 paperJsonLen: (data.content as any)?.paperJson?.length || 0,
               });
+              try { (window as any).tanvaPaperRestored = true; } catch {}
             }
             return ok;
           };
@@ -135,6 +146,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     return () => {
       cancelled = true;
       hydrationReadyRef.current = false;
+      try { (window as any).tanvaPaperRestored = false; } catch {}
     };
   }, [projectId, setProject, hydrate, setError]);
 
