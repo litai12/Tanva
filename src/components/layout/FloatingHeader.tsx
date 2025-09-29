@@ -515,8 +515,15 @@ const FloatingHeader: React.FC = () => {
                             <DropdownMenuItem
                                 className="text-xs cursor-pointer text-red-500 focus:text-red-500"
                                 disabled={loading}
-                                onSelect={() => {
-                                    if (!loading) logout();
+                                onSelect={async (event) => {
+                                    event.preventDefault();
+                                    if (loading) return;
+                                    try {
+                                        await logout();
+                                        window.location.href = '/auth/login';
+                                    } catch (err) {
+                                        console.error('退出登录失败:', err);
+                                    }
                                 }}
                             >
                                 <LogOut className="mr-2 h-3 w-3" />
