@@ -203,10 +203,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.log('🎪 [DEBUG] DrawingController收到quickImageAdded事件:', imageInstance);
 
       if (imageInstance) {
-        // 添加到图片实例管理
-        imageTool.setImageInstances(prev => [...prev, imageInstance]);
-        logger.upload('快速上传的图片已添加到实例管理');
-        console.log('✅ [DEBUG] 图片实例已添加到imageTool管理');
+        const alreadyExists = imageTool.imageInstances.some(inst => inst.id === imageInstance.id);
+        if (!alreadyExists) {
+          imageTool.setImageInstances(prev => [...prev, imageInstance]);
+          logger.upload('快速上传的图片已添加到实例管理');
+          console.log('✅ [DEBUG] 图片实例已添加到imageTool管理');
+        } else {
+          console.log('ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加', imageInstance.id);
+        }
 
         // 同步缓存位置信息（如果该图片刚被缓存为最新）
         try {
@@ -438,6 +442,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentColor,
     ensureDrawingLayer: drawingContext.ensureDrawingLayer,
   });
+
+  // 🔄 当 projectId 变化时，清空所有实例状态，防止旧项目数据残留
+  useEffect(() => {
+    if (!projectId) return; // 避免初始化时清空
+
+    console.log('🔄 项目ID变化，清空所有实例:', projectId);
+
+    // 清空图片实例
+    imageTool.setImageInstances([]);
+    imageTool.setSelectedImageIds([]);
+
+    // 清空3D模型实例
+    model3DTool.setModel3DInstances([]);
+    model3DTool.setSelectedModel3DIds([]);
+
+    // 清空文本实例 - 使用 deselectText 清空选择
+    simpleTextTool.deselectText();
+
+    // 清空选择工具状态
+    selectionTool.clearAllSelections();
+  }, [projectId]); // 只监听 projectId，避免无限循环
 
   useEffect(() => {
     if (!projectAssets) return;
