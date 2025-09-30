@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -37,6 +38,7 @@ import ManualSaveButton from '@/components/autosave/ManualSaveButton';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 
 const FloatingHeader: React.FC = () => {
+    const navigate = useNavigate();
     const {
         showLibraryPanel,
         showGrid,
@@ -114,7 +116,8 @@ const FloatingHeader: React.FC = () => {
     };
 
     const handleLogoClick = () => {
-        logger.debug('Logo clicked');
+        logger.debug('Logo clicked - navigating to home');
+        navigate('/');
     };
 
 
@@ -317,7 +320,7 @@ const FloatingHeader: React.FC = () => {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 className="text-xs cursor-pointer"
-                                onSelect={() => { window.location.href = '/'; }}
+                                onClick={() => navigate('/')}
                             >
                                 <Home className="mr-2 h-3 w-3" />
                                 <span>返回首页</span>
@@ -515,14 +518,15 @@ const FloatingHeader: React.FC = () => {
                             <DropdownMenuItem
                                 className="text-xs cursor-pointer text-red-500 focus:text-red-500"
                                 disabled={loading}
-                                onSelect={async (event) => {
-                                    event.preventDefault();
+                                onClick={async () => {
                                     if (loading) return;
                                     try {
+                                        console.log('🔴 开始退出登录...');
                                         await logout();
-                                        window.location.href = '/auth/login';
+                                        console.log('✅ 登出成功，准备跳转...');
+                                        navigate('/auth/login', { replace: true });
                                     } catch (err) {
-                                        console.error('退出登录失败:', err);
+                                        console.error('❌ 退出登录失败:', err);
                                     }
                                 }}
                             >

@@ -227,9 +227,26 @@ export const authApi = {
       clearSession();
       return { ok: true } as { ok: boolean };
     }
-    const res = await fetch(`${base}/api/auth/logout`, { method: 'POST', credentials: 'include' });
-    const out = await json<{ ok: boolean }>(res);
-    clearSession();
-    return out;
+
+    let ok = false;
+    try {
+      const res = await fetch(`${base}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const data = await res.json();
+          msg = data?.message || data?.error || msg;
+        } catch {}
+        console.warn('authApi.logout failed:', msg);
+      } else {
+        ok = true;
+      }
+    } catch (error) {
+      console.warn('authApi.logout network error:', error);
+    } finally {
+      clearSession();
+    }
+
+    return { ok } as { ok: boolean };
   },
 };

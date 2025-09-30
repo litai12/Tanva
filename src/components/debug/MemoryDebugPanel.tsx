@@ -17,7 +17,6 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
   onClose 
 }) => {
   const [stats, setStats] = useState<MemoryStats>(memoryMonitor.getStats());
-  const [updateInterval, setUpdateInterval] = useState<NodeJS.Timeout | null>(null);
 
   // 定期更新统计信息
   useEffect(() => {
@@ -25,18 +24,12 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
       const interval = setInterval(() => {
         setStats(memoryMonitor.getStats());
       }, 1000);
-      setUpdateInterval(interval);
-      
+
       return () => {
-        if (interval) {
-          clearInterval(interval);
-        }
+        clearInterval(interval);
       };
-    } else if (updateInterval) {
-      clearInterval(updateInterval);
-      setUpdateInterval(null);
     }
-  }, [isVisible, updateInterval]);
+  }, [isVisible]); // 只依赖 isVisible，避免无限循环
 
   const handleForceCleanup = () => {
     memoryMonitor.forceCleanup();

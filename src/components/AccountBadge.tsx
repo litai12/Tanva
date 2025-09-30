@@ -1,19 +1,22 @@
 import { useAuthStore } from '@/stores/authStore';
+import { useNavigate } from 'react-router-dom';
 
 export default function AccountBadge() {
   const { user, logout, loading, connection } = useAuthStore();
+  const navigate = useNavigate();
+
   if (!user) return null;
-  
+
   // 调试信息
   console.log('AccountBadge user:', user);
   console.log('user.name:', user.name);
   console.log('user.phone:', user.phone);
   console.log('user.phone?.slice(-4):', user.phone?.slice(-4));
   console.log('user.email:', user.email);
-  
+
   const displayName = user.name || user.phone?.slice(-4) || user.email || user.id?.slice(-4) || '用户';
   console.log('displayName:', displayName);
-  
+
   const status = (() => {
     switch (connection) {
       case 'server': return { label: '在线', color: '#16a34a' };
@@ -24,6 +27,16 @@ export default function AccountBadge() {
     }
   })();
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+      // 退出后重定向到登录页
+      navigate('/auth/login', { replace: true });
+    } catch (error) {
+      console.error('退出登录失败:', error);
+    }
+  };
+
   return (
     <div className="flex items-center gap-3 text-sm">
       <span className="text-slate-600">你好，{displayName}</span>
@@ -33,7 +46,7 @@ export default function AccountBadge() {
       </span>
       <button
         className="px-2 py-1 rounded border text-slate-600 hover:bg-slate-50"
-        onClick={() => logout()}
+        onClick={handleLogout}
         disabled={loading}
       >
         {loading ? '处理中…' : '退出登录'}
