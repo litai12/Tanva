@@ -110,7 +110,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   }, []); // 移除依赖，通过强制重渲染确保同步
 
   // 计算控制点偏移量 - 与边框精确对齐
-  const handleSize = 12; // 控制点尺寸（固定屏幕像素大小）
+  const handleSize = 10; // 控制点尺寸（固定屏幕像素大小）
   // 控制点位置：边框外侧，中心对齐边框边缘
   const handleOffset = -(handleSize / 2); // 控制点中心对齐边框边缘
 
@@ -272,7 +272,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         top: screenBounds.y,
         width: screenBounds.width,
         height: screenBounds.height,
-        zIndex: isSelected ? 1001 : 1000,
+        zIndex: isSelected ? 6 : 5,
         cursor: isDragging ? 'grabbing' : 'default',
         userSelect: 'none',
         pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
@@ -384,10 +384,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               left: handleOffset,
               width: handleSize,
               height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
+              backgroundColor: '#ffffff',
+              border: '1.5px solid #3b82f6',
+              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
               cursor: 'nw-resize',
-              borderRadius: '2px',
+              borderRadius: '0px',
               zIndex: 10
             }}
           />
@@ -401,10 +402,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               right: handleOffset,
               width: handleSize,
               height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
+              backgroundColor: '#ffffff',
+              border: '1.5px solid #3b82f6',
+              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
               cursor: 'ne-resize',
-              borderRadius: '2px',
+              borderRadius: '0px',
               zIndex: 10
             }}
           />
@@ -418,10 +420,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               left: handleOffset,
               width: handleSize,
               height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
+              backgroundColor: '#ffffff',
+              border: '1.5px solid #3b82f6',
+              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
               cursor: 'sw-resize',
-              borderRadius: '2px',
+              borderRadius: '0px',
               zIndex: 10
             }}
           />
@@ -435,10 +438,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               right: handleOffset,
               width: handleSize,
               height: handleSize,
-              backgroundColor: '#3b82f6',
-              border: '1px solid white',
+              backgroundColor: '#ffffff',
+              border: '1.5px solid #3b82f6',
+              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
               cursor: 'se-resize',
-              borderRadius: '2px',
+              borderRadius: '0px',
               zIndex: 10
             }}
           />

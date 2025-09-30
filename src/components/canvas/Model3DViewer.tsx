@@ -13,6 +13,17 @@ interface Model3DViewerProps {
   drawMode?: string; // 当前绘图模式
 }
 
+const TARGET_MODEL_SIZE = 3.2;
+const MAX_MODEL_UPSCALE = 2.4;
+const CAMERA_DISTANCE_MULTIPLIER = 1.7;
+const MIN_CAMERA_DISTANCE = 3.2;
+
+const computeScaleFactor = (maxDimension: number) => {
+  const safeDimension = Math.max(maxDimension, Number.EPSILON);
+  const rawScale = TARGET_MODEL_SIZE / safeDimension;
+  return Math.min(rawScale, MAX_MODEL_UPSCALE);
+};
+
 // 3D模型组件
 function Model3D({
   modelPath,
@@ -95,9 +106,8 @@ function Model3D({
       clonedScene.position.sub(center);
 
       // 计算基础缩放比例，使模型适合显示区域
-      const maxSize = 2.5; // 目标最大尺寸
       const maxDimension = Math.max(size.x, size.y, size.z);
-      const scaleFactor = Math.min(maxSize / maxDimension, 1);
+      const scaleFactor = computeScaleFactor(maxDimension);
 
       setBaseScaleFactor(scaleFactor);
 
@@ -125,8 +135,8 @@ function Model3D({
 
   // 根据容器大小动态调整缩放（响应容器尺寸变化）
   useEffect(() => {
-    // 计算容器大小比例，相对于基础大小（400x400）
-    const baseSize = 400;
+    // 计算容器大小比例，相对于基础大小（360x360），让模型默认更大
+    const baseSize = 360;
     const containerScale = Math.min(width / baseSize, height / baseSize);
 
     // 最终缩放 = 基础缩放 × 容器缩放
@@ -158,7 +168,9 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
     // 根据模型大小调整摄像机位置
     const size = boundingBox.getSize(new THREE.Vector3());
     const maxDimension = Math.max(size.x, size.y, size.z);
-    const distance = maxDimension * 2;
+    const scaleFactor = computeScaleFactor(maxDimension);
+    const scaledMaxDimension = maxDimension * scaleFactor;
+    const distance = Math.max(scaledMaxDimension * CAMERA_DISTANCE_MULTIPLIER, MIN_CAMERA_DISTANCE);
     setCameraPosition([distance, distance, distance]);
   };
 

@@ -30,6 +30,7 @@ export interface ConversationContext {
     // 新增：最近图像在画布中的位置信息（可选）
     latestBounds?: { x: number; y: number; width: number; height: number } | null;
     latestLayerId?: string | null;
+    latestRemoteUrl?: string | null;
   };
   
   // 上下文信息

@@ -27,6 +27,23 @@ import TextSelectionOverlay from './TextSelectionOverlay';
 import type { DrawingContext } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 
+const isInlineImageSource = (value: unknown): value is string => {
+  if (typeof value !== 'string') return false;
+  return value.startsWith('data:image') || value.startsWith('blob:');
+};
+
+const extractLocalImageData = (imageData: unknown): string | null => {
+  if (!imageData || typeof imageData !== 'object') return null;
+  const candidates = ['localDataUrl', 'dataUrl', 'previewDataUrl'];
+  for (const key of candidates) {
+    const candidate = (imageData as Record<string, unknown>)[key];
+    if (typeof candidate === 'string' && candidate.length > 0 && isInlineImageSource(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+};
+
 interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
@@ -194,17 +211,44 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 同步缓存位置信息（如果该图片刚被缓存为最新）
         try {
           const cached = contextManager.getCachedImage();
-          // 直接将当前实例作为“最新缓存图像”，并写入位置信息
-          contextManager.cacheLatestImage(
-            imageInstance.imageData?.src || cached?.imageData || '',
-            imageInstance.id,
-            cached?.prompt || '快速上传图片',
-            {
-              bounds: imageInstance.bounds,
-              layerId: imageInstance.layerId
+          const rawSource = imageInstance.imageData?.src;
+          const inlineSource = isInlineImageSource(rawSource) ? rawSource : null;
+          const localDataUrl = extractLocalImageData(imageInstance.imageData);
+          const imageDataForCache = inlineSource || localDataUrl || cached?.imageData || null;
+          const remoteUrl = (() => {
+            if (inlineSource) {
+              return imageInstance.imageData?.url ?? cached?.remoteUrl ?? null;
             }
-          );
-          console.log('🧷 已将图片位置信息写入缓存（覆盖为当前实例）:', { id: imageInstance.id, bounds: imageInstance.bounds });
+            if (typeof rawSource === 'string' && rawSource.length > 0) {
+              return rawSource;
+            }
+            if (typeof imageInstance.imageData?.url === 'string' && imageInstance.imageData.url.length > 0) {
+              return imageInstance.imageData.url;
+            }
+            return cached?.remoteUrl ?? null;
+          })();
+
+          if (imageDataForCache) {
+            contextManager.cacheLatestImage(
+              imageDataForCache,
+              imageInstance.id,
+              cached?.prompt || '快速上传图片',
+              {
+                bounds: imageInstance.bounds,
+                layerId: imageInstance.layerId,
+                remoteUrl
+              }
+            );
+            console.log('🧷 已将图片位置信息写入缓存（覆盖为当前实例）:', { id: imageInstance.id, bounds: imageInstance.bounds });
+          } else {
+            console.warn('⚠️ 未找到可缓存的图像数据，保持现有缓存', {
+              imageId: imageInstance.id,
+              hasInlineSource: !!inlineSource,
+              hasLocalDataUrl: !!localDataUrl,
+              hadCachedImage: !!cached?.imageData,
+              hasRemoteUrl: !!remoteUrl
+            });
+          }
         } catch (e) {
           console.warn('写入缓存位置信息失败:', e);
         }
@@ -325,17 +369,46 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 在当前实例列表中查找该图片，获取其最新bounds
         const img = imageTool.imageInstances.find(i => i.id === imageId);
         if (img && img.bounds) {
-          // 将该图片作为最新缓存，并写入位置信息（中心通过bounds在需要时计算）
-          contextManager.cacheLatestImage(
-            img.imageData?.src || '',
-            img.id,
-            '用户选择的图片',
-            {
-              bounds: img.bounds,
-              layerId: img.layerId
+          const cachedBeforeSelect = contextManager.getCachedImage();
+          const primarySource = img.imageData?.src ?? img.imageData?.url;
+          const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
+          const localDataUrl = extractLocalImageData(img.imageData);
+          const imageDataForCache = inlineSource || localDataUrl || cachedBeforeSelect?.imageData || null;
+          const remoteUrl = (() => {
+            if (inlineSource) {
+              return img.imageData?.url ?? cachedBeforeSelect?.remoteUrl ?? null;
             }
-          );
-          console.log('📌 已基于选中图片更新缓存位置:', { id: img.id, bounds: img.bounds });
+            if (typeof primarySource === 'string' && primarySource.length > 0) {
+              return primarySource;
+            }
+            if (typeof img.imageData?.url === 'string' && img.imageData.url.length > 0) {
+              return img.imageData.url;
+            }
+            return cachedBeforeSelect?.remoteUrl ?? null;
+          })();
+
+          // 将该图片作为最新缓存，并写入位置信息（中心通过bounds在需要时计算）
+          if (imageDataForCache) {
+            contextManager.cacheLatestImage(
+              imageDataForCache,
+              img.id,
+              cachedBeforeSelect?.prompt || '用户选择的图片',
+              {
+                bounds: img.bounds,
+                layerId: img.layerId,
+                remoteUrl
+              }
+            );
+            console.log('📌 已基于选中图片更新缓存位置:', { id: img.id, bounds: img.bounds });
+          } else {
+            console.warn('⚠️ 选中图片缺少可缓存的数据，跳过缓存更新', {
+              imageId,
+              hasInlineSource: !!inlineSource,
+              hasLocalDataUrl: !!localDataUrl,
+              hadCachedImage: !!cachedBeforeSelect?.imageData,
+              hasRemoteUrl: !!remoteUrl
+            });
+          }
         }
       } catch (e) {
         console.warn('更新缓存位置失败:', e);

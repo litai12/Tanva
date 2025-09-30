@@ -17,6 +17,11 @@ interface UseQuickImageUploadProps {
     projectId?: string | null;
 }
 
+const isInlineDataUrl = (value?: string | null): value is string => {
+    if (typeof value !== 'string') return false;
+    return value.startsWith('data:image') || value.startsWith('blob:');
+};
+
 export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickImageUploadProps) => {
     const { ensureDrawingLayer, zoom } = context;
     const [triggerQuickUpload, setTriggerQuickUpload] = useState(false);
@@ -192,7 +197,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 fileName,
             });
             if (uploadResult.success && uploadResult.asset) {
-                asset = { ...uploadResult.asset, src: uploadResult.asset.url };
+                asset = { ...uploadResult.asset, src: uploadResult.asset.url, localDataUrl: imagePayload };
                 fileName = asset.fileName || fileName;
             } else {
                 const errMsg = uploadResult.error || '图片上传失败';
@@ -210,6 +215,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             asset = {
                 ...imagePayload,
                 src: imagePayload.url || imagePayload.src,
+                localDataUrl: isInlineDataUrl(imagePayload.localDataUrl)
+                    ? imagePayload.localDataUrl
+                    : isInlineDataUrl(imagePayload.src)
+                        ? imagePayload.src
+                        : undefined
             };
             fileName = asset.fileName || fileName;
         }

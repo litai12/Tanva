@@ -3,10 +3,11 @@ import { contextManager } from '@/services/contextManager';
 
 interface CachedImageInfo {
   imageId: string;
-  imageData: string; // data URL expected
+  imageData: string; // base64字符串或data URL
   prompt: string;
   bounds?: { x: number; y: number; width: number; height: number } | null;
   layerId?: string | null;
+  remoteUrl?: string | null;
 }
 
 // 临时调试面板：显示当前缓存的图片信息与缩略图预览
@@ -39,7 +40,8 @@ const CachedImageDebug: React.FC = () => {
           imageData: data.imageData,
           prompt: data.prompt,
           bounds: data.bounds ?? null,
-          layerId: data.layerId ?? null
+          layerId: data.layerId ?? null,
+          remoteUrl: data.remoteUrl ?? null
         });
       }
     };
@@ -112,7 +114,25 @@ const CachedImageDebug: React.FC = () => {
     };
   }, []);
 
-  const hasImage = !!cached?.imageData && cached.imageData.startsWith('data:image');
+  const previewSrc = useMemo(() => {
+    if (!cached) return null;
+    if (cached.imageData && cached.imageData.startsWith('data:image')) {
+      return cached.imageData;
+    }
+    if (cached.imageData && cached.imageData.startsWith('blob:')) {
+      return cached.imageData;
+    }
+    if (cached.imageData && cached.imageData.length > 0) {
+      // 尝试将纯Base64拼接成PNG格式的数据URL
+      return `data:image/png;base64,${cached.imageData}`;
+    }
+    if (cached.remoteUrl) {
+      return cached.remoteUrl;
+    }
+    return null;
+  }, [cached]);
+
+  const hasImage = !!previewSrc;
 
   const center = useMemo(() => {
     if (!cached?.bounds) return null;
@@ -125,7 +145,7 @@ const CachedImageDebug: React.FC = () => {
   // 计算原始图片尺寸（naturalWidth/Height）
   useEffect(() => {
     setNaturalSize(null);
-    const src = cached?.imageData || '';
+    const src = previewSrc || '';
     if (!src || !src.startsWith('data:image')) return;
     try {
       const img = new Image();
@@ -134,12 +154,12 @@ const CachedImageDebug: React.FC = () => {
       };
       img.src = src;
     } catch {}
-  }, [cached?.imageData]);
+  }, [previewSrc]);
 
   const handlePreview = () => {
-    if (cached?.imageData) {
+    if (previewSrc) {
       try {
-        window.open(cached.imageData, '_blank');
+        window.open(previewSrc, '_blank');
       } catch {}
     }
   };
@@ -269,7 +289,7 @@ const CachedImageDebug: React.FC = () => {
                 <div className="w-full">
                   {hasImage ? (
                     <img
-                      src={cached.imageData}
+                      src={previewSrc || ''}
                       alt="cached preview"
                       className="block w-full max-w-[236px] max-h-[140px] object-contain rounded"
                     />
