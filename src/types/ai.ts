@@ -1,6 +1,6 @@
 /**
- * Google Gemini 2.5 Flash Image (Nano Banana) API 相关类型定义
- * 支持 gemini-2.5-flash-image-preview 模型
+ * Google Gemini 2.5 Flash Image API 相关类型定义
+ * 支持 gemini-2.5-flash-image 模型
  */
 
 // AI图像生成请求参数
@@ -8,6 +8,8 @@ export interface AIImageGenerateRequest {
   prompt: string;
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
+  aspectRatio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9'; // 长宽比（官方支持枚举）
+  imageOnly?: boolean; // 新增：仅返回图像，不返回文本
 }
 
 // AI图像编辑请求参数
@@ -16,6 +18,8 @@ export interface AIImageEditRequest {
   sourceImage: string; // base64 encoded image
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
+  aspectRatio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9'; // 长宽比（官方支持枚举）
+  imageOnly?: boolean; // 新增：仅返回图像，不返回文本
 }
 
 // AI图像融合请求参数
@@ -24,6 +28,8 @@ export interface AIImageBlendRequest {
   sourceImages: string[]; // base64 encoded images
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
+  aspectRatio?: '1:1' | '3:4' | '4:3' | '9:16' | '16:9'; // 长宽比（官方支持枚举）
+  imageOnly?: boolean; // 新增：仅返回图像，不返回文本
 }
 
 // AI生成结果

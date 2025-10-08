@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2 } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -46,6 +46,8 @@ const CircleIcon: React.FC<{ className?: string }> = ({ className }) => (
     <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none" />
   </svg>
 );
+
+// 长宽比选择已迁移至底部 AI 对话框
 
 
 // 其他未使用的图标已移除，保持文件精简
@@ -262,6 +264,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       >
         <Sparkles className="w-4 h-4" />
       </Button>
+
+      {/* 长宽比选择移至底部 AI 对话框；左侧工具栏不再展示 */}
 
       {/* Flow 工具开关 */}
       {flowUIEnabled && (

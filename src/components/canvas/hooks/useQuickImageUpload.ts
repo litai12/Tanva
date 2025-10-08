@@ -332,13 +332,20 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 } else {
                     // 没有占位框，使用原有的逻辑
                     if (!useOriginalSize) {
-                        // 标准模式：限制最大显示尺寸
-                        const maxSize = 768;
-                        if (originalWidth > maxSize || originalHeight > maxSize) {
-                            const scale = Math.min(maxSize / originalWidth, maxSize / originalHeight);
-                            displayWidth = originalWidth * scale;
-                            displayHeight = originalHeight * scale;
+                    // 标准模式：限制最大显示尺寸，但保持原始长宽比
+                    const maxSize = 768;
+                    if (originalWidth > maxSize || originalHeight > maxSize) {
+                        // 保持原始长宽比，按最大边缩放
+                        if (originalWidth > originalHeight) {
+                            // 宽图：以宽度为准
+                            displayWidth = maxSize;
+                            displayHeight = maxSize * (originalHeight / originalWidth);
+                        } else {
+                            // 高图：以高度为准
+                            displayHeight = maxSize;
+                            displayWidth = maxSize * (originalWidth / originalHeight);
                         }
+                    }
                     }
                     // 原始尺寸模式：直接使用原图分辨率，1像素=1像素显示
                 }

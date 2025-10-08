@@ -1,8 +1,8 @@
 // @ts-nocheck
 /**
- * Google Gemini 2.5 Flash Image (Nano Banana) API 服务层
+ * Google Gemini 2.5 Flash Image API 服务层
  * 处理AI图像生成、编辑和融合功能
- * 使用最新的 gemini-2.5-flash-image-preview 模型
+ * 使用 gemini-2.5-flash-image 模型
  */
 
 import { GoogleGenAI } from '@google/genai';
@@ -27,7 +27,7 @@ import type {
 
 class AIImageService {
   private genAI: GoogleGenAI | null = null;
-  private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
+  private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image';
   private readonly DEFAULT_TIMEOUT = 120000; // 增加到120秒
   private readonly MAX_IMAGE_RETRIES = 5; // 图像生成最大重试次数（针对无图像返回）
   private readonly IMAGE_RETRY_DELAY_BASE = 2000; // 基础重试延迟（毫秒）
@@ -263,6 +263,77 @@ class AIImageService {
     }));
 
     console.log(`📢 UI进度更新 [${operationType}]:`, eventDetail);
+  }
+
+  /**
+   * 使用 generateImages 接口执行图像生成（支持官方的 aspectRatio 枚举）
+   */
+  private async generateImageWithAspectRatio(
+    prompt: string,
+    request: AIImageGenerateRequest
+  ): Promise<{ imageBytes: string | null; textResponse: string }> {
+    if (!this.genAI) {
+      throw new Error('Google GenAI client is not initialized');
+    }
+
+    const model = request.model || this.DEFAULT_MODEL;
+    const config: Record<string, unknown> = {
+      numberOfImages: 1,
+      safetyFilterLevel: 'BLOCK_NONE'
+    };
+
+    if (request.aspectRatio) {
+      config.aspectRatio = request.aspectRatio;
+      console.log(`🎨 generateImages 接口设置长宽比: ${request.aspectRatio}`);
+    }
+
+    if (request.outputFormat) {
+      config.outputMimeType = `image/${request.outputFormat}`;
+    }
+
+    // 发送开始事件
+    this.emitProgressUpdate('图像生成', {
+      phase: 'starting',
+      message: '通过 generateImages 发起请求'
+    });
+
+    const response = await this.genAI.models.generateImages({
+      model,
+      prompt,
+      config
+    });
+
+    const generatedImage = response.generatedImages?.[0];
+    const imageBytes = generatedImage?.image?.imageBytes || null;
+
+    if (imageBytes) {
+      this.emitProgressUpdate('图像生成', {
+        phase: 'image_received',
+        chunkCount: 1,
+        hasImage: true,
+        message: 'generateImages 返回图像数据'
+      });
+    } else {
+      console.warn('⚠️ generateImages 未返回图像数据', {
+        hasGeneratedImages: !!response.generatedImages,
+        generatedImagesLength: response.generatedImages?.length || 0,
+        positivePromptSafetyAttributes: response.positivePromptSafetyAttributes
+      });
+    }
+
+    this.emitProgressUpdate('图像生成', {
+      phase: 'completed',
+      chunkCount: 1,
+      textLength: 0,
+      hasImage: !!imageBytes,
+      message: 'generateImages 请求完成'
+    });
+
+    // generateImages 不会返回额外文本，这里保持空字符串以兼容后续流程
+    return {
+      imageBytes,
+      textResponse: ''
+    };
   }
 
   /**
@@ -571,24 +642,91 @@ class AIImageService {
           async () => {
             return await this.withTimeout(
               (async () => {
+                // 统一使用 generateContentStream API，支持长宽比和仅图像模式
+                // if (request.aspectRatio) {
+                //   return await this.generateImageWithAspectRatio(prompt, request);
+                // }
+
+                // 🎨 构建配置对象（流式接口）
+                const config: any = {
+                  safetySettings: [
+                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+                  ]
+                };
+
+                // 🎨 仅图像模式：只返回图像，不返回文本
+                const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
+                config.responseModalities = responseModalities;
+                if (request.imageOnly) {
+                  console.log('🎨 启用仅图像模式 (Image only)');
+                } else {
+                  console.log('📝 启用图文模式 (Text + Image)');
+                }
+
+                // 🔍 调试：检查request.aspectRatio的值
+                console.log('🔍 检查request.aspectRatio:', {
+                  aspectRatio: request.aspectRatio,
+                  type: typeof request.aspectRatio,
+                  isTruthy: !!request.aspectRatio
+                });
+
+                // 🎨 长宽比配置 - 严格按照官方格式
+                if (request.aspectRatio) {
+                  config.imageConfig = {
+                    aspectRatio: request.aspectRatio
+                  };
+                  console.log(`🎨 设置长宽比: ${request.aspectRatio}`);
+                } else {
+                  console.log('⚠️ request.aspectRatio为空，跳过长宽比设置');
+                }
+                
+                console.log('🔍 完整config对象:', JSON.stringify(config, null, 2));
+                
+                // 🔍 显示实际的JavaScript对象（无转义）
+                console.log('🔍 实际config对象:', config);
+                
+                // 🔍 详细调试：API调用前的参数检查
+                // 🔍 打印完整的API请求信息（与demo页面格式一致）
+                const apiRequestInfo = {
+                  model: request.model || this.DEFAULT_MODEL,
+                  prompt: prompt,
+                  aspectRatio: request.aspectRatio || '自动',
+                  imageOnly: request.imageOnly || false,
+                  responseModalities,
+                  config: config,
+                  timestamp: new Date().toISOString()
+                };
+                
+                console.log('🔍 发送给API的完整请求信息:', apiRequestInfo);
+                console.log('🔍 发送的配置:', JSON.stringify(apiRequestInfo, null, 2));
+                
+                // 🛰️ 向调试面板发送API配置信息
+                try { 
+                  window.dispatchEvent(new CustomEvent('apiConfigUpdate', { detail: apiRequestInfo })); 
+                } catch {}
+                // 🛰️ 广播请求开始（包含输出模式信息）
+                try { 
+                  window.dispatchEvent(new CustomEvent('aiRequestStart', { detail: { type: 'generate', aspectRatio: request.aspectRatio || null, imageOnly: !!request.imageOnly, responseModalities } }));
+                } catch {}
+
                 const stream = await this.genAI!.models.generateContentStream({
                   model: request.model || this.DEFAULT_MODEL,
-                  contents: prompt,
-                  config: {
-                    safetySettings: [
-                      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                      { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-                    ]
-                  }
+                  contents: prompt,  // 与demo页面保持一致
+                  config
                 });
+
+                // 🔍 API调用后调试
+                console.log('🔍 API调用完成，开始解析流式响应...');
+                console.log('🔍 最终发送的config:', JSON.stringify(config, null, 2));
 
                 return this.parseStreamResponse(stream, '图像生成');
               })(),
               this.DEFAULT_TIMEOUT,
-              '流式图像生成'
+              '图像生成请求'
             );
           },
           '图像生成',
@@ -776,6 +914,37 @@ class AIImageService {
         // 🌊 使用流式API调用进行图像编辑
         const result = await this.withTimeout(
           (async () => {
+            // 🎨 构建配置对象
+            const config: any = {
+              safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+              ]
+            };
+
+            // 🎨 仅图像模式：只返回图像，不返回文本
+            const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
+            config.responseModalities = responseModalities;
+            if (request.imageOnly) {
+              console.log('🎨 启用仅图像模式 (Image only)');
+            } else {
+              console.log('📝 启用图文模式 (Text + Image)');
+            }
+
+            // 🎨 长宽比配置
+            if (request.aspectRatio) {
+              config.imageConfig = {
+                aspectRatio: request.aspectRatio
+              };
+              console.log(`🎨 设置长宽比: ${request.aspectRatio}`);
+            }
+
+            // 🛰️ 向调试面板广播：请求开始（编辑）
+            try { window.dispatchEvent(new CustomEvent('aiRequestStart', { detail: { type: 'edit', aspectRatio: request.aspectRatio || null, imageOnly: !!request.imageOnly, responseModalities } })); } catch {}
+
             const stream = await this.genAI!.models.generateContentStream({
               model: request.model || this.DEFAULT_MODEL,
               contents: [
@@ -787,15 +956,7 @@ class AIImageService {
                   }
                 }
               ],
-              config: {
-                safetySettings: [
-                  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-                ]
-              }
+              config
             });
 
             return this.parseStreamResponse(stream, '图像编辑');
@@ -960,18 +1121,41 @@ class AIImageService {
         // 🌊 使用流式API调用进行图像融合
         const result = await this.withTimeout(
           (async () => {
+            // 🎨 构建配置对象
+            const config: any = {
+              safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+              ]
+            };
+
+            // 🎨 仅图像模式：只返回图像，不返回文本
+            const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
+            config.responseModalities = responseModalities;
+            if (request.imageOnly) {
+              console.log('🎨 启用仅图像模式 (Image only)');
+            } else {
+              console.log('📝 启用图文模式 (Text + Image)');
+            }
+
+            // 🎨 长宽比配置
+            if (request.aspectRatio) {
+              config.imageConfig = {
+                aspectRatio: request.aspectRatio
+              };
+              console.log(`🎨 设置长宽比: ${request.aspectRatio}`);
+            }
+
+            // 🛰️ 向调试面板广播：请求开始（融合）
+            try { window.dispatchEvent(new CustomEvent('aiRequestStart', { detail: { type: 'blend', aspectRatio: request.aspectRatio || null, imageOnly: !!request.imageOnly, responseModalities } })); } catch {}
+
             const stream = await this.genAI!.models.generateContentStream({
               model: request.model || this.DEFAULT_MODEL,
               contents: [{ text: prompt }, ...imageParts],
-              config: {
-                safetySettings: [
-                  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-                ]
-              }
+              config
             });
 
             return this.parseStreamResponse(stream, '图像融合');

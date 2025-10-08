@@ -21,6 +21,8 @@ const CachedImageDebug: React.FC = () => {
   const [retryCount, setRetryCount] = useState<number>(0);
   const [retryStatus, setRetryStatus] = useState<string>('');
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
+  const [lastAspectRatio, setLastAspectRatio] = useState<string | null>(null);
+  const [apiConfig, setApiConfig] = useState<any>(null);
 
   // 事件驱动：监听 cachedImageChanged
   useEffect(() => {
@@ -78,6 +80,14 @@ const CachedImageDebug: React.FC = () => {
     window.addEventListener('imageEditRetry', retryHandler as EventListener);
     window.addEventListener('aiImageRetry', retryHandler as EventListener);
     window.addEventListener('editRetryStatus', retryHandler as EventListener);
+
+    // 监听AI请求开始，记录长宽比
+    const onAIRequestStart = (e: Event) => {
+      const ce = e as CustomEvent;
+      const ar = ce?.detail?.aspectRatio ?? null;
+      if (ar !== undefined) setLastAspectRatio(ar);
+    };
+    window.addEventListener('aiRequestStart', onAIRequestStart as EventListener);
     
     // 监听控制台输出以提取重试信息
     const originalConsoleLog = console.log;
@@ -111,6 +121,19 @@ const CachedImageDebug: React.FC = () => {
       window.removeEventListener('editRetryStatus', retryHandler as EventListener);
       // 恢复原始console.log
       console.log = originalConsoleLog;
+      window.removeEventListener('aiRequestStart', onAIRequestStart as EventListener);
+    };
+  }, []);
+
+  // 监听API配置信息
+  useEffect(() => {
+    const handleApiConfig = (event: CustomEvent) => {
+      setApiConfig(event.detail);
+    };
+
+    window.addEventListener('apiConfigUpdate', handleApiConfig as EventListener);
+    return () => {
+      window.removeEventListener('apiConfigUpdate', handleApiConfig as EventListener);
     };
   }, []);
 
@@ -272,6 +295,9 @@ const CachedImageDebug: React.FC = () => {
                   模式: {mode || '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
+                  长宽比: {lastAspectRatio || '—'}
+                </div>
+                <div className="text-[10px] text-gray-600">
                   中心: {center ? `cx=${Math.round(center.cx)}, cy=${Math.round(center.cy)}` : '—'}
                 </div>
                 <div className="text-[10px] text-gray-600">
@@ -286,6 +312,26 @@ const CachedImageDebug: React.FC = () => {
                   {isRetrying && <span className="text-orange-600 ml-1">进行中</span>}
                   {retryStatus && <span className="text-gray-500 ml-1">({retryStatus})</span>}
                 </div>
+                
+                {/* API配置信息 */}
+                {apiConfig && (
+                  <div className="text-[9px] text-gray-500 bg-gray-50 p-2 rounded border">
+                    <div className="font-semibold mb-1">API配置:</div>
+                    <div className="space-y-1">
+                      <div>模型: {apiConfig.model}</div>
+                      <div>长宽比: {apiConfig.aspectRatio}</div>
+                      <div>仅图像: {apiConfig.imageOnly ? '是' : '否'}</div>
+                      <div>输出类型: {Array.isArray(apiConfig.responseModalities) ? apiConfig.responseModalities.join('，') : 'Text, Image'}</div>
+                      <div>时间: {new Date(apiConfig.timestamp).toLocaleTimeString()}</div>
+                    </div>
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-[8px]">完整配置</summary>
+                      <pre className="text-[7px] mt-1 whitespace-pre-wrap break-all">
+                        {JSON.stringify(apiConfig.config, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                )}
                 <div className="w-full">
                   {hasImage ? (
                     <img

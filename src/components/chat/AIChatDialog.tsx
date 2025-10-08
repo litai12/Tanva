@@ -4,10 +4,12 @@
  * 固定在屏幕底部中央的对话框，用于AI图像生成
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+// 比例选择改为自定义浮层（定位到对话框上方）
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen } from 'lucide-react';
@@ -36,6 +38,22 @@ const MinimalGlobeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
+// 长宽比图标 - 简化为矩形框
+const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <rect x="3" y="5" width="10" height="6" rx="1" />
+  </svg>
+);
+
 const AIChatDialog: React.FC = () => {
   const {
     isVisible,
@@ -46,6 +64,7 @@ const AIChatDialog: React.FC = () => {
     sourceImagesForBlending,
     sourceImageForAnalysis,
     enableWebSearch,
+    aspectRatio,
     hideDialog,
     setCurrentInput,
     clearInput,
@@ -58,7 +77,8 @@ const AIChatDialog: React.FC = () => {
     initializeContext,
     getContextSummary,
     isIterativeMode,
-    toggleWebSearch
+    toggleWebSearch,
+    setAspectRatio
   } = useAIChatStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -81,6 +101,12 @@ const AIChatDialog: React.FC = () => {
   const promptPanelRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTriggeredRef = useRef(false);
+  // 比例面板
+  const [isAspectOpen, setIsAspectOpen] = useState(false);
+  const aspectPanelRef = useRef<HTMLDivElement | null>(null);
+  const aspectButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [aspectPos, setAspectPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [aspectReady, setAspectReady] = useState(false);
   const [promptSettings, setPromptSettings] = useState<PromptOptimizationSettings>({
     language: '中文',
     tone: '',
@@ -364,6 +390,49 @@ const AIChatDialog: React.FC = () => {
     longPressTriggeredRef.current = false;
   };
 
+  // 计算比例面板定位：位于对话框容器上方，居中
+  useLayoutEffect(() => {
+    if (!isAspectOpen) return;
+    const update = () => {
+      const panelEl = aspectPanelRef.current;
+      const containerEl = dialogRef.current;
+      if (!panelEl || !containerEl) return;
+      const containerRect = containerEl.getBoundingClientRect();
+      const w = panelEl.offsetWidth;
+      const h = panelEl.offsetHeight;
+      const offset = 8; // 再贴近一点
+      let top = containerRect.top - h - offset;
+      let left = containerRect.left + containerRect.width / 2 - w / 2;
+      // 如果上方放不下，则贴在容器顶部内侧
+      if (top < 8) top = 8;
+      // 防止越界
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+      setAspectPos({ top, left });
+      setAspectReady(true);
+    };
+    const r = requestAnimationFrame(update);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      cancelAnimationFrame(r);
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [isAspectOpen]);
+
+  // 点击外部关闭比例面板
+  useEffect(() => {
+    if (!isAspectOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (aspectPanelRef.current?.contains(t)) return;
+      if (aspectButtonRef.current?.contains(t as Node)) return;
+      setIsAspectOpen(false);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [isAspectOpen]);
+
   const handlePromptSettingsChange = (next: PromptOptimizationSettings) => {
     setPromptSettings(next);
   };
@@ -632,7 +701,7 @@ const AIChatDialog: React.FC = () => {
         ref={dialogRef}
         data-prevent-add-panel
         className={cn(
-          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-hidden",
+          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-visible",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
         onDoubleClick={handleOuterDoubleClick}
@@ -797,6 +866,62 @@ const AIChatDialog: React.FC = () => {
                 )}
                 rows={showHistory ? 3 : 1}
               />
+
+              {/* 长宽比选择按钮 - 最左边 */}
+              <Button
+                ref={aspectButtonRef}
+                onClick={() => setIsAspectOpen(v => !v)}
+                disabled={generationStatus.isGenerating}
+                size="sm"
+                variant="outline"
+                className={cn(
+                  "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                  aspectRatio
+                    ? "bg-blue-50 border-blue-300 text-blue-600"
+                    : !generationStatus.isGenerating
+                      ? "hover:bg-liquid-glass-hover text-gray-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                )}
+                title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
+              >
+                <AspectRatioIcon className="h-3.5 w-3.5" />
+              </Button>
+
+              {isAspectOpen && typeof document !== 'undefined' && (
+                createPortal(
+                  <div
+                    ref={aspectPanelRef}
+                    className="rounded-xl bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200"
+                    style={{ position: 'fixed', top: aspectPos.top, left: aspectPos.left, zIndex: 9999, visibility: aspectReady ? 'visible' : 'hidden' }}
+                  >
+                    <div className="flex items-center gap-1 p-2">
+                      {[
+                        { label: '自动', value: null },
+                        ...(['1:1','3:4','4:3','9:16','16:9'] as const).map(r => ({ label: r, value: r }))
+                      ].map((opt) => (
+                        <button
+                          key={opt.label}
+                          className={cn(
+                            'px-2 py-1 text-xs rounded-md',
+                            (aspectRatio === opt.value || (!aspectRatio && opt.value === null))
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'hover:bg-gray-100 text-gray-700 border border-transparent'
+                          )}
+                          onClick={() => {
+                            console.log('🎚️ 选择长宽比:', opt.value || '自动');
+                            setAspectRatio(opt.value as any);
+                            setIsAspectOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>,
+                  document.body
+                )
+              )}
 
               {/* 联网搜索开关 */}
               <Button

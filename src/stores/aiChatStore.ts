@@ -55,6 +55,8 @@ interface AIChatState {
   // 配置选项
   autoDownload: boolean;  // 是否自动下载生成的图片
   enableWebSearch: boolean;  // 是否启用联网搜索
+  imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
+  aspectRatio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | null;  // 图像长宽比
 
   // 操作方法
   showDialog: () => void;
@@ -103,6 +105,9 @@ interface AIChatState {
   setAutoDownload: (value: boolean) => void;
   toggleWebSearch: () => void;
   setWebSearch: (value: boolean) => void;
+  toggleImageOnly: () => void;  // 切换仅图像模式
+  setImageOnly: (value: boolean) => void;
+  setAspectRatio: (ratio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | null) => void;  // 设置长宽比
 
   // 重置状态
   resetState: () => void;
@@ -131,6 +136,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   sourceImageForAnalysis: null, // 图像分析源图像
   autoDownload: false,  // 默认不自动下载
   enableWebSearch: false,  // 默认关闭联网搜索
+  imageOnly: false,  // 默认允许返回文本
+  aspectRatio: null,  // 默认不指定长宽比
 
   // 对话框控制
   showDialog: () => set({ isVisible: true }),
@@ -203,7 +210,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       // 调用AI服务生成图像
       const result = await aiImageService.generateImage({
         prompt,
-        outputFormat: 'png'
+        outputFormat: 'png',
+        aspectRatio: state.aspectRatio,  // 传递长宽比
+        imageOnly: state.imageOnly  // 传递仅图像模式
       });
 
       clearInterval(progressInterval);
@@ -432,7 +441,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       const result = await aiImageService.editImage({
         prompt,
         sourceImage,
-        outputFormat: 'png'
+        outputFormat: 'png',
+        aspectRatio: state.aspectRatio,  // 传递长宽比
+        imageOnly: state.imageOnly  // 传递仅图像模式
       });
 
       clearInterval(progressInterval);
@@ -644,7 +655,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       const result = await aiImageService.blendImages({
         prompt,
         sourceImages,
-        outputFormat: 'png'
+        outputFormat: 'png',
+        aspectRatio: state.aspectRatio,  // 传递长宽比
+        imageOnly: state.imageOnly  // 传递仅图像模式
       });
 
       clearInterval(progressInterval);
@@ -1222,6 +1235,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   setAutoDownload: (value: boolean) => set({ autoDownload: value }),
   toggleWebSearch: () => set((state) => ({ enableWebSearch: !state.enableWebSearch })),
   setWebSearch: (value: boolean) => set({ enableWebSearch: value }),
+  toggleImageOnly: () => set((state) => ({ imageOnly: !state.imageOnly })),
+  setImageOnly: (value: boolean) => set({ imageOnly: value }),
+  setAspectRatio: (ratio) => set({ aspectRatio: ratio }),
 
   // 重置状态
   resetState: () => {

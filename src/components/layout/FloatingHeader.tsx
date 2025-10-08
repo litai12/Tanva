@@ -11,13 +11,13 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { 
-    LogOut, 
-    HelpCircle, 
-    Share, 
-    Library, 
-    Grid3x3, 
-    Ruler, 
+import {
+    LogOut,
+    HelpCircle,
+    Share,
+    Library,
+    Grid3x3,
+    Ruler,
     Square,
     Menu,
     Activity,
@@ -25,12 +25,13 @@ import {
     Check,
     ChevronRight,
     Home,
-    
+    Sparkles
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
 import ProjectManagerModal from '@/components/projects/ProjectManagerModal';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
@@ -48,8 +49,8 @@ const FloatingHeader: React.FC = () => {
         toggleGrid,
         setShowGrid,
     } = useUIStore();
-    
-    const { 
+
+    const {
         gridStyle,
         gridSize,
         gridDotSize,
@@ -63,6 +64,9 @@ const FloatingHeader: React.FC = () => {
         setGridBgColor,
         setGridBgEnabled
     } = useCanvasStore();
+
+    // AI 配置
+    const { imageOnly, setImageOnly } = useAIChatStore();
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal } = useProjectStore();
@@ -473,7 +477,27 @@ const FloatingHeader: React.FC = () => {
                             </div>
 
                             <DropdownMenuSeparator />
-            
+
+                            {/* AI 图像生成设置 */}
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                AI 图像生成
+                            </DropdownMenuLabel>
+
+                            {/* 仅图像模式开关 */}
+                            <div className="px-3 py-1.5 flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                    <Sparkles className="h-3 w-3 text-gray-500" />
+                                    <span className="text-xs">仅图像（无文字）</span>
+                                </div>
+                                <Switch
+                                    checked={imageOnly}
+                                    onCheckedChange={setImageOnly}
+                                    className="h-4 w-7"
+                                />
+                            </div>
+
+                            <DropdownMenuSeparator />
+
                             {/* 已移除：视图设置（坐标轴/回到原点/比例尺）、单位和比例尺信息 */}
                             {/* 智能落位偏移 */}
                             <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">

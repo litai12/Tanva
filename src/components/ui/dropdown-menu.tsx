@@ -105,12 +105,45 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
 
   if (!isOpen) return null;
 
+  // 位置类：支持 top/right/bottom/left 四个方向，默认 bottom（下方）
+  const sideClass = (() => {
+    switch (side) {
+      case 'top':
+        return 'bottom-full mb-2';
+      case 'right':
+        return 'left-full ml-2 top-1/2 -translate-y-1/2';
+      case 'left':
+        return 'right-full mr-2 top-1/2 -translate-y-1/2';
+      case 'bottom':
+      default:
+        return 'top-full mt-2';
+    }
+  })();
+
+  // 水平/垂直对齐类
+  const alignClass = (() => {
+    // 垂直方向(top/bottom)：控制左右对齐
+    if (!side || side === 'bottom' || side === 'top') {
+      return align === 'start'
+        ? 'left-0 right-auto'
+        : align === 'center'
+        ? 'left-1/2 -translate-x-1/2'
+        : 'right-0';
+    }
+    // 水平方向(left/right)：控制上下对齐
+    return align === 'start'
+      ? 'top-0'
+      : align === 'center'
+      ? 'top-1/2 -translate-y-1/2'
+      : 'bottom-0';
+  })();
+
   return (
     <div 
       className={cn(
-        "absolute right-0 mt-2 w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass z-50",
-        align === 'start' && 'left-0 right-auto',
-        align === 'center' && 'left-1/2 -translate-x-1/2',
+        'absolute z-[1100] w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
+        sideClass,
+        alignClass,
         className
       )} 
       {...props}
