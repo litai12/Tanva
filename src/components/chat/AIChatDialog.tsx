@@ -4,7 +4,7 @@
  * 固定在屏幕底部中央的对话框，用于AI图像生成
  */
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -91,6 +91,8 @@ const AIChatDialog: React.FC = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [manuallyClosedHistory, setManuallyClosedHistory] = useState(false);
+  const historySingleClickTimerRef = useRef<number | null>(null);
+  const suppressHistoryClickRef = useRef(false);
   // 流式文本渲染状态（仅文本对话）
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -143,6 +145,15 @@ const AIChatDialog: React.FC = () => {
     }
   }, [isVisible]);
 
+  const setHistoryVisibility = useCallback((visible: boolean, manual = false) => {
+    setShowHistory(visible);
+    if (manual) {
+      setManuallyClosedHistory(!visible);
+    } else if (visible) {
+      setManuallyClosedHistory(false);
+    }
+  }, [setShowHistory, setManuallyClosedHistory]);
+
   // 面板外点击关闭
   useEffect(() => {
     if (!isPromptPanelOpen) return;
@@ -163,24 +174,18 @@ const AIChatDialog: React.FC = () => {
     };
   }, [isPromptPanelOpen]);
 
-  // 智能历史记录显示：纯对话模式自动打开，绘图模式不打开
+  // 智能历史记录显示：生成新消息时自动展开（除非用户手动关闭或已最大化）
   useEffect(() => {
-    if (messages.length > 0 && !showHistory && !isMaximized && !manuallyClosedHistory) {
-      // 检查最后一条消息的类型
-      const lastMessage = messages[messages.length - 1];
-      
-      // 如果是纯对话模式（没有图像数据），自动显示历史记录
-      const isPureChat = lastMessage.type === 'ai' && !lastMessage.imageData && !lastMessage.sourceImageData && !lastMessage.sourceImagesData;
-      
-      if (isPureChat) {
-        // 延迟一点显示，让用户看到消息已添加
-        const timer = setTimeout(() => {
-          setShowHistory(true);
-        }, 500);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [messages.length, isMaximized, showHistory, manuallyClosedHistory]);
+    if (messages.length === 0) return;
+    if (showHistory) return;
+    if (isMaximized) return;
+    if (manuallyClosedHistory) return;
+
+    const timer = window.setTimeout(() => {
+      setHistoryVisibility(true, false);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [messages.length, showHistory, isMaximized, manuallyClosedHistory, setHistoryVisibility]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -241,16 +246,43 @@ const AIChatDialog: React.FC = () => {
 
 
   // 切换历史记录显示
-  const toggleHistory = () => {
-    const newShowHistory = !showHistory;
-    setShowHistory(newShowHistory);
-    // 记录用户手动操作，如果用户关闭了历史记录，标记为手动关闭
-    if (!newShowHistory) {
-      setManuallyClosedHistory(true);
-    } else {
-      setManuallyClosedHistory(false);
-    }
+  const toggleHistory = (manualOrEvent?: boolean | React.SyntheticEvent) => {
+    const manual = typeof manualOrEvent === 'boolean' ? manualOrEvent : true;
+    const next = !showHistory;
+    setHistoryVisibility(next, manual);
   };
+
+  const handleHistorySurfaceClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (isMaximized) return;
+    if (messages.length === 0) return;
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    const interactive = target.closest(
+      'textarea, input, button, a, label, select, [role="button"], [data-history-ignore-toggle]'
+    );
+    if (interactive) return;
+
+    if (historySingleClickTimerRef.current) {
+      window.clearTimeout(historySingleClickTimerRef.current);
+    }
+
+    historySingleClickTimerRef.current = window.setTimeout(() => {
+      if (!suppressHistoryClickRef.current) {
+        toggleHistory(true);
+      }
+      suppressHistoryClickRef.current = false;
+      historySingleClickTimerRef.current = null;
+    }, 180);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (historySingleClickTimerRef.current) {
+        window.clearTimeout(historySingleClickTimerRef.current);
+      }
+    };
+  }, []);
 
   // 订阅AI流式进度事件，按增量渲染文本（仅限“文本对话”）
   useEffect(() => {
@@ -579,6 +611,11 @@ const AIChatDialog: React.FC = () => {
 
   // 捕获阶段拦截双击：只执行对话框放大/缩小，并阻止事件继续到画布
   const handleDoubleClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (historySingleClickTimerRef.current) {
+      window.clearTimeout(historySingleClickTimerRef.current);
+      historySingleClickTimerRef.current = null;
+    }
+    suppressHistoryClickRef.current = true;
     const target = e.target as HTMLElement;
     // 忽略在交互控件上的双击（但仍阻止冒泡，防误触画布）
     const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
@@ -587,9 +624,13 @@ const AIChatDialog: React.FC = () => {
     // 尽力阻断同层监听
     // @ts-ignore
     e.nativeEvent?.stopImmediatePropagation?.();
-    if (interactive) return;
+    if (interactive) {
+      suppressHistoryClickRef.current = false;
+      return;
+    }
     // 与外层逻辑保持一致：双击即切换大小
     setIsMaximized(v => !v);
+    suppressHistoryClickRef.current = false;
   };
 
   // 全局兜底：允许在卡片外侧“环形区域”双击触发（更灵敏）
@@ -704,6 +745,7 @@ const AIChatDialog: React.FC = () => {
           "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-visible",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
+        onClick={handleHistorySurfaceClick}
         onDoubleClick={handleOuterDoubleClick}
         onDoubleClickCapture={handleDoubleClickCapture}
       >
@@ -817,7 +859,6 @@ const AIChatDialog: React.FC = () => {
 
           {/* 输入区域 */}
           <div
-            onClick={(e) => e.stopPropagation()}
             onMouseDownCapture={(e) => {
               // 捕获阶段拦截，避免文本选中/聚焦导致的蓝色高亮
               try {
@@ -945,7 +986,7 @@ const AIChatDialog: React.FC = () => {
               </Button>
 
               {/* 历史记录按钮 */}
-              <div className="relative">
+              <div className="relative" data-history-ignore-toggle>
                 <Button
                   onClick={isMaximized ? undefined : toggleHistory}
                   disabled={isMaximized || generationStatus.isGenerating || messages.length === 0}
@@ -1075,6 +1116,7 @@ const AIChatDialog: React.FC = () => {
           {(showHistory || isMaximized) && (messages.length > 0 || isStreaming) && (
             <div
               ref={historyRef}
+              data-history-ignore-toggle
               className={cn(
                 "mt-4 overflow-y-auto custom-scrollbar",
                 isMaximized ? "max-h-screen" : "max-h-80"
