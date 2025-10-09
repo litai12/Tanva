@@ -584,7 +584,7 @@ export const useDrawingTools = ({
           // 创建图片占位框
           createImagePlaceholder(startPoint, endPoint);
 
-          // 自动切换到选择模式（橡皮擦模式下不切换）
+          // 自动切换到选择模式（除非在橡皮擦模式下）
           if (!isEraser) {
             setDrawMode('select');
           }
@@ -604,7 +604,7 @@ export const useDrawingTools = ({
           // 创建3D模型占位框
           create3DModelPlaceholder(startPoint, endPoint);
 
-          // 自动切换到选择模式（橡皮擦模式下不切换）
+          // 自动切换到选择模式（除非在橡皮擦模式下）
           if (!isEraser) {
             setDrawMode('select');
           }

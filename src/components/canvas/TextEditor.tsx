@@ -140,7 +140,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
       });
     }
     textActions.stopEditText();
-    // 完成编辑后切换到选择工具（橡皮擦模式下不切换）
+    // 完成编辑后切换到选择工具（除非在橡皮擦模式下）
     if (!isEraser) {
       setDrawMode('select');
     }

@@ -67,7 +67,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
     if (event.key === 'Enter' || event.key === 'Escape') {
       event.preventDefault();
       onStopEdit();
-      // 回车或Esc后切换到选择工具（橡皮擦模式下不切换）
+      // 回车或Esc后切换到选择工具（除非在橡皮擦模式下）
       if (!isEraser) {
         setDrawMode('select');
       }
@@ -82,7 +82,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
       // 检查当前活动元素是否仍然是这个输入框
       if (inputRef.current && document.activeElement !== inputRef.current) {
         onStopEdit();
-        // 失去焦点后也切换到选择工具（橡皮擦模式下不切换）
+        // 失去焦点后也切换到选择工具（除非在橡皮擦模式下）
         if (!isEraser) {
           setDrawMode('select');
         }
