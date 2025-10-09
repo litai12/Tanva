@@ -867,11 +867,14 @@ const AIChatDialog: React.FC = () => {
                 const x = (e as any).clientX, y = (e as any).clientY;
                 const inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
                 if (!inside) return;
+                
                 const edgeDist = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
-                if (edgeDist <= 24) {
+                // 只在真正的边缘区域（比如边框）才阻止默认行为，减小阈值到8px
+                if (edgeDist <= 8) {
                   e.preventDefault();
                   e.stopPropagation();
                 }
+                // 对于文本区域内部，允许正常的聚焦行为
               } catch {}
             }}
             onDoubleClick={(e) => {
