@@ -83,6 +83,7 @@ interface UseInteractionControllerProps {
   simpleTextTool: SimpleTextTool;
   performErase: (path: paper.Path) => void;
   setDrawMode: (mode: DrawMode) => void;
+  isEraser: boolean;
 }
 
 export const useInteractionController = ({
@@ -96,7 +97,8 @@ export const useInteractionController = ({
   model3DTool,
   simpleTextTool,
   performErase,
-  setDrawMode
+  setDrawMode,
+  isEraser
 }: UseInteractionControllerProps) => {
 
   // 拖拽检测相关常量
@@ -114,6 +116,12 @@ export const useInteractionController = ({
 
     // ========== 选择模式处理 ==========
     if (drawMode === 'select') {
+      // 橡皮擦模式下，不允许激活选择框功能
+      if (isEraser) {
+        logger.debug('🧹 橡皮擦模式下，跳过选择框激活');
+        return;
+      }
+      
       // 先检查是否点击了图片占位框（Paper 组 data.type === 'image-placeholder'）
       try {
         const hit = paper.project.hitTest(point, {
@@ -208,7 +216,7 @@ export const useInteractionController = ({
     }
 
     // ========== 绘图模式处理 ==========
-    logger.drawing(`开始绘制: 模式=${drawMode}, 坐标=(${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+    logger.drawing(`开始绘制: 模式=${drawMode}, 坐标=(${point.x.toFixed(1)}, ${point.y.toFixed(1)}), 橡皮擦=${isEraser}`);
 
     if (drawMode === 'free') {
       drawingTools.startFreeDraw(point);

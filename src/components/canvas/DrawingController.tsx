@@ -591,7 +591,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DTool,
     simpleTextTool,
     performErase: eraserTool.performErase,
-    setDrawMode
+    setDrawMode,
+    isEraser
   });
 
   // ========== 图元顺序调整处理 ==========

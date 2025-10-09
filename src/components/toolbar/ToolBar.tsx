@@ -293,10 +293,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         size="sm"
         className={cn(
           "p-0 h-8 w-8 rounded-full",
+          isEraser && "opacity-50 cursor-not-allowed",
           getActiveButtonStyle(drawMode === 'select')
         )}
-        onClick={() => setDrawMode('select')}
-        title="选择模式"
+        onClick={() => !isEraser && setDrawMode('select')}
+        disabled={isEraser}
+        title={isEraser ? "橡皮擦模式下无法使用选择模式" : "选择模式"}
       >
         <DashedSelectIcon className="w-4 h-4" />
       </Button>
