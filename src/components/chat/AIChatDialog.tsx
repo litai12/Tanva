@@ -916,7 +916,7 @@ const AIChatDialog: React.FC = () => {
                 size="sm"
                 variant="outline"
                 className={cn(
-                  "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   aspectRatio
                     ? "bg-blue-50 border-blue-300 text-blue-600"
@@ -939,7 +939,18 @@ const AIChatDialog: React.FC = () => {
                     <div className="flex items-center gap-1 p-2">
                       {[
                         { label: '自动', value: null },
-                        ...(['1:1','3:4','4:3','9:16','16:9'] as const).map(r => ({ label: r, value: r }))
+                        ...([
+                          '1:1',
+                          '2:3',
+                          '3:2',
+                          '3:4',
+                          '4:3',
+                          '4:5',
+                          '5:4',
+                          '9:16',
+                          '16:9',
+                          '21:9'
+                        ] as const).map(r => ({ label: r, value: r }))
                       ].map((opt) => (
                         <button
                           key={opt.label}
@@ -972,7 +983,7 @@ const AIChatDialog: React.FC = () => {
                 variant="outline"
                 className={cn(
                   // 移除最大化按钮后，收紧到右侧
-                  "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   !generationStatus.isGenerating
                     ? enableWebSearch 
@@ -984,28 +995,6 @@ const AIChatDialog: React.FC = () => {
               >
                 <MinimalGlobeIcon className="h-3.5 w-3.5" />
               </Button>
-
-              {/* 历史记录按钮 */}
-              <div className="relative" data-history-ignore-toggle>
-                <Button
-                  onClick={isMaximized ? undefined : toggleHistory}
-                  disabled={isMaximized || generationStatus.isGenerating || messages.length === 0}
-                  size="sm"
-                  variant="outline"
-                  className={cn(
-                    "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                    isMaximized
-                      ? "opacity-30 cursor-not-allowed text-gray-400"
-                      : !generationStatus.isGenerating && messages.length > 0
-                        ? "hover:bg-liquid-glass-hover text-gray-700"
-                        : "opacity-50 cursor-not-allowed text-gray-400"
-                  )}
-                  title={isMaximized ? "最大化时历史记录始终显示" : messages.length > 0 ? `查看聊天历史 (${messages.length}条消息)` : "暂无聊天历史"}
-                >
-                  <History className="h-3.5 w-3.5" />
-                </Button>
-              </div>
 
               {/* 提示词扩写按钮：单击切换自动扩写，长按打开配置面板 */}
               <Button

@@ -251,19 +251,21 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         isLayerPanelOpen ? "left-[322px]" : "left-2"
       )}
     >
-      {/* AI 对话开关 - 置于工具列最顶部 */}
-      <Button
-        variant={isAIDialogVisible ? 'default' : 'outline'}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(isAIDialogVisible)
-        )}
-        onClick={toggleDialog}
-        title={isAIDialogVisible ? "关闭 AI 对话" : "打开 AI 对话"}
-      >
-        <Sparkles className="w-4 h-4" />
-      </Button>
+      {/* AI 对话开关 - 暂时隐藏 */}
+      {false && (
+        <Button
+          variant={isAIDialogVisible ? 'default' : 'outline'}
+          size="sm"
+          className={cn(
+            "p-0 h-8 w-8 rounded-full",
+            getActiveButtonStyle(isAIDialogVisible)
+          )}
+          onClick={toggleDialog}
+          title={isAIDialogVisible ? "关闭 AI 对话" : "打开 AI 对话"}
+        >
+          <Sparkles className="w-4 h-4" />
+        </Button>
+      )}
 
       {/* 长宽比选择移至底部 AI 对话框；左侧工具栏不再展示 */}
 

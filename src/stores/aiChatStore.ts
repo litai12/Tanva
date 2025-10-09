@@ -56,7 +56,7 @@ interface AIChatState {
   autoDownload: boolean;  // 是否自动下载生成的图片
   enableWebSearch: boolean;  // 是否启用联网搜索
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
-  aspectRatio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | null;  // 图像长宽比
+  aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
 
   // 操作方法
   showDialog: () => void;
@@ -107,7 +107,7 @@ interface AIChatState {
   setWebSearch: (value: boolean) => void;
   toggleImageOnly: () => void;  // 切换仅图像模式
   setImageOnly: (value: boolean) => void;
-  setAspectRatio: (ratio: '1:1' | '3:4' | '4:3' | '9:16' | '16:9' | null) => void;  // 设置长宽比
+  setAspectRatio: (ratio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null) => void;  // 设置长宽比
 
   // 重置状态
   resetState: () => void;
