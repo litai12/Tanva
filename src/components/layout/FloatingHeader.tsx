@@ -277,7 +277,7 @@ const FloatingHeader: React.FC = () => {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent 
-                            className="w-64 bg-white/80 backdrop-blur-md" 
+                            className="w-64 min-h-[630px] bg-white/80 backdrop-blur-md" 
                             align="end" 
                             side="right"
                             sideOffset={8}

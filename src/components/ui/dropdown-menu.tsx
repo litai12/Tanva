@@ -111,7 +111,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
       case 'top':
         return 'bottom-full mb-2';
       case 'right':
-        return 'left-full ml-2 top-1/2 -translate-y-1/2';
+        return 'left-full ml-8 top-0';
       case 'left':
         return 'right-full mr-2 top-1/2 -translate-y-1/2';
       case 'bottom':
@@ -141,7 +141,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   return (
     <div 
       className={cn(
-        'absolute z-[1100] w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
+        'absolute z-[1100] w-48 min-h-[630px] bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
         sideClass,
         alignClass,
         className
