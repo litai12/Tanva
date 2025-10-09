@@ -188,11 +188,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (drawMode === 'quick-image' && lastDrawModeRef.current !== 'quick-image') {
       logger.tool('触发快速图片上传');
       quickImageUpload.triggerQuickImageUpload();
-      // 触发后立即切换回选择模式（除非在橡皮擦模式下）
+      // 触发后立即切换回选择模式
       setTimeout(() => {
-        if (!isEraser) {
-          setDrawMode('select');
-        }
+        setDrawMode('select');
       }, 100);
     }
     lastDrawModeRef.current = drawMode;
@@ -568,10 +566,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.error('截图过程出错:', error);
       alert('截图失败，请重试');
     } finally {
-      // 无论成功失败，都切换回选择模式（除非在橡皮擦模式下）
-      if (!isEraser) {
-        setDrawMode('select');
-      }
+      // 无论成功失败，都切换回选择模式
+      setDrawMode('select');
     }
   }, [imageTool.imageInstances, model3DTool.model3DInstances, setDrawMode, setSourceImageForEditing, showAIDialog]);
 

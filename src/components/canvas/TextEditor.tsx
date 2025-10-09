@@ -41,10 +41,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
   const textInstances = useTextStore(state => state.textInstances);
   const currentStyle = useCurrentTextStyle();
   const textActions = useTextActions();
-  const { setDrawMode, isEraser } = useToolStore(state => ({ 
-    setDrawMode: state.setDrawMode, 
-    isEraser: state.isEraser 
-  }));
+  const setDrawMode = useToolStore(state => state.setDrawMode);
   
   // 获取当前编辑的文本
   const activeText = toolState.activeTextId ? textInstances.get(toolState.activeTextId) : null;
@@ -140,10 +137,8 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
       });
     }
     textActions.stopEditText();
-    // 完成编辑后切换到选择工具（除非在橡皮擦模式下）
-    if (!isEraser) {
-      setDrawMode('select');
-    }
+    // 完成编辑后切换到选择工具
+    setDrawMode('select');
   }, [activeText, editingContent, textActions, setDrawMode]);
 
   // 取消编辑

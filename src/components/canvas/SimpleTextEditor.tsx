@@ -28,10 +28,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const currentEditingText = textItems.find(item => item.id === editingTextId);
-  const { setDrawMode, isEraser } = useToolStore(state => ({ 
-    setDrawMode: state.setDrawMode, 
-    isEraser: state.isEraser 
-  }));
+  const setDrawMode = useToolStore(state => state.setDrawMode);
 
   // 计算输入框位置
   const getInputPosition = useCallback(() => {
@@ -67,10 +64,8 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
     if (event.key === 'Enter' || event.key === 'Escape') {
       event.preventDefault();
       onStopEdit();
-      // 回车或Esc后切换到选择工具（除非在橡皮擦模式下）
-      if (!isEraser) {
-        setDrawMode('select');
-      }
+      // 回车或Esc后切换到选择工具
+      setDrawMode('select');
     }
   }, [onStopEdit, setDrawMode]);
 
@@ -82,10 +77,8 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
       // 检查当前活动元素是否仍然是这个输入框
       if (inputRef.current && document.activeElement !== inputRef.current) {
         onStopEdit();
-        // 失去焦点后也切换到选择工具（除非在橡皮擦模式下）
-        if (!isEraser) {
-          setDrawMode('select');
-        }
+        // 失去焦点后也切换到选择工具
+        setDrawMode('select');
       }
     }, 100);
   }, [onStopEdit, setDrawMode]);
