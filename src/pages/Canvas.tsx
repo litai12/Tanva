@@ -83,8 +83,8 @@ const Canvas: React.FC = () => {
             {/* AI对话框 */}
             <AIChatDialog />
 
-            {/* 临时：缓存图片调试面板（已启用，便于排查落位/缓存等问题） */}
-            <CachedImageDebug />
+            {/* 调试面板暂时隐藏，如需排查请重新挂载组件 */}
+            {/* <CachedImageDebug /> */}
         </div>
     );
 };
