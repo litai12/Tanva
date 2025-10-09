@@ -555,8 +555,8 @@ export const useDrawingTools = ({
       }));
       isDrawingRef.current = false;
       
-      // 切换到选择模式（只有在真正没有拖拽时才切换）
-      if (setDrawMode) {
+      // 切换到选择模式（只有在真正没有拖拽时才切换，且不在橡皮擦模式下）
+      if (setDrawMode && !isEraser) {
         setDrawMode('select');
       }
       
@@ -584,8 +584,10 @@ export const useDrawingTools = ({
           // 创建图片占位框
           createImagePlaceholder(startPoint, endPoint);
 
-          // 自动切换到选择模式
-          setDrawMode('select');
+          // 自动切换到选择模式（橡皮擦模式下不切换）
+          if (!isEraser) {
+            setDrawMode('select');
+          }
         }
       } else if (drawMode === '3d-model' && create3DModelPlaceholder && setDrawMode) {
         // 3D模型模式：创建占位框
@@ -602,8 +604,10 @@ export const useDrawingTools = ({
           // 创建3D模型占位框
           create3DModelPlaceholder(startPoint, endPoint);
 
-          // 自动切换到选择模式
-          setDrawMode('select');
+          // 自动切换到选择模式（橡皮擦模式下不切换）
+          if (!isEraser) {
+            setDrawMode('select');
+          }
         }
       }
 
