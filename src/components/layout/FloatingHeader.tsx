@@ -23,6 +23,7 @@ import {
     Activity,
     Palette,
     Check,
+    ChevronDown,
     ChevronRight,
     Home,
     Sparkles
@@ -69,7 +70,7 @@ const FloatingHeader: React.FC = () => {
     const { imageOnly, setImageOnly } = useAIChatStore();
 
     // 项目（文件）管理
-    const { currentProject, openModal, create, rename, optimisticRenameLocal } = useProjectStore();
+    const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
     const [editingTitle, setEditingTitle] = useState(false);
     const [titleInput, setTitleInput] = useState('');
     useEffect(() => {
@@ -192,7 +193,7 @@ const FloatingHeader: React.FC = () => {
                     </Badge>
                 </div>
 
-                {/* 中间区域：仅显示当前文件名（纯文字），双击可重命名；在网格中严格居中 */}
+                {/* 中间区域：文件名与快速切换 */}
                 <div className="hidden sm:flex items-center gap-2 justify-self-center">
                     {editingTitle ? (
                         <input
@@ -208,13 +209,74 @@ const FloatingHeader: React.FC = () => {
                             }}
                         />
                     ) : (
-                        <div
-                            className="h-7 flex items-center px-1 text-sm text-gray-800 max-w-[440px] min-w-[240px] cursor-text"
-                            title="双击重命名"
-                            onDoubleClick={() => setEditingTitle(true)}
-                        >
-                            <span className="truncate">{currentProject?.name || '未命名'}</span>
-                        </div>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <div
+                                    className="flex items-center gap-1 rounded-full px-2 py-1 transition-colors hover:bg-slate-100 cursor-pointer select-none"
+                                    role="button"
+                                    tabIndex={0}
+                                >
+                                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                                    <span
+                                        className="truncate text-sm text-gray-800 max-w-[300px]"
+                                        title="双击重命名"
+                                        onDoubleClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            setEditingTitle(true);
+                                        }}
+                                    >
+                                        {currentProject?.name || '未命名'}
+                                    </span>
+                                </div>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                                align="center"
+                                sideOffset={6}
+                                className="min-w-[220px] max-h-[200px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg"
+                            >
+                                <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-medium text-slate-400">
+                                    切换项目
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator className="mb-1" />
+                                <div className="max-h-[152px] overflow-y-auto space-y-0.5">
+                                    {projects.length === 0 ? (
+                                        <DropdownMenuItem disabled className="cursor-default text-slate-400">
+                                            暂无项目
+                                        </DropdownMenuItem>
+                                    ) : (
+                                        projects.slice(0, 5).map((project) => (
+                                            <DropdownMenuItem
+                                                key={project.id}
+                                                onSelect={(event) => {
+                                                    event.preventDefault();
+                                                    handleQuickSwitch(project.id);
+                                                }}
+                                                className="flex items-center justify-between gap-3 px-2 py-1 text-sm"
+                                            >
+                                                <span className="truncate text-slate-700">
+                                                    {project.name || '未命名'}
+                                                </span>
+                                                {project.id === currentProject?.id && (
+                                                    <Check className="h-4 w-4 text-blue-600" />
+                                                )}
+                                            </DropdownMenuItem>
+                                        ))
+                                    )}
+                                </div>
+                                <DropdownMenuSeparator className="my-1" />
+                                <DropdownMenuItem
+                                    onSelect={async (event) => {
+                                        event.preventDefault();
+                                        await create();
+                                    }}
+                                    className="px-2 py-1 text-sm text-blue-600 hover:text-blue-700 flex items-center gap-2"
+                                >
+                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current">+</span>
+                                    新建项目
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     )}
                 </div>
 
@@ -277,7 +339,7 @@ const FloatingHeader: React.FC = () => {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent 
-                            className="w-64 min-h-[630px] bg-white/80 backdrop-blur-md" 
+                            className="w-64 min-h-[400px] bg-white/80 backdrop-blur-md" 
                             align="end" 
                             side="right"
                             sideOffset={8}
@@ -575,3 +637,7 @@ const FloatingHeader: React.FC = () => {
 };
 
 export default FloatingHeader;
+    const handleQuickSwitch = (projectId: string) => {
+        if (!projectId || projectId === currentProject?.id) return;
+        open(projectId);
+    };
