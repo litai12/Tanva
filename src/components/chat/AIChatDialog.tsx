@@ -94,7 +94,10 @@ const AIChatDialog: React.FC = () => {
   const historyRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
-  const [manuallyClosedHistory, setManuallyClosedHistory] = useState(false);
+  const [manuallyClosedHistory, setManuallyClosedHistory] = useState(() => {
+    // 刷新页面时默认关闭历史记录
+    return true;
+  });
   const historySingleClickTimerRef = useRef<number | null>(null);
   const suppressHistoryClickRef = useRef(false);
   const [creatingSession, setCreatingSession] = useState(false);
