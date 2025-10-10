@@ -1,6 +1,7 @@
 import type { LayerMeta } from '@/stores/layerStore';
 import type { StoredImageAsset } from '@/types/canvas';
 import type { Model3DData } from '@/services/model3DUploadService';
+import type { SerializedConversationContext } from '@/types/context';
 
 export interface ImageAssetSnapshot extends StoredImageAsset {
   bounds: {
@@ -62,6 +63,8 @@ export interface ProjectContentSnapshot {
     savedAt?: string;
   };
   assets?: ProjectAssetsSnapshot;
+  aiChatSessions?: SerializedConversationContext[];
+  aiChatActiveSessionId?: string | null;
   updatedAt: string;
 }
 
@@ -79,6 +82,8 @@ export function createEmptyProjectContent(): ProjectContentSnapshot {
       models: [],
       texts: [],
     },
+    aiChatSessions: [],
+    aiChatActiveSessionId: null,
     updatedAt: new Date().toISOString(),
   };
 }

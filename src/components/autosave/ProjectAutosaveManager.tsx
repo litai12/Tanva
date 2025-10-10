@@ -4,13 +4,13 @@ import { projectApi } from '@/services/projectApi';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { createEmptyProjectContent } from '@/types/project';
 import { useProjectAutosave } from '@/hooks/useProjectAutosave';
 import { paperSaveService } from '@/services/paperSaveService';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { useProjectStore } from '@/stores/projectStore';
 import { contextManager } from '@/services/contextManager';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -28,6 +28,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     if (!projectId) {
       paperSaveService.cancelPending();
       setProject(null);
+      try { useAIChatStore.getState().resetSessions({ rehydrateLocal: true }); } catch {}
       try { contextManager.clearImageCache(); } catch {}
       try { useImageHistoryStore.getState().clearHistory(); } catch {}
       // 清空画布与运行时实例
@@ -50,6 +51,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     try { (window as any).tanvaModel3DInstances = []; } catch {}
     try { (window as any).tanvaTextItems = []; } catch {}
     setProject(projectId);
+    try { useAIChatStore.getState().resetSessions({ rehydrateLocal: false }); } catch {}
 
     (async () => {
       try {
@@ -57,6 +59,18 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         if (cancelled) return;
 
         hydrate(data.content, data.version, data.updatedAt ?? null);
+        try {
+          const chatStore = useAIChatStore.getState();
+          const sessions = data.content?.aiChatSessions ?? [];
+          const activeSessionId = data.content?.aiChatActiveSessionId ?? null;
+          if (sessions.length > 0) {
+            chatStore.hydratePersistedSessions(sessions, activeSessionId, { markProjectDirty: false });
+          } else {
+            chatStore.resetSessions({ rehydrateLocal: false });
+          }
+        } catch (error) {
+          console.error('❌ 同步聊天会话失败:', error);
+        }
         // 任意一次成功的 hydrate 都清空跨文件缓存，避免“图片缓存继承”
         try { contextManager.clearImageCache(); } catch {}
         try { useImageHistoryStore.getState().clearHistory(); } catch {}

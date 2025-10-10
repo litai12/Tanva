@@ -256,6 +256,17 @@ class ContextManager implements IContextManager {
   }
 
   /**
+   * 获取所有会话原始数据
+   */
+  getAllSessions(): ConversationContext[] {
+    return Array.from(this.contexts.values()).map((context) => {
+      this.ensureTemporalFields(context);
+      this.ensureCachedImages(context);
+      return context;
+    });
+  }
+
+  /**
    * 重命名会话
    */
   renameSession(sessionId: string, name: string): boolean {
@@ -287,6 +298,14 @@ class ContextManager implements IContextManager {
     }
 
     return true;
+  }
+
+  /**
+   * 重置所有会话
+   */
+  resetSessions(): void {
+    this.contexts.clear();
+    this.currentSessionId = null;
   }
 
   /**
@@ -488,7 +507,7 @@ class ContextManager implements IContextManager {
   /**
    * 保存用户偏好
    */
-  saveUserPreference(key: string, value: any): void {
+  saveUserPreference(key: string, value: unknown): void {
     if (!this.config.enableUserPreferences) return;
     
     const context = this.getCurrentContext();
@@ -501,7 +520,7 @@ class ContextManager implements IContextManager {
   /**
    * 获取用户偏好
    */
-  getUserPreference(key: string): any {
+  getUserPreference(key: string): unknown {
     const context = this.getCurrentContext();
     if (!context) return null;
     

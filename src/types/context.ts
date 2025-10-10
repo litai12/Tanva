@@ -36,7 +36,7 @@ export interface ConversationContext {
   
   // 上下文信息
   contextInfo: {
-    userPreferences: Record<string, any>;
+    userPreferences: Record<string, unknown>;
     recentPrompts: string[];
     imageHistory: ImageHistory[];
     iterationCount: number;
@@ -53,7 +53,7 @@ export interface OperationHistory {
   output?: string;
   imageData?: string;
   success: boolean;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 // 图像历史记录
@@ -65,6 +65,61 @@ export interface ImageHistory {
   operationType: string;
   parentImageId?: string; // 用于追踪编辑链
   thumbnail?: string; // 缩略图，用于显示
+}
+
+// 序列化结构（用于持久化保存/恢复）
+export interface SerializedChatMessage {
+  id: string;
+  type: ChatMessage['type'];
+  content: string;
+  timestamp: string;
+  webSearchResult?: unknown;
+}
+
+export interface SerializedOperationHistory {
+  id: string;
+  type: OperationHistory['type'];
+  timestamp: string;
+  input: string;
+  output?: string;
+  success: boolean;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface SerializedImageHistoryEntry {
+  id: string;
+  prompt: string;
+  timestamp: string;
+  operationType: string;
+  parentImageId: string | null;
+  thumbnail: string | null;
+}
+
+export interface SerializedConversationContext {
+  sessionId: string;
+  name: string;
+  startTime: string;
+  lastActivity: string;
+  currentMode: ConversationContext['currentMode'];
+  activeImageId?: string;
+  messages: SerializedChatMessage[];
+  operations: SerializedOperationHistory[];
+  cachedImages: {
+    latest: null;
+    latestId: string | null;
+    latestPrompt: string | null;
+    timestamp: string | null;
+    latestBounds: ConversationContext['cachedImages']['latestBounds'];
+    latestLayerId: string | null;
+    latestRemoteUrl: string | null;
+  };
+  contextInfo: {
+    userPreferences: Record<string, unknown>;
+    recentPrompts: string[];
+    imageHistory: SerializedImageHistoryEntry[];
+    iterationCount: number;
+    lastOperationType?: string;
+  };
 }
 
 // 上下文管理器接口
@@ -79,11 +134,13 @@ export interface IContextManager {
     name: string;
     lastActivity: Date;
     messageCount: number;
-    createdAt: Date;
-    preview?: string;
-  }>;
+   createdAt: Date;
+   preview?: string;
+ }>;
+  getAllSessions(): ConversationContext[];
   renameSession(sessionId: string, name: string): boolean;
   deleteSession(sessionId: string): boolean;
+  resetSessions(): void;
   addMessage(
     message: Omit<ChatMessage, 'id' | 'timestamp'>,
     options?: { id?: string; timestamp?: Date }
@@ -93,8 +150,8 @@ export interface IContextManager {
   detectIterativeIntent(input: string): boolean;
   incrementIteration(): void;
   resetIteration(): void;
-  saveUserPreference(key: string, value: any): void;
-  getUserPreference(key: string): any;
+  saveUserPreference(key: string, value: unknown): void;
+  getUserPreference(key: string): unknown;
   cleanupOldContexts(maxAge?: number): void;
   getSessionSummary(): string;
 }

@@ -7,25 +7,30 @@ import { create } from 'zustand';
 import { aiImageService } from '@/services/aiImageService';
 import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 import type { AIImageResult } from '@/types/ai';
-import type { ConversationContext, OperationHistory } from '@/types/context';
+import type {
+  ConversationContext,
+  OperationHistory,
+  SerializedConversationContext
+} from '@/types/context';
 
 export interface ChatMessage {
   id: string;
   type: 'user' | 'ai' | 'error';
   content: string;
   timestamp: Date;
-  imageData?: string; // AI生成的图像数据
-  sourceImageData?: string; // 用户上传的源图像数据（用于图生图）
-  sourceImagesData?: string[]; // 多张源图像数据（用于图像融合）
-  webSearchResult?: any; // 联网搜索结果
+  imageData?: string;
+  sourceImageData?: string;
+  sourceImagesData?: string[];
+  webSearchResult?: unknown;
 }
 
 export interface GenerationStatus {
   isGenerating: boolean;
-  progress: number; // 0-100
+  progress: number;
   error: string | null;
-  stage?: string; // 当前处理阶段
+  stage?: string;
 }
 
 export interface ChatSessionSummary {
@@ -36,115 +41,56 @@ export interface ChatSessionSummary {
   preview?: string;
 }
 
-interface PersistedMessage {
-  id: string;
-  type: ChatMessage['type'];
-  content: string;
-  timestamp: string;
-  webSearchResult?: unknown;
-}
-
-interface PersistedOperation {
-  id: string;
-  type: OperationHistory['type'];
-  timestamp: string;
-  input: string;
-  output?: string;
-  success: boolean;
-  metadata?: Record<string, unknown> | null;
-}
-
-interface PersistedImageHistoryEntry {
-  id: string;
-  prompt: string;
-  timestamp: string;
-  operationType: string;
-  parentImageId: string | null;
-  thumbnail: string | null;
-}
-
-interface PersistedContext {
-  sessionId: string;
-  name: string;
-  startTime: string;
-  lastActivity: string;
-  currentMode: ConversationContext['currentMode'];
-  activeImageId?: string;
-  messages: PersistedMessage[];
-  operations: PersistedOperation[];
-  cachedImages: {
-    latest: null;
-    latestId: string | null;
-    latestPrompt: string | null;
-    timestamp: string | null;
-    latestBounds: ConversationContext['cachedImages']['latestBounds'];
-    latestLayerId: string | null;
-    latestRemoteUrl: string | null;
-  };
-  contextInfo: {
-    userPreferences: Record<string, unknown>;
-    recentPrompts: string[];
-    imageHistory: PersistedImageHistoryEntry[];
-    iterationCount: number;
-    lastOperationType?: string;
-  };
-}
-
 const SESSION_STORAGE_KEY = 'tanva-ai-chat-sessions';
+const SESSION_ACTIVE_STORAGE_KEY = 'tanva-ai-chat-active-session';
+
 let hasHydratedSessions = false;
 
-const toISOString = (value: unknown): string => {
+const toISOString = (value: Date | string | number | null | undefined): string => {
   if (value instanceof Date) return value.toISOString();
-  const date = new Date(value as string | number);
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString();
-  }
-  return date.toISOString();
+  if (value === null || value === undefined) return new Date().toISOString();
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
 };
 
-const nullableToISOString = (value: unknown): string | null => {
-  if (value === null || value === undefined) return null;
-  return toISOString(value);
-};
+const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) ?? (value as T);
 
-const serializeContext = (context: ConversationContext): PersistedContext => ({
+const serializeConversation = (context: ConversationContext): SerializedConversationContext => ({
   sessionId: context.sessionId,
   name: context.name,
   startTime: toISOString(context.startTime),
   lastActivity: toISOString(context.lastActivity),
   currentMode: context.currentMode,
   activeImageId: context.activeImageId ?? undefined,
-  messages: context.messages.map((message): PersistedMessage => ({
+  messages: context.messages.map((message) => ({
     id: message.id,
     type: message.type,
     content: message.content,
     timestamp: toISOString(message.timestamp),
     webSearchResult: message.webSearchResult
   })),
-  operations: context.operations.map((operation): PersistedOperation => ({
+  operations: context.operations.map((operation) => ({
     id: operation.id,
     type: operation.type,
     timestamp: toISOString(operation.timestamp),
     input: operation.input,
     output: operation.output,
     success: operation.success,
-    metadata: operation.metadata
-      ? (JSON.parse(JSON.stringify(operation.metadata)) as Record<string, unknown>)
-      : null
+    metadata: operation.metadata ? cloneSafely(operation.metadata) : null
   })),
   cachedImages: {
     latest: null,
     latestId: context.cachedImages.latestId ?? null,
     latestPrompt: context.cachedImages.latestPrompt ?? null,
-    timestamp: nullableToISOString(context.cachedImages.timestamp),
+    timestamp: context.cachedImages.timestamp ? toISOString(context.cachedImages.timestamp) : null,
     latestBounds: context.cachedImages.latestBounds ?? null,
     latestLayerId: context.cachedImages.latestLayerId ?? null,
     latestRemoteUrl: context.cachedImages.latestRemoteUrl ?? null
   },
   contextInfo: {
-    userPreferences: JSON.parse(JSON.stringify(context.contextInfo.userPreferences ?? {})) as Record<string, unknown>,
+    userPreferences: cloneSafely(context.contextInfo.userPreferences ?? {}),
     recentPrompts: [...context.contextInfo.recentPrompts],
-    imageHistory: context.contextInfo.imageHistory.map((item): PersistedImageHistoryEntry => ({
+    imageHistory: context.contextInfo.imageHistory.map((item) => ({
       id: item.id,
       prompt: item.prompt,
       timestamp: toISOString(item.timestamp),
@@ -157,7 +103,7 @@ const serializeContext = (context: ConversationContext): PersistedContext => ({
   }
 });
 
-const deserializePersistedContext = (data: PersistedContext): ConversationContext => {
+const deserializeConversation = (data: SerializedConversationContext): ConversationContext => {
   const messages: ChatMessage[] = data.messages.map((message) => ({
     id: message.id,
     type: message.type,
@@ -174,16 +120,6 @@ const deserializePersistedContext = (data: PersistedContext): ConversationContex
     output: operation.output,
     success: operation.success,
     metadata: operation.metadata ?? undefined
-  }));
-
-  const imageHistory = data.contextInfo.imageHistory.map((item) => ({
-    id: item.id,
-    imageData: '',
-    prompt: item.prompt,
-    timestamp: new Date(item.timestamp),
-    operationType: item.operationType,
-    parentImageId: item.parentImageId ?? undefined,
-    thumbnail: item.thumbnail ?? undefined
   }));
 
   return {
@@ -205,13 +141,46 @@ const deserializePersistedContext = (data: PersistedContext): ConversationContex
       latestRemoteUrl: data.cachedImages.latestRemoteUrl ?? null
     },
     contextInfo: {
-      userPreferences: JSON.parse(JSON.stringify(data.contextInfo.userPreferences ?? {})) as Record<string, unknown>,
+      userPreferences: cloneSafely(data.contextInfo.userPreferences ?? {}),
       recentPrompts: [...data.contextInfo.recentPrompts],
-      imageHistory,
+      imageHistory: data.contextInfo.imageHistory.map((item) => ({
+        id: item.id,
+        imageData: '',
+        prompt: item.prompt,
+        timestamp: new Date(item.timestamp),
+        operationType: item.operationType,
+        parentImageId: item.parentImageId ?? undefined,
+        thumbnail: item.thumbnail ?? undefined
+      })),
       iterationCount: data.contextInfo.iterationCount,
       lastOperationType: data.contextInfo.lastOperationType
     }
   };
+};
+
+const sessionsEqual = (
+  a: SerializedConversationContext[] | undefined,
+  b: SerializedConversationContext[]
+): boolean => JSON.stringify(a ?? []) === JSON.stringify(b);
+
+const readSessionsFromLocalStorage = ():
+  | { sessions: SerializedConversationContext[]; activeSessionId: string | null }
+  | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const activeId = window.localStorage.getItem(SESSION_ACTIVE_STORAGE_KEY);
+    return {
+      sessions: parsed as SerializedConversationContext[],
+      activeSessionId: activeId && activeId.length > 0 ? activeId : null
+    };
+  } catch (error) {
+    console.error('❌ 读取聊天会话失败:', error);
+    return null;
+  }
 };
 
 interface AIChatState {
@@ -261,11 +230,17 @@ interface AIChatState {
   // 消息管理
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearMessages: () => void;
-  refreshSessions: () => void;
+  refreshSessions: (options?: { persistToLocal?: boolean; markProjectDirty?: boolean }) => void;
   createSession: (name?: string) => Promise<string>;
   switchSession: (sessionId: string) => Promise<void>;
   renameCurrentSession: (name: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
+  hydratePersistedSessions: (
+    sessions: SerializedConversationContext[],
+    activeSessionId?: string | null,
+    options?: { markProjectDirty?: boolean }
+  ) => void;
+  resetSessions: (options?: { rehydrateLocal?: boolean }) => void;
 
   // 图像生成
   generateImage: (prompt: string) => Promise<void>;
@@ -404,7 +379,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     get().refreshSessions();
   },
 
-  refreshSessions: () => {
+  refreshSessions: (options) => {
+    const { persistToLocal = true, markProjectDirty = true } = options ?? {};
     const listedSessions = contextManager.listSessions();
     const sessionSummaries = listedSessions.map((session) => ({
       sessionId: session.sessionId,
@@ -413,17 +389,44 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       messageCount: session.messageCount,
       preview: session.preview
     }));
+
+    const serializedSessions = listedSessions
+      .map((session) => contextManager.getSession(session.sessionId))
+      .filter((context): context is ConversationContext => !!context)
+      .map((context) => serializeConversation(context));
+
     set({ sessions: sessionSummaries });
 
-    if (typeof window !== 'undefined') {
+    const activeSessionId =
+      get().currentSessionId ?? contextManager.getCurrentSessionId() ?? null;
+
+    if (persistToLocal && typeof window !== 'undefined') {
       try {
-        const serialized = listedSessions
-          .map((session) => contextManager.getSession(session.sessionId))
-          .filter((context): context is ConversationContext => !!context)
-          .map((context) => serializeContext(context));
-        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(serialized));
+        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(serializedSessions));
+        if (activeSessionId) {
+          window.localStorage.setItem(SESSION_ACTIVE_STORAGE_KEY, activeSessionId);
+        } else {
+          window.localStorage.removeItem(SESSION_ACTIVE_STORAGE_KEY);
+        }
       } catch (error) {
         console.error('❌ 保存聊天会话失败:', error);
+      }
+    }
+
+    if (markProjectDirty) {
+      const projectStore = useProjectContentStore.getState();
+      if (projectStore.projectId && projectStore.hydrated) {
+        const previousSessions = projectStore.content?.aiChatSessions ?? [];
+        const previousActive = projectStore.content?.aiChatActiveSessionId ?? null;
+        if (
+          !sessionsEqual(previousSessions, serializedSessions) ||
+          (previousActive ?? null) !== (activeSessionId ?? null)
+        ) {
+          projectStore.updatePartial({
+            aiChatSessions: serializedSessions,
+            aiChatActiveSessionId: activeSessionId ?? null
+          }, { markDirty: true });
+        }
       }
     }
   },
@@ -476,6 +479,69 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       messages: nextMessages
     });
     get().refreshSessions();
+  },
+
+  hydratePersistedSessions: (sessions, activeSessionId = null, options) => {
+    const markProjectDirty = options?.markProjectDirty ?? false;
+    hasHydratedSessions = true;
+
+    contextManager.resetSessions();
+
+    sessions.forEach((session) => {
+      try {
+        const context = deserializeConversation(session);
+        contextManager.importSessionData(context);
+      } catch (error) {
+        console.error('❌ 导入会话失败:', error);
+      }
+    });
+
+    const availableSessions = contextManager.listSessions();
+    const candidateIds = new Set(availableSessions.map((session) => session.sessionId));
+
+    let targetSessionId: string | null = null;
+    if (activeSessionId && candidateIds.has(activeSessionId)) {
+      contextManager.switchSession(activeSessionId);
+      targetSessionId = activeSessionId;
+    } else if (availableSessions.length > 0) {
+      const fallbackId = availableSessions[0].sessionId;
+      contextManager.switchSession(fallbackId);
+      targetSessionId = fallbackId;
+    }
+
+    if (!targetSessionId) {
+      targetSessionId = contextManager.createSession();
+    }
+
+    const context = targetSessionId ? contextManager.getSession(targetSessionId) : null;
+    set({
+      currentSessionId: targetSessionId,
+      messages: context ? [...context.messages] : []
+    });
+
+    get().refreshSessions({ markProjectDirty });
+  },
+
+  resetSessions: (options) => {
+    const shouldRehydrateLocal = options?.rehydrateLocal ?? false;
+    contextManager.resetSessions();
+
+    if (shouldRehydrateLocal) {
+      const stored = readSessionsFromLocalStorage();
+      if (stored && stored.sessions.length > 0) {
+        get().hydratePersistedSessions(stored.sessions, stored.activeSessionId, { markProjectDirty: false });
+        return;
+      }
+    }
+
+    const sessionId = contextManager.createSession();
+    const context = contextManager.getSession(sessionId);
+    set({
+      currentSessionId: sessionId,
+      messages: context ? [...context.messages] : []
+    });
+    hasHydratedSessions = true;
+    get().refreshSessions({ markProjectDirty: false });
   },
 
   // 图像生成主函数
@@ -1567,27 +1633,10 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
   // 🧠 上下文管理方法实现
   initializeContext: () => {
-    if (!hasHydratedSessions && typeof window !== 'undefined') {
-      hasHydratedSessions = true;
-      try {
-        const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-        if (raw) {
-          const parsed: unknown = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            (parsed as PersistedContext[])
-              .sort((a, b) => new Date(a.lastActivity).getTime() - new Date(b.lastActivity).getTime())
-              .map(deserializePersistedContext)
-              .forEach((contextData) => {
-                try {
-                  contextManager.importSessionData(contextData);
-                } catch (error) {
-                  console.error('❌ 导入会话失败:', error);
-                }
-              });
-          }
-        }
-      } catch (error) {
-        console.error('❌ 恢复聊天会话失败:', error);
+    if (!hasHydratedSessions) {
+      const stored = readSessionsFromLocalStorage();
+      if (stored && stored.sessions.length > 0) {
+        get().hydratePersistedSessions(stored.sessions, stored.activeSessionId, { markProjectDirty: false });
       }
     }
 
@@ -1607,7 +1656,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       currentSessionId: sessionId,
       messages: context ? [...context.messages] : []
     });
-    get().refreshSessions();
+    hasHydratedSessions = true;
+    get().refreshSessions({ markProjectDirty: false });
     console.log('🧠 初始化上下文会话:', sessionId);
   },
 
