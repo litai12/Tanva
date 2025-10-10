@@ -8,6 +8,7 @@ import { aiImageService } from '@/services/aiImageService';
 import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
 import type { AIImageResult } from '@/types/ai';
+import type { ConversationContext, OperationHistory } from '@/types/context';
 
 export interface ChatMessage {
   id: string;
@@ -27,12 +28,202 @@ export interface GenerationStatus {
   stage?: string; // 当前处理阶段
 }
 
+export interface ChatSessionSummary {
+  sessionId: string;
+  name: string;
+  lastActivity: Date;
+  messageCount: number;
+  preview?: string;
+}
+
+interface PersistedMessage {
+  id: string;
+  type: ChatMessage['type'];
+  content: string;
+  timestamp: string;
+  webSearchResult?: unknown;
+}
+
+interface PersistedOperation {
+  id: string;
+  type: OperationHistory['type'];
+  timestamp: string;
+  input: string;
+  output?: string;
+  success: boolean;
+  metadata?: Record<string, unknown> | null;
+}
+
+interface PersistedImageHistoryEntry {
+  id: string;
+  prompt: string;
+  timestamp: string;
+  operationType: string;
+  parentImageId: string | null;
+  thumbnail: string | null;
+}
+
+interface PersistedContext {
+  sessionId: string;
+  name: string;
+  startTime: string;
+  lastActivity: string;
+  currentMode: ConversationContext['currentMode'];
+  activeImageId?: string;
+  messages: PersistedMessage[];
+  operations: PersistedOperation[];
+  cachedImages: {
+    latest: null;
+    latestId: string | null;
+    latestPrompt: string | null;
+    timestamp: string | null;
+    latestBounds: ConversationContext['cachedImages']['latestBounds'];
+    latestLayerId: string | null;
+    latestRemoteUrl: string | null;
+  };
+  contextInfo: {
+    userPreferences: Record<string, unknown>;
+    recentPrompts: string[];
+    imageHistory: PersistedImageHistoryEntry[];
+    iterationCount: number;
+    lastOperationType?: string;
+  };
+}
+
+const SESSION_STORAGE_KEY = 'tanva-ai-chat-sessions';
+let hasHydratedSessions = false;
+
+const toISOString = (value: unknown): string => {
+  if (value instanceof Date) return value.toISOString();
+  const date = new Date(value as string | number);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString();
+  }
+  return date.toISOString();
+};
+
+const nullableToISOString = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  return toISOString(value);
+};
+
+const serializeContext = (context: ConversationContext): PersistedContext => ({
+  sessionId: context.sessionId,
+  name: context.name,
+  startTime: toISOString(context.startTime),
+  lastActivity: toISOString(context.lastActivity),
+  currentMode: context.currentMode,
+  activeImageId: context.activeImageId ?? undefined,
+  messages: context.messages.map((message): PersistedMessage => ({
+    id: message.id,
+    type: message.type,
+    content: message.content,
+    timestamp: toISOString(message.timestamp),
+    webSearchResult: message.webSearchResult
+  })),
+  operations: context.operations.map((operation): PersistedOperation => ({
+    id: operation.id,
+    type: operation.type,
+    timestamp: toISOString(operation.timestamp),
+    input: operation.input,
+    output: operation.output,
+    success: operation.success,
+    metadata: operation.metadata
+      ? (JSON.parse(JSON.stringify(operation.metadata)) as Record<string, unknown>)
+      : null
+  })),
+  cachedImages: {
+    latest: null,
+    latestId: context.cachedImages.latestId ?? null,
+    latestPrompt: context.cachedImages.latestPrompt ?? null,
+    timestamp: nullableToISOString(context.cachedImages.timestamp),
+    latestBounds: context.cachedImages.latestBounds ?? null,
+    latestLayerId: context.cachedImages.latestLayerId ?? null,
+    latestRemoteUrl: context.cachedImages.latestRemoteUrl ?? null
+  },
+  contextInfo: {
+    userPreferences: JSON.parse(JSON.stringify(context.contextInfo.userPreferences ?? {})) as Record<string, unknown>,
+    recentPrompts: [...context.contextInfo.recentPrompts],
+    imageHistory: context.contextInfo.imageHistory.map((item): PersistedImageHistoryEntry => ({
+      id: item.id,
+      prompt: item.prompt,
+      timestamp: toISOString(item.timestamp),
+      operationType: item.operationType,
+      parentImageId: item.parentImageId ?? null,
+      thumbnail: item.thumbnail ?? null
+    })),
+    iterationCount: context.contextInfo.iterationCount,
+    lastOperationType: context.contextInfo.lastOperationType
+  }
+});
+
+const deserializePersistedContext = (data: PersistedContext): ConversationContext => {
+  const messages: ChatMessage[] = data.messages.map((message) => ({
+    id: message.id,
+    type: message.type,
+    content: message.content,
+    timestamp: new Date(message.timestamp),
+    webSearchResult: message.webSearchResult
+  }));
+
+  const operations: OperationHistory[] = data.operations.map((operation) => ({
+    id: operation.id,
+    type: operation.type,
+    timestamp: new Date(operation.timestamp),
+    input: operation.input,
+    output: operation.output,
+    success: operation.success,
+    metadata: operation.metadata ?? undefined
+  }));
+
+  const imageHistory = data.contextInfo.imageHistory.map((item) => ({
+    id: item.id,
+    imageData: '',
+    prompt: item.prompt,
+    timestamp: new Date(item.timestamp),
+    operationType: item.operationType,
+    parentImageId: item.parentImageId ?? undefined,
+    thumbnail: item.thumbnail ?? undefined
+  }));
+
+  return {
+    sessionId: data.sessionId,
+    name: data.name,
+    startTime: new Date(data.startTime),
+    lastActivity: new Date(data.lastActivity),
+    messages,
+    operations,
+    currentMode: data.currentMode,
+    activeImageId: data.activeImageId ?? undefined,
+    cachedImages: {
+      latest: null,
+      latestId: data.cachedImages.latestId ?? null,
+      latestPrompt: data.cachedImages.latestPrompt ?? null,
+      timestamp: data.cachedImages.timestamp ? new Date(data.cachedImages.timestamp) : null,
+      latestBounds: data.cachedImages.latestBounds ?? null,
+      latestLayerId: data.cachedImages.latestLayerId ?? null,
+      latestRemoteUrl: data.cachedImages.latestRemoteUrl ?? null
+    },
+    contextInfo: {
+      userPreferences: JSON.parse(JSON.stringify(data.contextInfo.userPreferences ?? {})) as Record<string, unknown>,
+      recentPrompts: [...data.contextInfo.recentPrompts],
+      imageHistory,
+      iterationCount: data.contextInfo.iterationCount,
+      lastOperationType: data.contextInfo.lastOperationType
+    }
+  };
+};
+
 interface AIChatState {
   // 对话框状态
   isVisible: boolean;
 
   // 输入状态
   currentInput: string;
+
+  // 会话管理
+  currentSessionId: string | null;
+  sessions: ChatSessionSummary[];
 
   // 生成状态
   generationStatus: GenerationStatus;
@@ -70,6 +261,11 @@ interface AIChatState {
   // 消息管理
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearMessages: () => void;
+  refreshSessions: () => void;
+  createSession: (name?: string) => Promise<string>;
+  switchSession: (sessionId: string) => Promise<void>;
+  renameCurrentSession: (name: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
 
   // 图像生成
   generateImage: (prompt: string) => Promise<void>;
@@ -124,6 +320,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   // 初始状态
   isVisible: true,
   currentInput: '',
+  currentSessionId: null,
+  sessions: [],
   generationStatus: {
     isGenerating: false,
     progress: 0,
@@ -150,26 +348,135 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
   // 消息管理
   addMessage: (message) => {
-    const newMessage: ChatMessage = {
-      ...message,
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date()
-    };
+    let sessionId = get().currentSessionId;
+
+    if (!sessionId) {
+      sessionId = contextManager.getCurrentSessionId() || contextManager.createSession();
+      set({ currentSessionId: sessionId });
+    } else if (contextManager.getCurrentSessionId() !== sessionId) {
+      contextManager.switchSession(sessionId);
+    }
+
+    let storedMessage: ChatMessage | null = null;
+    const context = contextManager.getCurrentContext();
+    const lastMessage = context?.messages[context.messages.length - 1];
+
+    if (
+      lastMessage &&
+      lastMessage.type === message.type &&
+      lastMessage.content === message.content
+    ) {
+      storedMessage = lastMessage;
+    }
+
+    if (!storedMessage) {
+      storedMessage = contextManager.addMessage(message);
+    }
 
     console.log('📨 添加新消息:', {
-      type: newMessage.type,
-      content: newMessage.content.substring(0, 50) + (newMessage.content.length > 50 ? '...' : ''),
-      id: newMessage.id
+      type: storedMessage.type,
+      content: storedMessage.content.substring(0, 50) + (storedMessage.content.length > 50 ? '...' : ''),
+      id: storedMessage.id
     });
 
     set((state) => ({
-      messages: [...state.messages, newMessage]
+      messages: state.messages.some((msg) => msg.id === storedMessage!.id)
+        ? state.messages
+        : [...state.messages, storedMessage!]
     }));
+
+    get().refreshSessions();
 
     console.log('📊 消息列表更新后长度:', get().messages.length);
   },
 
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => {
+    const state = get();
+    const sessionId = state.currentSessionId || contextManager.getCurrentSessionId();
+    if (sessionId) {
+      const context = contextManager.getSession(sessionId);
+      if (context) {
+        context.messages = [];
+        context.lastActivity = new Date();
+      }
+    }
+    set({ messages: [] });
+    get().refreshSessions();
+  },
+
+  refreshSessions: () => {
+    const listedSessions = contextManager.listSessions();
+    const sessionSummaries = listedSessions.map((session) => ({
+      sessionId: session.sessionId,
+      name: session.name,
+      lastActivity: session.lastActivity,
+      messageCount: session.messageCount,
+      preview: session.preview
+    }));
+    set({ sessions: sessionSummaries });
+
+    if (typeof window !== 'undefined') {
+      try {
+        const serialized = listedSessions
+          .map((session) => contextManager.getSession(session.sessionId))
+          .filter((context): context is ConversationContext => !!context)
+          .map((context) => serializeContext(context));
+        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(serialized));
+      } catch (error) {
+        console.error('❌ 保存聊天会话失败:', error);
+      }
+    }
+  },
+
+  createSession: async (name) => {
+    const sessionId = contextManager.createSession(name);
+    const context = contextManager.getCurrentContext();
+    set({
+      currentSessionId: sessionId,
+      messages: context ? [...context.messages] : []
+    });
+    get().refreshSessions();
+    return sessionId;
+  },
+
+  switchSession: async (sessionId) => {
+    const switched = contextManager.switchSession(sessionId);
+    if (!switched) return;
+    const context = contextManager.getSession(sessionId);
+    set({
+      currentSessionId: sessionId,
+      messages: context ? [...context.messages] : []
+    });
+    get().refreshSessions();
+  },
+
+  renameCurrentSession: async (name) => {
+    const sessionId = get().currentSessionId;
+    if (!sessionId) return;
+    if (contextManager.renameSession(sessionId, name)) {
+      get().refreshSessions();
+    }
+  },
+
+  deleteSession: async (sessionId) => {
+    const removed = contextManager.deleteSession(sessionId);
+    if (!removed) return;
+
+    const activeId = contextManager.getCurrentSessionId();
+    let nextMessages: ChatMessage[] = [];
+    if (activeId) {
+      const context = contextManager.getSession(activeId);
+      if (context) {
+        nextMessages = [...context.messages];
+      }
+    }
+
+    set({
+      currentSessionId: activeId || null,
+      messages: nextMessages
+    });
+    get().refreshSessions();
+  },
 
   // 图像生成主函数
   generateImage: async (prompt: string) => {
@@ -1153,16 +1460,23 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     if (state.generationStatus.isGenerating) return;
 
-    // 🧠 确保有活跃的上下文
-    if (!contextManager.getCurrentContext()) {
-      contextManager.createSession();
+    // 🧠 确保有活跃的会话并同步状态
+    let sessionId = state.currentSessionId || contextManager.getCurrentSessionId();
+    if (!sessionId) {
+      sessionId = contextManager.createSession();
+    } else if (contextManager.getCurrentSessionId() !== sessionId) {
+      contextManager.switchSession(sessionId);
     }
-    
-    // 🧠 添加用户消息到上下文
-    contextManager.addMessage({
-      type: 'user',
-      content: input
-    });
+
+    if (sessionId !== state.currentSessionId) {
+      const context = contextManager.getSession(sessionId);
+      set({
+        currentSessionId: sessionId,
+        messages: context ? [...context.messages] : []
+      });
+    }
+
+    get().refreshSessions();
 
     console.log('🤖 智能处理用户输入...');
 
@@ -1205,12 +1519,6 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           progress: 0,
           error: errorMessage
         }
-      });
-
-      // 🧠 添加错误消息到上下文
-      contextManager.addMessage({
-        type: 'error',
-        content: `处理失败: ${errorMessage}`
       });
 
       get().addMessage({
@@ -1259,7 +1567,47 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
   // 🧠 上下文管理方法实现
   initializeContext: () => {
-    const sessionId = contextManager.createSession();
+    if (!hasHydratedSessions && typeof window !== 'undefined') {
+      hasHydratedSessions = true;
+      try {
+        const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+        if (raw) {
+          const parsed: unknown = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            (parsed as PersistedContext[])
+              .sort((a, b) => new Date(a.lastActivity).getTime() - new Date(b.lastActivity).getTime())
+              .map(deserializePersistedContext)
+              .forEach((contextData) => {
+                try {
+                  contextManager.importSessionData(contextData);
+                } catch (error) {
+                  console.error('❌ 导入会话失败:', error);
+                }
+              });
+          }
+        }
+      } catch (error) {
+        console.error('❌ 恢复聊天会话失败:', error);
+      }
+    }
+
+    let sessionId = contextManager.getCurrentSessionId();
+    if (!sessionId) {
+      const existingSessions = contextManager.listSessions();
+      if (existingSessions.length > 0) {
+        sessionId = existingSessions[0].sessionId;
+        contextManager.switchSession(sessionId);
+      } else {
+        sessionId = contextManager.createSession();
+      }
+    }
+
+    const context = sessionId ? contextManager.getSession(sessionId) : null;
+    set({
+      currentSessionId: sessionId,
+      messages: context ? [...context.messages] : []
+    });
+    get().refreshSessions();
     console.log('🧠 初始化上下文会话:', sessionId);
   },
 

@@ -18,6 +18,11 @@ class ContextManager implements IContextManager {
   private currentSessionId: string | null = null;
   private config: ContextConfig;
 
+  private generateDefaultSessionName(): string {
+    const count = this.contexts.size + 1;
+    return `会话 ${count}`;
+  }
+
   private static createEmptyCachedImages(): ConversationContext['cachedImages'] {
     return {
       latest: null,
@@ -51,6 +56,83 @@ class ContextManager implements IContextManager {
     return cached;
   }
 
+  private ensureTemporalFields(context: ConversationContext): ConversationContext {
+    if (!(context.startTime instanceof Date)) {
+      context.startTime = new Date(context.startTime);
+    }
+    if (!(context.lastActivity instanceof Date)) {
+      context.lastActivity = new Date(context.lastActivity);
+    }
+    if (!context.name) {
+      context.name = this.generateDefaultSessionName();
+    }
+
+    if (!Array.isArray(context.messages)) {
+      context.messages = [];
+    } else {
+      context.messages = context.messages.map((message) => ({
+        ...message,
+        timestamp: message.timestamp instanceof Date
+          ? message.timestamp
+          : new Date(message.timestamp)
+      }));
+    }
+
+    if (!Array.isArray(context.operations)) {
+      context.operations = [];
+    } else {
+      context.operations = context.operations.map((operation) => ({
+        ...operation,
+        timestamp: operation.timestamp instanceof Date
+          ? operation.timestamp
+          : new Date(operation.timestamp)
+      }));
+    }
+
+    if (!context.contextInfo) {
+      context.contextInfo = {
+        userPreferences: {},
+        recentPrompts: [],
+        imageHistory: [],
+        iterationCount: 0
+      };
+    }
+
+    if (!Array.isArray(context.contextInfo.recentPrompts)) {
+      context.contextInfo.recentPrompts = [];
+    }
+
+    if (!Array.isArray(context.contextInfo.imageHistory)) {
+      context.contextInfo.imageHistory = [];
+    } else {
+      context.contextInfo.imageHistory = context.contextInfo.imageHistory.map((item) => ({
+        ...item,
+        timestamp: item.timestamp instanceof Date
+          ? item.timestamp
+          : new Date(item.timestamp)
+      }));
+    }
+
+    return context;
+  }
+
+  private ensureActiveContext(): ConversationContext {
+    if (this.currentSessionId) {
+      const existing = this.contexts.get(this.currentSessionId);
+      if (existing) {
+        this.ensureTemporalFields(existing);
+        this.ensureCachedImages(existing);
+        return existing;
+      }
+    }
+    const sessionId = this.createSession();
+    const context = this.contexts.get(sessionId);
+    if (!context) {
+      throw new Error('Failed to create active context');
+    }
+    return context;
+  }
+
   constructor(config: ContextConfig = DEFAULT_CONTEXT_CONFIG) {
     this.config = config;
     console.log('🧠 上下文管理器初始化完成');
@@ -59,7 +141,7 @@ class ContextManager implements IContextManager {
   /**
    * 创建新会话
    */
-  createSession(): string {
+  createSession(name?: string): string {
     // 检查是否已有活跃的会话
     if (this.currentSessionId && this.contexts.has(this.currentSessionId)) {
       const existingContext = this.contexts.get(this.currentSessionId);
@@ -78,6 +160,7 @@ class ContextManager implements IContextManager {
       sessionId,
       startTime: new Date(),
       lastActivity: new Date(),
+      name: name || this.generateDefaultSessionName(),
       messages: [],
       operations: [],
       currentMode: 'chat',
@@ -106,24 +189,119 @@ class ContextManager implements IContextManager {
   }
 
   /**
+   * 获取当前会话ID
+   */
+  getCurrentSessionId(): string | null {
+    return this.currentSessionId;
+  }
+
+  /**
+   * 切换当前会话
+   */
+  switchSession(sessionId: string): boolean {
+    const context = this.contexts.get(sessionId);
+    if (!context) {
+      console.warn('⚠️ 尝试切换到不存在的会话:', sessionId);
+      return false;
+    }
+    this.currentSessionId = sessionId;
+    this.ensureTemporalFields(context);
+    this.ensureCachedImages(context);
+    console.log('🧠 切换会话上下文:', sessionId);
+    return true;
+  }
+
+  /**
    * 获取当前上下文
    */
   getCurrentContext(): ConversationContext | null {
     if (!this.currentSessionId) return null;
-    return this.contexts.get(this.currentSessionId) || null;
+    const context = this.contexts.get(this.currentSessionId) || null;
+    if (!context) return null;
+    this.ensureTemporalFields(context);
+    this.ensureCachedImages(context);
+    return context;
+  }
+
+  /**
+   * 获取指定会话
+   */
+  getSession(sessionId: string): ConversationContext | null {
+    const context = this.contexts.get(sessionId);
+    if (!context) return null;
+    this.ensureTemporalFields(context);
+    this.ensureCachedImages(context);
+    return context;
+  }
+
+  /**
+   * 列出所有会话
+   */
+  listSessions(): Array<{ sessionId: string; name: string; lastActivity: Date; messageCount: number; createdAt: Date; preview?: string }> {
+    return Array.from(this.contexts.values())
+      .map((context) => {
+        this.ensureTemporalFields(context);
+        const lastMessage = context.messages[context.messages.length - 1];
+        const preview = lastMessage ? lastMessage.content.substring(0, 50) : undefined;
+        return {
+          sessionId: context.sessionId,
+          name: context.name,
+          lastActivity: context.lastActivity,
+          createdAt: context.startTime,
+          messageCount: context.messages.length,
+          preview
+        };
+      })
+      .sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime());
+  }
+
+  /**
+   * 重命名会话
+   */
+  renameSession(sessionId: string, name: string): boolean {
+    const context = this.contexts.get(sessionId);
+    if (!context) return false;
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return false;
+    context.name = trimmed;
+    context.lastActivity = new Date();
+    console.log('🧠 重命名会话:', sessionId, '=>', trimmed);
+    return true;
+  }
+
+  /**
+   * 删除会话
+   */
+  deleteSession(sessionId: string): boolean {
+    const removed = this.contexts.delete(sessionId);
+    if (!removed) return false;
+    console.log('🗑️ 删除会话上下文:', sessionId);
+
+    if (this.currentSessionId === sessionId) {
+      this.currentSessionId = null;
+      const next = this.listSessions()[0];
+      if (next) {
+        this.currentSessionId = next.sessionId;
+        console.log('🧠 自动切换到最近的会话:', next.sessionId);
+      }
+    }
+
+    return true;
   }
 
   /**
    * 添加消息到上下文
    */
-  addMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): void {
-    const context = this.getCurrentContext();
-    if (!context) return;
+  addMessage(
+    message: Omit<ChatMessage, 'id' | 'timestamp'>,
+    options?: { id?: string; timestamp?: Date }
+  ): ChatMessage {
+    const context = this.ensureActiveContext();
     
     const newMessage: ChatMessage = {
       ...message,
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date()
+      id: options?.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: options?.timestamp ? new Date(options.timestamp) : new Date()
     };
     
     context.messages.push(newMessage);
@@ -135,6 +313,7 @@ class ContextManager implements IContextManager {
     }
     
     console.log('📝 添加消息到上下文:', newMessage.content.substring(0, 50));
+    return newMessage;
   }
 
   /**
@@ -375,14 +554,25 @@ class ContextManager implements IContextManager {
     let cleanedCount = 0;
     
     for (const [sessionId, context] of this.contexts.entries()) {
+      this.ensureTemporalFields(context);
       if (now.getTime() - context.lastActivity.getTime() > maxAge) {
         this.contexts.delete(sessionId);
         cleanedCount++;
+        if (this.currentSessionId === sessionId) {
+          this.currentSessionId = null;
+        }
       }
     }
     
     if (cleanedCount > 0) {
       console.log('🗑️ 清理旧上下文:', cleanedCount, '个会话');
+      if (!this.currentSessionId) {
+        const next = this.listSessions()[0];
+        if (next) {
+          this.currentSessionId = next.sessionId;
+          console.log('🧠 清理后自动切换到会话:', next.sessionId);
+        }
+      }
     }
   }
 
@@ -395,6 +585,7 @@ class ContextManager implements IContextManager {
     
     let activeSessions = 0;
     for (const context of this.contexts.values()) {
+      this.ensureTemporalFields(context);
       if (now.getTime() - context.lastActivity.getTime() < activeThreshold) {
         activeSessions++;
       }
@@ -417,6 +608,7 @@ class ContextManager implements IContextManager {
    * 导入会话数据
    */
   importSessionData(data: ConversationContext): void {
+    this.ensureTemporalFields(data);
     this.ensureCachedImages(data);
     this.contexts.set(data.sessionId, data);
     this.currentSessionId = data.sessionId;

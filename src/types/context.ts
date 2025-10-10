@@ -10,6 +10,7 @@ export interface ConversationContext {
   sessionId: string;
   startTime: Date;
   lastActivity: Date;
+  name: string;
   
   // 对话历史
   messages: ChatMessage[];
@@ -68,9 +69,25 @@ export interface ImageHistory {
 
 // 上下文管理器接口
 export interface IContextManager {
-  createSession(): string;
+  createSession(name?: string): string;
   getCurrentContext(): ConversationContext | null;
-  addMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): void;
+  getCurrentSessionId(): string | null;
+  switchSession(sessionId: string): boolean;
+  getSession(sessionId: string): ConversationContext | null;
+  listSessions(): Array<{
+    sessionId: string;
+    name: string;
+    lastActivity: Date;
+    messageCount: number;
+    createdAt: Date;
+    preview?: string;
+  }>;
+  renameSession(sessionId: string, name: string): boolean;
+  deleteSession(sessionId: string): boolean;
+  addMessage(
+    message: Omit<ChatMessage, 'id' | 'timestamp'>,
+    options?: { id?: string; timestamp?: Date }
+  ): ChatMessage;
   recordOperation(operation: Omit<OperationHistory, 'id' | 'timestamp'>): void;
   buildContextPrompt(userInput: string): string;
   detectIterativeIntent(input: string): boolean;

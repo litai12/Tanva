@@ -65,6 +65,10 @@ const AIChatDialog: React.FC = () => {
     sourceImageForAnalysis,
     enableWebSearch,
     aspectRatio,
+    sessions,
+    currentSessionId,
+    createSession,
+    switchSession,
     hideDialog,
     setCurrentInput,
     clearInput,
@@ -93,6 +97,7 @@ const AIChatDialog: React.FC = () => {
   const [manuallyClosedHistory, setManuallyClosedHistory] = useState(false);
   const historySingleClickTimerRef = useRef<number | null>(null);
   const suppressHistoryClickRef = useRef(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   // 流式文本渲染状态（仅文本对话）
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -153,6 +158,41 @@ const AIChatDialog: React.FC = () => {
       setManuallyClosedHistory(false);
     }
   }, [setShowHistory, setManuallyClosedHistory]);
+
+  const handleSessionChange = useCallback(async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextSessionId = event.target.value;
+    if (!nextSessionId || nextSessionId === currentSessionId) return;
+    try {
+      await switchSession(nextSessionId);
+      setHistoryVisibility(true, false);
+    } catch (error) {
+      console.error('❌ 切换会话失败:', error);
+    }
+  }, [currentSessionId, switchSession, setHistoryVisibility]);
+
+  const handleCreateSession = useCallback(async () => {
+    if (creatingSession) return;
+    try {
+      setCreatingSession(true);
+      await createSession();
+      setHistoryVisibility(true, false);
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+      }
+      setTimeout(() => {
+        if (historyRef.current) {
+          historyRef.current.scrollTop = historyRef.current.scrollHeight;
+        }
+      }, 0);
+    } catch (error) {
+      console.error('❌ 创建新会话失败:', error);
+    } finally {
+      setCreatingSession(false);
+    }
+  }, [createSession, creatingSession, setHistoryVisibility]);
+
+  const currentSession = sessions.find((session) => session.sessionId === currentSessionId) ?? null;
+  const sessionSelectValue = currentSessionId ?? (sessions[0]?.sessionId ?? '');
 
   // 面板外点击关闭
   useEffect(() => {
@@ -1124,13 +1164,58 @@ const AIChatDialog: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="space-y-1.5 mr-1 pb-6">
-                <div className="mb-2 flex justify-between items-center">
-                  <span className="text-xs text-gray-500 font-medium">聊天历史记录</span>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-gray-500 font-medium">聊天历史记录</span>
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="chat-session-select" className="text-xs text-gray-400">
+                        会话
+                      </label>
+                      <select
+                        id="chat-session-select"
+                        value={sessionSelectValue}
+                        onChange={handleSessionChange}
+                        disabled={sessions.length === 0 || generationStatus.isGenerating}
+                        className="h-7 text-xs border border-gray-200 rounded-md bg-white/90 px-2 py-0 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+                      >
+                        {sessions.length === 0 ? (
+                          <option value="">暂无会话</option>
+                        ) : (
+                          sessions.map((session) => (
+                            <option
+                              key={session.sessionId}
+                              value={session.sessionId}
+                              title={session.preview || session.name}
+                            >
+                              {`${session.name}${session.messageCount ? `（${session.messageCount}条）` : ''}`}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1"
+                        onClick={handleCreateSession}
+                        disabled={creatingSession || generationStatus.isGenerating}
+                        title="新建一个独立的聊天会话"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        新建
+                      </Button>
+                    </div>
+                  </div>
                   {/* 🧠 上下文状态指示器 */}
                   <div className="flex items-center space-x-2">
                     {isIterativeMode() && (
                       <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                         🔄 迭代模式
+                      </span>
+                    )}
+                    {currentSession && (
+                      <span className="text-xs text-gray-400">
+                        {currentSession.name}{currentSession.messageCount ? ` · ${currentSession.messageCount}条` : ''}
                       </span>
                     )}
                     <span className="text-xs text-gray-400">
