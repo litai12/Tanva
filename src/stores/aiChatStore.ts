@@ -41,9 +41,6 @@ export interface ChatSessionSummary {
   preview?: string;
 }
 
-const SESSION_STORAGE_KEY = 'tanva-ai-chat-sessions';
-const SESSION_ACTIVE_STORAGE_KEY = 'tanva-ai-chat-active-session';
-
 let hasHydratedSessions = false;
 
 const toISOString = (value: Date | string | number | null | undefined): string => {
@@ -163,26 +160,6 @@ const sessionsEqual = (
   b: SerializedConversationContext[]
 ): boolean => JSON.stringify(a ?? []) === JSON.stringify(b);
 
-const readSessionsFromLocalStorage = ():
-  | { sessions: SerializedConversationContext[]; activeSessionId: string | null }
-  | null => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    const activeId = window.localStorage.getItem(SESSION_ACTIVE_STORAGE_KEY);
-    return {
-      sessions: parsed as SerializedConversationContext[],
-      activeSessionId: activeId && activeId.length > 0 ? activeId : null
-    };
-  } catch (error) {
-    console.error('❌ 读取聊天会话失败:', error);
-    return null;
-  }
-};
-
 interface AIChatState {
   // 对话框状态
   isVisible: boolean;
@@ -240,7 +217,7 @@ interface AIChatState {
     activeSessionId?: string | null,
     options?: { markProjectDirty?: boolean }
   ) => void;
-  resetSessions: (options?: { rehydrateLocal?: boolean }) => void;
+  resetSessions: () => void;
 
   // 图像生成
   generateImage: (prompt: string) => Promise<void>;
@@ -380,7 +357,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   },
 
   refreshSessions: (options) => {
-    const { persistToLocal = true, markProjectDirty = true } = options ?? {};
+    const { markProjectDirty = true } = options ?? {};
     const listedSessions = contextManager.listSessions();
     const sessionSummaries = listedSessions.map((session) => ({
       sessionId: session.sessionId,
@@ -399,19 +376,6 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     const activeSessionId =
       get().currentSessionId ?? contextManager.getCurrentSessionId() ?? null;
-
-    if (persistToLocal && typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(serializedSessions));
-        if (activeSessionId) {
-          window.localStorage.setItem(SESSION_ACTIVE_STORAGE_KEY, activeSessionId);
-        } else {
-          window.localStorage.removeItem(SESSION_ACTIVE_STORAGE_KEY);
-        }
-      } catch (error) {
-        console.error('❌ 保存聊天会话失败:', error);
-      }
-    }
 
     if (markProjectDirty) {
       const projectStore = useProjectContentStore.getState();
@@ -522,17 +486,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     get().refreshSessions({ markProjectDirty });
   },
 
-  resetSessions: (options) => {
-    const shouldRehydrateLocal = options?.rehydrateLocal ?? false;
+  resetSessions: () => {
     contextManager.resetSessions();
-
-    if (shouldRehydrateLocal) {
-      const stored = readSessionsFromLocalStorage();
-      if (stored && stored.sessions.length > 0) {
-        get().hydratePersistedSessions(stored.sessions, stored.activeSessionId, { markProjectDirty: false });
-        return;
-      }
-    }
 
     const sessionId = contextManager.createSession();
     const context = contextManager.getSession(sessionId);
