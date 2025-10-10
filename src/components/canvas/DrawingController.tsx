@@ -457,8 +457,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DTool.setModel3DInstances([]);
     model3DTool.setSelectedModel3DIds([]);
 
-    // 清空文本实例 - 使用 deselectText 清空选择
-    simpleTextTool.deselectText();
+    // 清空文本实例
+    simpleTextTool.clearAllTextItems();
 
     // 清空选择工具状态
     selectionTool.clearAllSelections();

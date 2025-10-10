@@ -151,6 +151,19 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     })));
   }, []);
 
+  const clearAllTextItems = useCallback(() => {
+    setTextItems(prev => {
+      prev.forEach(item => {
+        try { item.paperText?.remove(); } catch {}
+      });
+      return [];
+    });
+    setSelectedTextId(null);
+    setEditingTextId(null);
+    setIsDragging(false);
+    setIsResizing(false);
+  }, []);
+
   // 开始编辑文本
   const startEditText = useCallback((textId: string) => {
     setEditingTextId(textId);
@@ -752,6 +765,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     startTextResize,
     resizeTextDrag,
     endTextResize,
-    hydrateFromSnapshot
+    hydrateFromSnapshot,
+    clearAllTextItems
   };
 };
