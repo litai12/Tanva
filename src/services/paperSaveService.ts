@@ -125,6 +125,86 @@ class PaperSaveService {
     return { images, models, texts };
   }
 
+  private isInlineDataUrl(value: unknown): value is string {
+    return typeof value === 'string' && /^data:image\//i.test(value);
+  }
+
+  private sanitizeAssets(assets: { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[] }) {
+    const sanitizedImages = assets.images.map((asset) => {
+      const next: ImageAssetSnapshot = { ...asset };
+      const hasRemoteUrl = typeof next.url === 'string' && !this.isInlineDataUrl(next.url);
+      const hasRemoteSrc = typeof next.src === 'string' && !this.isInlineDataUrl(next.src || '');
+
+      if (hasRemoteUrl) {
+        next.src = next.url;
+      } else if (!hasRemoteUrl && hasRemoteSrc) {
+        next.url = next.src;
+      }
+
+      if (!next.pendingUpload && hasRemoteUrl) {
+        delete next.localDataUrl;
+      }
+
+      return next;
+    });
+
+    const sanitizedModels = assets.models.map((model) => ({ ...model }));
+    const sanitizedTexts = assets.texts.map((text) => ({ ...text }));
+
+    return {
+      images: sanitizedImages,
+      models: sanitizedModels,
+      texts: sanitizedTexts
+    };
+  }
+
+  private prepareRasterSources(imageAssets: ImageAssetSnapshot[]) {
+    if (!this.isPaperProjectReady()) return;
+
+    const assetMap = new Map<string, ImageAssetSnapshot>();
+    imageAssets.forEach((asset) => {
+      assetMap.set(asset.id, asset);
+    });
+
+    try {
+      (paper.project.layers || []).forEach((layer: any) => {
+        const children = layer?.children || [];
+        children.forEach((child: any) => {
+          if (!child) return;
+          const isRaster = child.className === 'Raster' || child instanceof paper.Raster;
+          if (!isRaster) return;
+
+          const imageId = child?.data?.imageId || child?.data?.id || child?.id;
+          if (!imageId) return;
+
+          const asset = assetMap.get(imageId);
+          if (!asset) return;
+
+          const remoteUrl = (asset.url && !this.isInlineDataUrl(asset.url))
+            ? asset.url
+            : asset.src && !this.isInlineDataUrl(asset.src)
+              ? asset.src
+              : undefined;
+
+          if (remoteUrl) {
+            if (typeof child.source === 'string' && this.isInlineDataUrl(child.source)) {
+              child.source = remoteUrl;
+            }
+            if (!child.data) child.data = {};
+            child.data.remoteUrl = remoteUrl;
+          }
+
+          if (child.data) {
+            delete child.data.localDataUrl;
+            delete child.data.inlineDataUrl;
+          }
+        });
+      });
+    } catch (error) {
+      console.warn('准备Raster资源时出错:', error);
+    }
+  }
+
   /**
    * 初始化自动保存服务
    */
@@ -320,10 +400,32 @@ class PaperSaveService {
         return;
       }
 
-      // 检查 Paper.js 状态并序列化内容
+      const gatheredAssets = this.gatherAssets();
+      const sanitizedAssets = this.sanitizeAssets(gatheredAssets);
+      const hasPendingImages = sanitizedAssets.images.some((img) => img.pendingUpload);
+
+      if (hasPendingImages) {
+        try {
+          const currentError = (contentStore as any).lastError as string | null;
+          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          if (currentError !== pendingMsg) {
+            contentStore.setError(pendingMsg);
+          }
+        } catch {}
+      } else {
+        try {
+          const currentError = (contentStore as any).lastError as string | null;
+          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          if (currentError === pendingMsg) {
+            contentStore.setError(null);
+          }
+        } catch {}
+      }
+
       let paperJson: string | null = null;
 
       if (this.isPaperProjectReady()) {
+        this.prepareRasterSources(sanitizedAssets.images);
         paperJson = this.serializePaperProject();
         // 统计层/元素数量
         let layerCount = 0; let itemCount = 0;
@@ -351,31 +453,10 @@ class PaperSaveService {
         console.log('💾 Paper.js项目异常，但仍保存其他项目内容...');
       }
 
-      const assets = this.gatherAssets();
-      const hasPendingImages = assets.images.some((img) => img.pendingUpload);
-      if (hasPendingImages) {
-        try {
-          const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
-          if (currentError !== pendingMsg) {
-            contentStore.setError(pendingMsg);
-          }
-        } catch {}
-      } else {
-        try {
-          const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
-          if (currentError === pendingMsg) {
-            contentStore.setError(null);
-          }
-        } catch {}
-      }
-
-      // 更新项目内容store中的paperJson，这将触发现有的useProjectAutosave
       contentStore.updatePartial({
         paperJson: paperJson || undefined,
         meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
-        assets,
+        assets: sanitizedAssets,
         updatedAt: new Date().toISOString()
       }, { markDirty: true });
 
