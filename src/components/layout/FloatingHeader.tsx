@@ -210,29 +210,25 @@ const FloatingHeader: React.FC = () => {
                         />
                     ) : (
                         <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <div
-                                    className="flex items-center gap-1 rounded-full px-2 py-1 transition-colors hover:bg-slate-100 cursor-pointer select-none"
-                                    role="button"
-                                    tabIndex={0}
+                            <DropdownMenuTrigger 
+                                className="flex items-center gap-1 rounded-full px-2 py-1 transition-colors hover:bg-slate-100 cursor-pointer select-none bg-transparent border-none"
+                                onDoubleClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setEditingTitle(true);
+                                }}
+                            >
+                                <ChevronDown className="h-4 w-4 text-slate-500" />
+                                <span
+                                    className="truncate text-sm text-gray-800 max-w-[300px]"
+                                    title="双击重命名"
                                 >
-                                    <ChevronDown className="h-4 w-4 text-slate-500" />
-                                    <span
-                                        className="truncate text-sm text-gray-800 max-w-[300px]"
-                                        title="双击重命名"
-                                        onDoubleClick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                            setEditingTitle(true);
-                                        }}
-                                    >
-                                        {currentProject?.name || '未命名'}
-                                    </span>
-                                </div>
+                                    {currentProject?.name || '未命名'}
+                                </span>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent
                                 align="center"
-                                sideOffset={6}
+                                sideOffset={12}
                                 className="min-w-[220px] max-h-[200px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg"
                             >
                                 <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-medium text-slate-400">

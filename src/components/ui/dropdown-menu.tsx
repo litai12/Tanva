@@ -79,7 +79,7 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   className, 
   align = 'end',
   side,
-  sideOffset,
+  sideOffset = 8,
   forceMount,
   isOpen = false,
   onClose,
@@ -109,14 +109,29 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   const sideClass = (() => {
     switch (side) {
       case 'top':
-        return 'bottom-full mb-2';
+        return 'bottom-full';
       case 'right':
-        return 'left-full ml-8 top-0';
+        return 'left-full top-0';
       case 'left':
-        return 'right-full mr-2 top-1/2 -translate-y-1/2';
+        return 'right-full top-1/2 -translate-y-1/2';
       case 'bottom':
       default:
-        return 'top-full mt-2';
+        return 'top-full';
+    }
+  })();
+
+  // 动态偏移样式
+  const offsetStyle = (() => {
+    switch (side) {
+      case 'top':
+        return { marginBottom: `${sideOffset}px` };
+      case 'right':
+        return { marginLeft: `${sideOffset}px` };
+      case 'left':
+        return { marginRight: `${sideOffset}px` };
+      case 'bottom':
+      default:
+        return { marginTop: `${sideOffset}px` };
     }
   })();
 
@@ -141,11 +156,12 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   return (
     <div 
       className={cn(
-        'absolute z-[1100] w-48 min-h-[630px] bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
+        'absolute z-[1100] w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
         sideClass,
         alignClass,
         className
       )} 
+      style={offsetStyle}
       {...props}
     >
       {children}
