@@ -266,6 +266,104 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [imageTool]);
 
+  // ========== 粘贴到画布：从剪贴板粘贴图片 ==========
+  useEffect(() => {
+    const isEditableElement = (el: Element | null): boolean => {
+      if (!el) return false;
+      const tag = el.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return true;
+      const anyEl = el as any;
+      if (anyEl.isContentEditable) return true;
+      return false;
+    };
+
+    const fileToDataURL = (file: File): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    };
+
+    const seemsImageUrl = (text: string): boolean => {
+      if (!text || !/^https?:\/\//i.test(text)) return false;
+      // 简单判断：常见图片后缀或 data:image/ 开头
+      if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(text)) return true;
+      return false;
+    };
+
+    const handlePaste = async (e: ClipboardEvent) => {
+      try {
+        // 若焦点在可编辑元素中，放行默认粘贴行为
+        const active = document.activeElement as Element | null;
+        if (isEditableElement(active)) return;
+
+        const clipboardData = e.clipboardData;
+        if (!clipboardData) return;
+
+        // 优先处理图片项
+        const items = clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item && item.kind === 'file' && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (!file) continue;
+
+            // 阻止默认粘贴（避免在页面其它位置插入）
+            e.preventDefault();
+            try {
+              const dataUrl = await fileToDataURL(file);
+              // 直接复用快速上传放置逻辑，默认落在视口中心
+              await quickImageUpload.handleQuickImageUploaded?.(dataUrl, file.name);
+            } catch (err) {
+              console.error('粘贴图片处理失败:', err);
+            }
+            return; // 已处理首个图片项
+          }
+        }
+
+        // 无图片项时，尝试处理文本中的图片URL
+        const text = clipboardData.getData('text/plain');
+        if (seemsImageUrl(text)) {
+          e.preventDefault();
+          try {
+            // 尝试优先拉取为 Blob 转 DataURL，避免跨域导出受限
+            let payload: string = text;
+            try {
+              const ctrl = new AbortController();
+              const id = setTimeout(() => ctrl.abort(), 5000);
+              const resp = await fetch(text, { signal: ctrl.signal });
+              clearTimeout(id);
+              if (resp.ok) {
+                const blob = await resp.blob();
+                if (blob.type.startsWith('image/')) {
+                  payload = await new Promise<string>((resolve, reject) => {
+                    const fr = new FileReader();
+                    fr.onload = () => resolve(String(fr.result || ''));
+                    fr.onerror = reject;
+                    fr.readAsDataURL(blob);
+                  });
+                }
+              }
+            } catch {
+              // 拉取失败则退回直接使用URL（可能受CORS限制，仅用于展示）
+            }
+
+            await quickImageUpload.handleQuickImageUploaded?.(payload, undefined);
+          } catch (err) {
+            console.error('粘贴URL处理失败:', err);
+          }
+        }
+      } catch (err) {
+        console.error('处理粘贴事件出错:', err);
+      }
+    };
+
+    window.addEventListener('paste', handlePaste as EventListener);
+    return () => window.removeEventListener('paste', handlePaste as EventListener);
+  }, [quickImageUpload]);
+
   // ========== 监听AI生成图片的快速上传触发事件 ==========
   useEffect(() => {
     const handleTriggerQuickUpload = (event: CustomEvent) => {

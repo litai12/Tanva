@@ -1,6 +1,8 @@
 // @ts-nocheck
 import React from 'react';
 import { createPortal } from 'react-dom';
+import paper from 'paper';
+import { useCanvasStore } from '@/stores';
 
 /**
  * MiniMapImageOverlay
@@ -12,6 +14,7 @@ import { createPortal } from 'react-dom';
  * - MiniMap 的 viewBox 与节点/世界坐标一致，因此直接用图片的世界坐标即可。
  */
 const MiniMapImageOverlay: React.FC = () => {
+  const [svgEl, setSvgEl] = React.useState<SVGSVGElement | null>(null);
   const [targetEl, setTargetEl] = React.useState<SVGGElement | SVGSVGElement | null>(null);
   const [images, setImages] = React.useState<Array<{ id: string; x: number; y: number; width: number; height: number }>>([]);
 
@@ -33,6 +36,7 @@ const MiniMapImageOverlay: React.FC = () => {
       if (target) {
         try { if (!(window as any).__minimap_found__) { console.log('[MiniMapImageOverlay] Found MiniMap Graph'); (window as any).__minimap_found__ = true; } } catch {}
         setTargetEl(target);
+        if (host) setSvgEl(host);
       }
     };
     find();
@@ -70,6 +74,36 @@ const MiniMapImageOverlay: React.FC = () => {
     raf = window.requestAnimationFrame(tick);
     return () => { if (raf) window.cancelAnimationFrame(raf); };
   }, [targetEl]);
+
+  // 点击 MiniMap 快速跳转到视图
+  React.useEffect(() => {
+    if (!svgEl) return;
+    const onClick = (ev: MouseEvent) => {
+      try {
+        const pt = svgEl.createSVGPoint();
+        pt.x = ev.clientX; pt.y = ev.clientY;
+        const ctm = svgEl.getScreenCTM();
+        if (!ctm) return;
+        const inv = ctm.inverse();
+        const svgPt = pt.matrixTransform(inv);
+
+        // 若点击位置落在某个图片块内，则用该块中心点；否则就用点击处
+        const hit = images.find(m => svgPt.x >= m.x && svgPt.x <= m.x + m.width && svgPt.y >= m.y && svgPt.y <= m.y + m.height);
+        const worldX = hit ? (hit.x + hit.width / 2) : svgPt.x;
+        const worldY = hit ? (hit.y + hit.height / 2) : svgPt.y;
+
+        const { zoom, setPan } = useCanvasStore.getState();
+        const vs = paper?.view?.viewSize;
+        const cx = vs ? vs.width / 2 : window.innerWidth / 2;
+        const cy = vs ? vs.height / 2 : window.innerHeight / 2;
+        const desiredPanX = (cx / (zoom || 1)) - worldX;
+        const desiredPanY = (cy / (zoom || 1)) - worldY;
+        setPan(desiredPanX, desiredPanY);
+      } catch {}
+    };
+    svgEl.addEventListener('click', onClick);
+    return () => svgEl.removeEventListener('click', onClick);
+  }, [svgEl, images]);
 
   if (!targetEl || images.length === 0) return null;
 
