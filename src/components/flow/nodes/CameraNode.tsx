@@ -4,6 +4,7 @@ import { Send as SendIcon, Camera } from 'lucide-react';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 
 type Props = {
   id: string;
@@ -19,7 +20,7 @@ export default function CameraNode({ id, data, selected }: Props) {
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   
   // 使用全局图片历史记录
-  const { history, addImage } = useImageHistoryStore();
+  const history = useImageHistoryStore((state) => state.history);
   const allImages = React.useMemo(() => 
     history.map(item => ({
       id: item.id,
@@ -40,12 +41,13 @@ export default function CameraNode({ id, data, selected }: Props) {
         
         // 添加到全局历史记录
         const newImageId = `${id}-${Date.now()}`;
-        addImage({
+        void recordImageHistoryEntry({
           id: newImageId,
-          src: `data:image/png;base64,${base64}`,
+          base64,
           title: `Camera节点截图 ${new Date().toLocaleTimeString()}`,
           nodeId: id,
-          nodeType: 'camera'
+          nodeType: 'camera',
+          fileName: `camera_capture_${newImageId}.png`,
         });
         setCurrentImageId(newImageId);
         

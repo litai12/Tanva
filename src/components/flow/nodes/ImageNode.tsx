@@ -3,6 +3,7 @@ import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 
 type Props = {
   id: string;
@@ -36,7 +37,7 @@ export default function ImageNode({ id, data, selected }: Props) {
   }, [rf, id]);
   
   // 使用全局图片历史记录
-  const { history, addImage } = useImageHistoryStore();
+  const history = useImageHistoryStore((state) => state.history);
   const allImages = React.useMemo(() => 
     history.map(item => ({
       id: item.id,
@@ -63,16 +64,16 @@ export default function ImageNode({ id, data, selected }: Props) {
       const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: base64 } } });
       window.dispatchEvent(ev);
       
-      // 添加到全局历史记录
       const newImageId = `${id}-${Date.now()}`;
-      addImage({
+      setCurrentImageId(newImageId);
+      void recordImageHistoryEntry({
         id: newImageId,
-        src: `data:image/png;base64,${base64}`,
+        base64,
         title: `Image节点上传 ${new Date().toLocaleTimeString()}`,
         nodeId: id,
-        nodeType: 'image'
+        nodeType: 'image',
+        fileName: file.name || `flow_image_${newImageId}.png`,
       });
-      setCurrentImageId(newImageId);
     };
     reader.readAsDataURL(file);
   };

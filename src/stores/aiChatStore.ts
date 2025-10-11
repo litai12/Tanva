@@ -15,6 +15,24 @@ import type {
   SerializedConversationContext
 } from '@/types/context';
 
+// 本地存储会话的读取工具（用于无项目或早期回退场景）
+const LOCAL_SESSIONS_KEY = 'tanva_aiChat_sessions';
+const LOCAL_ACTIVE_KEY = 'tanva_aiChat_activeSessionId';
+
+function readSessionsFromLocalStorage(): { sessions: SerializedConversationContext[]; activeSessionId: string | null } | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(LOCAL_SESSIONS_KEY);
+    if (!raw) return null;
+    const sessions = JSON.parse(raw) as SerializedConversationContext[];
+    const activeSessionId = localStorage.getItem(LOCAL_ACTIVE_KEY) || null;
+    if (!Array.isArray(sessions) || sessions.length === 0) return null;
+    return { sessions, activeSessionId };
+  } catch {
+    return null;
+  }
+}
+
 export interface ChatMessage {
   id: string;
   type: 'user' | 'ai' | 'error';

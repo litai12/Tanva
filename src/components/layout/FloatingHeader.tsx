@@ -26,12 +26,14 @@ import {
     ChevronDown,
     ChevronRight,
     Home,
-    Sparkles
+    Sparkles,
+    Trash2
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
 import ProjectManagerModal from '@/components/projects/ProjectManagerModal';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
+import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
@@ -119,6 +121,19 @@ const FloatingHeader: React.FC = () => {
         if (!isNaN(n) && n >= 1 && n <= 4) setGridDotSize(n);
         else setGridDotSizeInput(String(gridDotSize));
     };
+
+    const clearImageHistory = useImageHistoryStore((state) => state.clearHistory);
+    const historyCount = useImageHistoryStore((state) => state.history.length);
+    const handleClearImageHistory = React.useCallback(() => {
+        if (historyCount === 0) {
+            alert('当前没有需要清理的图片历史。');
+            return;
+        }
+        const confirmed = window.confirm(`确定要清空 ${historyCount} 条图片历史记录吗？此操作仅清除本地缓存，云端文件不会删除。`);
+        if (confirmed) {
+            clearImageHistory();
+        }
+    }, [clearImageHistory, historyCount]);
 
     const handleLogoClick = () => {
         logger.debug('Logo clicked - navigating to home');
@@ -514,6 +529,22 @@ const FloatingHeader: React.FC = () => {
                                     />
                                 </div>
                             )}
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                历史
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer px-3"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    handleClearImageHistory();
+                                }}
+                            >
+                                <Trash2 className="mr-2 h-3 w-3" />
+                                <span className="flex-1">清空图片历史</span>
+                                <span className="text-[10px] text-gray-500">{historyCount}</span>
+                            </DropdownMenuItem>
 
                             {/* 底色开关 */}
                             <div className="px-3 py-1.5 flex items-center justify-between">

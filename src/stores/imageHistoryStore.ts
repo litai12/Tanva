@@ -16,7 +16,8 @@ export interface ImageHistoryItem {
 
 interface ImageHistoryStore {
   history: ImageHistoryItem[];
-  addImage: (item: Omit<ImageHistoryItem, 'timestamp'>) => void;
+  addImage: (item: Omit<ImageHistoryItem, 'timestamp'> & { timestamp?: number }) => void;
+  updateImage: (id: string, patch: Partial<ImageHistoryItem>) => void;
   removeImage: (id: string) => void;
   clearHistory: () => void;
   getImagesByNode: (nodeId: string) => ImageHistoryItem[];
@@ -41,14 +42,30 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
             src: preferredSrc,
             remoteUrl: item.remoteUrl || (preferredSrc?.startsWith('http') ? preferredSrc : undefined),
             thumbnail: item.thumbnail,
-            timestamp: Date.now()
+            timestamp: item.timestamp ?? Date.now()
           };
           
-          // 避免重复ID（保留最新）
-          const filtered = state.history.filter(existing => existing.id !== newItem.id);
-          const updatedHistory = [newItem, ...filtered].slice(0, 50);
+          const existingIndex = state.history.findIndex(existing => existing.id === newItem.id);
+          if (existingIndex >= 0) {
+            const updated = [...state.history];
+            updated[existingIndex] = { ...updated[existingIndex], ...newItem };
+            return { history: updated };
+          }
           
+          const updatedHistory = [newItem, ...state.history];
+          if (updatedHistory.length > 50) {
+            updatedHistory.length = 50;
+          }
           return { history: updatedHistory };
+        }),
+
+        updateImage: (id, patch) => set((state) => {
+          const updated = state.history.map((item) =>
+            item.id === id
+              ? { ...item, ...patch, timestamp: patch.timestamp ?? item.timestamp }
+              : item
+          );
+          return { history: updated };
         }),
         
         removeImage: (id) => set((state) => ({

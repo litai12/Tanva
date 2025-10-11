@@ -12,6 +12,8 @@ import FloatingHeader from '@/components/layout/FloatingHeader';
 import { useLayerStore } from '@/stores';
 import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
+import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
+import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // 不再需要，改用快速上传逻辑
 
 const Canvas: React.FC = () => {
@@ -24,6 +26,12 @@ const Canvas: React.FC = () => {
     const handlePaperInitialized = () => {
         setIsPaperInitialized(true);
     };
+
+    useEffect(() => {
+        migrateImageHistoryToRemote().catch((error) => {
+            try { console.warn('[Canvas] 图片历史迁移失败', error); } catch {}
+        });
+    }, []);
 
     // 确保在 Paper.js 初始化后创建默认图层
     useEffect(() => {
@@ -64,6 +72,9 @@ const Canvas: React.FC = () => {
 
             {/* Flow 编排画布（覆盖在 Canvas 之上） */}
             <FlowOverlay />
+
+            {/* 画布原点辅助十字，用于调试初始定位 */}
+            <OriginCross canvasRef={canvasRef} />
 
             {/* 浮动导航栏 */}
             <FloatingHeader />

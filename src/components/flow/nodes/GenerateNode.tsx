@@ -3,6 +3,7 @@ import { Handle, Position } from 'reactflow';
 import { Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 
 type Props = {
   id: string;
@@ -24,7 +25,7 @@ export default function GenerateNode({ id, data }: Props) {
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   
   // 使用全局图片历史记录
-  const { history, addImage } = useImageHistoryStore();
+  const history = useImageHistoryStore((state) => state.history);
   const allImages = React.useMemo(() => 
     history.map(item => ({
       id: item.id,
@@ -46,16 +47,17 @@ export default function GenerateNode({ id, data }: Props) {
   React.useEffect(() => {
     if (data.imageData && status === 'succeeded') {
       const newImageId = `${id}-${Date.now()}`;
-      addImage({
+      setCurrentImageId(newImageId);
+      void recordImageHistoryEntry({
         id: newImageId,
-        src: `data:image/png;base64,${data.imageData}`,
+        base64: data.imageData,
         title: `Generate节点 ${new Date().toLocaleTimeString()}`,
         nodeId: id,
-        nodeType: 'generate'
+        nodeType: 'generate',
+        fileName: `flow_generate_${newImageId}.png`,
       });
-      setCurrentImageId(newImageId);
     }
-  }, [data.imageData, status, id, addImage]);
+  }, [data.imageData, status, id]);
 
   // 处理图片切换
   const handleImageChange = React.useCallback((imageId: string) => {

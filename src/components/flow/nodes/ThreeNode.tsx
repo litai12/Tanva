@@ -7,6 +7,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 
 type Props = {
   id: string;
@@ -37,7 +38,7 @@ export default function ThreeNode({ id, data, selected }: Props) {
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   
   // 使用全局图片历史记录
-  const { history, addImage } = useImageHistoryStore();
+  const history = useImageHistoryStore((state) => state.history);
   const allImages = React.useMemo(() => 
     history.map(item => ({
       id: item.id,
@@ -197,12 +198,13 @@ export default function ThreeNode({ id, data, selected }: Props) {
     
     // 添加到全局历史记录
     const newImageId = `${id}-${Date.now()}`;
-    addImage({
+    void recordImageHistoryEntry({
       id: newImageId,
-      src: `data:image/png;base64,${base64}`,
+      base64,
       title: `3D节点截图 ${new Date().toLocaleTimeString()}`,
       nodeId: id,
-      nodeType: '3d'
+      nodeType: '3d',
+      fileName: `three_capture_${newImageId}.png`,
     });
     setCurrentImageId(newImageId);
     

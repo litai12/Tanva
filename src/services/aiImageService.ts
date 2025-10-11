@@ -30,7 +30,7 @@ class AIImageService {
   private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image';
   private readonly DEFAULT_TIMEOUT = 120000; // 增加到120秒
   private readonly MAX_IMAGE_RETRIES = 5; // 图像生成最大重试次数（针对无图像返回）
-  private readonly IMAGE_RETRY_DELAY_BASE = 2000; // 基础重试延迟（毫秒）
+  private readonly IMAGE_RETRY_DELAY_BASE = 1000; // 基础重试延迟（毫秒，统一为1s）
 
   constructor() {
     this.initializeClient();
@@ -345,6 +345,11 @@ class AIImageService {
   ): Promise<{ imageBytes: string | null; textResponse: string }> {
     console.log(`🌊 开始${operationType}流式响应解析...`);
 
+    // 精确计时：首包/首图/总耗时
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    let tFirstChunk: number | null = null;
+    let tFirstImage: number | null = null;
+
     // 发送开始事件
     this.emitProgressUpdate(operationType, {
       phase: 'starting',
@@ -374,6 +379,10 @@ class AIImageService {
     try {
       for await (const chunk of stream) {
         chunkCount++;
+        if (tFirstChunk == null) {
+          tFirstChunk = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+          console.log(`⏱️ ${operationType}首个响应块耗时: ${Math.round(tFirstChunk)}ms`);
+        }
         console.log(`📦 ${operationType}响应块 #${chunkCount}`);
 
         // 验证响应块结构
@@ -463,12 +472,14 @@ class AIImageService {
 
             // 首次接收到图像时发送通知
             if (!hasReceivedImage) {
+              tFirstImage = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+              console.log(`⏱️ ${operationType}首个图像数据块耗时: ${Math.round(tFirstImage)}ms`);
               hasReceivedImage = true;
               this.emitProgressUpdate(operationType, {
                 phase: 'image_received',
                 chunkCount,
                 hasImage: true,
-                message: `已接收到${operationType}图像数据`
+                message: `已接收到${operationType}图像数据 (首图耗时 ${Math.round(tFirstImage)}ms)`
               });
             }
           }
@@ -567,12 +578,18 @@ class AIImageService {
       }
 
       // 发送完成事件
+      const tTotal = ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0;
+      console.log(`⏱️ ${operationType}阶段耗时统计:`, {
+        首包耗时ms: tFirstChunk != null ? Math.round(tFirstChunk) : null,
+        首图耗时ms: tFirstImage != null ? Math.round(tFirstImage) : null,
+        总耗时ms: Math.round(tTotal)
+      });
       this.emitProgressUpdate(operationType, {
         phase: 'completed',
         chunkCount,
         textLength: textResponse.length,
         hasImage: !!imageBytes,
-        message: `${operationType}流式响应处理完成`,
+        message: `${operationType}流式响应处理完成 (总耗时 ${Math.round(tTotal)}ms)`,
         fullText: textResponse
       });
 
@@ -731,7 +748,7 @@ class AIImageService {
           },
           '图像生成',
           3, // API调用失败时的重试次数
-          2000 // 2秒延迟
+          1000 // 1秒延迟
         );
         
         lastResult = result;
@@ -745,7 +762,7 @@ class AIImageService {
           console.warn(`⚠️ 第${imageGenerationAttempt}次尝试未返回图像数据`);
           
           if (imageGenerationAttempt < maxImageRetries) {
-            const retryDelay = this.IMAGE_RETRY_DELAY_BASE * imageGenerationAttempt; // 递增延迟
+            const retryDelay = this.IMAGE_RETRY_DELAY_BASE; // 固定1s等待
             console.log(`⏳ ${retryDelay}ms后进行第${imageGenerationAttempt + 1}次尝试...`);
             await new Promise(resolve => setTimeout(resolve, retryDelay));
           } else {
@@ -976,7 +993,7 @@ class AIImageService {
           console.warn(`⚠️ 第${imageEditAttempt}次编辑尝试未返回图像数据`);
           
           if (imageEditAttempt < maxImageRetries) {
-            const retryDelay = this.IMAGE_RETRY_DELAY_BASE * imageEditAttempt; // 递增延迟
+            const retryDelay = this.IMAGE_RETRY_DELAY_BASE; // 固定1s等待
             console.log(`⏳ ${retryDelay}ms后进行第${imageEditAttempt + 1}次编辑尝试...`);
             await new Promise(resolve => setTimeout(resolve, retryDelay));
           } else {
@@ -1175,7 +1192,7 @@ class AIImageService {
           console.warn(`⚠️ 第${imageBlendAttempt}次融合尝试未返回图像数据`);
           
           if (imageBlendAttempt < maxImageRetries) {
-            const retryDelay = this.IMAGE_RETRY_DELAY_BASE * imageBlendAttempt; // 递增延迟
+            const retryDelay = this.IMAGE_RETRY_DELAY_BASE; // 固定1s等待
             console.log(`⏳ ${retryDelay}ms后进行第${imageBlendAttempt + 1}次融合尝试...`);
             await new Promise(resolve => setTimeout(resolve, retryDelay));
           } else {
@@ -1476,7 +1493,7 @@ ${contextualPrompt}
         },
         'AI工具选择',
         3, // API调用失败时的重试次数
-        2000 // 2秒延迟
+          1000 // 1秒延迟
       );
       
       const aiCallTime = Date.now() - aiCallStartTime;
