@@ -351,6 +351,8 @@ function FlowInner() {
   const updateProjectPartial = useProjectContentStore(s => s.updatePartial);
   const hydratingFromStoreRef = React.useRef(false);
   const lastSyncedJSONRef = React.useRef<string | null>(null);
+  const nodeDraggingRef = React.useRef(false);
+  const commitTimerRef = React.useRef<number | null>(null);
 
   const rfNodesToTplNodes = React.useCallback((ns: RFNode[]): TemplateNode[] => {
     return ns.map((n: any) => {
@@ -395,6 +397,7 @@ function FlowInner() {
   // 当项目内容的 flow 变化时，水合到 ReactFlow
   React.useEffect(() => {
     if (!projectId || !hydrated) return;
+    if (nodeDraggingRef.current) return; // 拖拽过程中不从store覆盖本地状态，避免闪烁
     const ns = contentFlow?.nodes || [];
     const es = contentFlow?.edges || [];
     hydratingFromStoreRef.current = true;
@@ -411,17 +414,27 @@ function FlowInner() {
   }, [projectId, setNodes, setEdges]);
 
   // 将 ReactFlow 的更改写回项目内容（触发自动保存）
+  const scheduleCommit = React.useCallback((nodesSnapshot: TemplateNode[], edgesSnapshot: TemplateEdge[]) => {
+    if (!projectId) return;
+    if (hydratingFromStoreRef.current) return;
+    if (nodeDraggingRef.current) return; // 拖拽时不高频写回
+    const json = (() => { try { return JSON.stringify({ n: nodesSnapshot, e: edgesSnapshot }); } catch { return null; } })();
+    if (json && lastSyncedJSONRef.current === json) return;
+    if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = window.setTimeout(() => {
+      lastSyncedJSONRef.current = json;
+      updateProjectPartial({ flow: { nodes: nodesSnapshot, edges: edgesSnapshot } }, { markDirty: true });
+      commitTimerRef.current = null;
+    }, 120); // 轻微节流，避免频繁渲染
+  }, [projectId, updateProjectPartial]);
+
   React.useEffect(() => {
-    if (!projectId || hydratingFromStoreRef.current) return;
+    if (!projectId) return;
+    if (hydratingFromStoreRef.current) return;
     const nodesSnapshot = rfNodesToTplNodes(nodes as any);
     const edgesSnapshot = rfEdgesToTplEdges(edges);
-    const json = (() => { try { return JSON.stringify({ n: nodesSnapshot, e: edgesSnapshot }); } catch { return null; } })();
-    if (json && lastSyncedJSONRef.current === json) {
-      return;
-    }
-    lastSyncedJSONRef.current = json;
-    updateProjectPartial({ flow: { nodes: nodesSnapshot, edges: edgesSnapshot } }, { markDirty: true });
-  }, [nodes, edges, projectId, rfNodesToTplNodes, rfEdgesToTplEdges, updateProjectPartial]);
+    scheduleCommit(nodesSnapshot, edgesSnapshot);
+  }, [nodes, edges, projectId, rfNodesToTplNodes, rfEdgesToTplEdges, scheduleCommit]);
 
   // 背景设置改为驱动底层 Canvas 网格
   // 使用独立的Flow状态
@@ -1314,6 +1327,13 @@ function FlowInner() {
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDragStart={() => { nodeDraggingRef.current = true; }}
+        onNodeDragStop={() => {
+          nodeDraggingRef.current = false;
+          const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
+          const es = rfEdgesToTplEdges((rf.getEdges?.() || edges));
+          scheduleCommit(ns, es);
+        }}
         onConnect={onConnect}
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
