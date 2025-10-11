@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { logger } from '@/utils/logger';
+import { createSafeStorage } from './storageUtils';
 
 // 工具类型定义
 export type DrawMode = 'select' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'quick-image' | '3d-model' | 'screenshot';
@@ -93,6 +94,7 @@ export const useToolStore = create<ToolState>()(
       }),
       {
         name: 'tool-settings', // localStorage 键名
+        storage: createSafeStorage({ storageName: 'tool-settings' }),
         // 持久化工具设置，但不包括橡皮擦状态（通常是临时的）
         partialize: (state) => ({
           drawMode: state.drawMode,

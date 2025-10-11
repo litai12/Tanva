@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
+import { createSafeStorage } from './storageUtils';
 
 // Flow背景样式枚举
 export const FlowBackgroundVariant = {
@@ -103,6 +104,7 @@ export const useFlowStore = create<FlowState>()(
       }),
       {
         name: 'flow-settings', // localStorage 键名
+        storage: createSafeStorage({ storageName: 'flow-settings' }),
         // 只持久化配置，不包括视口和交互状态
         partialize: (state) => ({
           backgroundEnabled: state.backgroundEnabled,

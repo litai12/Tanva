@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
+import { createSafeStorage } from './storageUtils';
 
 // 网格样式枚举
 export const GridStyle = {
@@ -26,6 +27,8 @@ interface CanvasState {
   zoom: number;
   panX: number;
   panY: number;
+  isHydrated: boolean;        // 标记持久化状态是否恢复完成
+  hasInitialCenterApplied: boolean; // 是否已经执行过首次居中逻辑
   
   // 交互状态
   isDragging: boolean;        // 是否正在拖拽画布
@@ -46,6 +49,8 @@ interface CanvasState {
   setPan: (x: number, y: number) => void;
   panBy: (deltaX: number, deltaY: number) => void;
   resetView: () => void;
+  markInitialCenterApplied: () => void;
+  setHydrated: (hydrated: boolean) => void;
   
   // 交互状态操作方法
   setDragging: (dragging: boolean) => void;
@@ -59,17 +64,19 @@ interface CanvasState {
 export const useCanvasStore = create<CanvasState>()(
   subscribeWithSelector(
     persist(
-      (set, get) => ({
+      (set, get, api) => ({
       // 初始状态
-      gridSize: 20,
+      gridSize: 32,
       gridStyle: GridStyle.LINES, // 默认使用线条网格
       gridDotSize: 1,
-      gridColor: '#e5e7eb',
+      gridColor: '#000000',
       gridBgColor: '#f7f7f7',
       gridBgEnabled: false,
       zoom: 1.0,
       panX: 0,
       panY: 0,
+      isHydrated: false,
+      hasInitialCenterApplied: false,
       
       // 交互状态初始值
       isDragging: false,    // 默认未拖拽
@@ -93,6 +100,8 @@ export const useCanvasStore = create<CanvasState>()(
         set({ panX: panX + deltaX, panY: panY + deltaY });
       },
       resetView: () => set({ zoom: 1.0, panX: 0, panY: 0 }),
+      markInitialCenterApplied: () => set({ hasInitialCenterApplied: true }),
+      setHydrated: (hydrated) => set({ isHydrated: hydrated }),
       
       // 交互状态操作方法
       setDragging: (dragging) => set({ isDragging: dragging }),
@@ -113,7 +122,8 @@ export const useCanvasStore = create<CanvasState>()(
       }),
       {
         name: 'canvas-settings', // localStorage 键名
-        // 持久化所有重要状态，包括视口状态以保持用户体验
+        storage: createSafeStorage({ storageName: 'canvas-settings' }),
+        // 持久化关键的画布偏好（视口平移改为仅会话级，不进入持久化，避免频繁写入）
         partialize: (state) => ({
           gridSize: state.gridSize,
           gridStyle: state.gridStyle,
@@ -122,12 +132,26 @@ export const useCanvasStore = create<CanvasState>()(
           gridBgColor: state.gridBgColor,
           gridBgEnabled: state.gridBgEnabled,
           zoom: state.zoom,
-          panX: state.panX,
-          panY: state.panY,
           units: state.units,
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,
         }),
+        onRehydrateStorage: () => (state, error) => {
+          if (error) {
+            console.warn('canvasStore rehydrate failed:', error);
+            api.setState({ isHydrated: true });
+            return;
+          }
+
+          const currentState = api.getState();
+
+          // localStorage 旧版本可能缺少 hasInitialCenterApplied 字段，确保补齐
+          if (typeof currentState.hasInitialCenterApplied !== 'boolean') {
+            api.setState({ hasInitialCenterApplied: false });
+          }
+
+          api.setState({ isHydrated: true });
+        },
       }
     )
   )

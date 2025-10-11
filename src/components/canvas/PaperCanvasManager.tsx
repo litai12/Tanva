@@ -12,7 +12,15 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
   canvasRef, 
   onInitialized 
 }) => {
-  const { zoom, panX, panY, setPan } = useCanvasStore();
+  const { 
+    zoom, 
+    panX, 
+    panY, 
+    setPan, 
+    isHydrated, 
+    hasInitialCenterApplied, 
+    markInitialCenterApplied 
+  } = useCanvasStore();
 
   // Paper.js 初始化和画布尺寸管理
   useEffect(() => {
@@ -127,6 +135,41 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       }
     };
   }, [canvasRef, setPan, onInitialized]);
+
+  useEffect(() => {
+    if (!isHydrated || hasInitialCenterApplied) {
+      return;
+    }
+
+    const attemptInitialCenter = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return false;
+      const parent = canvas.parentElement;
+      if (!parent) return false;
+
+      const displayWidth = parent.clientWidth;
+      const displayHeight = parent.clientHeight;
+      if (displayWidth === 0 || displayHeight === 0) {
+        return false;
+      }
+
+      const pixelRatio = window.devicePixelRatio || 1;
+      const centerX = (displayWidth / 2) * pixelRatio;
+      const centerY = (displayHeight / 2) * pixelRatio;
+      setPan(centerX, centerY);
+      markInitialCenterApplied();
+      return true;
+    };
+
+    if (!attemptInitialCenter()) {
+      const rafId = requestAnimationFrame(() => {
+        if (!useCanvasStore.getState().hasInitialCenterApplied) {
+          attemptInitialCenter();
+        }
+      });
+      return () => cancelAnimationFrame(rafId);
+    }
+  }, [isHydrated, hasInitialCenterApplied, canvasRef, setPan, markInitialCenterApplied]);
 
   // 处理视口变换的effect
   useEffect(() => {
