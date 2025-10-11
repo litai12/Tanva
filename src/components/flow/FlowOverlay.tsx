@@ -32,8 +32,9 @@ import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
-import { aiImageService } from '@/services/aiImageService';
-import type { AIImageResult } from '@/types/ai';
+  import { aiImageService } from '@/services/aiImageService';
+  import type { AIImageResult } from '@/types/ai';
+  import MiniMapImageOverlay from './MiniMapImageOverlay';
 
 type RFNode = Node<any>;
 
@@ -1370,6 +1371,8 @@ function FlowInner() {
         )}
         {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
         <MiniMap pannable={false} zoomable={false} />
+        {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
+        <MiniMapImageOverlay />
         <Controls showInteractive={false} />
       </ReactFlow>
 
