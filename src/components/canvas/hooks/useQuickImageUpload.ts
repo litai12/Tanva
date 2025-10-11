@@ -8,6 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { imageUploadService } from '@/services/imageUploadService';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
 
@@ -462,6 +463,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     window.dispatchEvent(new CustomEvent('quickImageAdded', {
                         detail: newImageInstance
                     }));
+                }
+
+                // 记录历史，优先使用 OSS 链接，便于刷新后从云端恢复
+                try {
+                    const addHistory = useImageHistoryStore.getState().addImage;
+                    addHistory({
+                        id: imageId,
+                        src: asset.url,
+                        remoteUrl: asset.url,
+                        thumbnail: asset.localDataUrl || asset.url,
+                        title: fileName ? `快速上传 · ${fileName}` : '快速上传图片',
+                        nodeId: 'canvas',
+                        nodeType: 'image'
+                    });
+                } catch (historyError) {
+                    try { console.warn('[QuickUpload] 写入图片历史失败:', historyError); } catch {}
                 }
 
                 const positionInfo = selectedImageBounds ? '选中图片位置' : (placeholder ? '占位框位置' : '坐标原点');
