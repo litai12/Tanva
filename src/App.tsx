@@ -8,6 +8,7 @@ import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 import ManualSaveButton from '@/components/autosave/ManualSaveButton';
 import SaveDebugPanel from '@/components/autosave/SaveDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
+import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 
 const App: React.FC = () => {
   const [showPromptDemo, setShowPromptDemo] = useState<boolean>(() => {
@@ -70,6 +71,7 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen">
+      <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
       <SaveDebugPanel />

@@ -101,21 +101,44 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
 
     // 处理滚轮/触控板事件：支持双指平移，阻止缩放
     const handleWheel = (event: WheelEvent) => {
+      // Ctrl/Cmd + 滚轮：缩放（以鼠标位置为中心）
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const sx = (event.clientX - rect.left) * dpr; // 设备像素
+        const sy = (event.clientY - rect.top) * dpr;
+
+        const store = useCanvasStore.getState();
+        const z1 = zoomRef.current;
+        // deltaY>0 通常为缩小，反向取指数更顺滑
+        const factor = Math.exp(-event.deltaY * 0.0015);
+        const z2 = Math.max(0.1, Math.min(3, z1 * factor));
+
+        // 保持鼠标下的世界坐标点不动：
+        // W = sx/z1 - pan1;  pan2 = sx/z2 - W
+        const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
+        const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
+
+        store.setPan(pan2x, pan2y);
+        store.setZoom(z2);
+        return;
+      }
+
+      // 普通滚轮/触控板：平移
       event.preventDefault(); // 阻止浏览器默认行为（缩放/滚动）
       event.stopPropagation();
-      
-      // 检测触控板双指滑动或鼠标滚轮
+
       if (Math.abs(event.deltaX) > 0 || Math.abs(event.deltaY) > 0) {
         const dpr = window.devicePixelRatio || 1;
-        // 转换为画布坐标系的平移（考虑当前缩放级别）
         const worldDeltaX = (-event.deltaX * dpr) / zoomRef.current;
         const worldDeltaY = (-event.deltaY * dpr) / zoomRef.current;
-        
-        // 获取当前状态并更新画布位置
+
         const currentState = useCanvasStore.getState();
         const newPanX = currentState.panX + worldDeltaX;
         const newPanY = currentState.panY + worldDeltaY;
-        
         setPan(newPanX, newPanY);
       }
     };
