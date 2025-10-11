@@ -40,6 +40,8 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import ManualSaveButton from '@/components/autosave/ManualSaveButton';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
+import { paperSaveService } from '@/services/paperSaveService';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 const FloatingHeader: React.FC = () => {
     const navigate = useNavigate();
@@ -159,6 +161,34 @@ const FloatingHeader: React.FC = () => {
             }).catch(() => {
                 alert('分享链接: ' + window.location.href);
             });
+        }
+    };
+
+    // 清空画布内容（保留网格/背景等系统层）
+    const handleClearCanvas = () => {
+        const confirmed = window.confirm('确定要清空画布上的全部内容吗？\n此操作将删除所有绘制元素与节点（保留背景/网格），且当前不支持撤销。');
+        if (!confirmed) return;
+
+        try {
+            // 清理绘制内容但保留图层结构与系统层
+            paperSaveService.clearCanvasContent();
+
+            // 清空运行时实例，避免残留引用
+            try { (window as any).tanvaImageInstances = []; } catch {}
+            try { (window as any).tanvaModel3DInstances = []; } catch {}
+            try { (window as any).tanvaTextItems = []; } catch {}
+
+            // 触发一次自动保存，记录清空后的状态
+            try { paperSaveService.triggerAutoSave(); } catch {}
+
+            // 同时清空 Flow 节点与连线，并标记为脏以触发文件保存
+            try {
+                const api = useProjectContentStore.getState();
+                api.updatePartial({ flow: { nodes: [], edges: [] } }, { markDirty: true });
+            } catch {}
+        } catch (e) {
+            console.error('清空画布失败:', e);
+            alert('清空画布失败，请稍后重试');
         }
     };
 
@@ -355,7 +385,7 @@ const FloatingHeader: React.FC = () => {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent 
-                            className="w-64 min-h-[400px] bg-white/80 backdrop-blur-md" 
+                            className="w-64 min-h-[800px] bg-white/80 backdrop-blur-md" 
                             align="end" 
                             side="right"
                             sideOffset={8}
@@ -549,6 +579,21 @@ const FloatingHeader: React.FC = () => {
                                 <Trash2 className="mr-2 h-3 w-3" />
                                 <span className="flex-1">清空图片历史</span>
                                 <span className="text-[10px] text-gray-500">{historyCount}</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                                画布
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                                className="text-xs cursor-pointer px-3 text-red-600 focus:text-red-600"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    handleClearCanvas();
+                                }}
+                            >
+                                <Trash2 className="mr-2 h-3 w-3" />
+                                <span className="flex-1">清空画布内容</span>
                             </DropdownMenuItem>
 
                             {/* 底色开关 */}

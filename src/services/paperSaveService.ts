@@ -329,6 +329,35 @@ class PaperSaveService {
   }
 
   /**
+   * 清空用户绘制内容（保留图层与系统层）。
+   * - 系统层（grid/background/scalebar）：完全保留，不动其子元素
+   * - 非系统层：仅清空子元素，保留图层结构，避免打乱图层面板
+   */
+  clearCanvasContent() {
+    try {
+      if (!this.isPaperProjectReady()) return;
+
+      const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
+      const layers = (paper.project.layers || []).slice();
+
+      layers.forEach((layer: any) => {
+        const name = layer?.name || '';
+        if (SYSTEM_LAYER_NAMES.has(name)) {
+          // 系统层保持不动（包含网格/坐标轴/底色等）
+          return;
+        }
+        try { layer.removeChildren(); } catch {}
+      });
+
+      // 更新视图并广播清空事件（与 clearProject 保持一致的事件名）
+      try { (paper.view as any)?.update?.(); } catch {}
+      try { window.dispatchEvent(new CustomEvent('paper-project-cleared')); } catch {}
+    } catch (e) {
+      console.warn('清空画布内容失败:', e);
+    }
+  }
+
+  /**
    * 触发项目恢复机制
    */
   private triggerProjectRecovery() {
