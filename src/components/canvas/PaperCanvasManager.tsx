@@ -141,6 +141,11 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       return;
     }
 
+    if (Math.abs(panX) > 0.0001 || Math.abs(panY) > 0.0001) {
+      markInitialCenterApplied();
+      return;
+    }
+
     const attemptInitialCenter = () => {
       const canvas = canvasRef.current;
       if (!canvas) return false;
@@ -169,7 +174,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       });
       return () => cancelAnimationFrame(rafId);
     }
-  }, [isHydrated, hasInitialCenterApplied, canvasRef, setPan, markInitialCenterApplied]);
+  }, [isHydrated, hasInitialCenterApplied, panX, panY, canvasRef, setPan, markInitialCenterApplied]);
 
   // 处理视口变换的effect
   useEffect(() => {

@@ -11,8 +11,8 @@ interface SafeStorageOptions {
   skipIfUnchanged?: boolean;
 }
 
-const memoryFallback = new Map<string, string>();
-const lastWritten = new Map<string, string>();
+const globalMemoryFallback = new Map<string, string>();
+const globalLastWritten = new Map<string, string>();
 const warnedQuota = new Set<string>();
 
 const isQuotaExceeded = (error: unknown): boolean => {
@@ -32,6 +32,9 @@ const isQuotaExceeded = (error: unknown): boolean => {
 export const createSafeStorage = (options?: SafeStorageOptions): StateStorage => {
   const storageName = options?.storageName ?? 'zustand-storage';
   const skipIfUnchanged = options?.skipIfUnchanged !== false;
+  const pendingWrites = new Map<string, string>();
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let lifecycleBound = false;
 
   const getFromLocalStorage = (key: string): string | null => {
     if (typeof window === 'undefined' || !window.localStorage) {
@@ -66,34 +69,81 @@ export const createSafeStorage = (options?: SafeStorageOptions): StateStorage =>
     }
   };
 
+  const flushPending = () => {
+    if (!pendingWrites.size) {
+      return;
+    }
+
+    const entries = Array.from(pendingWrites.entries());
+    pendingWrites.clear();
+    flushTimer = null;
+
+    for (const [key, value] of entries) {
+      try {
+        setToLocalStorage(key, value);
+      } catch {
+        // 失败时保持内存回退
+      } finally {
+        globalMemoryFallback.set(key, value);
+        globalLastWritten.set(key, value);
+      }
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (flushTimer !== null) {
+      return;
+    }
+    flushTimer = setTimeout(flushPending, 150);
+
+    if (
+      !lifecycleBound &&
+      typeof window !== 'undefined' &&
+      typeof document !== 'undefined'
+    ) {
+      lifecycleBound = true;
+      const handleVisibility = () => {
+        if (document.visibilityState === 'hidden') {
+          flushPending();
+        }
+      };
+      const handleBeforeUnload = () => {
+        flushPending();
+      };
+      window.addEventListener('visibilitychange', handleVisibility);
+      window.addEventListener('beforeunload', handleBeforeUnload);
+    }
+  };
+
   return {
     getItem: (key) => {
       const localValue = getFromLocalStorage(key);
       if (localValue !== null) {
-        memoryFallback.set(key, localValue);
-        lastWritten.set(key, localValue);
+        globalMemoryFallback.set(key, localValue);
+        globalLastWritten.set(key, localValue);
         return localValue;
       }
-      return memoryFallback.get(key) ?? null;
+      return globalMemoryFallback.get(key) ?? null;
     },
     setItem: (key, value) => {
       if (skipIfUnchanged) {
-        const previous = lastWritten.get(key);
+        const previousPending = pendingWrites.get(key);
+        if (previousPending === value) {
+          return;
+        }
+        const previous = globalLastWritten.get(key);
         if (previous === value) {
           return;
         }
       }
 
-      try {
-        setToLocalStorage(key, value);
-      } catch {
-        // 忽略错误，直接使用内存 fallback
-      } finally {
-        memoryFallback.set(key, value);
-        lastWritten.set(key, value);
-      }
+      pendingWrites.set(key, value);
+      globalMemoryFallback.set(key, value);
+      globalLastWritten.set(key, value);
+      scheduleFlush();
     },
     removeItem: (key) => {
+      pendingWrites.delete(key);
       if (typeof window !== 'undefined' && window.localStorage) {
         try {
           window.localStorage.removeItem(key);
@@ -104,8 +154,8 @@ export const createSafeStorage = (options?: SafeStorageOptions): StateStorage =>
           }
         }
       }
-      memoryFallback.delete(key);
-      lastWritten.delete(key);
+      globalMemoryFallback.delete(key);
+      globalLastWritten.delete(key);
     }
   };
 };

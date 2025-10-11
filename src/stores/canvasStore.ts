@@ -132,9 +132,12 @@ export const useCanvasStore = create<CanvasState>()(
           gridBgColor: state.gridBgColor,
           gridBgEnabled: state.gridBgEnabled,
           zoom: state.zoom,
+          panX: state.panX,
+          panY: state.panY,
           units: state.units,
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,
+          hasInitialCenterApplied: state.hasInitialCenterApplied,
         }),
         onRehydrateStorage: () => (state, error) => {
           if (error) {
