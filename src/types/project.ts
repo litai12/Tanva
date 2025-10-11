@@ -2,6 +2,7 @@ import type { LayerMeta } from '@/stores/layerStore';
 import type { StoredImageAsset } from '@/types/canvas';
 import type { Model3DData } from '@/services/model3DUploadService';
 import type { SerializedConversationContext } from '@/types/context';
+import type { TemplateNode, TemplateEdge } from '@/types/template';
 
 export interface ImageAssetSnapshot extends StoredImageAsset {
   bounds: {
@@ -51,6 +52,11 @@ export interface CanvasViewStateSnapshot {
   panY: number;
 }
 
+export interface FlowGraphSnapshot {
+  nodes: TemplateNode[];
+  edges: TemplateEdge[];
+}
+
 export interface ProjectContentSnapshot {
   layers: LayerMeta[];
   activeLayerId: string | null;
@@ -63,6 +69,8 @@ export interface ProjectContentSnapshot {
     savedAt?: string;
   };
   assets?: ProjectAssetsSnapshot;
+  // Flow 模板节点系统的图谱（每个项目独立保存）
+  flow?: FlowGraphSnapshot;
   aiChatSessions?: SerializedConversationContext[];
   aiChatActiveSessionId?: string | null;
   updatedAt: string;
@@ -81,6 +89,10 @@ export function createEmptyProjectContent(): ProjectContentSnapshot {
       images: [],
       models: [],
       texts: [],
+    },
+    flow: {
+      nodes: [],
+      edges: [],
     },
     aiChatSessions: [],
     aiChatActiveSessionId: null,

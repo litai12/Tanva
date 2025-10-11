@@ -73,6 +73,11 @@ const FloatingHeader: React.FC = () => {
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
+    // Header 下拉中的快速切换与新建，直接复用项目管理的函数
+    const handleQuickSwitch = (projectId: string) => {
+        if (!projectId || projectId === currentProject?.id) return;
+        open(projectId);
+    };
     const [editingTitle, setEditingTitle] = useState(false);
     const [titleInput, setTitleInput] = useState('');
     useEffect(() => {
@@ -259,7 +264,7 @@ const FloatingHeader: React.FC = () => {
                                         projects.slice(0, 5).map((project) => (
                                             <DropdownMenuItem
                                                 key={project.id}
-                                                onSelect={(event) => {
+                                                onClick={(event) => {
                                                     event.preventDefault();
                                                     handleQuickSwitch(project.id);
                                                 }}
@@ -277,7 +282,7 @@ const FloatingHeader: React.FC = () => {
                                 </div>
                                 <DropdownMenuSeparator className="my-1" />
                                 <DropdownMenuItem
-                                    onSelect={async (event) => {
+                                    onClick={async (event) => {
                                         event.preventDefault();
                                         await create();
                                     }}
@@ -664,7 +669,3 @@ const FloatingHeader: React.FC = () => {
 };
 
 export default FloatingHeader;
-    const handleQuickSwitch = (projectId: string) => {
-        if (!projectId || projectId === currentProject?.id) return;
-        open(projectId);
-    };

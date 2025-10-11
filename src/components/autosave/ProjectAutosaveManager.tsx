@@ -30,7 +30,8 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       setProject(null);
       try { useAIChatStore.getState().resetSessions({ rehydrateLocal: true }); } catch {}
       try { contextManager.clearImageCache(); } catch {}
-      try { useImageHistoryStore.getState().clearHistory(); } catch {}
+      // 不再清空图片历史，保留跨文件的历史记录
+      // try { useImageHistoryStore.getState().clearHistory(); } catch {}
       // 清空画布与运行时实例
       try { paperSaveService.clearProject(); } catch {}
       try { (window as any).tanvaImageInstances = []; } catch {}
@@ -44,7 +45,8 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     paperSaveService.cancelPending();
     // 切换项目时清理跨项目的缓存/历史，避免“隐藏图片信息继承”
     try { contextManager.clearImageCache(); } catch {}
-    try { useImageHistoryStore.getState().clearHistory(); } catch {}
+    // 不再清空图片历史，避免切换文件导致历史丢失
+    // try { useImageHistoryStore.getState().clearHistory(); } catch {}
     // 立即清空当前画布，避免在新建空项目时残留旧图像
     try { paperSaveService.clearProject(); } catch {}
     try { (window as any).tanvaImageInstances = []; } catch {}
@@ -73,7 +75,8 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         }
         // 任意一次成功的 hydrate 都清空跨文件缓存，避免“图片缓存继承”
         try { contextManager.clearImageCache(); } catch {}
-        try { useImageHistoryStore.getState().clearHistory(); } catch {}
+        // 保留图片历史，便于跨文件查看
+        // try { useImageHistoryStore.getState().clearHistory(); } catch {}
         saveMonitor.push(projectId, 'hydrate_loaded', {
           version: data.version,
           hasPaper: !!(data.content as any)?.paperJson,

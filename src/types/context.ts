@@ -74,6 +74,8 @@ export interface SerializedChatMessage {
   content: string;
   timestamp: string;
   webSearchResult?: unknown;
+  // 可选：用于在聊天记录中显示的缩略图/小图
+  imageData?: string;
 }
 
 export interface SerializedOperationHistory {

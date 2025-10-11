@@ -82,7 +82,8 @@ const serializeConversation = (context: ConversationContext): SerializedConversa
     type: message.type,
     content: message.content,
     timestamp: toISOString(message.timestamp),
-    webSearchResult: message.webSearchResult
+    webSearchResult: message.webSearchResult,
+    imageData: message.imageData // 持久化用于展示的缩略图/小图
   })),
   operations: context.operations.map((operation) => ({
     id: operation.id,
@@ -124,7 +125,8 @@ const deserializeConversation = (data: SerializedConversationContext): Conversat
     type: message.type,
     content: message.content,
     timestamp: new Date(message.timestamp),
-    webSearchResult: message.webSearchResult
+    webSearchResult: message.webSearchResult,
+    imageData: (message as any).imageData // 恢复缩略图/小图（可选）
   }));
 
   const operations: OperationHistory[] = data.operations.map((operation) => ({
@@ -409,6 +411,14 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
             aiChatActiveSessionId: activeSessionId ?? null
           }, { markDirty: true });
         }
+      } else {
+        // 无项目场景：把会话持久化到本地，确保刷新后仍能显示缩略图
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('tanva_aiChat_sessions', JSON.stringify(serializedSessions));
+            localStorage.setItem('tanva_aiChat_activeSessionId', activeSessionId ?? '');
+          }
+        } catch {}
       }
     }
   },

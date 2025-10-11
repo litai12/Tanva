@@ -19,7 +19,7 @@ import { ReactFlowProvider } from 'reactflow';
 import { useCanvasStore } from '@/stores';
 import 'reactflow/dist/style.css';
 import './flow.css';
-import type { FlowTemplate, TemplateIndexEntry } from '@/types/template';
+import type { FlowTemplate, TemplateIndexEntry, TemplateNode, TemplateEdge } from '@/types/template';
 import { loadBuiltInTemplateIndex, loadBuiltInTemplateByPath, listUserTemplates, getUserTemplate, saveUserTemplate, deleteUserTemplate, generateId } from '@/services/templateStore';
 
 import TextPromptNode from './nodes/TextPromptNode';
@@ -30,6 +30,7 @@ import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
 import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
 import { aiImageService } from '@/services/aiImageService';
 import type { AIImageResult } from '@/types/ai';
@@ -343,6 +344,85 @@ function FlowInner() {
   const [isConnecting, setIsConnecting] = React.useState(false);
   // 统一画板：节点橡皮已禁用
 
+  // —— 项目内容（文件）中的 Flow 图谱持久化 ——
+  const projectId = useProjectContentStore(s => s.projectId);
+  const hydrated = useProjectContentStore(s => s.hydrated);
+  const contentFlow = useProjectContentStore(s => s.content?.flow);
+  const updateProjectPartial = useProjectContentStore(s => s.updatePartial);
+  const hydratingFromStoreRef = React.useRef(false);
+  const lastSyncedJSONRef = React.useRef<string | null>(null);
+
+  const rfNodesToTplNodes = React.useCallback((ns: RFNode[]): TemplateNode[] => {
+    return ns.map((n: any) => {
+      const data = { ...(n.data || {}) } as any;
+      delete data.onRun; delete data.onSend; delete data.status; delete data.error;
+      return {
+        id: n.id,
+        type: n.type || 'default',
+        position: { x: n.position.x, y: n.position.y },
+        data,
+        boxW: data.boxW,
+        boxH: data.boxH,
+      } as TemplateNode;
+    });
+  }, []);
+
+  const rfEdgesToTplEdges = React.useCallback((es: Edge[]): TemplateEdge[] => es.map((e: any) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceHandle: e.sourceHandle,
+    targetHandle: e.targetHandle,
+    type: e.type || 'default',
+  })), []);
+
+  const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => ns.map((n) => ({
+    id: n.id,
+    type: (n as any).type || 'default',
+    position: { x: n.position.x, y: n.position.y },
+    data: { ...(n.data || {}) },
+  })) as any, []);
+
+  const tplEdgesToRfEdges = React.useCallback((es: TemplateEdge[]): Edge[] => es.map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceHandle: e.sourceHandle,
+    targetHandle: e.targetHandle,
+    type: e.type || 'default',
+  })) as any, []);
+
+  // 当项目内容的 flow 变化时，水合到 ReactFlow
+  React.useEffect(() => {
+    if (!projectId || !hydrated) return;
+    const ns = contentFlow?.nodes || [];
+    const es = contentFlow?.edges || [];
+    hydratingFromStoreRef.current = true;
+    setNodes(tplNodesToRfNodes(ns));
+    setEdges(tplEdgesToRfEdges(es));
+    // 记录当前从 store 水合的快照，避免立刻写回造成环路
+    try { lastSyncedJSONRef.current = JSON.stringify({ n: ns, e: es }); } catch { lastSyncedJSONRef.current = null; }
+    Promise.resolve().then(() => { hydratingFromStoreRef.current = false; });
+  }, [projectId, hydrated, contentFlow, setNodes, setEdges, tplNodesToRfNodes, tplEdgesToRfEdges]);
+
+  // 切换项目时先清空，避免跨项目残留
+  React.useEffect(() => {
+    setNodes([]); setEdges([]);
+  }, [projectId, setNodes, setEdges]);
+
+  // 将 ReactFlow 的更改写回项目内容（触发自动保存）
+  React.useEffect(() => {
+    if (!projectId || hydratingFromStoreRef.current) return;
+    const nodesSnapshot = rfNodesToTplNodes(nodes as any);
+    const edgesSnapshot = rfEdgesToTplEdges(edges);
+    const json = (() => { try { return JSON.stringify({ n: nodesSnapshot, e: edgesSnapshot }); } catch { return null; } })();
+    if (json && lastSyncedJSONRef.current === json) {
+      return;
+    }
+    lastSyncedJSONRef.current = json;
+    updateProjectPartial({ flow: { nodes: nodesSnapshot, edges: edgesSnapshot } }, { markDirty: true });
+  }, [nodes, edges, projectId, rfNodesToTplNodes, rfEdgesToTplEdges, updateProjectPartial]);
+
   // 背景设置改为驱动底层 Canvas 网格
   // 使用独立的Flow状态
   // 分别选择，避免一次性取整个 store 导致不必要的重渲染/快照警告
@@ -387,11 +467,12 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(null);
   React.useEffect(() => {
     const z = cvZoom || 1;
-    // Canvas: screen = z * (world + panWorld)
-    // ReactFlow: screen = z * world + translate
-    // => translate = z * panWorld
-    const x = (cvPanX || 0) * z;
-    const y = (cvPanY || 0) * z;
+    // Canvas: screen_px = z * (world + panWorld)
+    // 世界坐标以设备像素为单位，CSS 需除以 dpr
+    // ReactFlow: 使用 CSS 像素，因此 translate 需折算 dpr：translate = (z * panWorld) / dpr
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const x = ((cvPanX || 0) * z) / dpr;
+    const y = ((cvPanY || 0) * z) / dpr;
     const prev = lastApplied.current;
     const eps = 1e-6;
     if (prev && Math.abs(prev.x - x) < eps && Math.abs(prev.y - y) < eps && Math.abs(prev.z - z) < eps) return;
