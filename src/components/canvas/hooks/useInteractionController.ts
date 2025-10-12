@@ -8,6 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { clientToProject } from '@/utils/paperCoords';
 import { historyService } from '@/services/historyService';
+import { paperSaveService } from '@/services/paperSaveService';
 import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 
@@ -383,6 +384,7 @@ export const useInteractionController = ({
           imageDragStartBounds: null
         });
         historyService.commit('move-image').catch(() => {});
+        try { paperSaveService.triggerAutoSave(); } catch {}
         return;
       }
 
@@ -396,6 +398,7 @@ export const useInteractionController = ({
           resizeStartPoint: null
         });
         historyService.commit('resize-image').catch(() => {});
+        try { paperSaveService.triggerAutoSave(); } catch {}
         return;
       }
 

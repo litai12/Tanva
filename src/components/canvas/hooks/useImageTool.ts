@@ -572,7 +572,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageMove?.(imageId, newPosition);
-    try { paperSaveService.triggerAutoSave(); } catch {}
   }, [eventHandlers.onImageMove]);
 
   // 直接更新，避免复杂的节流逻辑
@@ -647,7 +646,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageResize?.(imageId, newBounds);
-    try { paperSaveService.triggerAutoSave(); } catch {}
   }, [eventHandlers.onImageResize]);
 
   // ========== 图片删除 ==========
