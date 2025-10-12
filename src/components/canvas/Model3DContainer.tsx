@@ -110,7 +110,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   }, []); // 移除依赖，通过强制重渲染确保同步
 
   // 计算控制点偏移量 - 与边框精确对齐
-  const handleSize = 10; // 控制点尺寸（固定屏幕像素大小）
+  const handleSize = 6; // 控制点尺寸（固定屏幕像素大小）
   // 控制点位置：边框外侧，中心对齐边框边缘
   const handleOffset = -(handleSize / 2); // 控制点中心对齐边框边缘
 
@@ -385,10 +385,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               width: handleSize,
               height: handleSize,
               backgroundColor: '#ffffff',
-              border: '1.5px solid #3b82f6',
-              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
+              border: '1px solid #3b82f6',
+              boxShadow: 'none',
               cursor: 'nw-resize',
-              borderRadius: '0px',
+              borderRadius: 0,
               zIndex: 10
             }}
           />
@@ -403,10 +403,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               width: handleSize,
               height: handleSize,
               backgroundColor: '#ffffff',
-              border: '1.5px solid #3b82f6',
-              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
+              border: '1px solid #3b82f6',
+              boxShadow: 'none',
               cursor: 'ne-resize',
-              borderRadius: '0px',
+              borderRadius: 0,
               zIndex: 10
             }}
           />
@@ -421,10 +421,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               width: handleSize,
               height: handleSize,
               backgroundColor: '#ffffff',
-              border: '1.5px solid #3b82f6',
-              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
+              border: '1px solid #3b82f6',
+              boxShadow: 'none',
               cursor: 'sw-resize',
-              borderRadius: '0px',
+              borderRadius: 0,
               zIndex: 10
             }}
           />
@@ -439,10 +439,10 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
               width: handleSize,
               height: handleSize,
               backgroundColor: '#ffffff',
-              border: '1.5px solid #3b82f6',
-              boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.85)',
+              border: '1px solid #3b82f6',
+              boxShadow: 'none',
               cursor: 'se-resize',
-              borderRadius: '0px',
+              borderRadius: 0,
               zIndex: 10
             }}
           />

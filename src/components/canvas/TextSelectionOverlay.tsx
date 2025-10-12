@@ -181,7 +181,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         style={{
           position: 'absolute',
           inset: 0,
-          border: '1px solid #007AFF',
+          border: '1px solid #3b82f6',
           pointerEvents: 'none'
         }}
       />
@@ -204,7 +204,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         onMouseDown={handleBorderMouseDown}
       />
       {/* 四个角的方块手柄 - 白色填充，蓝色边框 */}
-      {(() => { const handleSize = 8; const offset = -(handleSize / 2); return (
+      {(() => { const handleSize = 6; const offset = -(handleSize / 2); return (
       <>
       <div
         style={{
@@ -214,7 +214,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
           width: handleSize,
           height: handleSize,
           backgroundColor: 'white',
-          border: '1px solid #007AFF',
+          border: '1px solid #3b82f6',
           borderRadius: '1px',
           cursor: 'nw-resize',
           pointerEvents: 'auto'
@@ -229,7 +229,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
           width: handleSize,
           height: handleSize,
           backgroundColor: 'white',
-          border: '1px solid #007AFF',
+          border: '1px solid #3b82f6',
           borderRadius: '1px',
           cursor: 'ne-resize',
           pointerEvents: 'auto'
@@ -244,7 +244,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
           width: handleSize,
           height: handleSize,
           backgroundColor: 'white',
-          border: '1px solid #007AFF',
+          border: '1px solid #3b82f6',
           borderRadius: '1px',
           cursor: 'sw-resize',
           pointerEvents: 'auto'
@@ -259,7 +259,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
           width: handleSize,
           height: handleSize,
           backgroundColor: 'white',
-          border: '1px solid #007AFF',
+          border: '1px solid #3b82f6',
           borderRadius: '1px',
           cursor: 'se-resize',
           pointerEvents: 'auto'
