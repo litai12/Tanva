@@ -574,18 +574,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 如果已经从 paperJson 恢复过内容，则这次也不需要 snapshot 回填
     const restoredFromPaper = typeof window !== 'undefined' && (window as any).tanvaPaperRestored;
     if (restoredFromPaper) {
-      console.log('🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复');
+      console.log('♻️ 检测到 Paper.js 已恢复，继续执行 snapshot 回填以重建交互状态');
       try { (window as any).tanvaPaperRestored = false; } catch {}
-      // 视为已回填一次，避免后续空场景再次触发
-      try { (window as any)[hydratedFlagKey] = true; } catch {}
-      return;
     }
+
+    const hasSnapshots =
+      (projectAssets.images?.length ?? 0) > 0 ||
+      (projectAssets.models?.length ?? 0) > 0 ||
+      (projectAssets.texts?.length ?? 0) > 0;
 
     const hasExisting =
       imageTool.imageInstances.length > 0 ||
       model3DTool.model3DInstances.length > 0 ||
       simpleTextTool.textItems.length > 0;
-    if (hasExisting) return;
+
+    if (!hasSnapshots && hasExisting) return;
 
     try {
       if (projectAssets.images?.length) {
@@ -611,6 +614,118 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DTool.hydrateFromSnapshot,
     simpleTextTool.hydrateFromSnapshot,
   ]);
+
+  // 当缺少资产快照时，从现有 Paper 对象回溯出图片资产并走统一回填流程
+  useEffect(() => {
+    // 如果已经有快照数据，交由上面的逻辑处理
+    if (projectAssets?.images?.length) return;
+
+    let retryTimer: number | null = null;
+
+    const rebuildFromPaper = (source?: string) => {
+      try {
+        if (!paper || !paper.project) return;
+        if (imageTool.imageInstances.length > 0) return;
+
+        const snapshots: any[] = [];
+        let needsRetry = false;
+
+        (paper.project.layers || []).forEach((layer: any) => {
+          const layerName: string | undefined = layer?.name;
+          const normalizedLayerId = layerName && layerName.startsWith('layer_')
+            ? layerName.replace('layer_', '')
+            : undefined;
+
+          const children = layer?.children || [];
+          children.forEach((item: any) => {
+            let group: any | null = null;
+            if (item?.data?.type === 'image' && item?.data?.imageId) {
+              group = item;
+            } else if (item?.className === 'Raster' || item instanceof (paper as any).Raster) {
+              group = item.parent && item.parent.className === 'Group' ? item.parent : null;
+            }
+            if (!group) return;
+
+            const raster = group.children?.find?.((c: any) => c?.className === 'Raster' || c instanceof (paper as any).Raster);
+            if (!raster || !raster.bounds) return;
+
+            const bounds = raster.bounds as any;
+            const hasValidBounds = bounds && typeof bounds.width === 'number' && typeof bounds.height === 'number' && bounds.width > 0.5 && bounds.height > 0.5;
+            if (!hasValidBounds) {
+              needsRetry = true;
+              if (raster) {
+                try {
+                  if (!raster.data) raster.data = {};
+                  if (!raster.data.__tanvaAwaitingLoad) {
+                    raster.data.__tanvaAwaitingLoad = true;
+                    const previousOnLoad = typeof raster.onLoad === 'function' ? raster.onLoad.bind(raster) : null;
+                    raster.onLoad = () => {
+                      if (previousOnLoad) {
+                        try { previousOnLoad(); } catch {}
+                      }
+                      raster.data.__tanvaAwaitingLoad = false;
+                      window.setTimeout(() => rebuildFromPaper(), 0);
+                    };
+                  }
+                } catch {}
+              }
+              return;
+            }
+
+            if (!group.data) group.data = {};
+            if (group.data.type !== 'image') group.data.type = 'image';
+            if (!group.data.imageId) {
+              group.data.imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            }
+
+            const url = (raster.data && (raster.data.remoteUrl || raster.data.url)) ||
+              (typeof raster.source === 'string' ? raster.source : undefined);
+
+            snapshots.push({
+              id: group.data.imageId,
+              url,
+              src: url,
+              localDataUrl: url,
+              pendingUpload: false,
+              bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+              layerId: normalizedLayerId,
+              width: raster.data?.originalWidth || bounds.width,
+              height: raster.data?.originalHeight || bounds.height,
+            });
+          });
+        });
+
+        if (snapshots.length > 0) {
+          const hasRaster = snapshots.every(s => !!s.url);
+          if (!hasRaster && retryTimer == null) {
+            retryTimer = window.setTimeout(() => {
+              retryTimer = null;
+              rebuildFromPaper('hydrateRetryMissingRaster');
+            }, 200);
+            return;
+          }
+          console.log(`🧩 未发现快照资产，尝试从 Paper 重建 ${snapshots.length} 张图片（${source ?? 'initial'}）`);
+          imageTool.hydrateFromSnapshot(snapshots);
+        } else if (needsRetry && retryTimer == null) {
+          retryTimer = window.setTimeout(() => {
+            retryTimer = null;
+            rebuildFromPaper('hydrateRetryAwaitBounds');
+          }, 200);
+        }
+      } catch (e) {
+        console.warn('从 Paper 回溯图片实例失败:', e);
+      }
+    };
+
+    rebuildFromPaper('initial');
+    window.addEventListener('paper-project-changed', rebuildFromPaper as EventListener);
+    return () => {
+      window.removeEventListener('paper-project-changed', rebuildFromPaper as EventListener);
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer);
+      }
+    };
+  }, [projectAssets?.images, imageTool.imageInstances.length, imageTool.hydrateFromSnapshot]);
 
   // 暴露文本工具状态到全局，供工具栏使用
   useEffect(() => {
@@ -991,104 +1106,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     window.addEventListener('history-restore', handler as EventListener);
     return () => window.removeEventListener('history-restore', handler as EventListener);
   }, [imageTool, model3DTool, simpleTextTool]);
-
-  // 从已反序列化的 Paper 项目重建图片实例与选择覆盖层
-  useEffect(() => {
-    const rebuildFromPaper = () => {
-      try {
-        if (!paper || !paper.project) return;
-        const instances: any[] = [];
-
-        // 扫描所有图层的 image 组或 Raster
-        (paper.project.layers || []).forEach((layer: any) => {
-          const children = layer?.children || [];
-          children.forEach((item: any) => {
-            let group: any | null = null;
-            if (item?.data?.type === 'image' && item?.data?.imageId) {
-              group = item;
-            } else if (item?.className === 'Raster' || item instanceof (paper as any).Raster) {
-              // 兼容只有 Raster 的情况
-              group = item.parent && item.parent.className === 'Group' ? item.parent : null;
-              if (group && !(group.data && group.data.type === 'image')) {
-                // 为旧内容补上标记
-                if (!group.data) group.data = {};
-                group.data.type = 'image';
-                group.data.imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-              }
-            }
-            if (!group || !group.data?.imageId) return;
-
-            // 找到 Raster 与实际 bounds
-            const raster = group.children.find((c: any) => c.className === 'Raster' || c instanceof (paper as any).Raster);
-            if (!raster || !raster.bounds) return;
-
-            const b = raster.bounds as any;
-
-            // 确保存在选择边框与四角控制点（默认隐藏）
-            const hasBorder = !!group.children.find((c: any) => c?.data?.isSelectionBorder);
-            if (!hasBorder) {
-              try {
-                const border = new (paper as any).Path.Rectangle({
-                  rectangle: new (paper as any).Rectangle(b.x, b.y, b.width, b.height),
-                  strokeColor: new (paper as any).Color('#3b82f6'),
-                  strokeWidth: 1,
-                  fillColor: null,
-                  selected: false,
-                  visible: false,
-                });
-                border.data = { isSelectionBorder: true, isHelper: true };
-                group.addChild(border);
-                const hs = 12; const hc = new (paper as any).Color('#3b82f6');
-                const pts = [
-                  [b.x, b.y],
-                  [b.x + b.width, b.y],
-                  [b.x, b.y + b.height],
-                  [b.x + b.width, b.y + b.height],
-                ];
-                const dirs = ['nw','ne','sw','se'];
-                pts.forEach((p, idx) => {
-                  const handle = new (paper as any).Path.Rectangle({
-                    point: [p[0] - hs/2, p[1] - hs/2],
-                    size: [hs, hs],
-                    fillColor: 'white',
-                    strokeColor: hc,
-                    strokeWidth: 1,
-                    selected: false,
-                    visible: false,
-                  });
-                  handle.data = { isResizeHandle: true, direction: dirs[idx], imageId: group.data.imageId, isHelper: true };
-                  group.addChild(handle);
-                });
-              } catch {}
-            }
-
-            // 构建实例项
-            const url = (raster.data && raster.data.remoteUrl) || (typeof raster.source === 'string' ? raster.source : undefined) || undefined;
-            instances.push({
-              id: group.data.imageId,
-              imageData: { id: group.data.imageId, url, src: url, fileName: undefined, pendingUpload: false },
-              bounds: { x: b.x, y: b.y, width: b.width, height: b.height },
-              isSelected: false,
-              visible: group.visible !== false,
-              layerId: layer?.name,
-            });
-          });
-        });
-
-        if (instances.length > 0) {
-          imageTool.setImageInstances(instances);
-          imageTool.setSelectedImageIds([]);
-          try { (window as any).tanvaImageInstances = instances; } catch {}
-          console.log(`🧩 已从 Paper 恢复 ${instances.length} 张图片实例`);
-        }
-      } catch (e) {
-        console.warn('从Paper重建图片实例失败:', e);
-      }
-    };
-
-    window.addEventListener('paper-project-changed', rebuildFromPaper as EventListener);
-    return () => window.removeEventListener('paper-project-changed', rebuildFromPaper as EventListener);
-  }, [imageTool]);
 
   // 监听图层面板的选择事件
   useEffect(() => {
