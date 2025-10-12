@@ -6,6 +6,7 @@
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { paperSaveService } from '@/services/paperSaveService';
 import type { 
   Model3DInstance, 
   Model3DToolEventHandlers,
@@ -365,6 +366,58 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     }));
   }, [eventHandlers.onModel3DResize]);
 
+  // ========== 3D模型删除 ==========
+  const handleModel3DDelete = useCallback((modelId: string) => {
+    console.log('🗑️ 开始删除3D模型:', modelId);
+
+    // 从Paper.js中移除3D模型对象（深度清理）
+    try {
+      if (paper && paper.project) {
+        const matches = paper.project.getItems({
+          match: (item: any) => {
+            const d = item?.data || {};
+            const isModelGroup = d.type === '3d-model' && d.modelId === modelId;
+            return isModelGroup;
+          }
+        }) as paper.Item[];
+
+        if (matches.length > 0) {
+          matches.forEach((item) => {
+            let target: any = item;
+            while (target && !(target instanceof paper.Layer)) {
+              if (target?.data?.type === '3d-model' && target?.data?.modelId === modelId) {
+                try { target.remove(); } catch {}
+                return;
+              }
+              target = target.parent;
+            }
+            try { item.remove(); } catch {}
+          });
+          try { paper.view.update(); } catch {}
+          console.log('🗑️ 已从Paper.js中移除3D模型（深度清理）');
+        } else {
+          console.warn('未找到需要删除的3D模型对象，可能已被移除');
+        }
+      }
+    } catch (e) {
+      console.warn('删除3D模型对象时出错:', e);
+    }
+
+    // 从React状态中移除3D模型
+    setModel3DInstances(prev => {
+      const filtered = prev.filter(m => m.id !== modelId);
+      console.log('🗑️ 已从状态中移除3D模型，剩余数量:', filtered.length);
+      return filtered;
+    });
+
+    // 清理选中状态
+    setSelectedModel3DIds(prev => prev.filter(id => id !== modelId));
+
+    // 触发回调与保存
+    eventHandlers.onModel3DDelete?.(modelId);
+    try { paperSaveService.triggerAutoSave(); } catch {}
+  }, [eventHandlers.onModel3DDelete]);
+
   // ========== 3D模型上传错误处理 ==========
   const handleModel3DUploadError = useCallback((error: string) => {
     logger.error('3D模型上传失败:', error);
@@ -479,6 +532,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     // 3D模型移动和调整大小
     handleModel3DMove,
     handleModel3DResize,
+    handleModel3DDelete,
 
     // 可见性同步
     syncModel3DVisibility,

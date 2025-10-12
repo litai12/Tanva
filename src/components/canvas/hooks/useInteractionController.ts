@@ -58,11 +58,17 @@ interface ImageTool {
   handleImageMove: (id: string, position: { x: number; y: number }, skipPaperUpdate?: boolean) => void;
   handleImageResize: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
   createImagePlaceholder: (start: paper.Point, end: paper.Point) => void;
+  // 可选：由图片工具暴露的选中集与删除方法
+  selectedImageIds?: string[];
+  handleImageDelete?: (id: string) => void;
 }
 
 interface Model3DTool {
   model3DInstances: any[];
   create3DModelPlaceholder: (start: paper.Point, end: paper.Point) => void;
+  // 可选：若后续支持按键删除3D模型
+  selectedModel3DIds?: string[];
+  handleModel3DDelete?: (id: string) => void;
 }
 
 interface SimpleTextTool {
@@ -577,10 +583,60 @@ export const useInteractionController = ({
 
     // 键盘事件处理
     const handleKeyDown = (event: KeyboardEvent) => {
+      // 输入框/可编辑区域不拦截
+      const active = document.activeElement as Element | null;
+      const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
+
+      // 文本工具优先处理
       if (drawMode === 'text') {
         const handled = simpleTextTool.handleKeyDown(event);
         if (handled) {
           event.preventDefault();
+          return;
+        }
+      }
+
+      // Delete/Backspace 删除已选元素
+      if (!isEditable && (event.key === 'Delete' || event.key === 'Backspace')) {
+        let didDelete = false;
+
+        // 删除路径（单选与多选）
+        try {
+          const selectedPath = (selectionTool as any).selectedPath as paper.Path | null;
+          const selectedPaths = (selectionTool as any).selectedPaths as paper.Path[] | undefined;
+          if (selectedPath) {
+            try { selectedPath.remove(); didDelete = true; } catch {}
+            try { (selectionTool as any).setSelectedPath?.(null); } catch {}
+          }
+          if (Array.isArray(selectedPaths) && selectedPaths.length > 0) {
+            selectedPaths.forEach(p => { try { p.remove(); didDelete = true; } catch {} });
+            try { (selectionTool as any).setSelectedPaths?.([]); } catch {}
+          }
+        } catch {}
+
+        // 删除图片（按选中ID或状态）
+        try {
+          const ids = (imageTool.selectedImageIds && imageTool.selectedImageIds.length > 0)
+            ? imageTool.selectedImageIds
+            : (imageTool.imageInstances || []).filter((img: any) => img.isSelected).map((img: any) => img.id);
+          if (ids && ids.length > 0) {
+            ids.forEach((id: string) => { try { imageTool.handleImageDelete?.(id); didDelete = true; } catch {} });
+          }
+        } catch {}
+
+        // 删除3D模型（若工具暴露了API）
+        try {
+          const mids = (model3DTool.selectedModel3DIds && model3DTool.selectedModel3DIds.length > 0)
+            ? model3DTool.selectedModel3DIds
+            : (model3DTool.model3DInstances || []).filter((m: any) => m.isSelected).map((m: any) => m.id);
+          if (mids && mids.length > 0 && typeof model3DTool.handleModel3DDelete === 'function') {
+            mids.forEach((id: string) => { try { model3DTool.handleModel3DDelete?.(id); didDelete = true; } catch {} });
+          }
+        } catch {}
+
+        if (didDelete) {
+          event.preventDefault();
+          try { paper.view.update(); } catch {}
         }
       }
     };
