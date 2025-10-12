@@ -6,6 +6,7 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { historyService } from '@/services/historyService';
 import { useLayerStore } from '@/stores/layerStore';
 import type { TextAssetSnapshot } from '@/types/project';
 
@@ -130,6 +131,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     setEditingTextId(id);
 
     logger.debug(`📝 创建简单文本: ${id}`, { content, position: point });
+    try { historyService.commit('create-text').catch(() => {}); } catch {}
     return textItem;
   }, [currentColor, ensureDrawingLayer]);
 
@@ -199,6 +201,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         }
       });
     } catch {}
+    try { historyService.commit('edit-text').catch(() => {}); } catch {}
   }, []);
 
   // 更新文本内容
@@ -228,6 +231,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     if (editingTextId === textId) {
       setEditingTextId(null);
     }
+    try { historyService.commit('delete-text').catch(() => {}); } catch {}
   }, [selectedTextId, editingTextId]);
 
   // 更新文本样式
@@ -258,7 +262,9 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
           item.paperText.justification = updates.align;
         }
         
-        return { ...item, style: newStyle };
+        const next = { ...item, style: newStyle };
+        try { historyService.commit('style-text').catch(() => {}); } catch {}
+        return next;
       }
       return item;
     }));
@@ -322,6 +328,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     setIsDragging(false);
     dragStartRef.current = null;
     console.log('✋ 结束拖拽文本');
+    try { historyService.commit('move-text').catch(() => {}); } catch {}
   }, []);
 
   // 调整文本大小（通过改变字体大小）
@@ -452,6 +459,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     setIsResizing(false);
     resizeStartRef.current = null;
     console.log('✋ 结束调整文本大小');
+    try { historyService.commit('resize-text').catch(() => {}); } catch {}
   }, []);
 
   // 处理画布点击 (需要从外部传入当前工具模式)

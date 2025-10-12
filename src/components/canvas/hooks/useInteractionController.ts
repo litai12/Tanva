@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { clientToProject } from '@/utils/paperCoords';
+import { historyService } from '@/services/historyService';
 import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 
@@ -381,6 +382,7 @@ export const useInteractionController = ({
           imageDragStartPoint: null,
           imageDragStartBounds: null
         });
+        historyService.commit('move-image').catch(() => {});
         return;
       }
 
@@ -393,6 +395,7 @@ export const useInteractionController = ({
           resizeStartBounds: null,
           resizeStartPoint: null
         });
+        historyService.commit('resize-image').catch(() => {});
         return;
       }
 
@@ -422,6 +425,7 @@ export const useInteractionController = ({
           model3DTool.create3DModelPlaceholder,
           setDrawMode
         );
+        historyService.commit(`finish-${String(drawMode)}`).catch(() => {});
       }
     } else if (drawingTools.isDrawingRef.current) {
       logger.drawing(`结束绘制: 模式=${drawMode}`);
@@ -432,6 +436,7 @@ export const useInteractionController = ({
         model3DTool.create3DModelPlaceholder,
         setDrawMode
       );
+      historyService.commit(`finish-${String(drawMode)}`).catch(() => {});
     }
 
     drawingTools.isDrawingRef.current = false;
@@ -637,6 +642,7 @@ export const useInteractionController = ({
         if (didDelete) {
           event.preventDefault();
           try { paper.view.update(); } catch {}
+          historyService.commit('delete-selection').catch(() => {});
         }
       }
     };

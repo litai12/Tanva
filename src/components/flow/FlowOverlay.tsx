@@ -32,6 +32,7 @@ import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
+import { historyService } from '@/services/historyService';
   import { aiImageService } from '@/services/aiImageService';
   import type { AIImageResult } from '@/types/ai';
   import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -340,6 +341,24 @@ function useFlowViewport() {
 function FlowInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  const onNodesChangeWithHistory = React.useCallback((changes: any) => {
+    onNodesChange(changes);
+    try {
+      const needCommit = Array.isArray(changes) && changes.some((c: any) => (
+        c?.type === 'position' && c?.dragging === false
+      ) || c?.type === 'remove' || c?.type === 'add' || c?.type === 'dimensions');
+      if (needCommit) historyService.commit('flow-nodes-change').catch(() => {});
+    } catch {}
+  }, [onNodesChange]);
+
+  const onEdgesChangeWithHistory = React.useCallback((changes: any) => {
+    onEdgesChange(changes);
+    try {
+      const needCommit = Array.isArray(changes) && changes.some((c: any) => c?.type === 'remove' || c?.type === 'add');
+      if (needCommit) historyService.commit('flow-edges-change').catch(() => {});
+    } catch {}
+  }, [onEdgesChange]);
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
@@ -619,6 +638,7 @@ function FlowInner() {
         setNodes(ns => ns.concat(mappedNodes));
         setEdges(es => es.concat(mappedEdges));
         console.log(`✅ 导入成功：节点 ${mappedNodes.length} 条，连线 ${mappedEdges.length} 条`);
+        try { historyService.commit('flow-import').catch(() => {}); } catch {}
       } catch (err) {
         console.error('导入失败：JSON 解析错误', err);
       } finally {
@@ -809,6 +829,7 @@ function FlowInner() {
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
+    try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
     setAddPanel(v => ({ ...v, visible: false }));
     return id;
   }, [setNodes]);
@@ -878,8 +899,10 @@ function FlowInner() {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'text'));
       }
       
-      return addEdge({ ...params, type: 'default' }, next);
+      const out = addEdge({ ...params, type: 'default' }, next);
+      return out;
     });
+    try { historyService.commit('flow-connect').catch(() => {}); } catch {}
 
     // 若连接到 Image(img)，立即把源图像写入目标
     try {
@@ -1163,6 +1186,7 @@ function FlowInner() {
         { imageData: undefined }
     };
     setNodes(ns => ns.concat([base]));
+    try { historyService.commit('flow-add-at-center').catch(() => {}); } catch {}
     return id;
   }, [rf, setNodes]);
 
@@ -1326,8 +1350,8 @@ function FlowInner() {
       <ReactFlow
         nodes={nodesWithHandlers}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onNodesChange={onNodesChangeWithHistory}
+        onEdgesChange={onEdgesChangeWithHistory}
         onNodeDragStart={() => { nodeDraggingRef.current = true; }}
         onNodeDragStop={() => {
           nodeDraggingRef.current = false;
@@ -1918,9 +1942,14 @@ function FlowInner() {
 }
 
 export default function FlowOverlay() {
+  // 若未启用 Flow UI，则让该层不拦截指针事件
+  const flowUIEnabled = useUIStore(s => s.flowUIEnabled);
+  const wrapperStyle: React.CSSProperties = flowUIEnabled ? { pointerEvents: 'auto' } : { pointerEvents: 'none' };
   return (
-    <ReactFlowProvider>
-      <FlowInner />
-    </ReactFlowProvider>
+    <div style={{ position: 'absolute', inset: 0, ...wrapperStyle }}>
+      <ReactFlowProvider>
+        <FlowInner />
+      </ReactFlowProvider>
+    </div>
   );
 }

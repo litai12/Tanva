@@ -6,6 +6,7 @@
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
 import type {
   ImageInstance,
@@ -703,6 +704,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     // 调用删除回调
     eventHandlers.onImageDelete?.(imageId);
     try { paperSaveService.triggerAutoSave(); } catch {}
+    historyService.commit('delete-image').catch(() => {});
   }, [selectedImageIds[0], eventHandlers.onImageDelete]);
 
   // ========== 图片上传错误处理 ==========

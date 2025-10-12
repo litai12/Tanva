@@ -7,6 +7,7 @@ import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { paperSaveService } from '@/services/paperSaveService';
+import { historyService } from '@/services/historyService';
 import type { 
   Model3DInstance, 
   Model3DToolEventHandlers,
@@ -416,6 +417,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     // 触发回调与保存
     eventHandlers.onModel3DDelete?.(modelId);
     try { paperSaveService.triggerAutoSave(); } catch {}
+    historyService.commit('delete-model3d').catch(() => {});
   }, [eventHandlers.onModel3DDelete]);
 
   // ========== 3D模型上传错误处理 ==========

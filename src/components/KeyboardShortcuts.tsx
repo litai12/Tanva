@@ -3,10 +3,29 @@ import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
+import { historyService } from '@/services/historyService';
 
 export default function KeyboardShortcuts() {
   useEffect(() => {
     const onKeyDown = async (e: KeyboardEvent) => {
+      const active = document.activeElement as Element | null;
+      const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
+
+      // Undo / Redo
+      if (!isEditable && (e.ctrlKey || e.metaKey)) {
+        // Redo: Ctrl+Y or Shift+Ctrl+Z
+        if ((e.shiftKey && (e.key === 'z' || e.key === 'Z')) || e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          await historyService.redo();
+          return;
+        }
+        // Undo: Ctrl+Z
+        if (e.key === 'z' || e.key === 'Z') {
+          e.preventDefault();
+          await historyService.undo();
+          return;
+        }
+      }
       // Ctrl/Cmd + S 保存
       if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
@@ -38,9 +57,9 @@ export default function KeyboardShortcuts() {
       }
     };
     window.addEventListener('keydown', onKeyDown);
+    historyService.captureInitialIfEmpty().catch(() => {});
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   return null;
 }
-
