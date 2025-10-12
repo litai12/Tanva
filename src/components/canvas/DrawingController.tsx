@@ -565,12 +565,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     if (!projectAssets) return;
     if (!paper || !paper.project) return;
-    // 如果已经从 paperJson 恢复过内容，则跳过基于快照的再创建，避免重复元素
+
+    // 只允许进行一次基于快照的初始回填，避免用户删除后又被回填复原
+    const hydratedFlagKey = '__tanva_initial_assets_hydrated__';
+    const alreadyHydrated = typeof window !== 'undefined' && (window as any)[hydratedFlagKey];
+    if (alreadyHydrated) return;
+
+    // 如果已经从 paperJson 恢复过内容，则这次也不需要 snapshot 回填
     const restoredFromPaper = typeof window !== 'undefined' && (window as any).tanvaPaperRestored;
     if (restoredFromPaper) {
       console.log('🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复');
-      // 清掉标记，仅在这一轮生效
       try { (window as any).tanvaPaperRestored = false; } catch {}
+      // 视为已回填一次，避免后续空场景再次触发
+      try { (window as any)[hydratedFlagKey] = true; } catch {}
       return;
     }
 
@@ -590,6 +597,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (projectAssets.texts?.length) {
         simpleTextTool.hydrateFromSnapshot(projectAssets.texts);
       }
+      // 标记为已回填
+      try { (window as any)[hydratedFlagKey] = true; } catch {}
     } catch (error) {
       console.warn('资产回填失败:', error);
     }

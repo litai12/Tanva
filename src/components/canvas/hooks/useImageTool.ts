@@ -6,6 +6,7 @@
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { paperSaveService } from '@/services/paperSaveService';
 import type {
   ImageInstance,
   ImageDragState,
@@ -570,6 +571,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageMove?.(imageId, newPosition);
+    try { paperSaveService.triggerAutoSave(); } catch {}
   }, [eventHandlers.onImageMove]);
 
   // 直接更新，避免复杂的节流逻辑
@@ -644,23 +646,45 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageResize?.(imageId, newBounds);
+    try { paperSaveService.triggerAutoSave(); } catch {}
   }, [eventHandlers.onImageResize]);
 
   // ========== 图片删除 ==========
   const handleImageDelete = useCallback((imageId: string) => {
     console.log('🗑️ 开始删除图片:', imageId);
 
-    // 从Paper.js中移除图片对象
-    const imageGroup = paper.project?.layers?.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageId
-      )
-    )[0];
+    // 从Paper.js中移除图片对象（深度清理，防止残留）
+    try {
+      if (paper && paper.project) {
+        const matches = paper.project.getItems({
+          match: (item: any) => {
+            const d = item?.data || {};
+            const isImageGroup = d.type === 'image' && d.imageId === imageId;
+            const isRasterWithId = (item instanceof paper.Raster) && (d.imageId === imageId);
+            return isImageGroup || isRasterWithId;
+          }
+        }) as paper.Item[];
 
-    if (imageGroup) {
-      imageGroup.remove();
-      paper.view.update();
-      console.log('🗑️ 已从Paper.js中移除图片');
+        if (matches.length > 0) {
+          matches.forEach((item) => {
+            let target: any = item;
+            while (target && !(target instanceof paper.Layer)) {
+              if (target?.data?.type === 'image' && target?.data?.imageId === imageId) {
+                try { target.remove(); } catch {}
+                return;
+              }
+              target = target.parent;
+            }
+            try { item.remove(); } catch {}
+          });
+          try { paper.view.update(); } catch {}
+          console.log('🗑️ 已从Paper.js中移除图片（深度清理）');
+        } else {
+          console.warn('未找到需要删除的图片对象，可能已被移除');
+        }
+      }
+    } catch (e) {
+      console.warn('删除Paper对象时出错:', e);
     }
 
     // 从React状态中移除图片
@@ -678,6 +702,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 调用删除回调
     eventHandlers.onImageDelete?.(imageId);
+    try { paperSaveService.triggerAutoSave(); } catch {}
   }, [selectedImageIds[0], eventHandlers.onImageDelete]);
 
   // ========== 图片上传错误处理 ==========
