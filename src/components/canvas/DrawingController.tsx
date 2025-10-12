@@ -602,6 +602,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
       // 标记为已回填
       try { (window as any)[hydratedFlagKey] = true; } catch {}
+      try {
+        if (paper?.view) {
+          paper.view.update();
+          if (typeof (paper.view as any).requestUpdate === 'function') {
+            (paper.view as any).requestUpdate();
+          } else {
+            window.requestAnimationFrame(() => {
+              try { paper.view.update(); } catch {}
+            });
+          }
+        }
+      } catch {}
     } catch (error) {
       console.warn('资产回填失败:', error);
     }
@@ -706,6 +718,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
           console.log(`🧩 未发现快照资产，尝试从 Paper 重建 ${snapshots.length} 张图片（${source ?? 'initial'}）`);
           imageTool.hydrateFromSnapshot(snapshots);
+          try {
+            if (paper?.view) {
+              paper.view.update();
+              if (typeof (paper.view as any).requestUpdate === 'function') {
+                (paper.view as any).requestUpdate();
+              } else {
+                window.requestAnimationFrame(() => {
+                  try { paper.view.update(); } catch {}
+                });
+              }
+            }
+          } catch {}
         } else if (needsRetry && retryTimer == null) {
           retryTimer = window.setTimeout(() => {
             retryTimer = null;
