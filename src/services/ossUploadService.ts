@@ -28,6 +28,7 @@ type PresignResponse = {
   accessId: string;
   policy: string;
   signature: string;
+  cdnHost?: string;
 };
 
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
@@ -126,7 +127,15 @@ export async function uploadToOSS(data: Blob | File, options: OssUploadOptions =
       throw new Error(`OSS 上传失败: ${uploadResp.status} ${uploadResp.statusText} ${text || ''}`.trim());
     }
 
-    const publicUrl = `${presign.host}/${key}`;
+    const resolvedHost = (() => {
+      if (presign.cdnHost && presign.cdnHost.trim().length > 0) {
+        const raw = presign.cdnHost.trim();
+        const withProtocol = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+        return withProtocol.replace(/\/+$/, '');
+      }
+      return presign.host.replace(/\/+$/, '');
+    })();
+    const publicUrl = `${resolvedHost}/${key}`;
     return {
       success: true,
       url: publicUrl,

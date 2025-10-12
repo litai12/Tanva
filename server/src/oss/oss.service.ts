@@ -10,6 +10,7 @@ type PresignPolicy = {
   accessId: string;
   policy: string;
   signature: string;
+  cdnHost?: string;
 };
 
 @Injectable()
@@ -28,7 +29,7 @@ export class OssService {
   }
 
   presignPost(dir = 'uploads/', expiresInSeconds = 300, maxSize = 20 * 1024 * 1024): PresignPolicy {
-    const { region, bucket, accessKeyId, accessKeySecret } = this.conf;
+    const { region, bucket, accessKeyId, accessKeySecret, cdnHost } = this.conf;
     const host = `https://${bucket}.${region}.aliyuncs.com`;
     const expire = Math.floor(Date.now() / 1000) + expiresInSeconds;
 
@@ -41,7 +42,7 @@ export class OssService {
     } as const;
     const policy = Buffer.from(JSON.stringify(policyText)).toString('base64');
     const signature = crypto.createHmac('sha1', accessKeySecret).update(policy).digest('base64');
-    return { host, dir, expire, accessId: accessKeyId, policy, signature };
+    return { host, dir, expire, accessId: accessKeyId, policy, signature, cdnHost: cdnHost || undefined };
   }
 
   private client(): OSS {
