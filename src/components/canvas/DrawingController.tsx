@@ -175,14 +175,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       onImageDeselect: () => console.log('取消图片选择')
     }
   });
-
   // ========== 初始化快速图片上传Hook ==========
   const quickImageUpload = useQuickImageUpload({
     context: drawingContext,
     canvasRef,
     projectId,
   });
-
   // ========== 监听drawMode变化，处理快速上传 ==========
   useEffect(() => {
     // 只在drawMode变化时触发，避免重复触发
@@ -541,6 +539,55 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentColor,
     ensureDrawingLayer: drawingContext.ensureDrawingLayer,
   });
+  const modelPlaceholderRef = model3DTool.currentModel3DPlaceholderRef;
+  const resetImageInstances = imageTool.setImageInstances;
+  const resetSelectedImageIds = imageTool.setSelectedImageIds;
+  const resetModelInstances = model3DTool.setModel3DInstances;
+  const resetModelSelections = model3DTool.setSelectedModel3DIds;
+  const clearTextItems = simpleTextTool.clearAllTextItems;
+  const clearSelections = selectionTool.clearAllSelections;
+  const imagePlaceholderRef = imageTool.currentPlaceholderRef;
+
+  useEffect(() => {
+    const handlePaperCleared = () => {
+      console.log('🧹 收到 paper-project-cleared 事件，重置前端实例状态');
+
+      resetImageInstances([]);
+      resetSelectedImageIds([]);
+      if (imagePlaceholderRef?.current) {
+        try { imagePlaceholderRef.current.remove(); } catch {}
+        imagePlaceholderRef.current = null;
+      }
+
+      resetModelInstances([]);
+      resetModelSelections([]);
+      if (modelPlaceholderRef?.current) {
+        try { modelPlaceholderRef.current.remove(); } catch {}
+        modelPlaceholderRef.current = null;
+      }
+
+      clearTextItems();
+      clearSelections();
+
+      try { (window as any).tanvaImageInstances = []; } catch {}
+      try { (window as any).tanvaModel3DInstances = []; } catch {}
+      try { (window as any).tanvaTextItems = []; } catch {}
+    };
+
+    window.addEventListener('paper-project-cleared', handlePaperCleared);
+    return () => {
+      window.removeEventListener('paper-project-cleared', handlePaperCleared);
+    };
+  }, [
+    resetImageInstances,
+    resetSelectedImageIds,
+    resetModelInstances,
+    resetModelSelections,
+    clearTextItems,
+    clearSelections,
+    imagePlaceholderRef,
+    modelPlaceholderRef
+  ]);
 
   // 🔄 当 projectId 变化时，清空所有实例状态，防止旧项目数据残留
   useEffect(() => {
