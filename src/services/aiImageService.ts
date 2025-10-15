@@ -36,6 +36,128 @@ class AIImageService {
     this.initializeClient();
   }
 
+  private inferMimeTypeFromUrl(url: string): string | null {
+    try {
+      const cleanUrl = url.split('?')[0].toLowerCase();
+      if (cleanUrl.endsWith('.png')) return 'image/png';
+      if (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg')) return 'image/jpeg';
+      if (cleanUrl.endsWith('.gif')) return 'image/gif';
+      if (cleanUrl.endsWith('.webp')) return 'image/webp';
+      if (cleanUrl.endsWith('.bmp')) return 'image/bmp';
+      if (cleanUrl.endsWith('.ico')) return 'image/x-icon';
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private inferMimeTypeFromBase64(data: string): string {
+    const headerChecks = [
+      { prefix: 'iVBORw0KGgo', mime: 'image/png' },
+      { prefix: '/9j/', mime: 'image/jpeg' },
+      { prefix: 'R0lGOD', mime: 'image/gif' },
+      { prefix: 'UklGR', mime: 'image/webp' },
+      { prefix: 'Qk', mime: 'image/bmp' }
+    ];
+
+    const trimmed = data.substring(0, 20);
+    for (const check of headerChecks) {
+      if (trimmed.startsWith(check.prefix)) {
+        return check.mime;
+      }
+    }
+
+    return 'image/png';
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const NodeBuffer = typeof globalThis !== 'undefined' ? (globalThis as any).Buffer : undefined;
+    if (NodeBuffer) {
+      return NodeBuffer.from(buffer).toString('base64');
+    }
+
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000; // 32KB
+
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+
+    if (typeof btoa !== 'undefined') {
+      return btoa(binary);
+    }
+
+    throw new Error('Base64 encoding is not supported in the current environment');
+  }
+
+  private async convertRemoteImageToBase64(url: string): Promise<{ data: string; mimeType: string }> {
+    const normalizedUrl = url.replace(/^"+|"+$/g, '');
+    console.log('🌐 尝试获取远程图像用于Base64转换:', normalizedUrl);
+
+    const response = await fetch(normalizedUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch source image (${response.status})`);
+    }
+
+    const mimeType = response.headers.get('Content-Type')?.split(';')[0] || this.inferMimeTypeFromUrl(normalizedUrl) || 'image/png';
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Data = this.arrayBufferToBase64(arrayBuffer);
+
+    console.log('🌐 远程图像已转换为Base64:', {
+      mimeType,
+      base64Length: base64Data.length
+    });
+
+    return { data: base64Data, mimeType };
+  }
+
+  private async normalizeImageInput(imageInput: string): Promise<{ data: string; mimeType: string }> {
+    if (!imageInput || imageInput.trim().length === 0) {
+      throw new Error('Source image is empty');
+    }
+
+    const trimmed = imageInput.trim();
+
+    if (trimmed.startsWith('data:image/')) {
+      const commaIndex = trimmed.indexOf(',');
+      if (commaIndex === -1) {
+        throw new Error('Invalid data URL format');
+      }
+
+      const mimeMatch = trimmed.substring(5, trimmed.indexOf(';', 5));
+      const base64Data = trimmed.substring(commaIndex + 1).replace(/\s/g, '');
+
+      return {
+        data: base64Data,
+        mimeType: mimeMatch || 'image/png'
+      };
+    }
+
+    const normalizedWithoutQuotes = trimmed.replace(/^"+|"+$/g, '');
+
+    if (/^https?:\/\//i.test(normalizedWithoutQuotes)) {
+      return this.convertRemoteImageToBase64(normalizedWithoutQuotes);
+    }
+
+    const sanitized = normalizedWithoutQuotes.replace(/\s/g, '');
+    const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
+
+    if (!base64Regex.test(sanitized)) {
+      console.warn('⚠️ 检测到可能的非Base64图像数据，将尝试按远程URL处理');
+      if (/^https?:\/\//i.test(`https://${sanitized}`)) {
+        return this.convertRemoteImageToBase64(`https://${sanitized}`);
+      }
+      throw new Error('Unsupported image format. Expected Base64 or data URL.');
+    }
+
+    return {
+      data: sanitized,
+      mimeType: this.inferMimeTypeFromBase64(sanitized)
+    };
+  }
+
   private initializeClient(): void {
     // 兼容 Vite 和 Node.js 环境
     const apiKey = typeof import.meta !== 'undefined' && import.meta.env
@@ -914,8 +1036,13 @@ class AIImageService {
     try {
       const prompt = request.prompt;
 
-      // 将base64图像转换为适当的格式
-      const imageData = request.sourceImage.replace(/^data:image\/[a-z]+;base64,/, '');
+      // 将输入图像规范化为Base64格式
+      const { data: imageData, mimeType: sourceMimeType } = await this.normalizeImageInput(request.sourceImage);
+      console.log('🧪 图像编辑输入已规范化:', {
+        mimeType: sourceMimeType,
+        dataLength: imageData.length,
+        hadPrefix: request.sourceImage.startsWith('data:image/')
+      });
 
       const startTime = Date.now();
       
@@ -968,7 +1095,7 @@ class AIImageService {
                 { text: prompt },
                 {
                   inlineData: {
-                    mimeType: 'image/jpeg', // 根据实际格式调整
+                    mimeType: sourceMimeType || 'image/png',
                     data: imageData
                   }
                 }
@@ -1115,12 +1242,21 @@ class AIImageService {
 
       // 构建包含多个图像的请求 - 反转顺序，让最后上传的图片作为主场景
       const reversedImages = [...request.sourceImages].reverse();
-      const imageParts = reversedImages.map((imageData) => ({
-        inlineData: {
-          mimeType: 'image/jpeg', // 根据实际格式调整
-          data: imageData.replace(/^data:image\/[a-z]+;base64,/, '')
-        }
-      }));
+      const imageParts = await Promise.all(
+        reversedImages.map(async (imageData, index) => {
+          const { data: base64Data, mimeType } = await this.normalizeImageInput(imageData);
+          console.log(`🧪 融合输入(${index + 1})已规范化:`, {
+            mimeType,
+            dataLength: base64Data.length
+          });
+          return {
+            inlineData: {
+              mimeType: mimeType || 'image/png',
+              data: base64Data
+            }
+          };
+        })
+      );
 
       console.log('🔄 图片顺序已反转，现在的顺序：', reversedImages.map((_, index) => `第${index + 1}张`));
 
@@ -1856,8 +1992,12 @@ ${contextualPrompt}
 
 请用中文详细描述。`;
 
-      // 将base64图像转换为适当的格式
-      const imageData = request.sourceImage.replace(/^data:image\/[a-z]+;base64,/, '');
+      // 将输入图像规范化为Base64格式
+      const { data: imageData, mimeType: sourceMimeType } = await this.normalizeImageInput(request.sourceImage);
+      console.log('🧪 图像分析输入已规范化:', {
+        mimeType: sourceMimeType,
+        dataLength: imageData.length
+      });
 
       const startTime = Date.now();
 
@@ -1870,7 +2010,7 @@ ${contextualPrompt}
               { text: analysisPrompt },
               {
                 inlineData: {
-                  mimeType: 'image/jpeg',
+                  mimeType: sourceMimeType || 'image/png',
                   data: imageData
                 }
               }
