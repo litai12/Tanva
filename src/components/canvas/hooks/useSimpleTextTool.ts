@@ -27,6 +27,8 @@ interface TextItem {
   style: TextStyle;
 }
 
+export type SimpleTextItem = TextItem;
+
 interface UseSimpleTextToolProps {
   currentColor: string;
   ensureDrawingLayer: () => paper.Layer;
@@ -661,6 +663,118 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     }
   }, [selectText, startEditText, editingTextId, textItems]);
 
+  const hydrateFromPaperItems = useCallback((items: Array<Partial<TextItem> & { paperText: paper.PointText; id?: string }> | null | undefined) => {
+    if (!items || items.length === 0) {
+      setTextItems([]);
+      setSelectedTextId(null);
+      setEditingTextId(null);
+      setIsDragging(false);
+      setIsResizing(false);
+      return;
+    }
+
+    const normalized: TextItem[] = [];
+    let maxCounter = textIdCounter.current;
+    const allowedAlign: Array<TextStyle['align']> = ['left', 'center', 'right'];
+
+    items.forEach((item) => {
+      if (!item || !item.paperText) return;
+
+      let id = item.id || item.paperText.data?.textId;
+      if (!id) {
+        id = `text_${++textIdCounter.current}`;
+      }
+
+      const match = /^text_(\d+)$/i.exec(id);
+      if (match) {
+        const parsed = parseInt(match[1], 10);
+        if (!Number.isNaN(parsed)) {
+          maxCounter = Math.max(maxCounter, parsed);
+        }
+      }
+
+      if (!item.paperText.data) {
+        item.paperText.data = {};
+      }
+      item.paperText.data.type = 'text';
+      item.paperText.data.textId = id;
+
+      const color =
+        item.style?.color ??
+        (item.paperText.fillColor && typeof item.paperText.fillColor.toCSS === 'function'
+          ? item.paperText.fillColor.toCSS(true)
+          : defaultStyle.color);
+
+      const rawAlign =
+        item.style?.align ||
+        (typeof item.paperText.justification === 'string'
+          ? item.paperText.justification.toLowerCase()
+          : undefined);
+      const align = allowedAlign.includes(rawAlign as TextStyle['align'])
+        ? (rawAlign as TextStyle['align'])
+        : defaultStyle.align;
+
+      const style: TextStyle = {
+        fontFamily: item.style?.fontFamily || item.paperText.fontFamily || defaultStyle.fontFamily,
+        fontWeight:
+          item.style?.fontWeight ||
+          (item.paperText.fontWeight === 'bold' || item.paperText.fontWeight === '700'
+            ? 'bold'
+            : defaultStyle.fontWeight),
+        fontSize:
+          item.style?.fontSize ??
+          (typeof item.paperText.fontSize === 'number' ? item.paperText.fontSize : defaultStyle.fontSize),
+        color,
+        align,
+        italic:
+          item.style?.italic ??
+          ((item.paperText as any).fontStyle === 'italic' ||
+            (item.paperText as any).fontStyle === 'oblique')
+      };
+
+      try {
+        item.paperText.fontFamily = style.fontFamily;
+        item.paperText.fontSize = style.fontSize;
+        item.paperText.fontWeight = style.fontWeight === 'bold' ? 'bold' : 'normal';
+        (item.paperText as any).fontStyle = style.italic ? 'italic' : 'normal';
+        item.paperText.fillColor = new paper.Color(style.color);
+        item.paperText.justification = style.align;
+      } catch {}
+
+      normalized.push({
+        id,
+        paperText: item.paperText,
+        isSelected: !!item.isSelected,
+        isEditing: !!item.isEditing,
+        style
+      });
+    });
+
+    textIdCounter.current = Math.max(textIdCounter.current, maxCounter);
+    setTextItems(normalized);
+
+    const selectedItem = normalized.find(item => item.isSelected);
+    setSelectedTextId(selectedItem ? selectedItem.id : null);
+
+    const editingItem = normalized.find(item => item.isEditing);
+    setEditingTextId(editingItem ? editingItem.id : null);
+
+    if (!editingItem) {
+      normalized.forEach(item => {
+        const prevOpacity = (item.paperText as any)?.data?.__prevOpacity;
+        if (prevOpacity !== undefined) {
+          item.paperText.opacity = prevOpacity;
+          delete (item.paperText as any).data.__prevOpacity;
+        } else {
+          item.paperText.opacity = 1;
+        }
+      });
+    }
+
+    setIsDragging(false);
+    setIsResizing(false);
+  }, [defaultStyle]);
+
   const hydrateFromSnapshot = useCallback((snapshots: TextAssetSnapshot[]) => {
     // 先清理 Paper.js 中现有的文本对象，避免重复（开发模式/严格模式下的双执行）
     try {
@@ -773,6 +887,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     startTextResize,
     resizeTextDrag,
     endTextResize,
+    hydrateFromPaperItems,
     hydrateFromSnapshot,
     clearAllTextItems
   };

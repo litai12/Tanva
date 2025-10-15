@@ -1314,10 +1314,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
 
         // 更新文字实例
+        simpleTextTool.hydrateFromPaperItems(textInstances);
+        try { (window as any).tanvaTextItems = textInstances; } catch {}
         if (textInstances.length > 0) {
-          simpleTextTool.setTextItems(textInstances);
-          simpleTextTool.setSelectedTextId(null);
-          try { (window as any).tanvaTextItems = textInstances; } catch {}
           console.log(`📝 已从 Paper 恢复 ${textInstances.length} 个文字实例`);
         }
 

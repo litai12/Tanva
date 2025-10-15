@@ -6,9 +6,12 @@ import { saveMonitor } from '@/utils/saveMonitor';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
-  private readonly SAVE_DELAY = 150; // 减少延迟，更快响应
+  private readonly SAVE_DELAY = 150; // 初始延迟，用于收敛多次触发
+  private readonly MIN_SAVE_INTERVAL = 800; // 两次实际保存之间的最小间隔(ms)
   private isInitialized = false;
   private scheduledForProjectId: string | null = null;
+  private lastSaveTimestamp = 0;
+  private pendingSaveReason: string | null = null;
 
   private normalizeLayerId(name?: string | undefined | null): string | null {
     if (!name) return null;
@@ -373,33 +376,69 @@ class PaperSaveService {
     }
   }
 
+  private scheduleSaveExecution(delay: number) {
+    if (this.saveTimeoutId !== null) {
+      window.clearTimeout(this.saveTimeoutId);
+    }
+    this.saveTimeoutId = window.setTimeout(() => this.executeScheduledSave(), delay);
+  }
+
+  private executeScheduledSave() {
+    this.saveTimeoutId = null;
+
+    const now = Date.now();
+    const elapsedSinceLastSave = now - this.lastSaveTimestamp;
+
+    if (this.lastSaveTimestamp > 0 && elapsedSinceLastSave < this.MIN_SAVE_INTERVAL) {
+      const wait = this.MIN_SAVE_INTERVAL - elapsedSinceLastSave;
+      console.debug(`[autosave] 距离上次保存仅过去 ${elapsedSinceLastSave}ms，延后 ${wait}ms 后再尝试保存`);
+      this.scheduleSaveExecution(wait);
+      return;
+    }
+
+    const reasonNote = this.pendingSaveReason ? `（来源：${this.pendingSaveReason}）` : '';
+    console.log(`⏰ Paper.js自动保存延迟时间到，开始执行保存${reasonNote}...`);
+
+    const finalize = () => {
+      this.lastSaveTimestamp = Date.now();
+      this.pendingSaveReason = null;
+    };
+
+    this.performSave()
+      .finally(finalize);
+  }
+
   /**
    * 触发自动保存（防抖）
    */
-  triggerAutoSave() {
-    console.log('🔔 Paper.js自动保存被触发');
-
-    // 清除之前的保存计时器
-    if (this.saveTimeoutId) {
-      window.clearTimeout(this.saveTimeoutId);
-    }
-
+  triggerAutoSave(reason?: string) {
     // 记录当前项目ID，防止项目切换后把上一份内容写到新项目里
     try {
       this.scheduledForProjectId = useProjectContentStore.getState().projectId;
-    } catch { this.scheduledForProjectId = null; }
+    } catch {
+      this.scheduledForProjectId = null;
+    }
     if (!this.scheduledForProjectId) {
       console.warn('⚠️ 无活动项目，跳过调度保存');
       return;
     }
 
-    // 设置新的保存计时器
-    this.saveTimeoutId = window.setTimeout(() => {
-      console.log('⏰ Paper.js自动保存延迟时间到，开始执行保存...');
-      this.performSave();
-    }, this.SAVE_DELAY);
+    const reasonLabel = reason?.trim();
+    if (reasonLabel) {
+      this.pendingSaveReason = reasonLabel;
+    }
 
-    console.log(`⏱️ Paper.js自动保存已安排，将在${this.SAVE_DELAY}ms后执行`);
+    const alreadyScheduled = this.saveTimeoutId !== null;
+
+    if (!alreadyScheduled) {
+      console.log(`🔔 Paper.js自动保存被触发${reasonLabel ? `（${reasonLabel}）` : ''}`);
+    }
+
+    this.scheduleSaveExecution(this.SAVE_DELAY);
+
+    if (!alreadyScheduled) {
+      console.log(`⏱️ Paper.js自动保存已安排，将在${this.SAVE_DELAY}ms后执行`);
+    }
   }
 
   /**
@@ -511,6 +550,8 @@ class PaperSaveService {
       this.saveTimeoutId = null;
     }
     await this.performSave();
+    this.lastSaveTimestamp = Date.now();
+    this.pendingSaveReason = null;
   }
 
   cancelPending() {
@@ -519,6 +560,7 @@ class PaperSaveService {
       this.saveTimeoutId = null;
     }
     this.scheduledForProjectId = null;
+    this.pendingSaveReason = null;
   }
 
   /**
@@ -530,6 +572,7 @@ class PaperSaveService {
       this.saveTimeoutId = null;
     }
     this.isInitialized = false;
+    this.pendingSaveReason = null;
   }
 }
 
