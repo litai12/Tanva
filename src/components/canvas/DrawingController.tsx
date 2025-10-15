@@ -12,6 +12,8 @@ import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { logger } from '@/utils/logger';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { contextManager } from '@/services/contextManager';
+import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
+import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
 
 // 导入新的hooks
 import { useImageTool } from './hooks/useImageTool';
@@ -749,6 +751,299 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     setDrawMode,
     isEraser
   });
+
+  const collectCanvasClipboardData = useCallback((): CanvasClipboardData | null => {
+    const selectedImageIdsSet = new Set<string>(
+      (imageTool.selectedImageIds && imageTool.selectedImageIds.length > 0
+        ? imageTool.selectedImageIds
+        : imageTool.imageInstances.filter((img) => img.isSelected).map((img) => img.id)) ?? []
+    );
+    const imageSnapshots: ImageAssetSnapshot[] = imageTool.imageInstances
+      .filter((img) => selectedImageIdsSet.has(img.id))
+      .map((img) => {
+        const source = img.imageData.localDataUrl || img.imageData.src || img.imageData.url;
+        if (!source) {
+          console.warn('图片缺少可复制的资源，已跳过', img.id);
+          return null;
+        }
+        return {
+          id: img.id,
+          url: img.imageData.url || source,
+          src: img.imageData.src || source,
+          key: img.imageData.key,
+          fileName: img.imageData.fileName,
+          width: img.imageData.width ?? img.bounds.width,
+          height: img.imageData.height ?? img.bounds.height,
+          contentType: img.imageData.contentType,
+          pendingUpload: img.imageData.pendingUpload,
+          localDataUrl: img.imageData.localDataUrl,
+          bounds: { ...img.bounds },
+          layerId: img.layerId ?? null,
+        } as ImageAssetSnapshot;
+      })
+      .filter((snapshot): snapshot is ImageAssetSnapshot => snapshot !== null);
+
+    const selectedModelIdsSet = new Set<string>(
+      (model3DTool.selectedModel3DIds && model3DTool.selectedModel3DIds.length > 0
+        ? model3DTool.selectedModel3DIds
+        : model3DTool.model3DInstances.filter((model) => model.isSelected).map((model) => model.id)) ?? []
+    );
+    const modelSnapshots: ModelAssetSnapshot[] = model3DTool.model3DInstances
+      .filter((model) => selectedModelIdsSet.has(model.id))
+      .map((model) => ({
+        id: model.id,
+        url: model.modelData.url,
+        key: model.modelData.key,
+        format: model.modelData.format,
+        fileName: model.modelData.fileName,
+        fileSize: model.modelData.fileSize,
+        defaultScale: model.modelData.defaultScale,
+        defaultRotation: model.modelData.defaultRotation,
+        timestamp: model.modelData.timestamp,
+        path: model.modelData.path ?? model.modelData.url,
+        bounds: { ...model.bounds },
+        layerId: model.layerId ?? null,
+      }));
+
+    const pathSet = new Set<paper.Path>();
+    if (selectionTool.selectedPath) pathSet.add(selectionTool.selectedPath);
+    if (Array.isArray(selectionTool.selectedPaths)) {
+      selectionTool.selectedPaths.forEach((p) => {
+        if (p) pathSet.add(p);
+      });
+    }
+    const pathSnapshots: PathClipboardSnapshot[] = Array.from(pathSet)
+      .filter((path) => !!path && path.isInserted() && !(path.data && path.data.isHelper))
+      .map((path) => ({
+        json: path.exportJSON({ asString: true }),
+        layerName: path.layer?.name,
+        position: { x: path.position.x, y: path.position.y },
+      }));
+
+    const textSnapshots: TextAssetSnapshot[] = (simpleTextTool.textItems || [])
+      .filter((item) => item.isSelected)
+      .map((item) => ({
+        id: item.id,
+        content: item.paperText.content ?? '',
+        position: { x: item.paperText.position.x, y: item.paperText.position.y },
+        style: { ...item.style },
+        layerId: item.paperText.layer?.name ?? null,
+      }));
+
+    const hasAny =
+      imageSnapshots.length > 0 ||
+      modelSnapshots.length > 0 ||
+      pathSnapshots.length > 0 ||
+      textSnapshots.length > 0;
+
+    if (!hasAny) return null;
+
+    return {
+      images: imageSnapshots,
+      models: modelSnapshots,
+      texts: textSnapshots,
+      paths: pathSnapshots,
+    };
+  }, [
+    imageTool.imageInstances,
+    imageTool.selectedImageIds,
+    model3DTool.model3DInstances,
+    model3DTool.selectedModel3DIds,
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
+    simpleTextTool.textItems,
+  ]);
+
+  const handleCanvasCopy = useCallback(() => {
+    const payload = collectCanvasClipboardData();
+    if (!payload) {
+      return false;
+    }
+    clipboardService.setCanvasData(payload);
+    return true;
+  }, [collectCanvasClipboardData]);
+
+  const {
+    createImageFromSnapshot,
+    handleImageMultiSelect,
+    setSelectedImageIds,
+  } = imageTool;
+  const {
+    createModel3DFromSnapshot,
+    handleModel3DMultiSelect,
+    setSelectedModel3DIds,
+  } = model3DTool;
+  const {
+    clearAllSelections,
+    setSelectedPaths,
+    setSelectedPath,
+  } = selectionTool;
+  const {
+    createText: createSimpleText,
+    stopEditText,
+    selectText: selectSimpleText,
+    deselectText: deselectSimpleText,
+  } = simpleTextTool;
+
+  const handleCanvasPaste = useCallback(() => {
+    const payload = clipboardService.getCanvasData();
+    if (!payload) return false;
+
+    const offset = { x: 32, y: 32 };
+
+    clearAllSelections();
+    deselectSimpleText();
+
+    const newImageIds: string[] = [];
+    payload.images.forEach((snapshot) => {
+      const id = createImageFromSnapshot?.(snapshot, { offset });
+      if (id) newImageIds.push(id);
+    });
+
+    const newModelIds: string[] = [];
+    payload.models.forEach((snapshot) => {
+      const id = createModel3DFromSnapshot?.(snapshot, { offset });
+      if (id) newModelIds.push(id);
+    });
+
+    const newTextIds: string[] = [];
+    payload.texts.forEach((snapshot) => {
+      if (snapshot.layerId) {
+        try { useLayerStore.getState().activateLayer(snapshot.layerId); } catch {}
+      }
+      const point = new paper.Point(snapshot.position.x + offset.x, snapshot.position.y + offset.y);
+      const created = createSimpleText(point, snapshot.content, snapshot.style);
+      if (created) {
+        newTextIds.push(created.id);
+        stopEditText();
+      }
+    });
+
+    const newPaths: paper.Path[] = [];
+    const offsetVector = new paper.Point(offset.x, offset.y);
+    payload.paths.forEach((snapshot) => {
+      try {
+        const prevLayer = paper.project.activeLayer;
+        if (snapshot.layerName) {
+          const targetLayer = paper.project.layers.find((layer) => layer.name === snapshot.layerName);
+          if (targetLayer) targetLayer.activate();
+        }
+
+        const imported = paper.Item.importJSON(snapshot.json);
+        const items = Array.isArray(imported) ? imported : [imported];
+        items.forEach((item) => {
+          if (item instanceof paper.Path) {
+            item.translate(offsetVector);
+            item.selected = true;
+            item.fullySelected = true;
+            newPaths.push(item);
+          } else if (item) {
+            try { item.remove(); } catch {}
+          }
+        });
+
+        if (prevLayer && prevLayer.isInserted()) {
+          prevLayer.activate();
+        }
+      } catch (error) {
+        console.warn('粘贴路径失败:', error);
+      }
+    });
+
+    const hasNew =
+      newImageIds.length > 0 ||
+      newModelIds.length > 0 ||
+      newPaths.length > 0 ||
+      newTextIds.length > 0;
+
+    if (!hasNew) {
+      return false;
+    }
+
+    if (newImageIds.length > 0 && typeof handleImageMultiSelect === 'function') {
+      handleImageMultiSelect(newImageIds);
+    } else {
+      setSelectedImageIds([]);
+    }
+
+    if (newModelIds.length > 0 && typeof handleModel3DMultiSelect === 'function') {
+      handleModel3DMultiSelect(newModelIds);
+    } else {
+      setSelectedModel3DIds([]);
+    }
+
+    if (newPaths.length > 0) {
+      setSelectedPaths?.(newPaths);
+      setSelectedPath?.(newPaths[newPaths.length - 1]);
+    } else {
+      setSelectedPaths?.([]);
+      setSelectedPath?.(null);
+    }
+
+    if (newTextIds.length > 0) {
+      selectSimpleText(newTextIds[newTextIds.length - 1]);
+    }
+
+    try { paper.view.update(); } catch {}
+    try { historyService.commit('paste-canvas').catch(() => {}); } catch {}
+    try { paperSaveService.triggerAutoSave(); } catch {}
+
+    return true;
+  }, [
+    clearAllSelections,
+    createImageFromSnapshot,
+    createModel3DFromSnapshot,
+    createSimpleText,
+    deselectSimpleText,
+    handleImageMultiSelect,
+    handleModel3DMultiSelect,
+    selectSimpleText,
+    setSelectedImageIds,
+    setSelectedModel3DIds,
+    setSelectedPath,
+    setSelectedPaths,
+    stopEditText,
+  ]);
+
+  const editingTextId = simpleTextTool.editingTextId;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      const isCopy = (event.key === 'c' || event.key === 'C') && (event.metaKey || event.ctrlKey);
+      const isPaste = (event.key === 'v' || event.key === 'V') && (event.metaKey || event.ctrlKey);
+      if (!isCopy && !isPaste) return;
+
+      const active = document.activeElement as Element | null;
+      const tagName = active?.tagName?.toLowerCase();
+      const isEditable =
+        !!active &&
+        ((tagName === 'input' || tagName === 'textarea') || (active as any).isContentEditable);
+
+      if (isEditable || editingTextId) return;
+
+      if (isCopy) {
+        const handled = handleCanvasCopy();
+        if (handled) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (isPaste) {
+        const handled = handleCanvasPaste();
+        if (handled) {
+          event.preventDefault();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleCanvasCopy, handleCanvasPaste, editingTextId]);
 
   // ========== 图元顺序调整处理 ==========
 

@@ -33,6 +33,7 @@ import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
 import { historyService } from '@/services/historyService';
+import { clipboardService } from '@/services/clipboardService';
   import { aiImageService } from '@/services/aiImageService';
   import type { AIImageResult } from '@/types/ai';
   import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -413,6 +414,114 @@ function FlowInner() {
     targetHandle: e.targetHandle,
     type: e.type || 'default',
   })) as any, []);
+
+  const handleCopyFlow = React.useCallback(() => {
+    const allNodes = rf.getNodes();
+    const selectedNodes = allNodes.filter((node: any) => node.selected);
+    if (!selectedNodes.length) return false;
+
+    const nodeSnapshots = rfNodesToTplNodes(selectedNodes as any);
+    const selectedIds = new Set(selectedNodes.map((node: any) => node.id));
+    const relatedEdges = rf.getEdges().filter((edge: any) => selectedIds.has(edge.source) && selectedIds.has(edge.target));
+    const edgeSnapshots = rfEdgesToTplEdges(relatedEdges);
+
+    const minX = Math.min(...selectedNodes.map((node: any) => node.position?.x ?? 0));
+    const minY = Math.min(...selectedNodes.map((node: any) => node.position?.y ?? 0));
+
+    clipboardService.setFlowData({
+      nodes: nodeSnapshots,
+      edges: edgeSnapshots,
+      origin: { x: minX, y: minY },
+    });
+    return true;
+  }, [rf, rfNodesToTplNodes, rfEdgesToTplEdges]);
+
+  const handlePasteFlow = React.useCallback(() => {
+    const payload = clipboardService.getFlowData();
+    if (!payload || !Array.isArray(payload.nodes) || payload.nodes.length === 0) return false;
+
+    const OFFSET = 40;
+    const idMap = new Map<string, string>();
+
+    const newNodes = payload.nodes.map((node) => {
+      const newId = generateId(node.type || 'n');
+      idMap.set(node.id, newId);
+      const data: any = { ...(node.data || {}) };
+      delete data.onRun; delete data.onSend; delete data.status; delete data.error;
+      return {
+        id: newId,
+        type: node.type || 'default',
+        position: {
+          x: node.position.x + OFFSET,
+          y: node.position.y + OFFSET,
+        },
+        data,
+        selected: true,
+      } as any;
+    });
+
+    if (!newNodes.length) return false;
+
+    const newEdges = (payload.edges || []).map((edge) => {
+      const source = idMap.get(edge.source);
+      const target = idMap.get(edge.target);
+      if (!source || !target) return null;
+      return {
+        id: generateId('e'),
+        source,
+        target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle,
+        type: edge.type || 'default',
+      } as any;
+    }).filter(Boolean) as Edge[];
+
+    setNodes((prev: any[]) => prev.map((node) => ({ ...node, selected: false })).concat(newNodes));
+    if (newEdges.length) {
+      setEdges((prev: any[]) => prev.concat(newEdges));
+    }
+
+    try { historyService.commit('flow-paste').catch(() => {}); } catch {}
+    return true;
+  }, [setEdges, setNodes]);
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      const isCopy = (event.key === 'c' || event.key === 'C') && (event.metaKey || event.ctrlKey);
+      const isPaste = (event.key === 'v' || event.key === 'V') && (event.metaKey || event.ctrlKey);
+      if (!isCopy && !isPaste) return;
+
+      const active = document.activeElement as Element | null;
+      const tagName = active?.tagName?.toLowerCase();
+      const isEditable = !!active && (tagName === 'input' || tagName === 'textarea' || (active as any).isContentEditable);
+      if (isEditable) return;
+
+      if (isCopy) {
+        const handled = handleCopyFlow();
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
+
+      if (isPaste) {
+        if (clipboardService.getZone() !== 'flow') return;
+        const handled = handlePasteFlow();
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleCopyFlow, handlePasteFlow]);
 
   // 当项目内容的 flow 变化时，水合到 ReactFlow
   React.useEffect(() => {

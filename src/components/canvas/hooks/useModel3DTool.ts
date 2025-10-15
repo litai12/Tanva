@@ -531,6 +531,50 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     }));
   }, []);
 
+  const createModel3DFromSnapshot = useCallback((
+    snapshot: ModelAssetSnapshot,
+    options?: {
+      offset?: { x: number; y: number };
+      idOverride?: string;
+    }
+  ) => {
+    if (!snapshot) return null;
+
+    const offsetX = options?.offset?.x ?? 0;
+    const offsetY = options?.offset?.y ?? 0;
+    const modelId = options?.idOverride || `model3d_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    if (snapshot.layerId) {
+      try { useLayerStore.getState().activateLayer(snapshot.layerId); } catch {}
+    }
+
+    const start = new paper.Point(snapshot.bounds.x + offsetX, snapshot.bounds.y + offsetY);
+    const end = new paper.Point(
+      snapshot.bounds.x + snapshot.bounds.width + offsetX,
+      snapshot.bounds.y + snapshot.bounds.height + offsetY
+    );
+
+    const placeholder = create3DModelPlaceholder(start, end);
+    if (!placeholder) return null;
+
+    currentModel3DPlaceholderRef.current = placeholder;
+
+    const modelData: Model3DData = {
+      url: snapshot.url,
+      key: snapshot.key,
+      format: snapshot.format,
+      fileName: snapshot.fileName,
+      fileSize: snapshot.fileSize,
+      defaultScale: snapshot.defaultScale,
+      defaultRotation: snapshot.defaultRotation,
+      timestamp: snapshot.timestamp,
+      path: snapshot.path ?? snapshot.url,
+    };
+
+    handleModel3DUploaded(modelData, modelId);
+    return modelId;
+  }, [create3DModelPlaceholder, handleModel3DUploaded]);
+
   return {
     // 状态
     model3DInstances,
@@ -565,5 +609,6 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     setSelectedModel3DIds,  // 设置多选状态
     setTriggerModel3DUpload,
     hydrateFromSnapshot,
+    createModel3DFromSnapshot,
   };
 };

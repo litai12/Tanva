@@ -821,6 +821,57 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }));
   }, [createImagePlaceholder, handleImageUploaded, setImageInstances, setSelectedImageIds]);
 
+  const createImageFromSnapshot = useCallback((
+    snapshot: ImageAssetSnapshot,
+    options?: {
+      offset?: { x: number; y: number };
+      idOverride?: string;
+    }
+  ) => {
+    if (!snapshot) return null;
+
+    const source = snapshot.localDataUrl || snapshot.src || snapshot.url;
+    if (!source) {
+      console.warn('复制的图片缺少有效的资源地址，无法粘贴');
+      return null;
+    }
+
+    const offsetX = options?.offset?.x ?? 0;
+    const offsetY = options?.offset?.y ?? 0;
+    const imageId = options?.idOverride || `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    if (snapshot.layerId) {
+      try { useLayerStore.getState().activateLayer(snapshot.layerId); } catch {}
+    }
+
+    const start = new paper.Point(snapshot.bounds.x + offsetX, snapshot.bounds.y + offsetY);
+    const end = new paper.Point(
+      snapshot.bounds.x + snapshot.bounds.width + offsetX,
+      snapshot.bounds.y + snapshot.bounds.height + offsetY
+    );
+
+    const placeholder = createImagePlaceholder(start, end);
+    if (!placeholder) return null;
+
+    currentPlaceholderRef.current = placeholder;
+
+    const asset = {
+      id: imageId,
+      url: source,
+      src: source,
+      key: snapshot.key,
+      fileName: snapshot.fileName,
+      width: snapshot.width ?? snapshot.bounds.width,
+      height: snapshot.height ?? snapshot.bounds.height,
+      contentType: snapshot.contentType,
+      pendingUpload: snapshot.pendingUpload,
+      localDataUrl: snapshot.localDataUrl,
+    } as StoredImageAsset;
+
+    handleImageUploaded(asset);
+    return imageId;
+  }, [createImagePlaceholder, handleImageUploaded]);
+
   return {
     // 状态
     imageInstances,
@@ -859,5 +910,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     // AI编辑功能
     getImageDataForEditing,
     hydrateFromSnapshot,
+    createImageFromSnapshot,
   };
 };
