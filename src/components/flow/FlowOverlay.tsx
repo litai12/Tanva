@@ -968,7 +968,22 @@ function FlowInner() {
       const srcNode = rf.getNode(e.source);
       if (!srcNode) continue;
       const data = (srcNode.data as any);
-      const img = data?.imageData;
+
+      let img: string | undefined;
+      if (srcNode.type === 'generate4') {
+        const handle = (e as any).sourceHandle as string | undefined;
+        const idx = handle?.startsWith('img')
+          ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
+          : 0;
+        const imgs = Array.isArray(data?.images) ? data.images as string[] : undefined;
+        img = imgs?.[idx];
+        if (!img && typeof data?.imageData === 'string' && data.imageData.length) {
+          img = data.imageData;
+        }
+      } else {
+        img = data?.imageData;
+      }
+
       if (typeof img === 'string' && img.length > 0) imageDatas.push(img);
     }
 
