@@ -56,6 +56,7 @@ export const useAIImageDisplay = () => {
 
       // 创建新的图像元素用于加载
       const img = new Image();
+      img.crossOrigin = 'anonymous';
 
       img.onload = () => {
         console.log('📷 [DEBUG] HTML Image加载完成，开始创建Paper.js Raster...');

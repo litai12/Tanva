@@ -261,6 +261,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             // 创建图片的 Raster 对象（先绑定 onLoad 再设置 source，避免极快缓存触发导致丢失回调）
             const raster = new paper.Raster();
+            (raster as any).crossOrigin = 'anonymous';
             raster.position = targetPosition;
             
             // 提前记录，便于排查定位

@@ -157,9 +157,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     ensureDrawingLayer();
 
     // 创建Paper.js的Raster对象来显示图片
-    const raster = new paper.Raster({
-      source: asset.url
-    });
+    const raster = new paper.Raster();
     (raster as any).crossOrigin = 'anonymous';
 
     // 等待图片加载完成后设置位置
@@ -254,6 +252,13 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
       paper.view.update();
     };
+
+    raster.onError = (error: unknown) => {
+      logger.error('图片加载失败', error);
+    };
+
+    // 在监听器绑定后再设置资源，确保跨域标记和回调生效
+    raster.source = asset.url;
 
     // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
     const imageGroup = new paper.Group([raster]);

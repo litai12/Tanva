@@ -158,6 +158,7 @@ export default function ThreeNode({ id, data, selected }: Props) {
     initIfNeeded();
     const url = URL.createObjectURL(file);
     const loader = new GLTFLoader();
+    loader.setCrossOrigin('anonymous');
     // 支持 Draco 压缩的 glb/gltf
     try {
       const draco = new DRACOLoader();
