@@ -6,6 +6,7 @@
 import { useEffect, useCallback } from 'react';
 import paper from 'paper';
 import type { AIImageResult } from '@/types/ai';
+import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 
 export const useAIImageDisplay = () => {
 
@@ -144,66 +145,21 @@ export const useAIImageDisplay = () => {
               }
             });
 
-            // 创建选择边框（默认隐藏，与2D上传工具一致）
-            const selectionBorder = new paper.Path.Rectangle({
-              rectangle: raster.bounds,
-              strokeColor: new paper.Color('#3b82f6'),
-              strokeWidth: 2,
-              fillColor: null,
-              selected: false,
-              visible: false  // 默认隐藏
-            });
-            selectionBorder.data = {
-              isSelectionBorder: true,
-              isHelper: true
+            const imageMetadata = {
+              originalWidth: originalWidth,
+              originalHeight: originalHeight,
+              fileName: `ai_generated_${aiResult.prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`,
+              uploadMethod: 'ai-generated',
+              aspectRatio
             };
 
-            // 添加四个角的调整控制点（默认隐藏）
-            const handleSize = 12;
-            const handleColor = new paper.Color('#3b82f6');
-            const bounds = raster.bounds;
-
-            const handles = [
-              { direction: 'nw', position: [bounds.left, bounds.top] },
-              { direction: 'ne', position: [bounds.right, bounds.top] },
-              { direction: 'sw', position: [bounds.left, bounds.bottom] },
-              { direction: 'se', position: [bounds.right, bounds.bottom] }
-            ];
-
-            const handleElements: paper.Path[] = [];
-            handles.forEach(({ direction, position }) => {
-              const handle = new paper.Path.Rectangle({
-                point: [position[0] - handleSize / 2, position[1] - handleSize / 2],
-                size: [handleSize, handleSize],
-                fillColor: 'white',  // 改为白色填充（空心效果）
-                strokeColor: handleColor,  // 蓝色边框
-                strokeWidth: 2,  // 增加边框宽度让空心效果更明显
-                selected: false,
-                visible: false  // 默认隐藏
-              });
-              handle.data = {
-                isResizeHandle: true,
-                direction,
-                imageId: `ai_${aiResult.id}`,
-                isHelper: true
-              };
-              handleElements.push(handle);
+            const { group: imageGroup } = ensureImageGroupStructure({
+              raster,
+              imageId,
+              metadata: imageMetadata,
+              ensureImageRect: true,
+              ensureSelectionArea: true
             });
-
-            // 创建透明矩形用于交互
-            const imageRect = new paper.Path.Rectangle({
-              rectangle: raster.bounds,
-              fillColor: null,
-              strokeColor: null
-            });
-
-            // 创建Paper.js组来包含所有相关元素（与快速上传工具一致的顺序）
-            const imageGroup = new paper.Group([imageRect, raster, selectionBorder, ...handleElements]);
-            imageGroup.data = {
-              type: 'image',
-              imageId: imageId,
-              isHelper: false
-            };
 
             console.log('🎯 图像最终信息:', {
               position: { x: raster.position.x, y: raster.position.y },
@@ -217,7 +173,9 @@ export const useAIImageDisplay = () => {
             });
 
             // 添加到活动图层
-            paper.project.activeLayer.addChild(imageGroup);
+            if (imageGroup.parent !== paper.project.activeLayer) {
+              paper.project.activeLayer.addChild(imageGroup);
+            }
             console.log('📋 [DEBUG] 图片组已添加到活动图层');
 
             // 创建临时高亮边框以帮助用户找到图像
@@ -300,7 +258,7 @@ export const useAIImageDisplay = () => {
               imageData: {
                 id: imageId,
                 src: imageDataUrl,
-                fileName: `ai_generated_${aiResult.prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`
+                fileName: imageMetadata.fileName
               },
               bounds: {
                 x: raster.bounds.x,

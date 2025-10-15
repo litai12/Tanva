@@ -529,6 +529,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                     actualWidth,
                     actualHeight
                   );
+                } else if (child.data?.type === 'image-selection-area') {
+                  // 更新选择区域的bounds（关键！用于点击检测）
+                  child.bounds = new paper.Rectangle(
+                    newPosition.x,
+                    newPosition.y,
+                    actualWidth,
+                    actualHeight
+                  );
                 } else if (child.data?.isResizeHandle) {
                   // 重新定位控制点到绝对位置（使用实际图片尺寸）
                   const direction = child.data.direction;
@@ -603,9 +611,17 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         );
       }
 
-      // 更新选择框和控制点
+      // 更新选择框、选择区域和控制点
       imageGroup.children.forEach(child => {
         if (child.data?.isSelectionBorder) {
+          child.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+        } else if (child.data?.type === 'image-selection-area') {
+          // 更新选择区域的bounds（关键！用于点击检测）
           child.bounds = new paper.Rectangle(
             newBounds.x,
             newBounds.y,

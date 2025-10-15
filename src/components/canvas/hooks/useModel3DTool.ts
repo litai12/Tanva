@@ -289,15 +289,28 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           layer.children.filter(child =>
             child.data?.type === '3d-model' && child.data?.modelId === modelId
           )
-        );
+        )[0];
 
-        modelGroup.forEach(group => {
-          if (group instanceof paper.Group) {
-            const deltaX = newPosition.x - model.bounds.x;
-            const deltaY = newPosition.y - model.bounds.y;
-            group.position = group.position.add(new paper.Point(deltaX, deltaY));
-          }
-        });
+        if (modelGroup instanceof paper.Group) {
+          const deltaX = newPosition.x - model.bounds.x;
+          const deltaY = newPosition.y - model.bounds.y;
+
+          // 更新每个子元素的位置，确保selection-area也被更新
+          modelGroup.children.forEach(child => {
+            if (child.data?.type === '3d-model-selection-area') {
+              // 更新选择区域的bounds（关键！用于点击检测）
+              child.bounds = new paper.Rectangle(
+                newBounds.x,
+                newBounds.y,
+                newBounds.width,
+                newBounds.height
+              );
+            } else {
+              // 其他子元素使用相对位移
+              child.position = child.position.add(new paper.Point(deltaX, deltaY));
+            }
+          });
+        }
 
         // 更新选择边框位置（内部使用，不显示）
         if (model.selectionRect) {
@@ -330,20 +343,28 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           layer.children.filter(child =>
             child.data?.type === '3d-model' && child.data?.modelId === modelId
           )
-        );
+        )[0];
 
-        modelGroup.forEach(group => {
-          if (group instanceof paper.Group && group.children.length > 0) {
-            // 更新组的边界
-            const rect = new paper.Rectangle(
-              newBounds.x,
-              newBounds.y,
-              newBounds.width,
-              newBounds.height
-            );
-            group.bounds = rect;
-          }
-        });
+        if (modelGroup instanceof paper.Group && modelGroup.children.length > 0) {
+          // 更新组的边界
+          const rect = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+
+          // 更新每个子元素，确保selection-area也被更新
+          modelGroup.children.forEach(child => {
+            if (child.data?.type === '3d-model-selection-area') {
+              // 更新选择区域的bounds（关键！用于点击检测）
+              child.bounds = rect.clone();
+            }
+          });
+
+          // 最后更新整个组的边界（会缩放其他子元素）
+          modelGroup.bounds = rect;
+        }
 
         // 更新选择边框（内部使用，不显示）
         if (model.selectionRect) {

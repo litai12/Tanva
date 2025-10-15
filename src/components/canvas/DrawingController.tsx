@@ -10,6 +10,7 @@ import ImageContainer from './ImageContainer';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { logger } from '@/utils/logger';
+import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { contextManager } from '@/services/contextManager';
 
 // 导入新的hooks
@@ -992,103 +993,355 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return () => window.removeEventListener('history-restore', handler as EventListener);
   }, [imageTool, model3DTool, simpleTextTool]);
 
-  // 从已反序列化的 Paper 项目重建图片实例与选择覆盖层
+  // 从已反序列化的 Paper 项目重建图片、文字和3D模型实例
   useEffect(() => {
     const rebuildFromPaper = () => {
       try {
         if (!paper || !paper.project) return;
-        const instances: any[] = [];
 
-        // 扫描所有图层的 image 组或 Raster
+        const imageInstances: any[] = [];
+        const textInstances: any[] = [];
+        const model3DInstances: any[] = [];
+
+        // 扫描所有图层
         (paper.project.layers || []).forEach((layer: any) => {
           const children = layer?.children || [];
           children.forEach((item: any) => {
-            let group: any | null = null;
+            // ========== 处理图片 ==========
+            let imageGroup: any | null = null;
             if (item?.data?.type === 'image' && item?.data?.imageId) {
-              group = item;
+              imageGroup = item;
             } else if (item?.className === 'Raster' || item instanceof (paper as any).Raster) {
               // 兼容只有 Raster 的情况
-              group = item.parent && item.parent.className === 'Group' ? item.parent : null;
-              if (group && !(group.data && group.data.type === 'image')) {
+              imageGroup = item.parent && item.parent.className === 'Group' ? item.parent : null;
+              if (imageGroup && !(imageGroup.data && imageGroup.data.type === 'image')) {
                 // 为旧内容补上标记
-                if (!group.data) group.data = {};
-                group.data.type = 'image';
-                group.data.imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+                if (!imageGroup.data) imageGroup.data = {};
+                imageGroup.data.type = 'image';
+                imageGroup.data.imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
               }
             }
-            if (!group || !group.data?.imageId) return;
 
-            // 找到 Raster 与实际 bounds
-            const raster = group.children.find((c: any) => c.className === 'Raster' || c instanceof (paper as any).Raster);
-            if (!raster || !raster.bounds) return;
+            if (imageGroup) {
+              const raster = imageGroup.children.find(
+                (c: any) => c.className === 'Raster' || c instanceof (paper as any).Raster
+              ) as paper.Raster | undefined;
 
-            const b = raster.bounds as any;
+              if (raster) {
+                const ensuredImageId =
+                  imageGroup.data?.imageId ||
+                  (raster.data && raster.data.imageId) ||
+                  `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-            // 确保存在选择边框与四角控制点（默认隐藏）
-            const hasBorder = !!group.children.find((c: any) => c?.data?.isSelectionBorder);
-            if (!hasBorder) {
-              try {
-                const border = new (paper as any).Path.Rectangle({
-                  rectangle: new (paper as any).Rectangle(b.x, b.y, b.width, b.height),
-                  strokeColor: new (paper as any).Color('#3b82f6'),
-                  strokeWidth: 1,
-                  fillColor: null,
-                  selected: false,
-                  visible: false,
-                });
-                border.data = { isSelectionBorder: true, isHelper: true };
-                group.addChild(border);
-                const hs = 12; const hc = new (paper as any).Color('#3b82f6');
-                const pts = [
-                  [b.x, b.y],
-                  [b.x + b.width, b.y],
-                  [b.x, b.y + b.height],
-                  [b.x + b.width, b.y + b.height],
-                ];
-                const dirs = ['nw','ne','sw','se'];
-                pts.forEach((p, idx) => {
-                  const handle = new (paper as any).Path.Rectangle({
-                    point: [p[0] - hs/2, p[1] - hs/2],
-                    size: [hs, hs],
-                    fillColor: 'white',
-                    strokeColor: hc,
-                    strokeWidth: 1,
-                    selected: false,
-                    visible: false,
+                if (!imageGroup.data) imageGroup.data = {};
+                imageGroup.data.type = 'image';
+                imageGroup.data.imageId = ensuredImageId;
+
+                const metadataFromRaster = {
+                  originalWidth: raster.data?.originalWidth as number | undefined,
+                  originalHeight: raster.data?.originalHeight as number | undefined,
+                  fileName: raster.data?.fileName as string | undefined,
+                  uploadMethod: raster.data?.uploadMethod as string | undefined,
+                  aspectRatio: raster.data?.aspectRatio as number | undefined,
+                  remoteUrl: raster.data?.remoteUrl as string | undefined
+                };
+
+                // 记录来源：优先使用远程URL，其次使用非data的source，最后使用内联data
+                const sourceUrl = typeof raster.source === 'string' ? raster.source : undefined;
+                const remoteUrl = metadataFromRaster.remoteUrl || (sourceUrl && !sourceUrl.startsWith('data:') ? sourceUrl : undefined);
+                const inlineDataUrl = sourceUrl && sourceUrl.startsWith('data:') ? sourceUrl : undefined;
+
+                // 统一设置raster.data，提前补上id以便后续事件使用
+                raster.data = {
+                  ...(raster.data || {}),
+                  type: 'image',
+                  imageId: ensuredImageId,
+                  ...metadataFromRaster
+                };
+
+                const buildImageInstance = () => {
+                  if (!raster.bounds || raster.bounds.width <= 0 || raster.bounds.height <= 0) {
+                    return null;
+                  }
+
+                  const boundsRect = raster.bounds as paper.Rectangle;
+                  const computedMetadata = {
+                    ...metadataFromRaster,
+                    originalWidth: metadataFromRaster.originalWidth || boundsRect.width,
+                    originalHeight: metadataFromRaster.originalHeight || boundsRect.height,
+                    aspectRatio:
+                      metadataFromRaster.aspectRatio ||
+                      (boundsRect.height ? boundsRect.width / boundsRect.height : undefined),
+                    remoteUrl: metadataFromRaster.remoteUrl || remoteUrl
+                  };
+
+                  ensureImageGroupStructure({
+                    raster,
+                    imageId: ensuredImageId,
+                    group: imageGroup,
+                    metadata: computedMetadata,
+                    ensureImageRect: true,
+                    ensureSelectionArea: true
                   });
-                  handle.data = { isResizeHandle: true, direction: dirs[idx], imageId: group.data.imageId, isHelper: true };
-                  group.addChild(handle);
-                });
-              } catch {}
+
+                  try { paper.view?.update(); } catch {}
+
+                  return {
+                    id: ensuredImageId,
+                    imageData: {
+                      id: ensuredImageId,
+                      url: remoteUrl,
+                      src: inlineDataUrl || remoteUrl,
+                      fileName: computedMetadata.fileName,
+                      pendingUpload: false
+                    },
+                    bounds: {
+                      x: boundsRect.x,
+                      y: boundsRect.y,
+                      width: boundsRect.width,
+                      height: boundsRect.height
+                    },
+                    isSelected: false,
+                    visible: imageGroup.visible !== false,
+                    layerId: layer?.name
+                  };
+                };
+
+                const hasValidBounds =
+                  !!raster.bounds && raster.bounds.width > 0 && raster.bounds.height > 0;
+
+                if (hasValidBounds) {
+                  const imageInstance = buildImageInstance();
+                  if (imageInstance) {
+                    imageInstances.push(imageInstance);
+                  }
+                } else {
+                  // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
+                  imageInstances.push({
+                    id: ensuredImageId,
+                    imageData: {
+                      id: ensuredImageId,
+                      url: remoteUrl,
+                      src: inlineDataUrl || remoteUrl,
+                      fileName: metadataFromRaster.fileName,
+                      pendingUpload: raster.data?.pendingUpload ?? false
+                    },
+                    bounds: {
+                      x: raster.position?.x ?? 0,
+                      y: raster.position?.y ?? 0,
+                      width: 0,
+                      height: 0
+                    },
+                    isSelected: false,
+                    visible: imageGroup.visible !== false,
+                    layerId: layer?.name
+                  });
+
+                  const previousOnLoad = raster.onLoad;
+                  raster.onLoad = () => {
+                    const loadedInstance = buildImageInstance();
+                    if (loadedInstance) {
+                      imageTool.setImageInstances((prev) => {
+                        const updated = [...prev];
+                        const index = updated.findIndex(img => img.id === ensuredImageId);
+                        if (index >= 0) {
+                          updated[index] = {
+                            ...updated[index],
+                            ...loadedInstance,
+                            imageData: {
+                              ...updated[index].imageData,
+                              ...loadedInstance.imageData
+                            }
+                          };
+                        } else {
+                          updated.push(loadedInstance);
+                        }
+                        try { (window as any).tanvaImageInstances = updated; } catch {}
+                        return updated;
+                      });
+                      try { paper.view?.update(); } catch {}
+                    }
+
+                    if (typeof previousOnLoad === 'function') {
+                      try {
+                        previousOnLoad.call(raster);
+                      } catch (err) {
+                        console.warn('重建图片时执行原始Raster onLoad失败:', err);
+                      }
+                    }
+                  };
+                }
+              }
             }
 
-            // 构建实例项
-            const url = (raster.data && raster.data.remoteUrl) || (typeof raster.source === 'string' ? raster.source : undefined) || undefined;
-            instances.push({
-              id: group.data.imageId,
-              imageData: { id: group.data.imageId, url, src: url, fileName: undefined, pendingUpload: false },
-              bounds: { x: b.x, y: b.y, width: b.width, height: b.height },
-              isSelected: false,
-              visible: group.visible !== false,
-              layerId: layer?.name,
-            });
+            // ========== 处理文字 ==========
+            if (item?.className === 'PointText' || item instanceof (paper as any).PointText) {
+              const pointText = item as any;
+              // 跳过辅助文本
+              if (pointText.data?.isHelper) return;
+
+              // 生成或使用已有的 text ID
+              let textId = pointText.data?.textId;
+              if (!textId) {
+                textId = `text_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+                if (!pointText.data) pointText.data = {};
+                pointText.data.textId = textId;
+              }
+
+              // 确保设置 type 标记（关键！用于点击检测）
+              if (!pointText.data.type) {
+                pointText.data.type = 'text';
+              }
+
+              // 提取样式信息
+              const style = {
+                fontFamily: pointText.fontFamily || 'sans-serif',
+                fontWeight: (pointText.fontWeight === 'bold' || pointText.fontWeight === '700') ? 'bold' : 'normal',
+                fontSize: pointText.fontSize || 24,
+                color: pointText.fillColor ? pointText.fillColor.toCSS(true) : '#000000',
+                align: 'left',
+                italic: pointText.fontStyle === 'italic' || false,
+              };
+
+              // 构建文字实例
+              textInstances.push({
+                id: textId,
+                paperText: pointText,
+                isSelected: false,
+                isEditing: false,
+                style: style,
+              });
+            }
+
+            // ========== 处理3D模型 ==========
+            if (item?.data?.type === '3d-model' && item?.data?.modelId) {
+              const model3DGroup = item;
+              const modelId = model3DGroup.data.modelId;
+
+              // 从group中查找占位符矩形来获取bounds
+              const placeholder = model3DGroup.children?.find((c: any) =>
+                c?.data?.isPlaceholder || c?.className === 'Path'
+              );
+
+              if (placeholder && placeholder.bounds) {
+                const b = placeholder.bounds as any;
+
+                // 从data中恢复模型数据
+                const modelData = model3DGroup.data.modelData || {
+                  url: model3DGroup.data.url || '',
+                  path: model3DGroup.data.url || '',
+                  format: model3DGroup.data.format || 'glb',
+                  fileName: model3DGroup.data.fileName || 'model',
+                  fileSize: model3DGroup.data.fileSize || 0,
+                  defaultScale: model3DGroup.data.defaultScale || { x: 1, y: 1, z: 1 },
+                  defaultRotation: model3DGroup.data.defaultRotation || { x: 0, y: 0, z: 0 },
+                  timestamp: model3DGroup.data.timestamp || Date.now(),
+                };
+
+                // 确保存在选择区域（用于点击检测）
+                const hasSelectionArea = !!model3DGroup.children?.find((c: any) =>
+                  c?.data?.type === '3d-model-selection-area'
+                );
+                if (!hasSelectionArea) {
+                  try {
+                    const selectionArea = new (paper as any).Path.Rectangle({
+                      rectangle: new (paper as any).Rectangle(b.x, b.y, b.width, b.height),
+                      fillColor: new (paper as any).Color(0, 0, 0, 0.001), // 几乎透明但可点击
+                      strokeColor: null,
+                      selected: false,
+                      visible: true,
+                    });
+                    selectionArea.data = {
+                      type: '3d-model-selection-area',
+                      modelId: modelId,
+                      isHelper: true
+                    };
+                    model3DGroup.addChild(selectionArea);
+                  } catch {}
+                }
+
+                // 构建3D模型实例
+                model3DInstances.push({
+                  id: modelId,
+                  modelData: modelData,
+                  bounds: { x: b.x, y: b.y, width: b.width, height: b.height },
+                  isSelected: false,
+                  visible: model3DGroup.visible !== false,
+                  layerId: layer?.name,
+                });
+              }
+            }
           });
         });
 
-        if (instances.length > 0) {
-          imageTool.setImageInstances(instances);
+        // 更新图片实例
+        if (imageInstances.length > 0) {
+          imageTool.setImageInstances((prev) => {
+            const prevMap = new Map(prev.map(item => [item.id, item]));
+            const merged: typeof prev = [];
+
+            imageInstances.forEach(instance => {
+              const previous = prevMap.get(instance.id);
+              if (previous) {
+                prevMap.delete(instance.id);
+              }
+
+              const boundsToUse = previous && previous.bounds.width > 0 && previous.bounds.height > 0
+                ? previous.bounds
+                : instance.bounds;
+
+              merged.push({
+                ...instance,
+                ...previous,
+                bounds: boundsToUse,
+                imageData: {
+                  ...(instance.imageData || {}),
+                  ...(previous?.imageData || {})
+                },
+                isSelected: false,
+                visible: instance.visible
+              });
+            });
+
+            // 如果还有遗留的旧实例（理论上不会发生），保留它们以免数据丢失
+            prevMap.forEach(item => merged.push(item));
+
+            try { (window as any).tanvaImageInstances = merged; } catch {}
+            return merged;
+          });
           imageTool.setSelectedImageIds([]);
-          try { (window as any).tanvaImageInstances = instances; } catch {}
-          console.log(`🧩 已从 Paper 恢复 ${instances.length} 张图片实例`);
+          console.log(`🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`);
+        }
+
+        // 更新文字实例
+        if (textInstances.length > 0) {
+          simpleTextTool.setTextItems(textInstances);
+          simpleTextTool.setSelectedTextId(null);
+          try { (window as any).tanvaTextItems = textInstances; } catch {}
+          console.log(`📝 已从 Paper 恢复 ${textInstances.length} 个文字实例`);
+        }
+
+        // 更新3D模型实例
+        if (model3DInstances.length > 0) {
+          model3DTool.setModel3DInstances(model3DInstances);
+          model3DTool.setSelectedModel3DIds([]);
+          try { (window as any).tanvaModel3DInstances = model3DInstances; } catch {}
+          console.log(`🎮 已从 Paper 恢复 ${model3DInstances.length} 个3D模型实例`);
+        }
+
+        // 输出总结
+        const total = imageInstances.length + textInstances.length + model3DInstances.length;
+        if (total > 0) {
+          console.log(`✅ 从 Paper.js 共恢复 ${total} 个实例（图片${imageInstances.length}，文字${textInstances.length}，3D${model3DInstances.length}）`);
         }
       } catch (e) {
-        console.warn('从Paper重建图片实例失败:', e);
+        console.warn('从Paper重建实例失败:', e);
       }
     };
 
     window.addEventListener('paper-project-changed', rebuildFromPaper as EventListener);
     return () => window.removeEventListener('paper-project-changed', rebuildFromPaper as EventListener);
-  }, [imageTool]);
+  }, [imageTool, simpleTextTool, model3DTool]);
 
   // 监听图层面板的选择事件
   useEffect(() => {
