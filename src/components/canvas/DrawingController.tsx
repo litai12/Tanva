@@ -812,13 +812,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (p) pathSet.add(p);
       });
     }
+    try {
+      const paperSelected = (paper.project?.getSelectedItems?.() ?? []).filter((item): item is paper.Path => item instanceof paper.Path);
+      paperSelected.forEach((path) => pathSet.add(path));
+    } catch {
+      // ignore
+    }
     const pathSnapshots: PathClipboardSnapshot[] = Array.from(pathSet)
       .filter((path) => !!path && path.isInserted() && !(path.data && path.data.isHelper))
       .map((path) => ({
         json: path.exportJSON({ asString: true }),
         layerName: path.layer?.name,
         position: { x: path.position.x, y: path.position.y },
+        strokeWidth: path.data?.originalStrokeWidth ?? path.strokeWidth,
+        strokeColor: path.strokeColor ? path.strokeColor.toCSS(true) : undefined,
+        fillColor: path.fillColor ? path.fillColor.toCSS(true) : undefined,
       }));
+    logger.debug('准备复制的路径数量:', pathSnapshots.length, { setSize: pathSet.size });
 
     const textSnapshots: TextAssetSnapshot[] = (simpleTextTool.textItems || [])
       .filter((item) => item.isSelected)
@@ -857,9 +867,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const handleCanvasCopy = useCallback(() => {
     const payload = collectCanvasClipboardData();
     if (!payload) {
+      logger.debug('复制失败：未找到可复制的画布对象');
       return false;
     }
     clipboardService.setCanvasData(payload);
+    logger.debug('画布内容已复制到剪贴板:', {
+      images: payload.images.length,
+      models: payload.models.length,
+      texts: payload.texts.length,
+      paths: payload.paths.length,
+    });
     return true;
   }, [collectCanvasClipboardData]);
 
@@ -877,6 +894,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     clearAllSelections,
     setSelectedPaths,
     setSelectedPath,
+    handlePathSelect: selectToolHandlePathSelect,
   } = selectionTool;
   const {
     createText: createSimpleText,
@@ -888,6 +906,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const handleCanvasPaste = useCallback(() => {
     const payload = clipboardService.getCanvasData();
     if (!payload) return false;
+    logger.debug('尝试从剪贴板粘贴画布内容:', {
+      images: payload.images.length,
+      models: payload.models.length,
+      texts: payload.texts.length,
+      paths: payload.paths.length,
+    });
 
     const offset = { x: 32, y: 32 };
 
@@ -927,19 +951,59 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (snapshot.layerName) {
           const targetLayer = paper.project.layers.find((layer) => layer.name === snapshot.layerName);
           if (targetLayer) targetLayer.activate();
+          else drawingContext.ensureDrawingLayer();
+        }
+        if (!snapshot.layerName) {
+          drawingContext.ensureDrawingLayer();
         }
 
-        const imported = paper.Item.importJSON(snapshot.json);
+        const imported = paper.project.importJSON(snapshot.json);
         const items = Array.isArray(imported) ? imported : [imported];
         items.forEach((item) => {
-          if (item instanceof paper.Path) {
-            item.translate(offsetVector);
+          if (!(item instanceof paper.Path)) {
+            try { item.remove(); } catch {}
+            return;
+          }
+
+          paper.project.activeLayer.addChild(item);
+          item.translate(offsetVector);
+          item.visible = true;
+          try { item.bringToFront(); } catch {}
+
+          const selectedBefore = item.selected;
+          if (selectedBefore) {
+            item.selected = false;
+            item.fullySelected = false;
+          }
+
+          const strokeWidth = snapshot.strokeWidth ?? item.data?.originalStrokeWidth ?? item.strokeWidth ?? strokeWidthRef.current ?? strokeWidth;
+          item.strokeWidth = strokeWidth;
+          item.data = { ...(item.data || {}), originalStrokeWidth: strokeWidth };
+
+          if (snapshot.strokeColor) {
+            try { item.strokeColor = new paper.Color(snapshot.strokeColor); } catch {}
+          }
+          if (typeof snapshot.fillColor === 'string') {
+            try { item.fillColor = new paper.Color(snapshot.fillColor); } catch {}
+          }
+
+          if (selectedBefore) {
             item.selected = true;
             item.fullySelected = true;
-            newPaths.push(item);
-          } else if (item) {
-            try { item.remove(); } catch {}
           }
+
+          newPaths.push(item);
+          logger.debug('粘贴重建路径:', {
+            layer: item.layer?.name,
+            strokeWidth: item.strokeWidth,
+            originalStrokeWidth: strokeWidth,
+            bounds: item.bounds && {
+              x: Math.round(item.bounds.x),
+              y: Math.round(item.bounds.y),
+              width: Math.round(item.bounds.width),
+              height: Math.round(item.bounds.height),
+            },
+          });
         });
 
         if (prevLayer && prevLayer.isInserted()) {
@@ -957,8 +1021,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       newTextIds.length > 0;
 
     if (!hasNew) {
+      logger.debug('粘贴失败：剪贴板数据为空或无法重建对象');
       return false;
     }
+
+    logger.debug('粘贴创建的对象数量:', {
+      images: newImageIds.length,
+      models: newModelIds.length,
+      paths: newPaths.length,
+      texts: newTextIds.length,
+    });
 
     if (newImageIds.length > 0 && typeof handleImageMultiSelect === 'function') {
       handleImageMultiSelect(newImageIds);
@@ -973,6 +1045,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
 
     if (newPaths.length > 0) {
+      newPaths.forEach((path) => {
+        try { path.selected = true; path.fullySelected = true; } catch {}
+        try { selectToolHandlePathSelect?.(path); } catch {}
+      });
       setSelectedPaths?.(newPaths);
       setSelectedPath?.(newPaths[newPaths.length - 1]);
     } else {
@@ -1009,6 +1085,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      logger.debug('画布键盘事件', {
+        key: event.key,
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+        defaultPrevented: event.defaultPrevented,
+      });
       if (event.defaultPrevented) return;
 
       const isCopy = (event.key === 'c' || event.key === 'C') && (event.metaKey || event.ctrlKey);

@@ -33,7 +33,7 @@ import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
 import { historyService } from '@/services/historyService';
-import { clipboardService } from '@/services/clipboardService';
+import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
   import { aiImageService } from '@/services/aiImageService';
   import type { AIImageResult } from '@/types/ai';
   import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -375,20 +375,48 @@ function FlowInner() {
   const nodeDraggingRef = React.useRef(false);
   const commitTimerRef = React.useRef<number | null>(null);
 
-  const rfNodesToTplNodes = React.useCallback((ns: RFNode[]): TemplateNode[] => {
+  const sanitizeNodeData = React.useCallback((input: any) => {
+    try {
+      return JSON.parse(JSON.stringify(input, (_key, value) => (
+        typeof value === 'function' ? undefined : value
+      )));
+    } catch {
+      if (!input || typeof input !== 'object') return input;
+      if (Array.isArray(input)) {
+        return input.map(sanitizeNodeData);
+      }
+      const result: Record<string, any> = {};
+      Object.entries(input).forEach(([key, value]) => {
+        if (typeof value === 'function') return;
+        result[key] = sanitizeNodeData(value);
+      });
+      return result;
+    }
+  }, []);
+
+  const rfNodesToTplNodes = React.useCallback((ns: RFNode[]): ClipboardFlowNode[] => {
     return ns.map((n: any) => {
-      const data = { ...(n.data || {}) } as any;
-      delete data.onRun; delete data.onSend; delete data.status; delete data.error;
+      const rawData = { ...(n.data || {}) } as any;
+      delete rawData.onRun;
+      delete rawData.onSend;
+      const data = sanitizeNodeData(rawData);
+      if (data) {
+        delete data.status;
+        delete data.error;
+      }
       return {
         id: n.id,
         type: n.type || 'default',
         position: { x: n.position.x, y: n.position.y },
         data,
-        boxW: data.boxW,
-        boxH: data.boxH,
-      } as TemplateNode;
+        boxW: data?.boxW,
+        boxH: data?.boxH,
+        width: n.width,
+        height: n.height,
+        style: n.style ? { ...n.style } : undefined,
+      } as ClipboardFlowNode;
     });
-  }, []);
+  }, [sanitizeNodeData]);
 
   const rfEdgesToTplEdges = React.useCallback((es: Edge[]): TemplateEdge[] => es.map((e: any) => ({
     id: e.id,
@@ -446,8 +474,7 @@ function FlowInner() {
     const newNodes = payload.nodes.map((node) => {
       const newId = generateId(node.type || 'n');
       idMap.set(node.id, newId);
-      const data: any = { ...(node.data || {}) };
-      delete data.onRun; delete data.onSend; delete data.status; delete data.error;
+      const data: any = sanitizeNodeData(node.data || {});
       return {
         id: newId,
         type: node.type || 'default',
@@ -457,6 +484,9 @@ function FlowInner() {
         },
         data,
         selected: true,
+        width: node.width,
+        height: node.height,
+        style: node.style ? { ...node.style } : undefined,
       } as any;
     });
 
@@ -483,7 +513,7 @@ function FlowInner() {
 
     try { historyService.commit('flow-paste').catch(() => {}); } catch {}
     return true;
-  }, [setEdges, setNodes]);
+  }, [sanitizeNodeData, setEdges, setNodes]);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

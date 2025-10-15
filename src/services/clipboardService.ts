@@ -7,6 +7,9 @@ export interface PathClipboardSnapshot {
   json: any;
   layerName?: string;
   position: { x: number; y: number };
+  strokeWidth?: number;
+  strokeColor?: string;
+  fillColor?: string;
 }
 
 export interface CanvasClipboardData {
@@ -16,8 +19,14 @@ export interface CanvasClipboardData {
   paths: PathClipboardSnapshot[];
 }
 
+export interface ClipboardFlowNode extends TemplateNode {
+  width?: number;
+  height?: number;
+  style?: Record<string, unknown>;
+}
+
 export interface FlowClipboardData {
-  nodes: TemplateNode[];
+  nodes: ClipboardFlowNode[];
   edges: TemplateEdge[];
   origin: { x: number; y: number };
 }
@@ -55,4 +64,3 @@ class ClipboardService {
 }
 
 export const clipboardService = new ClipboardService();
-
