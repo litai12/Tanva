@@ -30,7 +30,7 @@ class AIImageService {
   private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image';
   private readonly DEFAULT_TIMEOUT = 120000; // 增加到120秒
   private readonly MAX_IMAGE_RETRIES = 5; // 图像生成最大重试次数（针对无图像返回）
-  private readonly IMAGE_RETRY_DELAY_BASE = 1000; // 基础重试延迟（毫秒，统一为1s）
+  private readonly IMAGE_RETRY_DELAY_BASE = 500; // 固定重试延迟（毫秒，压缩等待时间）
 
   constructor() {
     this.initializeClient();
@@ -208,7 +208,7 @@ class AIImageService {
         lastError = error instanceof Error ? error : new Error(String(error));
         
         if (attempt <= maxRetries) {
-          const delay = baseDelay * Math.pow(1.5, attempt - 1); // 指数退避
+          const delay = baseDelay; // 使用固定延迟，避免无谓的逐步拉长等待
           console.warn(`⚠️ ${operationType} 第${attempt}次尝试失败: ${lastError.message}, ${delay}ms后重试...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         } else {

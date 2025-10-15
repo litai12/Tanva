@@ -70,7 +70,7 @@ class PromptOptimizationService {
   private async withRetry<T>(
     operation: (attempt: number) => Promise<T>,
     retryCount: number = 5,
-    baseDelayMs: number = 600
+    baseDelayMs: number = 400
   ): Promise<T> {
     let lastError: unknown;
 
@@ -83,7 +83,7 @@ class PromptOptimizationService {
           break;
         }
 
-        const delay = baseDelayMs * attempt;
+        const delay = baseDelayMs;
         console.warn(`⚠️ Prompt optimization attempt ${attempt} failed, retrying in ${delay}ms`, error);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
