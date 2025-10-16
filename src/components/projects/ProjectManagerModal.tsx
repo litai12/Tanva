@@ -55,6 +55,8 @@ export default function ProjectManagerModal() {
 
   if (!modalOpen) return null;
 
+  const fillerCount = Math.max(0, PAGE_SIZE - paginatedProjects.length);
+
   const node = (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center">
       <div className="absolute inset-0 bg-transparent" onClick={closeModal} />
@@ -158,6 +160,25 @@ export default function ProjectManagerModal() {
                               删除
                             </Button>
                           )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {Array.from({ length: fillerCount }).map((_, index) => (
+                    <div
+                      key={`filler-${index}`}
+                      aria-hidden="true"
+                      className="group border rounded-lg overflow-hidden bg-white shadow-sm opacity-0 pointer-events-none select-none"
+                    >
+                      <div className="aspect-[2/1] bg-slate-100" />
+                      <div className="px-3 py-1.5 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">&nbsp;</div>
+                          <div className="text-[11px] leading-4 text-slate-500">&nbsp;</div>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <div className="h-6 w-10" />
+                          <div className="h-6 w-10" />
                         </div>
                       </div>
                     </div>
