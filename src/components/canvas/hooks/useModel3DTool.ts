@@ -443,6 +443,12 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   const handleModel3DDelete = useCallback((modelId: string) => {
     console.log('🗑️ 开始删除3D模型:', modelId);
 
+    const timers = cameraChangeTimersRef.current;
+    if (timers[modelId]) {
+      window.clearTimeout(timers[modelId]);
+      delete timers[modelId];
+    }
+
     // 从Paper.js中移除3D模型对象（深度清理）
     try {
       if (paper && paper.project) {

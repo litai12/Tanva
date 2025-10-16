@@ -356,7 +356,7 @@ export class BoundsCalculator {
     if (!item || !item.visible) return null;
     if ((item.data as any)?.isHelper) return null;
 
-    const rect = (item as any).strokeBounds || item.bounds || null;
+    let rect = (item as any).strokeBounds || item.bounds || null;
     if (!rect) return null;
 
     const bounds = {
@@ -365,6 +365,15 @@ export class BoundsCalculator {
       width: rect.width,
       height: rect.height
     };
+
+    if (!this.isValidBounds(bounds)) {
+      const expanded = rect.expand(1);
+      rect = expanded;
+      bounds.x = rect.x;
+      bounds.y = rect.y;
+      bounds.width = rect.width;
+      bounds.height = rect.height;
+    }
 
     return this.isValidBounds(bounds) ? bounds : null;
   }

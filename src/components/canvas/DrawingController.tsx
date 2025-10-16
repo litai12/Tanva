@@ -668,6 +668,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   }, [simpleTextTool]);
 
   // ========== 截图功能处理 ==========
+  const currentSelectedPath = selectionTool.selectedPath;
+  const currentSelectedPaths = selectionTool.selectedPaths;
+  const currentSelectedImageIds = imageTool.selectedImageIds;
+  const currentSelectedModelIds = model3DTool.selectedModel3DIds;
+
   const handleScreenshot = useCallback(async () => {
     try {
       logger.debug('🖼️ 用户触发截图...');
@@ -684,6 +689,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       });
 
       // 使用带回调的截图模式，同时下载和传入AI对话框
+      const selectedPaperItemsSet = new Set<paper.Item>();
+      if (currentSelectedPath) {
+        selectedPaperItemsSet.add(currentSelectedPath);
+      }
+      if (Array.isArray(currentSelectedPaths)) {
+        currentSelectedPaths.forEach((path) => {
+          if (path) selectedPaperItemsSet.add(path);
+        });
+      }
+
+      const manualSelection = {
+        paperItems: Array.from(selectedPaperItemsSet),
+        imageIds: Array.isArray(currentSelectedImageIds) ? [...currentSelectedImageIds] : [],
+        modelIds: Array.isArray(currentSelectedModelIds) ? [...currentSelectedModelIds] : [],
+      };
+
       const result = await AutoScreenshotService.captureAutoScreenshot(
         imageTool.imageInstances,
         model3DTool.model3DInstances,
@@ -694,6 +715,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           padding: 0, // 无边距，与内容尺寸完全一致
           autoDownload: true, // 同时下载文件，方便检查质量
           filename: 'artboard-screenshot',
+          selection: manualSelection,
           // 截图完成后的回调，直接传入AI聊天
           onComplete: (dataUrl: string, filename: string) => {
             console.log('🎨 截图完成，同时下载文件和传入AI对话框...', { filename });
@@ -726,7 +748,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 无论成功失败，都切换回选择模式
       setDrawMode('select');
     }
-  }, [imageTool.imageInstances, model3DTool.model3DInstances, setDrawMode, setSourceImageForEditing, showAIDialog]);
+  }, [
+    currentSelectedPath,
+    currentSelectedPaths,
+    currentSelectedImageIds,
+    currentSelectedModelIds,
+    imageTool.imageInstances,
+    model3DTool.model3DInstances,
+    setDrawMode,
+    setSourceImageForEditing,
+    showAIDialog
+  ]);
 
   // 监听截图工具的激活
   useEffect(() => {

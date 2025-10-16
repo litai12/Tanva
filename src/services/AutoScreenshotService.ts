@@ -29,6 +29,12 @@ export interface ScreenshotOptions {
   filename?: string;
   /** 生成完成后的回调函数，用于自定义处理截图数据 */
   onComplete?: (dataUrl: string, filename: string) => void;
+  /** 外部传入的选中状态（优先于自动检测） */
+  selection?: {
+    paperItems?: paper.Item[];
+    imageIds?: string[];
+    modelIds?: string[];
+  };
 }
 
 export interface ScreenshotResult {
@@ -82,10 +88,36 @@ export class AutoScreenshotService {
   ): Promise<ScreenshotResult> {
     const opts = { ...this.DEFAULT_OPTIONS, ...options };
     
+    let restoreSelectionVisuals: (() => void) | null = null;
+
     try {
       logger.debug('🖼️ 开始自动截图...');
       
-      const selectionState = this.detectSelection(imageInstances, model3DInstances);
+      let selectionState = this.detectSelection(imageInstances, model3DInstances);
+
+      if (opts.selection) {
+        const manualPaperItems = opts.selection.paperItems?.filter((item): item is paper.Item => !!item) ?? [];
+        const manualImageIds = new Set(opts.selection.imageIds ?? []);
+        const manualModelIds = new Set(opts.selection.modelIds ?? []);
+
+        const selectedImages = imageInstances.filter((img) => manualImageIds.has(img.id));
+        const selectedModels = model3DInstances.filter((model) => manualModelIds.has(model.id));
+        const selectedPaperItems = manualPaperItems.filter((item) => item.visible && !(item.data as any)?.isHelper);
+
+        selectionState = {
+          hasSelection:
+            selectedImages.length > 0 ||
+            selectedModels.length > 0 ||
+            selectedPaperItems.length > 0,
+          selectedImages,
+          selectedModels,
+          selectedPaperItems,
+          selectedImageIds: manualImageIds,
+          selectedModelIds: manualModelIds,
+          selectedPaperItemsSet: new Set(selectedPaperItems),
+        };
+      }
+      restoreSelectionVisuals = this.temporarilySuppressSelectionVisuals(selectionState);
       let restrictToSelection = selectionState.hasSelection;
 
       if (selectionState.hasSelection) {
@@ -191,6 +223,12 @@ export class AutoScreenshotService {
         success: false,
         error: error instanceof Error ? error.message : '未知错误'
       };
+    } finally {
+      try {
+        restoreSelectionVisuals?.();
+      } catch (restoreError) {
+        logger.warn('恢复选中样式失败:', restoreError);
+      }
     }
   }
 
@@ -206,6 +244,11 @@ export class AutoScreenshotService {
     const selectedOnly = selection?.hasSelection ?? false;
     const selectedImageIds = selection?.selectedImageIds ?? new Set<string>();
     const selectedModelIds = selection?.selectedModelIds ?? new Set<string>();
+
+    // 如果只针对选中元素，则走简化路径，避免收集非选中内容
+    if (selectedOnly && selection) {
+      return this.collectElementsForSelection(selection);
+    }
 
     // 1. 收集Paper.js元素
     console.log('🔍 开始收集Paper.js元素...');
@@ -255,9 +298,19 @@ export class AutoScreenshotService {
               }
               // 精确计算层级：图层索引 * 1000 + 元素在图层中的索引
               const preciseLayerIndex = layerIndex * 1000 + itemIndex;
+
+              if (selectedOnly && item instanceof paper.Group && !selection!.selectedPaperItemsSet.has(item)) {
+                this.collectGroupChildrenForSelection(item, preciseLayerIndex, selection!, elements);
+                continue;
+              }
+              const itemRect = (item as any)?.strokeBounds || item.bounds;
+              if (!itemRect) {
+                console.warn(`⚠️ 跳过无有效边界的Paper.js元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+                continue;
+              }
               
               console.log(`✅ 收集Paper.js元素: ${item.className} (layer: ${preciseLayerIndex})`, {
-                bounds: `${Math.round(item.bounds.x)},${Math.round(item.bounds.y)} ${Math.round(item.bounds.width)}x${Math.round(item.bounds.height)}`,
+                bounds: `${Math.round(itemRect.x)},${Math.round(itemRect.y)} ${Math.round(itemRect.width)}x${Math.round(itemRect.height)}`,
                 segments: item instanceof paper.Path ? item.segments.length : 'N/A',
                 strokeColor: item instanceof paper.Path && item.strokeColor ? item.strokeColor.toCSS() : 'N/A',
                 strokeWidth: item instanceof paper.Path ? item.strokeWidth : 'N/A',
@@ -269,10 +322,10 @@ export class AutoScreenshotService {
                 type: 'paper',
                 layerIndex: preciseLayerIndex,
                 bounds: {
-                  x: item.bounds.x,
-                  y: item.bounds.y,
-                  width: item.bounds.width,
-                  height: item.bounds.height
+                  x: itemRect.x,
+                  y: itemRect.y,
+                  width: Math.max(itemRect.width ?? 0, 1),
+                  height: Math.max(itemRect.height ?? 0, 1)
                 },
                 data: item
               });
@@ -363,6 +416,137 @@ export class AutoScreenshotService {
     ).join('\n'));
 
     return elements;
+  }
+
+  private static collectGroupChildrenForSelection(
+    group: paper.Group,
+    baseLayerIndex: number,
+    selection: SelectionState,
+    elements: DrawableElement[]
+  ): void {
+    if (!group || !group.children) return;
+
+    group.children.forEach((child, childIndex) => {
+      if (!child || !child.visible || child.data?.isHelper) return;
+      if (!this.shouldIncludePaperItem(child, selection)) return;
+
+      const childLayerIndex = baseLayerIndex + (childIndex + 1) / 1000;
+
+      if (child instanceof paper.Group) {
+        this.collectGroupChildrenForSelection(child, childLayerIndex, selection, elements);
+        return;
+      }
+
+      const rect = (child as any)?.strokeBounds || child.bounds;
+      if (!rect) return;
+      const width = rect.width ?? 0;
+      const height = rect.height ?? 0;
+      if (width <= 0 && height <= 0) return;
+
+      elements.push({
+        type: 'paper',
+        layerIndex: childLayerIndex,
+        bounds: {
+          x: rect.x,
+          y: rect.y,
+          width: Math.max(width, 1),
+          height: Math.max(height, 1)
+        },
+        data: child,
+      });
+    });
+  }
+
+  private static collectElementsForSelection(
+    selection: SelectionState,
+  ): DrawableElement[] {
+    const elements: DrawableElement[] = [];
+    const seenPaper = new Set<paper.Item>();
+
+    const pushPaperItem = (item: paper.Item) => {
+      if (!item || !item.visible) return;
+      if ((item.data as any)?.isHelper) return;
+      if (seenPaper.has(item)) return;
+      seenPaper.add(item);
+
+      const rect = (item as any)?.strokeBounds || item.bounds;
+      if (!rect) return;
+      const width = rect.width ?? 0;
+      const height = rect.height ?? 0;
+      if (width <= 0 && height <= 0) return;
+
+      elements.push({
+        type: 'paper',
+        layerIndex: this.computeLayerOrder(item),
+        bounds: {
+          x: rect.x,
+          y: rect.y,
+          width: Math.max(width, 1),
+          height: Math.max(height, 1),
+        },
+        data: item,
+      });
+    };
+
+    selection.selectedPaperItems.forEach((item) => {
+      if (!item) return;
+      if (item instanceof paper.Group) {
+        item.getItems({ match: (child) => child instanceof paper.Path || child instanceof paper.PointText || child instanceof paper.Raster })
+          .forEach((child) => pushPaperItem(child as paper.Item));
+      }
+      pushPaperItem(item);
+    });
+
+    // 选中的图片（使用 selection.selectedImages）
+    selection.selectedImages.forEach((image) => {
+      if (!image.visible) return;
+      elements.push({
+        type: 'image',
+        layerIndex: 500_000 + elements.length,
+        bounds: {
+          x: image.bounds.x,
+          y: image.bounds.y,
+          width: Math.max(image.bounds.width, 1),
+          height: Math.max(image.bounds.height, 1),
+        },
+        data: image,
+      });
+    });
+
+    // 选中的3D模型
+    selection.selectedModels.forEach((model) => {
+      if (!model.visible) return;
+      elements.push({
+        type: 'model3d',
+        layerIndex: 1_000_000_000 + elements.length,
+        bounds: {
+          x: model.bounds.x,
+          y: model.bounds.y,
+          width: Math.max(model.bounds.width, 1),
+          height: Math.max(model.bounds.height, 1),
+        },
+        data: model,
+      });
+    });
+
+    elements.sort((a, b) => a.layerIndex - b.layerIndex);
+    return elements;
+  }
+
+  private static computeLayerOrder(item: paper.Item): number {
+    const layerIndex = item.layer ? item.layer.index : 0;
+    let order = 0;
+    let multiplier = 1;
+    let current: paper.Item | null = item;
+
+    while (current) {
+      const idx = typeof current.index === 'number' ? current.index : 0;
+      order += idx * multiplier;
+      multiplier *= 100;
+      current = current.parent;
+    }
+
+    return layerIndex * 1_000_000 + order;
   }
 
   /**
@@ -789,6 +973,89 @@ export class AutoScreenshotService {
       a.y + a.height <= b.y ||
       b.y + b.height <= a.y
     );
+  }
+
+  private static temporarilySuppressSelectionVisuals(selection: SelectionState): (() => void) | null {
+    if (!selection.hasSelection) return null;
+    if (!paper.project || !paper.view || !paper.settings) return null;
+
+    const prevHandleSize = typeof paper.settings.handleSize === 'number' ? paper.settings.handleSize : undefined;
+    const prevSelectionColor = paper.settings.selectionColor ? paper.settings.selectionColor.clone?.() ?? paper.settings.selectionColor : null;
+
+    const paperItemStates = selection.selectedPaperItems.map((item) => ({
+      item,
+      wasSelected: item.selected === true,
+      wasFullySelected: Boolean((item as any)?.fullySelected),
+      strokeWidth: item instanceof paper.Path ? item.strokeWidth : undefined,
+      originalStrokeWidth: item instanceof paper.Path && typeof (item as any)?.originalStrokeWidth === 'number'
+        ? (item as any).originalStrokeWidth as number
+        : undefined,
+    }));
+
+    try {
+      paper.settings.handleSize = 0;
+      if (paper.settings.selectionColor) {
+        paper.settings.selectionColor = new paper.Color(0, 0, 0, 0);
+      }
+    } catch (error) {
+      logger.warn('隐藏选中控制点时设置Paper配置失败:', error);
+    }
+
+    for (const state of paperItemStates) {
+      const { item, originalStrokeWidth } = state;
+      if (item instanceof paper.Path && typeof originalStrokeWidth === 'number') {
+        try {
+          item.strokeWidth = originalStrokeWidth;
+        } catch (err) {
+          logger.warn('恢复路径原始线宽失败:', err);
+        }
+      }
+
+      if (typeof (item as any)?.fullySelected === 'boolean') {
+        (item as any).fullySelected = false;
+      }
+    }
+
+    try { paper.view.update(); } catch {}
+
+    return () => {
+      for (const state of paperItemStates) {
+        const { item, wasSelected, wasFullySelected, strokeWidth } = state;
+
+        if (item instanceof paper.Path && typeof strokeWidth === 'number') {
+          try {
+            item.strokeWidth = strokeWidth;
+          } catch (err) {
+            logger.warn('恢复路径选中线宽失败:', err);
+          }
+        }
+
+        if (typeof (item as any)?.fullySelected === 'boolean') {
+          (item as any).fullySelected = wasFullySelected;
+        }
+
+        if (typeof wasSelected === 'boolean') {
+          item.selected = wasSelected;
+        }
+      }
+
+      try {
+        if (typeof prevHandleSize === 'number') {
+          paper.settings.handleSize = prevHandleSize;
+        } else {
+          delete paper.settings.handleSize;
+        }
+        if (prevSelectionColor) {
+          paper.settings.selectionColor = prevSelectionColor;
+        } else {
+          delete paper.settings.selectionColor;
+        }
+      } catch (error) {
+        logger.warn('恢复Paper选中配置失败:', error);
+      }
+
+      try { paper.view.update(); } catch {}
+    };
   }
 
   /**
