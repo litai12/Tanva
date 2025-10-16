@@ -1899,6 +1899,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             onSelect={() => model3DTool.handleModel3DSelect(model.id)}
             onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
             onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
+            onDeselect={() => model3DTool.handleModel3DDeselect()}
           />
         );
       })}

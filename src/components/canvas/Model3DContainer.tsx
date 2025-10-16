@@ -15,6 +15,7 @@ interface Model3DContainerProps {
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
+  onDeselect?: () => void;
 }
 
 const Model3DContainer: React.FC<Model3DContainerProps> = ({
@@ -27,7 +28,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   isSelectionDragging = false,
   onSelect,
   onMove,
-  onResize
+  onResize,
+  onDeselect
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -87,11 +89,30 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     };
   }, []);
 
-  // 缓存屏幕坐标：当 bounds 或 画布视图(pan/zoom)变化时重新计算
-  const screenBounds = useMemo(
-    () => convertToScreenBounds(bounds),
-    [bounds, zoom, panX, panY]
-  );
+  const [screenBounds, setScreenBounds] = useState(() => convertToScreenBounds(bounds));
+
+  useEffect(() => {
+    let frame: number | null = null;
+    let attempts = 0;
+
+    const updateBounds = () => {
+      const next = convertToScreenBounds(bounds);
+      setScreenBounds(next);
+
+      const valid = Number.isFinite(next.width) && next.width > 1 && Number.isFinite(next.height) && next.height > 1;
+      if (!valid && attempts < 6) {
+        attempts += 1;
+        frame = requestAnimationFrame(updateBounds);
+      } else {
+        frame = null;
+      }
+    };
+
+    updateBounds();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [bounds, zoom, panX, panY, renderKey, convertToScreenBounds]);
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
@@ -127,6 +148,13 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     if (e.button !== 0) return; // 只处理左键
 
     const target = e.target as HTMLElement;
+
+    if (target === containerRef.current) {
+      if (isSelected) {
+        onDeselect?.();
+      }
+      return;
+    }
 
     // 如果点击的是Three.js canvas，不处理拖拽，让OrbitControls处理
     if (target.tagName === 'CANVAS') {
@@ -261,6 +289,12 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       container.removeEventListener('wheel', handleWheel);
     };
   }, [handleWheel]);
+
+  // 强制在初始挂载后再计算一次，以防Paper视图尚未准备好
+  useEffect(() => {
+    const timer = requestAnimationFrame(() => setRenderKey((prev) => prev + 1));
+    return () => cancelAnimationFrame(timer);
+  }, []);
 
   return (
     <div
