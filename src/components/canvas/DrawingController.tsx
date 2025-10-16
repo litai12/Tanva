@@ -1664,6 +1664,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   defaultScale: stored.defaultScale || model3DGroup.data?.defaultScale || { x: 1, y: 1, z: 1 },
                   defaultRotation: stored.defaultRotation || model3DGroup.data?.defaultRotation || { x: 0, y: 0, z: 0 },
                   timestamp: stored.timestamp ?? model3DGroup.data?.timestamp ?? Date.now(),
+                  camera: stored.camera || model3DGroup.data?.camera,
                 };
 
                 try {
@@ -1680,6 +1681,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     model3DGroup.data.timestamp = modelData.timestamp;
                     model3DGroup.data.bounds = { x: b.x, y: b.y, width: b.width, height: b.height };
                     model3DGroup.data.layerId = layer?.name ?? model3DGroup.data.layerId ?? null;
+                    model3DGroup.data.camera = modelData.camera;
                   }
                 } catch (error) {
                   console.warn('刷新3D模型数据失败:', error);
@@ -1900,6 +1902,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
             onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
             onDeselect={() => model3DTool.handleModel3DDeselect()}
+            onCameraChange={(camera) => model3DTool.handleModel3DCameraChange(model.id, camera)}
           />
         );
       })}

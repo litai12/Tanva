@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
-import type { Model3DData } from '@/services/model3DUploadService';
+import type { Model3DData, Model3DCameraState } from '@/services/model3DUploadService';
 
 interface Model3DContainerProps {
   modelData: Model3DData;
@@ -16,6 +16,7 @@ interface Model3DContainerProps {
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
   onDeselect?: () => void;
+  onCameraChange?: (camera: Model3DCameraState) => void;
 }
 
 const Model3DContainer: React.FC<Model3DContainerProps> = ({
@@ -29,7 +30,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   onSelect,
   onMove,
   onResize,
-  onDeselect
+  onDeselect,
+  onCameraChange
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -321,6 +323,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         height={screenBounds.height}
         isSelected={isSelected}
         drawMode={drawMode}
+        onCameraChange={onCameraChange}
       />
 
       {/* 选中状态的边框线 - 四条独立边框，只在边框上响应拖拽 */}

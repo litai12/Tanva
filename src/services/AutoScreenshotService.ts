@@ -47,6 +47,16 @@ export interface DrawableElement {
   data: any; // Paper.js Item, ImageInstance, or Model3DInstance
 }
 
+interface SelectionState {
+  hasSelection: boolean;
+  selectedImages: ImageInstance[];
+  selectedModels: Model3DInstance[];
+  selectedPaperItems: paper.Item[];
+  selectedImageIds: Set<string>;
+  selectedModelIds: Set<string>;
+  selectedPaperItemsSet: Set<paper.Item>;
+}
+
 export class AutoScreenshotService {
   private static readonly DEFAULT_OPTIONS: Required<ScreenshotOptions> = {
     format: 'png',
@@ -75,12 +85,48 @@ export class AutoScreenshotService {
     try {
       logger.debug('🖼️ 开始自动截图...');
       
+      const selectionState = this.detectSelection(imageInstances, model3DInstances);
+      let restrictToSelection = selectionState.hasSelection;
+
+      if (selectionState.hasSelection) {
+        logger.debug('🎯 检测到选中元素，尝试局部截图', {
+          selectedImages: selectionState.selectedImages.length,
+          selectedModels: selectionState.selectedModels.length,
+          selectedPaperItems: selectionState.selectedPaperItems.length
+        });
+      } else {
+        logger.debug('📸 未检测到选中元素，执行全量截图');
+      }
+
       // 1. 计算内容边界
-      const contentBounds = BoundsCalculator.calculateContentBounds(
-        imageInstances,
-        model3DInstances,
-        opts.padding
-      );
+      let contentBounds: ContentBounds;
+
+      if (selectionState.hasSelection) {
+        const selectionBounds = BoundsCalculator.calculateSelectionBounds(
+          selectionState.selectedImages,
+          selectionState.selectedModels,
+          selectionState.selectedPaperItems,
+          opts.padding
+        );
+
+        if (!selectionBounds.isEmpty) {
+          contentBounds = selectionBounds;
+        } else {
+          logger.debug('⚠️ 选中元素未生成有效边界，回退为全量截图');
+          restrictToSelection = false;
+          contentBounds = BoundsCalculator.calculateContentBounds(
+            imageInstances,
+            model3DInstances,
+            opts.padding
+          );
+        }
+      } else {
+        contentBounds = BoundsCalculator.calculateContentBounds(
+          imageInstances,
+          model3DInstances,
+          opts.padding
+        );
+      }
 
       if (contentBounds.isEmpty) {
         return {
@@ -121,7 +167,11 @@ export class AutoScreenshotService {
       }
 
       // 5. 收集并按层级排序所有元素
-      const sortedElements = this.collectAndSortAllElements(imageInstances, model3DInstances);
+      const sortedElements = this.collectAndSortAllElements(
+        imageInstances,
+        model3DInstances,
+        restrictToSelection ? selectionState : undefined
+      );
       
       // 6. 按正确的层级顺序绘制所有元素
       await this.drawElementsByOrder(ctx, contentBounds, sortedElements);
@@ -149,9 +199,13 @@ export class AutoScreenshotService {
    */
   private static collectAndSortAllElements(
     imageInstances: ImageInstance[],
-    model3DInstances: Model3DInstance[]
+    model3DInstances: Model3DInstance[],
+    selection?: SelectionState
   ): DrawableElement[] {
     const elements: DrawableElement[] = [];
+    const selectedOnly = selection?.hasSelection ?? false;
+    const selectedImageIds = selection?.selectedImageIds ?? new Set<string>();
+    const selectedModelIds = selection?.selectedModelIds ?? new Set<string>();
 
     // 1. 收集Paper.js元素
     console.log('🔍 开始收集Paper.js元素...');
@@ -195,6 +249,10 @@ export class AutoScreenshotService {
             
             // 宽松的边界验证：只要item.bounds存在就收集（移除严格的相交检查）
             if (item.bounds) {
+              if (selectedOnly && !this.shouldIncludePaperItem(item, selection!)) {
+                console.log(`⏭️ 跳过未选中的Paper元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+                continue;
+              }
               // 精确计算层级：图层索引 * 1000 + 元素在图层中的索引
               const preciseLayerIndex = layerIndex * 1000 + itemIndex;
               
@@ -219,6 +277,10 @@ export class AutoScreenshotService {
                 data: item
               });
             } else {
+              if (selectedOnly && !this.shouldIncludePaperItem(item, selection!)) {
+                console.log(`⏭️ 跳过未选中的Paper元素(无边界): ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+                continue;
+              }
               console.warn(`⚠️ 跳过无边界的Paper.js元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
             }
           } else {
@@ -247,6 +309,11 @@ export class AutoScreenshotService {
     console.log(`🎭 收集3D模型实例: 找到 ${visibleModels.length} 个可见模型`);
     
     for (const model of visibleModels) {
+      if (selectedOnly && !selectedModelIds.has(model.id)) {
+        console.log(`⏭️ 跳过未选中的3D模型实例: ${model.id}`);
+        continue;
+      }
+
       // 3D模型在截图中默认置于最上层，避免被2D线条遮挡
       // 采用一个远高于Paper层的权重，必要时可改为读取显式zIndex
       const modelLayerIndex = 1_000_000_000; // always on top
@@ -722,6 +789,142 @@ export class AutoScreenshotService {
       a.y + a.height <= b.y ||
       b.y + b.height <= a.y
     );
+  }
+
+  /**
+   * 检测当前画布上被选中的元素
+   */
+  private static detectSelection(
+    imageInstances: ImageInstance[],
+    model3DInstances: Model3DInstance[]
+  ): SelectionState {
+    const selectedImages = imageInstances.filter(img => img.isSelected);
+    const selectedModels = model3DInstances.filter(model => model.isSelected);
+    const selectedPaperItems = this.collectSelectedPaperItems();
+
+    const hasSelection =
+      selectedImages.length > 0 ||
+      selectedModels.length > 0 ||
+      selectedPaperItems.length > 0;
+
+    return {
+      hasSelection,
+      selectedImages,
+      selectedModels,
+      selectedPaperItems,
+      selectedImageIds: new Set(selectedImages.map(img => img.id)),
+      selectedModelIds: new Set(selectedModels.map(model => model.id)),
+      selectedPaperItemsSet: new Set(selectedPaperItems),
+    };
+  }
+
+  /**
+   * 收集所有被选中的Paper元素（排除辅助元素）
+   */
+  private static collectSelectedPaperItems(): paper.Item[] {
+    const result = new Set<paper.Item>();
+
+    if (!paper.project || !paper.project.layers) {
+      return [];
+    }
+
+    const addIfValid = (item: paper.Item | null | undefined) => {
+      if (!item) return;
+      if ((item.data as any)?.isHelper) return;
+      if (!item.visible) return;
+      result.add(item);
+    };
+
+    try {
+      const selected = paper.project.getSelectedItems?.() ?? [];
+      selected.forEach(item => addIfValid(item));
+    } catch (error) {
+      logger.warn('获取Paper选中元素失败:', error);
+    }
+
+    const traverse = (item: paper.Item | null | undefined) => {
+      if (!item || !item.visible) return;
+
+      if (item.selected && !(item.data as any)?.isHelper) {
+        result.add(item);
+      }
+
+      if (item instanceof paper.Group) {
+        for (const child of item.children) {
+          traverse(child);
+        }
+      }
+    };
+
+    for (const layer of paper.project.layers) {
+      if (!layer.visible) continue;
+      traverse(layer);
+    }
+
+    return Array.from(result);
+  }
+
+  /**
+   * 判断Paper元素是否应包含在截图中
+   */
+  private static shouldIncludePaperItem(item: paper.Item, selection: SelectionState): boolean {
+    if (!selection.hasSelection) return true;
+    if (!item || !item.visible) return false;
+    if ((item.data as any)?.isHelper) return false;
+
+    if (this.isItemSelectedOrRelated(item, selection, new Set())) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private static isItemSelectedOrRelated(
+    item: paper.Item,
+    selection: SelectionState,
+    visited: Set<paper.Item>
+  ): boolean {
+    if (!item || visited.has(item)) return false;
+    visited.add(item);
+
+    if (selection.selectedPaperItemsSet.has(item)) return true;
+
+    const imageId = this.extractImageIdFromItem(item);
+    if (imageId && selection.selectedImageIds.has(imageId)) return true;
+
+    let parent = item.parent;
+    while (parent) {
+      if (selection.selectedPaperItemsSet.has(parent)) return true;
+
+      const parentImageId = this.extractImageIdFromItem(parent);
+      if (parentImageId && selection.selectedImageIds.has(parentImageId)) return true;
+      parent = parent.parent;
+    }
+
+    if (item instanceof paper.Group) {
+      for (const child of item.children) {
+        if (this.isItemSelectedOrRelated(child, selection, visited)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private static extractImageIdFromItem(item: paper.Item): string | null {
+    const data = item?.data as any;
+    if (!data) return null;
+
+    if (typeof data.imageId === 'string') {
+      return data.imageId;
+    }
+
+    if (data.type === 'image' && typeof data.imageId === 'string') {
+      return data.imageId;
+    }
+
+    return null;
   }
 
   /**

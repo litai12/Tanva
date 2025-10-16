@@ -3,7 +3,7 @@
  * 处理3D模型上传、占位框创建、模型实例管理、选择、移动和调整大小等功能
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { paperSaveService } from '@/services/paperSaveService';
@@ -13,7 +13,7 @@ import type {
   Model3DToolEventHandlers,
   DrawingContext 
 } from '@/types/canvas';
-import type { Model3DData } from '@/services/model3DUploadService';
+import type { Model3DData, Model3DCameraState } from '@/services/model3DUploadService';
 import type { ModelAssetSnapshot } from '@/types/project';
 import { useLayerStore } from '@/stores/layerStore';
 import type { DrawMode } from '@/stores/toolStore';
@@ -33,6 +33,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   const currentModel3DPlaceholderRef = useRef<paper.Group | null>(null);
   const [model3DInstances, setModel3DInstances] = useState<Model3DInstance[]>([]);
   const [selectedModel3DIds, setSelectedModel3DIds] = useState<string[]>([]);  // 支持多选
+  const cameraChangeTimersRef = useRef<Record<string, number>>({});
 
   // ========== 创建3D模型占位框 ==========
   const create3DModelPlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
@@ -490,6 +491,54 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     historyService.commit('delete-model3d').catch(() => {});
   }, [eventHandlers.onModel3DDelete]);
 
+  const handleModel3DCameraChange = useCallback((modelId: string, camera: Model3DCameraState) => {
+    setModel3DInstances(prev => prev.map(model => {
+      if (model.id !== modelId) return model;
+
+      const updatedData: Model3DData = {
+        ...model.modelData,
+        camera
+      };
+
+      try {
+        const modelGroup = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === '3d-model' && child.data?.modelId === modelId
+          )
+        )[0];
+        if (modelGroup) {
+          if (!modelGroup.data) modelGroup.data = {};
+          modelGroup.data.camera = camera;
+          if (modelGroup.data.modelData) {
+            modelGroup.data.modelData = { ...modelGroup.data.modelData, camera };
+          }
+        }
+      } catch (e) {
+        console.warn('同步3D模型摄像机状态到Paper失败:', e);
+      }
+
+      return {
+        ...model,
+        modelData: updatedData
+      };
+    }));
+
+    const timers = cameraChangeTimersRef.current;
+    if (timers[modelId]) {
+      window.clearTimeout(timers[modelId]);
+    }
+    timers[modelId] = window.setTimeout(() => {
+      try { paperSaveService.triggerAutoSave('model3d-camera'); } catch {}
+      historyService.commit('update-model3d-camera').catch(() => {});
+      delete timers[modelId];
+    }, 300);
+  }, []);
+
+  useEffect(() => () => {
+    Object.values(cameraChangeTimersRef.current).forEach((id) => window.clearTimeout(id));
+    cameraChangeTimersRef.current = {};
+  }, []);
+
   // ========== 3D模型上传错误处理 ==========
   const handleModel3DUploadError = useCallback((error: string) => {
     logger.error('3D模型上传失败:', error);
@@ -532,6 +581,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           defaultScale: snap.defaultScale,
           defaultRotation: snap.defaultRotation,
           timestamp: snap.timestamp,
+          camera: snap.camera,
         }, snap.id, { skipAutoSave: true });
       }
     });
@@ -552,6 +602,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
         defaultScale: snap.defaultScale ?? model.modelData.defaultScale,
         defaultRotation: snap.defaultRotation ?? model.modelData.defaultRotation,
         timestamp: snap.timestamp ?? model.modelData.timestamp,
+        camera: snap.camera ?? model.modelData.camera,
       };
 
       const updatedBounds = {
@@ -581,6 +632,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           group.data.timestamp = updatedModelData.timestamp;
           group.data.bounds = { ...updatedBounds };
           group.data.layerId = snap.layerId ?? group.data.layerId ?? null;
+          group.data.camera = updatedModelData.camera;
         }
       } catch (error) {
         console.warn('刷新3D模型元数据失败:', error);
@@ -651,6 +703,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       defaultRotation: snapshot.defaultRotation,
       timestamp: snapshot.timestamp,
       path: snapshot.path ?? fallbackUrl,
+      camera: snapshot.camera,
     };
 
     handleModel3DUploaded(modelData, modelId);
@@ -682,6 +735,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     handleModel3DMove,
     handleModel3DResize,
     handleModel3DDelete,
+    handleModel3DCameraChange,
 
     // 可见性同步
     syncModel3DVisibility,

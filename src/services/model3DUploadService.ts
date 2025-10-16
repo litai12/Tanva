@@ -22,6 +22,12 @@ export interface Model3DAsset {
   contentType?: string;
 }
 
+export interface Model3DCameraState {
+  position: [number, number, number];
+  target: [number, number, number];
+  up: [number, number, number];
+}
+
 export interface Model3DData {
   url: string;
   key?: string;
@@ -33,6 +39,7 @@ export interface Model3DData {
   timestamp: number;
   /** @deprecated 使用 url */
   path?: string;
+  camera?: Model3DCameraState;
 }
 
 const SUPPORTED_MODEL_EXTENSIONS: Record<string, Model3DFormat> = {
@@ -111,6 +118,7 @@ function createModel3DData(asset: Model3DAsset): Model3DData {
     defaultScale: { x: 1, y: 1, z: 1 },
     defaultRotation: { x: 0, y: 0, z: 0 },
     timestamp: Date.now(),
+    camera: undefined,
   };
 }
 

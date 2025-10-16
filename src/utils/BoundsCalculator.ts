@@ -82,6 +82,78 @@ export class BoundsCalculator {
   }
 
   /**
+   * 仅针对被选中的元素计算截图边界
+   */
+  static calculateSelectionBounds(
+    selectedImages: ImageInstance[],
+    selectedModels: Model3DInstance[],
+    selectedPaperItems: paper.Item[],
+    padding: number = 0
+  ): ContentBounds {
+    console.log('📏 计算选中元素的截图边界...');
+
+    const boundsList: Bounds[] = [];
+
+    for (const image of selectedImages) {
+      if (!image.visible) continue;
+      if (this.isValidBounds(image.bounds)) {
+        boundsList.push({
+          x: image.bounds.x,
+          y: image.bounds.y,
+          width: image.bounds.width,
+          height: image.bounds.height,
+        });
+        console.log(`  - 选中图片 ${image.id}: ${Math.round(image.bounds.x)},${Math.round(image.bounds.y)} ${Math.round(image.bounds.width)}x${Math.round(image.bounds.height)}`);
+      }
+    }
+
+    for (const model of selectedModels) {
+      if (!model.visible) continue;
+      if (this.isValidBounds(model.bounds)) {
+        boundsList.push({
+          x: model.bounds.x,
+          y: model.bounds.y,
+          width: model.bounds.width,
+          height: model.bounds.height,
+        });
+        console.log(`  - 选中3D模型 ${model.id}: ${Math.round(model.bounds.x)},${Math.round(model.bounds.y)} ${Math.round(model.bounds.width)}x${Math.round(model.bounds.height)}`);
+      }
+    }
+
+    for (const item of selectedPaperItems) {
+      const b = this.getPaperItemBounds(item);
+      if (b) {
+        boundsList.push(b);
+        console.log(`  - 选中Paper元素 ${item.className || item.name || 'unknown'}: ${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.width)}x${Math.round(b.height)}`);
+      }
+    }
+
+    if (boundsList.length === 0) {
+      console.log('⚠️ 未找到选中的有效元素边界，保持默认截取行为');
+      return {
+        x: 0,
+        y: 0,
+        width: 800,
+        height: 600,
+        isEmpty: true,
+        elementCount: 0
+      };
+    }
+
+    const union = this.calculateUnionBounds(boundsList);
+    const pad = Math.max(0, padding || 0);
+
+    return {
+      x: union.x - pad,
+      y: union.y - pad,
+      width: union.width + pad * 2,
+      height: union.height + pad * 2,
+      isEmpty: false,
+      elementCount: boundsList.length
+    };
+  }
+
+  /**
    * 计算多个边界的联合边界
    */
   private static calculateUnionBounds(bounds: Bounds[]): Bounds {
@@ -275,5 +347,25 @@ export class BoundsCalculator {
     if (size < 1000) return 50;
     if (size < 2000) return 80;
     return 100;
+  }
+
+  /**
+   * 提取Paper元素的有效边界，默认优先使用包含描边的strokeBounds
+   */
+  private static getPaperItemBounds(item: paper.Item): Bounds | null {
+    if (!item || !item.visible) return null;
+    if ((item.data as any)?.isHelper) return null;
+
+    const rect = (item as any).strokeBounds || item.bounds || null;
+    if (!rect) return null;
+
+    const bounds = {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height
+    };
+
+    return this.isValidBounds(bounds) ? bounds : null;
   }
 }
