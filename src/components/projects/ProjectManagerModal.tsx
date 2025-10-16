@@ -58,13 +58,13 @@ export default function ProjectManagerModal() {
   const node = (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center">
       <div className="absolute inset-0 bg-transparent" onClick={closeModal} />
-      <div className="relative bg-white rounded-xl shadow-xl w-[1000px] h-[560px] overflow-hidden border">
+      <div className="relative bg-white rounded-xl shadow-xl w-[1000px] h-[620px] overflow-hidden border">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-medium">项目管理</div>
           <div />
         </div>
 
-        <div className="p-4 h-[calc(560px-48px)] flex flex-col min-h-0 gap-4">
+        <div className="p-4 h-[calc(620px-48px)] flex flex-col min-h-0 gap-4">
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               {error}
