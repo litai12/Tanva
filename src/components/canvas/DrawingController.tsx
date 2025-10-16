@@ -1651,16 +1651,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 const b = placeholder.bounds as any;
 
                 // 从data中恢复模型数据
-                const modelData = model3DGroup.data.modelData || {
-                  url: model3DGroup.data.url || '',
-                  path: model3DGroup.data.url || '',
-                  format: model3DGroup.data.format || 'glb',
-                  fileName: model3DGroup.data.fileName || 'model',
-                  fileSize: model3DGroup.data.fileSize || 0,
-                  defaultScale: model3DGroup.data.defaultScale || { x: 1, y: 1, z: 1 },
-                  defaultRotation: model3DGroup.data.defaultRotation || { x: 0, y: 0, z: 0 },
-                  timestamp: model3DGroup.data.timestamp || Date.now(),
+                const stored = model3DGroup.data?.modelData || {};
+                const resolvedUrl = stored.url || model3DGroup.data?.url || model3DGroup.data?.path || '';
+                const resolvedPath = stored.path || model3DGroup.data?.path || resolvedUrl;
+                const modelData = {
+                  url: resolvedUrl,
+                  path: resolvedPath,
+                  key: stored.key ?? model3DGroup.data?.key,
+                  format: stored.format || model3DGroup.data?.format || 'glb',
+                  fileName: stored.fileName || model3DGroup.data?.fileName || 'model',
+                  fileSize: stored.fileSize ?? model3DGroup.data?.fileSize ?? 0,
+                  defaultScale: stored.defaultScale || model3DGroup.data?.defaultScale || { x: 1, y: 1, z: 1 },
+                  defaultRotation: stored.defaultRotation || model3DGroup.data?.defaultRotation || { x: 0, y: 0, z: 0 },
+                  timestamp: stored.timestamp ?? model3DGroup.data?.timestamp ?? Date.now(),
                 };
+
+                try {
+                  if (model3DGroup.data) {
+                    model3DGroup.data.modelData = { ...modelData };
+                    model3DGroup.data.url = modelData.url;
+                    model3DGroup.data.path = modelData.path;
+                    model3DGroup.data.key = modelData.key;
+                    model3DGroup.data.format = modelData.format;
+                    model3DGroup.data.fileName = modelData.fileName;
+                    model3DGroup.data.fileSize = modelData.fileSize;
+                    model3DGroup.data.defaultScale = modelData.defaultScale;
+                    model3DGroup.data.defaultRotation = modelData.defaultRotation;
+                    model3DGroup.data.timestamp = modelData.timestamp;
+                    model3DGroup.data.bounds = { x: b.x, y: b.y, width: b.width, height: b.height };
+                    model3DGroup.data.layerId = layer?.name ?? model3DGroup.data.layerId ?? null;
+                  }
+                } catch (error) {
+                  console.warn('刷新3D模型数据失败:', error);
+                }
 
                 // 确保存在选择区域（用于点击检测）
                 const hasSelectionArea = !!model3DGroup.children?.find((c: any) =>

@@ -137,7 +137,11 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   }, [ensureDrawingLayer]);
 
   // ========== 处理3D模型上传成功 ==========
-  const handleModel3DUploaded = useCallback((modelData: Model3DData, overrideId?: string) => {
+  type UploadOptions = {
+    skipAutoSave?: boolean;
+  };
+
+  const handleModel3DUploaded = useCallback((modelData: Model3DData, overrideId?: string, options?: UploadOptions) => {
     const placeholder = currentModel3DPlaceholderRef.current;
     if (!placeholder || !placeholder.data?.bounds) {
       logger.error('没有找到3D模型占位框');
@@ -168,10 +172,28 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
     // 创建Paper.js组来包含所有相关元素
     const modelGroup = new paper.Group([modelRect]);
+    const resolvedPath = modelData.path || modelData.url;
+    modelRect.data = {
+      type: '3d-model-hit-area',
+      modelId,
+      isHelper: true
+    };
     modelGroup.data = {
       type: '3d-model',
-      modelId: modelId,
-      isHelper: false
+      modelId,
+      isHelper: false,
+      bounds: { ...paperBounds },
+      modelData: { ...modelData, path: resolvedPath },
+      url: modelData.url,
+      path: resolvedPath,
+      key: modelData.key,
+      format: modelData.format,
+      fileName: modelData.fileName,
+      fileSize: modelData.fileSize,
+      defaultScale: modelData.defaultScale,
+      defaultRotation: modelData.defaultRotation,
+      timestamp: modelData.timestamp,
+      layerId: modelGroup.layer?.name ?? null
     };
 
     // 添加选择边框（默认隐藏，且不随选中显示，以避免与屏幕坐标的蓝色框重复）
@@ -190,14 +212,16 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     });
     selectionRect.data = { 
       type: '3d-model-selection-area',
+      modelId,
       isHelper: true  // 标记为辅助元素，不显示在图层列表中
     };
     selectionRect.locked = true;
+    try { modelGroup.addChild(selectionRect); } catch {}
 
     // 创建3D模型实例 - 直接使用Paper.js坐标
     const newModel3DInstance: Model3DInstance = {
       id: modelId,
-      modelData: modelData,
+      modelData: { ...modelData, path: resolvedPath },
       bounds: paperBounds, // 存储Paper.js坐标
       isSelected: false, // 默认不选中，避免显示选择框
       visible: true,
@@ -206,6 +230,10 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
     // 添加到3D模型实例数组
     setModel3DInstances(prev => [...prev, newModel3DInstance]);
+    if (!options?.skipAutoSave) {
+      try { paperSaveService.triggerAutoSave('model3d-uploaded'); } catch {}
+      historyService.commit('create-model3d').catch(() => {});
+    }
     // 不默认选中，让用户需要时再点击选择
     // setSelectedModel3DId(modelId);
     // eventHandlers.onModel3DSelect?.(modelId);
@@ -280,6 +308,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
   // ========== 3D模型移动 ==========
   const handleModel3DMove = useCallback((modelId: string, newPosition: { x: number; y: number }) => {
+    let didUpdate = false;
     setModel3DInstances(prev => prev.map(model => {
       if (model.id === modelId) {
         const newBounds = { ...model.bounds, x: newPosition.x, y: newPosition.y };
@@ -310,6 +339,9 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
               child.position = child.position.add(new paper.Point(deltaX, deltaY));
             }
           });
+          if (modelGroup.data) {
+            modelGroup.data.bounds = { ...newBounds };
+          }
         }
 
         // 更新选择边框位置（内部使用，不显示）
@@ -325,6 +357,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
         eventHandlers.onModel3DMove?.(modelId, newPosition);
 
+        didUpdate = true;
         return {
           ...model,
           bounds: newBounds
@@ -332,10 +365,14 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       }
       return model;
     }));
+    if (didUpdate) {
+      try { paperSaveService.triggerAutoSave('model3d-move'); } catch {}
+    }
   }, [eventHandlers.onModel3DMove]);
 
   // ========== 3D模型调整大小 ==========
   const handleModel3DResize = useCallback((modelId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
+    let didUpdate = false;
     setModel3DInstances(prev => prev.map(model => {
       if (model.id === modelId) {
         // 更新对应的Paper.js模型组
@@ -364,6 +401,14 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
           // 最后更新整个组的边界（会缩放其他子元素）
           modelGroup.bounds = rect;
+          if (modelGroup.data) {
+            modelGroup.data.bounds = {
+              x: newBounds.x,
+              y: newBounds.y,
+              width: newBounds.width,
+              height: newBounds.height
+            };
+          }
         }
 
         // 更新选择边框（内部使用，不显示）
@@ -379,6 +424,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
         eventHandlers.onModel3DResize?.(modelId, newBounds);
 
+        didUpdate = true;
         return {
           ...model,
           bounds: newBounds
@@ -386,6 +432,9 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       }
       return model;
     }));
+    if (didUpdate) {
+      try { paperSaveService.triggerAutoSave('model3d-resize'); } catch {}
+    }
   }, [eventHandlers.onModel3DResize]);
 
   // ========== 3D模型删除 ==========
@@ -463,7 +512,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     setSelectedModel3DIds([]);
 
     snapshots.forEach((snap) => {
-      if (!snap || !snap.url || !snap.bounds) return;
+      const snapUrl = snap?.url || snap?.path;
+      if (!snap || !snapUrl || !snap.bounds) return;
       if (snap.layerId) {
         try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
       }
@@ -473,8 +523,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       if (placeholder) {
         currentModel3DPlaceholderRef.current = placeholder;
         handleModel3DUploaded({
-          url: snap.url,
-          path: snap.url,
+          url: snapUrl,
+          path: snap.path ?? snapUrl,
           key: snap.key,
           format: snap.format,
           fileName: snap.fileName,
@@ -482,33 +532,64 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           defaultScale: snap.defaultScale,
           defaultRotation: snap.defaultRotation,
           timestamp: snap.timestamp,
-        }, snap.id);
+        }, snap.id, { skipAutoSave: true });
       }
     });
 
     setModel3DInstances(prev => prev.map((model) => {
       const snap = snapshots.find((s) => s.id === model.id);
       if (!snap) return model;
+      const snapUrl = snap.url || snap.path || model.modelData.url;
+      const snapPath = snap.path || snapUrl;
+      const updatedModelData = {
+        ...model.modelData,
+        url: snapUrl,
+        path: snapPath,
+        key: snap.key ?? model.modelData.key,
+        format: snap.format,
+        fileName: snap.fileName ?? model.modelData.fileName,
+        fileSize: snap.fileSize ?? model.modelData.fileSize,
+        defaultScale: snap.defaultScale ?? model.modelData.defaultScale,
+        defaultRotation: snap.defaultRotation ?? model.modelData.defaultRotation,
+        timestamp: snap.timestamp ?? model.modelData.timestamp,
+      };
+
+      const updatedBounds = {
+        x: snap.bounds.x,
+        y: snap.bounds.y,
+        width: snap.bounds.width,
+        height: snap.bounds.height,
+      };
+
+      try {
+        const group = paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === '3d-model' && child.data?.modelId === model.id
+          )
+        )[0];
+        if (group) {
+          if (!group.data) group.data = {};
+          group.data.modelData = { ...updatedModelData };
+          group.data.url = updatedModelData.url;
+          group.data.path = updatedModelData.path;
+          group.data.key = updatedModelData.key;
+          group.data.format = updatedModelData.format;
+          group.data.fileName = updatedModelData.fileName;
+          group.data.fileSize = updatedModelData.fileSize;
+          group.data.defaultScale = updatedModelData.defaultScale;
+          group.data.defaultRotation = updatedModelData.defaultRotation;
+          group.data.timestamp = updatedModelData.timestamp;
+          group.data.bounds = { ...updatedBounds };
+          group.data.layerId = snap.layerId ?? group.data.layerId ?? null;
+        }
+      } catch (error) {
+        console.warn('刷新3D模型元数据失败:', error);
+      }
+
       return {
         ...model,
-        modelData: {
-          ...model.modelData,
-          url: snap.url,
-          path: snap.url,
-          key: snap.key ?? model.modelData.key,
-          format: snap.format,
-          fileName: snap.fileName ?? model.modelData.fileName,
-          fileSize: snap.fileSize ?? model.modelData.fileSize,
-          defaultScale: snap.defaultScale ?? model.modelData.defaultScale,
-          defaultRotation: snap.defaultRotation ?? model.modelData.defaultRotation,
-          timestamp: snap.timestamp ?? model.modelData.timestamp,
-        },
-        bounds: {
-          x: snap.bounds.x,
-          y: snap.bounds.y,
-          width: snap.bounds.width,
-          height: snap.bounds.height,
-        },
+        modelData: updatedModelData,
+        bounds: updatedBounds,
         layerId: snap.layerId ?? model.layerId,
       };
     }));
@@ -559,8 +640,9 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
     currentModel3DPlaceholderRef.current = placeholder;
 
+    const fallbackUrl = snapshot.url || snapshot.path || '';
     const modelData: Model3DData = {
-      url: snapshot.url,
+      url: fallbackUrl,
       key: snapshot.key,
       format: snapshot.format,
       fileName: snapshot.fileName,
@@ -568,7 +650,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       defaultScale: snapshot.defaultScale,
       defaultRotation: snapshot.defaultRotation,
       timestamp: snapshot.timestamp,
-      path: snapshot.path ?? snapshot.url,
+      path: snapshot.path ?? fallbackUrl,
     };
 
     handleModel3DUploaded(modelData, modelId);
