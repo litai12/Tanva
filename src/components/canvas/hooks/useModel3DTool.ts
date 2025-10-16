@@ -194,7 +194,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       defaultScale: modelData.defaultScale,
       defaultRotation: modelData.defaultRotation,
       timestamp: modelData.timestamp,
-      layerId: modelGroup.layer?.name ?? null
+      layerId: modelGroup.layer?.name ?? null,
+      camera: modelData.camera,
     };
 
     // 添加选择边框（默认隐藏，且不随选中显示，以避免与屏幕坐标的蓝色框重复）
