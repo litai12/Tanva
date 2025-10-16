@@ -201,7 +201,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     const handleQuickImageAdded = (event: CustomEvent) => {
       const imageInstance = event.detail;
-      console.log('🎪 [DEBUG] DrawingController收到quickImageAdded事件:', imageInstance);
+      console.log('🎪 [DEBUG] DrawingController收到quickImageAdded事件:', {
+        id: imageInstance.id,
+        bounds: imageInstance.bounds,
+        layerId: imageInstance.layerId,
+        hasRemoteUrl: !!(imageInstance.imageData?.url && !imageInstance.imageData.url.startsWith('data:')),
+        hasInlineData: !!(imageInstance.imageData?.src && imageInstance.imageData.src.startsWith('data:')),
+      });
 
       if (imageInstance) {
         const alreadyExists = imageTool.imageInstances.some(inst => inst.id === imageInstance.id);

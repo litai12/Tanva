@@ -28,6 +28,44 @@
   position: absolute; /* 确保可应用z-index */
 }
 
+/* ==================== 连线选择优化 ==================== */
+
+/* 连线容易被选中的关键：增加击中检测区域 */
+.react-flow__edge-path {
+  stroke-width: 2px;
+  transition: stroke-width 0.15s ease;
+}
+
+/* 鼠标悬停时突出显示连线，增大笔画宽度 */
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 6px;
+}
+
+/* 被选中的连线也要显示视觉反馈 */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 4px;
+}
+
+/* 为连线的底层添加隐形击中区域（提高可选性）*/
+.react-flow__edge {
+  position: relative;
+}
+
+.react-flow__edge-path {
+  /* 添加外发光效果提示可选性 */
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1));
+  cursor: pointer;
+}
+
+/* 鼠标悬停时显示吸附效果 */
+.react-flow__edge:hover .react-flow__edge-path {
+  filter: drop-shadow(0 0 4px rgba(37, 99, 235, 0.3));
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.6));
+}
+
 /* 连接线拖拽时，禁用全局文本选择以避免页面出现蓝色选区 */
 .tanva-no-select, .tanva-no-select * {
   -webkit-user-select: none !important;

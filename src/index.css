@@ -49,7 +49,78 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* 自定义蓝色T字母光标 */
+/* ==================== 自定义光标系统 ==================== */
+
+/* 定义光标 SVG */
+@layer base {
+  :root {
+    --cursor-t: url("data:image/svg+xml,%3Csvg width='20' height='20' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cg%3E%3Crect x='2' y='3' width='16' height='2' fill='%232563eb' rx='1'/%3E%3Crect x='9' y='3' width='2' height='12' fill='%232563eb' rx='1'/%3E%3C/g%3E%3C/svg%3E");
+  }
+}
+
+/* 基础元素光标 */
 * {
-  cursor: url("data:image/svg+xml,%3csvg width='16' height='16' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M2 3 L14 3 M8 3 L8 13' stroke='%232563eb' stroke-width='2' stroke-linecap='round'/%3e%3c/svg%3e") 8 3, auto;
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+/* 确保所有交互元素都有光标 */
+a, button, input[type="button"], input[type="submit"], select, textarea, [role="button"], [role="link"] {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+/* Canvas 元素特殊处理 */
+canvas {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+/* SVG 元素 */
+svg {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+/* ReactFlow 相关元素 */
+.react-flow {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+.react-flow__pane {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+.react-flow__node {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+.react-flow__edge {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+/* Flow overlay */
+.tanva-flow-overlay {
+  cursor: var(--cursor-t) 10 5, auto !important;
+}
+
+/* 保留特定操作的光标 */
+input[type="text"],
+input[type="number"],
+textarea,
+[contenteditable="true"] {
+  cursor: text !important;
+}
+
+/* 禁用状态 */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed !important;
+}
+
+/* 可拖拽元素 */
+[draggable="true"] {
+  cursor: grab !important;
+}
+
+[draggable="true"]:active {
+  cursor: grabbing !important;
 }
