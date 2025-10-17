@@ -90,8 +90,8 @@ const Canvas: React.FC = () => {
             {/* 图像尺寸模式指示器 - 已隐藏 */}
             {/* <ImageSizeIndicator /> */}
 
-            {/* 图层面板 - 专注模式下隐藏 */}
-            {!focusMode && <LayerPanel />}
+            {/* 图层面板 - 始终显示，用户可以控制其可见性 */}
+            <LayerPanel />
 
             {/* AI对话框 - 专注模式下隐藏 */}
             {!focusMode && <AIChatDialog />}
