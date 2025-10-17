@@ -737,7 +737,7 @@ const FloatingHeader: React.FC = () => {
 
             {isSettingsOpen && typeof document !== 'undefined' && createPortal(
                 <div
-                    className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4"
+                    className="fixed inset-0 z-[1000] flex items-center justify-center bg-transparent px-4"
                     onClick={() => setIsSettingsOpen(false)}
                 >
                     <div
@@ -753,7 +753,7 @@ const FloatingHeader: React.FC = () => {
                             <X className="h-4 w-4" />
                         </button>
                         <div className="flex h-full flex-1 overflow-hidden pt-4 sm:pt-0">
-                            <aside className="hidden h-full w-56 shrink-0 border-r border-slate-200 bg-slate-50/80 py-6 pr-2 sm:flex sm:flex-col">
+                            <aside className="hidden h-full w-56 shrink-0 border-r border-slate-200/80 bg-white/95 py-6 pr-2 sm:flex sm:flex-col">
                                 {SETTINGS_SECTIONS.map((section) => {
                                     const Icon = section.icon;
                                     const isActive = activeSettingsSection === section.id;
