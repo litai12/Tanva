@@ -34,13 +34,13 @@ const ZoomIndicator: React.FC = () => {
 
     return (
         <div className="fixed left-3 bottom-4 z-10">
-            <div className="bg-glass backdrop-blur-md border border-glass rounded-2xl shadow-glass-xl w-10">
+            <div className="bg-white backdrop-blur-md border border-glass rounded-2xl shadow-glass-xl w-10">
                 <div className="flex flex-col items-center">
                     {/* 放大按钮 */}
                     <Button
                         variant="ghost"
                         size="sm"
-                        className={`h-6 w-10 p-0 rounded-t-lg rounded-b-none border-b transition-all duration-200 flex items-center justify-center ${
+                        className={`h-6 w-9 p-0 rounded-t-lg rounded-b-none border-b transition-all duration-200 flex items-center justify-center ${
                             !canZoomIn
                                 ? 'opacity-40 cursor-not-allowed'
                                 : 'hover:bg-blue-50 hover:text-blue-600'
@@ -56,7 +56,7 @@ const ZoomIndicator: React.FC = () => {
                     <button
                         className={`px-1 py-3 text-xs font-mono font-medium transition-all duration-200 border-t border-b w-full text-center ${
                             currentPercent === 100
-                                ? 'text-gray-400'
+                                ? 'text-gray-700 cursor-default'
                                 : 'text-blue-600 hover:bg-blue-50'
                         }`}
                         onClick={resetZoom}
@@ -70,7 +70,7 @@ const ZoomIndicator: React.FC = () => {
                     <Button
                         variant="ghost"
                         size="sm"
-                        className={`h-6 w-10 p-0 rounded-b-lg rounded-t-none border-t transition-all duration-200 flex items-center justify-center ${
+                        className={`h-6 w-9 p-0 rounded-b-lg rounded-t-none border-t transition-all duration-200 flex items-center justify-center ${
                             !canZoomOut
                                 ? 'opacity-40 cursor-not-allowed'
                                 : 'hover:bg-blue-50 hover:text-blue-600'

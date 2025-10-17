@@ -1527,7 +1527,7 @@ const LayerPanel: React.FC = () => {
             </div>
 
             {/* 面板底部 - 固定在最底部 */}
-            <div className="absolute bottom-0 left-0 right-0 p-3 bg-liquid-glass/50 backdrop-blur-minimal">
+            <div className="absolute bottom-0 left-0 right-0 p-3 bg-white">
                 <div className="text-xs text-gray-500 text-center">
                     共 {layers.length} 个图层，
                     {Object.values(layerItems).flat().length} 个图元

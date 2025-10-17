@@ -859,7 +859,7 @@ function FlowInner() {
     const x = event.clientX, y = event.clientY;
     const last = lastPaneClickRef.current;
     lastPaneClickRef.current = { t: now, x, y };
-    if (last && (now - last.t) < 500 && Math.hypot(last.x - x, last.y - y) < 10) {
+    if (last && (now - last.t) < 200 && Math.hypot(last.x - x, last.y - y) < 10) {
       if (isBlankArea(x, y)) openAddPanelAt(x, y);
     }
   }, [openAddPanelAt, isBlankArea]);
