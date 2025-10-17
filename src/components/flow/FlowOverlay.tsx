@@ -1552,7 +1552,7 @@ function FlowInner() {
         {!focusMode && <MiniMap pannable={false} zoomable={false} />}
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
         {!focusMode && <MiniMapImageOverlay />}
-        <Controls showInteractive={false} />
+        {!focusMode && <Controls showInteractive={false} />}
       </ReactFlow>
 
       {/* 添加面板（双击空白处出现） */}
