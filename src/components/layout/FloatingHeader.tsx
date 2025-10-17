@@ -219,36 +219,40 @@ const FloatingHeader: React.FC = () => {
             default: return { label: '未知', color: '#9ca3af' };
         }
     })();
+    const showLibraryButton = false; // 临时关闭素材库入口，后续恢复时改为 true
 
     return (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
-            <div className="grid grid-cols-3 items-center gap-2 md:gap-3 px-4 md:px-6 py-2 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 min-w-[640px]">
-                
-                {/* 左侧区域：Logo + Beta */}
-                <div className="flex items-center gap-2 justify-self-start">
-                    <div
-                        className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity select-none"
-                        onClick={handleLogoClick}
-                        title="返回首页"
-                    >
-                        <img
-                            src="/logo.png"
-                            alt="Logo"
-                            className="w-6 h-6 object-contain"
-                            draggable="false"
-                        />
-                    </div>
-                    <Badge variant="secondary" className="text-[8px] px-1 py-0">
-                        Beta
-                    </Badge>
+        <div className="fixed top-4 left-0 right-0 z-50 px-4 flex items-center justify-between gap-4">
+            {/* 左侧栏：Logo + Beta + 项目名称 */}
+            <div className="flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-11 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300">
+                {/* Logo */}
+                <div
+                    className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity select-none"
+                    onClick={handleLogoClick}
+                    title="返回首页"
+                >
+                    <img
+                        src="/logo.png"
+                        alt="Logo"
+                        className="w-6 h-6 object-contain"
+                        draggable="false"
+                    />
                 </div>
 
-                {/* 中间区域：文件名与快速切换 */}
-                <div className="hidden sm:flex items-center gap-2 justify-self-center">
+                {/* Beta Badge */}
+                <Badge variant="secondary" className="text-[8px] px-1 py-0">
+                    Beta
+                </Badge>
+
+                {/* 分隔线 */}
+                <div className="w-px h-5 bg-gray-300/40" />
+
+                {/* 项目名称与快速切换 */}
+                <div className="hidden sm:flex items-center gap-1">
                     {editingTitle ? (
                         <input
                             autoFocus
-                            className="h-7 text-sm px-2 rounded border border-slate-300 bg-white/90 min-w-[240px] max-w-[440px]"
+                            className="h-6 text-sm px-2 rounded border border-slate-300 bg-white/90 min-w-[200px] max-w-[380px]"
                             value={titleInput}
                             onChange={(e) => setTitleInput(e.target.value)}
                             onBlur={commitTitle}
@@ -260,7 +264,7 @@ const FloatingHeader: React.FC = () => {
                         />
                     ) : (
                         <DropdownMenu>
-                            <DropdownMenuTrigger 
+                            <DropdownMenuTrigger
                                 className="flex items-center gap-1 rounded-full px-2 py-1 transition-colors hover:bg-slate-100 cursor-pointer select-none bg-transparent border-none"
                                 onDoubleClick={(event) => {
                                     event.preventDefault();
@@ -270,14 +274,14 @@ const FloatingHeader: React.FC = () => {
                             >
                                 <ChevronDown className="h-4 w-4 text-slate-500" />
                                 <span
-                                    className="truncate text-sm text-gray-800 max-w-[300px]"
+                                    className="truncate text-sm text-gray-800 max-w-[260px]"
                                     title="双击重命名"
                                 >
                                     {currentProject?.name || '未命名'}
                                 </span>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent
-                                align="center"
+                                align="start"
                                 sideOffset={12}
                                 className="min-w-[220px] max-h-[200px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg"
                             >
@@ -325,380 +329,384 @@ const FloatingHeader: React.FC = () => {
                         </DropdownMenu>
                     )}
                 </div>
+            </div>
 
-                {/* 右侧区域：次要功能 */}
-                <div className="flex items-center gap-1.5 justify-self-end">
-                    {/* 素材库按钮 */}
+            {/* 空白拉伸 */}
+            <div className="flex-1" />
+
+            {/* 右侧栏：功能按钮 */}
+            <div className="flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-11 rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300">
+                {/* 素材库按钮 */}
+                {showLibraryButton && (
                     <Button
                         onClick={toggleLibraryPanel}
                         variant="ghost"
                         size="sm"
                         className={cn(
-                            "h-8 text-xs flex items-center rounded-full transition-all duration-200",
+                            "h-7 text-xs flex items-center rounded-full transition-all duration-200",
                             "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
                             "hover:bg-blue-500 hover:text-white hover:border-blue-500",
                             showLibraryPanel ? "text-blue-600" : "",
-                            "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1" // 响应式宽度和padding，与分享按钮一致
+                            "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1"
                         )}
-                        title={showLibraryPanel ? "关闭素材库" : "打开素材库"}
+                        title={showLibraryButton ? "关闭素材库" : "打开素材库"}
                     >
                         <Library className="w-3 h-3" />
                         <span className="hidden sm:inline">素材库</span>
                     </Button>
+                )}
 
-                    {/* 帮助按钮 */}
-                    <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="hidden md:flex h-8 w-8 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
-                        title="帮助"
-                    >
-                        <HelpCircle className="w-4 h-4" />
-                    </Button>
+                {/* 帮助按钮 */}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
+                    title="帮助"
+                >
+                    <HelpCircle className="w-4 h-4" />
+                </Button>
 
-                    {/* 分享按钮 */}
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className={cn(
-                            "h-8 text-xs flex items-center rounded-full transition-all duration-200 w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1",
-                            "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
-                            "hover:bg-blue-500 hover:text-white hover:border-blue-500"
-                        )}
-                        onClick={handleShare}
-                        title="分享"
-                    >
-                        <Share className="w-3 h-3" />
-                        <span className="hidden sm:inline">分享</span>
-                    </Button>
+                {/* 分享按钮 */}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                        "h-7 text-xs flex items-center rounded-full transition-all duration-200 w-7 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1",
+                        "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
+                        "hover:bg-blue-500 hover:text-white hover:border-blue-500"
+                    )}
+                    onClick={handleShare}
+                    title="分享"
+                >
+                    <Share className="w-3 h-3" />
+                    <span className="hidden sm:inline">分享</span>
+                </Button>
 
-                    {/* 设置下拉菜单 */}
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-8 w-8 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
-                                title="设置菜单"
-                            >
-                                <Menu className="w-4 h-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent 
-                            className="w-64 min-h-[800px] bg-white/80 backdrop-blur-md" 
-                            align="end" 
-                            side="right"
-                            sideOffset={8}
-                            forceMount
+                {/* 设置下拉菜单 */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
+                            title="设置菜单"
                         >
-                            <div className="px-3 pt-3 pb-2 space-y-3">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                                            <span>你好，{displayName}</span>
+                            <Menu className="w-4 h-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                        className="w-64 min-h-[800px] bg-white/80 backdrop-blur-md"
+                        align="end"
+                        side="right"
+                        sideOffset={8}
+                        forceMount
+                    >
+                        <div className="px-3 pt-3 pb-2 space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                        <span>你好，{displayName}</span>
+                                        <span
+                                            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
+                                            style={{ borderColor: status.color, color: status.color }}
+                                            title={`认证来源：${status.label}`}
+                                        >
                                             <span
-                                                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
-                                                style={{ borderColor: status.color, color: status.color }}
-                                                title={`认证来源：${status.label}`}
-                                            >
-                                                <span
-                                                    style={{ width: 6, height: 6, borderRadius: 9999, background: status.color, display: 'inline-block' }}
-                                                />
-                                                {status.label}
-                                            </span>
-                                        </div>
-                                        {secondaryId && (
-                                            <div className="mt-1 text-xs text-muted-foreground truncate">{secondaryId}</div>
-                                        )}
+                                                style={{ width: 6, height: 6, borderRadius: 9999, background: status.color, display: 'inline-block' }}
+                                            />
+                                            {status.label}
+                                        </span>
                                     </div>
-                                    <div className="shrink-0">
-                                        <ManualSaveButton />
-                                    </div>
+                                    {secondaryId && (
+                                        <div className="mt-1 text-xs text-muted-foreground truncate">{secondaryId}</div>
+                                    )}
                                 </div>
-                                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                    <span>自动保存</span>
-                                    <span className="text-slate-600"><AutosaveStatus /></span>
+                                <div className="shrink-0">
+                                    <ManualSaveButton />
                                 </div>
                             </div>
-                            <DropdownMenuSeparator />
-
-                            {/* 文件管理 */}
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                文件
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem className="text-xs cursor-pointer" onClick={openModal}>
-                                <Square className="mr-2 h-3 w-3" />
-                                <span>打开/管理文件</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer"
-                                onClick={() => navigate('/')}
-                            >
-                                <Home className="mr-2 h-3 w-3" />
-                                <span>返回首页</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-
-                            {/* 视图控制 */}
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                视图控制
-                            </DropdownMenuLabel>
-
-                            {/* 背景开关 */}
-                            <div className="px-3 py-1.5 flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                    <Square className="h-3 w-3 text-gray-500" />
-                                    <span className="text-xs">背景</span>
-                                </div>
-                                <Switch
-                                    checked={showGrid}
-                                    onCheckedChange={toggleGrid}
-                                    className="h-4 w-7"
-                                />
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>自动保存</span>
+                                <span className="text-slate-600"><AutosaveStatus /></span>
                             </div>
+                        </div>
+                        <DropdownMenuSeparator />
 
-                            {/* 网格样式选择 */}
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer px-3"
-                                onClick={() => setShowGridOptions(!showGridOptions)}
-                                onSelect={(e) => e.preventDefault()}
-                            >
-                                <Grid3x3 className="mr-2 h-3 w-3" />
-                                <span className="flex-1">网格线</span>
-                                <span className="text-[10px] text-gray-500 mr-1">
-                                    {gridStyle === GridStyle.LINES ? '线条' : 
-                                     gridStyle === GridStyle.DOTS ? '点阵' : '纯色'}
-                                </span>
-                                <ChevronRight className="h-3 w-3" />
-                            </DropdownMenuItem>
+                        {/* 文件管理 */}
+                        <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                            文件
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem className="text-xs cursor-pointer" onClick={openModal}>
+                            <Square className="mr-2 h-3 w-3" />
+                            <span>打开/管理文件</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className="text-xs cursor-pointer"
+                            onClick={() => navigate('/')}
+                        >
+                            <Home className="mr-2 h-3 w-3" />
+                            <span>返回首页</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
 
-                            {/* 网格样式选项 */}
-                            {showGridOptions && (
-                                <>
-                                    <DropdownMenuItem
-                                        className="text-xs cursor-pointer ml-6"
-                                        onClick={() => {
-                                            setGridStyle(GridStyle.LINES);
-                                            setShowGridOptions(false);
-                                        }}
-                                    >
-                                        {gridStyle === GridStyle.LINES && <Check className="mr-2 h-3 w-3" />}
-                                        <span className="ml-5">线条</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        className="text-xs cursor-pointer ml-6"
-                                        onClick={() => {
-                                            setGridStyle(GridStyle.DOTS);
-                                            setShowGridOptions(false);
-                                        }}
-                                    >
-                                        {gridStyle === GridStyle.DOTS && <Check className="mr-2 h-3 w-3" />}
-                                        <span className="ml-5">点阵</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        className="text-xs cursor-pointer ml-6"
-                                        onClick={() => {
-                                            setGridStyle(GridStyle.SOLID);
-                                            setShowGridOptions(false);
-                                        }}
-                                    >
-                                        {gridStyle === GridStyle.SOLID && <Check className="mr-2 h-3 w-3" />}
-                                        <span className="ml-5">纯色</span>
-                                    </DropdownMenuItem>
-                                </>
-                            )}
+                        {/* 视图控制 */}
+                        <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                            视图控制
+                        </DropdownMenuLabel>
 
-                            {/* 网格颜色 */}
-                            <div className="px-3 py-1.5 flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                    <Palette className="h-3 w-3 text-gray-500" />
-                                    <span className="text-xs">颜色</span>
-                                </div>
-                                <input
-                                    type="color"
-                                    value={gridColor}
-                                    onChange={(e) => setGridColor(e.target.value)}
-                                    className="w-8 h-5 rounded border border-gray-300 cursor-pointer"
-                                />
+                        {/* 背景开关 */}
+                        <div className="px-3 py-1.5 flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <Square className="h-3 w-3 text-gray-500" />
+                                <span className="text-xs">背景</span>
                             </div>
+                            <Switch
+                                checked={showGrid}
+                                onCheckedChange={toggleGrid}
+                                className="h-4 w-7"
+                            />
+                        </div>
 
-                            {/* 网格间距 */}
+                        {/* 网格样式选择 */}
+                        <DropdownMenuItem
+                            className="text-xs cursor-pointer px-3"
+                            onClick={() => setShowGridOptions(!showGridOptions)}
+                            onSelect={(e) => e.preventDefault()}
+                        >
+                            <Grid3x3 className="mr-2 h-3 w-3" />
+                            <span className="flex-1">网格线</span>
+                            <span className="text-[10px] text-gray-500 mr-1">
+                                {gridStyle === GridStyle.LINES ? '线条' :
+                                 gridStyle === GridStyle.DOTS ? '点阵' : '纯色'}
+                            </span>
+                            <ChevronRight className="h-3 w-3" />
+                        </DropdownMenuItem>
+
+                        {/* 网格样式选项 */}
+                        {showGridOptions && (
+                            <>
+                                <DropdownMenuItem
+                                    className="text-xs cursor-pointer ml-6"
+                                    onClick={() => {
+                                        setGridStyle(GridStyle.LINES);
+                                        setShowGridOptions(false);
+                                    }}
+                                >
+                                    {gridStyle === GridStyle.LINES && <Check className="mr-2 h-3 w-3" />}
+                                    <span className="ml-5">线条</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    className="text-xs cursor-pointer ml-6"
+                                    onClick={() => {
+                                        setGridStyle(GridStyle.DOTS);
+                                        setShowGridOptions(false);
+                                    }}
+                                >
+                                    {gridStyle === GridStyle.DOTS && <Check className="mr-2 h-3 w-3" />}
+                                    <span className="ml-5">点阵</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    className="text-xs cursor-pointer ml-6"
+                                    onClick={() => {
+                                        setGridStyle(GridStyle.SOLID);
+                                        setShowGridOptions(false);
+                                    }}
+                                >
+                                    {gridStyle === GridStyle.SOLID && <Check className="mr-2 h-3 w-3" />}
+                                    <span className="ml-5">纯色</span>
+                                </DropdownMenuItem>
+                            </>
+                        )}
+
+                        {/* 网格颜色 */}
+                        <div className="px-3 py-1.5 flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <Palette className="h-3 w-3 text-gray-500" />
+                                <span className="text-xs">颜色</span>
+                            </div>
+                            <input
+                                type="color"
+                                value={gridColor}
+                                onChange={(e) => setGridColor(e.target.value)}
+                                className="w-8 h-5 rounded border border-gray-300 cursor-pointer"
+                            />
+                        </div>
+
+                        {/* 网格间距 */}
+                        <div className="px-3 py-1.5 flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <Ruler className="h-3 w-3 text-gray-500" />
+                                <span className="text-xs">间距</span>
+                            </div>
+                            <input
+                                type="number"
+                                min={10}
+                                max={200}
+                                value={gridSizeInput}
+                                onChange={(e) => setGridSizeInput(e.target.value)}
+                                onBlur={commitGridSize}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') commitGridSize();
+                                    if (e.key === 'Escape') setGridSizeInput(String(gridSize));
+                                    e.stopPropagation();
+                                }}
+                                className="w-16 text-xs px-2 py-0.5 rounded border border-gray-300 bg-white"
+                            />
+                        </div>
+
+                        {/* 点阵大小（仅在点阵模式下显示） */}
+                        {gridStyle === GridStyle.DOTS && (
                             <div className="px-3 py-1.5 flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                    <Ruler className="h-3 w-3 text-gray-500" />
-                                    <span className="text-xs">间距</span>
-                                </div>
+                                <span className="text-xs">尺寸</span>
                                 <input
                                     type="number"
-                                    min={10}
-                                    max={200}
-                                    value={gridSizeInput}
-                                    onChange={(e) => setGridSizeInput(e.target.value)}
-                                    onBlur={commitGridSize}
+                                    min={1}
+                                    max={4}
+                                    value={gridDotSizeInput}
+                                    onChange={(e) => setGridDotSizeInput(e.target.value)}
+                                    onBlur={commitGridDotSize}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter') commitGridSize();
-                                        if (e.key === 'Escape') setGridSizeInput(String(gridSize));
+                                        if (e.key === 'Enter') commitGridDotSize();
+                                        if (e.key === 'Escape') setGridDotSizeInput(String(gridDotSize));
                                         e.stopPropagation();
                                     }}
                                     className="w-16 text-xs px-2 py-0.5 rounded border border-gray-300 bg-white"
                                 />
                             </div>
+                        )}
 
-                            {/* 点阵大小（仅在点阵模式下显示） */}
-                            {gridStyle === GridStyle.DOTS && (
-                                <div className="px-3 py-1.5 flex items-center justify-between">
-                                    <span className="text-xs">尺寸</span>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={4}
-                                        value={gridDotSizeInput}
-                                        onChange={(e) => setGridDotSizeInput(e.target.value)}
-                                        onBlur={commitGridDotSize}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') commitGridDotSize();
-                                            if (e.key === 'Escape') setGridDotSizeInput(String(gridDotSize));
-                                            e.stopPropagation();
-                                        }}
-                                        className="w-16 text-xs px-2 py-0.5 rounded border border-gray-300 bg-white"
-                                    />
-                                </div>
-                            )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                            历史
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                            className="text-xs cursor-pointer px-3"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleClearImageHistory();
+                            }}
+                        >
+                            <Trash2 className="mr-2 h-3 w-3" />
+                            <span className="flex-1">清空图片历史</span>
+                            <span className="text-[10px] text-gray-500">{historyCount}</span>
+                        </DropdownMenuItem>
 
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                历史
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer px-3"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    handleClearImageHistory();
-                                }}
-                            >
-                                <Trash2 className="mr-2 h-3 w-3" />
-                                <span className="flex-1">清空图片历史</span>
-                                <span className="text-[10px] text-gray-500">{historyCount}</span>
-                            </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                            画布
+                        </DropdownMenuLabel>
+                        <DropdownMenuItem
+                            className="text-xs cursor-pointer px-3 text-red-600 focus:text-red-600"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleClearCanvas();
+                            }}
+                        >
+                            <Trash2 className="mr-2 h-3 w-3" />
+                            <span className="flex-1">清空画布内容</span>
+                        </DropdownMenuItem>
 
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                画布
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer px-3 text-red-600 focus:text-red-600"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    handleClearCanvas();
-                                }}
-                            >
-                                <Trash2 className="mr-2 h-3 w-3" />
-                                <span className="flex-1">清空画布内容</span>
-                            </DropdownMenuItem>
-
-                            {/* 底色开关 */}
-                            <div className="px-3 py-1.5 flex items-center justify-between">
-                                <span className="text-xs">底色</span>
-                                <div className="flex items-center space-x-2">
-                                    <input
-                                        type="color"
-                                        value={gridBgColor}
-                                        onChange={(e) => setGridBgColor(e.target.value)}
-                                        className="w-8 h-5 rounded border border-gray-300 cursor-pointer"
-                                        disabled={!gridBgEnabled}
-                                    />
-                                    <Switch
-                                        checked={gridBgEnabled}
-                                        onCheckedChange={setGridBgEnabled}
-                                        className="h-4 w-7"
-                                    />
-                                </div>
-                            </div>
-
-                            <DropdownMenuSeparator />
-
-                            {/* AI 图像生成设置 */}
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                AI 图像生成
-                            </DropdownMenuLabel>
-
-                            {/* 仅图像模式开关 */}
-                            <div className="px-3 py-1.5 flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                    <Sparkles className="h-3 w-3 text-gray-500" />
-                                    <span className="text-xs">仅图像（无文字）</span>
-                                </div>
+                        {/* 底色开关 */}
+                        <div className="px-3 py-1.5 flex items-center justify-between">
+                            <span className="text-xs">底色</span>
+                            <div className="flex items-center space-x-2">
+                                <input
+                                    type="color"
+                                    value={gridBgColor}
+                                    onChange={(e) => setGridBgColor(e.target.value)}
+                                    className="w-8 h-5 rounded border border-gray-300 cursor-pointer"
+                                    disabled={!gridBgEnabled}
+                                />
                                 <Switch
-                                    checked={imageOnly}
-                                    onCheckedChange={setImageOnly}
+                                    checked={gridBgEnabled}
+                                    onCheckedChange={setGridBgEnabled}
                                     className="h-4 w-7"
                                 />
                             </div>
+                        </div>
 
-                            <DropdownMenuSeparator />
+                        <DropdownMenuSeparator />
 
-                            {/* 已移除：视图设置（坐标轴/回到原点/比例尺）、单位和比例尺信息 */}
-                            {/* 智能落位偏移 */}
-                            <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
-                                智能落位
-                            </DropdownMenuLabel>
-                            <div className="px-3 py-2">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs text-gray-600">偏移(px)</span>
-                                    <input
-                                        type="number"
-                                        min={16}
-                                        max={4096}
-                                        inputMode="numeric"
-                                        value={offsetInput}
-                                        onChange={(e) => setOffsetInput(e.target.value)}
-                                        onBlur={commitOffset}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') commitOffset();
-                                            if (e.key === 'Escape') setOffsetInput(String(smartPlacementOffset));
-                                            e.stopPropagation();
-                                        }}
-                                        className="w-20 text-xs px-2 py-1 rounded border border-gray-300 bg-white"
-                                    />
-                                </div>
+                        {/* AI 图像生成设置 */}
+                        <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                            AI 图像生成
+                        </DropdownMenuLabel>
+
+                        {/* 仅图像模式开关 */}
+                        <div className="px-3 py-1.5 flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <Sparkles className="h-3 w-3 text-gray-500" />
+                                <span className="text-xs">仅图像（无文字）</span>
                             </div>
+                            <Switch
+                                checked={imageOnly}
+                                onCheckedChange={setImageOnly}
+                                className="h-4 w-7"
+                            />
+                        </div>
 
-                            {/* 开发模式下显示内存调试选项 */}
-                            {import.meta.env.DEV && (
-                                <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        className="text-xs cursor-pointer"
-                                        onClick={() => setShowMemoryDebug(!showMemoryDebug)}
-                                    >
-                                        <Activity className="mr-2 h-3 w-3" />
-                                        <span>{showMemoryDebug ? '关闭内存监控' : '内存监控'}</span>
-                                    </DropdownMenuItem>
-                                </>
-                            )}
-                            
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                className="text-xs cursor-pointer text-red-500 focus:text-red-500"
-                                disabled={loading}
-                                onClick={async () => {
-                                    if (loading) return;
-                                    try {
-                                        console.log('🔴 开始退出登录...');
-                                        await logout();
-                                        console.log('✅ 登出成功，准备跳转...');
-                                        navigate('/auth/login', { replace: true });
-                                    } catch (err) {
-                                        console.error('❌ 退出登录失败:', err);
-                                    }
-                                }}
-                            >
-                                <LogOut className="mr-2 h-3 w-3" />
-                                <span>{loading ? '正在退出…' : '退出登录'}</span>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
+                        <DropdownMenuSeparator />
+
+                        {/* 智能落位偏移 */}
+                        <DropdownMenuLabel className="text-[10px] text-muted-foreground font-normal">
+                            智能落位
+                        </DropdownMenuLabel>
+                        <div className="px-3 py-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-600">偏移(px)</span>
+                                <input
+                                    type="number"
+                                    min={16}
+                                    max={4096}
+                                    inputMode="numeric"
+                                    value={offsetInput}
+                                    onChange={(e) => setOffsetInput(e.target.value)}
+                                    onBlur={commitOffset}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') commitOffset();
+                                        if (e.key === 'Escape') setOffsetInput(String(smartPlacementOffset));
+                                        e.stopPropagation();
+                                    }}
+                                    className="w-20 text-xs px-2 py-1 rounded border border-gray-300 bg-white"
+                                />
+                            </div>
+                        </div>
+
+                        {/* 开发模式下显示内存调试选项 */}
+                        {import.meta.env.DEV && (
+                            <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    className="text-xs cursor-pointer"
+                                    onClick={() => setShowMemoryDebug(!showMemoryDebug)}
+                                >
+                                    <Activity className="mr-2 h-3 w-3" />
+                                    <span>{showMemoryDebug ? '关闭内存监控' : '内存监控'}</span>
+                                </DropdownMenuItem>
+                            </>
+                        )}
+
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            className="text-xs cursor-pointer text-red-500 focus:text-red-500"
+                            disabled={loading}
+                            onClick={async () => {
+                                if (loading) return;
+                                try {
+                                    console.log('🔴 开始退出登录...');
+                                    await logout();
+                                    console.log('✅ 登出成功，准备跳转...');
+                                    navigate('/auth/login', { replace: true });
+                                } catch (err) {
+                                    console.error('❌ 退出登录失败:', err);
+                                }
+                            }}
+                        >
+                            <LogOut className="mr-2 h-3 w-3" />
+                            <span>{loading ? '正在退出…' : '退出登录'}</span>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
             
             {/* 内存调试面板 */}
