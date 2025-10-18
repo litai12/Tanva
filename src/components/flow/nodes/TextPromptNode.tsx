@@ -103,16 +103,34 @@ export default function TextPromptNode({ id, data, selected }: Props) {
           const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { text: v } } });
           window.dispatchEvent(ev);
         }}
+        onWheelCapture={(event) => {
+          event.stopPropagation();
+          if (event.nativeEvent?.stopImmediatePropagation) {
+            event.nativeEvent.stopImmediatePropagation();
+          }
+        }}
+        onPointerDownCapture={(event) => {
+          event.stopPropagation();
+          if (event.nativeEvent?.stopImmediatePropagation) {
+            event.nativeEvent.stopImmediatePropagation();
+          }
+        }}
         placeholder="输入提示词"
         style={{
           width: '100%',
           flex: 1,
-          resize: 'none',
+          resize: 'vertical',
+          maxHeight: '100%',
+          minHeight: 60,
+          overflowY: 'auto',
           fontSize: 12,
           border: '1px solid #e5e7eb',
           borderRadius: 6,
           padding: 6,
-          outline: 'none'
+          outline: 'none',
+          pointerEvents: 'auto',
+          background: 'rgba(255,255,255,0.92)',
+          cursor: 'text'
         }}
       />
       <Handle
