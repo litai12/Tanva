@@ -224,15 +224,26 @@ export default function PromptFusionNode({ id, data }: Props) {
     setFused(next);
   }, [segmentA, segmentB]);
 
-  const width = data.boxW || 360;
-  const height = data.boxH || 320;
+  const DEFAULT_WIDTH = 420;
+  const DEFAULT_HEIGHT = 380;
+
+  const width = Math.max(data.boxW ?? DEFAULT_WIDTH, DEFAULT_WIDTH);
+  const height = Math.max(data.boxH ?? DEFAULT_HEIGHT, DEFAULT_HEIGHT);
+
+  React.useEffect(() => {
+    const clampedWidth = Math.max(data.boxW ?? DEFAULT_WIDTH, DEFAULT_WIDTH);
+    const clampedHeight = Math.max(data.boxH ?? DEFAULT_HEIGHT, DEFAULT_HEIGHT);
+    if (clampedWidth !== data.boxW || clampedHeight !== data.boxH) {
+      rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: clampedWidth, boxH: clampedHeight } } : n));
+    }
+  }, [data.boxW, data.boxH, id, rf]);
 
   return (
     <div
       style={{
         width,
         height,
-        padding: 12,
+      padding: 16,
         background: '#fff',
         border: '1px solid #e5e7eb',
         borderRadius: 10,
@@ -240,13 +251,14 @@ export default function PromptFusionNode({ id, data }: Props) {
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
-        gap: 8,
+        gap: 10,
+        boxSizing: 'border-box',
       }}
     >
       <NodeResizer
         isVisible
-        minWidth={320}
-        minHeight={240}
+        minWidth={DEFAULT_WIDTH}
+        minHeight={DEFAULT_HEIGHT}
         color="transparent"
         lineStyle={{ display: 'none' }}
         handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0, cursor: 'nwse-resize' }}
@@ -271,7 +283,7 @@ export default function PromptFusionNode({ id, data }: Props) {
         </label>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#4b5563' }}>
           段落 A {connectedA ? '（已连接）' : ''}
         </div>
@@ -295,15 +307,16 @@ export default function PromptFusionNode({ id, data }: Props) {
             fontSize: 12,
             borderRadius: 6,
             border: '1px solid #d1d5db',
-            padding: '6px 8px',
+        padding: '10px 12px',
             background: connectedA ? '#f9fafb' : '#fff',
             color: '#111827',
             outline: 'none',
+            boxSizing: 'border-box',
           }}
         />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#4b5563' }}>
           段落 B {connectedB ? '（已连接）' : ''}
         </div>
@@ -327,22 +340,23 @@ export default function PromptFusionNode({ id, data }: Props) {
             fontSize: 12,
             borderRadius: 6,
             border: '1px solid #d1d5db',
-            padding: '6px 8px',
+            padding: '10px 12px',
             background: connectedB ? '#f9fafb' : '#fff',
             color: '#111827',
             outline: 'none',
+            boxSizing: 'border-box',
           }}
         />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#4b5563' }}>融合结果</div>
         <button
           onClick={handleManualFuse}
           disabled={autoFuse}
           style={{
             fontSize: 11,
-            padding: '4px 8px',
+            padding: '6px 12px',
             borderRadius: 6,
             border: '1px solid #d1d5db',
             background: autoFuse ? '#f3f4f6' : '#111827',
@@ -369,15 +383,16 @@ export default function PromptFusionNode({ id, data }: Props) {
         style={{
           width: '100%',
           flex: 1,
-          minHeight: 80,
+          minHeight: 72,
           resize: 'vertical',
           fontSize: 12,
           borderRadius: 6,
           border: '1px solid #d1d5db',
-          padding: '6px 8px',
+        padding: '12px 16px',
           background: autoFuse ? '#f9fafb' : '#fff',
           color: '#111827',
           outline: 'none',
+          boxSizing: 'border-box',
         }}
       />
 
@@ -385,7 +400,7 @@ export default function PromptFusionNode({ id, data }: Props) {
         type="target"
         position={Position.Left}
         id="textA"
-        style={{ top: '32%' }}
+        style={{ top: '28%' }}
         onMouseEnter={() => setHover('A-in')}
         onMouseLeave={() => setHover(null)}
       />
@@ -393,7 +408,7 @@ export default function PromptFusionNode({ id, data }: Props) {
         type="target"
         position={Position.Left}
         id="textB"
-        style={{ top: '64%' }}
+        style={{ top: '58%' }}
         onMouseEnter={() => setHover('B-in')}
         onMouseLeave={() => setHover(null)}
       />
@@ -407,10 +422,10 @@ export default function PromptFusionNode({ id, data }: Props) {
       />
 
       {hover === 'A-in' && (
-        <div className="flow-tooltip" style={{ left: -8, top: '32%', transform: 'translate(-100%, -50%)' }}>prompt A</div>
+        <div className="flow-tooltip" style={{ left: -8, top: '28%', transform: 'translate(-100%, -50%)' }}>prompt A</div>
       )}
       {hover === 'B-in' && (
-        <div className="flow-tooltip" style={{ left: -8, top: '64%', transform: 'translate(-100%, -50%)' }}>prompt B</div>
+        <div className="flow-tooltip" style={{ left: -8, top: '58%', transform: 'translate(-100%, -50%)' }}>prompt B</div>
       )}
       {hover === 'out' && (
         <div className="flow-tooltip" style={{ right: -8, top: '50%', transform: 'translate(100%, -50%)' }}>prompt</div>
