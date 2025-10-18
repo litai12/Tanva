@@ -26,9 +26,11 @@ import TextPromptNode from './nodes/TextPromptNode';
 import ImageNode from './nodes/ImageNode';
 import GenerateNode from './nodes/GenerateNode';
 import Generate4Node from './nodes/Generate4Node';
+import GenerateReferenceNode from './nodes/GenerateReferenceNode';
 import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
 import PromptOptimizeNode from './nodes/PromptOptimizeNode';
+import PromptFusionNode from './nodes/PromptFusionNode';
 import AnalysisNode from './nodes/AnalyzeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -44,13 +46,17 @@ type RFNode = Node<any>;
 const nodeTypes = {
   textPrompt: TextPromptNode,
   promptOptimize: PromptOptimizeNode,
+  promptFusion: PromptFusionNode,
   image: ImageNode,
   generate: GenerateNode,
   generate4: Generate4Node,
+  generateRef: GenerateReferenceNode,
   three: ThreeNode,
   camera: CameraNode,
   analysis: AnalysisNode,
 };
+
+const DEFAULT_REFERENCE_PROMPT = '请参考第二张图的内容';
 
 const BUILTIN_TEMPLATE_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: '摄影', label: '摄影' },
@@ -865,6 +871,69 @@ function FlowInner() {
     return true;
   }, []);
 
+  const allowNativeScroll = React.useCallback((target: EventTarget | null) => {
+    if (!target || !(target instanceof HTMLElement)) return false;
+    const container = containerRef.current;
+    if (!container) return false;
+    let el: HTMLElement | null = target;
+    while (el && container.contains(el)) {
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'textarea' || tag === 'input' || tag === 'select' || el.isContentEditable) {
+        return true;
+      }
+      try {
+        const style = window.getComputedStyle(el);
+        const canScrollY = (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1;
+        const canScrollX = (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1;
+        if (canScrollX || canScrollY) return true;
+      } catch {
+        // getComputedStyle 可能失败，忽略并继续向上
+      }
+      el = el.parentElement;
+    }
+    return false;
+  }, []);
+
+  const handleWheelCapture = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    if (allowNativeScroll(event.target)) return;
+
+    const store = useCanvasStore.getState();
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const canvasEl = (paper?.view?.element as HTMLCanvasElement | undefined) || containerRef.current;
+      const rect = canvasEl?.getBoundingClientRect();
+      if (!rect) return;
+
+      const sx = (event.clientX - rect.left) * dpr;
+      const sy = (event.clientY - rect.top) * dpr;
+      const z1 = store.zoom || 1;
+      const factor = Math.exp(-event.deltaY * 0.0015);
+      const z2 = Math.max(0.1, Math.min(3, z1 * factor));
+
+      const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
+      const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
+      store.setPan(pan2x, pan2y);
+      store.setZoom(z2);
+      return;
+    }
+
+    const hasDelta = Math.abs(event.deltaX) > 0.0001 || Math.abs(event.deltaY) > 0.0001;
+    if (!hasDelta) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const zoom = store.zoom || 1;
+    const worldDeltaX = (-event.deltaX * dpr) / zoom;
+    const worldDeltaY = (-event.deltaY * dpr) / zoom;
+    store.setPan(store.panX + worldDeltaX, store.panY + worldDeltaY);
+  }, [allowNativeScroll]);
+
   const onPaneClick = React.useCallback((event: React.MouseEvent) => {
     // 基于两次快速点击判定双击（ReactFlow Pane 无原生 onDoubleClick 回调）
     const now = Date.now();
@@ -960,14 +1029,16 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'promptFusion' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
       promptOptimize: { w: 360, h: 300 },
+      promptFusion: { w: 360, h: 320 },
       image: { w: 260, h: 240 },
       generate: { w: 260, h: 200 },
       generate4: { w: 300, h: 240 },
+      generateRef: { w: 260, h: 240 },
       three: { w: 280, h: 260 },
       camera: { w: 260, h: 220 },
       analysis: { w: 260, h: 280 },
@@ -976,9 +1047,11 @@ function FlowInner() {
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
     const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h }
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
+      : type === 'promptFusion' ? { segmentA: '', segmentB: '', fusedText: '', text: '', autoFuse: true, boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
+      : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
@@ -997,9 +1070,15 @@ function FlowInner() {
     const targetNode = rf.getNode(target);
     if (!sourceNode || !targetNode) return false;
 
-    // 允许连接到 Generate / Generate4 / Image / PromptOptimizer
+    // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
+    if (targetNode.type === 'generateRef') {
+      if (targetHandle === 'text') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'image2' || targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
+      return false;
+    }
     if (targetNode.type === 'generate' || targetNode.type === 'generate4') {
-      if (targetHandle === 'text') return ['textPrompt','promptOptimize','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
       if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
@@ -1009,11 +1088,15 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'promptOptimize') {
-      if (targetHandle === 'text') return ['textPrompt','promptOptimize','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'textPrompt') {
-      if (targetHandle === 'text') return ['promptOptimize','analysis','textPrompt'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['promptOptimize','promptFusion','analysis','textPrompt'].includes(sourceNode.type || '');
+      return false;
+    }
+    if (targetNode.type === 'promptFusion') {
+      if (targetHandle === 'textA' || targetHandle === 'textB') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'analysis') {
@@ -1033,6 +1116,12 @@ function FlowInner() {
       if (params.targetHandle === 'text') return true; // 允许连接，新线会替换旧线
       if (params.targetHandle === 'img') return incoming.length < 6;
     }
+    if (targetNode?.type === 'generateRef') {
+      const handle = params.targetHandle;
+      if (handle === 'text') return true;
+      if (handle === 'image1' || handle === 'refer') return true;
+      if (handle === 'image2' || handle === 'img') return true;
+    }
     if (targetNode?.type === 'image') {
       if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
     }
@@ -1041,6 +1130,9 @@ function FlowInner() {
     }
     if (targetNode?.type === 'textPrompt') {
       if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
+    }
+    if (targetNode?.type === 'promptFusion') {
+      if (params.targetHandle === 'textA' || params.targetHandle === 'textB') return true;
     }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
@@ -1062,8 +1154,20 @@ function FlowInner() {
       }
       
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt')) && params.targetHandle === 'text') {
+      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt')) && params.targetHandle === 'text') {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'text'));
+      }
+      if (tgt?.type === 'generateRef') {
+        const image1Handles = ['image1','refer'];
+        const image2Handles = ['image2','img'];
+        if (params.targetHandle && image1Handles.includes(params.targetHandle)) {
+          next = next.filter(e => !(e.target === params.target && image1Handles.includes((e.targetHandle || ''))));
+        } else if (params.targetHandle && image2Handles.includes(params.targetHandle)) {
+          next = next.filter(e => !(e.target === params.target && image2Handles.includes((e.targetHandle || ''))));
+        }
+      }
+      if ((tgt?.type === 'promptFusion') && (params.targetHandle === 'textA' || params.targetHandle === 'textB')) {
+        next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       
       const out = addEdge({ ...params, type: 'default' }, next);
@@ -1117,58 +1221,95 @@ function FlowInner() {
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
   }, [setNodes]);
 
-  // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4）
+  // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(async (nodeId: string) => {
     const node = rf.getNode(nodeId);
-    if (!node || (node.type !== 'generate' && node.type !== 'generate4')) return;
+    if (!node || (node.type !== 'generate' && node.type !== 'generate4' && node.type !== 'generateRef')) return;
 
-    // 收集 prompt
     const currentEdges = rf.getEdges();
     const incomingTextEdge = currentEdges.find(e => e.target === nodeId && e.targetHandle === 'text');
-    if (!incomingTextEdge) {
-      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
-      return;
-    }
-    const promptNode = rf.getNode(incomingTextEdge.source);
-    const promptData = (promptNode?.data || {}) as any;
-    const promptText = typeof promptData.text === 'string' ? promptData.text : '';
-    const promptAlt = typeof promptData.prompt === 'string' ? promptData.prompt : '';
-    const prompt = promptText.trim().length ? promptText : promptAlt;
-    if (!prompt.trim()) {
-      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
-      return;
+
+    let promptFromText = '';
+    if (incomingTextEdge) {
+      const promptNode = rf.getNode(incomingTextEdge.source);
+      const promptData = (promptNode?.data || {}) as any;
+      const textValue = typeof promptData.text === 'string' ? promptData.text : '';
+      const altValue = typeof promptData.prompt === 'string' ? promptData.prompt : '';
+      promptFromText = textValue.trim().length ? textValue : altValue;
     }
 
-    // 收集图片输入（最多6张），来源可为 Image 或 Generate
-    const imgEdges = currentEdges.filter(e => e.target === nodeId && e.targetHandle === 'img').slice(0, 6);
-    const imageDatas: string[] = [];
-    for (const e of imgEdges) {
-      const srcNode = rf.getNode(e.source);
-      if (!srcNode) continue;
+    const failWithMessage = (message: string) => {
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: message } } : n));
+    };
+
+    let prompt = '';
+
+    if (node.type === 'generateRef') {
+      const rawBase = typeof (node.data as any)?.referencePrompt === 'string'
+        ? (node.data as any).referencePrompt
+        : '';
+      const basePrompt = rawBase.trim().length ? rawBase.trim() : DEFAULT_REFERENCE_PROMPT;
+      const pieces = [basePrompt, promptFromText.trim()].filter(Boolean);
+      prompt = pieces.join('，').trim();
+      if (!prompt.length) {
+        failWithMessage('提示词为空');
+        return;
+      }
+    } else {
+      if (!incomingTextEdge) {
+        failWithMessage('缺少 TextPrompt 输入');
+        return;
+      }
+      prompt = promptFromText.trim();
+      if (!prompt.length) {
+        failWithMessage('提示词为空');
+        return;
+      }
+    }
+
+    const resolveImageData = (edge: Edge): string | undefined => {
+      const srcNode = rf.getNode(edge.source);
+      if (!srcNode) return undefined;
       const data = (srcNode.data as any);
 
-      let img: string | undefined;
       if (srcNode.type === 'generate4') {
-        const handle = (e as any).sourceHandle as string | undefined;
+        const handle = (edge as any).sourceHandle as string | undefined;
         const idx = handle?.startsWith('img')
           ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
           : 0;
         const imgs = Array.isArray(data?.images) ? data.images as string[] : undefined;
-        img = imgs?.[idx];
+        let img = imgs?.[idx];
         if (!img && typeof data?.imageData === 'string' && data.imageData.length) {
           img = data.imageData;
         }
-      } else {
-        img = data?.imageData;
+        return img;
       }
 
-      if (typeof img === 'string' && img.length > 0) imageDatas.push(img);
+      return typeof data?.imageData === 'string' ? data.imageData : undefined;
+    };
+
+    const collectImages = (edgesToCollect: Edge[]) =>
+      edgesToCollect
+        .map(resolveImageData)
+        .filter((img): img is string => typeof img === 'string' && img.length > 0);
+
+    let imageDatas: string[] = [];
+
+    if (node.type === 'generateRef') {
+      const primaryEdges = currentEdges
+        .filter(e => e.target === nodeId && ['image2','img'].includes((e.targetHandle || '')))
+        .slice(0, 1);
+      const referEdges = currentEdges
+        .filter(e => e.target === nodeId && ['image1','refer'].includes((e.targetHandle || '')))
+        .slice(0, 1);
+      imageDatas = [...collectImages(primaryEdges), ...collectImages(referEdges)];
+    } else {
+      const imgEdges = currentEdges.filter(e => e.target === nodeId && e.targetHandle === 'img').slice(0, 6);
+      imageDatas = collectImages(imgEdges);
     }
 
-    // generate4 分支（批量）
     if (node.type === 'generate4') {
       const total = Math.max(1, Math.min(4, Number((node.data as any)?.count) || 4));
-      // 先置为运行中并清空旧结果
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined, images: [] } } : n));
       const produced: string[] = [];
       for (let i = 0; i < total; i++) {
@@ -1183,15 +1324,12 @@ function FlowInner() {
           }
 
           if (!result.success || !result.data || !result.data.imageData) {
-            // 失败占位：不推入数据，仅继续
             continue;
           }
 
           produced[i] = result.data.imageData;
-          // 实时写回节点 images
           setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, images: [...produced] } } : n));
 
-          // 若有下游连接到对应 handle img{i+1} 的 Image 节点，实时写入
           const outs = rf.getEdges().filter(e => e.source === nodeId && (e as any).sourceHandle === `img${i + 1}`);
           if (outs.length) {
             const imgB64 = produced[i];
@@ -1202,32 +1340,26 @@ function FlowInner() {
               return n;
             }));
           }
-        } catch (err) {
+        } catch {
           // 忽略单张失败，继续下一张
         }
       }
 
-      // 结束状态
       const hasAny = produced.filter(Boolean).length > 0;
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: hasAny ? 'succeeded' : 'failed', error: hasAny ? undefined : '全部生成失败', images: [...produced] } } : n));
       return;
     }
 
-    // 默认：generate（单张）
-    // 更新状态
     setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
 
     try {
       let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
 
       if (imageDatas.length === 0) {
-        // 文生图
         result = await aiImageService.generateImage({ prompt, outputFormat: 'png' });
       } else if (imageDatas.length === 1) {
-        // 图生图（编辑）
         result = await aiImageService.editImage({ prompt, sourceImage: imageDatas[0], outputFormat: 'png' });
       } else {
-        // 多图融合（2-6张）
         result = await aiImageService.blendImages({ prompt, sourceImages: imageDatas.slice(0, 6), outputFormat: 'png' });
       }
 
@@ -1240,10 +1372,8 @@ function FlowInner() {
       const out = result.data;
       const imgBase64 = out.imageData;
 
-      // 更新本节点
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'succeeded', imageData: imgBase64, error: undefined } } : n));
 
-      // 若该生成节点连接到 Image 节点，自动把结果写入目标 Image
       if (imgBase64) {
         const outs = rf.getEdges().filter(e => e.source === nodeId);
         if (outs.length) {
@@ -1309,7 +1439,7 @@ function FlowInner() {
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
-    (n.type === 'generate' || n.type === 'generate4')
+    (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef')
       ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
       : n
   )), [nodes, runNode, onSendHandler]);
@@ -1347,7 +1477,7 @@ function FlowInner() {
         setNodes(ns => ns.concat([{ id, type: 'generate4', position: { x, y }, data: { status: 'idle', images: [], count: 4 } }] as any));
         return id;
       },
-      connect: (source: string, target: string, targetHandle: 'text' | 'img') => {
+      connect: (source: string, target: string, targetHandle: 'text' | 'img' | 'image1' | 'image2' | 'refer') => {
         const conn = { source, target, targetHandle } as any;
         if (isValidConnection(conn as any) && canAcceptConnection(conn as any)) {
           setEdges(eds => addEdge(conn, eds));
@@ -1359,7 +1489,7 @@ function FlowInner() {
     return () => { delete (window as any).tanvaFlow; };
   }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
 
-  const addAtCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'analysis') => {
+  const addAtCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'promptFusion' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'analysis') => {
     const rect = containerRef.current?.getBoundingClientRect();
     const centerScreen = {
       x: (rect?.width || window.innerWidth) / 2,
@@ -1374,8 +1504,10 @@ function FlowInner() {
       data:
         type === 'textPrompt' ? { text: '' } :
         type === 'promptOptimize' ? { text: '', expandedText: '' } :
+        type === 'promptFusion' ? { segmentA: '', segmentB: '', fusedText: '', text: '', autoFuse: true } :
         type === 'generate' ? { status: 'idle' } :
         type === 'generate4' ? { status: 'idle', images: [], count: 4 } :
+        type === 'generateRef' ? { status: 'idle', referencePrompt: undefined } :
         type === 'analysis' ? { status: 'idle', prompt: '', analysisPrompt: undefined } :
         { imageData: undefined }
     };
@@ -1394,9 +1526,11 @@ function FlowInner() {
     >
       <button onClick={() => addAtCenter('textPrompt')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
       <button onClick={() => addAtCenter('promptOptimize')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>优化</button>
+      <button onClick={() => addAtCenter('promptFusion')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>融合</button>
       <button onClick={() => addAtCenter('analysis')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>分析</button>
       <button onClick={() => addAtCenter('image')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>图片</button>
       <button onClick={() => addAtCenter('generate')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
+      <button onClick={() => addAtCenter('generateRef')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>参考生成</button>
       <button onClick={() => addAtCenter('generate4')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>Multi Generate</button>
       <div style={{ width: 1, height: 20, background: '#e5e7eb', margin: '0 4px' }} />
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
@@ -1541,7 +1675,12 @@ function FlowInner() {
   }, [rf]);
 
   return (
-    <div ref={containerRef} className={"tanva-flow-overlay absolute inset-0"} onDoubleClick={handleContainerDoubleClick}>
+    <div
+      ref={containerRef}
+      className={"tanva-flow-overlay absolute inset-0"}
+      onDoubleClick={handleContainerDoubleClick}
+      onWheelCapture={handleWheelCapture}
+    >
       {FlowToolbar}
       <ReactFlow
         nodes={nodesWithHandlers}
@@ -1732,12 +1871,45 @@ function FlowInner() {
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 >
-                  <span>Prompt Optimizer</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词优化</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('analysis', addPanel.world)} 
-                  style={{ 
+                <span>Prompt Optimizer</span>
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词优化</span>
+              </button>
+              <button 
+                onClick={() => createNodeAtWorldCenter('promptFusion', addPanel.world)} 
+                style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: 13, 
+                  fontWeight: 500,
+                  padding: '12px 16px', 
+                  borderRadius: 8, 
+                  border: '1px solid #e5e7eb', 
+                  background: '#fff',
+                  color: '#374151',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  width: '100%'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f9fafb';
+                  e.currentTarget.style.borderColor = '#d1d5db';
+                  e.currentTarget.style.transform = 'translateX(2px)';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#fff';
+                  e.currentTarget.style.borderColor = '#e5e7eb';
+                  e.currentTarget.style.transform = 'translateX(0)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <span>Prompt Fusion</span>
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词融合</span>
+              </button>
+              <button 
+                onClick={() => createNodeAtWorldCenter('analysis', addPanel.world)} 
+                style={{ 
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
@@ -1833,6 +2005,39 @@ function FlowInner() {
                 >
                   <span>Generate Node</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>生成</span>
+                </button>
+                <button 
+                  onClick={() => createNodeAtWorldCenter('generateRef', addPanel.world)} 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13, 
+                    fontWeight: 500,
+                    padding: '12px 16px', 
+                    borderRadius: 8, 
+                    border: '1px solid #e5e7eb', 
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Generate Refer</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>参考图生成</span>
                 </button>
                 <button 
                   onClick={() => createNodeAtWorldCenter('generate4', addPanel.world)} 

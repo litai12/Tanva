@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { createSafeStorage } from './storageUtils';
 
 interface UIState {
   // 面板显示状态
@@ -58,44 +60,105 @@ const initialOffset = (() => {
   return 778; // 新默认偏移
 })();
 
-export const useUIStore = create<UIState>((set) => ({
-  // 初始状态
-  showLibraryPanel: false,
-  showLayerPanel: false,
-  showGrid: true,
-  showAxis: false,
-  showBounds: false,
-  showFlowPanel: false,
-  flowUIEnabled: false,
-  mode: 'chat',
-  flowEraserActive: false,
-  focusMode: false,
-  smartPlacementOffset: initialOffset,
+const persistedUIPreferences = (() => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage?.getItem('ui-preferences');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const state = parsed && typeof parsed === 'object' ? (parsed.state ?? parsed) : null;
+    if (!state || typeof state !== 'object') return null;
+    const {
+      showLibraryPanel,
+      showLayerPanel,
+      showGrid,
+      showAxis,
+      showBounds,
+      showFlowPanel,
+      flowUIEnabled,
+      mode,
+      flowEraserActive,
+      focusMode,
+      smartPlacementOffset,
+    } = state as Partial<UIState>;
+    return {
+      showLibraryPanel,
+      showLayerPanel,
+      showGrid,
+      showAxis,
+      showBounds,
+      showFlowPanel,
+      flowUIEnabled,
+      mode,
+      flowEraserActive,
+      focusMode,
+      smartPlacementOffset,
+    };
+  } catch (error) {
+    console.warn('[uiStore] Failed to parse persisted ui-preferences, using defaults.', error);
+    return null;
+  }
+})();
 
-  // 切换方法
-  toggleLibraryPanel: () => set((state) => ({ showLibraryPanel: !state.showLibraryPanel })),
-  toggleLayerPanel: () => set((state) => ({ showLayerPanel: !state.showLayerPanel })),
-  toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
-  toggleAxis: () => set((state) => ({ showAxis: !state.showAxis })),
-  toggleBounds: () => set((state) => ({ showBounds: !state.showBounds })),
-  toggleFlowPanel: () => set((state) => ({ showFlowPanel: !state.showFlowPanel })),
-  setFlowUIEnabled: (enabled) => set({ flowUIEnabled: !!enabled }),
-  toggleMode: () => set((state) => ({ mode: state.mode === 'chat' ? 'node' : 'chat' })),
-  setMode: (m) => set({ mode: m }),
-  toggleFlowEraser: () => set((state) => ({ flowEraserActive: !state.flowEraserActive })),
-  setFlowEraser: (v) => set({ flowEraserActive: !!v }),
-  toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
+export const useUIStore = create<UIState>()(
+  persist(
+    (set) => ({
+      // 初始状态
+      showLibraryPanel: persistedUIPreferences?.showLibraryPanel ?? false,
+      showLayerPanel: persistedUIPreferences?.showLayerPanel ?? false,
+      showGrid: persistedUIPreferences?.showGrid ?? true,
+      showAxis: persistedUIPreferences?.showAxis ?? false,
+      showBounds: persistedUIPreferences?.showBounds ?? false,
+      showFlowPanel: persistedUIPreferences?.showFlowPanel ?? false,
+      flowUIEnabled: persistedUIPreferences?.flowUIEnabled ?? false,
+      mode: persistedUIPreferences?.mode ?? 'chat',
+      flowEraserActive: persistedUIPreferences?.flowEraserActive ?? false,
+      focusMode: persistedUIPreferences?.focusMode ?? false,
+      smartPlacementOffset: persistedUIPreferences?.smartPlacementOffset ?? initialOffset,
 
-  // 设置方法
-  setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
-  setShowLayerPanel: (show) => set({ showLayerPanel: show }),
-  setShowGrid: (show) => set({ showGrid: show }),
-  setShowAxis: (show) => set({ showAxis: show }),
-  setShowBounds: (show) => set({ showBounds: show }),
-  setShowFlowPanel: (show) => set({ showFlowPanel: show }),
-  setSmartPlacementOffset: (offset) => set(() => {
-    const v = Math.max(16, Math.min(4096, Math.round(offset)));
-    try { if (typeof window !== 'undefined') localStorage.setItem('tanva-smart-offset', String(v)); } catch {}
-    return { smartPlacementOffset: v } as Partial<UIState>;
-  }),
-}));
+      // 切换方法
+      toggleLibraryPanel: () => set((state) => ({ showLibraryPanel: !state.showLibraryPanel })),
+      toggleLayerPanel: () => set((state) => ({ showLayerPanel: !state.showLayerPanel })),
+      toggleGrid: () => set((state) => ({ showGrid: !state.showGrid })),
+      toggleAxis: () => set((state) => ({ showAxis: !state.showAxis })),
+      toggleBounds: () => set((state) => ({ showBounds: !state.showBounds })),
+      toggleFlowPanel: () => set((state) => ({ showFlowPanel: !state.showFlowPanel })),
+      setFlowUIEnabled: (enabled) => set({ flowUIEnabled: !!enabled }),
+      toggleMode: () => set((state) => ({ mode: state.mode === 'chat' ? 'node' : 'chat' })),
+      setMode: (m) => set({ mode: m }),
+      toggleFlowEraser: () => set((state) => ({ flowEraserActive: !state.flowEraserActive })),
+      setFlowEraser: (v) => set({ flowEraserActive: !!v }),
+      toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
+
+      // 设置方法
+      setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
+      setShowLayerPanel: (show) => set({ showLayerPanel: show }),
+      setShowGrid: (show) => set({ showGrid: show }),
+      setShowAxis: (show) => set({ showAxis: show }),
+      setShowBounds: (show) => set({ showBounds: show }),
+      setShowFlowPanel: (show) => set({ showFlowPanel: show }),
+      setSmartPlacementOffset: (offset) => set(() => {
+        const v = Math.max(16, Math.min(4096, Math.round(offset)));
+        try { if (typeof window !== 'undefined') localStorage.setItem('tanva-smart-offset', String(v)); } catch {}
+        return { smartPlacementOffset: v } as Partial<UIState>;
+      }),
+    }),
+    {
+      name: 'ui-preferences',
+      storage: createSafeStorage({ storageName: 'ui-preferences' }),
+      partialize: (state) => ({
+        showLibraryPanel: state.showLibraryPanel,
+        showLayerPanel: state.showLayerPanel,
+        showGrid: state.showGrid,
+        showAxis: state.showAxis,
+        showBounds: state.showBounds,
+        showFlowPanel: state.showFlowPanel,
+        flowUIEnabled: state.flowUIEnabled,
+        mode: state.mode,
+        flowEraserActive: state.flowEraserActive,
+        focusMode: state.focusMode,
+        smartPlacementOffset: state.smartPlacementOffset,
+      }),
+    }
+  )
+);

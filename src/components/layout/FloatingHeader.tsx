@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -53,6 +53,8 @@ const SETTINGS_SECTIONS = [
 ] as const;
 
 type SettingsSectionId = typeof SETTINGS_SECTIONS[number]['id'];
+
+const VIEW_APPEARANCE_STORAGE_KEY = 'tanva-view-settings';
 
 const FloatingHeader: React.FC = () => {
     const navigate = useNavigate();
@@ -118,6 +120,89 @@ const FloatingHeader: React.FC = () => {
     const [showMemoryDebug, setShowMemoryDebug] = useState(false);
     const [gridSizeInput, setGridSizeInput] = useState(String(gridSize));
     const [gridDotSizeInput, setGridDotSizeInput] = useState(String(gridDotSize));
+    const [saveFeedback, setSaveFeedback] = useState<'idle' | 'success' | 'error'>('idle');
+    const saveFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const hasAppliedSavedAppearanceRef = useRef(false);
+
+    // 一次性加载保存的视图外观设置
+    useEffect(() => {
+        if (hasAppliedSavedAppearanceRef.current) return;
+        if (typeof window === 'undefined') return;
+        hasAppliedSavedAppearanceRef.current = true;
+
+        try {
+            const raw = window.localStorage.getItem(VIEW_APPEARANCE_STORAGE_KEY);
+            if (!raw) return;
+            const saved = JSON.parse(raw) as Partial<{
+                showGrid: boolean;
+                gridStyle: GridStyle;
+                gridSize: number;
+                gridDotSize: number;
+                gridColor: string;
+                gridBgColor: string;
+                gridBgEnabled: boolean;
+            }> | null;
+            if (!saved || typeof saved !== 'object') return;
+
+            if (typeof saved.showGrid === 'boolean') setShowGrid(saved.showGrid);
+            if (saved.gridStyle && Object.values(GridStyle).includes(saved.gridStyle)) {
+                setGridStyle(saved.gridStyle);
+            }
+            if (typeof saved.gridSize === 'number' && saved.gridSize >= 1 && saved.gridSize <= 200) {
+                setGridSize(saved.gridSize);
+                setGridSizeInput(String(saved.gridSize));
+            }
+            if (typeof saved.gridDotSize === 'number' && saved.gridDotSize >= 1 && saved.gridDotSize <= 4) {
+                setGridDotSize(saved.gridDotSize);
+                setGridDotSizeInput(String(saved.gridDotSize));
+            }
+            if (typeof saved.gridColor === 'string' && saved.gridColor.startsWith('#')) {
+                setGridColor(saved.gridColor);
+            }
+            if (typeof saved.gridBgColor === 'string' && saved.gridBgColor.startsWith('#')) {
+                setGridBgColor(saved.gridBgColor);
+            }
+            if (typeof saved.gridBgEnabled === 'boolean') {
+                setGridBgEnabled(saved.gridBgEnabled);
+            }
+        } catch (error) {
+            console.warn('[FloatingHeader] Failed to load saved appearance settings:', error);
+        }
+    }, [setShowGrid, setGridStyle, setGridSize, setGridDotSize, setGridColor, setGridBgColor, setGridBgEnabled, setGridSizeInput, setGridDotSizeInput]);
+
+    // 清理保存提示计时器
+    useEffect(() => () => {
+        if (saveFeedbackTimerRef.current) {
+            clearTimeout(saveFeedbackTimerRef.current);
+            saveFeedbackTimerRef.current = null;
+        }
+    }, []);
+
+    const handleSaveAppearanceSettings = useCallback(() => {
+        if (typeof window === 'undefined') return;
+        const payload = {
+            showGrid,
+            gridStyle,
+            gridSize,
+            gridDotSize,
+            gridColor,
+            gridBgColor,
+            gridBgEnabled,
+        };
+
+        try {
+            window.localStorage.setItem(VIEW_APPEARANCE_STORAGE_KEY, JSON.stringify(payload));
+            setSaveFeedback('success');
+        } catch (error) {
+            console.warn('[FloatingHeader] Failed to save appearance settings:', error);
+            setSaveFeedback('error');
+        } finally {
+            if (saveFeedbackTimerRef.current) {
+                clearTimeout(saveFeedbackTimerRef.current);
+            }
+            saveFeedbackTimerRef.current = setTimeout(() => setSaveFeedback('idle'), 2200);
+        }
+    }, [showGrid, gridStyle, gridSize, gridDotSize, gridColor, gridBgColor, gridBgEnabled]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('workspace');
     
@@ -347,6 +432,26 @@ const FloatingHeader: React.FC = () => {
             case 'appearance':
                 return (
                     <div className="space-y-6 pb-6">
+                        <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
+                            <div>
+                                <div className="text-sm font-medium text-slate-700">保存视图设置</div>
+                                <div className="text-xs text-slate-500">保存当前网格样式与颜色，刷新后保持一致。</div>
+                                {saveFeedback === 'success' && (
+                                    <div className="mt-1 text-xs text-green-600">已保存</div>
+                                )}
+                                {saveFeedback === 'error' && (
+                                    <div className="mt-1 text-xs text-red-600">保存失败，请重试</div>
+                                )}
+                            </div>
+                            <Button
+                                variant="outline"
+                                className="h-9 rounded-xl text-sm border-blue-200 text-blue-600 hover:bg-blue-50"
+                                onClick={handleSaveAppearanceSettings}
+                            >
+                                保存设置
+                            </Button>
+                        </div>
+
                         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur space-y-5">
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                                 <div>

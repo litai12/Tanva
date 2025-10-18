@@ -632,9 +632,21 @@ class AIImageService {
           是否有效: mergedDataValid,
           前50字符: imageBytes ? imageBytes.substring(0, 50) : 'N/A'
         });
+
+        // 去除 Base64 中可能存在的空白字符，避免后续 atob 报错
+        if (imageBytes) {
+          const sanitized = imageBytes.replace(/\s+/g, '');
+          if (sanitized.length !== imageBytes.length) {
+            console.log(`🧹 ${operationType} 图像数据已清理空白字符:`, {
+              原始长度: imageBytes.length,
+              清理后长度: sanitized.length
+            });
+          }
+          imageBytes = sanitized;
+        }
         
         // 如果合并后是空字符串，置为null
-        if (imageBytes === '' || imageBytes.length === 0) {
+        if (!imageBytes || imageBytes.length === 0) {
           console.warn('⚠️ 合并后的图像数据为空字符串，置为null');
           imageBytes = null;
         }
