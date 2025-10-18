@@ -458,9 +458,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     };
     window.addEventListener('paper-project-changed', handler as any);
     window.addEventListener('paper-ready', handler as any);
+    window.addEventListener('paper-project-cleared', handler as any);
     return () => {
       window.removeEventListener('paper-project-changed', handler as any);
       window.removeEventListener('paper-ready', handler as any);
+      window.removeEventListener('paper-project-cleared', handler as any);
     };
   }, [createGrid, gridSize]);
 

@@ -575,6 +575,7 @@ function FlowInner() {
   // 将 ReactFlow 的更改写回项目内容（触发自动保存）
   const scheduleCommit = React.useCallback((nodesSnapshot: TemplateNode[], edgesSnapshot: TemplateEdge[]) => {
     if (!projectId) return;
+    if (!hydrated) return;
     if (hydratingFromStoreRef.current) return;
     if (nodeDraggingRef.current) return; // 拖拽时不高频写回
     const json = (() => { try { return JSON.stringify({ n: nodesSnapshot, e: edgesSnapshot }); } catch { return null; } })();
@@ -585,15 +586,24 @@ function FlowInner() {
       updateProjectPartial({ flow: { nodes: nodesSnapshot, edges: edgesSnapshot } }, { markDirty: true });
       commitTimerRef.current = null;
     }, 120); // 轻微节流，避免频繁渲染
-  }, [projectId, updateProjectPartial]);
+  }, [projectId, hydrated, updateProjectPartial]);
 
   React.useEffect(() => {
     if (!projectId) return;
+    if (!hydrated) return;
     if (hydratingFromStoreRef.current) return;
     const nodesSnapshot = rfNodesToTplNodes(nodes as any);
     const edgesSnapshot = rfEdgesToTplEdges(edges);
     scheduleCommit(nodesSnapshot, edgesSnapshot);
-  }, [nodes, edges, projectId, rfNodesToTplNodes, rfEdgesToTplEdges, scheduleCommit]);
+  }, [nodes, edges, projectId, hydrated, rfNodesToTplNodes, rfEdgesToTplEdges, scheduleCommit]);
+
+  React.useEffect(() => {
+    if (hydrated) return;
+    if (commitTimerRef.current) {
+      window.clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+  }, [hydrated]);
 
   // 背景设置改为驱动底层 Canvas 网格
   // 使用独立的Flow状态
