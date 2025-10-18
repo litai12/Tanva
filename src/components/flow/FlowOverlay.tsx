@@ -1012,6 +1012,10 @@ function FlowInner() {
       if (targetHandle === 'text') return ['textPrompt','promptOptimize','analysis'].includes(sourceNode.type || '');
       return false;
     }
+    if (targetNode.type === 'textPrompt') {
+      if (targetHandle === 'text') return ['promptOptimize','analysis','textPrompt'].includes(sourceNode.type || '');
+      return false;
+    }
     if (targetNode.type === 'analysis') {
       if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
@@ -1035,6 +1039,9 @@ function FlowInner() {
     if (targetNode?.type === 'promptOptimize') {
       if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
     }
+    if (targetNode?.type === 'textPrompt') {
+      if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
+    }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
     }
@@ -1055,7 +1062,7 @@ function FlowInner() {
       }
       
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'promptOptimize')) && params.targetHandle === 'text') {
+      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt')) && params.targetHandle === 'text') {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'text'));
       }
       
