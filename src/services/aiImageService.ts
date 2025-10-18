@@ -2001,37 +2001,42 @@ ${contextualPrompt}
 
       const startTime = Date.now();
 
-      // 🌊 使用流式API进行图像分析
-      const result = await this.withTimeout(
-        (async () => {
-          const stream = await this.genAI.models.generateContentStream({
-            model: 'gemini-2.0-flash',
-            contents: [
-              { text: analysisPrompt },
-              {
-                inlineData: {
-                  mimeType: sourceMimeType || 'image/png',
-                  data: imageData
+      // 🌊 使用流式API进行图像分析（内置重试 + 超时）
+      const result = await this.withRetry(
+        () => this.withTimeout(
+          (async () => {
+            const stream = await this.genAI!.models.generateContentStream({
+              model: 'gemini-2.0-flash',
+              contents: [
+                { text: analysisPrompt },
+                {
+                  inlineData: {
+                    mimeType: sourceMimeType || 'image/png',
+                    data: imageData
+                  }
                 }
+              ],
+              config: {
+                safetySettings: [
+                  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+                ]
               }
-            ],
-            config: {
-              safetySettings: [
-                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-              ]
-            }
-          });
+            });
 
-          const streamResult = await this.parseStreamResponse(stream, '图像分析');
-          // 图像分析只返回文本，不期望图像数据
-          return { text: streamResult.textResponse };
-        })(),
-        this.DEFAULT_TIMEOUT,
-        '流式图像分析'
+            const streamResult = await this.parseStreamResponse(stream, '图像分析');
+            // 图像分析只返回文本，不期望图像数据
+            return { text: streamResult.textResponse };
+          })(),
+          this.DEFAULT_TIMEOUT,
+          '流式图像分析'
+        ),
+        '图像分析重试',
+        2,
+        1200
       );
 
       const processingTime = Date.now() - startTime;

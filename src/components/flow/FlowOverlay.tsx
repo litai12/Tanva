@@ -29,6 +29,7 @@ import Generate4Node from './nodes/Generate4Node';
 import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
 import PromptOptimizeNode from './nodes/PromptOptimizeNode';
+import AnalysisNode from './nodes/AnalyzeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
@@ -48,6 +49,7 @@ const nodeTypes = {
   generate4: Generate4Node,
   three: ThreeNode,
   camera: CameraNode,
+  analysis: AnalysisNode,
 };
 
 const BUILTIN_TEMPLATE_CATEGORIES: Array<{ value: string; label: string }> = [
@@ -958,7 +960,7 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'three' | 'camera', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
@@ -968,6 +970,7 @@ function FlowInner() {
       generate4: { w: 300, h: 240 },
       three: { w: 280, h: 260 },
       camera: { w: 260, h: 220 },
+      analysis: { w: 260, h: 280 },
     }[type];
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -976,6 +979,7 @@ function FlowInner() {
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
+      : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
     try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
@@ -995,7 +999,7 @@ function FlowInner() {
 
     // 允许连接到 Generate / Generate4 / Image / PromptOptimizer
     if (targetNode.type === 'generate' || targetNode.type === 'generate4') {
-      if (targetHandle === 'text') return ['textPrompt','promptOptimize'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['textPrompt','promptOptimize','analysis'].includes(sourceNode.type || '');
       if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
@@ -1005,7 +1009,11 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'promptOptimize') {
-      if (targetHandle === 'text') return ['textPrompt','promptOptimize'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['textPrompt','promptOptimize','analysis'].includes(sourceNode.type || '');
+      return false;
+    }
+    if (targetNode.type === 'analysis') {
+      if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     return false;
@@ -1027,6 +1035,9 @@ function FlowInner() {
     if (targetNode?.type === 'promptOptimize') {
       if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
     }
+    if (targetNode?.type === 'analysis') {
+      if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
+    }
     return false;
   }, [rf]);
 
@@ -1039,7 +1050,7 @@ function FlowInner() {
       const tgt = rf.getNode(params.target!);
       
       // 如果是连接到 Image(img)，先移除旧的输入线，再添加新线
-      if (tgt?.type === 'image' && params.targetHandle === 'img') {
+      if ((tgt?.type === 'image' || tgt?.type === 'analysis') && params.targetHandle === 'img') {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'img'));
       }
       
@@ -1056,7 +1067,7 @@ function FlowInner() {
     // 若连接到 Image(img)，立即把源图像写入目标
     try {
       const target = rf.getNode(params.target!);
-      if (target?.type === 'image' && params.targetHandle === 'img' && params.source) {
+      if ((target?.type === 'image' || target?.type === 'analysis') && params.targetHandle === 'img' && params.source) {
         const src = rf.getNode(params.source);
         let img: string | undefined;
         if (src?.type === 'generate4') {
@@ -1071,7 +1082,15 @@ function FlowInner() {
         } else {
           img = (src?.data as any)?.imageData;
         }
-        if (img) setNodes(ns => ns.map(n => n.id === target.id ? { ...n, data: { ...n.data, imageData: img } } : n));
+        if (img) {
+          setNodes(ns => ns.map(n => {
+            if (n.id !== target.id) return n;
+            const resetStatus = target.type === 'analysis'
+              ? { status: 'idle', error: undefined, prompt: '', text: '' }
+              : {};
+            return { ...n, data: { ...n.data, imageData: img, ...resetStatus } };
+          }));
+        }
       }
     } catch {}
   }, [isValidConnection, canAcceptConnection, setEdges, rf, setNodes]);
@@ -1104,7 +1123,10 @@ function FlowInner() {
       return;
     }
     const promptNode = rf.getNode(incomingTextEdge.source);
-    const prompt = (promptNode?.data as any)?.text || '';
+    const promptData = (promptNode?.data || {}) as any;
+    const promptText = typeof promptData.text === 'string' ? promptData.text : '';
+    const promptAlt = typeof promptData.prompt === 'string' ? promptData.prompt : '';
+    const prompt = promptText.trim().length ? promptText : promptAlt;
     if (!prompt.trim()) {
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
       return;
@@ -1330,7 +1352,7 @@ function FlowInner() {
     return () => { delete (window as any).tanvaFlow; };
   }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
 
-  const addAtCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'generate4') => {
+  const addAtCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'analysis') => {
     const rect = containerRef.current?.getBoundingClientRect();
     const centerScreen = {
       x: (rect?.width || window.innerWidth) / 2,
@@ -1347,6 +1369,7 @@ function FlowInner() {
         type === 'promptOptimize' ? { text: '', expandedText: '' } :
         type === 'generate' ? { status: 'idle' } :
         type === 'generate4' ? { status: 'idle', images: [], count: 4 } :
+        type === 'analysis' ? { status: 'idle', prompt: '', analysisPrompt: undefined } :
         { imageData: undefined }
     };
     setNodes(ns => ns.concat([base]));
@@ -1364,6 +1387,7 @@ function FlowInner() {
     >
       <button onClick={() => addAtCenter('textPrompt')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
       <button onClick={() => addAtCenter('promptOptimize')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>优化</button>
+      <button onClick={() => addAtCenter('analysis')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>分析</button>
       <button onClick={() => addAtCenter('image')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>图片</button>
       <button onClick={() => addAtCenter('generate')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
       <button onClick={() => addAtCenter('generate4')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>Multi Generate</button>
@@ -1703,6 +1727,39 @@ function FlowInner() {
                 >
                   <span>Prompt Optimizer</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词优化</span>
+                </button>
+                <button 
+                  onClick={() => createNodeAtWorldCenter('analysis', addPanel.world)} 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13, 
+                    fontWeight: 500,
+                    padding: '12px 16px', 
+                    borderRadius: 8, 
+                    border: '1px solid #e5e7eb', 
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Analysis Node</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>图像分析</span>
                 </button>
                 <button 
                   onClick={() => createNodeAtWorldCenter('image', addPanel.world)} 
