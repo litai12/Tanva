@@ -8,6 +8,7 @@ import Home from '@/pages/Home';
 import LoginPage from '@/pages/auth/Login';
 import RegisterPage from '@/pages/auth/Register';
 import OSSDemo from '@/pages/OSSDemo';
+import VeoTestPage from '@/pages/VeoTest';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
@@ -26,6 +27,7 @@ function RootRoutes() {
       <Route path="/auth/login" element={<LoginPage />} />
       <Route path="/auth/register" element={<RegisterPage />} />
       <Route path="/oss" element={<OSSDemo />} />
+      <Route path="/veo-test" element={<VeoTestPage />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/workspace" element={<Workspace />} />
         <Route path="/app" element={<App />} />

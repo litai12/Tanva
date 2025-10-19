@@ -15,6 +15,7 @@ export default function Home() {
           <AccountBadge />
           <Link className="text-slate-600 hover:text-slate-900" to="/docs">文档</Link>
           <Link className="text-sky-600 hover:underline" to="/oss">OSS Demo</Link>
+          <Link className="text-purple-600 hover:underline" to="/veo-test">🎬 Veo 测试</Link>
           <Button variant="ghost" onClick={() => navigate('/auth/login')}>登录</Button>
           <Button onClick={() => navigate('/auth/register')}>注册</Button>
         </nav>

@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'promptOptimize' | 'image' | 'generate' | 'generate4';
+export type NodeKind = 'textPrompt' | 'textChat' | 'promptOptimize' | 'image' | 'generate' | 'generate4';
 
 export type TextPromptData = {
   text: string;
@@ -32,7 +32,17 @@ export type PromptOptimizeData = {
   expandedText?: string; // optimized preview/output
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | Generate4Data;
+export type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
+
+export type TextChatData = {
+  status?: TextChatStatus;
+  responseText?: string;
+  manualInput?: string;
+  enableWebSearch?: boolean;
+  error?: string;
+};
+
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | Generate4Data | TextChatData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;

@@ -23,6 +23,7 @@ import type { FlowTemplate, TemplateIndexEntry, TemplateNode, TemplateEdge } fro
 import { loadBuiltInTemplateIndex, loadBuiltInTemplateByPath, listUserTemplates, getUserTemplate, saveUserTemplate, deleteUserTemplate, generateId } from '@/services/templateStore';
 
 import TextPromptNode from './nodes/TextPromptNode';
+import TextChatNode from './nodes/TextChatNode';
 import ImageNode from './nodes/ImageNode';
 import GenerateNode from './nodes/GenerateNode';
 import Generate4Node from './nodes/Generate4Node';
@@ -30,7 +31,6 @@ import GenerateReferenceNode from './nodes/GenerateReferenceNode';
 import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
 import PromptOptimizeNode from './nodes/PromptOptimizeNode';
-import PromptFusionNode from './nodes/PromptFusionNode';
 import AnalysisNode from './nodes/AnalyzeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -45,8 +45,8 @@ type RFNode = Node<any>;
 
 const nodeTypes = {
   textPrompt: TextPromptNode,
+  textChat: TextChatNode,
   promptOptimize: PromptOptimizeNode,
-  promptFusion: PromptFusionNode,
   image: ImageNode,
   generate: GenerateNode,
   generate4: Generate4Node,
@@ -1029,12 +1029,12 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'promptFusion' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
+      textChat: { w: 320, h: 540 },
       promptOptimize: { w: 360, h: 300 },
-      promptFusion: { w: 360, h: 320 },
       image: { w: 260, h: 240 },
       generate: { w: 260, h: 200 },
       generate4: { w: 300, h: 240 },
@@ -1046,8 +1046,8 @@ function FlowInner() {
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
     const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h }
+      : type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false, boxW: size.w, boxH: size.h }
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
-      : type === 'promptFusion' ? { segmentA: '', segmentB: '', fusedText: '', text: '', autoFuse: true, boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
@@ -1072,13 +1072,13 @@ function FlowInner() {
 
     // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
     if (targetNode.type === 'generateRef') {
-      if (targetHandle === 'text') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
       if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       if (targetHandle === 'image2' || targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'generate' || targetNode.type === 'generate4') {
-      if (targetHandle === 'text') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
       if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
@@ -1088,19 +1088,19 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'promptOptimize') {
-      if (targetHandle === 'text') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'textPrompt') {
-      if (targetHandle === 'text') return ['promptOptimize','promptFusion','analysis','textPrompt'].includes(sourceNode.type || '');
-      return false;
-    }
-    if (targetNode.type === 'promptFusion') {
-      if (targetHandle === 'textA' || targetHandle === 'textB') return ['textPrompt','promptOptimize','promptFusion','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return ['promptOptimize','analysis','textPrompt','textChat'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'analysis') {
       if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
+      return false;
+    }
+    if (targetNode.type === 'textChat') {
+      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
       return false;
     }
     return false;
@@ -1131,11 +1131,11 @@ function FlowInner() {
     if (targetNode?.type === 'textPrompt') {
       if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
     }
-    if (targetNode?.type === 'promptFusion') {
-      if (params.targetHandle === 'textA' || params.targetHandle === 'textB') return true;
-    }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
+    }
+    if (targetNode?.type === 'textChat') {
+      if (params.targetHandle === 'text') return true;
     }
     return false;
   }, [rf]);
@@ -1166,10 +1166,6 @@ function FlowInner() {
           next = next.filter(e => !(e.target === params.target && image2Handles.includes((e.targetHandle || ''))));
         }
       }
-      if ((tgt?.type === 'promptFusion') && (params.targetHandle === 'textA' || params.targetHandle === 'textB')) {
-        next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
-      }
-      
       const out = addEdge({ ...params, type: 'default' }, next);
       return out;
     });
@@ -1489,7 +1485,7 @@ function FlowInner() {
     return () => { delete (window as any).tanvaFlow; };
   }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
 
-  const addAtCenter = React.useCallback((type: 'textPrompt' | 'promptOptimize' | 'promptFusion' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'analysis') => {
+  const addAtCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'analysis') => {
     const rect = containerRef.current?.getBoundingClientRect();
     const centerScreen = {
       x: (rect?.width || window.innerWidth) / 2,
@@ -1503,8 +1499,8 @@ function FlowInner() {
       position: center,
       data:
         type === 'textPrompt' ? { text: '' } :
+        type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false } :
         type === 'promptOptimize' ? { text: '', expandedText: '' } :
-        type === 'promptFusion' ? { segmentA: '', segmentB: '', fusedText: '', text: '', autoFuse: true } :
         type === 'generate' ? { status: 'idle' } :
         type === 'generate4' ? { status: 'idle', images: [], count: 4 } :
         type === 'generateRef' ? { status: 'idle', referencePrompt: undefined } :
@@ -1525,8 +1521,8 @@ function FlowInner() {
       style={{ position: 'absolute', top: 56, right: 16, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(255,255,255,0.9)', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}
     >
       <button onClick={() => addAtCenter('textPrompt')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
+      <button onClick={() => addAtCenter('textChat')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字交互</button>
       <button onClick={() => addAtCenter('promptOptimize')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>优化</button>
-      <button onClick={() => addAtCenter('promptFusion')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>融合</button>
       <button onClick={() => addAtCenter('analysis')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>分析</button>
       <button onClick={() => addAtCenter('image')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>图片</button>
       <button onClick={() => addAtCenter('generate')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#111827', color: '#fff' }}>生成</button>
@@ -1842,6 +1838,39 @@ function FlowInner() {
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词</span>
                 </button>
                 <button 
+                  onClick={() => createNodeAtWorldCenter('textChat', addPanel.world)} 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13, 
+                    fontWeight: 500,
+                    padding: '12px 16px', 
+                    borderRadius: 8, 
+                    border: '1px solid #e5e7eb', 
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Text Chat Node</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>纯文本交互</span>
+                </button>
+                <button 
                   onClick={() => createNodeAtWorldCenter('promptOptimize', addPanel.world)} 
                   style={{ 
                     display: 'flex',
@@ -1873,39 +1902,6 @@ function FlowInner() {
                 >
                 <span>Prompt Optimizer</span>
                 <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词优化</span>
-              </button>
-              <button 
-                onClick={() => createNodeAtWorldCenter('promptFusion', addPanel.world)} 
-                style={{ 
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: 13, 
-                  fontWeight: 500,
-                  padding: '12px 16px', 
-                  borderRadius: 8, 
-                  border: '1px solid #e5e7eb', 
-                  background: '#fff',
-                  color: '#374151',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  width: '100%'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f9fafb';
-                  e.currentTarget.style.borderColor = '#d1d5db';
-                  e.currentTarget.style.transform = 'translateX(2px)';
-                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#fff';
-                  e.currentTarget.style.borderColor = '#e5e7eb';
-                  e.currentTarget.style.transform = 'translateX(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
-                <span>Prompt Fusion</span>
-                <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词融合</span>
               </button>
               <button 
                 onClick={() => createNodeAtWorldCenter('analysis', addPanel.world)} 
