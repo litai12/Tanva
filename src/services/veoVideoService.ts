@@ -230,6 +230,19 @@ class VeoVideoService {
       const processingTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
+      // 打印完整的错误对象用于诊断
+      console.error('❌ 完整的错误对象:', error);
+      console.error('❌ 错误消息:', errorMessage);
+      console.error('❌ 错误类型:', error instanceof Error ? error.constructor.name : typeof error);
+
+      // 如果是网络错误，打印详细信息
+      if (error instanceof Error && error.message.includes('fetch')) {
+        console.error('🔍 网络错误详情:', {
+          message: error.message,
+          stack: error.stack
+        });
+      }
+
       console.error('❌ 视频生成失败:', {
         错误: errorMessage,
         耗时: processingTime + 'ms',
@@ -251,15 +264,18 @@ class VeoVideoService {
       if (errorMessage.includes('timeout')) {
         errorCode = 'REQUEST_TIMEOUT';
         userMessage = '视频生成超时，请重试';
-      } else if (errorMessage.includes('API_KEY_INVALID')) {
+      } else if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('INVALID_ARGUMENT')) {
         errorCode = 'INVALID_API_KEY';
-        userMessage = 'API密钥无效，请检查配置';
-      } else if (errorMessage.includes('QUOTA_EXCEEDED')) {
+        userMessage = 'API密钥无效或请求参数错误，请检查配置';
+      } else if (errorMessage.includes('QUOTA_EXCEEDED') || errorMessage.includes('quota')) {
         errorCode = 'QUOTA_EXCEEDED';
         userMessage = 'API配额已用完，请检查账户余额';
-      } else if (errorMessage.includes('billed users')) {
+      } else if (errorMessage.includes('billed users') || errorMessage.includes('billing')) {
         errorCode = 'BILLING_REQUIRED';
         userMessage = 'Gemini API需要付费账户，请升级您的Google Cloud账户';
+      } else if (errorMessage.includes('MODEL_NOT_FOUND') || errorMessage.includes('model') || errorMessage.includes('not available')) {
+        errorCode = 'MODEL_NOT_AVAILABLE';
+        userMessage = '模型不可用或不存在。当前使用的模型: ' + this.VIDEO_MODEL;
       }
 
       return {
