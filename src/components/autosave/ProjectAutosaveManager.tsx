@@ -27,7 +27,9 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
   useEffect(() => {
     if (!projectId) {
       paperSaveService.cancelPending();
-      setProject(null);
+      if (useProjectContentStore.getState().projectId !== null) {
+        setProject(null);
+      }
       try { useAIChatStore.getState().resetSessions({ rehydrateLocal: true }); } catch {}
       try { contextManager.clearImageCache(); } catch {}
       // 不再清空图片历史，保留跨文件的历史记录
@@ -52,7 +54,9 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     try { (window as any).tanvaImageInstances = []; } catch {}
     try { (window as any).tanvaModel3DInstances = []; } catch {}
     try { (window as any).tanvaTextItems = []; } catch {}
-    setProject(projectId);
+    if (useProjectContentStore.getState().projectId !== projectId) {
+      setProject(projectId);
+    }
     try { useAIChatStore.getState().resetSessions({ rehydrateLocal: false }); } catch {}
 
     (async () => {
