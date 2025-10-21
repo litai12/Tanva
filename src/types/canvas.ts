@@ -86,6 +86,7 @@ export interface Model3DToolEventHandlers {
   onModel3DDeselect?: () => void;
   onModel3DMove?: (modelId: string, newPosition: { x: number; y: number }) => void;
   onModel3DResize?: (modelId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;
+  onModel3DDelete?: (modelId: string) => void;
 }
 
 // 绘图工具状态类型

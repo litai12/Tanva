@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
-import { persist } from 'zustand/middleware';
+import { subscribeWithSelector, persist, createJSONStorage } from 'zustand/middleware';
 import { createSafeStorage } from './storageUtils';
 
 export interface ImageHistoryItem {
@@ -86,10 +85,10 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
       }),
       {
         name: 'image-history',
-        storage: createSafeStorage({ storageName: 'image-history' }),
+        storage: createJSONStorage<Partial<ImageHistoryStore>>(() => createSafeStorage({ storageName: 'image-history' })),
         partialize: (state) => ({
           history: state.history
-        })
+        }) as Partial<ImageHistoryStore>
       }
     )
   )

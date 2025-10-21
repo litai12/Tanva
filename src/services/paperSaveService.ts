@@ -142,7 +142,7 @@ class PaperSaveService {
       if (hasRemoteUrl) {
         next.src = next.url;
       } else if (!hasRemoteUrl && hasRemoteSrc) {
-        next.url = next.src;
+        next.url = next.src!;
       }
 
       if (!next.pendingUpload && hasRemoteUrl) {

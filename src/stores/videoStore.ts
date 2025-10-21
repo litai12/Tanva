@@ -61,24 +61,25 @@ export const useVideoStore = create<VideoState>()(
             const result = await veoVideoService.generateVideo(request);
 
             if (result.success && result.data) {
-              console.log('✅ 视频生成成功:', result.data.id);
+              const video = result.data;
+              console.log('✅ 视频生成成功:', video.id);
 
               // 添加视频到列表
               set((state) => ({
-                videos: [result.data, ...state.videos],
-                currentGeneratingVideoId: result.data.id,
-                videoStatuses: new Map(state.videoStatuses).set(result.data.id, {
-                  videoId: result.data.id,
+                videos: [video, ...state.videos],
+                currentGeneratingVideoId: video.id,
+                videoStatuses: new Map(state.videoStatuses).set(video.id, {
+                  videoId: video.id,
                   status: 'completed',
                   progress: 100,
-                  resultUrl: result.data.videoUrl,
-                  createdAt: result.data.createdAt
+                  resultUrl: video.videoUrl,
+                  createdAt: video.createdAt
                 })
               }));
 
               // 添加进度事件
               get().addProgressEvent({
-                videoId: result.data.id,
+                videoId: video.id,
                 phase: 'completed',
                 progress: 100,
                 message: '视频生成完成!',
@@ -115,21 +116,22 @@ export const useVideoStore = create<VideoState>()(
             });
 
             if (result.success && result.data) {
-              console.log('✅ 视频扩展成功:', result.data.id);
+              const video = result.data;
+              console.log('✅ 视频扩展成功:', video.id);
 
               set((state) => ({
-                videos: [result.data, ...state.videos],
-                videoStatuses: new Map(state.videoStatuses).set(result.data.id, {
-                  videoId: result.data.id,
+                videos: [video, ...state.videos],
+                videoStatuses: new Map(state.videoStatuses).set(video.id, {
+                  videoId: video.id,
                   status: 'completed',
                   progress: 100,
-                  resultUrl: result.data.videoUrl,
-                  createdAt: result.data.createdAt
+                  resultUrl: video.videoUrl,
+                  createdAt: video.createdAt
                 })
               }));
 
               get().addProgressEvent({
-                videoId: result.data.id,
+                videoId: video.id,
                 phase: 'completed',
                 progress: 100,
                 message: '视频扩展完成!',

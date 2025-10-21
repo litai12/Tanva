@@ -305,7 +305,8 @@ export class TestExecutor {
   }
 
   getReport(): string {
-    const totalTests = this.logs.getLogs().split('\n').length;
+    const logLines = this.logger.getLogs().split('\n').filter((line) => line.trim().length > 0);
+    const totalTests = logLines.length;
     return `
 === 测试报告 ===
 总测试数: ${totalTests}

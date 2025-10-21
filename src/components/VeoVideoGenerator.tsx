@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle, Download, Play, Trash2, Loader } from 'lucide-react';
 import { useVideoStore } from '@/stores/videoStore';
@@ -149,16 +147,16 @@ export const VeoVideoGenerator: React.FC = () => {
             {/* 时长选择 */}
             <div className="space-y-2">
               <label className="text-sm font-medium">视频时长</label>
-              <Select value={duration.toString()} onValueChange={(v) => setDuration(parseInt(v) as 4 | 6 | 8)}>
-                <SelectTrigger disabled={isLoading}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="4">4 秒</SelectItem>
-                  <SelectItem value="6">6 秒</SelectItem>
-                  <SelectItem value="8">8 秒（推荐）</SelectItem>
-                </SelectContent>
-              </Select>
+              <select
+                value={duration}
+                onChange={(event) => setDuration(parseInt(event.target.value, 10) as 4 | 6 | 8)}
+                disabled={isLoading}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value={4}>4 秒</option>
+                <option value={6}>6 秒</option>
+                <option value={8}>8 秒（推荐）</option>
+              </select>
               <p className="text-xs text-muted-foreground">
                 可通过"扩展"功能扩展至 148 秒
               </p>
@@ -167,15 +165,15 @@ export const VeoVideoGenerator: React.FC = () => {
             {/* 分辨率选择 */}
             <div className="space-y-2">
               <label className="text-sm font-medium">分辨率</label>
-              <Select value={resolution} onValueChange={(v) => setResolution(v as '720p' | '1080p')}>
-                <SelectTrigger disabled={isLoading}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="720p">720p（推荐）</SelectItem>
-                  <SelectItem value="1080p">1080p</SelectItem>
-                </SelectContent>
-              </Select>
+              <select
+                value={resolution}
+                onChange={(event) => setResolution(event.target.value as '720p' | '1080p')}
+                disabled={isLoading}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="720p">720p（推荐）</option>
+                <option value="1080p">1080p</option>
+              </select>
               <p className="text-xs text-muted-foreground">
                 1080p 会增加生成时间
               </p>

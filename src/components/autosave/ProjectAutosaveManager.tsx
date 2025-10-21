@@ -30,7 +30,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       if (useProjectContentStore.getState().projectId !== null) {
         setProject(null);
       }
-      try { useAIChatStore.getState().resetSessions({ rehydrateLocal: true }); } catch {}
+      try { useAIChatStore.getState().resetSessions(); } catch {}
       try { contextManager.clearImageCache(); } catch {}
       // 不再清空图片历史，保留跨文件的历史记录
       // try { useImageHistoryStore.getState().clearHistory(); } catch {}
@@ -57,7 +57,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     if (useProjectContentStore.getState().projectId !== projectId) {
       setProject(projectId);
     }
-    try { useAIChatStore.getState().resetSessions({ rehydrateLocal: false }); } catch {}
+    try { useAIChatStore.getState().resetSessions(); } catch {}
 
     (async () => {
       try {
@@ -72,7 +72,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           if (sessions.length > 0) {
             chatStore.hydratePersistedSessions(sessions, activeSessionId, { markProjectDirty: false });
           } else {
-            chatStore.resetSessions({ rehydrateLocal: false });
+            chatStore.resetSessions();
           }
         } catch (error) {
           console.error('❌ 同步聊天会话失败:', error);

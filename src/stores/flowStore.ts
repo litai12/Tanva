@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { createSafeStorage } from './storageUtils';
 
@@ -104,7 +104,7 @@ export const useFlowStore = create<FlowState>()(
       }),
       {
         name: 'flow-settings', // localStorage 键名
-        storage: createSafeStorage({ storageName: 'flow-settings' }),
+        storage: createJSONStorage<Partial<FlowState>>(() => createSafeStorage({ storageName: 'flow-settings' })),
         // 只持久化配置，不包括视口和交互状态
         partialize: (state) => ({
           backgroundEnabled: state.backgroundEnabled,
@@ -114,7 +114,7 @@ export const useFlowStore = create<FlowState>()(
           backgroundColor: state.backgroundColor,
           backgroundOpacity: state.backgroundOpacity,
           snapToGrid: state.snapToGrid,
-        }),
+        }) as Partial<FlowState>,
       }
     )
   )

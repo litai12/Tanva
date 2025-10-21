@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { logger } from '@/utils/logger';
 import { createSafeStorage } from './storageUtils';
@@ -94,7 +94,7 @@ export const useToolStore = create<ToolState>()(
       }),
       {
         name: 'tool-settings', // localStorage 键名
-        storage: createSafeStorage({ storageName: 'tool-settings' }),
+        storage: createJSONStorage<Partial<ToolState>>(() => createSafeStorage({ storageName: 'tool-settings' })),
         // 持久化工具设置，但不包括橡皮擦状态（通常是临时的）
         partialize: (state) => ({
           drawMode: state.drawMode,
@@ -102,7 +102,7 @@ export const useToolStore = create<ToolState>()(
           fillColor: state.fillColor,
           strokeWidth: state.strokeWidth,
           hasFill: state.hasFill,
-        }),
+        }) as Partial<ToolState>,
       }
     )
   )

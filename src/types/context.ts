@@ -19,7 +19,7 @@ export interface ConversationContext {
   operations: OperationHistory[];
   
   // 当前状态
-  currentMode: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat';
+  currentMode: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat' | 'video_generate';
   activeImageId?: string;
   
   // 🖼️ 图像缓存状态
@@ -47,7 +47,7 @@ export interface ConversationContext {
 // 操作历史记录
 export interface OperationHistory {
   id: string;
-  type: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat';
+  type: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat' | 'video_generate';
   timestamp: Date;
   input: string;
   output?: string;

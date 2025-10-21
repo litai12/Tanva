@@ -29,6 +29,7 @@ import SimpleTextEditor from './SimpleTextEditor';
 import TextSelectionOverlay from './TextSelectionOverlay';
 import type { DrawingContext } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
+import { historyService } from '@/services/historyService';
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
@@ -300,75 +301,77 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       return false;
     };
 
-    const handlePaste = async (e: ClipboardEvent) => {
-      try {
-        // 若焦点在可编辑元素中，放行默认粘贴行为
-        const active = document.activeElement as Element | null;
-        if (isEditableElement(active)) return;
+    const handlePaste = (e: ClipboardEvent) => {
+      void (async () => {
+        try {
+          // 若焦点在可编辑元素中，放行默认粘贴行为
+          const active = document.activeElement as Element | null;
+          if (isEditableElement(active)) return;
 
-        const clipboardData = e.clipboardData;
-        if (!clipboardData) return;
+          const clipboardData = e.clipboardData;
+          if (!clipboardData) return;
 
-        // 优先处理图片项
-        const items = clipboardData.items;
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          if (item && item.kind === 'file' && item.type.startsWith('image/')) {
-            const file = item.getAsFile();
-            if (!file) continue;
+          // 优先处理图片项
+          const items = clipboardData.items;
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item && item.kind === 'file' && item.type.startsWith('image/')) {
+              const file = item.getAsFile();
+              if (!file) continue;
 
-            // 阻止默认粘贴（避免在页面其它位置插入）
+              // 阻止默认粘贴（避免在页面其它位置插入）
+              e.preventDefault();
+              try {
+                const dataUrl = await fileToDataURL(file);
+                // 直接复用快速上传放置逻辑，默认落在视口中心
+                await quickImageUpload.handleQuickImageUploaded?.(dataUrl, file.name);
+              } catch (err) {
+                console.error('粘贴图片处理失败:', err);
+              }
+              return; // 已处理首个图片项
+            }
+          }
+
+          // 无图片项时，尝试处理文本中的图片URL
+          const text = clipboardData.getData('text/plain');
+          if (seemsImageUrl(text)) {
             e.preventDefault();
             try {
-              const dataUrl = await fileToDataURL(file);
-              // 直接复用快速上传放置逻辑，默认落在视口中心
-              await quickImageUpload.handleQuickImageUploaded?.(dataUrl, file.name);
-            } catch (err) {
-              console.error('粘贴图片处理失败:', err);
-            }
-            return; // 已处理首个图片项
-          }
-        }
-
-        // 无图片项时，尝试处理文本中的图片URL
-        const text = clipboardData.getData('text/plain');
-        if (seemsImageUrl(text)) {
-          e.preventDefault();
-          try {
-            // 尝试优先拉取为 Blob 转 DataURL，避免跨域导出受限
-            let payload: string = text;
-            try {
-              const ctrl = new AbortController();
-              const id = setTimeout(() => ctrl.abort(), 5000);
-              const resp = await fetch(text, { signal: ctrl.signal });
-              clearTimeout(id);
-              if (resp.ok) {
-                const blob = await resp.blob();
-                if (blob.type.startsWith('image/')) {
-                  payload = await new Promise<string>((resolve, reject) => {
-                    const fr = new FileReader();
-                    fr.onload = () => resolve(String(fr.result || ''));
-                    fr.onerror = reject;
-                    fr.readAsDataURL(blob);
-                  });
+              // 尝试优先拉取为 Blob 转 DataURL，避免跨域导出受限
+              let payload: string = text;
+              try {
+                const ctrl = new AbortController();
+                const id = setTimeout(() => ctrl.abort(), 5000);
+                const resp = await fetch(text, { signal: ctrl.signal });
+                clearTimeout(id);
+                if (resp.ok) {
+                  const blob = await resp.blob();
+                  if (blob.type.startsWith('image/')) {
+                    payload = await new Promise<string>((resolve, reject) => {
+                      const fr = new FileReader();
+                      fr.onload = () => resolve(String(fr.result || ''));
+                      fr.onerror = reject;
+                      fr.readAsDataURL(blob);
+                    });
+                  }
                 }
+              } catch {
+                // 拉取失败则退回直接使用URL（可能受CORS限制，仅用于展示）
               }
-            } catch {
-              // 拉取失败则退回直接使用URL（可能受CORS限制，仅用于展示）
-            }
 
-            await quickImageUpload.handleQuickImageUploaded?.(payload, undefined);
-          } catch (err) {
-            console.error('粘贴URL处理失败:', err);
+              await quickImageUpload.handleQuickImageUploaded?.(payload, undefined);
+            } catch (err) {
+              console.error('粘贴URL处理失败:', err);
+            }
           }
+        } catch (err) {
+          console.error('处理粘贴事件出错:', err);
         }
-      } catch (err) {
-        console.error('处理粘贴事件出错:', err);
-      }
+      })();
     };
 
-    window.addEventListener('paste', handlePaste as EventListener);
-    return () => window.removeEventListener('paste', handlePaste as EventListener);
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
   }, [quickImageUpload]);
 
   // ========== 监听AI生成图片的快速上传触发事件 ==========
@@ -851,8 +854,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       });
     }
     try {
-      const paperSelected = (paper.project?.getSelectedItems?.() ?? []).filter((item): item is paper.Path => item instanceof paper.Path);
-      paperSelected.forEach((path) => pathSet.add(path));
+      const selected = Array.isArray(paper.project?.selectedItems) ? paper.project!.selectedItems : [];
+      selected.filter((item): item is paper.Path => item instanceof paper.Path).forEach((path) => pathSet.add(path));
     } catch {
       // ignore
     }
@@ -1014,7 +1017,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             item.fullySelected = false;
           }
 
-          const strokeWidth = snapshot.strokeWidth ?? item.data?.originalStrokeWidth ?? item.strokeWidth ?? strokeWidthRef.current ?? strokeWidth;
+          const strokeWidth = snapshot.strokeWidth ?? item.data?.originalStrokeWidth ?? item.strokeWidth ?? 1;
           item.strokeWidth = strokeWidth;
           item.data = { ...(item.data || {}), originalStrokeWidth: strokeWidth };
 
@@ -1549,12 +1552,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
                   try { paper.view?.update(); } catch {}
 
+                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? '';
+                  const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
+
                   return {
                     id: ensuredImageId,
                     imageData: {
                       id: ensuredImageId,
-                      url: remoteUrl,
-                      src: inlineDataUrl || remoteUrl,
+                      url: resolvedUrl,
+                      src: resolvedSrc,
                       fileName: computedMetadata.fileName,
                       pendingUpload: false
                     },
@@ -1580,12 +1586,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   }
                 } else {
                   // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
+                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? '';
+                  const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
+
                   imageInstances.push({
                     id: ensuredImageId,
                     imageData: {
                       id: ensuredImageId,
-                      url: remoteUrl,
-                      src: inlineDataUrl || remoteUrl,
+                      url: resolvedUrl,
+                      src: resolvedSrc,
                       fileName: metadataFromRaster.fileName,
                       pendingUpload: raster.data?.pendingUpload ?? false
                     },

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSafeStorage } from './storageUtils';
 
 interface UIState {
@@ -145,7 +145,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-preferences',
-      storage: createSafeStorage({ storageName: 'ui-preferences' }),
+      storage: createJSONStorage<Partial<UIState>>(() => createSafeStorage({ storageName: 'ui-preferences' })),
       partialize: (state) => ({
         showLibraryPanel: state.showLibraryPanel,
         showLayerPanel: state.showLayerPanel,
@@ -158,7 +158,7 @@ export const useUIStore = create<UIState>()(
         flowEraserActive: state.flowEraserActive,
         focusMode: state.focusMode,
         smartPlacementOffset: state.smartPlacementOffset,
-      }),
+      }) as Partial<UIState>,
     }
   )
 );

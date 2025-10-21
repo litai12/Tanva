@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
@@ -122,7 +122,7 @@ export const useCanvasStore = create<CanvasState>()(
       }),
       {
         name: 'canvas-settings', // localStorage 键名
-        storage: createSafeStorage({ storageName: 'canvas-settings' }),
+        storage: createJSONStorage<Partial<CanvasState>>(() => createSafeStorage({ storageName: 'canvas-settings' })),
         // 持久化关键的画布偏好（视口平移改为仅会话级，不进入持久化，避免频繁写入）
         partialize: (state) => ({
           gridSize: state.gridSize,
@@ -138,27 +138,20 @@ export const useCanvasStore = create<CanvasState>()(
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,
           hasInitialCenterApplied: state.hasInitialCenterApplied,
-        }),
-        onRehydrateStorage: () => (state, error) => {
-          if (error) {
-            console.warn('canvasStore rehydrate failed:', error);
-            api.setState({ isHydrated: true });
-            return;
-          }
-
-          const currentState = api.getState();
-
-          // localStorage 旧版本可能缺少 hasInitialCenterApplied 字段，确保补齐
-          if (typeof currentState.hasInitialCenterApplied !== 'boolean') {
-            api.setState({ hasInitialCenterApplied: false });
-          }
-
-          api.setState({ isHydrated: true });
-        },
+        }) as Partial<CanvasState>,
       }
     )
   )
 );
+
+if (typeof window !== 'undefined' && 'persist' in useCanvasStore) {
+  useCanvasStore.persist?.onFinishHydration((state) => {
+    if (typeof state.hasInitialCenterApplied !== 'boolean') {
+      useCanvasStore.setState({ hasInitialCenterApplied: false });
+    }
+    useCanvasStore.setState({ isHydrated: true });
+  });
+}
 
 // 性能优化：导出常用的选择器
 export const useCanvasUnits = () => useCanvasStore((state) => state.units);
