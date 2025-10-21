@@ -1,7 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
-import { ImageGenerationService } from './image-generation.service';
+import { ImageGenerationService, ImageGenerationResult } from './image-generation.service';
 import { ToolSelectionRequestDto } from './dto/tool-selection.dto';
 import {
   GenerateImageDto,
@@ -26,19 +26,19 @@ export class AiController {
   }
 
   @Post('generate-image')
-  async generateImage(@Body() dto: GenerateImageDto) {
+  async generateImage(@Body() dto: GenerateImageDto): Promise<ImageGenerationResult> {
     const result = await this.imageGeneration.generateImage(dto);
     return result;
   }
 
   @Post('edit-image')
-  async editImage(@Body() dto: EditImageDto) {
+  async editImage(@Body() dto: EditImageDto): Promise<ImageGenerationResult> {
     const result = await this.imageGeneration.editImage(dto);
     return result;
   }
 
   @Post('blend-images')
-  async blendImages(@Body() dto: BlendImagesDto) {
+  async blendImages(@Body() dto: BlendImagesDto): Promise<ImageGenerationResult> {
     const result = await this.imageGeneration.blendImages(dto);
     return result;
   }
@@ -55,4 +55,3 @@ export class AiController {
     return result;
   }
 }
-

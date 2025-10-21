@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
 
@@ -32,9 +33,13 @@ export class ProjectsService {
       // eslint-disable-next-line no-console
       console.warn('OSS putJSON failed, project created without file:', e);
     }
+    const baseUpdate: Prisma.ProjectUpdateInput = { ossPrefix: prefix, mainKey };
     let updated: any;
     try {
-      updated = await this.prisma.project.update({ where: { id: project.id }, data: { ossPrefix: prefix, mainKey, contentJson: payload as any } });
+      updated = await this.prisma.project.update({
+        where: { id: project.id },
+        data: this.withOptionalContentJson(baseUpdate, payload),
+      });
     } catch (e) {
       // 兼容未迁移数据库环境：如果出现未知字段错误，退回不写 contentJson
       // eslint-disable-next-line no-console
@@ -115,16 +120,16 @@ export class ProjectsService {
     }
 
     const newVersion = (project.contentVersion ?? 0) + 1;
+    const baseUpdate: Prisma.ProjectUpdateInput = {
+      ossPrefix: prefix,
+      mainKey,
+      contentVersion: newVersion,
+    };
     let updated2: any;
     try {
       updated2 = await this.prisma.project.update({
         where: { id },
-        data: {
-          ossPrefix: prefix,
-          mainKey,
-          contentVersion: newVersion,
-          contentJson: content as any,
-        },
+        data: this.withOptionalContentJson(baseUpdate, content),
       });
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -137,5 +142,18 @@ export class ProjectsService {
       updatedAt: updated2.updatedAt,
       mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
     };
+  }
+
+  private withOptionalContentJson(
+    base: Prisma.ProjectUpdateInput,
+    content: unknown
+  ): Prisma.ProjectUpdateInput {
+    if (content === undefined || content === null) {
+      return base;
+    }
+
+    const dataWithContent = { ...base } as Prisma.ProjectUpdateInput & Record<string, unknown>;
+    dataWithContent.contentJson = content;
+    return dataWithContent;
   }
 }

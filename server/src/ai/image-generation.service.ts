@@ -2,6 +2,11 @@ import { BadRequestException, Injectable, Logger, ServiceUnavailableException } 
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
 
+export interface ImageGenerationResult {
+  imageData?: string;
+  textResponse: string;
+}
+
 interface GenerateImageRequest {
   prompt: string;
   model?: string;
@@ -38,11 +43,6 @@ interface TextChatRequest {
   prompt: string;
   model?: string;
   enableWebSearch?: boolean;
-}
-
-interface ImageGenerationResult {
-  imageData?: string;
-  textResponse: string;
 }
 
 interface ParsedStreamResponse {
