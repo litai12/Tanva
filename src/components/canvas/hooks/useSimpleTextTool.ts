@@ -478,7 +478,6 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       tolerance: 10,
       match: (item: any) => {
         // 直接检查所有可能的文本对象
-        console.log('🔍 检查物品:', item, item.data, item.constructor.name);
         return item.data?.type === 'text' || item instanceof paper.PointText;
       }
     });
