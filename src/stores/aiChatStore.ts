@@ -5,6 +5,13 @@
 
 import { create } from 'zustand';
 import { aiImageService } from '@/services/aiImageService';
+import {
+  generateImageViaAPI,
+  editImageViaAPI,
+  blendImagesViaAPI,
+  analyzeImageViaAPI,
+  generateTextResponseViaAPI,
+} from '@/services/aiBackendAPI';
 import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -563,11 +570,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }
       }, 500);
 
-      // 调用AI服务生成图像
-      const result = await aiImageService.generateImage({
+      // 调用后端API生成图像
+      const result = await generateImageViaAPI({
         prompt,
         outputFormat: 'png',
-        aspectRatio: state.aspectRatio,  // 传递长宽比
+        aspectRatio: state.aspectRatio || undefined,  // 传递长宽比
         imageOnly: state.imageOnly  // 传递仅图像模式
       });
 
@@ -793,12 +800,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }
       }, 500);
 
-      // 调用AI服务编辑图像
-      const result = await aiImageService.editImage({
+      // 调用后端API编辑图像
+      const result = await editImageViaAPI({
         prompt,
         sourceImage,
         outputFormat: 'png',
-        aspectRatio: state.aspectRatio,  // 传递长宽比
+        aspectRatio: state.aspectRatio || undefined,  // 传递长宽比
         imageOnly: state.imageOnly  // 传递仅图像模式
       });
 
@@ -1008,11 +1015,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }
       }, 500);
 
-      const result = await aiImageService.blendImages({
+      const result = await blendImagesViaAPI({
         prompt,
         sourceImages,
         outputFormat: 'png',
-        aspectRatio: state.aspectRatio,  // 传递长宽比
+        aspectRatio: state.aspectRatio || undefined,  // 传递长宽比
         imageOnly: state.imageOnly  // 传递仅图像模式
       });
 
@@ -1205,8 +1212,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }
       }, 300);
 
-      // 调用AI服务分析图像
-      const result = await aiImageService.analyzeImage({
+      // 调用后端API分析图像
+      const result = await analyzeImageViaAPI({
         prompt: prompt || '请详细分析这张图片的内容',
         sourceImage,
       });
@@ -1286,11 +1293,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     }));
 
     try {
-      // 调用文本生成服务
+      // 调用后端API生成文本
       const state = get();
-      const result = await aiImageService.generateTextResponse({ 
+      const result = await generateTextResponseViaAPI({
         prompt,
-        enableWebSearch: state.enableWebSearch 
+        enableWebSearch: state.enableWebSearch
       });
 
       if (result.success && result.data) {

@@ -1553,6 +1553,36 @@ class AIImageService {
   ];
 
   /**
+   * 通过后端代理调用Gemini执行工具选择提示
+   */
+  private async callServerToolSelection(prompt: string): Promise<string> {
+    const response = await fetch('/api/ai/tool-selection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ prompt })
+    });
+
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`;
+      try {
+        const errorData = await response.json();
+        message = errorData?.message || errorData?.error || message;
+      } catch {
+        // ignore JSON parse errors
+      }
+      throw new Error(`Tool selection proxy request failed: ${message}`);
+    }
+
+    const data = await response.json();
+    if (!data || typeof data.text !== 'string' || data.text.trim().length === 0) {
+      throw new Error('Tool selection proxy returned invalid payload');
+    }
+
+    return data.text;
+  }
+
+  /**
    * 使用Gemini Function Calling选择合适的工具
    */
   async selectTool(request: ToolSelectionRequest): Promise<AIServiceResponse<ToolSelectionResult>> {
@@ -1566,15 +1596,7 @@ class AIImageService {
       图像数量: request.imageCount,
       可用工具: request.availableTools?.join(', ') || '默认5个工具'
     });
-    console.log('🔑 API密钥状态:', this.genAI ? '✅ 已初始化' : '❌ 未初始化');
-
-    if (!this.genAI) {
-      console.error('❌ GenAI客户端未初始化');
-      return {
-        success: false,
-        error: this.createError('CLIENT_NOT_INITIALIZED', 'GenAI client not initialized')
-      };
-    }
+    console.log('🔑 工具选择调用方式: 服务器代理请求');
 
     try {
       // 🧠 使用上下文构建增强提示
@@ -1619,22 +1641,10 @@ ${contextualPrompt}
 
       // 使用Gemini进行工具选择（带重试机制）
       const aiCallStartTime = Date.now();
-      const result = await this.withRetry(
+      const resultText = await this.withRetry(
         async () => {
           return await this.withTimeout(
-            this.genAI!.models.generateContent({
-              model: 'gemini-2.0-flash', // 使用文本模型进行工具选择
-              contents: [{ text: systemPrompt }],
-              config: {
-                safetySettings: [
-                  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-                  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
-                ]
-              }
-            }),
+            this.callServerToolSelection(systemPrompt),
             this.DEFAULT_TIMEOUT,
             '工具选择API调用'
           );
@@ -1647,21 +1657,16 @@ ${contextualPrompt}
       const aiCallTime = Date.now() - aiCallStartTime;
       console.log(`📥 AI响应成功，耗时: ${aiCallTime}ms`);
 
-      if (!result.text) {
-        console.error('❌ AI响应中没有文本内容');
-        throw new Error('No tool selection response from API');
-      }
-
       console.log('🤖 AI工具选择原始响应:', {
-        响应内容: result.text,
-        响应长度: result.text.length,
+        响应内容: resultText,
+        响应长度: resultText.length,
         响应时间: aiCallTime + 'ms'
       });
 
       // 解析AI的选择
       console.log('🔍 开始解析AI响应...');
       const parseStartTime = Date.now();
-      const toolSelection = this.parseToolSelection(result.text, request);
+      const toolSelection = this.parseToolSelection(resultText, request);
       const parseTime = Date.now() - parseStartTime;
 
       const totalTime = Date.now() - startTime;
@@ -1676,7 +1681,7 @@ ${contextualPrompt}
       contextManager.recordOperation({
         type: 'chat',
         input: request.userInput,
-        output: result.text,
+        output: resultText,
         success: true,
         metadata: { 
           selectedTool: toolSelection.selectedTool,

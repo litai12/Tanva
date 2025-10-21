@@ -1123,12 +1123,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      logger.debug('画布键盘事件', {
-        key: event.key,
-        ctrl: event.ctrlKey,
-        meta: event.metaKey,
-        defaultPrevented: event.defaultPrevented,
-      });
+      // ⚪ DEBUG日志已关闭 - 键盘事件频繁，不需要每次都打印
+      // logger.debug('画布键盘事件', {
+      //   key: event.key,
+      //   ctrl: event.ctrlKey,
+      //   meta: event.metaKey,
+      //   defaultPrevented: event.defaultPrevented,
+      // });
       if (event.defaultPrevented) return;
 
       const isCopy = (event.key === 'c' || event.key === 'C') && (event.metaKey || event.ctrlKey);

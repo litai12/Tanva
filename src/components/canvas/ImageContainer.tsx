@@ -213,17 +213,49 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     e.preventDefault();
     e.stopPropagation();
     
-    try {
+    const run = async () => {
       // 🎯 优先使用原始高质量图像数据
       let imageDataUrl: string | null = null;
       
       // 首先尝试从getImageDataForEditing获取原始数据
       if (getImageDataForEditing) {
         imageDataUrl = getImageDataForEditing(imageData.id);
-        if (imageDataUrl) {
-          // console.log('🎨 AI编辑：使用原始高质量图像数据');
-        }
       }
+
+      const ensureDataUrl = async (input: string | null): Promise<string | null> => {
+        if (!input) return null;
+        if (input.startsWith('data:image/')) {
+          return input;
+        }
+
+        // 处理远程或 blob 链接，转换为 base64
+        if (/^https?:\/\//i.test(input) || input.startsWith('blob:')) {
+          try {
+            const response = await fetch(input);
+            const blob = await response.blob();
+            const converted = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                if (typeof reader.result === 'string') {
+                  resolve(reader.result);
+                } else {
+                  reject(new Error('无法读取图像数据'));
+                }
+              };
+              reader.onerror = () => reject(reader.error ?? new Error('读取图像数据失败'));
+              reader.readAsDataURL(blob);
+            });
+            return converted;
+          } catch (convertError) {
+            console.warn('⚠️ 无法转换远程图像为Base64，尝试使用Canvas数据', convertError);
+            return null;
+          }
+        }
+
+        return input;
+      };
+
+      imageDataUrl = await ensureDataUrl(imageDataUrl);
       
       // 备用方案：从canvas获取（已缩放，质量较低）
       if (!imageDataUrl) {
@@ -238,6 +270,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
           if (raster && raster.canvas) {
             imageDataUrl = raster.canvas.toDataURL('image/png');
+            imageDataUrl = await ensureDataUrl(imageDataUrl);
           }
         }
       }
@@ -268,9 +301,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
       
       showDialog();
-    } catch (error) {
+    };
+
+    run().catch((error) => {
       console.error('获取图像数据失败:', error);
-    }
+    });
   }, [imageData.id, getImageDataForEditing, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
 
   // 处理删除按钮点击
