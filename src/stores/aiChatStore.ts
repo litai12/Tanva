@@ -50,6 +50,13 @@ export interface ChatMessage {
   sourceImageData?: string;
   sourceImagesData?: string[];
   webSearchResult?: unknown;
+  // 🔥 每条消息的独立生成状态
+  generationStatus?: {
+    isGenerating: boolean;
+    progress: number;
+    error: string | null;
+    stage?: string;
+  };
 }
 
 export interface GenerationStatus {
@@ -292,6 +299,7 @@ interface AIChatState {
   // 消息管理
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearMessages: () => void;
+  updateMessageStatus: (messageId: string, status: Partial<ChatMessage['generationStatus']>) => void;
   refreshSessions: (options?: { persistToLocal?: boolean; markProjectDirty?: boolean }) => Promise<void>;
   createSession: (name?: string) => Promise<string>;
   switchSession: (sessionId: string) => Promise<void>;
@@ -441,6 +449,25 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     }
     set({ messages: [] });
     get().refreshSessions();
+  },
+
+  updateMessageStatus: (messageId, status) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, generationStatus: { ...msg.generationStatus, ...status } as any }
+          : msg
+      )
+    }));
+
+    // 同步更新到 contextManager
+    const context = contextManager.getCurrentContext();
+    if (context) {
+      const message = context.messages.find(m => m.id === messageId);
+      if (message) {
+        message.generationStatus = { ...message.generationStatus, ...status } as any;
+      }
+    }
   },
 
   refreshSessions: async (options) => {
@@ -597,12 +624,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     get().refreshSessions({ markProjectDirty: false });
   },
 
-  // 图像生成主函数
+  // 图像生成主函数（支持并行）
   generateImage: async (prompt: string) => {
     const state = get();
 
-    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
-    // 所以这里不需要再检查 isGenerating
+    // 🔥 并行模式：不检查全局状态，每个请求独立
 
     // 添加用户消息
     state.addMessage({
@@ -610,25 +636,49 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       content: prompt
     });
 
-    // 设置生成状态 - 保持或增加当前进度
-    set((state) => ({
+    // 🔥 创建占位 AI 消息，带有初始生成状态
+    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+      type: 'ai',
+      content: '正在生成图像...',
       generationStatus: {
         isGenerating: true,
-        progress: Math.max(state.generationStatus.progress, 15),
-        error: null
+        progress: 0,
+        error: null,
+        stage: '准备中'
       }
-    }));
+    };
+
+    state.addMessage(placeholderMessage);
+
+    // 获取刚添加的消息ID
+    const currentMessages = get().messages;
+    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('🎨 开始生成图像，消息ID:', aiMessageId);
 
     try {
+      // 🔥 使用消息级别的进度更新
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 15,
+        error: null,
+        stage: '正在生成'
+      });
+
       // 模拟进度更新
       const progressInterval = setInterval(() => {
-        const currentState = get();
-        if (currentState.generationStatus.progress < 90) {
-          set({
-            generationStatus: {
-              ...currentState.generationStatus,
-              progress: currentState.generationStatus.progress + 10
-            }
+        const currentMessage = get().messages.find(m => m.id === aiMessageId);
+        const currentProgress = currentMessage?.generationStatus?.progress || 0;
+        if (currentProgress < 90) {
+          get().updateMessageStatus(aiMessageId, {
+            isGenerating: true,
+            progress: currentProgress + 10,
+            error: null
           });
         }
       }, 500);
@@ -637,32 +687,51 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       const result = await generateImageViaAPI({
         prompt,
         outputFormat: 'png',
-        aspectRatio: state.aspectRatio || undefined,  // 传递长宽比
-        imageOnly: state.imageOnly  // 传递仅图像模式
+        aspectRatio: state.aspectRatio || undefined,
+        imageOnly: state.imageOnly
       });
 
       clearInterval(progressInterval);
 
       if (result.success && result.data) {
-        // 生成成功
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 100,
-            error: null
-          },
-          lastGeneratedImage: result.data
-        });
-
-        // 添加AI响应消息
-        const messageContent = result.data.textResponse || 
+        // 生成成功 - 更新消息内容和状态
+        const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已生成图像: ${prompt}` : `无法生成图像: ${prompt}`);
-        
-        state.addMessage({
-          type: 'ai',
-          content: messageContent, // 优先使用API的真实文本回复
-          imageData: result.data.imageData
-        });
+
+        // 🔥 更新消息内容和完成状态
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg.id === aiMessageId
+              ? {
+                  ...msg,
+                  content: messageContent,
+                  imageData: result.data?.imageData,
+                  generationStatus: {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null
+                  }
+                }
+              : msg
+          )
+        }));
+
+        // 同步到 contextManager
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const message = context.messages.find(m => m.id === aiMessageId);
+          if (message) {
+            message.content = messageContent;
+            message.imageData = result.data?.imageData;
+            message.generationStatus = {
+              isGenerating: false,
+              progress: 100,
+              error: null
+            };
+          }
+        }
+
+        set({ lastGeneratedImage: result.data });
 
         // 如果没有图像，记录详细原因并返回
         if (!result.data.hasImage) {
@@ -779,21 +848,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         // }, 100); // 延迟0.1秒关闭，让用户看到生成完成的消息
 
       } else {
-        // 生成失败
+        // 生成失败 - 更新消息状态为错误
         const errorMessage = result.error?.message || '图像生成失败';
 
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 0,
-            error: errorMessage
-          }
-        });
-
-        // 添加错误消息
-        state.addMessage({
-          type: 'error',
-          content: errorMessage
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
         });
 
         console.error('❌ 图像生成失败:', errorMessage);
@@ -802,63 +863,78 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
 
-      set({
-        generationStatus: {
-          isGenerating: false,
-          progress: 0,
-          error: errorMessage
-        }
-      });
-
-      // 添加错误消息
-      state.addMessage({
-        type: 'error',
-        content: `生成失败: ${errorMessage}`
+      // 🔥 更新消息状态为错误
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: false,
+        progress: 0,
+        error: errorMessage
       });
 
       console.error('❌ 图像生成异常:', error);
     }
   },
 
-  // 图生图功能
+  // 图生图功能（支持并行）
   editImage: async (prompt: string, sourceImage: string, showImagePlaceholder: boolean = true) => {
     const state = get();
 
-    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
-    // 所以这里不需要再检查 isGenerating
+    // 🔥 并行模式：不检查全局状态
 
-    // 添加用户消息（根据参数决定是否包含源图像）
+    // 添加用户消息
     const messageData: any = {
       type: 'user',
       content: `编辑图像: ${prompt}`,
     };
-    
-    // 只有在需要显示图片占位框时才添加 sourceImageData
+
     if (showImagePlaceholder) {
       messageData.sourceImageData = sourceImage;
     }
-    
+
     state.addMessage(messageData);
 
-    // 设置生成状态 - 保持或增加当前进度
-    set((state) => ({
+    // 🔥 创建占位 AI 消息
+    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+      type: 'ai',
+      content: '正在编辑图像...',
       generationStatus: {
         isGenerating: true,
-        progress: Math.max(state.generationStatus.progress, 15),
-        error: null
+        progress: 0,
+        error: null,
+        stage: '准备中'
       }
-    }));
+    };
+
+    state.addMessage(placeholderMessage);
+
+    // 获取刚添加的消息ID
+    const currentMessages = get().messages;
+    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('🖌️ 开始编辑图像，消息ID:', aiMessageId);
 
     try {
+      // 🔥 使用消息级别的进度更新
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 15,
+        error: null,
+        stage: '正在编辑'
+      });
+
       // 模拟进度更新
       const progressInterval = setInterval(() => {
-        const currentState = get();
-        if (currentState.generationStatus.progress < 90) {
-          set({
-            generationStatus: {
-              ...currentState.generationStatus,
-              progress: currentState.generationStatus.progress + 10
-            }
+        const currentMessage = get().messages.find(m => m.id === aiMessageId);
+        const currentProgress = currentMessage?.generationStatus?.progress || 0;
+        if (currentProgress < 90) {
+          get().updateMessageStatus(aiMessageId, {
+            isGenerating: true,
+            progress: currentProgress + 10,
+            error: null
           });
         }
       }, 500);
@@ -868,32 +944,51 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         prompt,
         sourceImage,
         outputFormat: 'png',
-        aspectRatio: state.aspectRatio || undefined,  // 传递长宽比
-        imageOnly: state.imageOnly  // 传递仅图像模式
+        aspectRatio: state.aspectRatio || undefined,
+        imageOnly: state.imageOnly
       });
 
       clearInterval(progressInterval);
 
       if (result.success && result.data) {
-        // 编辑成功
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 100,
-            error: null
-          },
-          lastGeneratedImage: result.data
-        });
-
-        // 添加AI响应消息
-        const messageContent = result.data.textResponse || 
+        // 编辑成功 - 更新消息内容和状态
+        const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已编辑图像: ${prompt}` : `无法编辑图像: ${prompt}`);
-          
-        state.addMessage({
-          type: 'ai',
-          content: messageContent, // 优先使用API的真实文本回复
-          imageData: result.data.imageData
-        });
+
+        // 🔥 更新消息内容和完成状态
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg.id === aiMessageId
+              ? {
+                  ...msg,
+                  content: messageContent,
+                  imageData: result.data?.imageData,
+                  generationStatus: {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null
+                  }
+                }
+              : msg
+          )
+        }));
+
+        // 同步到 contextManager
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const message = context.messages.find(m => m.id === aiMessageId);
+          if (message) {
+            message.content = messageContent;
+            message.imageData = result.data?.imageData;
+            message.generationStatus = {
+              isGenerating: false,
+              progress: 100,
+              error: null
+            };
+          }
+        }
+
+        set({ lastGeneratedImage: result.data });
 
         // 如果没有图像，记录原因并返回
         if (!result.data.hasImage) {
@@ -988,20 +1083,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         // }, 100); // 延迟0.1秒关闭，让用户看到编辑完成的消息
 
       } else {
-        // 编辑失败
+        // 编辑失败 - 更新消息状态为错误
         const errorMessage = result.error?.message || '图像编辑失败';
 
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 0,
-            error: errorMessage
-          }
-        });
-
-        state.addMessage({
-          type: 'error',
-          content: errorMessage
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
         });
 
         console.error('❌ 图像编辑失败:', errorMessage);
@@ -1009,24 +1097,18 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     } catch (error) {
       let errorMessage = error instanceof Error ? error.message : '未知错误';
-      
+
       // 🔒 安全检查：防止Base64图像数据被当作错误消息
       if (errorMessage && errorMessage.length > 1000 && errorMessage.includes('iVBORw0KGgo')) {
         console.warn('⚠️ 检测到Base64图像数据被当作错误消息，使用默认错误信息');
         errorMessage = '图像编辑失败，请重试';
       }
 
-      set({
-        generationStatus: {
-          isGenerating: false,
-          progress: 0,
-          error: errorMessage
-        }
-      });
-
-      state.addMessage({
-        type: 'error',
-        content: `编辑失败: ${errorMessage}`
+      // 🔥 更新消息状态为错误
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: false,
+        progress: 0,
+        error: errorMessage
       });
 
       console.error('❌ 图像编辑异常:', error);
@@ -1044,12 +1126,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     }
   },
 
-  // 多图融合功能
+  // 多图融合功能（支持并行）
   blendImages: async (prompt: string, sourceImages: string[]) => {
     const state = get();
 
-    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
-    // 所以这里不需要再检查 isGenerating
+    // 🔥 并行模式：不检查全局状态
 
     state.addMessage({
       type: 'user',
@@ -1057,23 +1138,47 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       sourceImagesData: sourceImages
     });
 
-    set((state) => ({
+    // 🔥 创建占位 AI 消息
+    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+      type: 'ai',
+      content: '正在融合图像...',
       generationStatus: {
         isGenerating: true,
-        progress: Math.max(state.generationStatus.progress, 15),
-        error: null
+        progress: 0,
+        error: null,
+        stage: '准备中'
       }
-    }));
+    };
+
+    state.addMessage(placeholderMessage);
+
+    const currentMessages = get().messages;
+    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('🔀 开始融合图像，消息ID:', aiMessageId);
 
     try {
+      // 🔥 使用消息级别的进度更新
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 15,
+        error: null,
+        stage: '正在融合'
+      });
+
       const progressInterval = setInterval(() => {
-        const currentState = get();
-        if (currentState.generationStatus.progress < 90) {
-          set({
-            generationStatus: {
-              ...currentState.generationStatus,
-              progress: currentState.generationStatus.progress + 10
-            }
+        const currentMessage = get().messages.find(m => m.id === aiMessageId);
+        const currentProgress = currentMessage?.generationStatus?.progress || 0;
+        if (currentProgress < 90) {
+          get().updateMessageStatus(aiMessageId, {
+            isGenerating: true,
+            progress: currentProgress + 10,
+            error: null
           });
         }
       }, 500);
@@ -1082,33 +1187,51 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         prompt,
         sourceImages,
         outputFormat: 'png',
-        aspectRatio: state.aspectRatio || undefined,  // 传递长宽比
-        imageOnly: state.imageOnly  // 传递仅图像模式
+        aspectRatio: state.aspectRatio || undefined,
+        imageOnly: state.imageOnly
       });
 
       clearInterval(progressInterval);
 
       if (result.success && result.data) {
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 100,
-            error: null
-          },
-          lastGeneratedImage: result.data
-        });
-
-        // 添加AI响应消息
-        const messageContent = result.data.textResponse || 
+        const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已融合图像: ${prompt}` : `无法融合图像: ${prompt}`);
-          
-        state.addMessage({
-          type: 'ai',
-          content: messageContent, // 优先使用API的真实文本回复
-          imageData: result.data.imageData
-        });
 
-        // 如果没有图像，记录原因并返回
+        // 🔥 更新消息内容和完成状态
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg.id === aiMessageId
+              ? {
+                  ...msg,
+                  content: messageContent,
+                  imageData: result.data?.imageData,
+                  generationStatus: {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null
+                  }
+                }
+              : msg
+          )
+        }));
+
+        // 同步到 contextManager
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const message = context.messages.find(m => m.id === aiMessageId);
+          if (message) {
+            message.content = messageContent;
+            message.imageData = result.data?.imageData;
+            message.generationStatus = {
+              isGenerating: false,
+              progress: 100,
+              error: null
+            };
+          }
+        }
+
+        set({ lastGeneratedImage: result.data });
+
         if (!result.data.hasImage) {
           console.log('⚠️ 融合API返回了文本回复但没有图像:', result.data.textResponse);
           return;
@@ -1182,34 +1305,26 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
       } else {
         const errorMessage = result.error?.message || '图像融合失败';
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 0,
-            error: errorMessage
-          }
+
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage
         });
 
-        state.addMessage({
-          type: 'error',
-          content: errorMessage
-        });
+        console.error('❌ 图像融合失败:', errorMessage);
       }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
-      set({
-        generationStatus: {
-          isGenerating: false,
-          progress: 0,
-          error: errorMessage
-        }
+
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: false,
+        progress: 0,
+        error: errorMessage
       });
 
-      state.addMessage({
-        type: 'error',
-        content: `融合失败: ${errorMessage}`
-      });
+      console.error('❌ 图像融合异常:', error);
     }
   },
 
@@ -1234,43 +1349,64 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     set({ sourceImagesForBlending: [] });
   },
 
-  // 图像分析功能
+  // 图像分析功能（支持并行）
   analyzeImage: async (prompt: string, sourceImage: string) => {
     const state = get();
 
-    // 注意：这个方法可能被 processUserInput 调用，processUserInput 已经设置了 isGenerating = true
-    // 所以这里不需要再检查 isGenerating
+    // 🔥 并行模式：不检查全局状态
 
-    // 添加用户消息（包含源图像）
     // 确保图像数据有正确的data URL前缀
-    const formattedImageData = sourceImage.startsWith('data:image') 
-      ? sourceImage 
+    const formattedImageData = sourceImage.startsWith('data:image')
+      ? sourceImage
       : `data:image/png;base64,${sourceImage}`;
-      
+
     state.addMessage({
       type: 'user',
       content: prompt ? `分析图片: ${prompt}` : '分析这张图片',
       sourceImageData: formattedImageData
     });
 
-    set((state) => ({
+    // 🔥 创建占位 AI 消息
+    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+      type: 'ai',
+      content: '正在分析图片...',
       generationStatus: {
         isGenerating: true,
-        progress: Math.max(state.generationStatus.progress, 15),
-        error: null
+        progress: 0,
+        error: null,
+        stage: '准备中'
       }
-    }));
+    };
+
+    state.addMessage(placeholderMessage);
+
+    const currentMessages = get().messages;
+    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('🔍 开始分析图片，消息ID:', aiMessageId);
 
     try {
-      // 模拟进度更新
+      // 🔥 使用消息级别的进度更新
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 15,
+        error: null,
+        stage: '正在分析'
+      });
+
       const progressInterval = setInterval(() => {
-        const currentState = get();
-        if (currentState.generationStatus.progress < 90) {
-          set({
-            generationStatus: {
-              ...currentState.generationStatus,
-              progress: currentState.generationStatus.progress + 15
-            }
+        const currentMessage = get().messages.find(m => m.id === aiMessageId);
+        const currentProgress = currentMessage?.generationStatus?.progress || 0;
+        if (currentProgress < 90) {
+          get().updateMessageStatus(aiMessageId, {
+            isGenerating: true,
+            progress: currentProgress + 15,
+            error: null
           });
         }
       }, 300);
@@ -1284,19 +1420,36 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       clearInterval(progressInterval);
 
       if (result.success && result.data) {
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 100,
-            error: null
-          }
-        });
+        // 🔥 更新消息内容和完成状态
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg.id === aiMessageId
+              ? {
+                  ...msg,
+                  content: result.data!.analysis,
+                  generationStatus: {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null
+                  }
+                }
+              : msg
+          )
+        }));
 
-        // 添加AI分析结果
-        state.addMessage({
-          type: 'ai',
-          content: result.data.analysis
-        });
+        // 同步到 contextManager
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const message = context.messages.find(m => m.id === aiMessageId);
+          if (message) {
+            message.content = result.data!.analysis;
+            message.generationStatus = {
+              isGenerating: false,
+              progress: 100,
+              error: null
+            };
+          }
+        }
 
         console.log('✅ 图片分析成功');
 
@@ -1307,17 +1460,10 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
 
-      set({
-        generationStatus: {
-          isGenerating: false,
-          progress: 0,
-          error: errorMessage
-        }
-      });
-
-      state.addMessage({
-        type: 'error',
-        content: `分析失败: ${errorMessage}`
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: false,
+        progress: 0,
+        error: errorMessage
       });
 
       console.error('❌ 图片分析异常:', error);
@@ -1335,10 +1481,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     }
   },
 
-  // 文本对话功能
+  // 文本对话功能（支持并行）
   generateTextResponse: async (prompt: string) => {
-    // 注意：这个方法是被 processUserInput 调用的，所以不需要再次检查 isGenerating
-    // 因为 processUserInput 已经设置了 isGenerating = true
+    // 🔥 并行模式：不检查全局状态
 
     // 添加用户消息
     get().addMessage({
@@ -1346,16 +1491,40 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       content: prompt
     });
 
-    // 更新进度，但保持 isGenerating 状态（已由 processUserInput 设置）
-    set((state) => ({
+    // 🔥 创建占位 AI 消息
+    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+      type: 'ai',
+      content: '正在生成文本回复...',
       generationStatus: {
-        ...state.generationStatus,
-        progress: 50, // 文本生成通常很快
-        stage: '正在生成文本回复...'
+        isGenerating: true,
+        progress: 0,
+        error: null,
+        stage: '准备中'
       }
-    }));
+    };
+
+    get().addMessage(placeholderMessage);
+
+    // 获取刚添加的消息ID
+    const currentMessages = get().messages;
+    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('💬 开始生成文本回复，消息ID:', aiMessageId);
 
     try {
+      // 🔥 使用消息级别的进度更新
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 50,
+        error: null,
+        stage: '正在生成文本回复...'
+      });
+
       // 调用后端API生成文本
       const state = get();
       const result = await generateTextResponseViaAPI({
@@ -1364,19 +1533,38 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       });
 
       if (result.success && result.data) {
-        set({
-          generationStatus: {
-            isGenerating: false,
-            progress: 100,
-            error: null
-          }
-        });
+        // 🔥 更新消息内容和完成状态
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg.id === aiMessageId
+              ? {
+                  ...msg,
+                  content: result.data!.text,
+                  webSearchResult: result.data!.webSearchResult,
+                  generationStatus: {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null
+                  }
+                }
+              : msg
+          )
+        }));
 
-        get().addMessage({
-          type: 'ai',
-          content: result.data.text,
-          webSearchResult: result.data.webSearchResult
-        });
+        // 同步到 contextManager
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const message = context.messages.find(m => m.id === aiMessageId);
+          if (message) {
+            message.content = result.data!.text;
+            message.webSearchResult = result.data!.webSearchResult;
+            message.generationStatus = {
+              isGenerating: false,
+              progress: 100,
+              error: null
+            };
+          }
+        }
 
         console.log('✅ 文本回复成功:', result.data.text);
       } else {
@@ -1386,17 +1574,10 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
 
-      set({
-        generationStatus: {
-          isGenerating: false,
-          progress: 0,
-          error: errorMessage
-        }
-      });
-
-      get().addMessage({
-        type: 'error',
-        content: `回复失败: ${errorMessage}`
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: false,
+        progress: 0,
+        error: errorMessage
       });
 
       console.error('❌ 文本生成失败:', errorMessage);
@@ -1486,8 +1667,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         throw new Error(errorMsg);
       }
 
-      selectedTool = toolSelectionResult.data.selectedTool;
-      parameters = toolSelectionResult.data.parameters;
+      selectedTool = toolSelectionResult.data.selectedTool as AvailableTool | null;
+      parameters = { prompt: (toolSelectionResult.data.parameters?.prompt || input) };
 
       console.log('🎯 AI选择工具:', selectedTool);
     }
@@ -1596,11 +1777,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     }
   },
 
-  // 智能工具选择功能 - 统一入口
+  // 智能工具选择功能 - 统一入口（支持并行生成）
   processUserInput: async (input: string) => {
     const state = get();
 
-    if (state.generationStatus.isGenerating) return;
+    // 🔥 移除全局锁定检查，允许并行生成
+    // if (state.generationStatus.isGenerating) return;
 
     // 🧠 确保有活跃的会话并同步状态
     let sessionId = state.currentSessionId || contextManager.getCurrentSessionId();
@@ -1620,34 +1802,18 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     get().refreshSessions();
 
-    console.log('🤖 智能处理用户输入...');
+    console.log('🤖 智能处理用户输入（并行模式）...');
 
-    // 显示工具选择进度 - 从0开始
-    set({
-      generationStatus: {
-        isGenerating: true,
-        progress: 0,
-        error: null
-      }
-    });
-
-    // 短暂延迟后动画过渡到10%
-    setTimeout(() => {
-      set((state) => ({
-        generationStatus: {
-          ...state.generationStatus,
-          progress: 10
-        }
-      }));
-    }, 100);
+    // 🔥 不再设置全局生成状态，而是直接执行处理流程
+    // 每个消息会有自己的生成状态
 
     try {
-      // 执行核心处理流程
+      // 执行核心处理流程（每个请求独立）
       await get().executeProcessFlow(input, false);
 
     } catch (error) {
       let errorMessage = error instanceof Error ? error.message : '处理失败';
-      
+
       // 🔒 安全检查：防止Base64图像数据被当作错误消息
       if (errorMessage && errorMessage.length > 1000 && errorMessage.includes('iVBORw0KGgo')) {
         console.warn('⚠️ 检测到Base64图像数据被当作错误消息，使用默认错误信息');
@@ -1655,14 +1821,6 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }
 
       // 正常处理错误
-      set({
-        generationStatus: {
-          isGenerating: false,
-          progress: 0,
-          error: errorMessage
-        }
-      });
-
       get().addMessage({
         type: 'error',
         content: `处理失败: ${errorMessage}`

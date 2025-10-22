@@ -797,7 +797,13 @@ const AIChatDialog: React.FC = () => {
   // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
   if (!isVisible) return null;
 
-  const canSend = currentInput.trim().length > 0 && !generationStatus.isGenerating && !autoOptimizing;
+  // 🔥 修改发送按钮的禁用条件：允许在生成中继续发送（并行模式）
+  const canSend = currentInput.trim().length > 0 && !autoOptimizing;
+
+  // 🔥 计算正在进行的生成任务数量
+  const generatingTaskCount = messages.filter(msg =>
+    msg.type === 'ai' && msg.generationStatus?.isGenerating
+  ).length;
 
   return (
     <div ref={containerRef} data-prevent-add-panel className={cn(
@@ -821,14 +827,25 @@ const AIChatDialog: React.FC = () => {
         {generationStatus.isGenerating && (
           <div className="absolute top-0 left-4 right-4 h-1 z-50">
             <div className="w-full h-full bg-gray-200/20 rounded-full">
-              <div 
+              <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out"
                 style={{ width: `${generationStatus.progress}%` }}
               />
             </div>
           </div>
         )}
-        
+
+        {/* 🔥 任务计数器徽章 - 右上角 */}
+        {generatingTaskCount > 0 && (
+          <div className="absolute top-2 right-4 z-50">
+            <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+              <span className="text-white text-xs font-bold">
+                {generatingTaskCount}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* 内容区域 */}
         <div ref={contentRef} data-chat-content className={cn(
           isMaximized ? "p-4 h-full overflow-hidden" : ""
@@ -971,10 +988,9 @@ const AIChatDialog: React.FC = () => {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder={getSmartPlaceholder()}
-                disabled={generationStatus.isGenerating}
+                disabled={false}
                 className={cn(
-                  "resize-none px-4 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
-                  generationStatus.isGenerating && "opacity-75"
+                  "resize-none px-4 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200"
                 )}
                 rows={showHistory ? 3 : 1}
               />
@@ -984,7 +1000,7 @@ const AIChatDialog: React.FC = () => {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={generationStatus.isGenerating}
+                    disabled={false}
                     data-dropdown-trigger="true"
                     className={cn(
                       "absolute left-2 bottom-2 h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
@@ -1042,7 +1058,7 @@ const AIChatDialog: React.FC = () => {
               <Button
                 ref={aspectButtonRef}
                 onClick={() => setIsAspectOpen(v => !v)}
-                disabled={generationStatus.isGenerating}
+                disabled={false}
                 size="sm"
                 variant="outline"
                 className={cn(
@@ -1108,7 +1124,7 @@ const AIChatDialog: React.FC = () => {
               {/* 联网搜索开关 */}
               <Button
                 onClick={toggleWebSearch}
-                disabled={generationStatus.isGenerating}
+                disabled={false}
                 size="sm"
                 variant="outline"
                 className={cn(
@@ -1131,7 +1147,7 @@ const AIChatDialog: React.FC = () => {
                 ref={promptButtonRef}
                 size="sm"
                 variant="outline"
-                disabled={generationStatus.isGenerating || autoOptimizing}
+                disabled={autoOptimizing}
                 className={cn(
                   "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
@@ -1158,7 +1174,7 @@ const AIChatDialog: React.FC = () => {
               {/* 统一的图片上传按钮 */}
               <Button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={generationStatus.isGenerating}
+                disabled={false}
                 size="sm"
                 variant="outline"
                 className={cn(
@@ -1320,6 +1336,35 @@ const AIChatDialog: React.FC = () => {
                       message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
                     )}
                   >
+                    {/* 🔥 消息级别的进度条 - 仅限 AI 消息 */}
+                    {message.type === 'ai' && message.generationStatus?.isGenerating && (
+                      <div className="mb-2 -mx-2 px-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-1 bg-gray-200/30 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-blue-500 transition-all duration-300 ease-out rounded-full"
+                              style={{ width: `${message.generationStatus.progress}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {message.generationStatus.progress}%
+                          </span>
+                        </div>
+                        {message.generationStatus.stage && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            {message.generationStatus.stage}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 🔥 错误显示 - AI 消息级别的错误 */}
+                    {message.type === 'ai' && message.generationStatus?.error && (
+                      <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                        ⚠️ {message.generationStatus.error}
+                      </div>
+                    )}
+
                     {/* 如果有图像或源图像，使用特殊布局 */}
                     {(message.imageData || message.sourceImageData || message.sourceImagesData) ? (
                       <div className={cn(
