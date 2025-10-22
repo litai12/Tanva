@@ -96,8 +96,8 @@ const Canvas: React.FC = () => {
             {/* AI对话框 - 专注模式下隐藏 */}
             {!focusMode && <AIChatDialog />}
 
-            {/* 调试面板暂时隐藏，如需排查请重新挂载组件 */}
-            {/* <CachedImageDebug /> */}
+            {/* 调试面板：显示缓存图像信息 */}
+            <CachedImageDebug />
         </div>
     );
 };

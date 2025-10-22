@@ -438,17 +438,18 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
                 // 添加到全局图片实例管理（如果有的话）
                 if ((window as any).tanvaImageInstances) {
-                    const newImageInstance = {
+                const newImageInstance = {
+                    id: imageId,
+                    imageData: {
                         id: imageId,
-                        imageData: {
-                            id: imageId,
-                            url: asset.url,
-                            src: asset.url,
-                            key: asset.key,
-                            fileName: fileName,
-                            width: raster.bounds.width,
-                            height: raster.bounds.height,
-                            contentType: asset.contentType,
+                        url: asset.url,
+                        src: asset.url,
+                        localDataUrl: asset.localDataUrl,
+                        key: asset.key,
+                        fileName: fileName,
+                        width: raster.bounds.width,
+                        height: raster.bounds.height,
+                        contentType: asset.contentType,
                         },
                         bounds: {
                             x: raster.bounds.x,
