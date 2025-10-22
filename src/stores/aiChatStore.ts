@@ -15,6 +15,7 @@ import {
 import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { ossUploadService, dataURLToBlob } from '@/services/ossUploadService';
 import type { AIImageResult } from '@/types/ai';
 import type {
   ConversationContext,
@@ -80,54 +81,106 @@ const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)
 export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze';
 type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse';
 
-const serializeConversation = (context: ConversationContext): SerializedConversationContext => ({
-  sessionId: context.sessionId,
-  name: context.name,
-  startTime: toISOString(context.startTime),
-  lastActivity: toISOString(context.lastActivity),
-  currentMode: context.currentMode,
-  activeImageId: context.activeImageId ?? undefined,
-  messages: context.messages.map((message) => ({
-    id: message.id,
-    type: message.type,
-    content: message.content,
-    timestamp: toISOString(message.timestamp),
-    webSearchResult: message.webSearchResult,
-    imageData: message.imageData // 持久化用于展示的缩略图/小图
-  })),
-  operations: context.operations.map((operation) => ({
-    id: operation.id,
-    type: operation.type,
-    timestamp: toISOString(operation.timestamp),
-    input: operation.input,
-    output: operation.output,
-    success: operation.success,
-    metadata: operation.metadata ? cloneSafely(operation.metadata) : null
-  })),
-  cachedImages: {
-    latest: null,
-    latestId: context.cachedImages.latestId ?? null,
-    latestPrompt: context.cachedImages.latestPrompt ?? null,
-    timestamp: context.cachedImages.timestamp ? toISOString(context.cachedImages.timestamp) : null,
-    latestBounds: context.cachedImages.latestBounds ?? null,
-    latestLayerId: context.cachedImages.latestLayerId ?? null,
-    latestRemoteUrl: context.cachedImages.latestRemoteUrl ?? null
-  },
-  contextInfo: {
-    userPreferences: cloneSafely(context.contextInfo.userPreferences ?? {}),
-    recentPrompts: [...context.contextInfo.recentPrompts],
-    imageHistory: context.contextInfo.imageHistory.map((item) => ({
-      id: item.id,
-      prompt: item.prompt,
-      timestamp: toISOString(item.timestamp),
-      operationType: item.operationType,
-      parentImageId: item.parentImageId ?? null,
-      thumbnail: item.thumbnail ?? null
-    })),
-    iterationCount: context.contextInfo.iterationCount,
-    lastOperationType: context.contextInfo.lastOperationType
+// 🔥 图片上传到 OSS 的辅助函数
+async function uploadImageToOSS(imageData: string, projectId?: string | null): Promise<string | null> {
+  try {
+    if (!imageData || !imageData.includes('base64,')) {
+      console.warn('⚠️ 无效的图片数据，跳过上传');
+      return null;
+    }
+
+    const blob = dataURLToBlob(imageData);
+    const result = await ossUploadService.uploadToOSS(blob, {
+      dir: 'ai-chat-images/',
+      projectId,
+      fileName: `ai-chat-${Date.now()}.png`,
+      contentType: 'image/png',
+      maxSize: 10 * 1024 * 1024, // 10MB
+    });
+
+    if (result.success && result.url) {
+      console.log('✅ 图片上传成功:', result.url);
+      return result.url;
+    } else {
+      console.error('❌ 图片上传失败:', result.error);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ 图片上传异常:', error);
+    return null;
   }
-});
+}
+
+const serializeConversation = async (context: ConversationContext): Promise<SerializedConversationContext> => {
+  const projectId = useProjectContentStore.getState().projectId;
+
+  // 🔥 优化：只保留最近 5 条带图片的消息，并上传到 OSS
+  const messagesWithImages = context.messages.filter(msg => msg.imageData);
+  const recentImagesCount = Math.min(5, messagesWithImages.length);
+  const recentMessagesWithImages = messagesWithImages.slice(-recentImagesCount);
+
+  // 批量上传图片到 OSS
+  const uploadPromises = recentMessagesWithImages.map(async (msg) => {
+    if (msg.imageData) {
+      const ossUrl = await uploadImageToOSS(msg.imageData, projectId);
+      return { messageId: msg.id, ossUrl };
+    }
+    return { messageId: msg.id, ossUrl: null };
+  });
+
+  const uploadResults = await Promise.all(uploadPromises);
+  const imageUrlMap = new Map(uploadResults.map(r => [r.messageId, r.ossUrl]));
+
+  return {
+    sessionId: context.sessionId,
+    name: context.name,
+    startTime: toISOString(context.startTime),
+    lastActivity: toISOString(context.lastActivity),
+    currentMode: context.currentMode,
+    activeImageId: context.activeImageId ?? undefined,
+    messages: context.messages.map((message) => ({
+      id: message.id,
+      type: message.type,
+      content: message.content,
+      timestamp: toISOString(message.timestamp),
+      webSearchResult: message.webSearchResult,
+      // 🔥 性能优化：只保存 OSS URL，不保存原始 Base64
+      imageUrl: imageUrlMap.get(message.id) || undefined,
+    })),
+    operations: context.operations.map((operation) => ({
+      id: operation.id,
+      type: operation.type,
+      timestamp: toISOString(operation.timestamp),
+      input: operation.input,
+      output: operation.output,
+      success: operation.success,
+      metadata: operation.metadata ? cloneSafely(operation.metadata) : null
+    })),
+    cachedImages: {
+      latest: null,
+      latestId: context.cachedImages.latestId ?? null,
+      latestPrompt: context.cachedImages.latestPrompt ?? null,
+      timestamp: context.cachedImages.timestamp ? toISOString(context.cachedImages.timestamp) : null,
+      latestBounds: context.cachedImages.latestBounds ?? null,
+      latestLayerId: context.cachedImages.latestLayerId ?? null,
+      latestRemoteUrl: context.cachedImages.latestRemoteUrl ?? null
+    },
+    contextInfo: {
+      userPreferences: cloneSafely(context.contextInfo.userPreferences ?? {}),
+      recentPrompts: [...context.contextInfo.recentPrompts],
+      imageHistory: context.contextInfo.imageHistory.map((item) => ({
+        id: item.id,
+        prompt: item.prompt,
+        timestamp: toISOString(item.timestamp),
+        operationType: item.operationType,
+        parentImageId: item.parentImageId ?? null,
+        thumbnail: item.thumbnail ?? null
+      })),
+      iterationCount: context.contextInfo.iterationCount,
+      lastOperationType: context.contextInfo.lastOperationType
+    }
+  };
+};
 
 const deserializeConversation = (data: SerializedConversationContext): ConversationContext => {
   const messages: ChatMessage[] = data.messages.map((message) => ({
@@ -136,7 +189,8 @@ const deserializeConversation = (data: SerializedConversationContext): Conversat
     content: message.content,
     timestamp: new Date(message.timestamp),
     webSearchResult: message.webSearchResult,
-    imageData: (message as any).imageData // 恢复缩略图/小图（可选）
+    // 🔥 从 OSS URL 恢复图片（如果有的话）
+    imageData: (message as any).imageUrl || (message as any).imageData || undefined
   }));
 
   const operations: OperationHistory[] = data.operations.map((operation) => ({
@@ -238,7 +292,7 @@ interface AIChatState {
   // 消息管理
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearMessages: () => void;
-  refreshSessions: (options?: { persistToLocal?: boolean; markProjectDirty?: boolean }) => void;
+  refreshSessions: (options?: { persistToLocal?: boolean; markProjectDirty?: boolean }) => Promise<void>;
   createSession: (name?: string) => Promise<string>;
   switchSession: (sessionId: string) => Promise<void>;
   renameCurrentSession: (name: string) => Promise<void>;
@@ -389,7 +443,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     get().refreshSessions();
   },
 
-  refreshSessions: (options) => {
+  refreshSessions: async (options) => {
     const { markProjectDirty = true } = options ?? {};
     const listedSessions = contextManager.listSessions();
     const sessionSummaries = listedSessions.map((session) => ({
@@ -400,10 +454,13 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       preview: session.preview
     }));
 
-    const serializedSessions = listedSessions
+    // 🔥 异步序列化会话（上传图片到 OSS）
+    const serializedSessionsPromises = listedSessions
       .map((session) => contextManager.getSession(session.sessionId))
       .filter((context): context is ConversationContext => !!context)
       .map((context) => serializeConversation(context));
+
+    const serializedSessions = await Promise.all(serializedSessionsPromises);
 
     set({ sessions: sessionSummaries });
 
@@ -425,7 +482,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
           }, { markDirty: true });
         }
       } else {
-        // 无项目场景：把会话持久化到本地，确保刷新后仍能显示缩略图
+        // 无项目场景：把会话持久化到本地
         try {
           if (typeof localStorage !== 'undefined') {
             localStorage.setItem('tanva_aiChat_sessions', JSON.stringify(serializedSessions));

@@ -76,6 +76,8 @@ export interface SerializedChatMessage {
   webSearchResult?: unknown;
   // 可选：用于在聊天记录中显示的缩略图/小图
   imageData?: string;
+  // 🔥 新增：OSS 图片 URL（优化性能）
+  imageUrl?: string;
 }
 
 export interface SerializedOperationHistory {
