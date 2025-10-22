@@ -133,7 +133,10 @@ const AIChatDialog: React.FC = () => {
     focus: '',
     lengthPreference: 'balanced'
   });
-  const LONG_PRESS_DURATION = 550;
+  // 🔥 跟踪已提交但还未开始生成的任务数量（敲击回车时立即增加）
+  const [pendingTaskCount, setPendingTaskCount] = useState(0);
+  // 🔥 跟踪已处理过计数减少的消息 ID（避免重复减少）
+  const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
   const manualModeOptions: { value: ManualAIMode; label: string; description: string }[] = [
     { value: 'auto', label: 'Auto', description: '智能判断并选择最佳工具' },
@@ -347,7 +350,7 @@ const AIChatDialog: React.FC = () => {
     };
   }, []);
 
-  // 订阅AI流式进度事件，按增量渲染文本（仅限“文本对话”）
+  // 订阅AI流式进度事件，按增量渲染文本（仅限"文本对话"）
   useEffect(() => {
     const handler = (ev: Event) => {
       const detail = (ev as CustomEvent<AIStreamProgressEvent>).detail;
@@ -368,6 +371,27 @@ const AIChatDialog: React.FC = () => {
     window.addEventListener('aiStreamProgress', handler as EventListener);
     return () => window.removeEventListener('aiStreamProgress', handler as EventListener);
   }, []);
+
+  // 🔥 监听消息变化，当 AI 消息生成完成时，减少任务计数（使用 ref 追踪已处理消息 ID）
+  useEffect(() => {
+    // 遍历所有消息，找出已完成的 AI 消息（生成状态为 false 且有图像或内容）
+    const completedAIMessages = messages.filter(msg =>
+      msg.type === 'ai' &&
+      !msg.generationStatus?.isGenerating &&
+      (msg.imageData || msg.content)
+    );
+
+    // 遍历已完成的消息，检查是否有未被处理过的消息
+    completedAIMessages.forEach(msg => {
+      // 如果这个消息 ID 还没有被标记为已处理
+      if (!processedMessageIdsRef.current.has(msg.id)) {
+        // 标记为已处理
+        processedMessageIdsRef.current.add(msg.id);
+        // 减少计数
+        setPendingTaskCount(prev => Math.max(0, prev - 1));
+      }
+    });
+  }, [messages]);
 
   // 统一的图片上传处理
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -562,6 +586,9 @@ const AIChatDialog: React.FC = () => {
   const handleSend = async () => {
     const trimmedInput = currentInput.trim();
     if (!trimmedInput || generationStatus.isGenerating || autoOptimizing) return;
+
+    // 🔥 立即增加待处理任务计数（敲击回车的反馈）
+    setPendingTaskCount(prev => prev + 1);
 
     let promptToSend = trimmedInput;
 
@@ -805,6 +832,9 @@ const AIChatDialog: React.FC = () => {
     msg.type === 'ai' && msg.generationStatus?.isGenerating
   ).length;
 
+  // 🔥 显示计数 = pendingTaskCount（包括未开始和生成中的任务）
+  const displayTaskCount = pendingTaskCount;
+
   return (
     <div ref={containerRef} data-prevent-add-panel className={cn(
       "fixed z-50 transition-all duration-300 ease-out",
@@ -823,24 +853,12 @@ const AIChatDialog: React.FC = () => {
         onDoubleClick={handleOuterDoubleClick}
         onDoubleClickCapture={handleDoubleClickCapture}
       >
-        {/* 进度条 - 贴着对话框顶部，避免触碰圆角 */}
-        {generationStatus.isGenerating && (
-          <div className="absolute top-0 left-4 right-4 h-1 z-50">
-            <div className="w-full h-full bg-gray-200/20 rounded-full">
-              <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-500 ease-out"
-                style={{ width: `${generationStatus.progress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* 🔥 任务计数器徽章 - 右上角 */}
-        {generatingTaskCount > 0 && (
-          <div className="absolute top-2 right-4 z-50">
-            <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+        {/* 🔥 任务计数器徽章 - 右上角（更小尺寸） */}
+        {displayTaskCount > 0 && (
+          <div className="absolute top-1.5 right-3 z-50">
+            <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
               <span className="text-white text-xs font-bold">
-                {generatingTaskCount}
+                {displayTaskCount}
               </span>
             </div>
           </div>
@@ -1336,25 +1354,22 @@ const AIChatDialog: React.FC = () => {
                       message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
                     )}
                   >
-                    {/* 🔥 消息级别的进度条 - 仅限 AI 消息 */}
+                    {/* 🔥 占位框 + 内置进度条 - 仅限生成中的 AI 消息 */}
                     {message.type === 'ai' && message.generationStatus?.isGenerating && (
-                      <div className="mb-2 -mx-2 px-2">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1 bg-gray-200/30 rounded-full overflow-hidden">
+                      <div className="mb-3 inline-block">
+                        <div className="w-32 h-32 border-2 border-white rounded-lg relative bg-gray-100/50 flex items-center justify-center overflow-hidden">
+                          {/* 内置进度条 - 底部 */}
+                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200/30 rounded-full">
                             <div
-                              className="h-full bg-blue-500 transition-all duration-300 ease-out rounded-full"
+                              className="h-full bg-blue-500 transition-all duration-300 ease-out"
                               style={{ width: `${message.generationStatus.progress}%` }}
                             />
                           </div>
-                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                          {/* 进度百分比 - 中心显示 */}
+                          <div className="text-xs text-gray-500 font-medium">
                             {message.generationStatus.progress}%
-                          </span>
-                        </div>
-                        {message.generationStatus.stage && (
-                          <div className="text-xs text-gray-400 mt-1">
-                            {message.generationStatus.stage}
                           </div>
-                        )}
+                        </div>
                       </div>
                     )}
 
@@ -1595,7 +1610,6 @@ const AIChatDialog: React.FC = () => {
                     <div className="flex items-center gap-2 mb-2">
                       <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
                       <span className="text-sm font-bold text-black">TAI</span>
-                      <span className="text-xs text-gray-400">正在输入…</span>
                     </div>
                     <div className={cn(
                       "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass rounded-lg p-3"
