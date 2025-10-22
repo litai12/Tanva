@@ -27,6 +27,9 @@ import type {
 const LOCAL_SESSIONS_KEY = 'tanva_aiChat_sessions';
 const LOCAL_ACTIVE_KEY = 'tanva_aiChat_activeSessionId';
 
+// 🔥 全局待生成图片计数器（防止连续快速生成时重叠）
+let generatingImageCount = 0;
+
 function readSessionsFromLocalStorage(): { sessions: SerializedConversationContext[]; activeSessionId: string | null } | null {
   try {
     if (typeof localStorage === 'undefined') return null;
@@ -629,6 +632,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     const state = get();
 
     // 🔥 并行模式：不检查全局状态，每个请求独立
+    // 🔥 立即增加正在生成的图片计数
+    generatingImageCount++;
+    console.log('🔥 开始生成，当前生成计数:', generatingImageCount);
 
     // 添加用户消息
     state.addMessage({
@@ -802,8 +808,9 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
               const cx = cached.bounds.x + cached.bounds.width / 2;
               const cy = cached.bounds.y + cached.bounds.height / 2;
               const offset = useUIStore.getState().smartPlacementOffset || 778;
+              // 回归原始逻辑：直接向下排列，保证连续性
               smartPosition = { x: cx, y: cy + offset };
-              console.log('📍 生成图智能位置(相对缓存 → 下移)', offset, 'px:', smartPosition);
+              console.log('📍 生成图智能位置(相对缓存 → 下移)', offset, 'px, 位置:', smartPosition);
             } else {
               console.log('📍 无缓存位置，按默认策略放置');
             }
@@ -871,6 +878,10 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       });
 
       console.error('❌ 图像生成异常:', error);
+    } finally {
+      // 🔥 无论成功失败，都减少正在生成的图片计数
+      generatingImageCount--;
+      console.log('✅ 生成结束，当前生成计数:', generatingImageCount);
     }
   },
 

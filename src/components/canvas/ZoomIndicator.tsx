@@ -33,7 +33,7 @@ const ZoomIndicator: React.FC = () => {
     const canZoomOut = currentPercent > 10;
 
     return (
-        <div className="fixed left-3 bottom-4 z-10">
+        <div className="fixed left-4 bottom-4 z-10">
             <div className="bg-white backdrop-blur-md border border-glass rounded-2xl shadow-glass-xl w-10">
                 <div className="flex flex-col items-center">
                     {/* 放大按钮 */}
