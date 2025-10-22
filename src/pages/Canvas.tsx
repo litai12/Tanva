@@ -11,7 +11,7 @@ import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import { useLayerStore } from '@/stores';
 import { useUIStore } from '@/stores';
-import CachedImageDebug from '@/components/debug/CachedImageDebug';
+// import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
 import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
 // import OriginCross from '@/components/debug/OriginCross';
@@ -97,7 +97,7 @@ const Canvas: React.FC = () => {
             {!focusMode && <AIChatDialog />}
 
             {/* 调试面板：显示缓存图像信息 */}
-            <CachedImageDebug />
+            {/* <CachedImageDebug /> */}
         </div>
     );
 };
