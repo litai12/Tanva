@@ -77,6 +77,9 @@ const toISOString = (value: Date | string | number | null | undefined): string =
 
 const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) ?? (value as T);
 
+export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze';
+type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse';
+
 const serializeConversation = (context: ConversationContext): SerializedConversationContext => ({
   sessionId: context.sessionId,
   name: context.name,
@@ -221,6 +224,7 @@ interface AIChatState {
   enableWebSearch: boolean;  // 是否启用联网搜索
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
   aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
+  manualAIMode: ManualAIMode;
 
   // 操作方法
   showDialog: () => void;
@@ -273,7 +277,7 @@ interface AIChatState {
   executeProcessFlow: (input: string, isRetry?: boolean) => Promise<void>;
 
   // 智能模式检测
-  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze';
+  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'text';
 
   // 配置管理
   toggleAutoDownload: () => void;
@@ -283,6 +287,7 @@ interface AIChatState {
   toggleImageOnly: () => void;  // 切换仅图像模式
   setImageOnly: (value: boolean) => void;
   setAspectRatio: (ratio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null) => void;  // 设置长宽比
+  setManualAIMode: (mode: ManualAIMode) => void;
 
   // 重置状态
   resetState: () => void;
@@ -315,6 +320,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   enableWebSearch: false,  // 默认关闭联网搜索
   imageOnly: false,  // 默认允许返回文本
   aspectRatio: null,  // 默认不指定长宽比
+  manualAIMode: 'auto',
 
   // 对话框控制
   showDialog: () => set({ isVisible: true }),
@@ -1397,18 +1403,41 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }
     });
 
-    // 使用AI选择工具
-    const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+    // 根据手动模式或AI选择工具
+    const manualMode = state.manualAIMode;
+    const manualToolMap: Record<ManualAIMode, AvailableTool | null> = {
+      auto: null,
+      text: 'chatResponse',
+      generate: 'generateImage',
+      edit: 'editImage',
+      blend: 'blendImages',
+      analyze: 'analyzeImage'
+    };
 
-    if (!toolSelectionResult.success || !toolSelectionResult.data) {
-      const errorMsg = toolSelectionResult.error?.message || '工具选择失败';
-      console.error('❌ 工具选择失败:', errorMsg);
-      throw new Error(errorMsg);
+    let selectedTool: AvailableTool | null = null;
+    let parameters: { prompt: string } = { prompt: input };
+
+    if (manualMode !== 'auto') {
+      selectedTool = manualToolMap[manualMode];
+      console.log('🎛️ 手动模式直接选择工具:', manualMode, '→', selectedTool);
+    } else {
+      const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+
+      if (!toolSelectionResult.success || !toolSelectionResult.data) {
+        const errorMsg = toolSelectionResult.error?.message || '工具选择失败';
+        console.error('❌ 工具选择失败:', errorMsg);
+        throw new Error(errorMsg);
+      }
+
+      selectedTool = toolSelectionResult.data.selectedTool;
+      parameters = toolSelectionResult.data.parameters;
+
+      console.log('🎯 AI选择工具:', selectedTool);
     }
 
-    const { selectedTool, parameters } = toolSelectionResult.data;
-
-    console.log('🎯 AI选择工具:', selectedTool);
+    if (!selectedTool) {
+      throw new Error('未选择执行工具');
+    }
 
     // 根据选择的工具执行相应操作
     // 获取最新的 store 实例来调用方法
@@ -1588,6 +1617,10 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
   getAIMode: () => {
     const state = get();
+    if (state.manualAIMode && state.manualAIMode !== 'auto') {
+      if (state.manualAIMode === 'text') return 'text';
+      return state.manualAIMode;
+    }
     if (state.sourceImagesForBlending.length >= 2) return 'blend';
     if (state.sourceImageForEditing) return 'edit';
     if (state.sourceImageForAnalysis) return 'analyze';
@@ -1602,6 +1635,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   toggleImageOnly: () => set((state) => ({ imageOnly: !state.imageOnly })),
   setImageOnly: (value: boolean) => set({ imageOnly: value }),
   setAspectRatio: (ratio) => set({ aspectRatio: ratio }),
+  setManualAIMode: (mode) => set({ manualAIMode: mode }),
 
   // 重置状态
   resetState: () => {

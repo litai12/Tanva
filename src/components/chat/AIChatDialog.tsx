@@ -9,10 +9,18 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel
+} from '@/components/ui/dropdown-menu';
 // 比例选择改为自定义浮层（定位到对话框上方）
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen } from 'lucide-react';
+import type { ManualAIMode } from '@/stores/aiChatStore';
+import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen, SlidersHorizontal, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -82,7 +90,9 @@ const AIChatDialog: React.FC = () => {
     getContextSummary,
     isIterativeMode,
     toggleWebSearch,
-    setAspectRatio
+    setAspectRatio,
+    manualAIMode,
+    setManualAIMode
   } = useAIChatStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -124,6 +134,16 @@ const AIChatDialog: React.FC = () => {
     lengthPreference: 'balanced'
   });
   const LONG_PRESS_DURATION = 550;
+
+  const manualModeOptions: { value: ManualAIMode; label: string; description: string }[] = [
+    { value: 'auto', label: 'Auto', description: '智能判断并选择最佳工具' },
+    { value: 'text', label: 'Text', description: '直接进入文本对话模式' },
+    { value: 'generate', label: 'Generate', description: '始终调用生图功能' },
+    { value: 'edit', label: 'Edit', description: '使用图生图编辑功能' },
+    { value: 'blend', label: 'Blend', description: '多图融合生成新画面' },
+    { value: 'analyze', label: 'Analysis', description: '进行图像理解与分析' }
+  ];
+  const currentManualMode = manualModeOptions.find((option) => option.value === manualAIMode) ?? manualModeOptions[0];
   
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
@@ -605,6 +625,8 @@ const AIChatDialog: React.FC = () => {
   const getSmartPlaceholder = () => {
     const mode = getAIMode();
     switch (mode) {
+      case 'text':
+        return "直接输入问题或开始聊天，AI将即时回复。";
       case 'blend':
         return `描述如何融合这${sourceImagesForBlending.length}张图像...`;
       case 'edit':
@@ -612,6 +634,9 @@ const AIChatDialog: React.FC = () => {
       case 'analyze':
         return "询问关于这张图片的问题，或留空进行全面分析...";
       default:
+        if (manualAIMode === 'generate') {
+          return "描述你想生成的图像场景、风格或细节...";
+        }
         return "输入任何内容，AI会智能判断是生图、对话还是其他操作...";
     }
   };
@@ -948,11 +973,70 @@ const AIChatDialog: React.FC = () => {
                 placeholder={getSmartPlaceholder()}
                 disabled={generationStatus.isGenerating}
                 className={cn(
-                  "resize-none pr-4 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
+                  "resize-none px-4 min-h-[80px] text-sm bg-transparent border-gray-300 focus:border-blue-400 focus:ring-0 transition-colors duration-200",
                   generationStatus.isGenerating && "opacity-75"
                 )}
                 rows={showHistory ? 3 : 1}
               />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={generationStatus.isGenerating}
+                    data-dropdown-trigger="true"
+                    className={cn(
+                      "absolute left-2 bottom-2 h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
+                      "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                      manualAIMode !== 'auto'
+                        ? "bg-blue-50 border-blue-300 text-blue-700"
+                        : !generationStatus.isGenerating
+                          ? "hover:bg-liquid-glass-hover text-gray-700"
+                          : "opacity-50 cursor-not-allowed text-gray-400"
+                    )}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    <span className="font-medium">{currentManualMode.label}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  side="top"
+                  sideOffset={8}
+                  className="min-w-[200px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
+                >
+                  <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
+                    快速切换模式
+                  </DropdownMenuLabel>
+                  {manualModeOptions.map((option) => {
+                    const isActive = manualAIMode === option.value;
+                    return (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={(event) => {
+                          setManualAIMode(option.value);
+                          const root = (event.currentTarget as HTMLElement).closest('.dropdown-menu-root');
+                          const trigger = root?.querySelector('[data-dropdown-trigger="true"]') as HTMLButtonElement | null;
+                          if (trigger && !trigger.disabled) {
+                            trigger.click();
+                          }
+                        }}
+                        className={cn(
+                          "flex items-start gap-2 px-3 py-2 text-xs",
+                          isActive ? "bg-blue-50 text-blue-600" : "text-slate-600"
+                        )}
+                      >
+                        <div className="flex-1 space-y-0.5">
+                          <div className="font-medium leading-none">{option.label}</div>
+                          <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
+                        </div>
+                        {isActive && <Check className="h-3.5 w-3.5 text-blue-500" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* 长宽比选择按钮 - 最左边 */}
               <Button

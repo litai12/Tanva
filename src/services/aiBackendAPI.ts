@@ -264,6 +264,7 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
       data: {
         text: data.text,
         model: 'gemini-2.0-flash',
+        webSearchResult: data.webSearchResult || undefined,
       },
     };
   } catch (error) {
