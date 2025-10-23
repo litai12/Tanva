@@ -38,8 +38,16 @@ export class AIProviderFactory {
     );
   }
 
-  getProvider(model?: string): IAIProvider {
-    // 如果指定了模型,根据模型名称推断提供商
+  getProvider(model?: string, aiProvider?: string): IAIProvider {
+    // 如果显式指定了 aiProvider，直接使用
+    if (aiProvider === 'banana') {
+      return this.providers.get('banana') || this.providers.get('gemini')!;
+    }
+    if (aiProvider === 'gemini') {
+      return this.providers.get('gemini')!;
+    }
+
+    // 如果指定了模型，根据模型名称推断提供商
     if (model) {
       if (model.includes('gemini') || model.includes('google')) {
         return this.providers.get('gemini')!;

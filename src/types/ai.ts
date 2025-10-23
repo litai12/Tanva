@@ -7,6 +7,7 @@
 export interface AIImageGenerateRequest {
   prompt: string;
   model?: string;
+  aiProvider?: 'gemini' | 'banana';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'; // 长宽比（官方支持枚举）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
@@ -17,6 +18,7 @@ export interface AIImageEditRequest {
   prompt: string;
   sourceImage: string; // base64 encoded image
   model?: string;
+  aiProvider?: 'gemini' | 'banana';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'; // 长宽比（官方支持枚举）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
@@ -27,6 +29,7 @@ export interface AIImageBlendRequest {
   prompt: string;
   sourceImages: string[]; // base64 encoded images
   model?: string;
+  aiProvider?: 'gemini' | 'banana';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'; // 长宽比（官方支持枚举）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
@@ -86,6 +89,7 @@ export interface AIImageAnalyzeRequest {
   prompt?: string;
   sourceImage: string; // base64 encoded image
   model?: string;
+  aiProvider?: 'gemini' | 'banana';
 }
 
 // AI图像分析结果
@@ -99,6 +103,7 @@ export interface AIImageAnalysisResult {
 export interface AITextChatRequest {
   prompt: string;
   model?: string;
+  aiProvider?: 'gemini' | 'banana';
   context?: string[];
   enableWebSearch?: boolean; // 是否启用联网搜索
 }

@@ -29,6 +29,10 @@ export class GenerateImageDto {
   model?: string;
 
   @IsOptional()
+  @IsString()
+  aiProvider?: 'gemini' | 'banana';
+
+  @IsOptional()
   @IsEnum(OutputFormat)
   outputFormat?: 'jpeg' | 'png' | 'webp';
 
@@ -53,6 +57,10 @@ export class EditImageDto {
   @IsOptional()
   @IsString()
   model?: string;
+
+  @IsOptional()
+  @IsString()
+  aiProvider?: 'gemini' | 'banana';
 
   @IsOptional()
   @IsEnum(OutputFormat)
@@ -82,6 +90,10 @@ export class BlendImagesDto {
   model?: string;
 
   @IsOptional()
+  @IsString()
+  aiProvider?: 'gemini' | 'banana';
+
+  @IsOptional()
   @IsEnum(OutputFormat)
   outputFormat?: 'jpeg' | 'png' | 'webp';
 
@@ -106,6 +118,10 @@ export class AnalyzeImageDto {
   @IsOptional()
   @IsString()
   model?: string;
+
+  @IsOptional()
+  @IsString()
+  aiProvider?: 'gemini' | 'banana';
 }
 
 export class TextChatDto {
@@ -116,6 +132,10 @@ export class TextChatDto {
   @IsOptional()
   @IsString()
   model?: string;
+
+  @IsOptional()
+  @IsString()
+  aiProvider?: 'gemini' | 'banana';
 
   @IsOptional()
   @IsBoolean()

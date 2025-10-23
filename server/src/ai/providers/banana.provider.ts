@@ -289,7 +289,7 @@ export class BananaProvider implements IAIProvider {
           return await this.withTimeout(
             (async () => {
               const config: any = {
-                responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+                responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
               };
 
               if (request.aspectRatio) {
@@ -338,7 +338,7 @@ export class BananaProvider implements IAIProvider {
       const result = await this.withTimeout(
         (async () => {
           const config: any = {
-            responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+            responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
           };
 
           if (request.aspectRatio) {
@@ -409,7 +409,7 @@ export class BananaProvider implements IAIProvider {
       const result = await this.withTimeout(
         (async () => {
           const config: any = {
-            responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+            responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
           };
 
           if (request.aspectRatio) {

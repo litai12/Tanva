@@ -693,7 +693,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 500);
 
       // 调用后端API生成图像
-      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
       console.log('🤖 [AI Provider] generateImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -703,6 +703,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       const result = await generateImageViaAPI({
         prompt,
         model: modelToUse,
+        aiProvider: state.aiProvider,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
@@ -962,7 +963,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 500);
 
       // 调用后端API编辑图像
-      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
       console.log('🤖 [AI Provider] editImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -973,6 +974,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         prompt,
         sourceImage,
         model: modelToUse,
+        aiProvider: state.aiProvider,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
@@ -1213,7 +1215,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }
       }, 500);
 
-      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
       console.log('🤖 [AI Provider] blendImages', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1225,6 +1227,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         prompt,
         sourceImages,
         model: modelToUse,
+        aiProvider: state.aiProvider,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
@@ -1451,7 +1454,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 300);
 
       // 调用后端API分析图像
-      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.0-flash' : 'gemini-2.0-flash';
+      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.0-flash' : 'gemini-2.0-flash';
       console.log('🤖 [AI Provider] analyzeImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1462,6 +1465,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         prompt: prompt || '请详细分析这张图片的内容',
         sourceImage,
         model: modelToUse,
+        aiProvider: state.aiProvider,
       });
 
       clearInterval(progressInterval);
@@ -1574,7 +1578,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
       // 调用后端API生成文本
       const state = get();
-      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.0-flash' : 'gemini-2.0-flash';
+      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.0-flash' : 'gemini-2.0-flash';
       console.log('🤖 [AI Provider] generateTextResponse', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1585,6 +1589,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       const result = await generateTextResponseViaAPI({
         prompt,
         model: modelToUse,
+        aiProvider: state.aiProvider,
         enableWebSearch: state.enableWebSearch
       });
 
