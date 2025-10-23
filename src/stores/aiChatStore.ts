@@ -289,6 +289,7 @@ interface AIChatState {
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
   aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
   manualAIMode: ManualAIMode;
+  aiProvider: 'gemini' | 'banana';  // AI提供商选择 (gemini: Google Gemini, banana: Banana API)
 
   // 操作方法
   showDialog: () => void;
@@ -353,6 +354,7 @@ interface AIChatState {
   setImageOnly: (value: boolean) => void;
   setAspectRatio: (ratio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null) => void;  // 设置长宽比
   setManualAIMode: (mode: ManualAIMode) => void;
+  setAIProvider: (provider: 'gemini' | 'banana') => void;  // 设置AI提供商
 
   // 重置状态
   resetState: () => void;
@@ -386,6 +388,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   imageOnly: false,  // 默认允许返回文本
   aspectRatio: null,  // 默认不指定长宽比
   manualAIMode: 'auto',
+  aiProvider: 'gemini',  // 默认使用 Google Gemini
 
   // 对话框控制
   showDialog: () => set({ isVisible: true }),
@@ -1862,6 +1865,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   setImageOnly: (value: boolean) => set({ imageOnly: value }),
   setAspectRatio: (ratio) => set({ aspectRatio: ratio }),
   setManualAIMode: (mode) => set({ manualAIMode: mode }),
+  setAIProvider: (provider) => set({ aiProvider: provider }),
 
   // 重置状态
   resetState: () => {

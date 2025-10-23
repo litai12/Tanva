@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './providers/ai-provider.interface';
 import { GeminiProvider } from './providers/gemini.provider';
+import { BananaProvider } from './providers/banana.provider';
 
 @Injectable()
 export class AIProviderFactory {
@@ -10,7 +11,8 @@ export class AIProviderFactory {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly geminiProvider: GeminiProvider
+    private readonly geminiProvider: GeminiProvider,
+    private readonly bananaProvider: BananaProvider
   ) {
     this.initializeProviders();
   }
@@ -22,6 +24,10 @@ export class AIProviderFactory {
     this.providers.set('gemini', this.geminiProvider);
     await this.geminiProvider.initialize();
 
+    // 注册 Banana API 提供商
+    this.providers.set('banana', this.bananaProvider);
+    await this.bananaProvider.initialize();
+
     // TODO: 在这里注册其他提供商 (OpenAI, Claude, StableDiffusion等)
     // 例如:
     // this.providers.set('openai', new OpenAIProvider(this.config));
@@ -32,16 +38,13 @@ export class AIProviderFactory {
     );
   }
 
-  /**
-   * 获取指定的 AI 提供商
-   * @param model 模型名称或提供商名称
-   * @returns IAIProvider 实例
-   */
   getProvider(model?: string): IAIProvider {
     // 如果指定了模型,根据模型名称推断提供商
     if (model) {
       if (model.includes('gemini') || model.includes('google')) {
         return this.providers.get('gemini')!;
+      } else if (model.includes('banana') || model.includes('147') || model.includes('147ai')) {
+        return this.providers.get('banana') || this.providers.get('gemini')!;
       } else if (model.includes('gpt') || model.includes('openai')) {
         return this.providers.get('openai') || this.providers.get('gemini')!;
       } else if (model.includes('claude')) {

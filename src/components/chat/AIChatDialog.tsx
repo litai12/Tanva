@@ -92,7 +92,9 @@ const AIChatDialog: React.FC = () => {
     toggleWebSearch,
     setAspectRatio,
     manualAIMode,
-    setManualAIMode
+    setManualAIMode,
+    aiProvider,
+    setAIProvider
   } = useAIChatStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -147,6 +149,13 @@ const AIChatDialog: React.FC = () => {
     { value: 'analyze', label: 'Analysis', description: '进行图像理解与分析' }
   ];
   const currentManualMode = manualModeOptions.find((option) => option.value === manualAIMode) ?? manualModeOptions[0];
+
+  // AI提供商选项
+  const aiProviderOptions: { value: 'gemini' | 'banana'; label: string; description: string }[] = [
+    { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
+    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' }
+  ];
+  const currentAIProvider = aiProviderOptions.find((option) => option.value === aiProvider) ?? aiProviderOptions[0];
   
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
@@ -1038,7 +1047,7 @@ const AIChatDialog: React.FC = () => {
                   align="start"
                   side="top"
                   sideOffset={8}
-                  className="min-w-[200px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
+                  className="min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
                 >
                   <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
                     快速切换模式
@@ -1066,6 +1075,39 @@ const AIChatDialog: React.FC = () => {
                           <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
                         </div>
                         {isActive && <Check className="h-3.5 w-3.5 text-blue-500" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+
+                  {/* AI提供商选择分隔符 */}
+                  <div className="my-1 h-px bg-slate-200" />
+
+                  <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
+                    AI提供商
+                  </DropdownMenuLabel>
+                  {aiProviderOptions.map((option) => {
+                    const isActive = aiProvider === option.value;
+                    return (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={(event) => {
+                          setAIProvider(option.value);
+                          const root = (event.currentTarget as HTMLElement).closest('.dropdown-menu-root');
+                          const trigger = root?.querySelector('[data-dropdown-trigger="true"]') as HTMLButtonElement | null;
+                          if (trigger && !trigger.disabled) {
+                            trigger.click();
+                          }
+                        }}
+                        className={cn(
+                          "flex items-start gap-2 px-3 py-2 text-xs",
+                          isActive ? "bg-purple-50 text-purple-600" : "text-slate-600"
+                        )}
+                      >
+                        <div className="flex-1 space-y-0.5">
+                          <div className="font-medium leading-none">{option.label}</div>
+                          <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
+                        </div>
+                        {isActive && <Check className="h-3.5 w-3.5 text-purple-500" />}
                       </DropdownMenuItem>
                     );
                   })}

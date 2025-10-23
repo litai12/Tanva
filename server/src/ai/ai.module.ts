@@ -4,6 +4,7 @@ import { AiService } from './ai.service';
 import { ImageGenerationService } from './image-generation.service';
 import { AiController } from './ai.controller';
 import { GeminiProvider } from './providers/gemini.provider';
+import { BananaProvider } from './providers/banana.provider';
 import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
 
@@ -13,6 +14,7 @@ import { CostCalculatorService } from './services/cost-calculator.service';
     AiService,
     ImageGenerationService,
     GeminiProvider,
+    BananaProvider,
     AIProviderFactory,
     CostCalculatorService, // 添加成本计算器
   ],
