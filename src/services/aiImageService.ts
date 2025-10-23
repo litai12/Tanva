@@ -85,9 +85,14 @@ class AIImageService {
    * 工具选择 - 使用内部认证 API
    */
   async selectTool(request: any): Promise<AIServiceResponse<any>> {
+    // 转换请求格式以匹配后端期望的结构
+    const backendRequest = {
+      prompt: request.userInput || request.prompt || ''
+    };
+
     return this.callAPI<any>(
       `${this.API_BASE}/ai/tool-selection`,
-      request,
+      backendRequest,
       'Tool selection'
     );
   }
