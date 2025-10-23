@@ -693,9 +693,16 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 500);
 
       // 调用后端API生成图像
+      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      console.log('🤖 [AI Provider] generateImage', {
+        aiProvider: state.aiProvider,
+        model: modelToUse,
+        prompt: prompt.substring(0, 50) + '...'
+      });
+
       const result = await generateImageViaAPI({
         prompt,
-        model: state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image',
+        model: modelToUse,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
@@ -955,10 +962,17 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 500);
 
       // 调用后端API编辑图像
+      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      console.log('🤖 [AI Provider] editImage', {
+        aiProvider: state.aiProvider,
+        model: modelToUse,
+        prompt: prompt.substring(0, 50) + '...'
+      });
+
       const result = await editImageViaAPI({
         prompt,
         sourceImage,
-        model: state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image',
+        model: modelToUse,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
@@ -1199,10 +1213,18 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }
       }, 500);
 
+      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      console.log('🤖 [AI Provider] blendImages', {
+        aiProvider: state.aiProvider,
+        model: modelToUse,
+        imageCount: sourceImages.length,
+        prompt: prompt.substring(0, 50) + '...'
+      });
+
       const result = await blendImagesViaAPI({
         prompt,
         sourceImages,
-        model: state.aiProvider === 'banana' ? 'banana-gemini-2.5-flash-image' : 'gemini-2.5-flash-image',
+        model: modelToUse,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
@@ -1429,10 +1451,17 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 300);
 
       // 调用后端API分析图像
+      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.0-flash' : 'gemini-2.0-flash';
+      console.log('🤖 [AI Provider] analyzeImage', {
+        aiProvider: state.aiProvider,
+        model: modelToUse,
+        prompt: prompt || '默认分析'
+      });
+
       const result = await analyzeImageViaAPI({
         prompt: prompt || '请详细分析这张图片的内容',
         sourceImage,
-        model: state.aiProvider === 'banana' ? 'banana-gemini-2.0-flash' : 'gemini-2.0-flash',
+        model: modelToUse,
       });
 
       clearInterval(progressInterval);
@@ -1545,9 +1574,17 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
       // 调用后端API生成文本
       const state = get();
+      const modelToUse = state.aiProvider === 'banana' ? 'banana-gemini-2.0-flash' : 'gemini-2.0-flash';
+      console.log('🤖 [AI Provider] generateTextResponse', {
+        aiProvider: state.aiProvider,
+        model: modelToUse,
+        enableWebSearch: state.enableWebSearch,
+        prompt: prompt.substring(0, 50) + '...'
+      });
+
       const result = await generateTextResponseViaAPI({
         prompt,
-        model: state.aiProvider === 'banana' ? 'banana-gemini-2.0-flash' : 'gemini-2.0-flash',
+        model: modelToUse,
         enableWebSearch: state.enableWebSearch
       });
 
@@ -1799,6 +1836,11 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   // 智能工具选择功能 - 统一入口（支持并行生成）
   processUserInput: async (input: string) => {
     const state = get();
+    console.log('🤖 [AI Provider] processUserInput started', {
+      aiProvider: state.aiProvider,
+      manualAIMode: state.manualAIMode,
+      input: input.substring(0, 50) + '...'
+    });
 
     // 🔥 移除全局锁定检查，允许并行生成
     // if (state.generationStatus.isGenerating) return;

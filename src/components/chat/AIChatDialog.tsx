@@ -97,6 +97,14 @@ const AIChatDialog: React.FC = () => {
     setAIProvider
   } = useAIChatStore();
 
+  // 监听aiProvider变化并打印日志
+  React.useEffect(() => {
+    console.log('🤖 [AI Provider] Changed', {
+      provider: aiProvider,
+      timestamp: new Date().toISOString()
+    });
+  }, [aiProvider]);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
