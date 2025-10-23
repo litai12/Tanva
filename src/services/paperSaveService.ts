@@ -291,7 +291,10 @@ class PaperSaveService {
       toRemove.forEach(l => l.remove());
 
       console.log('✅ Paper.js项目反序列化成功');
-      try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
+      // 延迟触发事件，确保 Paper.js 完全初始化
+      setTimeout(() => {
+        try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
+      }, 50);
       if (paper.view) (paper.view as any).update();
       return true;
     } catch (error) {
