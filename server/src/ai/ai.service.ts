@@ -29,7 +29,7 @@ export class AiService {
     return this.genAI;
   }
 
-  async runToolSelectionPrompt(prompt: string): Promise<{ text: string }> {
+  async runToolSelectionPrompt(prompt: string): Promise<{ selectedTool: string; parameters: { prompt: string } }> {
     if (!prompt || !prompt.trim()) {
       throw new BadRequestException('Tool selection prompt is empty.');
     }
@@ -39,11 +39,30 @@ export class AiService {
     const delayMs = 1000;
     let lastError: unknown;
 
+    // 工具选择的系统提示
+    const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
+
+可用工具:
+- generateImage: 生成新的图像
+- editImage: 编辑现有图像
+- blendImages: 融合多张图像
+- analyzeImage: 分析图像内容
+- chatResponse: 文本对话或聊天
+
+请以以下JSON格式回复（仅返回JSON，不要其他文字）:
+{
+  "selectedTool": "工具名称",
+  "reasoning": "选择理由"
+}`;
+
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const response = await client.models.generateContent({
           model: 'gemini-2.0-flash',
-          contents: [{ text: prompt }],
+          contents: [
+            { text: systemPrompt },
+            { text: `用户输入: ${prompt}` }
+          ],
           config: {
             safetySettings: [
               { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -60,7 +79,35 @@ export class AiService {
           throw new Error('Empty Gemini response');
         }
 
-        return { text: response.text };
+        // 解析AI的JSON响应
+        try {
+          // 提取 JSON 内容（可能被 markdown 代码块包装）
+          let jsonText = response.text.trim();
+
+          // 移除 markdown 代码块标记
+          if (jsonText.startsWith('```json')) {
+            jsonText = jsonText.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+          } else if (jsonText.startsWith('```')) {
+            jsonText = jsonText.replace(/^```\s*/i, '').replace(/\s*```$/, '');
+          }
+
+          const parsed = JSON.parse(jsonText.trim());
+          const selectedTool = parsed.selectedTool || 'chatResponse';
+
+          this.logger.log(`Tool selected: ${selectedTool}`);
+
+          return {
+            selectedTool,
+            parameters: { prompt }
+          };
+        } catch (parseError) {
+          this.logger.warn(`Failed to parse tool selection JSON: ${response.text}`);
+          // 降级：如果解析失败，默认返回文本对话
+          return {
+            selectedTool: 'chatResponse',
+            parameters: { prompt }
+          };
+        }
       } catch (error) {
         lastError = error;
         const message = error instanceof Error ? error.message : String(error);
@@ -74,6 +121,11 @@ export class AiService {
     const message =
       lastError instanceof Error ? lastError.message : 'Unknown error occurred during tool selection.';
     this.logger.error(`All tool selection attempts failed: ${message}`);
-    throw new ServiceUnavailableException('Failed to generate tool selection from Gemini.');
+
+    // 最后的降级方案：返回文本对话
+    return {
+      selectedTool: 'chatResponse',
+      parameters: { prompt }
+    };
   }
 }

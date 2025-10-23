@@ -1,0 +1,298 @@
+# 📡 本地网络访问配置指南
+
+## 概述
+
+现在你可以让同一局域网内的其他PC访问你的开发环境，**无需部署到Aliyun**！
+
+### 网络拓扑
+
+```
+你的开发PC (192.168.2.115)
+├── 前端服务 (Vite): http://192.168.2.115:5173
+│   └── 代理 /api -> http://localhost:4000
+│
+└── 后端服务 (NestJS): http://192.168.2.115:4000
+    └── 公开API: http://192.168.2.115:4000/api/public/ai/*
+```
+
+---
+
+## 🚀 快速开始
+
+### 步骤1: 启动后端服务
+
+```bash
+cd server
+npm run dev
+```
+
+**验证后端运行**:
+```bash
+# 从你的电脑测试
+curl http://192.168.2.115:4000/api/public/ai/providers
+
+# 应该看到:
+# [{"name":"gemini","available":true,...}]
+```
+
+### 步骤2: 启动前端服务
+
+```bash
+npm run dev
+```
+
+**Vite会输出**:
+```
+  VITE v5.x.x  build 3a2f4c9
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.2.115:5173/
+```
+
+---
+
+## 🖥️ 从其他PC访问
+
+### 方式1️⃣: 通过浏览器访问前端
+
+在**其他PC的浏览器**中输入:
+
+```
+http://192.168.2.115:5173
+```
+
+✅ 前端会自动通过代理 `/api` 调用后端
+✅ CORS已配置允许跨域访问
+
+### 方式2️⃣: 直接调用后端API
+
+其他PC可以直接调用公开API（无需认证）:
+
+```bash
+# 获取可用的AI提供商
+curl http://192.168.2.115:4000/api/public/ai/providers
+
+# 生成图像
+curl -X POST http://192.168.2.115:4000/api/public/ai/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "一只可爱的猫咪",
+    "model": "gemini-2.5-flash-image"
+  }'
+
+# 编辑图像
+curl -X POST http://192.168.2.115:4000/api/public/ai/edit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "给猫加上太阳镜",
+    "sourceImage": "data:image/png;base64,...",
+    "model": "gemini-2.5-flash-image"
+  }'
+```
+
+---
+
+## ⚙️ 配置详解
+
+### 后端配置 (`server/.env`)
+
+```env
+# 监听所有网络接口
+HOST=0.0.0.0
+PORT=4000
+
+# CORS - 允许来自本地网络的请求
+CORS_ORIGIN=http://localhost:5173,http://192.168.2.115:5173,http://192.168.2.115:3000,https://tai.tanva.tgtai.com
+```
+
+**关键要点**:
+- `HOST=0.0.0.0`: 后端监听所有网络接口 (localhost, 192.168.x.x, 等)
+- `CORS_ORIGIN`: 包含本地IP和端口组合
+
+### 前端配置 (`vite.config.ts`)
+
+```typescript
+server: {
+  // 在本地开发时监听所有网络接口
+  host: '0.0.0.0',  // ← 新增！
+
+  proxy: {
+    '/api': {
+      target: 'http://localhost:4000',
+      changeOrigin: true,
+    },
+  },
+},
+```
+
+**工作原理**:
+- Vite绑定到 `0.0.0.0` 使其在本地网络上可访问
+- Vite代理配置将来自任何客户端的 `/api` 请求转发到后端
+- `changeOrigin: true` 修改请求头的Origin字段
+
+### 环境变量 (`.env.local`)
+
+```env
+# 本地网络配置
+VITE_LOCAL_IP=192.168.2.115
+VITE_API_BASE=/api
+```
+
+---
+
+## 🔍 故障排查
+
+### 问题1: 其他PC访问时显示 "无法连接"
+
+**可能原因**:
+1. 防火墙阻止了端口 5173 或 4000
+2. IP地址不对（192.168.2.115可能不是你的实际IP）
+
+**解决方案**:
+```bash
+# 验证你的本地IP
+ifconfig | grep "inet " | grep -v 127.0.0.1
+
+# 关闭macOS防火墙（或添加例外规则）
+# 系统设置 > 隐私与安全 > 防火墙
+```
+
+### 问题2: 请求成功但 CORS 错误
+
+**错误示例**:
+```
+Access to XMLHttpRequest at 'http://192.168.2.115:4000/api/...'
+from origin 'http://192.168.2.115:5173' has been blocked by CORS policy
+```
+
+**解决方案**:
+```bash
+# 重新启动后端服务，确保加载了新的 CORS 配置
+cd server && npm run dev
+```
+
+### 问题3: API 调用返回 "localhost refused"
+
+**原因**: 其他PC上的客户端代码尝试直接连接到 localhost:4000
+
+**解决方案**:
+- 确保前端代码使用 `/api` 相对路径而不是绝对URL
+- Vite代理会自动转换
+
+### 问题4: 如何获取实际的本地IP?
+
+```bash
+# macOS
+ifconfig | grep -E "inet " | grep -v 127.0.0.1
+
+# Linux
+hostname -I
+
+# Windows PowerShell
+ipconfig | Select-String "IPv4 Address"
+```
+
+---
+
+## 📊 API调用流程（本地网络）
+
+### 从其他PC访问前端
+
+```
+其他PC浏览器
+    ↓
+http://192.168.2.115:5173
+    ↓
+[Vite开发服务器]
+    ↓ (代理 /api)
+http://192.168.2.115:4000
+    ↓
+[NestJS后端]
+    ↓
+Google Gemini API / 其他AI提供商
+```
+
+### 直接调用后端API
+
+```
+其他PC的cURL/脚本
+    ↓
+curl http://192.168.2.115:4000/api/public/ai/edit
+    ↓
+[NestJS后端]
+    ↓ (CORS验证: ✅ 192.168.2.115:5173 已授权)
+处理请求 → 调用AI模型 → 返回结果
+```
+
+---
+
+## 🔐 安全注意事项
+
+⚠️ **本地网络配置适合开发和内部测试，生产环境应该**:
+
+1. **部署到云服务** (Aliyun, AWS, GCP等)
+2. **启用HTTPS/TLS加密** - 目前仅HTTP，明文传输数据
+3. **配置身份认证** - 公开API无需API KEY，任何网络访问者都可调用
+4. **设置速率限制** - 防止滥用
+5. **启用日志和监控** - 追踪API使用情况
+6. **移除API密钥** - `.env`中的GOOGLE_GEMINI_API_KEY不应暴露
+
+### 临时禁用CORS（仅用于测试）
+
+如果仍有CORS问题，可以临时启用所有来源（**不推荐生产使用**）:
+
+```env
+CORS_ORIGIN=*
+```
+
+### 防火墙配置
+
+**macOS**:
+```bash
+# 允许特定端口通过防火墙
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /usr/local/bin/node
+```
+
+**Linux**:
+```bash
+sudo ufw allow 5173
+sudo ufw allow 4000
+```
+
+---
+
+## 📝 测试清单
+
+- [ ] 后端启动: `npm run dev` (server目录)
+- [ ] 前端启动: `npm run dev` (根目录)
+- [ ] 本地测试: http://localhost:5173 ✅
+- [ ] 网络测试: http://192.168.2.115:5173 ✅ (从其他PC)
+- [ ] 后端直接访问: curl http://192.168.2.115:4000/api/public/ai/providers ✅
+- [ ] 图像生成: 调用 /api/public/ai/generate ✅
+- [ ] 图像编辑: 调用 /api/public/ai/edit ✅
+
+---
+
+## 🚀 下一步: 部署到Aliyun
+
+当准备好部署到生产环境时:
+
+1. **更新CORS配置**:
+   ```env
+   CORS_ORIGIN=https://tai.tanva.tgtai.com
+   ```
+
+2. **更新前端API地址**:
+   ```typescript
+   // vite.config.ts
+   target: 'https://tai.tanva.tgtai.com'
+   ```
+
+3. **启用HTTPS**
+4. **配置身份认证**
+5. **设置API速率限制**
+
+---
+
+**文件更新时间**: 2025-10-23
+**支持的访问方式**: localhost, 本地网络IP, Aliyun生产域名
