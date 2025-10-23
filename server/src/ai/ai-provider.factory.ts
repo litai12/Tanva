@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IAIProvider } from './ai-provider.interface';
-import { GeminiProvider } from './gemini.provider';
+import { IAIProvider } from './providers/ai-provider.interface';
+import { GeminiProvider } from './providers/gemini.provider';
 
 @Injectable()
 export class AIProviderFactory {

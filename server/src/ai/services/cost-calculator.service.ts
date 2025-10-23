@@ -11,7 +11,7 @@ export class CostCalculatorService {
   /**
    * 成本定价信息 (单位: 美元)
    */
-  private readonly costMap = {
+  private readonly costMap: Record<string, Record<string, number>> = {
     gemini: {
       imageGeneration: 0.0129, // 每张图像 1,290 tokens @ $30/M tokens
       imageEditing: 0.0258,
@@ -33,7 +33,7 @@ export class CostCalculatorService {
       imageAnalysis: 0.008,
       textChat: 0.012, // Claude 3: $0.003/1K input + $0.015/1K output
     },
-    stableDiffusion: {
+    'stable-diffusion': {
       imageGeneration: 0.01,
       imageEditing: 0.015,
       imageBlending: 0.025,
@@ -46,7 +46,8 @@ export class CostCalculatorService {
    * 计算单次 API 调用的成本
    */
   calculateCost(provider: string, operation: string): number {
-    const providerCosts = this.costMap[provider.toLowerCase()];
+    const providerKey = provider.toLowerCase();
+    const providerCosts = this.costMap[providerKey];
 
     if (!providerCosts) {
       this.logger.warn(`Unknown provider: ${provider}, using gemini as default`);
@@ -82,7 +83,7 @@ export class CostCalculatorService {
   /**
    * 获取提供商的所有操作定价
    */
-  getProviderPricing(provider: string): any {
+  getProviderPricing(provider: string): Record<string, number> | null {
     return this.costMap[provider.toLowerCase()] || null;
   }
 
@@ -121,7 +122,7 @@ export class CostCalculatorService {
       textChats: number;
     }
   ): any {
-    const costs = {
+    const costs: Record<string, number> = {
       imageGenerations: this.calculateCost(provider, 'imageGeneration') * stats.imageGenerations,
       imageEdits: this.calculateCost(provider, 'imageEditing') * stats.imageEdits,
       imageBlends: this.calculateCost(provider, 'imageBlending') * stats.imageBlends,
@@ -144,8 +145,8 @@ export class CostCalculatorService {
   /**
    * 获取成本分布信息
    */
-  private getBreakdown(costs: any, total: number): any {
-    const breakdown = {};
+  private getBreakdown(costs: Record<string, number>, total: number): Record<string, any> {
+    const breakdown: Record<string, any> = {};
 
     for (const [key, cost] of Object.entries(costs)) {
       breakdown[key] = {
@@ -180,3 +181,4 @@ export class CostCalculatorService {
     };
   }
 }
+
