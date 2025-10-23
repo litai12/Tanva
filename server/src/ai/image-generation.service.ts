@@ -581,6 +581,7 @@ export class ImageGenerationService {
     );
 
     const client = this.ensureClient();
+    const model = request.model || 'gemini-2.0-flash';
 
     const analysisPrompt = request.prompt
       ? `Please analyze the following image (respond in Chinese):\n\n${request.prompt}`
@@ -599,7 +600,7 @@ export class ImageGenerationService {
           this.withTimeout(
             (async () => {
               const stream = await client.models.generateContentStream({
-                model: 'gemini-2.0-flash',
+                model,
                 contents: [
                   { text: analysisPrompt },
                   {
@@ -656,6 +657,7 @@ export class ImageGenerationService {
     this.logger.log(`Generating text response for prompt: ${request.prompt.substring(0, 50)}...`);
 
     const client = this.ensureClient();
+    const model = request.model || 'gemini-2.0-flash';
     const finalPrompt = `Please respond in Chinese:\n\n${request.prompt}`;
 
     const startTime = Date.now();
@@ -685,7 +687,7 @@ export class ImageGenerationService {
           }
 
           const stream = await client.models.generateContentStream({
-            model: 'gemini-2.0-flash',
+            model,
             contents: [{ text: finalPrompt }],
             config: apiConfig,
           });
