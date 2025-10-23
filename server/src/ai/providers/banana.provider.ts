@@ -183,12 +183,15 @@ export class BananaProvider implements IAIProvider {
       'Content-Type': 'application/json',
     };
 
-    const body = {
-      contents: Array.isArray(contents) ? contents : [{ role: 'user', parts: contents }],
-      generationConfig: {
-        responseModalities: config?.responseModalities || ['TEXT'],
-        ...config?.imageConfig && { imageConfig: config.imageConfig },
-      },
+    // 构建请求体，更好地支持Gemini API格式
+    const body: any = {
+      contents: Array.isArray(contents)
+        ? contents.map(part =>
+            typeof part === 'string'
+              ? { role: 'user', parts: [{ text: part }] }
+              : part
+          )
+        : [{ role: 'user', parts: [{ text: contents }] }],
       safetySettings: [
         { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
         { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -196,8 +199,23 @@ export class BananaProvider implements IAIProvider {
         { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
         { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
       ],
-      ...(config?.tools && { tools: config.tools }),
     };
+
+    // 添加生成配置
+    if (config) {
+      body.generationConfig = {};
+      if (config.responseModalities) {
+        body.generationConfig.responseModalities = config.responseModalities;
+      }
+      if (config.imageConfig) {
+        body.generationConfig.imageConfig = config.imageConfig;
+      }
+      if (config.tools) {
+        body.tools = config.tools;
+      }
+    }
+
+    this.logger.debug(`Making request to ${url}`, { body: JSON.stringify(body).substring(0, 200) });
 
     const response = await fetch(url, {
       method: 'POST',
@@ -207,6 +225,7 @@ export class BananaProvider implements IAIProvider {
 
     if (!response.ok) {
       const errorData = await response.text();
+      this.logger.error(`API error response: ${errorData}`);
       throw new Error(
         `147 API request failed: ${response.status} ${response.statusText} - ${errorData}`
       );
@@ -428,6 +447,7 @@ export class BananaProvider implements IAIProvider {
 
     try {
       const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'analysis');
+      const model = request.model || 'gemini-2.0-flash';
 
       const analysisPrompt = request.prompt
         ? `Please analyze the following image (respond in ${request.prompt})`
@@ -438,7 +458,7 @@ export class BananaProvider implements IAIProvider {
           this.withTimeout(
             (async () => {
               return await this.makeRequest(
-                'gemini-2.0-flash',
+                model,
                 [
                   { text: analysisPrompt },
                   {
@@ -484,6 +504,7 @@ export class BananaProvider implements IAIProvider {
     this.logger.log(`Generating text response...`);
 
     try {
+      const model = request.model || 'gemini-2.0-flash';
       const apiConfig: any = {};
 
       if (request.enableWebSearch) {
@@ -493,7 +514,7 @@ export class BananaProvider implements IAIProvider {
       const result = await this.withTimeout(
         (async () => {
           return await this.makeRequest(
-            'gemini-2.0-flash',
+            model,
             request.prompt,
             apiConfig
           );
@@ -527,12 +548,14 @@ export class BananaProvider implements IAIProvider {
     this.logger.log('Selecting tool...');
 
     try {
+      const model = request.model || 'gemini-2.0-flash';
+
       const result = await this.withRetry(
         async () => {
           return await this.withTimeout(
             (async () => {
               return await this.makeRequest(
-                'gemini-2.0-flash',
+                model,
                 request.prompt,
                 {}
               );
