@@ -77,6 +77,11 @@ export interface TextResult {
 export interface ToolSelectionRequest {
   prompt: string;
   availableTools?: string[];
+  hasImages?: boolean;
+  imageCount?: number;
+  hasCachedImage?: boolean;
+  context?: string;
+  model?: string;
 }
 
 export interface ToolSelectionResult {

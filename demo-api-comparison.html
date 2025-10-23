@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI API 速度对比测试</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 80px;
+            resize: vertical;
+        }
+        button {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            width: 100%;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        button:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(99, 102, 241, 0.25);
+        }
+        button:disabled {
+            cursor: wait;
+            background: #cbd5f5;
+            box-shadow: none;
+            transform: none;
+        }
+        .result {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        .result.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .result.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .result.loading {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .image-result {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .image-result img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .debug-info {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        .debug-info h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .api-config {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .api-config h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .comparison-results {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .comparison-card {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .comparison-card h4 {
+            margin-top: 0;
+            color: #495057;
+        }
+        .timing-breakdown {
+            font-size: 12px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡ AI API 速度对比测试</h1>
+        <p>对比不同API提供商的响应速度和性能表现</p>
+        
+        <div class="api-config">
+            <h3>📋 API配置说明</h3>
+            <ul>
+                <li><strong>Google 直联 API</strong>: 🔑 已配置真实Key，可能遇到CORS问题</li>
+                <li><strong>147 API</strong>: 🔑 已更新为新的有效Key，推荐用于测试</li>
+                <li><strong>酷爱 API</strong>: 🔑 已预设Key，使用Bearer认证，稳定性较好</li>
+            </ul>
+            <p style="color: #28a745; font-weight: bold;">
+                ✅ 所有API Key已预设，选择提供商即可直接测试
+            </p>
+            <p style="color: #dc3545; font-weight: bold;">
+                ⚠️ 如果Google直联API失败，建议使用147API或酷爱API进行测试
+            </p>
+        </div>
+        
+        <form id="testForm">
+            <div class="form-group">
+                <label for="apiProvider">选择API提供商:</label>
+                <select id="apiProvider" required>
+                    <option value="google">Google 直联 API</option>
+                    <option value="147api">147 API</option>
+                    <option value="kuai">酷爱 API</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="apiKey">API Key:</label>
+                <input type="password" id="apiKey" placeholder="自动填充预设API Key" required readonly style="background-color: #f8f9fa;">
+                <small style="color: #6c757d; font-size: 12px;">
+                    💡 已预设常用API Key，选择对应提供商即可使用
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="prompt">提示词:</label>
+                <textarea id="prompt" placeholder="输入图像生成提示词" required>画一只可爱的橘猫，戴着太空头盔，在月球漫步</textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="aspectRatio">长宽比:</label>
+                <select id="aspectRatio">
+                    <option value="auto">自动</option>
+                    <option value="1:1">1:1 正方形</option>
+                    <option value="3:4">3:4 竖屏</option>
+                    <option value="4:3">4:3 横屏</option>
+                    <option value="9:16">9:16 手机竖屏</option>
+                    <option value="16:9">16:9 宽屏</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="imageOnly">响应模式:</label>
+                <select id="imageOnly">
+                    <option value="false">图像 + 文本</option>
+                    <option value="true">仅图像</option>
+                </select>
+            </div>
+            
+            <button type="submit" id="generateBtn">开始测试</button>
+        </form>
+        
+        <div style="margin: 20px 0; text-align: center;">
+            <button id="testAllBtn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); width: auto; padding: 12px 30px;">
+                🚀 同时测试所有API
+            </button>
+        </div>
+        
+        <div id="result" class="result"></div>
+        <div id="imageResult" class="image-result"></div>
+        <div id="debugInfo" class="debug-info" style="display: none;"></div>
+        
+        <div class="comparison-results" id="comparisonResults" style="display: none;">
+            <div class="comparison-card">
+                <h4>Google 直联 API</h4>
+                <div id="googleResult">未测试</div>
+                <div id="googleDetails" class="timing-breakdown" style="display: none;"></div>
+            </div>
+            <div class="comparison-card">
+                <h4>147 API</h4>
+                <div id="147apiResult">未测试</div>
+                <div id="147apiDetails" class="timing-breakdown" style="display: none;"></div>
+            </div>
+            <div class="comparison-card">
+                <h4>酷爱 API</h4>
+                <div id="kuaiResult">未测试</div>
+                <div id="kuaiDetails" class="timing-breakdown" style="display: none;"></div>
+            </div>
+        </div>
+        
+        <div id="performanceAnalysis" class="api-config" style="display: none;">
+            <h3>📊 性能分析</h3>
+            <div id="analysisContent"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { GoogleGenAI } from 'https://esm.run/@google/genai';
+
+        const form = document.getElementById('testForm');
+        const resultDiv = document.getElementById('result');
+        const imageResultDiv = document.getElementById('imageResult');
+        const debugInfoDiv = document.getElementById('debugInfo');
+        const generateBtn = document.getElementById('generateBtn');
+        const testAllBtn = document.getElementById('testAllBtn');
+        const comparisonResults = document.getElementById('comparisonResults');
+
+        // API配置
+        const apiConfigs = {
+            google: {
+                name: 'Google 直联 API',
+                baseUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
+                model: 'gemini-2.5-flash-image',
+                authType: 'key',
+                apiKey: 'AIzaSyDUKP60M4YLpyyStCOvntwDtPX0zvl5F64'
+            },
+            '147api': {
+                name: '147 API',
+                baseUrl: 'https://api1.147ai.com/v1beta/models',
+                model: 'gemini-2.5-flash-image',
+                authType: 'sk',
+                apiKey: 'sk-WBd9sGus7I68Wwl9ivwfIBP148GzuF7ypLISfdUqlW5Ipj5P'
+            },
+            kuai: {
+                name: '酷爱 API',
+                baseUrl: 'https://apis.kuai.host/v1beta/models',
+                model: 'gemini-2.5-flash-image-preview',
+                authType: 'bearer',
+                apiKey: 'sk-YO5bqpHjJ7zcm2iuukjsybBEKn9roLMrH4wLFYu15TBhY5lt'
+            }
+        };
+
+        // API提供商切换时自动填充API Key
+        document.getElementById('apiProvider').addEventListener('change', function() {
+            const selectedProvider = this.value;
+            const apiKeyInput = document.getElementById('apiKey');
+            const config = apiConfigs[selectedProvider];
+            
+            if (config && config.apiKey) {
+                apiKeyInput.value = config.apiKey;
+                console.log(`🔑 已自动填充 ${config.name} 的API Key`);
+            }
+        });
+
+        // 页面加载时自动填充第一个API的Key
+        document.addEventListener('DOMContentLoaded', function() {
+            const firstProvider = document.getElementById('apiProvider').value;
+            const apiKeyInput = document.getElementById('apiKey');
+            const config = apiConfigs[firstProvider];
+            
+            if (config && config.apiKey) {
+                apiKeyInput.value = config.apiKey;
+                console.log(`🔑 已自动填充 ${config.name} 的API Key`);
+            }
+        });
+
+        function buildAuthorizationHeader(apiKey, authType) {
+            if (!apiKey) {
+                throw new Error('API Key 不能为空');
+            }
+            
+            switch (authType) {
+                case 'key':
+                    return apiKey; // Google直联使用key参数
+                case 'sk':
+                    return apiKey.replace(/^Bearer\s+/i, '').trim(); // 147API使用sk-格式
+                case 'bearer':
+                    if (/^Bearer\s+/i.test(apiKey)) {
+                        return apiKey;
+                    }
+                    return `Bearer ${apiKey}`; // 酷爱API使用Bearer格式
+                default:
+                    return apiKey;
+            }
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const apiProvider = document.getElementById('apiProvider').value;
+            const prompt = document.getElementById('prompt').value;
+            const aspectRatio = document.getElementById('aspectRatio').value;
+            const imageOnly = document.getElementById('imageOnly').value === 'true';
+
+            // 使用预设的API Key
+            const config = apiConfigs[apiProvider];
+            const apiKey = config.apiKey;
+
+            if (!apiKey || apiKey.includes('xxxxxxxx')) {
+                showResult(`请先配置 ${config.name} 的有效API Key`, 'error');
+                return;
+            }
+
+            try {
+                generateBtn.disabled = true;
+                showResult(`正在测试 ${apiConfigs[apiProvider].name}...`, 'loading');
+                imageResultDiv.innerHTML = '';
+                debugInfoDiv.style.display = 'none';
+
+                const config = apiConfigs[apiProvider];
+                const startTime = Date.now();
+                const timings = {
+                    start: startTime,
+                    requestBuild: 0,
+                    networkStart: 0,
+                    networkEnd: 0,
+                    parseStart: 0,
+                    parseEnd: 0,
+                    imageLoad: 0
+                };
+
+                let result;
+
+                if (apiProvider === 'google') {
+                    result = await testGoogleAPI(apiKey, prompt, aspectRatio, imageOnly, timings);
+                } else {
+                    result = await testHTTPAPI(config, apiKey, prompt, aspectRatio, imageOnly, timings);
+                }
+
+                timings.parseEnd = Date.now();
+                const totalDuration = ((timings.parseEnd - timings.start) / 1000).toFixed(2);
+
+                if (result.imageData) {
+                    showResult(`${config.name} 测试成功！(总耗时: ${totalDuration}秒)`, 'success');
+                    
+                    // 显示图像
+                    const img = document.createElement('img');
+                    img.src = `data:image/png;base64,${result.imageData}`;
+                    img.alt = '生成的图像';
+                    img.style.maxWidth = '100%';
+                    img.style.height = 'auto';
+                    img.style.borderRadius = '8px';
+                    img.style.marginTop = '10px';
+                    
+                    img.onload = () => {
+                        timings.imageLoad = Date.now();
+                        const imageLoadDuration = timings.imageLoad - timings.parseEnd;
+                        const totalTime = ((timings.imageLoad - timings.start) / 1000).toFixed(2);
+                        
+                        console.log(`🖼️ ${config.name} 图像加载完成，总耗时: ${totalTime}秒`);
+                        
+                        // 输出详细的时间分析
+                        console.log(`📊 ${config.name} 详细时间分析:`, {
+                            '请求构建': `${timings.requestBuild - timings.start}ms`,
+                            '网络请求': `${timings.networkEnd - timings.networkStart}ms`,
+                            '响应解析': `${timings.parseEnd - timings.parseStart}ms`,
+                            '图像加载': `${imageLoadDuration}ms`,
+                            '总耗时': `${totalTime}秒`
+                        });
+
+                        // 更新对比结果
+                        updateComparisonResult(apiProvider, {
+                            success: true,
+                            totalTime: totalTime,
+                            networkTime: timings.networkEnd - timings.networkStart,
+                            imageLoadTime: imageLoadDuration,
+                            timings: timings
+                        });
+                    };
+                    
+                    imageResultDiv.appendChild(img);
+                } else if (result.textResponse) {
+                    showResult(`${config.name} 文本响应: ${result.textResponse} (总耗时: ${totalDuration}秒)`, 'success');
+                } else {
+                    showResult(`${config.name} 未返回图像或文本数据`, 'error');
+                }
+
+            } catch (error) {
+                console.error(`${apiConfigs[apiProvider].name} 测试失败:`, error);
+                
+                let errorMessage = error.message;
+                if (apiProvider === '147api' && error.message.includes('无效的令牌')) {
+                    errorMessage = '147API Key已失效，请获取新的API Key';
+                }
+                
+                showResult(`${apiConfigs[apiProvider].name} 测试失败: ${errorMessage}`, 'error');
+                
+                // 更新对比结果
+                updateComparisonResult(apiProvider, {
+                    success: false,
+                    error: errorMessage
+                });
+            } finally {
+                generateBtn.disabled = false;
+            }
+        });
+
+        // 同时测试所有API
+        testAllBtn.addEventListener('click', async () => {
+            const prompt = document.getElementById('prompt').value;
+            const aspectRatio = document.getElementById('aspectRatio').value;
+            const imageOnly = document.getElementById('imageOnly').value === 'true';
+
+            // 检查所有API Key是否已配置
+            const missingKeys = [];
+            Object.keys(apiConfigs).forEach(provider => {
+                const config = apiConfigs[provider];
+                if (!config.apiKey || config.apiKey.includes('xxxxxxxx')) {
+                    missingKeys.push(config.name);
+                }
+            });
+
+            if (missingKeys.length > 0) {
+                showResult(`请先配置以下API的Key: ${missingKeys.join(', ')}`, 'error');
+                return;
+            }
+
+            testAllBtn.disabled = true;
+            testAllBtn.textContent = '🔄 测试中...';
+            showResult('正在同时测试所有API...', 'loading');
+            imageResultDiv.innerHTML = '';
+            comparisonResults.style.display = 'grid';
+
+            // 重置所有结果
+            document.getElementById('googleResult').innerHTML = '⏳ 测试中...';
+            document.getElementById('147apiResult').innerHTML = '⏳ 测试中...';
+            document.getElementById('kuaiResult').innerHTML = '⏳ 测试中...';
+
+            const testPromises = [];
+
+            // 测试Google API
+            testPromises.push(
+                testSingleAPI('google', prompt, aspectRatio, imageOnly)
+                    .catch(error => ({ provider: 'google', error: error.message }))
+            );
+
+            // 测试147API
+            testPromises.push(
+                testSingleAPI('147api', prompt, aspectRatio, imageOnly)
+                    .catch(error => ({ provider: '147api', error: error.message }))
+            );
+
+            // 测试酷爱API
+            testPromises.push(
+                testSingleAPI('kuai', prompt, aspectRatio, imageOnly)
+                    .catch(error => ({ provider: 'kuai', error: error.message }))
+            );
+
+            try {
+                const results = await Promise.allSettled(testPromises);
+                
+                let successCount = 0;
+                let fastestTime = Infinity;
+                let fastestProvider = '';
+
+                results.forEach((result, index) => {
+                    if (result.status === 'fulfilled' && result.value.success) {
+                        successCount++;
+                        if (result.value.totalTime < fastestTime) {
+                            fastestTime = result.value.totalTime;
+                            fastestProvider = result.value.provider;
+                        }
+                    }
+                });
+
+                if (successCount > 0) {
+                    showResult(`测试完成！${successCount}/3 个API成功，最快的是 ${apiConfigs[fastestProvider].name} (${fastestTime}秒)`, 'success');
+                } else {
+                    showResult('所有API测试都失败了', 'error');
+                }
+            } catch (error) {
+                showResult('测试过程中出现错误', 'error');
+            } finally {
+                testAllBtn.disabled = false;
+                testAllBtn.textContent = '🚀 同时测试所有API';
+            }
+        });
+
+        async function testSingleAPI(provider, prompt, aspectRatio, imageOnly) {
+            const config = apiConfigs[provider];
+            const apiKey = config.apiKey;
+            const startTime = Date.now();
+            const timings = {
+                start: startTime,
+                requestBuild: 0,
+                networkStart: 0,
+                networkEnd: 0,
+                parseStart: 0,
+                parseEnd: 0,
+                imageLoad: 0
+            };
+
+            let result;
+
+            if (provider === 'google') {
+                result = await testGoogleAPI(apiKey, prompt, aspectRatio, imageOnly, timings);
+            } else {
+                result = await testHTTPAPI(config, apiKey, prompt, aspectRatio, imageOnly, timings);
+            }
+
+            timings.parseEnd = Date.now();
+            const totalDuration = ((timings.parseEnd - timings.start) / 1000).toFixed(2);
+
+            if (result.imageData) {
+                updateComparisonResult(provider, {
+                    success: true,
+                    totalTime: totalDuration,
+                    networkTime: timings.networkEnd - timings.networkStart,
+                    imageLoadTime: 0, // 简化处理
+                    timings: timings
+                });
+                return { provider, success: true, totalTime: parseFloat(totalDuration) };
+            } else if (result.textResponse) {
+                updateComparisonResult(provider, {
+                    success: true,
+                    totalTime: totalDuration,
+                    networkTime: timings.networkEnd - timings.networkStart,
+                    imageLoadTime: 0,
+                    timings: timings
+                });
+                return { provider, success: true, totalTime: parseFloat(totalDuration) };
+            } else {
+                throw new Error('未返回图像或文本数据');
+            }
+        }
+
+        async function testGoogleAPI(apiKey, prompt, aspectRatio, imageOnly, timings) {
+            try {
+                console.log('🔧 初始化Google GenAI客户端...');
+                const initStart = Date.now();
+                const genAI = new GoogleGenAI({ apiKey });
+                const initTime = Date.now() - initStart;
+                console.log(`⚡ SDK初始化耗时: ${initTime}ms`);
+                
+                // 优化配置 - 减少不必要的安全设置
+                const config = {
+                    safetySettings: [
+                        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+                    ]
+                };
+
+                // 强制只生成图像，避免文本处理
+                config.responseModalities = ['Image'];
+
+                if (aspectRatio && aspectRatio !== 'auto') {
+                    config.imageConfig = { aspectRatio };
+                }
+
+                timings.requestBuild = Date.now();
+                console.log(`⏱️ Google API 请求构建耗时: ${timings.requestBuild - timings.start}ms`);
+                console.log('🔍 Google API 配置:', config);
+
+                timings.networkStart = Date.now();
+                console.log('🌐 开始Google API调用...');
+                
+                // 使用更快的模型
+                const stream = await genAI.models.generateContentStream({
+                    model: 'gemini-2.5-flash-image',
+                    contents: prompt,
+                    config: config
+                });
+
+                let imageData = null;
+                let textResponse = '';
+                let chunkCount = 0;
+                let firstChunkTime = 0;
+                let lastChunkTime = 0;
+
+                console.log('📦 开始处理流式响应...');
+                for await (const chunk of stream) {
+                    chunkCount++;
+                    if (firstChunkTime === 0) {
+                        firstChunkTime = Date.now();
+                        console.log(`⚡ 首个数据块到达时间: ${firstChunkTime - timings.networkStart}ms`);
+                    }
+                    lastChunkTime = Date.now();
+                    
+                    console.log(`📦 收到第${chunkCount}个数据块，大小: ${JSON.stringify(chunk).length} 字符`);
+                    
+                    if (chunk?.candidates?.[0]?.content?.parts) {
+                        for (const part of chunk.candidates[0].content.parts) {
+                            if (part.text) {
+                                textResponse += part.text;
+                                console.log('📝 文本部分:', part.text);
+                            }
+                            if (part.inlineData?.data) {
+                                imageData = part.inlineData.data;
+                                console.log('🖼️ 图像数据长度:', imageData.length, 'bytes');
+                                console.log('🖼️ 图像数据预览:', imageData.substring(0, 50) + '...');
+                            }
+                        }
+                    }
+                }
+
+                timings.networkEnd = Date.now();
+                timings.parseStart = timings.networkEnd;
+                
+                console.log(`📡 Google API 网络请求完成，总耗时: ${timings.networkEnd - timings.networkStart}ms`);
+                console.log(`⚡ 首个数据块延迟: ${firstChunkTime - timings.networkStart}ms`);
+                console.log(`📦 总共收到 ${chunkCount} 个数据块`);
+                console.log(`⏱️ 流式处理耗时: ${lastChunkTime - firstChunkTime}ms`);
+
+                return { imageData, textResponse };
+            } catch (error) {
+                console.error('❌ Google API 调用失败:', error);
+                console.error('错误详情:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
+                
+                // 提供更详细的错误信息
+                if (error.message.includes('Load failed sending request')) {
+                    throw new Error('Google API 网络请求失败，可能是CORS问题或API Key无效。建议使用代理API（147API或酷爱API）');
+                } else if (error.message.includes('API key')) {
+                    throw new Error('Google API Key 无效或格式错误');
+                } else {
+                    throw new Error(`Google API 调用失败: ${error.message}`);
+                }
+            }
+        }
+
+        async function testHTTPAPI(config, apiKey, prompt, aspectRatio, imageOnly, timings) {
+            const body = {
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [{ text: prompt }]
+                    }
+                ],
+                generationConfig: {
+                    responseModalities: imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE']
+                },
+                safetySettings: [
+                    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                    { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' }
+                ]
+            };
+
+            if (aspectRatio && aspectRatio !== 'auto') {
+                body.generationConfig.imageConfig = { aspectRatio };
+            }
+
+            timings.requestBuild = Date.now();
+            console.log(`⏱️ ${config.name} 请求构建耗时: ${timings.requestBuild - timings.start}ms`);
+
+            const url = `${config.baseUrl}/${config.model}:generateContent`;
+            timings.networkStart = Date.now();
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': buildAuthorizationHeader(apiKey, config.authType),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+
+            timings.networkEnd = Date.now();
+            console.log(`📡 ${config.name} 网络请求完成，耗时: ${timings.networkEnd - timings.networkStart}ms`);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API调用失败: ${response.status} - ${errorText}`);
+            }
+
+            const data = await response.json();
+            timings.parseStart = Date.now();
+            console.log(`📡 ${config.name} API响应:`, data);
+
+            const candidate = data?.candidates?.[0];
+            const parts = candidate?.content?.parts || [];
+            
+            let imageData = null;
+            let textResponse = '';
+
+            parts.forEach((part, index) => {
+                if (part.text) {
+                    textResponse += part.text;
+                }
+                if (part.inlineData?.data) {
+                    imageData = part.inlineData.data;
+                }
+            });
+
+            return { imageData, textResponse };
+        }
+
+        function updateComparisonResult(provider, result) {
+            const resultDiv = document.getElementById(`${provider}Result`);
+            const detailsDiv = document.getElementById(`${provider}Details`);
+            
+            if (result.success) {
+                resultDiv.innerHTML = `
+                    <div style="color: green; font-weight: bold;">✅ 成功</div>
+                    <div>总耗时: ${result.totalTime}秒</div>
+                `;
+                
+                if (result.timings) {
+                    const timings = result.timings;
+                    detailsDiv.innerHTML = `
+                        <strong>详细时间分析:</strong><br>
+                        • SDK初始化: ${timings.requestBuild - timings.start}ms<br>
+                        • 网络请求: ${timings.networkEnd - timings.networkStart}ms<br>
+                        • 响应解析: ${timings.parseEnd - timings.parseStart}ms<br>
+                        • 图像加载: ${result.imageLoadTime || 0}ms<br>
+                        <strong>性能评分:</strong> ${getPerformanceScore(result.totalTime)}
+                    `;
+                    detailsDiv.style.display = 'block';
+                }
+            } else {
+                resultDiv.innerHTML = `
+                    <div style="color: red; font-weight: bold;">❌ 失败</div>
+                    <div style="color: red;">${result.error}</div>
+                `;
+                detailsDiv.style.display = 'none';
+            }
+            comparisonResults.style.display = 'grid';
+            
+            // 显示性能分析
+            updatePerformanceAnalysis();
+        }
+        
+        function getPerformanceScore(totalTime) {
+            if (totalTime < 3) return '🚀 极快';
+            if (totalTime < 5) return '⚡ 很快';
+            if (totalTime < 8) return '✅ 正常';
+            if (totalTime < 12) return '🐌 较慢';
+            return '❌ 很慢';
+        }
+        
+        function updatePerformanceAnalysis() {
+            const analysisDiv = document.getElementById('performanceAnalysis');
+            const analysisContent = document.getElementById('analysisContent');
+            
+            const results = [];
+            ['google', '147api', 'kuai'].forEach(provider => {
+                const resultDiv = document.getElementById(`${provider}Result`);
+                const text = resultDiv.textContent;
+                if (text.includes('成功')) {
+                    const timeMatch = text.match(/总耗时: ([\d.]+)秒/);
+                    if (timeMatch) {
+                        results.push({
+                            provider: apiConfigs[provider].name,
+                            time: parseFloat(timeMatch[1])
+                        });
+                    }
+                }
+            });
+            
+            if (results.length > 0) {
+                results.sort((a, b) => a.time - b.time);
+                const fastest = results[0];
+                const slowest = results[results.length - 1];
+                const speedDiff = ((slowest.time - fastest.time) / fastest.time * 100).toFixed(1);
+                
+                analysisContent.innerHTML = `
+                    <div style="margin-bottom: 10px;">
+                        <strong>🏆 最快:</strong> ${fastest.provider} (${fastest.time}秒)<br>
+                        <strong>🐌 最慢:</strong> ${slowest.provider} (${slowest.time}秒)<br>
+                        <strong>📊 速度差异:</strong> ${speedDiff}%
+                    </div>
+                    <div style="font-size: 12px; color: #6c757d;">
+                        💡 如果Google直联API比代理API慢很多，可能是CORS限制或网络延迟导致的
+                    </div>
+                `;
+                analysisDiv.style.display = 'block';
+            }
+        }
+
+        function showResult(message, type) {
+            resultDiv.textContent = message;
+            resultDiv.className = `result ${type}`;
+        }
+
+        function showDebugInfo(info) {
+            debugInfoDiv.innerHTML = '<h3>调试信息:</h3><pre>' + JSON.stringify(info, null, 2) + '</pre>';
+            debugInfoDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

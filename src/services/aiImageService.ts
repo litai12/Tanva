@@ -20,6 +20,8 @@ import type {
   AITextChatResult,
   AIServiceResponse,
   AIError,
+  ToolSelectionRequest,
+  ToolSelectionResult,
 } from '@/types/ai';
 
 class AIImageService {
@@ -84,13 +86,20 @@ class AIImageService {
   /**
    * 工具选择 - 使用内部认证 API
    */
-  async selectTool(request: any): Promise<AIServiceResponse<any>> {
+  async selectTool(request: ToolSelectionRequest): Promise<AIServiceResponse<ToolSelectionResult>> {
     // 转换请求格式以匹配后端期望的结构
     const backendRequest = {
-      prompt: request.userInput || request.prompt || ''
+      prompt: request.userInput || request.prompt || '',
+      aiProvider: request.aiProvider,
+      model: request.model,
+      hasImages: request.hasImages,
+      imageCount: request.imageCount,
+      hasCachedImage: request.hasCachedImage,
+      availableTools: request.availableTools,
+      context: request.context,
     };
 
-    return this.callAPI<any>(
+    return this.callAPI<ToolSelectionResult>(
       `${this.API_BASE}/ai/tool-selection`,
       backendRequest,
       'Tool selection'

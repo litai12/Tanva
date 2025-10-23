@@ -150,6 +150,9 @@ export interface ToolSelectionRequest {
   hasCachedImage?: boolean; // 是否有缓存图像
   availableTools: string[];
   context?: string;
+  prompt?: string;
+  aiProvider?: 'gemini' | 'banana';
+  model?: string;
 }
 
 // 工具选择结果

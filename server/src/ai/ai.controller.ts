@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Logger, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { ImageGenerationService, ImageGenerationResult } from './image-generation.service';
@@ -15,6 +15,8 @@ import {
 @ApiTags('ai')
 @Controller('ai')
 export class AiController {
+  private readonly logger = new Logger(AiController.name);
+
   constructor(
     private readonly ai: AiService,
     private readonly imageGeneration: ImageGenerationService,
@@ -23,6 +25,37 @@ export class AiController {
 
   @Post('tool-selection')
   async toolSelection(@Body() dto: ToolSelectionRequestDto) {
+    if (dto.aiProvider === 'banana') {
+      try {
+        const provider = this.factory.getProvider(dto.model, 'banana');
+        const result = await provider.selectTool({
+          prompt: dto.prompt,
+          availableTools: dto.availableTools,
+          hasImages: dto.hasImages,
+          imageCount: dto.imageCount,
+          hasCachedImage: dto.hasCachedImage,
+          context: dto.context,
+          model: dto.model,
+        });
+
+        if (result.success && result.data) {
+          return {
+            selectedTool: result.data.selectedTool,
+            parameters: { prompt: dto.prompt },
+            reasoning: result.data.reasoning,
+            confidence: result.data.confidence,
+          };
+        }
+
+        this.logger.warn(
+          `[ToolSelection] Banana provider returned error: ${result.error?.message ?? 'unknown error'}`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`[ToolSelection] Banana provider threw exception: ${message}`);
+      }
+    }
+
     const result = await this.ai.runToolSelectionPrompt(dto.prompt);
     return result;
   }

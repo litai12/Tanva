@@ -24,15 +24,15 @@ import {
 export class BananaProvider implements IAIProvider {
   private readonly logger = new Logger(BananaProvider.name);
   private apiKey: string | null = null;
-  private readonly apiBaseUrl = 'https://147ai.com/v1beta/models';
-  private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
+  private readonly apiBaseUrl = 'https://api1.147ai.com/v1beta/models';
+  private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image';
   private readonly DEFAULT_TIMEOUT = 120000;
   private readonly MAX_RETRIES = 3;
 
   constructor(private readonly config: ConfigService) {}
 
   async initialize(): Promise<void> {
-    this.apiKey = this.config.get<string>('BANANA_API_KEY');
+    this.apiKey = this.config.get<string>('BANANA_API_KEY') ?? null;
 
     if (!this.apiKey) {
       this.logger.warn('Banana API key not configured.');
@@ -176,6 +176,135 @@ export class BananaProvider implements IAIProvider {
     }
   }
 
+  private buildContents(input: any): Array<{ role: string; parts: any[] }> {
+    // 已经是完整的 content 结构时直接返回
+    if (Array.isArray(input)) {
+      const allContentObjects = input.every(
+        (item) => item && typeof item === 'object' && 'role' in item && 'parts' in item
+      );
+
+      if (allContentObjects) {
+        return input;
+      }
+
+      const parts = input.map((part) => {
+        if (typeof part === 'string') {
+          return { text: part };
+        }
+
+        if (part && typeof part === 'object' && !('role' in part) && !('parts' in part)) {
+          return part;
+        }
+
+        return { text: String(part) };
+      });
+
+      return [{ role: 'user', parts }];
+    }
+
+    if (input && typeof input === 'object') {
+      if ('role' in input && 'parts' in input) {
+        return [input];
+      }
+
+      return [
+        {
+          role: 'user',
+          parts: [input],
+        },
+      ];
+    }
+
+    return [
+      {
+        role: 'user',
+        parts: [
+          {
+            text: typeof input === 'string' ? input : String(input),
+          },
+        ],
+      },
+    ];
+  }
+
+  private sanitizeApiKey(apiKey: string): string {
+    // 147 API 要求直接使用 sk- 开头的密钥，如果误带 Bearer 则去掉
+    return apiKey.replace(/^Bearer\s+/i, '').trim();
+  }
+
+  private sanitizeToolSelectionResponse(response: string): string {
+    if (!response) {
+      return response;
+    }
+
+    let text = response.trim();
+
+    if (text.startsWith('```json')) {
+      text = text.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+    } else if (text.startsWith('```')) {
+      text = text.replace(/^```\s*/i, '').replace(/\s*```$/, '');
+    }
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return jsonMatch[0];
+    }
+
+    return text;
+  }
+
+  private pickAvailableTool(desired: string, available?: string[]): string {
+    if (!available || available.length === 0) {
+      return desired;
+    }
+
+    if (available.includes(desired)) {
+      return desired;
+    }
+
+    if (available.includes('chatResponse')) {
+      return 'chatResponse';
+    }
+
+    return available[0];
+  }
+
+  private fallbackToolSelection(
+    request: ToolSelectionRequest,
+    reason: string
+  ): { tool: string; reasoning: string; confidence: number } {
+    const available = request.availableTools;
+    const prompt = (request.prompt || '').toLowerCase();
+    const hasImages = Boolean(request.hasImages || request.imageCount || request.hasCachedImage);
+    const imageCount = request.imageCount ?? 0;
+
+    const pick = (tool: string, fallbackReason: string, confidence = 0.6) => ({
+      tool: this.pickAvailableTool(tool, available),
+      reasoning: fallbackReason,
+      confidence,
+    });
+
+    if (!hasImages) {
+      return pick('generateImage', reason || 'No input images detected, defaulting to image generation.', 0.7);
+    }
+
+    if (imageCount > 1) {
+      return pick('blendImages', reason || 'Multiple images supplied, using blend operation.', 0.75);
+    }
+
+    const analyzeKeywords = ['分析', '解释', '分析下', 'describe', 'analysis', '分析一下'];
+    if (analyzeKeywords.some((keyword) => prompt.includes(keyword))) {
+      return pick('analyzeImage', reason || 'Prompt indicates image analysis is required.', 0.7);
+    }
+
+    const editKeywords = ['修改', '编辑', '调整', '重绘', '修复', 'edit', 'modify', 'refine'];
+    if (editKeywords.some((keyword) => prompt.includes(keyword))) {
+      return pick('editImage', reason || 'Prompt suggests editing an existing image.', 0.7);
+    }
+
+    return pick('editImage', reason || 'Single input image provided; defaulting to edit mode.', 0.65);
+  }
+
   private async makeRequest(
     model: string,
     contents: any,
@@ -185,19 +314,13 @@ export class BananaProvider implements IAIProvider {
     const url = `${this.apiBaseUrl}/${model}:generateContent`;
 
     const headers = {
-      'Authorization': `Bearer ${apiKey}`,
+      'Authorization': this.sanitizeApiKey(apiKey),
       'Content-Type': 'application/json',
     };
 
     // 构建请求体，更好地支持Gemini API格式
     const body: any = {
-      contents: Array.isArray(contents)
-        ? contents.map(part =>
-            typeof part === 'string'
-              ? { role: 'user', parts: [{ text: part }] }
-              : part
-          )
-        : [{ role: 'user', parts: [{ text: contents }] }],
+      contents: this.buildContents(contents),
       safetySettings: [
         { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
         { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -555,16 +678,62 @@ export class BananaProvider implements IAIProvider {
     this.logger.log('Selecting tool...');
 
     try {
-      const model = this.normalizeModelName(request.model || 'gemini-2.0-flash');
+      const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入和上下文，选择最合适的工具执行。
+
+可用工具:
+- generateImage: 生成新的图像
+- editImage: 编辑现有图像
+- blendImages: 融合多张图像
+- analyzeImage: 分析图像内容
+- chatResponse: 文本对话或聊天
+
+请以以下JSON格式回复（仅返回JSON，不要其他文字）:
+{
+  "selectedTool": "工具名称",
+  "reasoning": "选择理由"
+}`;
+
+      const contextDetails: string[] = [];
+      if (typeof request.hasImages === 'boolean') {
+        contextDetails.push(`用户是否提供了图像: ${request.hasImages ? '是' : '否'}`);
+      }
+      if (typeof request.imageCount === 'number') {
+        contextDetails.push(`显式提供的图像数量: ${request.imageCount}`);
+      }
+      if (typeof request.hasCachedImage === 'boolean') {
+        contextDetails.push(`是否存在缓存图像: ${request.hasCachedImage ? '是' : '否'}`);
+      }
+      if (request.availableTools?.length) {
+        contextDetails.push(`可用工具列表: ${request.availableTools.join(', ')}`);
+      }
+      if (request.context) {
+        contextDetails.push(`额外上下文: ${request.context}`);
+      }
+
+      const userPrompt = [
+        `用户输入: ${request.prompt}`,
+        contextDetails.length ? `上下文信息:\n- ${contextDetails.join('\n- ')}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
 
       const result = await this.withRetry(
         async () => {
           return await this.withTimeout(
             (async () => {
               return await this.makeRequest(
-                model,
-                request.prompt,
-                {}
+                'gemini-2.0-flash',
+                [
+                  {
+                    role: 'system',
+                    parts: [{ text: systemPrompt }],
+                  },
+                  {
+                    role: 'user',
+                    parts: [{ text: userPrompt }],
+                  },
+                ],
+                { responseModalities: ['TEXT'] }
               );
             })(),
             this.DEFAULT_TIMEOUT,
@@ -574,22 +743,72 @@ export class BananaProvider implements IAIProvider {
         'Tool selection'
       );
 
+      const responseText = result.textResponse?.trim();
+
+      if (!responseText) {
+        this.logger.warn('Tool selection response was empty, falling back to heuristic.');
+        const fallback = this.fallbackToolSelection(request, 'Empty response from model.');
+        return {
+          success: true,
+          data: {
+            selectedTool: fallback.tool,
+            reasoning: fallback.reasoning,
+            confidence: fallback.confidence,
+          },
+        };
+      }
+
+      const sanitized = this.sanitizeToolSelectionResponse(responseText);
+
+      try {
+        const parsed = JSON.parse(sanitized);
+        const selectedToolRaw = typeof parsed.selectedTool === 'string' ? parsed.selectedTool : 'chatResponse';
+        const selectedTool = this.pickAvailableTool(selectedToolRaw, request.availableTools);
+        const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : '';
+        const confidence =
+          typeof parsed.confidence === 'number'
+            ? parsed.confidence
+            : parsed.selectedTool === selectedTool
+            ? 0.8
+            : 0.7;
+
+        return {
+          success: true,
+          data: {
+            selectedTool,
+            reasoning,
+            confidence,
+          },
+        };
+      } catch (parseError) {
+        this.logger.warn(
+          `Failed to parse tool selection response "${responseText}", using heuristic fallback.`,
+        );
+        const fallback = this.fallbackToolSelection(
+          request,
+          parseError instanceof Error ? parseError.message : 'JSON parse error'
+        );
+        return {
+          success: true,
+          data: {
+            selectedTool: fallback.tool,
+            reasoning: fallback.reasoning,
+            confidence: fallback.confidence,
+          },
+        };
+      }
+    } catch (error) {
+      this.logger.error('Tool selection failed:', error);
+      const fallback = this.fallbackToolSelection(
+        request,
+        error instanceof Error ? error.message : 'Failed to select tool'
+      );
       return {
         success: true,
         data: {
-          selectedTool: 'generateImage',
-          reasoning: result.textResponse || '',
-          confidence: 0.85,
-        },
-      };
-    } catch (error) {
-      this.logger.error('Tool selection failed:', error);
-      return {
-        success: false,
-        error: {
-          code: 'TOOL_SELECTION_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to select tool',
-          details: error,
+          selectedTool: fallback.tool,
+          reasoning: fallback.reasoning,
+          confidence: fallback.confidence,
         },
       };
     }
@@ -603,7 +822,7 @@ export class BananaProvider implements IAIProvider {
     return {
       name: 'Banana API',
       version: '1.0',
-      supportedModels: ['gemini-2.5-flash-image-preview', 'gemini-2.0-flash'],
+      supportedModels: ['gemini-2.5-flash-image', 'gemini-2.0-flash'],
     };
   }
 }

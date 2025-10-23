@@ -1685,7 +1685,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       hasImages: totalImageCount > 0,
       imageCount: explicitImageCount, // 传递显式图片数量，不包含缓存
       hasCachedImage: !!cachedImage,  // 单独标记是否有缓存图片
-      availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse']
+      availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse'],
+      aiProvider: state.aiProvider,
     };
 
     console.log('🔍 工具选择调试信息:', {
