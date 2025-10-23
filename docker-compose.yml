@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: tanva-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: tanva123456
+      POSTGRES_DB: tanva
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tanva-network
+    restart: unless-stopped
+
+  # 后端 API 服务
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: tanva-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # 服务器配置
+      PORT: 4000
+      HOST: 0.0.0.0
+
+      # 数据库配置
+      DATABASE_URL: postgresql://postgres:tanva123456@postgres:5432/tanva?schema=public
+
+      # JWT 配置（开发环境用）
+      JWT_ACCESS_SECRET: dev-jwt-access-secret-do-not-use-in-production-key-long-enough
+      JWT_REFRESH_SECRET: dev-jwt-refresh-secret-do-not-use-in-production-key-long-enough
+      JWT_ACCESS_TTL: 900s
+      JWT_REFRESH_TTL: 30d
+
+      # Cookie 配置
+      COOKIE_SECRET: dev-cookie-secret-do-not-use-in-production-key-long-enough
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: lax
+      COOKIE_DOMAIN: localhost
+
+      # CORS 配置
+      CORS_ORIGIN: http://localhost:5173,http://localhost:80,http://localhost
+
+      # OSS 配置（可选）
+      OSS_REGION: oss-cn-hangzhou
+      OSS_BUCKET: your-bucket
+      OSS_ACCESS_KEY_ID: test-key-id
+      OSS_ACCESS_KEY_SECRET: test-key-secret
+    ports:
+      - "4000:4000"
+    networks:
+      - tanva-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # 前端应用（Nginx）
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_ENV: development
+        VITE_GOOGLE_GEMINI_API_KEY: dev-key
+        VITE_VIDEO_DEFAULT_DURATION: "8"
+        VITE_VIDEO_DEFAULT_RESOLUTION: "720p"
+    container_name: tanva-frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks:
+      - tanva-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  tanva-network:
+    driver: bridge
