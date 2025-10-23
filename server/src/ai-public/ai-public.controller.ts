@@ -15,7 +15,7 @@ import {
  * 其他PC可直接调用这些端点,无需API KEY配置
  */
 @ApiTags('public-ai')
-@Controller('api/public/ai')
+@Controller('public/ai')
 export class AiPublicController {
   constructor(private readonly aiPublicService: AiPublicService) {}
 
