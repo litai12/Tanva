@@ -51,6 +51,12 @@ export class BananaProvider implements IAIProvider {
     return this.apiKey;
   }
 
+  private normalizeModelName(model: string): string {
+    // 移除banana-前缀，确保API能识别模型名称
+    // banana-gemini-2.5-flash-image -> gemini-2.5-flash-image
+    return model.startsWith('banana-') ? model.substring(7) : model;
+  }
+
   private inferMimeTypeFromBase64(data: string): string {
     const headerChecks = [
       { prefix: 'iVBORw0KGgo', mime: 'image/png' },
@@ -275,7 +281,8 @@ export class BananaProvider implements IAIProvider {
     this.logger.log(`Generating image with prompt: ${request.prompt.substring(0, 50)}...`);
 
     try {
-      const model = request.model || this.DEFAULT_MODEL;
+      const model = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+      this.logger.debug(`Using model: ${model}`);
 
       const result = await this.withRetry(
         async () => {
@@ -326,7 +333,7 @@ export class BananaProvider implements IAIProvider {
 
     try {
       const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'edit');
-      const model = request.model || this.DEFAULT_MODEL;
+      const model = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
 
       const result = await this.withTimeout(
         (async () => {
@@ -385,7 +392,7 @@ export class BananaProvider implements IAIProvider {
     );
 
     try {
-      const model = request.model || this.DEFAULT_MODEL;
+      const model = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
 
       const normalizedImages = request.sourceImages.map((imageData, index) => {
         const normalized = this.normalizeImageInput(imageData, `blend source #${index + 1}`);
@@ -447,7 +454,7 @@ export class BananaProvider implements IAIProvider {
 
     try {
       const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'analysis');
-      const model = request.model || 'gemini-2.0-flash';
+      const model = this.normalizeModelName(request.model || 'gemini-2.0-flash');
 
       const analysisPrompt = request.prompt
         ? `Please analyze the following image (respond in ${request.prompt})`
@@ -504,7 +511,7 @@ export class BananaProvider implements IAIProvider {
     this.logger.log(`Generating text response...`);
 
     try {
-      const model = request.model || 'gemini-2.0-flash';
+      const model = this.normalizeModelName(request.model || 'gemini-2.0-flash');
       const apiConfig: any = {};
 
       if (request.enableWebSearch) {
@@ -548,7 +555,7 @@ export class BananaProvider implements IAIProvider {
     this.logger.log('Selecting tool...');
 
     try {
-      const model = request.model || 'gemini-2.0-flash';
+      const model = this.normalizeModelName(request.model || 'gemini-2.0-flash');
 
       const result = await this.withRetry(
         async () => {
