@@ -18,13 +18,13 @@ import {
 /**
  * Banana API Provider - 使用HTTP直接调用Google Gemini API的代理
  * 文档: https://147api.apifox.cn/
- * API地址: https://api1.147ai.com
+ * API地址: https://147ai.com/v1beta/models
  */
 @Injectable()
 export class BananaProvider implements IAIProvider {
   private readonly logger = new Logger(BananaProvider.name);
   private apiKey: string | null = null;
-  private readonly apiBaseUrl = 'https://api1.147ai.com/v1beta/models';
+  private readonly apiBaseUrl = 'https://147ai.com/v1beta/models';
   private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
   private readonly MAX_RETRIES = 3;
