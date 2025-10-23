@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module';
 import { OssModule } from './oss/oss.module';
 import { ProjectsModule } from './projects/projects.module';
 import { AiModule } from './ai/ai.module';
+import { AiPublicModule } from './ai-public/ai-public.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AiModule } from './ai/ai.module';
     OssModule,
     ProjectsModule,
     AiModule,
+    AiPublicModule, // 添加公开 AI API 模块
   ],
 })
 export class AppModule {}
