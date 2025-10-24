@@ -4,6 +4,7 @@
  */
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { aiImageService } from '@/services/aiImageService';
 import {
   generateImageViaAPI,
@@ -16,6 +17,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { ossUploadService, dataURLToBlob } from '@/services/ossUploadService';
+import { createSafeStorage } from '@/stores/storageUtils';
 import type { AIImageResult } from '@/types/ai';
 import type {
   ConversationContext,
@@ -381,7 +383,9 @@ interface AIChatState {
   disableIterativeMode: () => void;
 }
 
-export const useAIChatStore = create<AIChatState>((set, get) => ({
+export const useAIChatStore = create<AIChatState>()(
+  persist(
+    (set, get) => ({
   // 初始状态
   isVisible: true,
   currentInput: '',
@@ -2041,4 +2045,20 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     console.log('🔄 禁用迭代模式');
   },
 
-}));
+    }),
+    {
+      name: 'ai-chat-preferences',
+      storage: createJSONStorage<Partial<AIChatState>>(() =>
+        createSafeStorage({ storageName: 'ai-chat-preferences' })
+      ),
+      partialize: (state) => ({
+        manualAIMode: state.manualAIMode,
+        aiProvider: state.aiProvider,
+        autoDownload: state.autoDownload,
+        enableWebSearch: state.enableWebSearch,
+        imageOnly: state.imageOnly,
+        aspectRatio: state.aspectRatio,
+      })
+    }
+  )
+);
