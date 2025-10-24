@@ -1,9 +1,16 @@
-import { Body, Controller, Logger, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Logger,
+  Post,
+  UseGuards,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { ImageGenerationService, ImageGenerationResult } from './image-generation.service';
 import { AIProviderFactory } from './ai-provider.factory';
-import { JwtAuthGuard } from '../auth/guards/jwt.guard';
+import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { ToolSelectionRequestDto } from './dto/tool-selection.dto';
 import {
   GenerateImageDto,
@@ -14,7 +21,7 @@ import {
 } from './dto/image-generation.dto';
 
 @ApiTags('ai')
-@UseGuards(JwtAuthGuard)
+@UseGuards(ApiKeyOrJwtGuard)
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);
@@ -100,12 +107,17 @@ export class AiController {
           };
         }
 
-        this.logger.warn(
-          `⚠️ [${providerName.toUpperCase()}] provider returned error: ${result.error?.message ?? 'unknown error'}`
+        const message = result.error?.message ?? 'provider returned an error response';
+        this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider responded with error: ${message}`);
+        throw new ServiceUnavailableException(
+          `[${providerName}] tool selection failed: ${message}`
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider threw exception: ${message}`);
+        throw new ServiceUnavailableException(
+          `[${providerName}] tool selection failed: ${message}`
+        );
       }
     }
 
@@ -217,7 +229,7 @@ export class AiController {
       const result = await provider.analyzeImage({
         prompt: dto.prompt,
         sourceImage: dto.sourceImage,
-        model: dto.model || 'gemini-2.0-flash',
+        model: dto.model || 'gemini-2.5-flash-image',
       });
       if (result.success && result.data) {
         return {
@@ -242,7 +254,7 @@ export class AiController {
       const provider = this.factory.getProvider(dto.model, providerName);
       const result = await provider.generateText({
         prompt: dto.prompt,
-        model: dto.model || 'gemini-2.0-flash',
+        model: dto.model || 'gemini-2.5-flash',
         enableWebSearch: dto.enableWebSearch,
       });
       if (result.success && result.data) {

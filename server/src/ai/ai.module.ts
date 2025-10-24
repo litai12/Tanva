@@ -8,6 +8,7 @@ import { BananaProvider } from './providers/banana.provider';
 import { KuaiProvider } from './providers/kuai.provider';
 import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
+import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 
 @Module({
   imports: [ConfigModule],
@@ -19,6 +20,7 @@ import { CostCalculatorService } from './services/cost-calculator.service';
     KuaiProvider,
     AIProviderFactory,
     CostCalculatorService, // 添加成本计算器
+    ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],
   exports: [AIProviderFactory, CostCalculatorService], // 导出工厂和成本计算器供其他模块使用
