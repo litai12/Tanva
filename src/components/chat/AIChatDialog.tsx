@@ -1406,7 +1406,7 @@ const AIChatDialog: React.FC = () => {
                     )}
                   >
                     {/* 🔥 占位框 + 内置进度条 - 仅限生成中的 AI 消息 */}
-                    {message.type === 'ai' && message.generationStatus?.isGenerating && (
+                    {message.type === 'ai' && message.generationStatus?.isGenerating && message.expectsImageOutput && (
                       <div className="mb-3 inline-block">
                         <div className="w-32 h-32 border-2 border-white rounded-lg relative bg-gray-100/50 flex items-center justify-center overflow-hidden">
                           {/* 内置进度条 - 底部 */}

@@ -49,6 +49,10 @@ export interface ChatMessage {
   type: 'user' | 'ai' | 'error';
   content: string;
   timestamp: Date;
+  /**
+   * 是否预计会返回图像结果（用于控制 UI 的图像占位符）
+   */
+  expectsImageOutput?: boolean;
   imageData?: string;
   sourceImageData?: string;
   sourceImagesData?: string[];
@@ -699,7 +703,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         progress: 0,
         error: null,
         stage: '准备中'
-      }
+      },
+      expectsImageOutput: true
     };
 
     state.addMessage(placeholderMessage);
@@ -969,7 +974,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         progress: 0,
         error: null,
         stage: '准备中'
-      }
+      },
+      expectsImageOutput: true
     };
 
     state.addMessage(placeholderMessage);
@@ -1224,7 +1230,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         progress: 0,
         error: null,
         stage: '准备中'
-      }
+      },
+      expectsImageOutput: true
     };
 
     state.addMessage(placeholderMessage);
@@ -1499,7 +1506,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 300);
 
       // 调用后端API分析图像
-      const modelToUse = 'gemini-2.0-flash';
+      // 🔥 使用 Gemini 2.5 Flash Image 进行图像分析
+      const modelToUse = 'gemini-2.5-flash-image';
       console.log('🤖 [AI Provider] analyzeImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1623,7 +1631,8 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
       // 调用后端API生成文本
       const state = get();
-      const modelToUse = 'gemini-2.0-flash';
+      // 🔥 使用 Gemini 2.5 Flash 进行文本生成
+      const modelToUse = 'gemini-2.5-flash';
       console.log('🤖 [AI Provider] generateTextResponse', {
         aiProvider: state.aiProvider,
         model: modelToUse,
