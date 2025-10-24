@@ -47,13 +47,15 @@ const App: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const paramProjectId = searchParams.get('projectId');
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
-  const openProject = useProjectStore((state) => state.open);
+
   useEffect(() => {
     if (!paramProjectId) {
       return;
     }
-    openProject(paramProjectId);
-  }, [paramProjectId, openProject]);
+    // Get the openProject method directly in the effect to avoid dependency issues
+    const openProjectFn = useProjectStore.getState().open;
+    openProjectFn(paramProjectId);
+  }, [paramProjectId]);
 
   const projectId = useMemo(() => currentProjectId || paramProjectId, [paramProjectId, currentProjectId]);
 
