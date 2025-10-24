@@ -78,6 +78,8 @@ export interface ChatSessionSummary {
 }
 
 let hasHydratedSessions = false;
+let isHydratingNow = false;
+let refreshSessionsTimeout: NodeJS.Timeout | null = null;
 
 const toISOString = (value: Date | string | number | null | undefined): string => {
   if (value instanceof Date) return value.toISOString();
@@ -90,6 +92,14 @@ const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)
 
 export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze';
 type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse';
+
+type AIProviderType = 'gemini' | 'banana' | 'kuai';
+
+const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const KUAI_IMAGE_MODEL = 'gemini-2.5-flash-image-preview';
+
+const getImageModelForProvider = (provider: AIProviderType): string =>
+  provider === 'kuai' ? KUAI_IMAGE_MODEL : DEFAULT_IMAGE_MODEL;
 
 // 🔥 图片上传到 OSS 的辅助函数
 async function uploadImageToOSS(imageData: string, projectId?: string | null): Promise<string | null> {
@@ -289,7 +299,7 @@ interface AIChatState {
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
   aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
   manualAIMode: ManualAIMode;
-  aiProvider: 'gemini' | 'banana';  // AI提供商选择 (gemini: Google Gemini, banana: Banana API)
+  aiProvider: 'gemini' | 'banana' | 'kuai';  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, kuai: 酷爱代理)
 
   // 操作方法
   showDialog: () => void;
@@ -354,7 +364,7 @@ interface AIChatState {
   setImageOnly: (value: boolean) => void;
   setAspectRatio: (ratio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null) => void;  // 设置长宽比
   setManualAIMode: (mode: ManualAIMode) => void;
-  setAIProvider: (provider: 'gemini' | 'banana') => void;  // 设置AI提供商
+  setAIProvider: (provider: 'gemini' | 'banana' | 'kuai') => void;  // 设置AI提供商
 
   // 重置状态
   resetState: () => void;
@@ -438,8 +448,6 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         : [...state.messages, storedMessage!]
     }));
 
-    get().refreshSessions();
-
     console.log('📊 消息列表更新后长度:', get().messages.length);
   },
 
@@ -454,7 +462,6 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }
     }
     set({ messages: [] });
-    get().refreshSessions();
   },
 
   updateMessageStatus: (messageId, status) => {
@@ -477,53 +484,73 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
   },
 
   refreshSessions: async (options) => {
-    const { markProjectDirty = true } = options ?? {};
-    const listedSessions = contextManager.listSessions();
-    const sessionSummaries = listedSessions.map((session) => ({
-      sessionId: session.sessionId,
-      name: session.name,
-      lastActivity: session.lastActivity,
-      messageCount: session.messageCount,
-      preview: session.preview
-    }));
-
-    // 🔥 异步序列化会话（上传图片到 OSS）
-    const serializedSessionsPromises = listedSessions
-      .map((session) => contextManager.getSession(session.sessionId))
-      .filter((context): context is ConversationContext => !!context)
-      .map((context) => serializeConversation(context));
-
-    const serializedSessions = await Promise.all(serializedSessionsPromises);
-
-    set({ sessions: sessionSummaries });
-
-    const activeSessionId =
-      get().currentSessionId ?? contextManager.getCurrentSessionId() ?? null;
-
-    if (markProjectDirty) {
-      const projectStore = useProjectContentStore.getState();
-      if (projectStore.projectId && projectStore.hydrated) {
-        const previousSessions = projectStore.content?.aiChatSessions ?? [];
-        const previousActive = projectStore.content?.aiChatActiveSessionId ?? null;
-        if (
-          !sessionsEqual(previousSessions, serializedSessions) ||
-          (previousActive ?? null) !== (activeSessionId ?? null)
-        ) {
-          projectStore.updatePartial({
-            aiChatSessions: serializedSessions,
-            aiChatActiveSessionId: activeSessionId ?? null
-          }, { markDirty: true });
-        }
-      } else {
-        // 无项目场景：把会话持久化到本地
-        try {
-          if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('tanva_aiChat_sessions', JSON.stringify(serializedSessions));
-            localStorage.setItem('tanva_aiChat_activeSessionId', activeSessionId ?? '');
-          }
-        } catch {}
-      }
+    // 🔥 防止在水合过程中调用
+    if (isHydratingNow) {
+      console.log('⏸️ 跳过refreshSessions：正在进行水合操作');
+      return;
     }
+
+    // 🔥 实现防抖：清除之前的定时器，300ms后执行
+    if (refreshSessionsTimeout) {
+      clearTimeout(refreshSessionsTimeout);
+    }
+
+    return new Promise<void>((resolve) => {
+      refreshSessionsTimeout = setTimeout(async () => {
+        try {
+          const { markProjectDirty = true } = options ?? {};
+          const listedSessions = contextManager.listSessions();
+          const sessionSummaries = listedSessions.map((session) => ({
+            sessionId: session.sessionId,
+            name: session.name,
+            lastActivity: session.lastActivity,
+            messageCount: session.messageCount,
+            preview: session.preview
+          }));
+
+          // 🔥 异步序列化会话（上传图片到 OSS）
+          const serializedSessionsPromises = listedSessions
+            .map((session) => contextManager.getSession(session.sessionId))
+            .filter((context): context is ConversationContext => !!context)
+            .map((context) => serializeConversation(context));
+
+          const serializedSessions = await Promise.all(serializedSessionsPromises);
+
+          set({ sessions: sessionSummaries });
+
+          const activeSessionId =
+            get().currentSessionId ?? contextManager.getCurrentSessionId() ?? null;
+
+          if (markProjectDirty) {
+            const projectStore = useProjectContentStore.getState();
+            if (projectStore.projectId && projectStore.hydrated) {
+              const previousSessions = projectStore.content?.aiChatSessions ?? [];
+              const previousActive = projectStore.content?.aiChatActiveSessionId ?? null;
+              if (
+                !sessionsEqual(previousSessions, serializedSessions) ||
+                (previousActive ?? null) !== (activeSessionId ?? null)
+              ) {
+                projectStore.updatePartial({
+                  aiChatSessions: serializedSessions,
+                  aiChatActiveSessionId: activeSessionId ?? null
+                }, { markDirty: true });
+              }
+            } else {
+              // 无项目场景：把会话持久化到本地
+              try {
+                if (typeof localStorage !== 'undefined') {
+                  localStorage.setItem('tanva_aiChat_sessions', JSON.stringify(serializedSessions));
+                  localStorage.setItem('tanva_aiChat_activeSessionId', activeSessionId ?? '');
+                }
+              } catch {}
+            }
+          }
+        } finally {
+          refreshSessionsTimeout = null;
+          resolve();
+        }
+      }, 300);
+    });
   },
 
   createSession: async (name) => {
@@ -578,46 +605,64 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
   hydratePersistedSessions: (sessions, activeSessionId = null, options) => {
     const markProjectDirty = options?.markProjectDirty ?? false;
-    hasHydratedSessions = true;
 
-    contextManager.resetSessions();
+    // 🔥 设置hydrating标记，防止refreshSessions被调用
+    isHydratingNow = true;
 
-    sessions.forEach((session) => {
-      try {
-        const context = deserializeConversation(session);
-        contextManager.importSessionData(context);
-      } catch (error) {
-        console.error('❌ 导入会话失败:', error);
+    try {
+      hasHydratedSessions = true;
+
+      contextManager.resetSessions();
+
+      sessions.forEach((session) => {
+        try {
+          const context = deserializeConversation(session);
+          contextManager.importSessionData(context);
+        } catch (error) {
+          console.error('❌ 导入会话失败:', error);
+        }
+      });
+
+      const availableSessions = contextManager.listSessions();
+      const candidateIds = new Set(availableSessions.map((session) => session.sessionId));
+
+      let targetSessionId: string | null = null;
+      if (activeSessionId && candidateIds.has(activeSessionId)) {
+        contextManager.switchSession(activeSessionId);
+        targetSessionId = activeSessionId;
+      } else if (availableSessions.length > 0) {
+        const fallbackId = availableSessions[0].sessionId;
+        contextManager.switchSession(fallbackId);
+        targetSessionId = fallbackId;
       }
-    });
 
-    const availableSessions = contextManager.listSessions();
-    const candidateIds = new Set(availableSessions.map((session) => session.sessionId));
+      if (!targetSessionId) {
+        targetSessionId = contextManager.createSession();
+      }
 
-    let targetSessionId: string | null = null;
-    if (activeSessionId && candidateIds.has(activeSessionId)) {
-      contextManager.switchSession(activeSessionId);
-      targetSessionId = activeSessionId;
-    } else if (availableSessions.length > 0) {
-      const fallbackId = availableSessions[0].sessionId;
-      contextManager.switchSession(fallbackId);
-      targetSessionId = fallbackId;
+      const context = targetSessionId ? contextManager.getSession(targetSessionId) : null;
+      set({
+        currentSessionId: targetSessionId,
+        messages: context ? [...context.messages] : []
+      });
+
+      console.log('✅ 水合操作完成，现在允许refreshSessions调用');
+    } finally {
+      // 🔥 清除hydrating标记，允许refreshSessions执行
+      isHydratingNow = false;
+
+      // 🔥 水合完成后，执行一次refreshSessions
+      get().refreshSessions({ markProjectDirty });
     }
-
-    if (!targetSessionId) {
-      targetSessionId = contextManager.createSession();
-    }
-
-    const context = targetSessionId ? contextManager.getSession(targetSessionId) : null;
-    set({
-      currentSessionId: targetSessionId,
-      messages: context ? [...context.messages] : []
-    });
-
-    get().refreshSessions({ markProjectDirty });
   },
 
   resetSessions: () => {
+    // 🔥 防止在hydration期间重置
+    if (isHydratingNow) {
+      console.log('⏸️ 跳过resetSessions：正在进行水合操作');
+      return;
+    }
+
     contextManager.resetSessions();
 
     const sessionId = contextManager.createSession();
@@ -693,7 +738,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 500);
 
       // 调用后端API生成图像
-      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      const modelToUse = getImageModelForProvider(state.aiProvider);
       console.log('🤖 [AI Provider] generateImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -963,7 +1008,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 500);
 
       // 调用后端API编辑图像
-      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      const modelToUse = getImageModelForProvider(state.aiProvider);
       console.log('🤖 [AI Provider] editImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1215,7 +1260,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
         }
       }, 500);
 
-      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash-image';
+      const modelToUse = getImageModelForProvider(state.aiProvider);
       console.log('🤖 [AI Provider] blendImages', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1454,7 +1499,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
       }, 300);
 
       // 调用后端API分析图像
-      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.0-flash' : 'gemini-2.0-flash';
+      const modelToUse = 'gemini-2.0-flash';
       console.log('🤖 [AI Provider] analyzeImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1578,7 +1623,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
       // 调用后端API生成文本
       const state = get();
-      const modelToUse = state.aiProvider === 'banana' ? 'gemini-2.0-flash' : 'gemini-2.0-flash';
+      const modelToUse = 'gemini-2.0-flash';
       console.log('🤖 [AI Provider] generateTextResponse', {
         aiProvider: state.aiProvider,
         model: modelToUse,

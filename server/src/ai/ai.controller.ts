@@ -1,8 +1,9 @@
-import { Body, Controller, Logger, Post } from '@nestjs/common';
+import { Body, Controller, Logger, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { ImageGenerationService, ImageGenerationResult } from './image-generation.service';
 import { AIProviderFactory } from './ai-provider.factory';
+import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { ToolSelectionRequestDto } from './dto/tool-selection.dto';
 import {
   GenerateImageDto,
@@ -13,6 +14,7 @@ import {
 } from './dto/image-generation.dto';
 
 @ApiTags('ai')
+@UseGuards(JwtAuthGuard)
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);
@@ -23,11 +25,26 @@ export class AiController {
     private readonly factory: AIProviderFactory,
   ) {}
 
+  private resolveImageModel(providerName: string | null, requestedModel?: string): string {
+    if (requestedModel && requestedModel.trim().length > 0) {
+      return requestedModel;
+    }
+
+    if (providerName === 'kuai') {
+      return 'gemini-2.5-flash-image-preview';
+    }
+
+    return 'gemini-2.5-flash-image';
+  }
+
   @Post('tool-selection')
   async toolSelection(@Body() dto: ToolSelectionRequestDto) {
-    if (dto.aiProvider === 'banana') {
+    const providerName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+
+    if (providerName) {
       try {
-        const provider = this.factory.getProvider(dto.model, 'banana');
+        const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.selectTool({
           prompt: dto.prompt,
           availableTools: dto.availableTools,
@@ -48,11 +65,11 @@ export class AiController {
         }
 
         this.logger.warn(
-          `[ToolSelection] Banana provider returned error: ${result.error?.message ?? 'unknown error'}`
+          `[ToolSelection] ${providerName} provider returned error: ${result.error?.message ?? 'unknown error'}`
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`[ToolSelection] Banana provider threw exception: ${message}`);
+        this.logger.warn(`[ToolSelection] ${providerName} provider threw exception: ${message}`);
       }
     }
 
@@ -63,11 +80,15 @@ export class AiController {
   @Post('generate-image')
   async generateImage(@Body() dto: GenerateImageDto): Promise<ImageGenerationResult> {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
-    if (dto.aiProvider === 'banana') {
-      const provider = this.factory.getProvider(dto.model, 'banana');
+    const providerName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+
+    if (providerName) {
+      const provider = this.factory.getProvider(dto.model, providerName);
+      const model = this.resolveImageModel(providerName, dto.model);
       const result = await provider.generateImage({
         prompt: dto.prompt,
-        model: dto.model || 'gemini-2.5-flash-image',
+        model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
       });
@@ -88,12 +109,16 @@ export class AiController {
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto): Promise<ImageGenerationResult> {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
-    if (dto.aiProvider === 'banana') {
-      const provider = this.factory.getProvider(dto.model, 'banana');
+    const providerName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+
+    if (providerName) {
+      const provider = this.factory.getProvider(dto.model, providerName);
+      const model = this.resolveImageModel(providerName, dto.model);
       const result = await provider.editImage({
         prompt: dto.prompt,
         sourceImage: dto.sourceImage,
-        model: dto.model || 'gemini-2.5-flash-image',
+        model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
       });
@@ -114,12 +139,16 @@ export class AiController {
   @Post('blend-images')
   async blendImages(@Body() dto: BlendImagesDto): Promise<ImageGenerationResult> {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
-    if (dto.aiProvider === 'banana') {
-      const provider = this.factory.getProvider(dto.model, 'banana');
+    const providerName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+
+    if (providerName) {
+      const provider = this.factory.getProvider(dto.model, providerName);
+      const model = this.resolveImageModel(providerName, dto.model);
       const result = await provider.blendImages({
         prompt: dto.prompt,
         sourceImages: dto.sourceImages,
-        model: dto.model || 'gemini-2.5-flash-image',
+        model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
       });
@@ -140,8 +169,11 @@ export class AiController {
   @Post('analyze-image')
   async analyzeImage(@Body() dto: AnalyzeImageDto) {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
-    if (dto.aiProvider === 'banana') {
-      const provider = this.factory.getProvider(dto.model, 'banana');
+    const providerName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+
+    if (providerName) {
+      const provider = this.factory.getProvider(dto.model, providerName);
       const result = await provider.analyzeImage({
         prompt: dto.prompt,
         sourceImage: dto.sourceImage,
@@ -163,8 +195,11 @@ export class AiController {
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto) {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
-    if (dto.aiProvider === 'banana') {
-      const provider = this.factory.getProvider(dto.model, 'banana');
+    const providerName =
+      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+
+    if (providerName) {
+      const provider = this.factory.getProvider(dto.model, providerName);
       const result = await provider.generateText({
         prompt: dto.prompt,
         model: dto.model || 'gemini-2.0-flash',

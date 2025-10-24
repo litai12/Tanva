@@ -27,3 +27,4 @@ curl -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5
  --silent --show-error
 
 echo "✅ API 调用完成"
+

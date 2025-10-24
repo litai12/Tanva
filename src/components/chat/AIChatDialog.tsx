@@ -159,9 +159,10 @@ const AIChatDialog: React.FC = () => {
   const currentManualMode = manualModeOptions.find((option) => option.value === manualAIMode) ?? manualModeOptions[0];
 
   // AI提供商选项
-  const aiProviderOptions: { value: 'gemini' | 'banana'; label: string; description: string }[] = [
+  const aiProviderOptions: { value: 'gemini' | 'banana' | 'kuai'; label: string; description: string }[] = [
     { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
-    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' }
+    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' },
+    { value: 'kuai', label: 'Kuai API', description: '使用酷爱 API 代理' },
   ];
   const currentAIProvider = aiProviderOptions.find((option) => option.value === aiProvider) ?? aiProviderOptions[0];
   

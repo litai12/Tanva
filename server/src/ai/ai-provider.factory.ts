@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './providers/ai-provider.interface';
 import { GeminiProvider } from './providers/gemini.provider';
 import { BananaProvider } from './providers/banana.provider';
+import { KuaiProvider } from './providers/kuai.provider';
 
 @Injectable()
 export class AIProviderFactory {
@@ -12,7 +13,8 @@ export class AIProviderFactory {
   constructor(
     private readonly config: ConfigService,
     private readonly geminiProvider: GeminiProvider,
-    private readonly bananaProvider: BananaProvider
+    private readonly bananaProvider: BananaProvider,
+    private readonly kuaiProvider: KuaiProvider
   ) {
     this.initializeProviders();
   }
@@ -28,6 +30,10 @@ export class AIProviderFactory {
     this.providers.set('banana', this.bananaProvider);
     await this.bananaProvider.initialize();
 
+    // 注册 Kuai API 提供商
+    this.providers.set('kuai', this.kuaiProvider);
+    await this.kuaiProvider.initialize();
+
     // TODO: 在这里注册其他提供商 (OpenAI, Claude, StableDiffusion等)
     // 例如:
     // this.providers.set('openai', new OpenAIProvider(this.config));
@@ -40,11 +46,11 @@ export class AIProviderFactory {
 
   getProvider(model?: string, aiProvider?: string): IAIProvider {
     // 如果显式指定了 aiProvider，直接使用
-    if (aiProvider === 'banana') {
-      return this.providers.get('banana') || this.providers.get('gemini')!;
-    }
-    if (aiProvider === 'gemini') {
-      return this.providers.get('gemini')!;
+    if (aiProvider) {
+      const provider = this.providers.get(aiProvider);
+      if (provider) {
+        return provider;
+      }
     }
 
     // 如果指定了模型，根据模型名称推断提供商
@@ -53,6 +59,8 @@ export class AIProviderFactory {
         return this.providers.get('gemini')!;
       } else if (model.includes('banana') || model.includes('147') || model.includes('147ai')) {
         return this.providers.get('banana') || this.providers.get('gemini')!;
+      } else if (model.includes('kuai')) {
+        return this.providers.get('kuai') || this.providers.get('gemini')!;
       } else if (model.includes('gpt') || model.includes('openai')) {
         return this.providers.get('openai') || this.providers.get('gemini')!;
       } else if (model.includes('claude')) {

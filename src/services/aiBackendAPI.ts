@@ -18,16 +18,46 @@ import type {
 const API_BASE_URL = '/api';
 
 /**
+ * 执行带有自动令牌刷新的 fetch 请求
+ * 如果收到 401，尝试刷新令牌并重试
+ */
+async function fetchWithAuth(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const res = await fetch(input, { ...(init || {}), credentials: 'include' });
+
+  if (res.status !== 401) {
+    return res;
+  }
+
+  // 尝试刷新令牌
+  try {
+    const refreshRes = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (refreshRes.ok) {
+      // 令牌刷新成功，重试原始请求
+      return fetch(input, { ...(init || {}), credentials: 'include' });
+    }
+  } catch (error) {
+    // 刷新失败，继续返回原始 401 响应
+    console.error('Token refresh failed:', error);
+  }
+
+  // 返回原始的 401 响应
+  return res;
+}
+
+/**
  * 生成图像 - 通过后端 API
  */
 export async function generateImageViaAPI(request: AIImageGenerateRequest): Promise<AIServiceResponse<AIImageResult>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/ai/generate-image`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
       body: JSON.stringify(request),
     });
 
@@ -78,12 +108,11 @@ export async function generateImageViaAPI(request: AIImageGenerateRequest): Prom
  */
 export async function editImageViaAPI(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/ai/edit-image`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/edit-image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
       body: JSON.stringify(request),
     });
 
@@ -133,12 +162,11 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
  */
 export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/ai/blend-images`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/blend-images`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
       body: JSON.stringify(request),
     });
 
@@ -188,12 +216,11 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
  */
 export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promise<AIServiceResponse<AIImageAnalysisResult>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/ai/analyze-image`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/analyze-image`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
       body: JSON.stringify(request),
     });
 
@@ -236,12 +263,11 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
  */
 export async function generateTextResponseViaAPI(request: AITextChatRequest): Promise<AIServiceResponse<AITextChatResult>> {
   try {
-    const response = await fetch(`${API_BASE_URL}/ai/text-chat`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/text-chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
       body: JSON.stringify(request),
     });
 

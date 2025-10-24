@@ -5,6 +5,7 @@ import { ImageGenerationService } from './image-generation.service';
 import { AiController } from './ai.controller';
 import { GeminiProvider } from './providers/gemini.provider';
 import { BananaProvider } from './providers/banana.provider';
+import { KuaiProvider } from './providers/kuai.provider';
 import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
 
@@ -15,6 +16,7 @@ import { CostCalculatorService } from './services/cost-calculator.service';
     ImageGenerationService,
     GeminiProvider,
     BananaProvider,
+    KuaiProvider,
     AIProviderFactory,
     CostCalculatorService, // 添加成本计算器
   ],
@@ -22,4 +24,3 @@ import { CostCalculatorService } from './services/cost-calculator.service';
   exports: [AIProviderFactory, CostCalculatorService], // 导出工厂和成本计算器供其他模块使用
 })
 export class AiModule {}
-
