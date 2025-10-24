@@ -663,17 +663,45 @@ export class KuaiProvider implements IAIProvider {
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log('Selecting tool (simplified Kuai strategy)...');
+    this.logger.log('🎯 Selecting tool with intelligent Kuai strategy...', {
+      prompt: request.prompt.substring(0, 50),
+      availableTools: request.availableTools,
+      hasImages: request.hasImages,
+      imageCount: request.imageCount,
+    });
 
-    const selectedTool = this.pickAvailableTool('generateImage', request.availableTools);
-    return {
-      success: true,
-      data: {
-        selectedTool,
-        reasoning: 'Kuai provider暂时默认使用图像生成工具。',
-        confidence: 0.85,
-      },
-    };
+    try {
+      // 🔥 使用智能推理而非固定策略
+      const fallback = this.fallbackToolSelection(request, 'Using intelligent Kuai tool selection');
+
+      this.logger.log('✅ Tool selection completed:', {
+        selectedTool: fallback.tool,
+        reasoning: fallback.reasoning,
+        confidence: fallback.confidence,
+      });
+
+      return {
+        success: true,
+        data: {
+          selectedTool: fallback.tool,
+          reasoning: fallback.reasoning,
+          confidence: fallback.confidence,
+        },
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('❌ Tool selection failed, falling back to generateImage:', errorMsg);
+
+      const selectedTool = this.pickAvailableTool('generateImage', request.availableTools);
+      return {
+        success: true,
+        data: {
+          selectedTool,
+          reasoning: `Failed to perform intelligent selection: ${errorMsg}. Defaulting to ${selectedTool}.`,
+          confidence: 0.5,
+        },
+      };
+    }
   }
 
   isAvailable(): boolean {

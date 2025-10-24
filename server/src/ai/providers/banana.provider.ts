@@ -573,11 +573,13 @@ export class BananaProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    this.logger.log(`Analyzing image...`);
+    this.logger.log(`🔍 Analyzing image with Banana (147) API...`);
 
     try {
       const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'analysis');
-      const model = this.normalizeModelName(request.model || 'gemini-2.0-flash');
+      // 🔥 使用 gemini-2.5-flash-image 进行图像分析
+      const model = this.normalizeModelName(request.model || 'gemini-2.5-flash-image');
+      this.logger.log(`📊 Using model: ${model}`);
 
       const analysisPrompt = request.prompt
         ? `Please analyze the following image (respond in ${request.prompt})`
@@ -608,6 +610,8 @@ export class BananaProvider implements IAIProvider {
         2
       );
 
+      this.logger.log(`✅ Image analysis succeeded: ${result.textResponse.length} characters`);
+
       return {
         success: true,
         data: {
@@ -616,7 +620,7 @@ export class BananaProvider implements IAIProvider {
         },
       };
     } catch (error) {
-      this.logger.error('Image analysis failed:', error);
+      this.logger.error('❌ Image analysis failed:', error);
       return {
         success: false,
         error: {
@@ -631,14 +635,20 @@ export class BananaProvider implements IAIProvider {
   async generateText(
     request: TextChatRequest
   ): Promise<AIProviderResponse<TextResult>> {
-    this.logger.log(`Generating text response...`);
+    this.logger.log(`🤖 Generating text response using Banana (147) API...`);
 
     try {
-      const model = this.normalizeModelName(request.model || 'gemini-2.0-flash');
-      const apiConfig: any = {};
+      // 🔥 使用 gemini-2.5-flash 作为文本生成的默认模型
+      const model = this.normalizeModelName(request.model || 'gemini-2.5-flash');
+      this.logger.log(`📝 Using model: ${model}`);
+
+      const apiConfig: any = {
+        responseModalities: ['TEXT']
+      };
 
       if (request.enableWebSearch) {
         apiConfig.tools = [{ googleSearch: {} }];
+        this.logger.log('🔍 Web search enabled');
       }
 
       const result = await this.withTimeout(
@@ -653,6 +663,8 @@ export class BananaProvider implements IAIProvider {
         'Text generation'
       );
 
+      this.logger.log(`✅ Text generation succeeded with ${result.textResponse.length} characters`);
+
       return {
         success: true,
         data: {
@@ -660,7 +672,7 @@ export class BananaProvider implements IAIProvider {
         },
       };
     } catch (error) {
-      this.logger.error('Text generation failed:', error);
+      this.logger.error('❌ Text generation failed:', error);
       return {
         success: false,
         error: {
@@ -675,7 +687,7 @@ export class BananaProvider implements IAIProvider {
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log('Selecting tool...');
+    this.logger.log('🎯 Selecting tool with Banana (147) API using gemini-2.5-flash...');
 
     try {
       const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入和上下文，选择最合适的工具执行。
@@ -717,12 +729,15 @@ export class BananaProvider implements IAIProvider {
         .filter(Boolean)
         .join('\n\n');
 
+      this.logger.debug('🤖 Tool selection prompt:', { prompt: userPrompt.substring(0, 100) });
+
       const result = await this.withRetry(
         async () => {
           return await this.withTimeout(
             (async () => {
+              // 🔥 使用 gemini-2.5-flash 进行工具选择
               return await this.makeRequest(
-                'gemini-2.0-flash',
+                'gemini-2.5-flash',
                 [
                   {
                     role: 'system',
@@ -746,7 +761,7 @@ export class BananaProvider implements IAIProvider {
       const responseText = result.textResponse?.trim();
 
       if (!responseText) {
-        this.logger.warn('Tool selection response was empty, falling back to heuristic.');
+        this.logger.warn('⚠️ Tool selection response was empty, falling back to heuristic.');
         const fallback = this.fallbackToolSelection(request, 'Empty response from model.');
         return {
           success: true,
@@ -772,6 +787,8 @@ export class BananaProvider implements IAIProvider {
             ? 0.8
             : 0.7;
 
+        this.logger.log(`✅ Tool selected: ${selectedTool} (confidence: ${confidence})`);
+
         return {
           success: true,
           data: {
@@ -782,7 +799,7 @@ export class BananaProvider implements IAIProvider {
         };
       } catch (parseError) {
         this.logger.warn(
-          `Failed to parse tool selection response "${responseText}", using heuristic fallback.`,
+          `⚠️ Failed to parse tool selection response "${responseText}", using heuristic fallback.`,
         );
         const fallback = this.fallbackToolSelection(
           request,
@@ -798,7 +815,7 @@ export class BananaProvider implements IAIProvider {
         };
       }
     } catch (error) {
-      this.logger.error('Tool selection failed:', error);
+      this.logger.error('❌ Tool selection failed:', error);
       const fallback = this.fallbackToolSelection(
         request,
         error instanceof Error ? error.message : 'Failed to select tool'

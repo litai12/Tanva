@@ -26,12 +26,29 @@ export class AiController {
   ) {}
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
-    if (requestedModel && requestedModel.trim().length > 0) {
-      return requestedModel;
+    // 🔥 先进行规范化处理
+    let model = requestedModel ? requestedModel.trim() : '';
+
+    // 🔥 移除无效前缀
+    if (model.startsWith('kuai-')) {
+      model = model.substring(5);
     }
 
+    // 🔥 如果是Kuai提供商，需要特殊处理
     if (providerName === 'kuai') {
+      // 如果用户显式指定了model，让Kuai provider自己处理规范化
+      if (model.length > 0) {
+        this.logger.debug(`[Kuai] Using requested model: ${model}`);
+        return model;
+      }
+      // 否则返回Kuai的默认模型
       return 'gemini-2.5-flash-image-preview';
+    }
+
+    // 其他提供商的默认模型
+    if (model.length > 0) {
+      this.logger.debug(`[${providerName || 'default'}] Using requested model: ${model}`);
+      return model;
     }
 
     return 'gemini-2.5-flash-image';
@@ -39,12 +56,30 @@ export class AiController {
 
   @Post('tool-selection')
   async toolSelection(@Body() dto: ToolSelectionRequestDto) {
+    // 🔥 添加详细日志
+    this.logger.log('🎯 Tool selection request:', {
+      aiProvider: dto.aiProvider,
+      model: dto.model,
+      prompt: dto.prompt.substring(0, 50) + '...',
+      hasImages: dto.hasImages,
+      imageCount: dto.imageCount,
+      availableTools: dto.availableTools,
+    });
+
     const providerName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
 
     if (providerName) {
       try {
-        const provider = this.factory.getProvider(dto.model, providerName);
+        // 🔥 先规范化模型
+        const normalizedModel = this.resolveImageModel(providerName, dto.model);
+
+        this.logger.log(`[${providerName.toUpperCase()}] Using provider for tool selection`, {
+          originalModel: dto.model,
+          normalizedModel,
+        });
+
+        const provider = this.factory.getProvider(normalizedModel, providerName);
         const result = await provider.selectTool({
           prompt: dto.prompt,
           availableTools: dto.availableTools,
@@ -52,10 +87,11 @@ export class AiController {
           imageCount: dto.imageCount,
           hasCachedImage: dto.hasCachedImage,
           context: dto.context,
-          model: dto.model,
+          model: normalizedModel,
         });
 
         if (result.success && result.data) {
+          this.logger.log(`✅ [${providerName.toUpperCase()}] Tool selected: ${result.data.selectedTool}`);
           return {
             selectedTool: result.data.selectedTool,
             parameters: { prompt: dto.prompt },
@@ -65,15 +101,19 @@ export class AiController {
         }
 
         this.logger.warn(
-          `[ToolSelection] ${providerName} provider returned error: ${result.error?.message ?? 'unknown error'}`
+          `⚠️ [${providerName.toUpperCase()}] provider returned error: ${result.error?.message ?? 'unknown error'}`
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`[ToolSelection] ${providerName} provider threw exception: ${message}`);
+        this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider threw exception: ${message}`);
       }
     }
 
+    // 🔥 降级到Google Gemini进行工具选择
+    this.logger.log('📊 Falling back to Gemini tool selection');
     const result = await this.ai.runToolSelectionPrompt(dto.prompt);
+
+    this.logger.log('✅ [GEMINI] Tool selected:', result.selectedTool);
     return result;
   }
 
