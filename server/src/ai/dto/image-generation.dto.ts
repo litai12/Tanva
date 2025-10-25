@@ -30,7 +30,7 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'kuai';
+  aiProvider?: 'gemini' | 'banana';
 
   @IsOptional()
   @IsEnum(OutputFormat)
@@ -60,7 +60,7 @@ export class EditImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'kuai';
+  aiProvider?: 'gemini' | 'banana';
 
   @IsOptional()
   @IsEnum(OutputFormat)
@@ -91,7 +91,7 @@ export class BlendImagesDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'kuai';
+  aiProvider?: 'gemini' | 'banana';
 
   @IsOptional()
   @IsEnum(OutputFormat)
@@ -121,7 +121,7 @@ export class AnalyzeImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'kuai';
+  aiProvider?: 'gemini' | 'banana';
 }
 
 export class TextChatDto {
@@ -135,7 +135,7 @@ export class TextChatDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'kuai';
+  aiProvider?: 'gemini' | 'banana';
 
   @IsOptional()
   @IsBoolean()

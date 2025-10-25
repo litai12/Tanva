@@ -149,13 +149,12 @@
             <ul>
                 <li><strong>Google 直联 API</strong>: 🔑 已配置真实Key，可能遇到CORS问题</li>
                 <li><strong>147 API</strong>: 🔑 已更新为新的有效Key，推荐用于测试</li>
-                <li><strong>酷爱 API</strong>: 🔑 已预设Key，使用Bearer认证，稳定性较好</li>
             </ul>
             <p style="color: #28a745; font-weight: bold;">
                 ✅ 所有API Key已预设，选择提供商即可直接测试
             </p>
             <p style="color: #dc3545; font-weight: bold;">
-                ⚠️ 如果Google直联API失败，建议使用147API或酷爱API进行测试
+                ⚠️ 如果Google直联API失败，建议使用147API进行测试
             </p>
         </div>
         
@@ -165,7 +164,6 @@
                 <select id="apiProvider" required>
                     <option value="google">Google 直联 API</option>
                     <option value="147api">147 API</option>
-                    <option value="kuai">酷爱 API</option>
                 </select>
             </div>
             
@@ -226,11 +224,6 @@
                 <div id="147apiResult">未测试</div>
                 <div id="147apiDetails" class="timing-breakdown" style="display: none;"></div>
             </div>
-            <div class="comparison-card">
-                <h4>酷爱 API</h4>
-                <div id="kuaiResult">未测试</div>
-                <div id="kuaiDetails" class="timing-breakdown" style="display: none;"></div>
-            </div>
         </div>
         
         <div id="performanceAnalysis" class="api-config" style="display: none;">
@@ -265,13 +258,6 @@
                 model: 'gemini-2.5-flash-image',
                 authType: 'sk',
                 apiKey: 'sk-WBd9sGus7I68Wwl9ivwfIBP148GzuF7ypLISfdUqlW5Ipj5P'
-            },
-            kuai: {
-                name: '酷爱 API',
-                baseUrl: 'https://apis.kuai.host/v1beta/models',
-                model: 'gemini-2.5-flash-image-preview',
-                authType: 'bearer',
-                apiKey: 'sk-YO5bqpHjJ7zcm2iuukjsybBEKn9roLMrH4wLFYu15TBhY5lt'
             }
         };
 
@@ -459,7 +445,6 @@
             // 重置所有结果
             document.getElementById('googleResult').innerHTML = '⏳ 测试中...';
             document.getElementById('147apiResult').innerHTML = '⏳ 测试中...';
-            document.getElementById('kuaiResult').innerHTML = '⏳ 测试中...';
 
             const testPromises = [];
 
@@ -473,12 +458,6 @@
             testPromises.push(
                 testSingleAPI('147api', prompt, aspectRatio, imageOnly)
                     .catch(error => ({ provider: '147api', error: error.message }))
-            );
-
-            // 测试酷爱API
-            testPromises.push(
-                testSingleAPI('kuai', prompt, aspectRatio, imageOnly)
-                    .catch(error => ({ provider: 'kuai', error: error.message }))
             );
 
             try {
@@ -499,7 +478,8 @@
                 });
 
                 if (successCount > 0) {
-                    showResult(`测试完成！${successCount}/3 个API成功，最快的是 ${apiConfigs[fastestProvider].name} (${fastestTime}秒)`, 'success');
+                    const providerCount = Object.keys(apiConfigs).length;
+                    showResult(`测试完成！${successCount}/${providerCount} 个API成功，最快的是 ${apiConfigs[fastestProvider].name} (${fastestTime}秒)`, 'success');
                 } else {
                     showResult('所有API测试都失败了', 'error');
                 }
@@ -776,7 +756,7 @@
             const analysisContent = document.getElementById('analysisContent');
             
             const results = [];
-            ['google', '147api', 'kuai'].forEach(provider => {
+            ['google', '147api'].forEach(provider => {
                 const resultDiv = document.getElementById(`${provider}Result`);
                 const text = resultDiv.textContent;
                 if (text.includes('成功')) {

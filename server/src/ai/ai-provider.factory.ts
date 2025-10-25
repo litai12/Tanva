@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './providers/ai-provider.interface';
 import { GeminiProvider } from './providers/gemini.provider';
 import { BananaProvider } from './providers/banana.provider';
-import { KuaiProvider } from './providers/kuai.provider';
 
 @Injectable()
 export class AIProviderFactory {
@@ -13,8 +12,7 @@ export class AIProviderFactory {
   constructor(
     private readonly config: ConfigService,
     private readonly geminiProvider: GeminiProvider,
-    private readonly bananaProvider: BananaProvider,
-    private readonly kuaiProvider: KuaiProvider
+    private readonly bananaProvider: BananaProvider
   ) {
     this.initializeProviders();
   }
@@ -29,10 +27,6 @@ export class AIProviderFactory {
     // 注册 Banana API 提供商
     this.providers.set('banana', this.bananaProvider);
     await this.bananaProvider.initialize();
-
-    // 注册 Kuai API 提供商
-    this.providers.set('kuai', this.kuaiProvider);
-    await this.kuaiProvider.initialize();
 
     // TODO: 在这里注册其他提供商 (OpenAI, Claude, StableDiffusion等)
     // 例如:
@@ -59,8 +53,6 @@ export class AIProviderFactory {
         return this.providers.get('gemini')!;
       } else if (model.includes('banana') || model.includes('147') || model.includes('147ai')) {
         return this.providers.get('banana') || this.providers.get('gemini')!;
-      } else if (model.includes('kuai')) {
-        return this.providers.get('kuai') || this.providers.get('gemini')!;
       } else if (model.includes('gpt') || model.includes('openai')) {
         return this.providers.get('openai') || this.providers.get('gemini')!;
       } else if (model.includes('claude')) {

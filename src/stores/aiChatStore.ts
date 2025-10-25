@@ -99,13 +99,11 @@ const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)
 export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze';
 type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse';
 
-type AIProviderType = 'gemini' | 'banana' | 'kuai';
+type AIProviderType = 'gemini' | 'banana';
 
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
-const KUAI_IMAGE_MODEL = 'gemini-2.5-flash-image-preview';
 
-const getImageModelForProvider = (provider: AIProviderType): string =>
-  provider === 'kuai' ? KUAI_IMAGE_MODEL : DEFAULT_IMAGE_MODEL;
+const getImageModelForProvider = (_provider: AIProviderType): string => DEFAULT_IMAGE_MODEL;
 
 // 🔥 图片上传到 OSS 的辅助函数
 async function uploadImageToOSS(imageData: string, projectId?: string | null): Promise<string | null> {
@@ -305,7 +303,7 @@ interface AIChatState {
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
   aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
   manualAIMode: ManualAIMode;
-  aiProvider: 'gemini' | 'banana' | 'kuai';  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, kuai: 酷爱代理)
+  aiProvider: 'gemini' | 'banana';  // AI提供商选择 (gemini: Google Gemini, banana: 147 API)
 
   // 操作方法
   showDialog: () => void;
@@ -370,7 +368,7 @@ interface AIChatState {
   setImageOnly: (value: boolean) => void;
   setAspectRatio: (ratio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null) => void;  // 设置长宽比
   setManualAIMode: (mode: ManualAIMode) => void;
-  setAIProvider: (provider: 'gemini' | 'banana' | 'kuai') => void;  // 设置AI提供商
+  setAIProvider: (provider: 'gemini' | 'banana') => void;  // 设置AI提供商
 
   // 重置状态
   resetState: () => void;

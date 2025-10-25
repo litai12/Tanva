@@ -200,6 +200,7 @@
 
     <button type="submit" id="submitBtn">调用 147 API</button>
     <button type="button" id="testImageOnlyBtn" style="margin-top: 10px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">测试仅图像生成</button>
+    <button type="button" id="pingTestBtn" style="margin-top: 10px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">Ping 测试延迟</button>
   </form>
 
   <div id="result" class="result"></div>
@@ -212,6 +213,7 @@
     <li>粘贴 147 提供的 API Key，输入提示词后点击「调用 147 API」。</li>
     <li>若成功，会在下方显示生成图，以及接口原始响应。</li>
     <li>若失败，请复制调试信息反馈或自行定位问题。</li>
+    <li><strong>新增功能：</strong>点击「Ping 测试延迟」可以测试到 147 API 的网络延迟和连接稳定性。</li>
   </ol>
 
   <script>
@@ -420,6 +422,112 @@
       } else {
         imagePreview.innerHTML = '<p style="color: #666;">未生成图像</p>';
       }
+    });
+
+    // Ping 测试延迟按钮
+    document.getElementById('pingTestBtn').addEventListener('click', async () => {
+      resetUI();
+      setResult('正在测试 147 API 延迟...', 'loading');
+      
+      const pingResults = [];
+      const testCount = 5; // 测试5次
+      const apiUrl = `${API_BASE}/${MODEL}:generateContent`;
+      
+      console.log('🚀 开始 Ping 测试:', {
+        url: apiUrl,
+        testCount,
+        startTime: new Date().toLocaleTimeString()
+      });
+      
+      for (let i = 0; i < testCount; i++) {
+        const startTime = performance.now();
+
+        try {
+          // 发送一个简单的OPTIONS请求测试连接
+          // OPTIONS是标准的CORS预检请求，用来检查API可用性
+          const response = await fetch(apiUrl, {
+            method: 'OPTIONS',
+            headers: {
+              'Authorization': buildAuthorizationHeader(document.getElementById('apiKey').value.trim()),
+            },
+          });
+
+          const endTime = performance.now();
+          const latency = endTime - startTime;
+
+          pingResults.push({
+            attempt: i + 1,
+            latency: latency,
+            status: response.status,
+            success: true  // OPTIONS 请求通常返回 200-204，认为有响应就是成功
+          });
+
+          console.log(`Ping ${i + 1}: ${latency.toFixed(2)}ms (HTTP ${response.status})`);
+
+        } catch (error) {
+          const endTime = performance.now();
+          const latency = endTime - startTime;
+
+          pingResults.push({
+            attempt: i + 1,
+            latency: latency,
+            status: 'ERROR',
+            success: false,
+            error: error.message
+          });
+
+          console.log(`Ping ${i + 1}: ${latency.toFixed(2)}ms (ERROR: ${error.message})`);
+        }
+
+        // 每次测试间隔100ms
+        if (i < testCount - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      // 计算统计信息
+      const successfulPings = pingResults.filter(p => p.success);
+      const avgLatency = successfulPings.length > 0 
+        ? successfulPings.reduce((sum, p) => sum + p.latency, 0) / successfulPings.length 
+        : 0;
+      const minLatency = successfulPings.length > 0 
+        ? Math.min(...successfulPings.map(p => p.latency)) 
+        : 0;
+      const maxLatency = successfulPings.length > 0 
+        ? Math.max(...successfulPings.map(p => p.latency)) 
+        : 0;
+      
+      // 显示结果
+      let resultMessage = `Ping 测试完成 (${testCount}次测试)\n`;
+      resultMessage += `成功率: ${successfulPings.length}/${testCount} (${((successfulPings.length/testCount)*100).toFixed(1)}%)\n`;
+      
+      if (successfulPings.length > 0) {
+        resultMessage += `平均延迟: ${avgLatency.toFixed(2)}ms\n`;
+        resultMessage += `最小延迟: ${minLatency.toFixed(2)}ms\n`;
+        resultMessage += `最大延迟: ${maxLatency.toFixed(2)}ms`;
+      } else {
+        resultMessage += `所有测试均失败`;
+      }
+      
+      setResult(resultMessage, successfulPings.length > 0 ? 'success' : 'error');
+      
+      // 显示详细调试信息
+      debugDiv.style.display = 'block';
+      debugDiv.textContent = `Ping 测试详细结果:\n\n` + 
+        pingResults.map(p => 
+          `测试 ${p.attempt}: ${p.latency.toFixed(2)}ms - ${p.success ? '成功' : '失败'} (${p.status})${p.error ? ` - ${p.error}` : ''}`
+        ).join('\n') +
+        `\n\n统计信息:\n` +
+        `- 测试次数: ${testCount}\n` +
+        `- 成功次数: ${successfulPings.length}\n` +
+        `- 失败次数: ${testCount - successfulPings.length}\n` +
+        `- 成功率: ${((successfulPings.length/testCount)*100).toFixed(1)}%\n` +
+        `- 平均延迟: ${avgLatency.toFixed(2)}ms\n` +
+        `- 最小延迟: ${minLatency.toFixed(2)}ms\n` +
+        `- 最大延迟: ${maxLatency.toFixed(2)}ms\n` +
+        `- 延迟标准差: ${successfulPings.length > 1 ? 
+          Math.sqrt(successfulPings.reduce((sum, p) => sum + Math.pow(p.latency - avgLatency, 2), 0) / successfulPings.length).toFixed(2) : 
+          '0.00'}ms`;
     });
 
     // 测试仅图像生成按钮

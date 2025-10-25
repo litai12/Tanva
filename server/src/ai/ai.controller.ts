@@ -33,31 +33,11 @@ export class AiController {
   ) {}
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
-    // 🔥 先进行规范化处理
-    let model = requestedModel ? requestedModel.trim() : '';
-
-    // 🔥 移除无效前缀
-    if (model.startsWith('kuai-')) {
-      model = model.substring(5);
-    }
-
-    // 🔥 如果是Kuai提供商，需要特殊处理
-    if (providerName === 'kuai') {
-      // 如果用户显式指定了model，让Kuai provider自己处理规范化
-      if (model.length > 0) {
-        this.logger.debug(`[Kuai] Using requested model: ${model}`);
-        return model;
-      }
-      // 否则返回Kuai的默认模型
-      return 'gemini-2.5-flash-image-preview';
-    }
-
-    // 其他提供商的默认模型
-    if (model.length > 0) {
+    const model = requestedModel?.trim();
+    if (model?.length) {
       this.logger.debug(`[${providerName || 'default'}] Using requested model: ${model}`);
       return model;
     }
-
     return 'gemini-2.5-flash-image';
   }
 

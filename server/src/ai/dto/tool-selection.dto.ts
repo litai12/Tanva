@@ -16,8 +16,8 @@ export class ToolSelectionRequestDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['gemini', 'banana', 'kuai'], { message: 'aiProvider must be either gemini, banana or kuai' })
-  aiProvider?: 'gemini' | 'banana' | 'kuai';
+  @IsIn(['gemini', 'banana'], { message: 'aiProvider must be either gemini or banana' })
+  aiProvider?: 'gemini' | 'banana';
 
   @IsOptional()
   @IsString()
