@@ -35,7 +35,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="border-t py-8 text-center text-sm text-slate-500">© {new Date().getFullYear()} TAI</footer>
+      <footer className="border-t py-8 text-center text-sm text-slate-500">© {new Date().getFullYear()} TAI · v1.0.0</footer>
     </div>
   );
 }

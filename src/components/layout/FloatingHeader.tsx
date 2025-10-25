@@ -28,7 +28,9 @@ import {
     Home,
     Sparkles,
     Trash2,
-    X
+    X,
+    Cloud,
+    Zap
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
@@ -85,7 +87,7 @@ const FloatingHeader: React.FC = () => {
     } = useCanvasStore();
 
     // AI 配置
-    const { imageOnly, setImageOnly } = useAIChatStore();
+    const { imageOnly, setImageOnly, aiProvider, setAIProvider } = useAIChatStore();
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
@@ -585,6 +587,57 @@ const FloatingHeader: React.FC = () => {
                                 onCheckedChange={setImageOnly}
                                 className="h-5 w-9"
                             />
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
+                            <div className="mb-4 text-sm font-medium text-slate-700">AI 提供商</div>
+                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                                <button
+                                    onClick={() => setAIProvider('gemini')}
+                                    className={cn(
+                                        "relative rounded-xl border-2 p-4 text-left transition-all",
+                                        aiProvider === 'gemini'
+                                            ? "border-blue-500 bg-blue-50"
+                                            : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Cloud className="h-4 w-4 text-blue-600" />
+                                                <span className="font-medium text-sm text-slate-700">Google Gemini</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">使用 Google Gemini AI</div>
+                                        </div>
+                                        {aiProvider === 'gemini' && (
+                                            <Check className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                                        )}
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => setAIProvider('banana')}
+                                    className={cn(
+                                        "relative rounded-xl border-2 p-4 text-left transition-all",
+                                        aiProvider === 'banana'
+                                            ? "border-amber-500 bg-amber-50"
+                                            : "border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/30"
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Zap className="h-4 w-4 text-amber-600" />
+                                                <span className="font-medium text-sm text-slate-700">Banana API</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">使用 Banana API (147)</div>
+                                        </div>
+                                        {aiProvider === 'banana' && (
+                                            <Check className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                                        )}
+                                    </div>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 );
