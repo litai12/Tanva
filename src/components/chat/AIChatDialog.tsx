@@ -1055,7 +1055,7 @@ const AIChatDialog: React.FC = () => {
                   align="start"
                   side="top"
                   sideOffset={8}
-                  className="min-w-[220px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
+                  className="dropdown-menu-root min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
                 >
                   <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
                     快速切换模式
@@ -1099,16 +1099,12 @@ const AIChatDialog: React.FC = () => {
                       <DropdownMenuItem
                         key={option.value}
                         onClick={(event) => {
+                          console.log('🤖 选择 AI 提供商:', option.value, option.label);
                           setAIProvider(option.value);
-                          const root = (event.currentTarget as HTMLElement).closest('.dropdown-menu-root');
-                          const trigger = root?.querySelector('[data-dropdown-trigger="true"]') as HTMLButtonElement | null;
-                          if (trigger && !trigger.disabled) {
-                            trigger.click();
-                          }
                         }}
                         className={cn(
-                          "flex items-start gap-2 px-3 py-2 text-xs",
-                          isActive ? "bg-purple-50 text-purple-600" : "text-slate-600"
+                          "flex items-start gap-2 px-3 py-2 text-xs cursor-pointer",
+                          isActive ? "bg-purple-50 text-purple-600" : "text-slate-600 hover:bg-slate-50"
                         )}
                       >
                         <div className="flex-1 space-y-0.5">
