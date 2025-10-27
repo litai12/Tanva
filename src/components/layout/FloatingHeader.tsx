@@ -395,7 +395,10 @@ const FloatingHeader: React.FC = () => {
                             <Button
                                 variant="outline"
                                 className="h-10 rounded-xl text-sm"
-                                onClick={openModal}
+                                onClick={() => {
+                                    setIsSettingsOpen(false);
+                                    openModal();
+                                }}
                             >
                                 <Square className="mr-2 h-4 w-4" />
                                 打开/管理文件
