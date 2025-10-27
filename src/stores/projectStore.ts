@@ -119,40 +119,52 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   remove: async (id) => {
-    // 不允许删除当前打开的项目
-    if (get().currentProjectId === id) {
-      throw new Error('当前项目不可删除');
-    }
     await projectApi.remove(id);
-    set((s) => {
-      const projects = s.projects.filter((p) => p.id !== id);
-      const isCurrent = s.currentProjectId === id;
 
-      if (isCurrent) {
+    set((state) => {
+      const projects = state.projects.filter((p) => p.id !== id);
+      const removedCurrent = state.currentProjectId === id;
+
+      if (removedCurrent) {
         try { localStorage.removeItem(LS_CURRENT_PROJECT); } catch {}
-
-        // 如果删除的是当前项目，尝试自动切换到下一个项目
-        if (projects.length > 0) {
-          const nextProject = projects[0];
-          try { localStorage.setItem(LS_CURRENT_PROJECT, nextProject.id); } catch {}
-          return {
-            projects,
-            currentProjectId: nextProject.id,
-            currentProject: nextProject
-          };
-        } else {
-          // 没有其他项目了，清空当前项目并显示项目管理器
-          return {
-            projects,
-            currentProjectId: null,
-            currentProject: null,
-            modalOpen: true
-          };
-        }
       }
 
-      return { projects, currentProjectId: s.currentProjectId, currentProject: s.currentProject };
+      return {
+        projects,
+        currentProjectId: removedCurrent ? null : state.currentProjectId,
+        currentProject: removedCurrent ? null : state.currentProject,
+        modalOpen: projects.length === 0 ? true : state.modalOpen
+      };
     });
+
+    const stateAfterRemoval = get();
+
+    if (stateAfterRemoval.projects.length === 0) {
+      try {
+        const fallback = await projectApi.create({ name: '未命名' });
+        set({
+          projects: [fallback],
+          currentProjectId: fallback.id,
+          currentProject: fallback,
+          modalOpen: true,
+        });
+        try { localStorage.setItem(LS_CURRENT_PROJECT, fallback.id); } catch {}
+      } catch (error) {
+        console.warn('自动创建新项目失败:', error);
+      }
+      return;
+    }
+
+    if (!stateAfterRemoval.currentProjectId) {
+      const fallback = stateAfterRemoval.projects[0];
+      set({
+        currentProjectId: fallback.id,
+        currentProject: fallback,
+      });
+      try { localStorage.setItem(LS_CURRENT_PROJECT, fallback.id); } catch {}
+    } else if (stateAfterRemoval.currentProjectId !== id) {
+      try { localStorage.setItem(LS_CURRENT_PROJECT, stateAfterRemoval.currentProjectId); } catch {}
+    }
   },
   optimisticRenameLocal: (id, name) => set((s) => ({
     projects: s.projects.map((p) => (p.id === id ? { ...p, name } : p)),
