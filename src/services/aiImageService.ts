@@ -126,6 +126,14 @@ class AIImageService {
         body: JSON.stringify(request),
       });
 
+      if (response.status === 401 || response.status === 403) {
+        console.warn(`⚠️ ${operationType}: token expired? attempting refresh...`);
+        const refreshed = await this.refreshSession();
+        if (refreshed) {
+          return this.callAPI<T>(url, request, `${operationType} (retry)`);
+        }
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error(`❌ ${operationType} failed: HTTP ${response.status}`);
@@ -156,6 +164,27 @@ class AIImageService {
           timestamp: new Date(),
         } as AIError,
       };
+    }
+  }
+
+  /**
+   * 尝试刷新登录会话
+   */
+  private async refreshSession(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        console.log('🔄 Session refresh succeeded');
+        return true;
+      }
+      console.warn('Session refresh failed with status', res.status);
+      return false;
+    } catch (error) {
+      console.warn('Session refresh threw error:', error);
+      return false;
     }
   }
 
