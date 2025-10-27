@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { useAuthStore } from '@/stores/authStore';
+import { useProjectStore } from '@/stores/projectStore';
 
 export default function LoginPage() {
   const [tab, setTab] = useState<'password' | 'sms'>('password');
@@ -12,17 +13,43 @@ export default function LoginPage() {
   const [code, setCode] = useState('');
   const navigate = useNavigate();
   const { login, loginWithSms, loading, error } = useAuthStore();
+  const loadProjects = useProjectStore((s) => s.load);
 
   const isMock = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_AUTH_MODE) === 'mock';
 
+  const ensureProjectPrepared = async () => {
+    await loadProjects();
+    const store = useProjectStore.getState();
+
+    if (!store.currentProjectId) {
+      if (store.projects.length === 0) {
+        try {
+          const created = await store.create('未命名');
+          store.open(created.id);
+        } catch (err) {
+          console.error('自动创建项目失败:', err);
+        }
+      } else {
+        const fallback = store.projects[0];
+        if (fallback) {
+          store.open(fallback.id);
+        }
+      }
+    }
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (tab === 'password') {
-      await login(phone, password);
-      navigate('/workspace');
-    } else {
-      await loginWithSms(phone, code || '');
-      navigate('/workspace');
+    try {
+      if (tab === 'password') {
+        await login(phone, password);
+      } else {
+        await loginWithSms(phone, code || '');
+      }
+      await ensureProjectPrepared();
+      navigate('/app', { replace: true });
+    } catch (err) {
+      console.error('登录失败:', err);
     }
   };
 

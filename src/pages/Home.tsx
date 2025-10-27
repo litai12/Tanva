@@ -30,7 +30,7 @@ export default function Home() {
           <div className="w-full sm:w-[480px] border rounded-xl p-8 hover:shadow transition mx-auto text-center">
             <h3 className="text-lg font-semibold mb-2">开始对话</h3>
             <p className="text-sm text-slate-600 mb-6">体验 AI 助手优化与生成</p>
-              <Button onClick={() => navigate('/workspace')}>立即体验</Button>
+            <Button onClick={() => navigate('/app')}>立即体验</Button>
           </div>
         </div>
       </main>
