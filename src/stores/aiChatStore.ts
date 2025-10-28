@@ -68,6 +68,11 @@ export interface ChatMessage {
   };
 }
 
+type MessageOverride = {
+  userMessageId: string;
+  aiMessageId: string;
+};
+
 export interface GenerationStatus {
   isGenerating: boolean;
   progress: number;
@@ -315,9 +320,10 @@ interface AIChatState {
   clearInput: () => void;
 
   // 消息管理
-  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
+  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => ChatMessage;
   clearMessages: () => void;
   updateMessageStatus: (messageId: string, status: Partial<ChatMessage['generationStatus']>) => void;
+  updateMessage: (messageId: string, updater: (message: ChatMessage) => ChatMessage) => void;
   refreshSessions: (options?: { persistToLocal?: boolean; markProjectDirty?: boolean }) => Promise<void>;
   createSession: (name?: string) => Promise<string>;
   switchSession: (sessionId: string) => Promise<void>;
@@ -331,24 +337,24 @@ interface AIChatState {
   resetSessions: () => void;
 
   // 图像生成
-  generateImage: (prompt: string) => Promise<void>;
+  generateImage: (prompt: string, options?: { override?: MessageOverride }) => Promise<void>;
 
   // 图生图功能
-  editImage: (prompt: string, sourceImage: string, showImagePlaceholder?: boolean) => Promise<void>;
+  editImage: (prompt: string, sourceImage: string, showImagePlaceholder?: boolean, options?: { override?: MessageOverride }) => Promise<void>;
   setSourceImageForEditing: (imageData: string | null) => void;
 
   // 多图融合功能
-  blendImages: (prompt: string, sourceImages: string[]) => Promise<void>;
+  blendImages: (prompt: string, sourceImages: string[], options?: { override?: MessageOverride }) => Promise<void>;
   addImageForBlending: (imageData: string) => void;
   removeImageFromBlending: (index: number) => void;
   clearImagesForBlending: () => void;
 
   // 图像分析功能
-  analyzeImage: (prompt: string, sourceImage: string) => Promise<void>;
+  analyzeImage: (prompt: string, sourceImage: string, options?: { override?: MessageOverride }) => Promise<void>;
   setSourceImageForAnalysis: (imageData: string | null) => void;
 
   // 文本对话功能
-  generateTextResponse: (prompt: string) => Promise<void>;
+  generateTextResponse: (prompt: string, options?: { override?: MessageOverride }) => Promise<void>;
 
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
@@ -455,6 +461,7 @@ export const useAIChatStore = create<AIChatState>()(
     }));
 
     console.log('📊 消息列表更新后长度:', get().messages.length);
+    return storedMessage!;
   },
 
   clearMessages: () => {
@@ -485,6 +492,21 @@ export const useAIChatStore = create<AIChatState>()(
       const message = context.messages.find(m => m.id === messageId);
       if (message) {
         message.generationStatus = { ...message.generationStatus, ...status } as any;
+      }
+    }
+  },
+  updateMessage: (messageId, updater) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.id === messageId ? updater({ ...msg }) : msg
+      )
+    }));
+
+    const context = contextManager.getCurrentContext();
+    if (context) {
+      const index = context.messages.findIndex((msg) => msg.id === messageId);
+      if (index >= 0) {
+        context.messages[index] = updater({ ...context.messages[index] });
       }
     }
   },
@@ -682,7 +704,7 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 图像生成主函数（支持并行）
-  generateImage: async (prompt: string) => {
+  generateImage: async (prompt: string, options?: { override?: MessageOverride }) => {
     const state = get();
 
     // 🔥 并行模式：不检查全局状态，每个请求独立
@@ -690,30 +712,45 @@ export const useAIChatStore = create<AIChatState>()(
     generatingImageCount++;
     console.log('🔥 开始生成，当前生成计数:', generatingImageCount);
 
-    // 添加用户消息
-    state.addMessage({
-      type: 'user',
-      content: prompt
-    });
+    const override = options?.override;
+    let aiMessageId: string | undefined;
 
-    // 🔥 创建占位 AI 消息，带有初始生成状态
-    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
-      type: 'ai',
-      content: '正在生成图像...',
-      generationStatus: {
-        isGenerating: true,
-        progress: 0,
-        error: null,
-        stage: '准备中'
-      },
-      expectsImageOutput: true
-    };
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(override.aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在生成图像...',
+        expectsImageOutput: true,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备中'
+        }
+      }));
+    } else {
+      // 添加用户消息
+      state.addMessage({
+        type: 'user',
+        content: prompt
+      });
 
-    state.addMessage(placeholderMessage);
+      // 🔥 创建占位 AI 消息，带有初始生成状态
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在生成图像...',
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备中'
+        },
+        expectsImageOutput: true
+      };
 
-    // 获取刚添加的消息ID
-    const currentMessages = get().messages;
-    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+      const storedPlaceholder = state.addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
 
     if (!aiMessageId) {
       console.error('❌ 无法获取AI消息ID');
@@ -950,41 +987,63 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 图生图功能（支持并行）
-  editImage: async (prompt: string, sourceImage: string, showImagePlaceholder: boolean = true) => {
+  editImage: async (prompt: string, sourceImage: string, showImagePlaceholder: boolean = true, options?: { override?: MessageOverride }) => {
     const state = get();
 
     // 🔥 并行模式：不检查全局状态
 
-    // 添加用户消息
-    const messageData: any = {
-      type: 'user',
-      content: `编辑图像: ${prompt}`,
-    };
+    const override = options?.override;
+    let aiMessageId: string | undefined;
 
-    if (showImagePlaceholder) {
-      messageData.sourceImageData = sourceImage;
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(override.userMessageId, (msg) => ({
+        ...msg,
+        content: `编辑图像: ${prompt}`,
+        sourceImageData: showImagePlaceholder ? sourceImage : msg.sourceImageData
+      }));
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在编辑图像...',
+        expectsImageOutput: true,
+        sourceImageData: showImagePlaceholder ? sourceImage : msg.sourceImageData,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备中'
+        }
+      }));
+    } else {
+      // 添加用户消息
+      const messageData: any = {
+        type: 'user',
+        content: `编辑图像: ${prompt}`,
+      };
+
+      if (showImagePlaceholder) {
+        messageData.sourceImageData = sourceImage;
+      }
+
+      state.addMessage(messageData);
+
+      // 🔥 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在编辑图像...',
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备中'
+        },
+        expectsImageOutput: true,
+        sourceImageData: showImagePlaceholder ? sourceImage : undefined
+      };
+
+      const storedPlaceholder = state.addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
     }
-
-    state.addMessage(messageData);
-
-    // 🔥 创建占位 AI 消息
-    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
-      type: 'ai',
-      content: '正在编辑图像...',
-      generationStatus: {
-        isGenerating: true,
-        progress: 0,
-        error: null,
-        stage: '准备中'
-      },
-      expectsImageOutput: true
-    };
-
-    state.addMessage(placeholderMessage);
-
-    // 获取刚添加的消息ID
-    const currentMessages = get().messages;
-    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
 
     if (!aiMessageId) {
       console.error('❌ 无法获取AI消息ID');
@@ -1212,34 +1271,57 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 多图融合功能（支持并行）
-  blendImages: async (prompt: string, sourceImages: string[]) => {
+  blendImages: async (prompt: string, sourceImages: string[], options?: { override?: MessageOverride }) => {
     const state = get();
 
     // 🔥 并行模式：不检查全局状态
 
-    state.addMessage({
-      type: 'user',
-      content: `融合图像: ${prompt}`,
-      sourceImagesData: sourceImages
-    });
+    const override = options?.override;
+    let aiMessageId: string | undefined;
 
-    // 🔥 创建占位 AI 消息
-    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
-      type: 'ai',
-      content: '正在融合图像...',
-      generationStatus: {
-        isGenerating: true,
-        progress: 0,
-        error: null,
-        stage: '准备中'
-      },
-      expectsImageOutput: true
-    };
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(override.userMessageId, (msg) => ({
+        ...msg,
+        content: `融合图像: ${prompt}`,
+        sourceImagesData: sourceImages
+      }));
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在融合图像...',
+        expectsImageOutput: true,
+        sourceImagesData: sourceImages,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备中'
+        }
+      }));
+    } else {
+      state.addMessage({
+        type: 'user',
+        content: `融合图像: ${prompt}`,
+        sourceImagesData: sourceImages
+      });
 
-    state.addMessage(placeholderMessage);
+      // 🔥 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在融合图像...',
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备中'
+        },
+        expectsImageOutput: true,
+        sourceImagesData: sourceImages
+      };
 
-    const currentMessages = get().messages;
-    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+      const storedPlaceholder = state.addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
 
     if (!aiMessageId) {
       console.error('❌ 无法获取AI消息ID');
@@ -1446,7 +1528,7 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 图像分析功能（支持并行）
-  analyzeImage: async (prompt: string, sourceImage: string) => {
+  analyzeImage: async (prompt: string, sourceImage: string, options?: { override?: MessageOverride }) => {
     const state = get();
 
     // 🔥 并行模式：不检查全局状态
@@ -1455,29 +1537,50 @@ export const useAIChatStore = create<AIChatState>()(
     const formattedImageData = sourceImage.startsWith('data:image')
       ? sourceImage
       : `data:image/png;base64,${sourceImage}`;
+    const override = options?.override;
+    let aiMessageId: string | undefined;
 
-    state.addMessage({
-      type: 'user',
-      content: prompt ? `分析图片: ${prompt}` : '分析这张图片',
-      sourceImageData: formattedImageData
-    });
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(override.userMessageId, (msg) => ({
+        ...msg,
+        content: prompt ? `分析图片: ${prompt}` : '分析这张图片',
+        sourceImageData: formattedImageData
+      }));
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在分析图片...',
+        sourceImageData: formattedImageData,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备中'
+        }
+      }));
+    } else {
+      state.addMessage({
+        type: 'user',
+        content: prompt ? `分析图片: ${prompt}` : '分析这张图片',
+        sourceImageData: formattedImageData
+      });
 
-    // 🔥 创建占位 AI 消息
-    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
-      type: 'ai',
-      content: '正在分析图片...',
-      generationStatus: {
-        isGenerating: true,
-        progress: 0,
-        error: null,
-        stage: '准备中'
-      }
-    };
+      // 🔥 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在分析图片...',
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备中'
+        },
+        sourceImageData: formattedImageData
+      };
 
-    state.addMessage(placeholderMessage);
-
-    const currentMessages = get().messages;
-    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+      const storedPlaceholder = state.addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
 
     if (!aiMessageId) {
       console.error('❌ 无法获取AI消息ID');
@@ -1588,32 +1691,46 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 文本对话功能（支持并行）
-  generateTextResponse: async (prompt: string) => {
+  generateTextResponse: async (prompt: string, options?: { override?: MessageOverride }) => {
     // 🔥 并行模式：不检查全局状态
 
-    // 添加用户消息
-    get().addMessage({
-      type: 'user',
-      content: prompt
-    });
+    const override = options?.override;
+    let aiMessageId: string | undefined;
 
-    // 🔥 创建占位 AI 消息
-    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
-      type: 'ai',
-      content: '正在生成文本回复...',
-      generationStatus: {
-        isGenerating: true,
-        progress: 0,
-        error: null,
-        stage: '准备中'
-      }
-    };
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在生成文本回复...',
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备中'
+        }
+      }));
+    } else {
+      // 添加用户消息
+      get().addMessage({
+        type: 'user',
+        content: prompt
+      });
 
-    get().addMessage(placeholderMessage);
+      // 🔥 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在生成文本回复...',
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备中'
+        }
+      };
 
-    // 获取刚添加的消息ID
-    const currentMessages = get().messages;
-    const aiMessageId = currentMessages[currentMessages.length - 1]?.id;
+      const storedPlaceholder = get().addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
 
     if (!aiMessageId) {
       console.error('❌ 无法获取AI消息ID');
@@ -1712,6 +1829,28 @@ export const useAIChatStore = create<AIChatState>()(
       console.log('🔄 检测到迭代优化意图');
     }
 
+    // 预先创建用户消息与占位AI消息，提供即时反馈
+    const pendingUserMessage = get().addMessage({
+      type: 'user',
+      content: input
+    });
+
+    const pendingAiMessage = get().addMessage({
+      type: 'ai',
+      content: '正在准备处理您的请求...',
+      generationStatus: {
+        isGenerating: true,
+        progress: 5,
+        error: null,
+        stage: '准备中'
+      }
+    });
+
+    const messageOverride: MessageOverride = {
+      userMessageId: pendingUserMessage.id,
+      aiMessageId: pendingAiMessage.id
+    };
+
     // 准备工具选择请求
     const cachedImage = contextManager.getCachedImage();
     
@@ -1799,99 +1938,115 @@ export const useAIChatStore = create<AIChatState>()(
     // 获取最新的 store 实例来调用方法
     const store = get();
 
-    switch (selectedTool) {
-      case 'generateImage':
-        await store.generateImage(parameters.prompt);
-        break;
+    try {
+      switch (selectedTool) {
+        case 'generateImage':
+          await store.generateImage(parameters.prompt, { override: messageOverride });
+          break;
 
-      case 'editImage':
-        if (state.sourceImageForEditing) {
-          console.log('🖼️ 使用显式图像进行编辑:', {
-            imageDataLength: state.sourceImageForEditing.length,
-            imageDataPrefix: state.sourceImageForEditing.substring(0, 50),
-            isBase64: state.sourceImageForEditing.startsWith('data:image')
-          });
-          await store.editImage(parameters.prompt, state.sourceImageForEditing);
-          
-          // 🧠 检测是否需要保持编辑状态
-          if (!isIterative) {
-            store.setSourceImageForEditing(null);
-            contextManager.resetIteration();
-          }
-        } else {
-          // 🖼️ 检查是否有缓存的图像可以编辑
-          const cachedImage = contextManager.getCachedImage();
-          console.log('🔍 editImage case 调试:', {
-            hasSourceImage: !!state.sourceImageForEditing,
-            cachedImage: cachedImage ? `ID: ${cachedImage.imageId}` : 'none',
-            input: input
-          });
-          
-          if (cachedImage) {
-            console.log('🖼️ 使用缓存的图像进行编辑:', {
-              imageId: cachedImage.imageId,
-              imageDataLength: cachedImage.imageData.length,
-              imageDataPrefix: cachedImage.imageData.substring(0, 50),
-              isBase64: cachedImage.imageData.startsWith('data:image')
+        case 'editImage':
+          if (state.sourceImageForEditing) {
+            console.log('🖼️ 使用显式图像进行编辑:', {
+              imageDataLength: state.sourceImageForEditing.length,
+              imageDataPrefix: state.sourceImageForEditing.substring(0, 50),
+              isBase64: state.sourceImageForEditing.startsWith('data:image')
             });
-            await store.editImage(parameters.prompt, cachedImage.imageData, false); // 不显示图片占位框
+            await store.editImage(parameters.prompt, state.sourceImageForEditing, true, { override: messageOverride });
+
+            // 🧠 检测是否需要保持编辑状态
+            if (!isIterative) {
+              store.setSourceImageForEditing(null);
+              contextManager.resetIteration();
+            }
           } else {
-            console.error('❌ 无法编辑图像的原因:', {
-              cachedImage: cachedImage ? 'exists' : 'null',
+            // 🖼️ 检查是否有缓存的图像可以编辑
+            const cachedImage = contextManager.getCachedImage();
+            console.log('🔍 editImage case 调试:', {
+              hasSourceImage: !!state.sourceImageForEditing,
+              cachedImage: cachedImage ? `ID: ${cachedImage.imageId}` : 'none',
               input: input
             });
-            throw new Error('没有可编辑的图像');
+            
+            if (cachedImage) {
+              console.log('🖼️ 使用缓存的图像进行编辑:', {
+                imageId: cachedImage.imageId,
+                imageDataLength: cachedImage.imageData.length,
+                imageDataPrefix: cachedImage.imageData.substring(0, 50),
+                isBase64: cachedImage.imageData.startsWith('data:image')
+              });
+              await store.editImage(parameters.prompt, cachedImage.imageData, false, { override: messageOverride }); // 不显示图片占位框
+            } else {
+              console.error('❌ 无法编辑图像的原因:', {
+                cachedImage: cachedImage ? 'exists' : 'null',
+                input: input
+              });
+              throw new Error('没有可编辑的图像');
+            }
           }
-        }
-        break;
+          break;
 
-      case 'blendImages':
-        if (state.sourceImagesForBlending.length >= 2) {
-          await store.blendImages(parameters.prompt, state.sourceImagesForBlending);
-          store.clearImagesForBlending();
-        } else {
-          throw new Error('需要至少2张图像进行融合');
-        }
-        break;
-
-      case 'analyzeImage':
-        if (state.sourceImageForAnalysis) {
-          await store.analyzeImage(parameters.prompt || input, state.sourceImageForAnalysis);
-          store.setSourceImageForAnalysis(null);
-        } else if (state.sourceImageForEditing) {
-          await store.analyzeImage(parameters.prompt || input, state.sourceImageForEditing);
-          // 分析后不清除图像，用户可能还想编辑
-        } else {
-          // 🖼️ 检查是否有缓存的图像可以分析
-          const cachedImage = contextManager.getCachedImage();
-          if (cachedImage) {
-            console.log('🖼️ 使用缓存的图像进行分析:', cachedImage.imageId);
-            await store.analyzeImage(parameters.prompt || input, cachedImage.imageData);
+        case 'blendImages':
+          if (state.sourceImagesForBlending.length >= 2) {
+            await store.blendImages(parameters.prompt, state.sourceImagesForBlending, { override: messageOverride });
+            store.clearImagesForBlending();
           } else {
-            throw new Error('没有可分析的图像');
+            throw new Error('需要至少2张图像进行融合');
           }
-        }
-        break;
+          break;
 
-      case 'chatResponse':
-        console.log('🎯 执行文本对话，参数:', parameters.prompt);
-        console.log('🔧 调用 generateTextResponse 方法...');
-        console.log('🔧 store 对象:', store);
-        console.log('🔧 generateTextResponse 方法存在:', typeof store.generateTextResponse);
-        try {
-          const result = await store.generateTextResponse(parameters.prompt);
-          console.log('✅ generateTextResponse 执行完成，返回值:', result);
-        } catch (error) {
-          console.error('❌ generateTextResponse 执行失败:', error);
-          if (error instanceof Error) {
-            console.error('❌ 错误堆栈:', error.stack);
+        case 'analyzeImage':
+          if (state.sourceImageForAnalysis) {
+            await store.analyzeImage(parameters.prompt || input, state.sourceImageForAnalysis, { override: messageOverride });
+            store.setSourceImageForAnalysis(null);
+          } else if (state.sourceImageForEditing) {
+            await store.analyzeImage(parameters.prompt || input, state.sourceImageForEditing, { override: messageOverride });
+            // 分析后不清除图像，用户可能还想编辑
+          } else {
+            // 🖼️ 检查是否有缓存的图像可以分析
+            const cachedImage = contextManager.getCachedImage();
+            if (cachedImage) {
+              console.log('🖼️ 使用缓存的图像进行分析:', cachedImage.imageId);
+              await store.analyzeImage(parameters.prompt || input, cachedImage.imageData, { override: messageOverride });
+            } else {
+              throw new Error('没有可分析的图像');
+            }
           }
-          throw error;
-        }
-        break;
+          break;
 
-      default:
-        throw new Error(`未知工具: ${selectedTool}`);
+        case 'chatResponse':
+          console.log('🎯 执行文本对话，参数:', parameters.prompt);
+          console.log('🔧 调用 generateTextResponse 方法...');
+          console.log('🔧 store 对象:', store);
+          console.log('🔧 generateTextResponse 方法存在:', typeof store.generateTextResponse);
+          try {
+            const result = await store.generateTextResponse(parameters.prompt, { override: messageOverride });
+            console.log('✅ generateTextResponse 执行完成，返回值:', result);
+          } catch (error) {
+            console.error('❌ generateTextResponse 执行失败:', error);
+            if (error instanceof Error) {
+              console.error('❌ 错误堆栈:', error.stack);
+            }
+            throw error;
+          }
+          break;
+
+        default:
+          throw new Error(`未知工具: ${selectedTool}`);
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : '处理失败';
+      get().updateMessage(messageOverride.aiMessageId, (msg) => ({
+        ...msg,
+        content: `处理失败: ${errorMessage}`,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage,
+          stage: '已终止'
+        }
+      }));
+      throw err;
     }
   },
 
@@ -1943,11 +2098,19 @@ export const useAIChatStore = create<AIChatState>()(
         errorMessage = '图像处理失败，请重试';
       }
 
-      // 正常处理错误
-      get().addMessage({
-        type: 'error',
-        content: `处理失败: ${errorMessage}`
-      });
+      // 如果占位消息尚未写入错误，则补充一条错误提示
+      const messages = get().messages;
+      const hasErrorSurface = messages.some((msg) =>
+        msg.type === 'ai' &&
+        msg.generationStatus?.stage === '已终止' &&
+        msg.generationStatus?.error === errorMessage
+      );
+      if (!hasErrorSurface) {
+        get().addMessage({
+          type: 'error',
+          content: `处理失败: ${errorMessage}`
+        });
+      }
 
       console.error('❌ 智能处理异常:', error);
     }
