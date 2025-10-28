@@ -78,6 +78,7 @@ const AIChatDialog: React.FC = () => {
     createSession,
     switchSession,
     hideDialog,
+    showDialog,
     setCurrentInput,
     clearInput,
     processUserInput,
@@ -170,6 +171,30 @@ const AIChatDialog: React.FC = () => {
     src: string;
     title: string;
   } | null>(null);
+
+  /**
+   * 渲染AI生图任务的进度条，直接复用消息里的进度信息。
+   * 使用细蓝条展示状态，不再显示具体百分数字样。
+   */
+  const renderGenerationProgressBar = (message: any) => {
+    const status = message?.generationStatus;
+    if (!status?.isGenerating) {
+      return null;
+    }
+
+    const progressValue = Math.max(0, Math.min(status.progress ?? 0, 100));
+    const progressWidth = `${progressValue}%`;
+    return (
+      <div className="mt-2">
+        <div className="relative h-1.5 w-full rounded-full bg-blue-100 overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-blue-500 via-blue-500 to-blue-400 transition-all duration-300 ease-out"
+            style={{ width: progressWidth }}
+          />
+        </div>
+      </div>
+    );
+  };
 
   // 🧠 初始化上下文记忆系统
   useEffect(() => {
@@ -584,6 +609,12 @@ const AIChatDialog: React.FC = () => {
 
   const handleSendOptimizedFromPanel = async (optimized: string) => {
     if (generationStatus.isGenerating || autoOptimizing) return;
+    if (!isVisible) {
+      showDialog();
+    }
+    if (!showHistory) {
+      setHistoryVisibility(true, false);
+    }
     const trimmed = optimized.trim();
     if (!trimmed) return;
 
@@ -603,6 +634,13 @@ const AIChatDialog: React.FC = () => {
   const handleSend = async () => {
     const trimmedInput = currentInput.trim();
     if (!trimmedInput || generationStatus.isGenerating || autoOptimizing) return;
+
+    if (!isVisible) {
+      showDialog();
+    }
+    if (!showHistory) {
+      setHistoryVisibility(true, false);
+    }
 
     // 🔥 立即增加待处理任务计数（敲击回车的反馈）
     setPendingTaskCount(prev => prev + 1);
@@ -870,16 +908,7 @@ const AIChatDialog: React.FC = () => {
         onDoubleClick={handleOuterDoubleClick}
         onDoubleClickCapture={handleDoubleClickCapture}
       >
-        {/* 🔥 任务计数器徽章 - 右上角（更小尺寸） */}
-        {displayTaskCount > 0 && (
-          <div className="absolute top-1.5 right-3 z-50">
-            <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs font-bold">
-                {displayTaskCount}
-              </span>
-            </div>
-          </div>
-        )}
+        {/* 🔥 任务计数器徽章 - 右上角（更小尺寸）已关闭 */}
 
         {/* 内容区域 */}
         <div ref={contentRef} data-chat-content className={cn(
@@ -1400,25 +1429,6 @@ const AIChatDialog: React.FC = () => {
                       message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
                     )}
                   >
-                    {/* 🔥 占位框 + 内置进度条 - 仅限生成中的 AI 消息 */}
-                    {message.type === 'ai' && message.generationStatus?.isGenerating && message.expectsImageOutput && (
-                      <div className="mb-3 inline-block">
-                        <div className="w-32 h-32 border-2 border-white rounded-lg relative bg-gray-100/50 flex items-center justify-center overflow-hidden">
-                          {/* 内置进度条 - 底部 */}
-                          <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200/30 rounded-full">
-                            <div
-                              className="h-full bg-blue-500 transition-all duration-300 ease-out"
-                              style={{ width: `${message.generationStatus.progress}%` }}
-                            />
-                          </div>
-                          {/* 进度百分比 - 中心显示 */}
-                          <div className="text-xs text-gray-500 font-medium">
-                            {message.generationStatus.progress}%
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     {/* 🔥 错误显示 - AI 消息级别的错误 */}
                     {message.type === 'ai' && message.generationStatus?.error && (
                       <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
@@ -1571,6 +1581,7 @@ const AIChatDialog: React.FC = () => {
                             </div>
                           </div>
                         )}
+                        {renderGenerationProgressBar(message)}
                       </div>
                     ) : (
                       /* 没有图像时使用原来的纵向布局 */

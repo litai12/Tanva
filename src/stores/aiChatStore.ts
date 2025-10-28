@@ -771,15 +771,30 @@ export const useAIChatStore = create<AIChatState>()(
       // 模拟进度更新
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
-        const currentProgress = currentMessage?.generationStatus?.progress || 0;
-        if (currentProgress < 90) {
-          get().updateMessageStatus(aiMessageId, {
-            isGenerating: true,
-            progress: currentProgress + 10,
-            error: null
-          });
+        const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
+
+        if (currentProgress >= 92) {
+          clearInterval(progressInterval);
+          return;
         }
-      }, 500);
+
+        let increment = 2;
+        if (currentProgress < 30) {
+          increment = 8;
+        } else if (currentProgress < 60) {
+          increment = 6;
+        } else if (currentProgress < 80) {
+          increment = 4;
+        }
+
+        const nextProgress = Math.min(92, currentProgress + increment);
+
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: true,
+          progress: nextProgress,
+          error: null
+        });
+      }, 600);
 
       // 调用后端API生成图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
@@ -1064,15 +1079,30 @@ export const useAIChatStore = create<AIChatState>()(
       // 模拟进度更新
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
-        const currentProgress = currentMessage?.generationStatus?.progress || 0;
-        if (currentProgress < 90) {
-          get().updateMessageStatus(aiMessageId, {
-            isGenerating: true,
-            progress: currentProgress + 10,
-            error: null
-          });
+        const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
+
+        if (currentProgress >= 92) {
+          clearInterval(progressInterval);
+          return;
         }
-      }, 500);
+
+        let increment = 2;
+        if (currentProgress < 30) {
+          increment = 8;
+        } else if (currentProgress < 60) {
+          increment = 6;
+        } else if (currentProgress < 80) {
+          increment = 4;
+        }
+
+        const nextProgress = Math.min(92, currentProgress + increment);
+
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: true,
+          progress: nextProgress,
+          error: null
+        });
+      }, 600);
 
       // 调用后端API编辑图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
@@ -1341,15 +1371,30 @@ export const useAIChatStore = create<AIChatState>()(
 
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
-        const currentProgress = currentMessage?.generationStatus?.progress || 0;
-        if (currentProgress < 90) {
-          get().updateMessageStatus(aiMessageId, {
-            isGenerating: true,
-            progress: currentProgress + 10,
-            error: null
-          });
+        const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
+
+        if (currentProgress >= 92) {
+          clearInterval(progressInterval);
+          return;
         }
-      }, 500);
+
+        let increment = 2;
+        if (currentProgress < 30) {
+          increment = 8;
+        } else if (currentProgress < 60) {
+          increment = 6;
+        } else if (currentProgress < 80) {
+          increment = 4;
+        }
+
+        const nextProgress = Math.min(92, currentProgress + increment);
+
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: true,
+          progress: nextProgress,
+          error: null
+        });
+      }, 600);
 
       const modelToUse = getImageModelForProvider(state.aiProvider);
       console.log('🤖 [AI Provider] blendImages', {
@@ -1600,15 +1645,30 @@ export const useAIChatStore = create<AIChatState>()(
 
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
-        const currentProgress = currentMessage?.generationStatus?.progress || 0;
-        if (currentProgress < 90) {
-          get().updateMessageStatus(aiMessageId, {
-            isGenerating: true,
-            progress: currentProgress + 15,
-            error: null
-          });
+        const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
+
+        if (currentProgress >= 92) {
+          clearInterval(progressInterval);
+          return;
         }
-      }, 300);
+
+        let increment = 3;
+        if (currentProgress < 30) {
+          increment = 8;
+        } else if (currentProgress < 60) {
+          increment = 6;
+        } else if (currentProgress < 80) {
+          increment = 4;
+        }
+
+        const nextProgress = Math.min(92, currentProgress + increment);
+
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: true,
+          progress: nextProgress,
+          error: null
+        });
+      }, 500);
 
       // 调用后端API分析图像
       // 🔥 使用 Gemini 2.5 Flash Image 进行图像分析
