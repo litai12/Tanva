@@ -920,15 +920,7 @@ const AIChatDialog: React.FC = () => {
 
           {/* 统一的图像预览区域 */}
           {(sourceImageForEditing || sourceImagesForBlending.length > 0 || sourceImageForAnalysis) && (
-            <div className="mb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-gray-600">
-                  {sourceImagesForBlending.length > 0 ?
-                    <span className="font-bold">融合图像</span> :
-                    sourceImageForEditing ? '编辑图像' :
-                      sourceImageForAnalysis ? '分析图像' : '图像'}
-                </span>
-              </div>
+            <div className="mb-3">
               <div className="flex flex-wrap gap-2">
                 {/* 单图编辑显示 */}
                 {sourceImageForEditing && (

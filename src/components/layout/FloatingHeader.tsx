@@ -741,13 +741,13 @@ const FloatingHeader: React.FC = () => {
         }
     };
 
-    return (
+return (
         <div className={cn(
-            "fixed top-4 left-0 right-0 z-50 px-4 flex items-center justify-between gap-4 transition-all duration-[50ms] ease-out",
+            "fixed top-4 left-0 right-0 z-50 px-4 flex items-center justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
             showLayerPanel ? "left-[306px]" : "left-0"
         )}>
             {/* 左侧栏：Logo + Beta + 项目名称 */}
-            <div className="flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300">
+            <div className="flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto">
                 {/* Logo */}
                 <div
                     className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity select-none"
@@ -858,7 +858,7 @@ const FloatingHeader: React.FC = () => {
             <div className="flex-1" />
 
             {/* 右侧栏：功能按钮 */}
-            <div className="flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300">
+            <div className="flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto">
                 {/* 素材库按钮 */}
                 {showLibraryButton && (
                     <Button
