@@ -1296,35 +1296,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const syncVisibilityStates = () => {
       // 同步图片可见性
       imageTool.setImageInstances(prev => prev.map(image => {
-        const paperGroup = paper.project?.layers?.flatMap(layer =>
+        const paperGroup = paper.project.layers.flatMap(layer =>
           layer.children.filter(child =>
             child.data?.type === 'image' && child.data?.imageId === image.id
           )
         )[0];
 
         if (paperGroup) {
-          // ⚠️ 修复：确保 paperGroup 存在且有效，避免 undefined 导致的错误
-          const groupVisible = paperGroup.visible !== false; // 默认为 true
-          return { ...image, visible: groupVisible };
+          return { ...image, visible: paperGroup.visible };
         }
-        // 如果找不到 paperGroup，保持原来的可见性状态
         return image;
       }));
 
       // 同步3D模型可见性
       model3DTool.setModel3DInstances(prev => prev.map(model => {
-        const paperGroup = paper.project?.layers?.flatMap(layer =>
+        const paperGroup = paper.project.layers.flatMap(layer =>
           layer.children.filter(child =>
             child.data?.type === '3d-model' && child.data?.modelId === model.id
           )
         )[0];
 
         if (paperGroup) {
-          // ⚠️ 修复：确保 paperGroup 存在且有效，避免 undefined 导致的错误
-          const groupVisible = paperGroup.visible !== false; // 默认为 true
-          return { ...model, visible: groupVisible };
+          return { ...model, visible: paperGroup.visible };
         }
-        // 如果找不到 paperGroup，保持原来的可见性状态
         return model;
       }));
     };
@@ -1335,9 +1329,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     window.addEventListener('layerVisibilityChanged', handleVisibilitySync);
-
-    // 初始同步一次
-    syncVisibilityStates();
 
     return () => {
       window.removeEventListener('layerVisibilityChanged', handleVisibilitySync);
