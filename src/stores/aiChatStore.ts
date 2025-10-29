@@ -1950,15 +1950,17 @@ export const useAIChatStore = create<AIChatState>()(
       const state = get();
       // 🔥 使用 Gemini 2.5 Flash 进行文本生成
       const modelToUse = 'gemini-2.5-flash';
+      const contextPrompt = contextManager.buildContextPrompt(prompt);
       console.log('🤖 [AI Provider] generateTextResponse', {
         aiProvider: state.aiProvider,
         model: modelToUse,
         enableWebSearch: state.enableWebSearch,
-        prompt: prompt.substring(0, 50) + '...'
+        prompt: prompt.substring(0, 50) + '...',
+        contextPreview: contextPrompt.substring(0, 80) + (contextPrompt.length > 80 ? '...' : '')
       });
 
       const result = await generateTextResponseViaAPI({
-        prompt,
+        prompt: contextPrompt,
         model: modelToUse,
         aiProvider: state.aiProvider,
         enableWebSearch: state.enableWebSearch
@@ -2073,6 +2075,8 @@ export const useAIChatStore = create<AIChatState>()(
     // 总图像数量 = 显式图片 + 缓存图片（如果存在）
     const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
     
+    const toolSelectionContext = contextManager.buildContextPrompt(input);
+
     const toolSelectionRequest = {
       userInput: input,
       hasImages: totalImageCount > 0,
@@ -2080,6 +2084,7 @@ export const useAIChatStore = create<AIChatState>()(
       hasCachedImage: !!cachedImage,  // 单独标记是否有缓存图片
       availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse'],
       aiProvider: state.aiProvider,
+      context: toolSelectionContext
     };
 
     console.log('🔍 工具选择调试信息:', {

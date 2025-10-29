@@ -375,8 +375,13 @@ class ContextManager implements IContextManager {
     const context = this.getCurrentContext();
     if (!context) return userInput;
     
+    // 过滤正在生成的占位消息，避免干扰上下文
+    const effectiveMessages = context.messages.filter(
+      (msg) => !(msg.generationStatus?.isGenerating && msg.type === 'ai')
+    );
+
     // 限制历史记录数量，防止请求头过大 (431错误)
-    const recentMessages = context.messages.slice(-3); // 减少到最近3条消息
+    const recentMessages = effectiveMessages.slice(-3); // 减少到最近3条消息
 
     // 去重：如果最新一条历史就是这次的用户输入，则从历史中移除，避免与“用户当前输入”重复
     if (recentMessages.length > 0) {
