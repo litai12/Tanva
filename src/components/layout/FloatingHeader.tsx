@@ -30,7 +30,8 @@ import {
     Trash2,
     X,
     Cloud,
-    Zap
+    Zap,
+    Wand2
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
@@ -594,7 +595,7 @@ const FloatingHeader: React.FC = () => {
 
                         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
                             <div className="mb-4 text-sm font-medium text-slate-700">AI 提供商</div>
-                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
                                 <button
                                     onClick={() => setAIProvider('gemini')}
                                     className={cn(
@@ -637,6 +638,29 @@ const FloatingHeader: React.FC = () => {
                                         </div>
                                         {aiProvider === 'banana' && (
                                             <Check className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                                        )}
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => setAIProvider('runninghub')}
+                                    className={cn(
+                                        "relative rounded-xl border-2 p-4 text-left transition-all",
+                                        aiProvider === 'runninghub'
+                                            ? "border-purple-500 bg-purple-50"
+                                            : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/30"
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Wand2 className="h-4 w-4 text-purple-600" />
+                                                <span className="font-medium text-sm text-slate-700">RunningHub</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">SU 截图转效果图</div>
+                                        </div>
+                                        {aiProvider === 'runninghub' && (
+                                            <Check className="h-5 w-5 text-purple-600 flex-shrink-0" />
                                         )}
                                     </div>
                                 </button>

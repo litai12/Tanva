@@ -24,7 +24,7 @@ import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen, SlidersHo
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AIStreamProgressEvent } from '@/types/ai';
+import type { AIStreamProgressEvent, SupportedAIProvider } from '@/types/ai';
 import PromptOptimizationPanel from '@/components/chat/PromptOptimizationPanel';
 import type { PromptOptimizationSettings } from '@/components/chat/PromptOptimizationPanel';
 import promptOptimizationService from '@/services/promptOptimizationService';
@@ -160,9 +160,10 @@ const AIChatDialog: React.FC = () => {
   const currentManualMode = manualModeOptions.find((option) => option.value === manualAIMode) ?? manualModeOptions[0];
 
   // AI提供商选项
-  const aiProviderOptions: { value: 'gemini' | 'banana'; label: string; description: string }[] = [
+  const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
     { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
     { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' },
+    { value: 'runninghub', label: 'RunningHub', description: 'SU截图转效果图（RunningHub）' },
   ];
   const currentAIProvider = aiProviderOptions.find((option) => option.value === aiProvider) ?? aiProviderOptions[0];
   

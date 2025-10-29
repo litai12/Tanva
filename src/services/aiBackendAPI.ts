@@ -75,6 +75,9 @@ export async function generateImageViaAPI(request: AIImageGenerateRequest): Prom
 
     const data = await response.json();
 
+    const resolvedModel =
+      request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
+
     // 构建返回结果
     return {
       success: true,
@@ -83,7 +86,7 @@ export async function generateImageViaAPI(request: AIImageGenerateRequest): Prom
         imageData: data.imageData,
         textResponse: data.textResponse,
         prompt: request.prompt,
-        model: request.model || 'gemini-2.5-flash-image',
+        model: resolvedModel,
         createdAt: new Date(),
         hasImage: !!data.imageData,
         metadata: {
@@ -130,6 +133,9 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
 
     const data = await response.json();
 
+    const resolvedModel =
+      request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
+
     return {
       success: true,
       data: {
@@ -137,7 +143,7 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
         imageData: data.imageData,
         textResponse: data.textResponse,
         prompt: request.prompt,
-        model: request.model || 'gemini-2.5-flash-image',
+        model: resolvedModel,
         createdAt: new Date(),
         hasImage: !!data.imageData,
         metadata: {
@@ -184,6 +190,9 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
 
     const data = await response.json();
 
+    const resolvedModel =
+      request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
+
     return {
       success: true,
       data: {
@@ -191,7 +200,7 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
         imageData: data.imageData,
         textResponse: data.textResponse,
         prompt: request.prompt,
-        model: request.model || 'gemini-2.5-flash-image',
+        model: resolvedModel,
         createdAt: new Date(),
         hasImage: !!data.imageData,
         metadata: {

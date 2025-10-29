@@ -11,7 +11,11 @@ import { AiPublicModule } from './ai-public/ai-public.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: ['.env', '../.env'], // 尝试多个路径
+      expandVariables: true
+    }),
     PrismaModule,
     UsersModule,
     AuthModule,

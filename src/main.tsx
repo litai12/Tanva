@@ -12,6 +12,7 @@ import VeoTestPage from '@/pages/VeoTest';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
+import RunningHubTest from '@/pages/RunningHubTest';
 
 function RootRoutes() {
   const init = useAuthStore((s) => s.init);
@@ -28,6 +29,7 @@ function RootRoutes() {
       <Route path="/auth/register" element={<RegisterPage />} />
       <Route path="/oss" element={<OSSDemo />} />
       <Route path="/veo-test" element={<VeoTestPage />} />
+      <Route path="/runninghub-test" element={<RunningHubTest />} />
       <Route element={<ProtectedRoute />}>
         <Route path="/workspace" element={<Workspace />} />
         <Route path="/app" element={<App />} />

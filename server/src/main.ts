@@ -58,6 +58,8 @@ async function bootstrap() {
   await app.listen({ port, host });
   // eslint-disable-next-line no-console
   console.log(`API listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+  // eslint-disable-next-line no-console
+  console.log('RunningHub key (startup check):', configService.get('RUNNINGHUB_API_KEY') ? 'loaded' : 'missing');
 }
 
 bootstrap();

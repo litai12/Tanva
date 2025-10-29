@@ -4,10 +4,33 @@
  */
 
 // AI图像生成请求参数
+export interface RunningHubNodeInfo {
+  nodeId: string;
+  fieldName: string;
+  fieldValue: string;
+  description?: string;
+}
+
+export interface RunningHubGenerateOptions {
+  webappId?: string;
+  webhookUrl?: string;
+  nodeInfoList: RunningHubNodeInfo[];
+  pollIntervalMs?: number;
+  maxPollAttempts?: number;
+}
+
+export interface AIProviderOptions {
+  runningHub?: RunningHubGenerateOptions;
+  [key: string]: unknown;
+}
+
+export type SupportedAIProvider = 'gemini' | 'banana' | 'runninghub';
+
 export interface AIImageGenerateRequest {
   prompt: string;
   model?: string;
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: SupportedAIProvider;
+  providerOptions?: AIProviderOptions;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'; // 长宽比（官方支持枚举）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
@@ -18,7 +41,8 @@ export interface AIImageEditRequest {
   prompt: string;
   sourceImage: string; // base64 encoded image
   model?: string;
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: SupportedAIProvider;
+  providerOptions?: AIProviderOptions;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'; // 长宽比（官方支持枚举）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
@@ -29,7 +53,8 @@ export interface AIImageBlendRequest {
   prompt: string;
   sourceImages: string[]; // base64 encoded images
   model?: string;
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: SupportedAIProvider;
+  providerOptions?: AIProviderOptions;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'; // 长宽比（官方支持枚举）
   imageOnly?: boolean; // 新增：仅返回图像，不返回文本
@@ -89,7 +114,8 @@ export interface AIImageAnalyzeRequest {
   prompt?: string;
   sourceImage: string; // base64 encoded image
   model?: string;
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: SupportedAIProvider;
+  providerOptions?: AIProviderOptions;
 }
 
 // AI图像分析结果
@@ -103,7 +129,8 @@ export interface AIImageAnalysisResult {
 export interface AITextChatRequest {
   prompt: string;
   model?: string;
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: SupportedAIProvider;
+  providerOptions?: AIProviderOptions;
   context?: string[];
   enableWebSearch?: boolean; // 是否启用联网搜索
 }
@@ -151,7 +178,7 @@ export interface ToolSelectionRequest {
   availableTools: string[];
   context?: string;
   prompt?: string;
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: SupportedAIProvider;
   model?: string;
 }
 

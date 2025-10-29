@@ -123,6 +123,8 @@ export class AiController {
         model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
+        outputFormat: dto.outputFormat,
+        providerOptions: dto.providerOptions,
       });
       if (result.success && result.data) {
         return {
@@ -153,6 +155,8 @@ export class AiController {
         model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
+        outputFormat: dto.outputFormat,
+        providerOptions: dto.providerOptions,
       });
       if (result.success && result.data) {
         return {
@@ -183,6 +187,8 @@ export class AiController {
         model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
+        outputFormat: dto.outputFormat,
+        providerOptions: dto.providerOptions,
       });
       if (result.success && result.data) {
         return {
@@ -210,6 +216,7 @@ export class AiController {
         prompt: dto.prompt,
         sourceImage: dto.sourceImage,
         model: dto.model || 'gemini-2.5-flash-image',
+        providerOptions: dto.providerOptions,
       });
       if (result.success && result.data) {
         return {
@@ -236,6 +243,7 @@ export class AiController {
         prompt: dto.prompt,
         model: dto.model || 'gemini-2.5-flash',
         enableWebSearch: dto.enableWebSearch,
+        providerOptions: dto.providerOptions,
       });
       if (result.success && result.data) {
         return {

@@ -9,12 +9,33 @@ export interface AIProviderConfig {
   [key: string]: any;
 }
 
+export interface RunningHubNodeInfo {
+  nodeId: string;
+  fieldName: string;
+  fieldValue: string;
+  description?: string;
+}
+
+export interface RunningHubGenerateOptions {
+  webappId?: string;
+  webhookUrl?: string;
+  nodeInfoList: RunningHubNodeInfo[];
+  pollIntervalMs?: number;
+  maxPollAttempts?: number;
+}
+
+export interface ProviderOptionsPayload {
+  runningHub?: RunningHubGenerateOptions;
+  [key: string]: any;
+}
+
 export interface ImageGenerationRequest {
   prompt: string;
   model?: string;
   aspectRatio?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
+  providerOptions?: ProviderOptionsPayload;
 }
 
 export interface ImageEditRequest {
@@ -24,6 +45,7 @@ export interface ImageEditRequest {
   aspectRatio?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
+  providerOptions?: ProviderOptionsPayload;
 }
 
 export interface ImageBlendRequest {
@@ -33,12 +55,14 @@ export interface ImageBlendRequest {
   aspectRatio?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
+  providerOptions?: ProviderOptionsPayload;
 }
 
 export interface ImageAnalysisRequest {
   prompt?: string;
   sourceImage: string; // base64
   model?: string;
+  providerOptions?: ProviderOptionsPayload;
 }
 
 export interface TextChatRequest {
@@ -46,6 +70,7 @@ export interface TextChatRequest {
   model?: string;
   enableWebSearch?: boolean;
   language?: string;
+  providerOptions?: ProviderOptionsPayload;
 }
 
 export interface AIProviderResponse<T> {

@@ -40,6 +40,13 @@ export class CostCalculatorService {
       imageAnalysis: 0,
       textChat: 0,
     },
+    runninghub: {
+      imageGeneration: 0.03,
+      imageEditing: 0.03,
+      imageBlending: 0.035,
+      imageAnalysis: 0,
+      textChat: 0,
+    },
   };
 
   /**
@@ -181,4 +188,3 @@ export class CostCalculatorService {
     };
   }
 }
-

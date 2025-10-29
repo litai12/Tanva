@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsBoolean, IsEnum, IsObject } from 'class-validator';
 
 enum AspectRatio {
   'SQUARE' = '1:1',
@@ -30,7 +30,11 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: 'gemini' | 'banana' | 'runninghub';
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
 
   @IsOptional()
   @IsEnum(OutputFormat)
@@ -60,7 +64,11 @@ export class EditImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: 'gemini' | 'banana' | 'runninghub';
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
 
   @IsOptional()
   @IsEnum(OutputFormat)
@@ -91,7 +99,11 @@ export class BlendImagesDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: 'gemini' | 'banana' | 'runninghub';
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
 
   @IsOptional()
   @IsEnum(OutputFormat)
@@ -121,7 +133,11 @@ export class AnalyzeImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: 'gemini' | 'banana' | 'runninghub';
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
 }
 
 export class TextChatDto {
@@ -135,7 +151,11 @@ export class TextChatDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana';
+  aiProvider?: 'gemini' | 'banana' | 'runninghub';
+
+  @IsOptional()
+  @IsObject()
+  providerOptions?: Record<string, any>;
 
   @IsOptional()
   @IsBoolean()

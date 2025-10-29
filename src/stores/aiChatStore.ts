@@ -18,7 +18,12 @@ import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { ossUploadService, dataURLToBlob } from '@/services/ossUploadService';
 import { createSafeStorage } from '@/stores/storageUtils';
-import type { AIImageResult } from '@/types/ai';
+import type {
+  AIImageResult,
+  RunningHubGenerateOptions,
+  AIProviderOptions,
+  SupportedAIProvider,
+} from '@/types/ai';
 import type {
   ConversationContext,
   OperationHistory,
@@ -104,11 +109,87 @@ const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)
 export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze';
 type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse';
 
-type AIProviderType = 'gemini' | 'banana';
+type AIProviderType = SupportedAIProvider;
 
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
+const RUNNINGHUB_PRIMARY_NODE_ID =
+  import.meta.env?.VITE_RUNNINGHUB_PRIMARY_NODE_ID ?? '112';
+const RUNNINGHUB_REFERENCE_NODE_ID =
+  import.meta.env?.VITE_RUNNINGHUB_REFERENCE_NODE_ID ?? '158';
+const RUNNINGHUB_WEBAPP_ID = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID;
+const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
 
-const getImageModelForProvider = (_provider: AIProviderType): string => DEFAULT_IMAGE_MODEL;
+const getImageModelForProvider = (provider: AIProviderType): string => {
+  if (provider === 'runninghub') {
+    return RUNNINGHUB_IMAGE_MODEL;
+  }
+  return DEFAULT_IMAGE_MODEL;
+};
+
+type RunningHubStageUpdater = (stage: string, progress?: number) => void;
+
+const ensureDataUrl = (imageData: string): string =>
+  imageData.startsWith('data:image') ? imageData : `data:image/png;base64,${imageData}`;
+
+async function buildRunningHubProviderOptions(params: {
+  primaryImage: string;
+  referenceImage?: string | null;
+  projectId?: string | null;
+  onStageUpdate?: RunningHubStageUpdater;
+}): Promise<AIProviderOptions> {
+  const { primaryImage, referenceImage, projectId, onStageUpdate } = params;
+
+  onStageUpdate?.('上传SU截图', 25);
+  const primaryUrl = await uploadImageToOSS(ensureDataUrl(primaryImage), projectId);
+  if (!primaryUrl) {
+    throw new Error('SU 截图上传失败，请稍后重试。');
+  }
+
+  const nodeInfoList: RunningHubGenerateOptions['nodeInfoList'] = [
+    {
+      nodeId: RUNNINGHUB_PRIMARY_NODE_ID,
+      fieldName: 'image',
+      fieldValue: primaryUrl,
+      description: 'SU截图',
+    },
+  ];
+
+  if (referenceImage) {
+    onStageUpdate?.('上传参考图', 30);
+    const referenceUrl = await uploadImageToOSS(ensureDataUrl(referenceImage), projectId);
+    if (!referenceUrl) {
+      throw new Error('参考图上传失败，请稍后重试。');
+    }
+    nodeInfoList.push({
+      nodeId: RUNNINGHUB_REFERENCE_NODE_ID,
+      fieldName: 'image',
+      fieldValue: referenceUrl,
+      description: '参考图',
+    });
+  }
+
+  const runningHubOptions: RunningHubGenerateOptions = {
+    nodeInfoList,
+  };
+
+  if (RUNNINGHUB_WEBAPP_ID) {
+    runningHubOptions.webappId = RUNNINGHUB_WEBAPP_ID;
+  }
+
+  if (RUNNINGHUB_WEBHOOK_URL) {
+    runningHubOptions.webhookUrl = RUNNINGHUB_WEBHOOK_URL;
+  }
+
+  console.log('📤 RunningHub 节点参数', {
+    nodeInfoList,
+    projectId,
+  });
+
+  return {
+    runningHub: runningHubOptions,
+  };
+}
 
 // 🔥 图片上传到 OSS 的辅助函数
 async function uploadImageToOSS(imageData: string, projectId?: string | null): Promise<string | null> {
@@ -308,7 +389,7 @@ interface AIChatState {
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
   aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
   manualAIMode: ManualAIMode;
-  aiProvider: 'gemini' | 'banana';  // AI提供商选择 (gemini: Google Gemini, banana: 147 API)
+  aiProvider: AIProviderType;  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果)
 
   // 操作方法
   showDialog: () => void;
@@ -374,7 +455,7 @@ interface AIChatState {
   setImageOnly: (value: boolean) => void;
   setAspectRatio: (ratio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null) => void;  // 设置长宽比
   setManualAIMode: (mode: ManualAIMode) => void;
-  setAIProvider: (provider: 'gemini' | 'banana') => void;  // 设置AI提供商
+  setAIProvider: (provider: AIProviderType) => void;  // 设置AI提供商
 
   // 重置状态
   resetState: () => void;
@@ -804,10 +885,40 @@ export const useAIChatStore = create<AIChatState>()(
         prompt: prompt.substring(0, 50) + '...'
       });
 
+      let providerOptions: AIProviderOptions | undefined;
+
+      if (state.aiProvider === 'runninghub') {
+        const suSource = state.sourceImageForEditing;
+        if (!suSource) {
+          throw new Error('运行 RunningHub 转换前请先提供一张 SU 截图作为源图像。');
+        }
+
+        const projectId = useProjectContentStore.getState().projectId;
+        const stageUpdater: RunningHubStageUpdater = (stage, progress) => {
+          const statusUpdate: Partial<ChatMessage['generationStatus']> = {
+            isGenerating: true,
+            error: null,
+            stage,
+          };
+          if (typeof progress === 'number') {
+            statusUpdate.progress = progress;
+          }
+          get().updateMessageStatus(aiMessageId!, statusUpdate);
+        };
+
+        providerOptions = await buildRunningHubProviderOptions({
+          primaryImage: suSource,
+          referenceImage: state.sourceImagesForBlending?.[0],
+          projectId,
+          onStageUpdate: stageUpdater,
+        });
+      }
+
       const result = await generateImageViaAPI({
         prompt,
         model: modelToUse,
         aiProvider: state.aiProvider,
+        providerOptions,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
@@ -995,6 +1106,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       console.error('❌ 图像生成异常:', error);
     } finally {
+      clearInterval(progressInterval);
       // 🔥 无论成功失败，都减少正在生成的图片计数
       generatingImageCount--;
       console.log('✅ 生成结束，当前生成计数:', generatingImageCount);
@@ -1006,6 +1118,7 @@ export const useAIChatStore = create<AIChatState>()(
     const state = get();
 
     // 🔥 并行模式：不检查全局状态
+    const normalizedSourceImage = ensureDataUrl(sourceImage);
 
     const override = options?.override;
     let aiMessageId: string | undefined;
@@ -1015,13 +1128,13 @@ export const useAIChatStore = create<AIChatState>()(
       get().updateMessage(override.userMessageId, (msg) => ({
         ...msg,
         content: `编辑图像: ${prompt}`,
-        sourceImageData: showImagePlaceholder ? sourceImage : msg.sourceImageData
+        sourceImageData: showImagePlaceholder ? normalizedSourceImage : msg.sourceImageData
       }));
       get().updateMessage(aiMessageId, (msg) => ({
         ...msg,
         content: '正在编辑图像...',
         expectsImageOutput: true,
-        sourceImageData: showImagePlaceholder ? sourceImage : msg.sourceImageData,
+        sourceImageData: showImagePlaceholder ? normalizedSourceImage : msg.sourceImageData,
         generationStatus: {
           ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
           isGenerating: true,
@@ -1037,7 +1150,7 @@ export const useAIChatStore = create<AIChatState>()(
       };
 
       if (showImagePlaceholder) {
-        messageData.sourceImageData = sourceImage;
+        messageData.sourceImageData = normalizedSourceImage;
       }
 
       state.addMessage(messageData);
@@ -1053,7 +1166,7 @@ export const useAIChatStore = create<AIChatState>()(
           stage: '准备中'
         },
         expectsImageOutput: true,
-        sourceImageData: showImagePlaceholder ? sourceImage : undefined
+        sourceImageData: showImagePlaceholder ? normalizedSourceImage : undefined
       };
 
       const storedPlaceholder = state.addMessage(placeholderMessage);
@@ -1112,11 +1225,36 @@ export const useAIChatStore = create<AIChatState>()(
         prompt: prompt.substring(0, 50) + '...'
       });
 
+      let providerOptions: AIProviderOptions | undefined;
+
+      if (state.aiProvider === 'runninghub') {
+        const projectId = useProjectContentStore.getState().projectId;
+        const stageUpdater: RunningHubStageUpdater = (stage, progress) => {
+          const statusUpdate: Partial<ChatMessage['generationStatus']> = {
+            isGenerating: true,
+            error: null,
+            stage,
+          };
+          if (typeof progress === 'number') {
+            statusUpdate.progress = progress;
+          }
+          get().updateMessageStatus(aiMessageId!, statusUpdate);
+        };
+
+        providerOptions = await buildRunningHubProviderOptions({
+          primaryImage: normalizedSourceImage,
+          referenceImage: state.sourceImagesForBlending?.[0],
+          projectId,
+          onStageUpdate: stageUpdater,
+        });
+      }
+
       const result = await editImageViaAPI({
         prompt,
-        sourceImage,
+        sourceImage: normalizedSourceImage,
         model: modelToUse,
         aiProvider: state.aiProvider,
+        providerOptions,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly

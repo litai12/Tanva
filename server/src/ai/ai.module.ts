@@ -5,6 +5,7 @@ import { ImageGenerationService } from './image-generation.service';
 import { AiController } from './ai.controller';
 import { GeminiProvider } from './providers/gemini.provider';
 import { BananaProvider } from './providers/banana.provider';
+import { RunningHubProvider } from './providers/runninghub.provider';
 import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
@@ -16,6 +17,7 @@ import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
     ImageGenerationService,
     GeminiProvider,
     BananaProvider,
+    RunningHubProvider,
     AIProviderFactory,
     CostCalculatorService, // 添加成本计算器
     ApiKeyOrJwtGuard,
