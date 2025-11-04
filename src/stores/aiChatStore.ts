@@ -112,6 +112,7 @@ type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeIma
 type AIProviderType = SupportedAIProvider;
 
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const RUNNINGHUB_PRIMARY_NODE_ID =
   import.meta.env?.VITE_RUNNINGHUB_PRIMARY_NODE_ID ?? '112';
@@ -120,11 +121,16 @@ const RUNNINGHUB_REFERENCE_NODE_ID =
 const RUNNINGHUB_WEBAPP_ID = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID;
 const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
 
-const getImageModelForProvider = (provider: AIProviderType): string => {
+export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === 'runninghub') {
     return RUNNINGHUB_IMAGE_MODEL;
   }
   return DEFAULT_IMAGE_MODEL;
+};
+
+export const getTextModelForProvider = (_provider: AIProviderType): string => {
+  // 目前仅支持 Gemini 文本模型，如需接入其它供应商可在此扩展映射
+  return DEFAULT_TEXT_MODEL;
 };
 
 type RunningHubStageUpdater = (stage: string, progress?: number) => void;
@@ -1809,8 +1815,7 @@ export const useAIChatStore = create<AIChatState>()(
       }, 500);
 
       // 调用后端API分析图像
-      // 🔥 使用 Gemini 2.5 Flash Image 进行图像分析
-      const modelToUse = 'gemini-2.5-flash-image';
+      const modelToUse = getImageModelForProvider(state.aiProvider);
       console.log('🤖 [AI Provider] analyzeImage', {
         aiProvider: state.aiProvider,
         model: modelToUse,
@@ -1948,8 +1953,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       // 调用后端API生成文本
       const state = get();
-      // 🔥 使用 Gemini 2.5 Flash 进行文本生成
-      const modelToUse = 'gemini-2.5-flash';
+      const modelToUse = getTextModelForProvider(state.aiProvider);
       const contextPrompt = contextManager.buildContextPrompt(prompt);
       console.log('🤖 [AI Provider] generateTextResponse', {
         aiProvider: state.aiProvider,

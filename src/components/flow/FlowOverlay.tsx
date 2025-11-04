@@ -34,11 +34,12 @@ import AnalysisNode from './nodes/AnalyzeNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
+import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
-  import { aiImageService } from '@/services/aiImageService';
-  import type { AIImageResult } from '@/types/ai';
-  import MiniMapImageOverlay from './MiniMapImageOverlay';
+import { aiImageService } from '@/services/aiImageService';
+import type { AIImageResult } from '@/types/ai';
+import MiniMapImageOverlay from './MiniMapImageOverlay';
 
 type RFNode = Node<any>;
 
@@ -349,6 +350,11 @@ function useFlowViewport() {
 function FlowInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const imageModel = React.useMemo(
+    () => getImageModelForProvider(aiProvider),
+    [aiProvider]
+  );
 
   const onNodesChangeWithHistory = React.useCallback((changes: any) => {
     onNodesChange(changes);
@@ -1311,11 +1317,28 @@ function FlowInner() {
         try {
           let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
           if (imageDatas.length === 0) {
-            result = await aiImageService.generateImage({ prompt, outputFormat: 'png' });
+            result = await aiImageService.generateImage({
+              prompt,
+              outputFormat: 'png',
+              aiProvider,
+              model: imageModel,
+            });
           } else if (imageDatas.length === 1) {
-            result = await aiImageService.editImage({ prompt, sourceImage: imageDatas[0], outputFormat: 'png' });
+            result = await aiImageService.editImage({
+              prompt,
+              sourceImage: imageDatas[0],
+              outputFormat: 'png',
+              aiProvider,
+              model: imageModel,
+            });
           } else {
-            result = await aiImageService.blendImages({ prompt, sourceImages: imageDatas.slice(0, 6), outputFormat: 'png' });
+            result = await aiImageService.blendImages({
+              prompt,
+              sourceImages: imageDatas.slice(0, 6),
+              outputFormat: 'png',
+              aiProvider,
+              model: imageModel,
+            });
           }
 
           if (!result.success || !result.data || !result.data.imageData) {
@@ -1351,11 +1374,28 @@ function FlowInner() {
       let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
 
       if (imageDatas.length === 0) {
-        result = await aiImageService.generateImage({ prompt, outputFormat: 'png' });
+        result = await aiImageService.generateImage({
+          prompt,
+          outputFormat: 'png',
+          aiProvider,
+          model: imageModel,
+        });
       } else if (imageDatas.length === 1) {
-        result = await aiImageService.editImage({ prompt, sourceImage: imageDatas[0], outputFormat: 'png' });
+        result = await aiImageService.editImage({
+          prompt,
+          sourceImage: imageDatas[0],
+          outputFormat: 'png',
+          aiProvider,
+          model: imageModel,
+        });
       } else {
-        result = await aiImageService.blendImages({ prompt, sourceImages: imageDatas.slice(0, 6), outputFormat: 'png' });
+        result = await aiImageService.blendImages({
+          prompt,
+          sourceImages: imageDatas.slice(0, 6),
+          outputFormat: 'png',
+          aiProvider,
+          model: imageModel,
+        });
       }
 
       if (!result.success || !result.data) {
@@ -1384,7 +1424,7 @@ function FlowInner() {
       const msg = err?.message || String(err);
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
     }
-  }, [rf, setNodes]);
+  }, [aiProvider, imageModel, rf, setNodes]);
 
   // 定义稳定的onSend回调
   const onSendHandler = React.useCallback((id: string) => {
@@ -1513,7 +1553,6 @@ function FlowInner() {
 
   const showFlowPanel = useUIStore(s => s.showFlowPanel);
   const flowUIEnabled = useUIStore(s => s.flowUIEnabled);
-  const focusMode = useUIStore(s => s.focusMode);
 
   const FlowToolbar = flowUIEnabled && showFlowPanel ? (
     <div className="tanva-flow-toolbar"
@@ -1724,9 +1763,9 @@ function FlowInner() {
           />
         )}
         {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
-        {!focusMode && <MiniMap pannable={false} zoomable={false} />}
+        <MiniMap pannable={false} zoomable={false} />
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
-        {!focusMode && <MiniMapImageOverlay />}
+        <MiniMapImageOverlay />
       </ReactFlow>
 
       {/* 添加面板（双击空白处出现） */}

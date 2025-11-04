@@ -17,7 +17,7 @@ export interface PromptOptimizationResult {
 
 class PromptOptimizationService {
   private genAI: GoogleGenAI | null = null;
-  private readonly DEFAULT_MODEL = 'gemini-2.0-flash';
+  private readonly DEFAULT_MODEL = 'gemini-2.5-flash';
   private readonly DEFAULT_TIMEOUT = 90000;
 
   constructor() {

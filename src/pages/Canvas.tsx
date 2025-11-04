@@ -10,7 +10,6 @@ import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import { useLayerStore } from '@/stores';
-import { useUIStore } from '@/stores';
 // import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
 import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
@@ -21,7 +20,6 @@ const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
     const ensureActiveLayer = useLayerStore(state => state.ensureActiveLayer);
-    const focusMode = useUIStore(state => state.focusMode);
     // AI图像现在通过快速上传工具处理，不需要单独的hook
     // useAIImageDisplay();
 
@@ -78,14 +76,14 @@ const Canvas: React.FC = () => {
             {/* 画布原点辅助十字（暂时关闭） */}
             {/* <OriginCross canvasRef={canvasRef} /> */}
 
-            {/* 浮动导航栏 - 专注模式下隐藏 */}
-            {!focusMode && <FloatingHeader />}
+            {/* 浮动导航栏 - 专注模式时由组件自行隐藏 */}
+            <FloatingHeader />
 
             {/* 工具列 */}
             <ToolBar />
 
-            {/* 缩放指示器 - 专注模式下隐藏 */}
-            {!focusMode && <ZoomIndicator />}
+            {/* 缩放指示器 */}
+            <ZoomIndicator />
 
             {/* 图像尺寸模式指示器 - 已隐藏 */}
             {/* <ImageSizeIndicator /> */}
@@ -93,8 +91,8 @@ const Canvas: React.FC = () => {
             {/* 图层面板 - 始终显示，用户可以控制其可见性 */}
             <LayerPanel />
 
-            {/* AI对话框 - 专注模式下隐藏 */}
-            {!focusMode && <AIChatDialog />}
+            {/* AI对话框 - 专注模式时由组件自行隐藏 */}
+            <AIChatDialog />
 
             {/* 调试面板：显示缓存图像信息 */}
             {/* <CachedImageDebug /> */}

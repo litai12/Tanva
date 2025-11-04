@@ -16,7 +16,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const gridColor = useCanvasStore(state => state.gridColor);
   const gridBgColor = useCanvasStore(state => state.gridBgColor);
   const gridBgEnabled = useCanvasStore(state => state.gridBgEnabled);
-  const { showGrid, showAxis, focusMode } = useUIStore();
+  const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
   const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
@@ -243,7 +243,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       previousActiveLayer.name.startsWith('layer_')) {
       previousActiveLayer.activate();
     }
-  }, [zoom, showGrid, showAxis, gridStyle, gridDotSize, gridColor, gridBgColor, gridBgEnabled, focusMode]);
+  }, [zoom, showGrid, showAxis, gridStyle, gridDotSize, gridColor, gridBgColor, gridBgEnabled]);
 
   // 线条网格创建函数
   const getColorWithAlpha = (hex: string, alpha: number) => {
@@ -440,7 +440,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
       return () => clearTimeout(timeoutId);
     }
-  }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging, panX, panY, gridDotSize, gridColor, gridBgColor, gridBgEnabled, focusMode, createGrid]);
+  }, [isPaperInitialized, showGrid, showAxis, gridSize, gridStyle, zoom, isDragging, panX, panY, gridDotSize, gridColor, gridBgColor, gridBgEnabled, createGrid]);
 
   // 额外的初始化兜底：在 Paper 初始化后的下一帧与100ms后各触发一次渲染
   useEffect(() => {
@@ -465,16 +465,6 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       window.removeEventListener('paper-project-cleared', handler as any);
     };
   }, [createGrid, gridSize]);
-
-  // 监听专注模式变化，强制重绘网格以避免视图闪烁
-  useEffect(() => {
-    if (!isPaperInitialized) return;
-    isInitializedRef.current = false;
-    const timerId = setTimeout(() => {
-      createGrid(gridSize);
-    }, 0);
-    return () => clearTimeout(timerId);
-  }, [focusMode, isPaperInitialized, createGrid, gridSize]);
 
   // 强制垃圾回收函数 - 用于内存压力过大时
   const forceMemoryCleanup = useCallback(() => {

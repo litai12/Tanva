@@ -298,7 +298,7 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
       success: true,
       data: {
         text: data.text,
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         webSearchResult: data.webSearchResult || undefined,
       },
     };

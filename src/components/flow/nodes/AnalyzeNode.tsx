@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position } from 'reactflow';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import { aiImageService } from '@/services/aiImageService';
+import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 
 type Props = {
   id: string;
@@ -22,6 +23,11 @@ export default function AnalysisNode({ id, data }: Props) {
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const imageModel = React.useMemo(
+    () => getImageModelForProvider(aiProvider),
+    [aiProvider]
+  );
 
   const promptInput = data.analysisPrompt ?? DEFAULT_ANALYSIS_PROMPT;
 
@@ -60,6 +66,8 @@ export default function AnalysisNode({ id, data }: Props) {
       const result = await aiImageService.analyzeImage({
         prompt: promptToUse,
         sourceImage: src,
+        aiProvider,
+        model: imageModel,
       });
 
       if (!result.success || !result.data) {
@@ -84,7 +92,7 @@ export default function AnalysisNode({ id, data }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [id, src, status, isAnalyzing, data.analysisPrompt]);
+  }, [aiProvider, data.analysisPrompt, id, imageModel, isAnalyzing, src, status]);
 
   React.useEffect(() => {
     if (!preview) return;

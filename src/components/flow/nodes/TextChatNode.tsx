@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
+import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 
 type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 
@@ -44,6 +45,11 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
 const TextChatNode: React.FC<Props> = ({ id, data }) => {
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const textModel = React.useMemo(
+    () => getTextModelForProvider(aiProvider),
+    [aiProvider]
+  );
 
   const [manualInput, setManualInput] = React.useState<string>(data.manualInput || '');
   const [isInvoking, setIsInvoking] = React.useState(false);
@@ -88,6 +94,8 @@ const TextChatNode: React.FC<Props> = ({ id, data }) => {
       const result = await aiImageService.generateTextResponse({
         prompt: payload,
         enableWebSearch,
+        aiProvider,
+        model: textModel,
       });
 
       if (!result.success || !result.data) {
@@ -116,7 +124,7 @@ const TextChatNode: React.FC<Props> = ({ id, data }) => {
     } finally {
       setIsInvoking(false);
     }
-  }, [enableWebSearch, id, incomingTexts, manualInput]);
+  }, [aiProvider, enableWebSearch, id, incomingTexts, manualInput, textModel]);
 
   const onManualInputChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;

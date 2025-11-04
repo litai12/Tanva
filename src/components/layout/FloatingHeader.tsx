@@ -30,8 +30,7 @@ import {
     Trash2,
     X,
     Cloud,
-    Zap,
-    Wand2
+    Zap
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
@@ -70,6 +69,7 @@ const FloatingHeader: React.FC = () => {
         toggleLibraryPanel,
         toggleGrid,
         setShowGrid,
+        focusMode,
     } = useUIStore();
 
     const {
@@ -642,28 +642,6 @@ const FloatingHeader: React.FC = () => {
                                     </div>
                                 </button>
 
-                                <button
-                                    onClick={() => setAIProvider('runninghub')}
-                                    className={cn(
-                                        "relative rounded-xl border-2 p-4 text-left transition-all",
-                                        aiProvider === 'runninghub'
-                                            ? "border-purple-500 bg-purple-50"
-                                            : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/30"
-                                    )}
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <Wand2 className="h-4 w-4 text-purple-600" />
-                                                <span className="font-medium text-sm text-slate-700">RunningHub</span>
-                                            </div>
-                                            <div className="text-xs text-slate-500">SU 截图转效果图</div>
-                                        </div>
-                                        {aiProvider === 'runninghub' && (
-                                            <Check className="h-5 w-5 text-purple-600 flex-shrink-0" />
-                                        )}
-                                    </div>
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -742,10 +720,14 @@ const FloatingHeader: React.FC = () => {
     };
 
 return (
-        <div className={cn(
-            "fixed top-4 left-0 right-0 z-50 px-4 flex items-center justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
-            showLayerPanel ? "left-[306px]" : "left-0"
-        )}>
+        <div
+            aria-hidden={focusMode}
+            className={cn(
+                "fixed top-4 left-0 right-0 z-50 px-4 flex items-center justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
+                showLayerPanel ? "left-[306px]" : "left-0",
+                focusMode && "hidden"
+            )}
+        >
             {/* 左侧栏：Logo + Beta + 项目名称 */}
             <div className="flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto">
                 {/* Logo */}

@@ -19,6 +19,7 @@ import {
 // 比例选择改为自定义浮层（定位到对话框上方）
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { useUIStore } from '@/stores';
 import type { ManualAIMode } from '@/stores/aiChatStore';
 import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen, SlidersHorizontal, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -97,6 +98,7 @@ const AIChatDialog: React.FC = () => {
     aiProvider,
     setAIProvider
   } = useAIChatStore();
+  const focusMode = useUIStore(state => state.focusMode);
 
   // 监听aiProvider变化并打印日志
   React.useEffect(() => {
@@ -159,11 +161,10 @@ const AIChatDialog: React.FC = () => {
   ];
   const currentManualMode = manualModeOptions.find((option) => option.value === manualAIMode) ?? manualModeOptions[0];
 
-  // AI提供商选项
+  // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
     { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
-    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' },
-    { value: 'runninghub', label: 'RunningHub', description: 'SU截图转效果图（RunningHub）' },
+    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' }
   ];
   const currentAIProvider = aiProviderOptions.find((option) => option.value === aiProvider) ?? aiProviderOptions[0];
   
@@ -892,12 +893,20 @@ const AIChatDialog: React.FC = () => {
   const displayTaskCount = pendingTaskCount;
 
   return (
-    <div ref={containerRef} data-prevent-add-panel className={cn(
-      "fixed z-50 transition-all duration-300 ease-out",
-      isMaximized
-        ? "top-32 left-16 right-16 bottom-4" // 最大化时，64px边距
-        : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4"
-    )} onDoubleClick={handleOuterDoubleClick} onDoubleClickCapture={handleDoubleClickCapture}>
+    <div
+      ref={containerRef}
+      data-prevent-add-panel
+      aria-hidden={focusMode}
+      className={cn(
+        "fixed z-50 transition-all duration-300 ease-out",
+        isMaximized
+          ? "top-32 left-16 right-16 bottom-4"
+          : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",
+        focusMode && "hidden"
+      )}
+      onDoubleClick={handleOuterDoubleClick}
+      onDoubleClickCapture={handleDoubleClickCapture}
+    >
       <div
         ref={dialogRef}
         data-prevent-add-panel
@@ -1109,11 +1118,11 @@ const AIChatDialog: React.FC = () => {
                     );
                   })}
 
-                  {/* AI提供商选择分隔符 */}
+                  {/* AI供应商选择分隔符 */}
                   <div className="my-1 h-px bg-slate-200" />
 
                   <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
-                    AI提供商
+                    AI供应商
                   </DropdownMenuLabel>
                   {aiProviderOptions.map((option) => {
                     const isActive = aiProvider === option.value;

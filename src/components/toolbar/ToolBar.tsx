@@ -627,7 +627,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             "p-0 h-8 w-8 rounded-full",
             getActiveButtonStyle(focusMode)
           )}
-          title={focusMode ? "退出专注模式" : "进入专注模式（隐藏所有面板）"}
+          title={focusMode ? "退出专注模式" : "进入专注模式（仅隐藏顶部导航和AI对话框）"}
         >
           {focusMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
         </Button>

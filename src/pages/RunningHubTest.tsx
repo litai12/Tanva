@@ -12,7 +12,7 @@ type LogEntry = {
 const defaultPrimaryNodeId = import.meta.env?.VITE_RUNNINGHUB_PRIMARY_NODE_ID ?? '112';
 const defaultReferenceNodeId = import.meta.env?.VITE_RUNNINGHUB_REFERENCE_NODE_ID ?? '158';
 // 注：Webapp ID 应在 .env.local 中配置为 VITE_RUNNINGHUB_WEBAPP_ID，与后端保持一致
-const defaultWebappId = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID ?? '1983462058148732929';
+const defaultWebappId = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID ?? '1983545874322268161';
 const defaultWebhookUrl = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL ?? '';
 
 const ensureDataUrl = (data: string): string =>
