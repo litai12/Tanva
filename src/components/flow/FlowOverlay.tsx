@@ -1342,6 +1342,16 @@ function FlowInner() {
           }
 
           if (!result.success || !result.data || !result.data.imageData) {
+            if (result.success && result.data && !result.data.imageData) {
+              console.warn('⚠️ Flow generate4 success but no image returned', {
+                nodeId,
+                slot: i,
+                aiProvider,
+                model: imageModel,
+                prompt,
+                hasImage: !!result.data.imageData,
+              });
+            }
             continue;
           }
 
@@ -1406,6 +1416,15 @@ function FlowInner() {
 
       const out = result.data;
       const imgBase64 = out.imageData;
+      if (!imgBase64) {
+        console.warn('⚠️ Flow generate success but no image returned', {
+          nodeId,
+          aiProvider,
+          model: imageModel,
+          prompt,
+          hasImage: !!imgBase64,
+        });
+      }
 
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'succeeded', imageData: imgBase64, error: undefined } } : n));
 

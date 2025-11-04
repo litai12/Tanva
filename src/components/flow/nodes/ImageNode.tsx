@@ -19,6 +19,8 @@ export default function ImageNode({ id, data, selected }: Props) {
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const [hasInputConnection, setHasInputConnection] = React.useState(false);
+  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   
   // 检查输入连线状态
   React.useEffect(() => {
@@ -96,9 +98,10 @@ export default function ImageNode({ id, data, selected }: Props) {
       height: data.boxH || 240,
       padding: 8,
       background: '#fff',
-      border: '1px solid #e5e7eb',
+      border: `1px solid ${borderColor}`,
       borderRadius: 8,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+      boxShadow,
+      transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
       display: 'flex',
       flexDirection: 'column',
       position: 'relative'

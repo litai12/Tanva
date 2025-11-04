@@ -23,6 +23,8 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
   const [upstreamText, setUpstreamText] = React.useState<string>('');
   const [hover, setHover] = React.useState<string | null>(null);
   const [expandedText, setExpandedText] = React.useState<string>(data.expandedText || '');
+  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : 'none';
 
   const { optimize, loading, result, error, reset } = usePromptOptimization();
 
@@ -112,9 +114,10 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
       height: data.boxH || 300,
       padding: 12,
       background: '#fff',
-      border: '1px solid #e5e7eb',
+      border: `1px solid ${borderColor}`,
       borderRadius: 8,
-      boxShadow: 'none',
+      boxShadow,
+      transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
       display: 'flex',
       flexDirection: 'column',
       position: 'relative'

@@ -18,6 +18,8 @@ export default function CameraNode({ id, data, selected }: Props) {
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   
   // 使用全局图片历史记录
   const history = useImageHistoryStore((state) => state.history);
@@ -84,7 +86,7 @@ export default function CameraNode({ id, data, selected }: Props) {
   }, [preview]);
 
   return (
-    <div style={{ width: data.boxW || 260, height: data.boxH || 220, padding: 8, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 1px 2px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+    <div style={{ width: data.boxW || 260, height: data.boxH || 220, padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       <NodeResizer isVisible={!!selected} minWidth={220} minHeight={180} color="transparent" lineStyle={{ display: 'none' }} handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, opacity: 0 }}
         onResize={(e, p) => rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n))}
         onResizeEnd={(e, p) => rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n))}

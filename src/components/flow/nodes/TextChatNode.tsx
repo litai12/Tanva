@@ -42,7 +42,7 @@ const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
   }
 };
 
-const TextChatNode: React.FC<Props> = ({ id, data }) => {
+const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
@@ -50,6 +50,8 @@ const TextChatNode: React.FC<Props> = ({ id, data }) => {
     () => getTextModelForProvider(aiProvider),
     [aiProvider]
   );
+  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
   const [manualInput, setManualInput] = React.useState<string>(data.manualInput || '');
   const [isInvoking, setIsInvoking] = React.useState(false);
@@ -194,9 +196,10 @@ const TextChatNode: React.FC<Props> = ({ id, data }) => {
         height: data.boxH || 540,
         padding: 12,
         background: '#fff',
-        border: '1px solid #e5e7eb',
+        border: `1px solid ${borderColor}`,
         borderRadius: 12,
-        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+        boxShadow,
+        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',

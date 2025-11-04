@@ -18,12 +18,14 @@ type Props = {
   selected?: boolean;
 };
 
-export default function Generate4Node({ id, data }: Props) {
+export default function Generate4Node({ id, data, selected }: Props) {
   const { status, error } = data;
   const images = data.images || [];
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState<number>(0);
+  const borderColor = selected ? '#2563eb' : '#e5e7eb';
+  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
@@ -78,9 +80,10 @@ export default function Generate4Node({ id, data }: Props) {
       width: boxW,
       padding: 8,
       background: '#fff',
-      border: '1px solid #e5e7eb',
+      border: `1px solid ${borderColor}`,
       borderRadius: 8,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+      boxShadow,
+      transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
       position: 'relative'
     }}>
       {/* 标题行：仅标题 + 控制按钮 */}

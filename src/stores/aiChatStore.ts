@@ -846,6 +846,7 @@ export const useAIChatStore = create<AIChatState>()(
 
     console.log('🎨 开始生成图像，消息ID:', aiMessageId);
 
+    let progressInterval: ReturnType<typeof setInterval> | null = null;
     try {
       // 🔥 使用消息级别的进度更新
       get().updateMessageStatus(aiMessageId, {
@@ -856,12 +857,12 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       // 模拟进度更新
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
 
         if (currentProgress >= 92) {
-          clearInterval(progressInterval);
+          if (progressInterval) clearInterval(progressInterval);
           return;
         }
 
@@ -930,7 +931,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageOnly: state.imageOnly
       });
 
-      clearInterval(progressInterval);
+      if (progressInterval) clearInterval(progressInterval);
 
       if (result.success && result.data) {
         // 生成成功 - 更新消息内容和状态
@@ -1112,7 +1113,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       console.error('❌ 图像生成异常:', error);
     } finally {
-      clearInterval(progressInterval);
+      if (progressInterval) clearInterval(progressInterval);
       // 🔥 无论成功失败，都减少正在生成的图片计数
       generatingImageCount--;
       console.log('✅ 生成结束，当前生成计数:', generatingImageCount);
