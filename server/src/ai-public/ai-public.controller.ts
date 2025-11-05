@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AiPublicService } from './ai-public.service';
 import {
@@ -8,6 +8,8 @@ import {
   ImageAnalysisRequest,
   TextChatRequest,
 } from '../ai/providers/ai-provider.interface';
+import { BackgroundRemovalService } from '../ai/services/background-removal.service';
+import { RemoveBackgroundDto } from '../ai/dto/background-removal.dto';
 
 /**
  * 公开 AI API 控制器
@@ -17,7 +19,12 @@ import {
 @ApiTags('public-ai')
 @Controller('public/ai')
 export class AiPublicController {
-  constructor(private readonly aiPublicService: AiPublicService) {}
+  private readonly logger = new Logger(AiPublicController.name);
+
+  constructor(
+    private readonly aiPublicService: AiPublicService,
+    private readonly backgroundRemoval: BackgroundRemovalService,
+  ) {}
 
   @Post('generate')
   @ApiOperation({
@@ -102,5 +109,98 @@ export class AiPublicController {
   })
   getAvailableProviders() {
     return this.aiPublicService.getAvailableProviders();
+  }
+
+  @Post('remove-background')
+  @ApiOperation({
+    summary: '移除背景',
+    description: '从图像中移除背景。无需身份认证。',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '背景移除成功',
+    schema: {
+      example: {
+        success: true,
+        imageData: 'data:image/png;base64,...',
+        format: 'png',
+      },
+    },
+  })
+  async removeBackground(@Body() dto: RemoveBackgroundDto) {
+    this.logger.log('🎯 [PUBLIC] Background removal request received');
+    this.logger.log(`   Image size: ${dto.imageData?.length || 0} bytes`);
+    this.logger.log(`   MIME type: ${dto.mimeType}`);
+    this.logger.log(`   Source: ${dto.source || 'base64'}`);
+
+    try {
+      const source = dto.source || 'base64';
+      let imageData: string;
+
+      if (source === 'url') {
+        this.logger.log('   Processing from URL...');
+        imageData = await this.backgroundRemoval.removeBackgroundFromUrl(dto.imageData);
+      } else if (source === 'file') {
+        this.logger.log('   Processing from file...');
+        imageData = await this.backgroundRemoval.removeBackgroundFromFile(dto.imageData);
+      } else {
+        // 默认为base64
+        this.logger.log('   Processing from base64...');
+        imageData = await this.backgroundRemoval.removeBackgroundFromBase64(
+          dto.imageData,
+          dto.mimeType
+        );
+      }
+
+      this.logger.log('✅ [PUBLIC] Background removal succeeded');
+
+      return {
+        success: true,
+        imageData,
+        format: 'png',
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('❌ [PUBLIC] Background removal failed:', message);
+      this.logger.error('   Error details:', error);
+      return {
+        success: false,
+        error: message,
+      };
+    }
+  }
+
+  @Get('background-removal-info')
+  @ApiOperation({
+    summary: '获取抠图功能信息',
+    description: '获取后台移除功能的详细信息。',
+  })
+  async getBackgroundRemovalInfo() {
+    this.logger.log('📊 [PUBLIC] Background removal info requested');
+    try {
+      const info = await this.backgroundRemoval.getInfo();
+      this.logger.log('✅ Background removal info retrieved:', info);
+      return info;
+    } catch (error) {
+      this.logger.error('❌ Failed to get background removal info:', error);
+      return {
+        available: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        version: '1.0.0',
+      };
+    }
+  }
+
+  @Get('test-background-removal')
+  @ApiOperation({
+    summary: '测试抠图服务',
+    description: '检查抠图服务是否可用。',
+  })
+  async testBackgroundRemoval() {
+    this.logger.log('🧪 [PUBLIC] Testing background removal service...');
+    return {
+      message: 'Background removal service is accessible',
+      timestamp: new Date().toISOString(),
+    };
   }
 }

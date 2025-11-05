@@ -9,9 +9,11 @@
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
+    "@google/genai": "^1.1.0",
     "@fastify/cookie": "^9.0.0",
     "@fastify/helmet": "^11.0.0",
     "@fastify/multipart": "^7.0.0",
+    "@imgly/background-removal-node": "^1.4.5",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.2.3",
     "@nestjs/core": "^10.0.0",

@@ -9,10 +9,15 @@ import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
+import BackgroundRemovalTool from '@/components/canvas/BackgroundRemovalTool';
+import PaperBackgroundRemovalService from '@/services/paperBackgroundRemovalService';
 import { useLayerStore } from '@/stores';
+import { useUIStore } from '@/stores/uiStore';
 // import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
 import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
+import paper from 'paper';
+import { logger } from '@/utils/logger';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // 不再需要，改用快速上传逻辑
 
@@ -20,6 +25,7 @@ const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
     const ensureActiveLayer = useLayerStore(state => state.ensureActiveLayer);
+    const { showBackgroundRemovalTool, setShowBackgroundRemovalTool } = useUIStore();
     // AI图像现在通过快速上传工具处理，不需要单独的hook
     // useAIImageDisplay();
 
@@ -39,6 +45,46 @@ const Canvas: React.FC = () => {
             try { ensureActiveLayer(); } catch { }
         }
     }, [isPaperInitialized, ensureActiveLayer]);
+
+    // 处理背景移除完成
+    const handleBackgroundRemovalComplete = (imageDataUrl: string) => {
+        try {
+            setShowBackgroundRemovalTool(false);
+            logger.info('✅ Background removal completed, adding to canvas...');
+
+            // 添加到Paper.js画布
+            const raster = PaperBackgroundRemovalService.addTransparentImageToCanvas(
+                imageDataUrl,
+                {
+                    x: paper.view.center.x,
+                    y: paper.view.center.y,
+                    name: `background-removed-${Date.now()}`,
+                }
+            );
+
+            logger.info(`✅ Image added to canvas: ${raster.name}`);
+
+            // 显示成功提示
+            window.dispatchEvent(
+                new CustomEvent('toast', {
+                    detail: {
+                        message: '✅ 抠图完成！已添加到画布',
+                        type: 'success',
+                    },
+                })
+            );
+        } catch (error) {
+            logger.error('Failed to add image to canvas:', error);
+            window.dispatchEvent(
+                new CustomEvent('toast', {
+                    detail: {
+                        message: '❌ 添加到画布失败',
+                        type: 'error',
+                    },
+                })
+            );
+        }
+    };
 
     return (
         <div className="relative w-full h-full overflow-hidden">
@@ -93,6 +139,14 @@ const Canvas: React.FC = () => {
 
             {/* AI对话框 - 专注模式时由组件自行隐藏 */}
             <AIChatDialog />
+
+            {/* 背景移除工具 - 在屏幕中心独立显示 */}
+            {showBackgroundRemovalTool && (
+                <BackgroundRemovalTool
+                    onRemoveComplete={handleBackgroundRemovalComplete}
+                    onCancel={() => setShowBackgroundRemovalTool(false)}
+                />
+            )}
 
             {/* 调试面板：显示缓存图像信息 */}
             {/* <CachedImageDebug /> */}

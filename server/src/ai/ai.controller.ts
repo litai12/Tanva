@@ -5,13 +5,17 @@ import {
   Post,
   UseGuards,
   ServiceUnavailableException,
+  Get,
+  Optional,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
 import { ImageGenerationService, ImageGenerationResult } from './image-generation.service';
+import { BackgroundRemovalService } from './services/background-removal.service';
 import { AIProviderFactory } from './ai-provider.factory';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { ToolSelectionRequestDto } from './dto/tool-selection.dto';
+import { RemoveBackgroundDto } from './dto/background-removal.dto';
 import {
   GenerateImageDto,
   EditImageDto,
@@ -29,6 +33,7 @@ export class AiController {
   constructor(
     private readonly ai: AiService,
     private readonly imageGeneration: ImageGenerationService,
+    private readonly backgroundRemoval: BackgroundRemovalService,
     private readonly factory: AIProviderFactory,
   ) {}
 
@@ -256,5 +261,87 @@ export class AiController {
     // 否则使用默认的Gemini服务
     const result = await this.imageGeneration.generateTextResponse(dto);
     return result;
+  }
+
+  @Post('remove-background')
+  async removeBackground(@Body() dto: RemoveBackgroundDto) {
+    this.logger.log('🎯 Background removal request received');
+
+    try {
+      const source = dto.source || 'base64';
+      let imageData: string;
+
+      if (source === 'url') {
+        imageData = await this.backgroundRemoval.removeBackgroundFromUrl(dto.imageData);
+      } else if (source === 'file') {
+        imageData = await this.backgroundRemoval.removeBackgroundFromFile(dto.imageData);
+      } else {
+        // 默认为base64
+        imageData = await this.backgroundRemoval.removeBackgroundFromBase64(
+          dto.imageData,
+          dto.mimeType
+        );
+      }
+
+      this.logger.log('✅ Background removal succeeded');
+
+      return {
+        success: true,
+        imageData,
+        format: 'png',
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('❌ Background removal failed:', message);
+      throw new ServiceUnavailableException({
+        success: false,
+        error: message,
+      });
+    }
+  }
+
+  // 开发模式：无需认证的抠图接口
+  @Post('remove-background-public')
+  async removeBackgroundPublic(@Body() dto: RemoveBackgroundDto) {
+    this.logger.log('🎯 Background removal (public) request received');
+
+    try {
+      const source = dto.source || 'base64';
+      let imageData: string;
+
+      if (source === 'url') {
+        imageData = await this.backgroundRemoval.removeBackgroundFromUrl(dto.imageData);
+      } else if (source === 'file') {
+        imageData = await this.backgroundRemoval.removeBackgroundFromFile(dto.imageData);
+      } else {
+        // 默认为base64
+        imageData = await this.backgroundRemoval.removeBackgroundFromBase64(
+          dto.imageData,
+          dto.mimeType
+        );
+      }
+
+      this.logger.log('✅ Background removal (public) succeeded');
+
+      return {
+        success: true,
+        imageData,
+        format: 'png',
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error('❌ Background removal (public) failed:', message);
+      throw new ServiceUnavailableException({
+        success: false,
+        error: message,
+      });
+    }
+  }
+
+  @Get('background-removal-info')
+  async getBackgroundRemovalInfo() {
+    this.logger.log('📊 Background removal info requested');
+    const info = await this.backgroundRemoval.getInfo();
+    return info;
   }
 }

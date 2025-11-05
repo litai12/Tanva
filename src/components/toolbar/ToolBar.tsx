@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2, Minimize2 } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2, Minimize2, Wand2 } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -154,12 +154,13 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     toggleFill,
   } = useToolStore();
 
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, toggleFocusMode } = useUIStore();
+  const { showBackgroundRemovalTool, toggleBackgroundRemovalTool } = useUIStore();
+
   // 判断当前工具是否支持填充
   const supportsFill = (mode: any): boolean => {
     return ['rect', 'circle'].includes(mode);
   };
-
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, toggleFocusMode } = useUIStore();
 
   // 根据模式获取激活状态的按钮样式
   const getActiveButtonStyle = (isActive: boolean) => {
@@ -601,6 +602,21 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* 工具按钮 */}
       <div className="flex flex-col items-center gap-2">
+        <Button
+          onClick={toggleBackgroundRemovalTool}
+          variant={showBackgroundRemovalTool ? 'default' : 'outline'}
+          size="sm"
+          className={cn(
+            'p-0 h-8 w-8 rounded-full',
+            showBackgroundRemovalTool
+              ? 'bg-purple-600 text-white hover:bg-purple-700'
+              : 'bg-white/50 text-gray-700 border-gray-300 hover:bg-purple-50 hover:border-purple-300'
+          )}
+          title={showBackgroundRemovalTool ? '关闭抠图工具' : '打开抠图工具（魔棒）'}
+        >
+          <Wand2 className="w-4 h-4" />
+        </Button>
+
         {/* 清理画布按钮 */}
         {onClearCanvas && (
           <Button

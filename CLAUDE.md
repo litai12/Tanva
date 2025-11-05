@@ -43,4 +43,50 @@ Artboard是一个基于Paper.js的专业React + TypeScript绘图应用程序。�
 - 清晰的关注点分离
 - 所有状态的适当TypeScript类型定义
 
+## 新增功能：背景移除（抠图）
+
+### 功能概述
+集成了AI驱动的背景移除功能，支持透明PNG输出和Paper.js无缝集成。
+
+### 核心文件
+```
+后端:
+server/src/ai/
+├── services/background-removal.service.ts   # 核心抠图服务
+├── dto/background-removal.dto.ts            # DTO定义
+└── ai.controller.ts                         # API: POST /api/ai/remove-background
+
+前端:
+src/services/
+├── backgroundRemovalService.ts              # 前后端协调和智能路由
+└── paperBackgroundRemovalService.ts         # Paper.js集成（Raster转换、导出）
+
+UI组件:
+src/components/canvas/
+├── BackgroundRemovalTool.tsx                # 抠图工具主界面
+└── BackgroundRemovedImageExport.tsx         # 导出和管理面板
+
+集成:
+src/components/toolbar/ToolBar.tsx          # 工具栏中的魔棒按钮集成
+```
+
+### 技术栈
+- **后端**: `@imgly/background-removal-node` (ONNX模型)
+- **前端**: `@imgly/background-removal` (可选，用于小图快速处理)
+- **输出**: 真正的透明PNG（RGBA格式，不是白色背景）
+
+### 处理策略
+- **小图(<2MB)**: 优先前端WASM处理（毫秒级）
+- **大图(>2MB)**: 自动转发到后端API（秒级）
+- **无WebGPU**: 自动降级到后端处理
+
+### 导出功能
+- PNG下载（保留透明度）
+- 复制到剪贴板
+- 继续在Paper.js中编辑
+
+### 详细文档
+参考 `BACKGROUND_REMOVAL_GUIDE.md` 获取完整的使用指南、API文档和故障排除
+
+
 

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiService } from './ai.service';
 import { ImageGenerationService } from './image-generation.service';
+import { BackgroundRemovalService } from './services/background-removal.service';
 import { AiController } from './ai.controller';
 import { GeminiProvider } from './providers/gemini.provider';
 import { BananaProvider } from './providers/banana.provider';
@@ -15,6 +16,7 @@ import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
   providers: [
     AiService,
     ImageGenerationService,
+    BackgroundRemovalService,
     GeminiProvider,
     BananaProvider,
     RunningHubProvider,
@@ -23,6 +25,6 @@ import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],
-  exports: [AIProviderFactory, CostCalculatorService], // 导出工厂和成本计算器供其他模块使用
+  exports: [AIProviderFactory, CostCalculatorService, BackgroundRemovalService], // 导出工厂和成本计算器供其他模块使用
 })
 export class AiModule {}
