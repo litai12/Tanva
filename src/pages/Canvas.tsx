@@ -10,7 +10,6 @@ import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import BackgroundRemovalTool from '@/components/canvas/BackgroundRemovalTool';
-import PaperBackgroundRemovalService from '@/services/paperBackgroundRemovalService';
 import { useLayerStore } from '@/stores';
 import { useUIStore } from '@/stores/uiStore';
 // import CachedImageDebug from '@/components/debug/CachedImageDebug';
@@ -24,7 +23,6 @@ import { logger } from '@/utils/logger';
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
-    const ensureActiveLayer = useLayerStore(state => state.ensureActiveLayer);
     const { showBackgroundRemovalTool, setShowBackgroundRemovalTool } = useUIStore();
     // AI图像现在通过快速上传工具处理，不需要单独的hook
     // useAIImageDisplay();
@@ -42,27 +40,28 @@ const Canvas: React.FC = () => {
     // 确保在 Paper.js 初始化后创建默认图层
     useEffect(() => {
         if (isPaperInitialized) {
-            try { ensureActiveLayer(); } catch { }
+            try { useLayerStore.getState().ensureActiveLayer(); } catch { }
         }
-    }, [isPaperInitialized, ensureActiveLayer]);
+    }, [isPaperInitialized]);
 
     // 处理背景移除完成
     const handleBackgroundRemovalComplete = (imageDataUrl: string) => {
         try {
             setShowBackgroundRemovalTool(false);
-            logger.info('✅ Background removal completed, adding to canvas...');
+            logger.info('✅ Background removal completed, scheduling quick upload...');
 
-            // 添加到Paper.js画布
-            const raster = PaperBackgroundRemovalService.addTransparentImageToCanvas(
-                imageDataUrl,
-                {
-                    x: paper.view.center.x,
-                    y: paper.view.center.y,
-                    name: `background-removed-${Date.now()}`,
-                }
+            // 生成文件名，复用快速上传流水线，保证图片实例/图层状态一致
+            const fileName = `background-removed-${Date.now()}.png`;
+            window.dispatchEvent(
+                new CustomEvent('triggerQuickImageUpload', {
+                    detail: {
+                        imageData: imageDataUrl,
+                        fileName,
+                        smartPosition: { x: paper.view.center.x, y: paper.view.center.y },
+                        operationType: 'background-removal'
+                    }
+                })
             );
-
-            logger.info(`✅ Image added to canvas: ${raster.name}`);
 
             // 显示成功提示
             window.dispatchEvent(
