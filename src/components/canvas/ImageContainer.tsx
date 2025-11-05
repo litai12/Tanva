@@ -2,10 +2,13 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, EyeOff, Download } from 'lucide-react';
+import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, EyeOff, Download, Wand2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal from '../ui/ImagePreviewModal';
 import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
+import backgroundRemovalService from '@/services/backgroundRemovalService';
+import { LoadingSpinner } from '../ui/loading-spinner';
+import { logger } from '@/utils/logger';
 
 interface ImageData {
   id: string;
@@ -64,6 +67,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   
   // 预览模态框状态
   const [showPreview, setShowPreview] = useState(false);
+  const [isRemovingBackground, setIsRemovingBackground] = useState(false);
 
   // 将Paper.js世界坐标转换为屏幕坐标（改进版）
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
@@ -208,73 +212,73 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     return convertToScreenBounds(realTimeBounds);
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
 
+  const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
+    const ensureDataUrl = async (input: string | null): Promise<string | null> => {
+      if (!input) return null;
+      if (input.startsWith('data:image/')) {
+        return input;
+      }
+
+      if (/^https?:\/\//i.test(input) || input.startsWith('blob:')) {
+        try {
+          const response = await fetch(input);
+          const blob = await response.blob();
+          return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              if (typeof reader.result === 'string') {
+                resolve(reader.result);
+              } else {
+                reject(new Error('无法读取图像数据'));
+              }
+            };
+            reader.onerror = () => reject(reader.error ?? new Error('读取图像数据失败'));
+            reader.readAsDataURL(blob);
+          });
+        } catch (convertError) {
+          console.warn('⚠️ 无法转换远程图像为Base64，尝试使用Canvas数据', convertError);
+          return null;
+        }
+      }
+
+      return input;
+    };
+
+    if (getImageDataForEditing) {
+      const direct = await ensureDataUrl(getImageDataForEditing(imageData.id));
+      if (direct) return direct;
+    }
+
+    const urlSource = imageData.url || imageData.src || null;
+    const ensuredUrl = await ensureDataUrl(urlSource);
+    if (ensuredUrl) return ensuredUrl;
+
+    console.warn('⚠️ 未找到原始图像数据，尝试从Canvas抓取');
+    const imageGroup = paper.project?.layers?.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageData.id
+      )
+    )[0];
+
+    if (imageGroup) {
+      const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+      if (raster && raster.canvas) {
+        const canvasData = raster.canvas.toDataURL('image/png');
+        const ensuredCanvas = await ensureDataUrl(canvasData);
+        if (ensuredCanvas) return ensuredCanvas;
+      }
+    }
+
+    return null;
+  }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src]);
+
   // 处理AI编辑按钮点击
   const handleAIEdit = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     
     const run = async () => {
-      // 🎯 优先使用原始高质量图像数据
-      let imageDataUrl: string | null = null;
-      
-      // 首先尝试从getImageDataForEditing获取原始数据
-      if (getImageDataForEditing) {
-        imageDataUrl = getImageDataForEditing(imageData.id);
-      }
-
-      const ensureDataUrl = async (input: string | null): Promise<string | null> => {
-        if (!input) return null;
-        if (input.startsWith('data:image/')) {
-          return input;
-        }
-
-        // 处理远程或 blob 链接，转换为 base64
-        if (/^https?:\/\//i.test(input) || input.startsWith('blob:')) {
-          try {
-            const response = await fetch(input);
-            const blob = await response.blob();
-            const converted = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                if (typeof reader.result === 'string') {
-                  resolve(reader.result);
-                } else {
-                  reject(new Error('无法读取图像数据'));
-                }
-              };
-              reader.onerror = () => reject(reader.error ?? new Error('读取图像数据失败'));
-              reader.readAsDataURL(blob);
-            });
-            return converted;
-          } catch (convertError) {
-            console.warn('⚠️ 无法转换远程图像为Base64，尝试使用Canvas数据', convertError);
-            return null;
-          }
-        }
-
-        return input;
-      };
-
-      imageDataUrl = await ensureDataUrl(imageDataUrl);
-      
-      // 备用方案：从canvas获取（已缩放，质量较低）
-      if (!imageDataUrl) {
-        console.warn('⚠️ AI编辑：未找到原始图像数据，使用canvas数据（可能已缩放）');
-        const imageGroup = paper.project?.layers?.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId === imageData.id
-          )
-        )[0];
-
-        if (imageGroup) {
-          const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
-          if (raster && raster.canvas) {
-            imageDataUrl = raster.canvas.toDataURL('image/png');
-            imageDataUrl = await ensureDataUrl(imageDataUrl);
-          }
-        }
-      }
-      
+      const imageDataUrl = await resolveImageDataUrl();
       if (!imageDataUrl) {
         console.error('❌ 无法获取图像数据');
         return;
@@ -306,7 +310,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     run().catch((error) => {
       console.error('获取图像数据失败:', error);
     });
-  }, [imageData.id, getImageDataForEditing, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
+  }, [resolveImageDataUrl, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
 
   // 处理删除按钮点击
   const handleDelete = useCallback((e: React.MouseEvent) => {
@@ -400,6 +404,69 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [imageData.id, imageData.url, imageData.src, imageData.fileName, getImageDataForEditing]);
 
+  const handleBackgroundRemoval = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isRemovingBackground) {
+      return;
+    }
+
+    const execute = async () => {
+      const baseImage = await resolveImageDataUrl();
+      if (!baseImage) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '无法获取原图，无法抠图', type: 'error' }
+        }));
+        return;
+      }
+
+      setIsRemovingBackground(true);
+      try {
+        logger.info('🎯 开始背景移除', { imageId: imageData.id });
+        const result = await backgroundRemovalService.removeBackground(baseImage, 'image/png', true);
+        if (!result.success || !result.imageData) {
+          throw new Error(result.error || '背景移除失败');
+        }
+
+        const centerPoint = {
+          x: realTimeBounds.x + realTimeBounds.width / 2,
+          y: realTimeBounds.y + realTimeBounds.height / 2
+        };
+
+        const fileName = `background-removed-${Date.now()}.png`;
+        window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+          detail: {
+            imageData: result.imageData,
+            fileName,
+            smartPosition: centerPoint,
+            operationType: 'background-removal',
+            sourceImageId: imageData.id
+          }
+        }));
+
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '✨ 抠图完成，已生成新图', type: 'success' }
+        }));
+        logger.info('✅ 背景移除完成', { imageId: imageData.id });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '背景移除失败';
+        console.error('背景移除失败:', error);
+        logger.error('❌ 背景移除失败', error);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message, type: 'error' }
+        }));
+      } finally {
+        setIsRemovingBackground(false);
+      }
+    };
+
+    execute().catch((error) => {
+      console.error('抠图异常:', error);
+      setIsRemovingBackground(false);
+    });
+  }, [imageData.id, resolveImageDataUrl, isRemovingBackground, realTimeBounds]);
+
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
   return (
@@ -450,6 +517,28 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             alignItems: 'center'
           }}
         >
+          {/* 抠图按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isRemovingBackground}
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105"
+            onClick={handleBackgroundRemoval}
+            title={isRemovingBackground ? '正在抠图...' : '一键抠图'}
+            style={{
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+            }}
+          >
+            {isRemovingBackground ? (
+              <LoadingSpinner size="sm" className="text-purple-600" />
+            ) : (
+              <Wand2 className="w-4 h-4 text-purple-600" />
+            )}
+          </Button>
+
           {/* AI编辑按钮 */}
           <Button
             variant="outline"

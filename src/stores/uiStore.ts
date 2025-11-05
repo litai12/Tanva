@@ -14,7 +14,6 @@ interface UIState {
   mode: 'chat' | 'node'; // 全局模式
   flowEraserActive: boolean; // 节点擦除工具开关（仅 Node 模式）
   focusMode: boolean; // 专注模式 - 仅隐藏顶部导航栏和 AI 对话框
-  showBackgroundRemovalTool: boolean; // 背景移除工具显示状态
 
   // 智能落位配置
   smartPlacementOffset: number; // px，默认 778
@@ -32,7 +31,6 @@ interface UIState {
   toggleFlowEraser: () => void;
   setFlowEraser: (v: boolean) => void;
   toggleFocusMode: () => void;
-  toggleBackgroundRemovalTool: () => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -42,7 +40,6 @@ interface UIState {
   setShowBounds: (show: boolean) => void;
   setShowFlowPanel: (show: boolean) => void;
   setSmartPlacementOffset: (offset: number) => void;
-  setShowBackgroundRemovalTool: (show: boolean) => void;
 }
 
 const initialOffset = (() => {
@@ -82,7 +79,6 @@ const persistedUIPreferences = (() => {
       mode,
       flowEraserActive,
       focusMode,
-      showBackgroundRemovalTool,
       smartPlacementOffset,
     } = state as Partial<UIState>;
     return {
@@ -96,7 +92,6 @@ const persistedUIPreferences = (() => {
       mode,
       flowEraserActive,
       focusMode,
-      showBackgroundRemovalTool,
       smartPlacementOffset,
     };
   } catch (error) {
@@ -119,7 +114,6 @@ export const useUIStore = create<UIState>()(
       mode: persistedUIPreferences?.mode ?? 'chat',
       flowEraserActive: persistedUIPreferences?.flowEraserActive ?? false,
       focusMode: persistedUIPreferences?.focusMode ?? false,
-      showBackgroundRemovalTool: persistedUIPreferences?.showBackgroundRemovalTool ?? false,
       smartPlacementOffset: persistedUIPreferences?.smartPlacementOffset ?? initialOffset,
 
       // 切换方法
@@ -135,7 +129,6 @@ export const useUIStore = create<UIState>()(
       toggleFlowEraser: () => set((state) => ({ flowEraserActive: !state.flowEraserActive })),
       setFlowEraser: (v) => set({ flowEraserActive: !!v }),
       toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
-      toggleBackgroundRemovalTool: () => set((state) => ({ showBackgroundRemovalTool: !state.showBackgroundRemovalTool })),
 
       // 设置方法
       setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
@@ -149,7 +142,6 @@ export const useUIStore = create<UIState>()(
         try { if (typeof window !== 'undefined') localStorage.setItem('tanva-smart-offset', String(v)); } catch {}
         return { smartPlacementOffset: v } as Partial<UIState>;
       }),
-      setShowBackgroundRemovalTool: (show) => set({ showBackgroundRemovalTool: show }),
     }),
     {
       name: 'ui-preferences',
@@ -165,7 +157,6 @@ export const useUIStore = create<UIState>()(
         mode: state.mode,
         flowEraserActive: state.flowEraserActive,
         focusMode: state.focusMode,
-        showBackgroundRemovalTool: state.showBackgroundRemovalTool,
         smartPlacementOffset: state.smartPlacementOffset,
       }) as Partial<UIState>,
     }
