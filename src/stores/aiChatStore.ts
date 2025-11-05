@@ -2313,6 +2313,8 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }
 
+        await get().refreshSessions();
+
         console.log('✅ 文本回复成功:', result.data.text);
         logProcessStep(metrics, 'generateTextResponse completed');
       } else {
