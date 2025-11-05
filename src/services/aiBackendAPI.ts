@@ -34,6 +34,10 @@ const logAIImageResponse = (
   payload: { imageData?: string; textResponse?: string }
 ) => {
   const hasImageData = typeof payload.imageData === 'string' && payload.imageData.trim().length > 0;
+  const textResponse =
+    typeof payload.textResponse === 'string' && payload.textResponse.trim().length > 0
+      ? payload.textResponse
+      : '';
   const logger = hasImageData ? console.log : console.warn;
 
   logger(`${hasImageData ? '🖼️' : '📝'} [AI API] ${meta.endpoint} 响应摘要`, {
@@ -42,7 +46,12 @@ const logAIImageResponse = (
     promptPreview: meta.prompt ? truncateText(meta.prompt, 60) : 'N/A',
     hasImageData,
     imageDataLength: payload.imageData?.length || 0,
-    textResponsePreview: payload.textResponse ? truncateText(payload.textResponse, 80) : 'N/A'
+    textResponsePreview: textResponse ? truncateText(textResponse, 80) : 'N/A'
+  });
+
+  console.log(`🧾 [AI API] ${meta.endpoint} 返回详情`, {
+    textResponse: textResponse || '(无文本返回)',
+    hasImage: hasImageData
   });
 };
 

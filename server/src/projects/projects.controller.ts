@@ -3,6 +3,7 @@ import { ApiCookieAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateProjectContentDto } from './dto/update-project-content.dto';
 
 @ApiTags('projects')
@@ -28,8 +29,11 @@ export class ProjectsController {
   }
 
   @Put(':id')
-  async rename(@Req() req: any, @Param('id') id: string, @Body() dto: CreateProjectDto) {
-    return this.projects.rename(req.user.sub, id, dto.name || '未命名项目');
+  async update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProjectDto) {
+    return this.projects.update(req.user.sub, id, {
+      name: dto.name,
+      thumbnailUrl: dto.thumbnailUrl,
+    });
   }
 
   @Delete(':id')

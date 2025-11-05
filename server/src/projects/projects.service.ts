@@ -5,14 +5,23 @@ import { OssService } from '../oss/oss.service';
 
 @Injectable()
 export class ProjectsService {
+  private thumbnailColumnChecked = false;
+  private thumbnailColumnAvailable = false;
+
   constructor(private prisma: PrismaService, private oss: OssService) {}
 
   async list(userId: string) {
+    await this.ensureThumbnailColumn();
     const projects = await this.prisma.project.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
-    return projects.map((p) => ({ ...p, mainUrl: p.mainKey ? this.oss.publicUrl(p.mainKey) : undefined }));
+    return projects.map((p) => ({
+      ...p,
+      mainUrl: p.mainKey ? this.oss.publicUrl(p.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(p) || undefined,
+    }));
   }
 
   async create(userId: string, name?: string) {
+    await this.ensureThumbnailColumn();
     const project = await this.prisma.project.create({ data: { userId, name: name || '未命名项目', ossPrefix: '', mainKey: '' } });
     const prefix = `projects/${userId}/${project.id}/`;
     const mainKey = `${prefix}project.json`;
@@ -46,22 +55,63 @@ export class ProjectsService {
       console.warn('DB update with contentJson failed, falling back:', e);
       updated = await this.prisma.project.update({ where: { id: project.id }, data: { ossPrefix: prefix, mainKey } });
     }
-    return { ...updated, mainUrl: this.oss.publicUrl(mainKey) };
+    return { ...updated, mainUrl: this.oss.publicUrl(mainKey), thumbnailUrl: this.extractThumbnail(updated) || undefined };
   }
 
   async get(userId: string, id: string) {
+    await this.ensureThumbnailColumn();
     const p = await this.prisma.project.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('项目不存在');
     if (p.userId !== userId) throw new UnauthorizedException();
-    return { ...p, mainUrl: this.oss.publicUrl(p.mainKey) };
+    return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
   }
 
-  async rename(userId: string, id: string, name: string) {
+  async update(userId: string, id: string, payload: { name?: string; thumbnailUrl?: string | null }) {
+    await this.ensureThumbnailColumn();
     const p = await this.prisma.project.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('项目不存在');
     if (p.userId !== userId) throw new UnauthorizedException();
-    const updated = await this.prisma.project.update({ where: { id }, data: { name } });
-    return { ...updated, mainUrl: this.oss.publicUrl(updated.mainKey) };
+
+    const supportsThumbnailColumn = await this.supportsThumbnailColumn();
+    const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
+    if (payload.name !== undefined) {
+      data.name = payload.name || '未命名项目';
+    }
+    if (payload.thumbnailUrl !== undefined) {
+      if (supportsThumbnailColumn) {
+        data.thumbnailUrl = payload.thumbnailUrl || null;
+      } else {
+        data.contentJson = this.patchContentThumbnail(
+          (p as any).contentJson,
+          payload.thumbnailUrl || null
+        ) as Prisma.InputJsonValue;
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
+    }
+
+    try {
+      const updated = await this.prisma.project.update({ where: { id }, data });
+      return { ...updated, mainUrl: this.oss.publicUrl(updated.mainKey), thumbnailUrl: this.extractThumbnail(updated) || undefined };
+    } catch (error: any) {
+      if (this.shouldDowngradeThumbnailColumn(error)) {
+        await this.disableThumbnailColumn();
+        const downgraded = await this.prisma.project.update({
+          where: { id },
+          data: {
+            ...(payload.name !== undefined ? { name: payload.name || '未命名项目' } : {}),
+            contentJson: this.patchContentThumbnail(
+              (p as any).contentJson,
+              payload.thumbnailUrl || null
+            ) as Prisma.InputJsonValue,
+          },
+        });
+        return { ...downgraded, mainUrl: this.oss.publicUrl(downgraded.mainKey), thumbnailUrl: this.extractThumbnail(downgraded) || undefined };
+      }
+      throw error;
+    }
   }
 
   async remove(userId: string, id: string) {
@@ -73,6 +123,7 @@ export class ProjectsService {
   }
 
   async getContent(userId: string, id: string) {
+    await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
     if (project.userId !== userId) throw new UnauthorizedException();
@@ -104,6 +155,7 @@ export class ProjectsService {
   }
 
   async updateContent(userId: string, id: string, content: unknown, version?: number) {
+    await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
     if (project.userId !== userId) throw new UnauthorizedException();
@@ -120,27 +172,44 @@ export class ProjectsService {
     }
 
     const newVersion = (project.contentVersion ?? 0) + 1;
+    const supportsThumbnailColumn = await this.supportsThumbnailColumn();
     const baseUpdate: Prisma.ProjectUpdateInput = {
       ossPrefix: prefix,
       mainKey,
       contentVersion: newVersion,
     };
+    const contentForStorage =
+      !supportsThumbnailColumn && content
+        ? this.patchContentThumbnail(content as any, this.extractThumbnail(project) || null)
+        : content;
     let updated2: any;
     try {
       updated2 = await this.prisma.project.update({
         where: { id },
-        data: this.withOptionalContentJson(baseUpdate, content),
+        data: this.withOptionalContentJson(baseUpdate, contentForStorage),
       });
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('DB update(contentJson) failed, fallback without contentJson:', e);
-      updated2 = await this.prisma.project.update({ where: { id }, data: { ossPrefix: prefix, mainKey, contentVersion: newVersion } });
+    } catch (e: any) {
+      if (this.shouldDowngradeThumbnailColumn(e)) {
+        await this.disableThumbnailColumn();
+        updated2 = await this.prisma.project.update({
+          where: { id },
+          data: this.withOptionalContentJson(
+            baseUpdate,
+            this.patchContentThumbnail(content as any, this.extractThumbnail(project) || null)
+          ),
+        });
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn('DB update(contentJson) failed, fallback without contentJson:', e);
+        updated2 = await this.prisma.project.update({ where: { id }, data: { ossPrefix: prefix, mainKey, contentVersion: newVersion } });
+      }
     }
 
     return {
       version: updated2.contentVersion ?? newVersion,
       updatedAt: updated2.updatedAt,
       mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
+      thumbnailUrl: this.extractThumbnail(updated2) || undefined,
     };
   }
 
@@ -155,5 +224,103 @@ export class ProjectsService {
     const dataWithContent = { ...base } as Prisma.ProjectUpdateInput & Record<string, unknown>;
     dataWithContent.contentJson = content;
     return dataWithContent;
+  }
+
+  private async ensureThumbnailColumn(): Promise<void> {
+    if (await this.supportsThumbnailColumn()) return;
+    try {
+      await this.prisma.$executeRawUnsafe(`ALTER TABLE "Project" ADD COLUMN "thumbnailUrl" TEXT`);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('自动添加 thumbnailUrl 列失败，将回退到 contentJson 方案:', error);
+      return;
+    }
+    this.thumbnailColumnChecked = false;
+    await this.supportsThumbnailColumn(true);
+  }
+
+  private async supportsThumbnailColumn(forceRefresh = false): Promise<boolean> {
+    if (this.thumbnailColumnChecked && !forceRefresh) return this.thumbnailColumnAvailable;
+
+    try {
+      const rows = await this.prisma.$queryRaw<{ column_name?: string }[]>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'Project' AND column_name = 'thumbnailUrl'
+        AND table_schema = current_schema()
+        LIMIT 1
+      `;
+      this.thumbnailColumnAvailable = rows.length > 0;
+    } catch {
+      try {
+        const rows = await this.prisma.$queryRaw<{ name?: string }[]>`PRAGMA table_info("Project")`;
+        this.thumbnailColumnAvailable = rows.some((row) => row.name === 'thumbnailUrl');
+      } catch {
+        this.thumbnailColumnAvailable = false;
+      }
+    }
+
+    this.thumbnailColumnChecked = true;
+    return this.thumbnailColumnAvailable;
+  }
+
+  private extractThumbnail(project: any): string | undefined {
+    const columnValue = project?.thumbnailUrl;
+    if (columnValue) return columnValue;
+    const contentJson = project?.contentJson;
+    if (!contentJson || typeof contentJson !== 'object' || Array.isArray(contentJson)) {
+      return undefined;
+    }
+    const meta: any = (contentJson as any).meta;
+    if (meta && typeof meta === 'object' && !Array.isArray(meta) && typeof meta.thumbnailUrl === 'string') {
+      return meta.thumbnailUrl;
+    }
+    if (typeof (contentJson as any).thumbnailUrl === 'string') {
+      return (contentJson as any).thumbnailUrl;
+    }
+    return undefined;
+  }
+
+  private patchContentThumbnail(
+    existing: Prisma.JsonValue | null | undefined,
+    thumbnailUrl: string | null
+  ): Prisma.JsonValue {
+    const base =
+      existing && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, any>) }
+        : {};
+
+    const metaSource = base.meta;
+    const meta =
+      metaSource && typeof metaSource === 'object' && !Array.isArray(metaSource)
+        ? { ...metaSource }
+        : {};
+
+    if (thumbnailUrl) {
+      meta.thumbnailUrl = thumbnailUrl;
+    } else {
+      delete meta.thumbnailUrl;
+    }
+
+    if (Object.keys(meta).length === 0) {
+      delete base.meta;
+      return base;
+    }
+
+    return { ...base, meta };
+  }
+
+  private shouldDowngradeThumbnailColumn(error: any): boolean {
+    if (!error) return false;
+    const message = typeof error.message === 'string' ? error.message : '';
+    return message.includes('thumbnailUrl') && (
+      message.includes('Unknown argument') ||
+      message.includes('Unknown arg') ||
+      message.includes('column') && message.includes('does not exist')
+    );
+  }
+
+  private async disableThumbnailColumn(): Promise<void> {
+    this.thumbnailColumnChecked = true;
+    this.thumbnailColumnAvailable = false;
   }
 }

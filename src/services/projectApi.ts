@@ -53,7 +53,7 @@ export const projectApi = {
     const res = await fetchWithAuth(`${base}/api/projects/${id}`);
     return json<Project>(res);
   },
-  async update(id: string, payload: { name?: string }): Promise<Project> {
+  async update(id: string, payload: { name?: string; thumbnailUrl?: string | null }): Promise<Project> {
     const res = await fetchWithAuth(`${base}/api/projects/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -74,16 +74,20 @@ export const projectApi = {
       updatedAt: data.updatedAt,
     };
   },
-  async saveContent(id: string, payload: { content: ProjectContentSnapshot; version?: number }): Promise<{ version: number; updatedAt: string | null }> {
+  async saveContent(
+    id: string,
+    payload: { content: ProjectContentSnapshot; version?: number }
+  ): Promise<{ version: number; updatedAt: string | null; thumbnailUrl?: string }> {
     const res = await fetchWithAuth(`${base}/api/projects/${id}/content`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: payload.content, version: payload.version }),
     });
-    const data = await json<{ version: number; updatedAt: string | null }>(res);
+    const data = await json<{ version: number; updatedAt: string | null; thumbnailUrl?: string }>(res);
     return {
       version: data.version,
       updatedAt: data.updatedAt,
+      thumbnailUrl: data.thumbnailUrl,
     };
   },
 };

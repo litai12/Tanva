@@ -1130,7 +1130,8 @@ export const useAIChatStore = create<AIChatState>()(
         });
       }
 
-      const result = await generateImageViaAPI({
+      const maxAutoRetries = 3; // 总尝试次数（初次 + 最多2次补偿重试）
+      let result = await generateImageViaAPI({
         prompt,
         model: modelToUse,
         aiProvider: state.aiProvider,
@@ -1140,6 +1141,33 @@ export const useAIChatStore = create<AIChatState>()(
         imageOnly: state.imageOnly
       });
       logProcessStep(metrics, 'generateImage API response received');
+
+      for (let attempt = 2; attempt <= maxAutoRetries; attempt++) {
+        if (!result?.success || !result.data) {
+          break;
+        }
+        if (result.data.hasImage && result.data.imageData) {
+          break;
+        }
+
+        console.warn('⚠️ Flow generate success but no image returned, auto retrying', {
+          attempt,
+          maxAutoRetries,
+          textResponse: result.data.textResponse,
+        });
+
+        logProcessStep(metrics, `generateImage auto retry ${attempt}`);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        result = await generateImageViaAPI({
+          prompt,
+          model: modelToUse,
+          aiProvider: state.aiProvider,
+          providerOptions,
+          outputFormat: 'png',
+          aspectRatio: state.aspectRatio || undefined,
+          imageOnly: state.imageOnly
+        });
+      }
 
       if (progressInterval) clearInterval(progressInterval);
 

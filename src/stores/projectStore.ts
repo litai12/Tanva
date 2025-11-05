@@ -14,6 +14,7 @@ type ProjectState = {
   create: (name?: string) => Promise<Project>;
   open: (id: string) => void;
   rename: (id: string, name: string) => Promise<void>;
+  updateMeta: (id: string, payload: { name?: string; thumbnailUrl?: string | null }) => Promise<Project>;
   remove: (id: string) => Promise<void>;
   optimisticRenameLocal: (id: string, name: string) => void;
 };
@@ -103,19 +104,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })();
   },
 
-  rename: async (id, name) => {
+  updateMeta: async (id, payload) => {
     try {
-      const project = await projectApi.update(id, { name });
+      const project = await projectApi.update(id, payload);
       set((s) => ({
         projects: s.projects.map((p) => (p.id === id ? project : p)),
         currentProject: s.currentProject?.id === id ? project : s.currentProject,
-        error: null // 清除任何错误
+        error: null,
       }));
+      return project;
     } catch (e: any) {
-      console.warn('Failed to rename project:', e);
-      set({ error: e?.message || '重命名失败' });
-      throw e; // 重新抛出错误让调用者处理
+      console.warn('Failed to update project meta:', e);
+      set({ error: e?.message || '更新项目信息失败' });
+      throw e;
     }
+  },
+  rename: async (id, name) => {
+    await get().updateMeta(id, { name });
   },
 
   remove: async (id) => {

@@ -45,6 +45,7 @@ model Project {
   name       String
   ossPrefix  String
   mainKey    String
+  thumbnailUrl String?
   contentVersion Int    @default(1)
   contentJson  Json?
   createdAt  DateTime @default(now())
