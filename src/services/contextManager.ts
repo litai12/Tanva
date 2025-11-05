@@ -535,14 +535,16 @@ class ContextManager implements IContextManager {
   /**
    * 添加图像历史
    */
-  addImageHistory(imageHistory: Omit<ImageHistory, 'id' | 'timestamp'>): void {
+  addImageHistory(imageHistory: Omit<ImageHistory, 'id' | 'timestamp'> & { id?: string; timestamp?: Date }): ImageHistory {
     const context = this.getCurrentContext();
-    if (!context) return;
+    if (!context) {
+      throw new Error('No active context to record image history');
+    }
     
     const newImageHistory: ImageHistory = {
       ...imageHistory,
-      id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date()
+      id: imageHistory.id ?? `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: imageHistory.timestamp ? new Date(imageHistory.timestamp) : new Date()
     };
     
     context.contextInfo.imageHistory.push(newImageHistory);
@@ -553,6 +555,7 @@ class ContextManager implements IContextManager {
     }
     
     console.log('🖼️ 添加图像历史:', newImageHistory.prompt.substring(0, 30));
+    return newImageHistory;
   }
 
   /**

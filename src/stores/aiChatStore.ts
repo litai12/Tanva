@@ -18,6 +18,8 @@ import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { ossUploadService, dataURLToBlob } from '@/services/ossUploadService';
 import { createSafeStorage } from '@/stores/storageUtils';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
+import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import type {
   AIImageResult,
   RunningHubGenerateOptions,
@@ -27,7 +29,8 @@ import type {
 import type {
   ConversationContext,
   OperationHistory,
-  SerializedConversationContext
+  SerializedConversationContext,
+  SerializedChatMessage
 } from '@/types/context';
 
 // 本地存储会话的读取工具（用于无项目或早期回退场景）
@@ -61,6 +64,8 @@ export interface ChatMessage {
    */
   expectsImageOutput?: boolean;
   imageData?: string;
+  imageRemoteUrl?: string;
+  thumbnail?: string;
   sourceImageData?: string;
   sourceImagesData?: string[];
   webSearchResult?: unknown;
@@ -134,6 +139,39 @@ export const getTextModelForProvider = (_provider: AIProviderType): string => {
 };
 
 type RunningHubStageUpdater = (stage: string, progress?: number) => void;
+
+type ProcessMetrics = {
+  startTime: number;
+  lastStepTime: number;
+  traceId: string;
+  messageId?: string;
+};
+
+const getTimestamp = () =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+
+const createProcessMetrics = (): ProcessMetrics => {
+  const now = getTimestamp();
+  return {
+    startTime: now,
+    lastStepTime: now,
+    traceId: `flow-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  };
+};
+
+const logProcessStep = (metrics: ProcessMetrics | undefined, label: string) => {
+  if (!metrics) return;
+  const now = getTimestamp();
+  const delta = now - metrics.lastStepTime;
+  const total = now - metrics.startTime;
+  metrics.lastStepTime = now;
+  const idPart = metrics.messageId ? `${metrics.traceId}/${metrics.messageId}` : metrics.traceId;
+  console.log(
+    `⏱️ [${idPart}] ${label} | +${delta.toFixed(1)}ms | total ${total.toFixed(1)}ms`
+  );
+};
 
 const ensureDataUrl = (imageData: string): string =>
   imageData.startsWith('data:image') ? imageData : `data:image/png;base64,${imageData}`;
@@ -230,22 +268,40 @@ async function uploadImageToOSS(imageData: string, projectId?: string | null): P
 const serializeConversation = async (context: ConversationContext): Promise<SerializedConversationContext> => {
   const projectId = useProjectContentStore.getState().projectId;
 
-  // 🔥 优化：只保留最近 5 条带图片的消息，并上传到 OSS
-  const messagesWithImages = context.messages.filter(msg => msg.imageData);
-  const recentImagesCount = Math.min(5, messagesWithImages.length);
-  const recentMessagesWithImages = messagesWithImages.slice(-recentImagesCount);
+  const isRemoteUrl = (value: string | undefined): boolean =>
+    !!value && /^https?:\/\//.test(value);
 
-  // 批量上传图片到 OSS
-  const uploadPromises = recentMessagesWithImages.map(async (msg) => {
-    if (msg.imageData) {
-      const ossUrl = await uploadImageToOSS(msg.imageData, projectId);
-      return { messageId: msg.id, ossUrl };
+  const messagesNeedingUpload = context.messages.filter(
+    msg =>
+      !!msg.imageData &&
+      !isRemoteUrl(msg.imageData) &&
+      !isRemoteUrl(msg.imageRemoteUrl) &&
+      msg.imageData.trim().length > 0
+  );
+
+  const uploadResults = await Promise.all(
+    messagesNeedingUpload.map(async (msg) => {
+      try {
+        const dataUrl = ensureDataUrl(msg.imageData!);
+        const ossUrl = await uploadImageToOSS(dataUrl, projectId);
+        return { messageId: msg.id, ossUrl };
+      } catch (error) {
+        console.warn('⚠️ 上传消息图片失败，使用本地数据回退:', error);
+        return { messageId: msg.id, ossUrl: null };
+      }
+    })
+  );
+
+  const imageUrlMap = new Map<string, string | null>();
+  uploadResults.forEach(({ messageId, ossUrl }) => {
+    if (ossUrl) {
+      imageUrlMap.set(messageId, ossUrl);
+      const target = context.messages.find(m => m.id === messageId);
+      if (target) {
+        target.imageRemoteUrl = ossUrl;
+      }
     }
-    return { messageId: msg.id, ossUrl: null };
   });
-
-  const uploadResults = await Promise.all(uploadPromises);
-  const imageUrlMap = new Map(uploadResults.map(r => [r.messageId, r.ossUrl]));
 
   return {
     sessionId: context.sessionId,
@@ -254,15 +310,43 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
     lastActivity: toISOString(context.lastActivity),
     currentMode: context.currentMode,
     activeImageId: context.activeImageId ?? undefined,
-    messages: context.messages.map((message) => ({
-      id: message.id,
-      type: message.type,
-      content: message.content,
-      timestamp: toISOString(message.timestamp),
-      webSearchResult: message.webSearchResult,
-      // 🔥 性能优化：只保存 OSS URL，不保存原始 Base64
-      imageUrl: imageUrlMap.get(message.id) || undefined,
-    })),
+    messages: context.messages.map((message) => {
+      const remoteUrl =
+        imageUrlMap.get(message.id) ||
+        (isRemoteUrl(message.imageRemoteUrl) ? message.imageRemoteUrl : undefined) ||
+        (isRemoteUrl(message.imageData) ? message.imageData : undefined);
+
+      const fallbackThumbnail =
+        message.thumbnail ??
+        (!remoteUrl && message.imageData
+          ? ensureDataUrl(message.imageData)
+          : undefined);
+
+      const serialized: SerializedChatMessage = {
+        id: message.id,
+        type: message.type,
+        content: message.content,
+        timestamp: toISOString(message.timestamp),
+        webSearchResult: cloneSafely(message.webSearchResult),
+        imageRemoteUrl: remoteUrl || undefined,
+        imageUrl: remoteUrl || undefined,
+        imageData: !remoteUrl ? message.imageData : undefined,
+        thumbnail: fallbackThumbnail,
+        expectsImageOutput: message.expectsImageOutput,
+        sourceImageData: message.sourceImageData,
+        sourceImagesData: message.sourceImagesData,
+        generationStatus: message.generationStatus
+          ? {
+              isGenerating: !!message.generationStatus.isGenerating,
+              progress: message.generationStatus.progress ?? 0,
+              error: message.generationStatus.error ?? null,
+              stage: message.generationStatus.stage,
+            }
+          : undefined,
+      };
+
+      return serialized;
+    }),
     operations: context.operations.map((operation) => ({
       id: operation.id,
       type: operation.type,
@@ -290,7 +374,9 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
         timestamp: toISOString(item.timestamp),
         operationType: item.operationType,
         parentImageId: item.parentImageId ?? null,
-        thumbnail: item.thumbnail ?? null
+        thumbnail: item.thumbnail ?? null,
+        imageRemoteUrl: item.imageRemoteUrl ?? null,
+        imageData: item.imageData ?? null
       })),
       iterationCount: context.contextInfo.iterationCount,
       lastOperationType: context.contextInfo.lastOperationType
@@ -299,15 +385,32 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
 };
 
 const deserializeConversation = (data: SerializedConversationContext): ConversationContext => {
-  const messages: ChatMessage[] = data.messages.map((message) => ({
-    id: message.id,
-    type: message.type,
-    content: message.content,
-    timestamp: new Date(message.timestamp),
-    webSearchResult: message.webSearchResult,
-    // 🔥 从 OSS URL 恢复图片（如果有的话）
-    imageData: (message as any).imageUrl || (message as any).imageData || undefined
-  }));
+  const messages: ChatMessage[] = data.messages.map((message) => {
+    const remoteUrl = (message as any).imageRemoteUrl || (message as any).imageUrl;
+    const baseImage = message.imageData;
+    const thumbnail = message.thumbnail;
+    return {
+      id: message.id,
+      type: message.type,
+      content: message.content,
+      timestamp: new Date(message.timestamp),
+      webSearchResult: message.webSearchResult,
+      imageData: baseImage,
+      imageRemoteUrl: remoteUrl,
+      thumbnail,
+      expectsImageOutput: message.expectsImageOutput,
+      sourceImageData: message.sourceImageData,
+      sourceImagesData: message.sourceImagesData,
+      generationStatus: message.generationStatus
+        ? {
+            isGenerating: !!message.generationStatus.isGenerating,
+            progress: message.generationStatus.progress ?? 0,
+            error: message.generationStatus.error ?? null,
+            stage: message.generationStatus.stage,
+          }
+        : undefined,
+    };
+  });
 
   const operations: OperationHistory[] = data.operations.map((operation) => ({
     id: operation.id,
@@ -342,7 +445,8 @@ const deserializeConversation = (data: SerializedConversationContext): Conversat
       recentPrompts: [...data.contextInfo.recentPrompts],
       imageHistory: data.contextInfo.imageHistory.map((item) => ({
         id: item.id,
-        imageData: '',
+        imageData: item.imageRemoteUrl || item.imageData || item.thumbnail || '',
+        imageRemoteUrl: item.imageRemoteUrl || undefined,
         prompt: item.prompt,
         timestamp: new Date(item.timestamp),
         operationType: item.operationType,
@@ -424,24 +528,24 @@ interface AIChatState {
   resetSessions: () => void;
 
   // 图像生成
-  generateImage: (prompt: string, options?: { override?: MessageOverride }) => Promise<void>;
+  generateImage: (prompt: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
 
   // 图生图功能
-  editImage: (prompt: string, sourceImage: string, showImagePlaceholder?: boolean, options?: { override?: MessageOverride }) => Promise<void>;
+  editImage: (prompt: string, sourceImage: string, showImagePlaceholder?: boolean, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
   setSourceImageForEditing: (imageData: string | null) => void;
 
   // 多图融合功能
-  blendImages: (prompt: string, sourceImages: string[], options?: { override?: MessageOverride }) => Promise<void>;
+  blendImages: (prompt: string, sourceImages: string[], options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
   addImageForBlending: (imageData: string) => void;
   removeImageFromBlending: (index: number) => void;
   clearImagesForBlending: () => void;
 
   // 图像分析功能
-  analyzeImage: (prompt: string, sourceImage: string, options?: { override?: MessageOverride }) => Promise<void>;
+  analyzeImage: (prompt: string, sourceImage: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
   setSourceImageForAnalysis: (imageData: string | null) => void;
 
   // 文本对话功能
-  generateTextResponse: (prompt: string, options?: { override?: MessageOverride }) => Promise<void>;
+  generateTextResponse: (prompt: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
 
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
@@ -476,7 +580,80 @@ interface AIChatState {
 
 export const useAIChatStore = create<AIChatState>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      const registerMessageImageHistory = async ({
+        aiMessageId,
+        prompt,
+        result,
+        operationType
+      }: {
+        aiMessageId: string;
+        prompt: string;
+        result: AIImageResult;
+        operationType: 'generate' | 'edit' | 'blend';
+      }) => {
+        if (!result.imageData) return;
+        const dataUrl = ensureDataUrl(result.imageData);
+        let remoteUrl: string | undefined;
+        try {
+          const projectId = useProjectContentStore.getState().projectId;
+          const historyRecord = await recordImageHistoryEntry({
+            dataUrl,
+            title: prompt,
+            nodeId: aiMessageId,
+            nodeType: 'generate',
+            projectId,
+            dir: 'ai-chat-history/',
+            keepThumbnail: true
+          });
+          remoteUrl = historyRecord.remoteUrl;
+        } catch (error) {
+          console.warn('⚠️ 记录AI图像历史失败:', error);
+        }
+
+        const historyEntry = {
+          prompt,
+          operationType,
+          imageData: remoteUrl || dataUrl,
+          parentImageId: undefined,
+          thumbnail: dataUrl,
+          imageRemoteUrl: remoteUrl
+        };
+
+        const storedHistory = contextManager.addImageHistory(historyEntry);
+
+        try {
+          useImageHistoryStore.getState().addImage({
+            id: storedHistory.id,
+            src: remoteUrl || dataUrl,
+            remoteUrl: remoteUrl ?? undefined,
+            thumbnail: dataUrl,
+            title: prompt,
+            nodeId: aiMessageId,
+            nodeType: 'generate',
+            timestamp: storedHistory.timestamp.getTime()
+          });
+        } catch (error) {
+          console.warn('⚠️ 更新图片历史Store失败:', error);
+        }
+
+        get().updateMessage(aiMessageId, (msg) => ({
+          ...msg,
+          imageRemoteUrl: remoteUrl || msg.imageRemoteUrl,
+          thumbnail: dataUrl
+        }));
+
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const target = context.messages.find(m => m.id === aiMessageId);
+          if (target) {
+            target.imageRemoteUrl = remoteUrl || target.imageRemoteUrl;
+            target.thumbnail = dataUrl;
+          }
+        }
+      };
+
+      return {
   // 初始状态
   isVisible: true,
   currentInput: '',
@@ -728,6 +905,11 @@ export const useAIChatStore = create<AIChatState>()(
       hasHydratedSessions = true;
 
       contextManager.resetSessions();
+      try {
+        useImageHistoryStore.getState().clearHistory();
+      } catch (error) {
+        console.warn('⚠️ 清空图片历史失败:', error);
+      }
 
       sessions.forEach((session) => {
         try {
@@ -737,6 +919,29 @@ export const useAIChatStore = create<AIChatState>()(
           console.error('❌ 导入会话失败:', error);
         }
       });
+
+      try {
+        const imageHistoryStore = useImageHistoryStore.getState();
+        const contexts = contextManager.getAllSessions();
+        contexts.forEach((context) => {
+          context.contextInfo.imageHistory.forEach((item) => {
+            const src = item.imageRemoteUrl || item.imageData || item.thumbnail;
+            if (!src) return;
+            imageHistoryStore.addImage({
+              id: item.id,
+              src,
+              remoteUrl: item.imageRemoteUrl ?? undefined,
+              thumbnail: item.thumbnail ?? undefined,
+              title: item.prompt || '图片',
+              nodeId: item.parentImageId || item.id,
+              nodeType: 'generate',
+              timestamp: item.timestamp.getTime()
+            });
+          });
+        });
+      } catch (error) {
+        console.warn('⚠️ 回填图片历史失败:', error);
+      }
 
       const availableSessions = contextManager.listSessions();
       const candidateIds = new Set(availableSessions.map((session) => session.sessionId));
@@ -791,8 +996,10 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 图像生成主函数（支持并行）
-  generateImage: async (prompt: string, options?: { override?: MessageOverride }) => {
+  generateImage: async (prompt: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => {
     const state = get();
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'generateImage entered');
 
     // 🔥 并行模式：不检查全局状态，每个请求独立
     // 🔥 立即增加正在生成的图片计数
@@ -857,6 +1064,7 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       // 模拟进度更新
+      logProcessStep(metrics, 'generateImage progress interval start');
       progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
@@ -891,6 +1099,7 @@ export const useAIChatStore = create<AIChatState>()(
         model: modelToUse,
         prompt: prompt.substring(0, 50) + '...'
       });
+      logProcessStep(metrics, `generateImage calling API (${modelToUse})`);
 
       let providerOptions: AIProviderOptions | undefined;
 
@@ -930,6 +1139,7 @@ export const useAIChatStore = create<AIChatState>()(
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
       });
+      logProcessStep(metrics, 'generateImage API response received');
 
       if (progressInterval) clearInterval(progressInterval);
 
@@ -946,6 +1156,7 @@ export const useAIChatStore = create<AIChatState>()(
                   ...msg,
                   content: messageContent,
                   imageData: result.data?.imageData,
+                  thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
                   generationStatus: {
                     isGenerating: false,
                     progress: 100,
@@ -955,6 +1166,8 @@ export const useAIChatStore = create<AIChatState>()(
               : msg
           )
         }));
+        logProcessStep(metrics, 'editImage message updated');
+        logProcessStep(metrics, 'generateImage message updated');
 
         // 同步到 contextManager
         const context = contextManager.getCurrentContext();
@@ -963,6 +1176,9 @@ export const useAIChatStore = create<AIChatState>()(
           if (message) {
             message.content = messageContent;
             message.imageData = result.data?.imageData;
+            if (result.data?.imageData) {
+              message.thumbnail = ensureDataUrl(result.data.imageData);
+            }
             message.generationStatus = {
               isGenerating: false,
               progress: 100,
@@ -972,6 +1188,18 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         set({ lastGeneratedImage: result.data });
+
+        if (result.data.imageData) {
+          await registerMessageImageHistory({
+            aiMessageId,
+            prompt,
+            result: result.data,
+            operationType: 'generate'
+          });
+        }
+
+        await get().refreshSessions();
+        logProcessStep(metrics, 'generateImage history recorded');
 
         // 如果没有图像，记录详细原因并返回
         if (!result.data.hasImage) {
@@ -1081,6 +1309,7 @@ export const useAIChatStore = create<AIChatState>()(
           createdAt: result.data.createdAt,
           metadata: result.data.metadata
         });
+        logProcessStep(metrics, 'generateImage completed');
 
         // 取消自动关闭对话框 - 保持对话框打开状态
         // setTimeout(() => {
@@ -1117,12 +1346,20 @@ export const useAIChatStore = create<AIChatState>()(
       // 🔥 无论成功失败，都减少正在生成的图片计数
       generatingImageCount--;
       console.log('✅ 生成结束，当前生成计数:', generatingImageCount);
+      logProcessStep(metrics, 'generateImage finished (finally)');
     }
   },
 
   // 图生图功能（支持并行）
-  editImage: async (prompt: string, sourceImage: string, showImagePlaceholder: boolean = true, options?: { override?: MessageOverride }) => {
+  editImage: async (
+    prompt: string,
+    sourceImage: string,
+    showImagePlaceholder: boolean = true,
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
     const state = get();
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'editImage entered');
 
     // 🔥 并行模式：不检查全局状态
     const normalizedSourceImage = ensureDataUrl(sourceImage);
@@ -1186,6 +1423,7 @@ export const useAIChatStore = create<AIChatState>()(
     }
 
     console.log('🖌️ 开始编辑图像，消息ID:', aiMessageId);
+    logProcessStep(metrics, 'editImage message prepared');
 
     try {
       // 🔥 使用消息级别的进度更新
@@ -1197,6 +1435,7 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       // 模拟进度更新
+      logProcessStep(metrics, 'editImage progress interval start');
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
@@ -1231,6 +1470,7 @@ export const useAIChatStore = create<AIChatState>()(
         model: modelToUse,
         prompt: prompt.substring(0, 50) + '...'
       });
+      logProcessStep(metrics, `editImage calling API (${modelToUse})`);
 
       let providerOptions: AIProviderOptions | undefined;
 
@@ -1269,6 +1509,8 @@ export const useAIChatStore = create<AIChatState>()(
 
       clearInterval(progressInterval);
 
+      logProcessStep(metrics, 'editImage API response received');
+
       if (result.success && result.data) {
         // 编辑成功 - 更新消息内容和状态
         const messageContent = result.data.textResponse ||
@@ -1282,6 +1524,7 @@ export const useAIChatStore = create<AIChatState>()(
                   ...msg,
                   content: messageContent,
                   imageData: result.data?.imageData,
+                  thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
                   generationStatus: {
                     isGenerating: false,
                     progress: 100,
@@ -1299,6 +1542,9 @@ export const useAIChatStore = create<AIChatState>()(
           if (message) {
             message.content = messageContent;
             message.imageData = result.data?.imageData;
+            if (result.data?.imageData) {
+              message.thumbnail = ensureDataUrl(result.data.imageData);
+            }
             message.generationStatus = {
               isGenerating: false,
               progress: 100,
@@ -1308,6 +1554,18 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         set({ lastGeneratedImage: result.data });
+
+        if (result.data.imageData) {
+          await registerMessageImageHistory({
+            aiMessageId,
+            prompt,
+            result: result.data,
+            operationType: 'edit'
+          });
+        }
+
+        await get().refreshSessions();
+        logProcessStep(metrics, 'editImage history recorded');
 
         // 如果没有图像，记录原因并返回
         if (!result.data.hasImage) {
@@ -1394,6 +1652,7 @@ export const useAIChatStore = create<AIChatState>()(
           model: result.data.model,
           id: result.data.id
         });
+        logProcessStep(metrics, 'editImage completed');
 
         // 取消自动关闭对话框 - 保持对话框打开状态
         // setTimeout(() => {
@@ -1431,6 +1690,7 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       console.error('❌ 图像编辑异常:', error);
+      logProcessStep(metrics, 'editImage failed');
     }
   },
 
@@ -1446,8 +1706,14 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 多图融合功能（支持并行）
-  blendImages: async (prompt: string, sourceImages: string[], options?: { override?: MessageOverride }) => {
+  blendImages: async (
+    prompt: string,
+    sourceImages: string[],
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
     const state = get();
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'blendImages entered');
 
     // 🔥 并行模式：不检查全局状态
 
@@ -1504,6 +1770,7 @@ export const useAIChatStore = create<AIChatState>()(
     }
 
     console.log('🔀 开始融合图像，消息ID:', aiMessageId);
+    logProcessStep(metrics, 'blendImages message prepared');
 
     try {
       // 🔥 使用消息级别的进度更新
@@ -1514,6 +1781,7 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '正在融合'
       });
 
+      logProcessStep(metrics, 'blendImages progress interval start');
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
@@ -1558,6 +1826,7 @@ export const useAIChatStore = create<AIChatState>()(
         aspectRatio: state.aspectRatio || undefined,
         imageOnly: state.imageOnly
       });
+      logProcessStep(metrics, 'blendImages API response received');
 
       clearInterval(progressInterval);
 
@@ -1573,6 +1842,7 @@ export const useAIChatStore = create<AIChatState>()(
                   ...msg,
                   content: messageContent,
                   imageData: result.data?.imageData,
+                  thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
                   generationStatus: {
                     isGenerating: false,
                     progress: 100,
@@ -1582,6 +1852,7 @@ export const useAIChatStore = create<AIChatState>()(
               : msg
           )
         }));
+        logProcessStep(metrics, 'blendImages message updated');
 
         // 同步到 contextManager
         const context = contextManager.getCurrentContext();
@@ -1590,6 +1861,9 @@ export const useAIChatStore = create<AIChatState>()(
           if (message) {
             message.content = messageContent;
             message.imageData = result.data?.imageData;
+            if (result.data?.imageData) {
+              message.thumbnail = ensureDataUrl(result.data.imageData);
+            }
             message.generationStatus = {
               isGenerating: false,
               progress: 100,
@@ -1599,6 +1873,18 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         set({ lastGeneratedImage: result.data });
+
+        if (result.data.imageData) {
+          await registerMessageImageHistory({
+            aiMessageId,
+            prompt,
+            result: result.data,
+            operationType: 'blend'
+          });
+        }
+
+        await get().refreshSessions();
+        logProcessStep(metrics, 'blendImages history recorded');
 
         if (!result.data.hasImage) {
           console.log('⚠️ 融合API返回了文本回复但没有图像:', result.data.textResponse);
@@ -1664,6 +1950,7 @@ export const useAIChatStore = create<AIChatState>()(
         }, 100);
 
         console.log('✅ 图像融合成功，已自动添加到画布');
+        logProcessStep(metrics, 'blendImages completed');
 
         // 取消自动关闭对话框 - 保持对话框打开状态
         // setTimeout(() => {
@@ -1693,6 +1980,7 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       console.error('❌ 图像融合异常:', error);
+      logProcessStep(metrics, 'blendImages failed');
     }
   },
 
@@ -1718,8 +2006,14 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 图像分析功能（支持并行）
-  analyzeImage: async (prompt: string, sourceImage: string, options?: { override?: MessageOverride }) => {
+  analyzeImage: async (
+    prompt: string,
+    sourceImage: string,
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
     const state = get();
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'analyzeImage entered');
 
     // 🔥 并行模式：不检查全局状态
 
@@ -1778,6 +2072,7 @@ export const useAIChatStore = create<AIChatState>()(
     }
 
     console.log('🔍 开始分析图片，消息ID:', aiMessageId);
+    logProcessStep(metrics, 'analyzeImage message prepared');
 
     try {
       // 🔥 使用消息级别的进度更新
@@ -1788,6 +2083,7 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '正在分析'
       });
 
+      logProcessStep(metrics, 'analyzeImage progress interval start');
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
@@ -1825,12 +2121,13 @@ export const useAIChatStore = create<AIChatState>()(
 
       const result = await analyzeImageViaAPI({
         prompt: prompt || '请详细分析这张图片的内容',
-        sourceImage,
+        sourceImage: formattedImageData,
         model: modelToUse,
         aiProvider: state.aiProvider,
       });
 
       clearInterval(progressInterval);
+      logProcessStep(metrics, 'analyzeImage API response received');
 
       if (result.success && result.data) {
         // 🔥 更新消息内容和完成状态
@@ -1865,6 +2162,7 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         console.log('✅ 图片分析成功');
+        logProcessStep(metrics, 'analyzeImage completed');
 
       } else {
         throw new Error(result.error?.message || '图片分析失败');
@@ -1880,6 +2178,7 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       console.error('❌ 图片分析异常:', error);
+      logProcessStep(metrics, 'analyzeImage failed');
     }
   },
 
@@ -1895,8 +2194,14 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 文本对话功能（支持并行）
-  generateTextResponse: async (prompt: string, options?: { override?: MessageOverride }) => {
+  generateTextResponse: async (
+    prompt: string,
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
     // 🔥 并行模式：不检查全局状态
+
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'generateTextResponse entered');
 
     const override = options?.override;
     let aiMessageId: string | undefined;
@@ -1942,6 +2247,7 @@ export const useAIChatStore = create<AIChatState>()(
     }
 
     console.log('💬 开始生成文本回复，消息ID:', aiMessageId);
+    logProcessStep(metrics, 'generateTextResponse message prepared');
 
     try {
       // 🔥 使用消息级别的进度更新
@@ -1964,12 +2270,14 @@ export const useAIChatStore = create<AIChatState>()(
         contextPreview: contextPrompt.substring(0, 80) + (contextPrompt.length > 80 ? '...' : '')
       });
 
+      logProcessStep(metrics, `generateTextResponse calling API (${modelToUse})`);
       const result = await generateTextResponseViaAPI({
         prompt: contextPrompt,
         model: modelToUse,
         aiProvider: state.aiProvider,
         enableWebSearch: state.enableWebSearch
       });
+      logProcessStep(metrics, 'generateTextResponse API response received');
 
       if (result.success && result.data) {
         // 🔥 更新消息内容和完成状态
@@ -2006,6 +2314,7 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         console.log('✅ 文本回复成功:', result.data.text);
+        logProcessStep(metrics, 'generateTextResponse completed');
       } else {
         throw new Error(result.error?.message || '文本生成失败');
       }
@@ -2020,12 +2329,15 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       console.error('❌ 文本生成失败:', errorMessage);
+      logProcessStep(metrics, 'generateTextResponse failed');
     }
   },
 
   // 🔄 核心处理流程 - 可重试的执行逻辑
   executeProcessFlow: async (input: string, isRetry: boolean = false) => {
     const state = get();
+    const metrics = createProcessMetrics();
+    logProcessStep(metrics, 'executeProcessFlow start');
 
     // 检测迭代意图
     const isIterative = contextManager.detectIterativeIntent(input);
@@ -2055,6 +2367,9 @@ export const useAIChatStore = create<AIChatState>()(
       userMessageId: pendingUserMessage.id,
       aiMessageId: pendingAiMessage.id
     };
+
+    metrics.messageId = messageOverride.aiMessageId;
+    logProcessStep(metrics, 'messages prepared');
 
     // 准备工具选择请求
     const cachedImage = contextManager.getCachedImage();
@@ -2124,7 +2439,9 @@ export const useAIChatStore = create<AIChatState>()(
       selectedTool = manualToolMap[manualMode];
       console.log('🎛️ 手动模式直接选择工具:', manualMode, '→', selectedTool);
     } else {
+      logProcessStep(metrics, 'tool selection start');
       const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+      logProcessStep(metrics, 'tool selection completed');
 
       if (!toolSelectionResult.success || !toolSelectionResult.data) {
         const errorMsg = toolSelectionResult.error?.message || '工具选择失败';
@@ -2136,6 +2453,7 @@ export const useAIChatStore = create<AIChatState>()(
       parameters = { prompt: (toolSelectionResult.data.parameters?.prompt || input) };
 
       console.log('🎯 AI选择工具:', selectedTool);
+      logProcessStep(metrics, `tool decided: ${selectedTool ?? 'none'}`);
     }
 
     if (!selectedTool) {
@@ -2149,7 +2467,9 @@ export const useAIChatStore = create<AIChatState>()(
     try {
       switch (selectedTool) {
         case 'generateImage':
-          await store.generateImage(parameters.prompt, { override: messageOverride });
+          logProcessStep(metrics, 'invoking generateImage');
+          await store.generateImage(parameters.prompt, { override: messageOverride, metrics });
+          logProcessStep(metrics, 'generateImage finished');
           break;
 
         case 'editImage':
@@ -2159,7 +2479,9 @@ export const useAIChatStore = create<AIChatState>()(
               imageDataPrefix: state.sourceImageForEditing.substring(0, 50),
               isBase64: state.sourceImageForEditing.startsWith('data:image')
             });
-            await store.editImage(parameters.prompt, state.sourceImageForEditing, true, { override: messageOverride });
+            logProcessStep(metrics, 'invoking editImage with explicit image');
+            await store.editImage(parameters.prompt, state.sourceImageForEditing, true, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'editImage finished');
 
             // 🧠 检测是否需要保持编辑状态
             if (!isIterative) {
@@ -2182,7 +2504,9 @@ export const useAIChatStore = create<AIChatState>()(
                 imageDataPrefix: cachedImage.imageData.substring(0, 50),
                 isBase64: cachedImage.imageData.startsWith('data:image')
               });
-              await store.editImage(parameters.prompt, cachedImage.imageData, false, { override: messageOverride }); // 不显示图片占位框
+              logProcessStep(metrics, 'invoking editImage with cached image');
+              await store.editImage(parameters.prompt, cachedImage.imageData, false, { override: messageOverride, metrics }); // 不显示图片占位框
+              logProcessStep(metrics, 'editImage finished');
             } else {
               console.error('❌ 无法编辑图像的原因:', {
                 cachedImage: cachedImage ? 'exists' : 'null',
@@ -2195,7 +2519,9 @@ export const useAIChatStore = create<AIChatState>()(
 
         case 'blendImages':
           if (state.sourceImagesForBlending.length >= 2) {
-            await store.blendImages(parameters.prompt, state.sourceImagesForBlending, { override: messageOverride });
+            logProcessStep(metrics, 'invoking blendImages');
+            await store.blendImages(parameters.prompt, state.sourceImagesForBlending, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'blendImages finished');
             store.clearImagesForBlending();
           } else {
             throw new Error('需要至少2张图像进行融合');
@@ -2204,17 +2530,23 @@ export const useAIChatStore = create<AIChatState>()(
 
         case 'analyzeImage':
           if (state.sourceImageForAnalysis) {
-            await store.analyzeImage(parameters.prompt || input, state.sourceImageForAnalysis, { override: messageOverride });
+            logProcessStep(metrics, 'invoking analyzeImage (analysis source)');
+            await store.analyzeImage(parameters.prompt || input, state.sourceImageForAnalysis, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'analyzeImage finished');
             store.setSourceImageForAnalysis(null);
           } else if (state.sourceImageForEditing) {
-            await store.analyzeImage(parameters.prompt || input, state.sourceImageForEditing, { override: messageOverride });
+            logProcessStep(metrics, 'invoking analyzeImage (editing source)');
+            await store.analyzeImage(parameters.prompt || input, state.sourceImageForEditing, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'analyzeImage finished');
             // 分析后不清除图像，用户可能还想编辑
           } else {
             // 🖼️ 检查是否有缓存的图像可以分析
             const cachedImage = contextManager.getCachedImage();
             if (cachedImage) {
               console.log('🖼️ 使用缓存的图像进行分析:', cachedImage.imageId);
-              await store.analyzeImage(parameters.prompt || input, cachedImage.imageData, { override: messageOverride });
+              logProcessStep(metrics, 'invoking analyzeImage (cached image)');
+              await store.analyzeImage(parameters.prompt || input, cachedImage.imageData, { override: messageOverride, metrics });
+              logProcessStep(metrics, 'analyzeImage finished');
             } else {
               throw new Error('没有可分析的图像');
             }
@@ -2227,7 +2559,9 @@ export const useAIChatStore = create<AIChatState>()(
           console.log('🔧 store 对象:', store);
           console.log('🔧 generateTextResponse 方法存在:', typeof store.generateTextResponse);
           try {
-            const result = await store.generateTextResponse(parameters.prompt, { override: messageOverride });
+            logProcessStep(metrics, 'invoking generateTextResponse');
+            const result = await store.generateTextResponse(parameters.prompt, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'generateTextResponse finished');
             console.log('✅ generateTextResponse 执行完成，返回值:', result);
           } catch (error) {
             console.error('❌ generateTextResponse 执行失败:', error);
@@ -2254,8 +2588,10 @@ export const useAIChatStore = create<AIChatState>()(
           stage: '已终止'
         }
       }));
+      logProcessStep(metrics, 'executeProcessFlow encountered error');
       throw err;
     }
+    logProcessStep(metrics, 'executeProcessFlow done');
   },
 
   // 智能工具选择功能 - 统一入口（支持并行生成）
@@ -2413,8 +2749,8 @@ export const useAIChatStore = create<AIChatState>()(
     contextManager.resetIteration();
     console.log('🔄 禁用迭代模式');
   },
-
-    }),
+      };
+    },
     {
       name: 'ai-chat-preferences',
       storage: createJSONStorage<Partial<AIChatState>>(() =>

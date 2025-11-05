@@ -60,6 +60,7 @@ export interface OperationHistory {
 export interface ImageHistory {
   id: string;
   imageData: string;
+  imageRemoteUrl?: string;
   prompt: string;
   timestamp: Date;
   operationType: string;
@@ -76,6 +77,17 @@ export interface SerializedChatMessage {
   webSearchResult?: unknown;
   // 可选：用于在聊天记录中显示的缩略图/小图
   imageData?: string;
+  imageRemoteUrl?: string;
+  thumbnail?: string;
+  expectsImageOutput?: boolean;
+  sourceImageData?: string;
+  sourceImagesData?: string[];
+  generationStatus?: {
+    isGenerating: boolean;
+    progress: number;
+    error: string | null;
+    stage?: string;
+  };
   // 🔥 新增：OSS 图片 URL（优化性能）
   imageUrl?: string;
 }
@@ -97,6 +109,8 @@ export interface SerializedImageHistoryEntry {
   operationType: string;
   parentImageId: string | null;
   thumbnail: string | null;
+  imageRemoteUrl: string | null;
+  imageData?: string | null;
 }
 
 export interface SerializedConversationContext {

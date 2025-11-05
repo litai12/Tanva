@@ -1439,7 +1439,7 @@ const AIChatDialog: React.FC = () => {
                     )}
 
                     {/* 如果有图像或源图像，使用特殊布局 */}
-                    {(message.imageData || message.sourceImageData || message.sourceImagesData) ? (
+                    {(message.imageData || message.imageRemoteUrl || message.thumbnail || message.sourceImageData || message.sourceImagesData) ? (
                       <div className={cn(
                         "inline-block rounded-lg p-3",
                         message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
@@ -1461,7 +1461,7 @@ const AIChatDialog: React.FC = () => {
                         )}
 
                         {/* AI消息：同时显示文本回复和图像 */}
-                        {message.type === 'ai' && message.imageData ? (
+                        {message.type === 'ai' && (message.imageRemoteUrl || message.imageData || message.thumbnail) ? (
                           <div className="space-y-3">
                             {/* 文本回复部分 */}
                             <div className="text-sm leading-relaxed text-black break-words markdown-content">
@@ -1493,16 +1493,33 @@ const AIChatDialog: React.FC = () => {
                             
                             {/* 图像部分 */}
                             <div className="flex justify-center">
-                              <img
-                                src={`data:image/png;base64,${message.imageData}`}
-                                alt="AI生成的图像"
-                                className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleImagePreview(`data:image/png;base64,${message.imageData}`, 'AI生成的图像');
-                                }}
-                                title="点击全屏预览"
-                              />
+                              {(() => {
+                                const imageSrc =
+                                  message.imageRemoteUrl ||
+                                  (message.imageData
+                                    ? (message.imageData.startsWith('data:image')
+                                        ? message.imageData
+                                        : `data:image/png;base64,${message.imageData}`)
+                                    : undefined) ||
+                                  (message.thumbnail
+                                    ? (message.thumbnail.startsWith('data:image')
+                                        ? message.thumbnail
+                                        : `data:image/png;base64,${message.thumbnail}`)
+                                    : undefined);
+                                if (!imageSrc) return null;
+                                return (
+                                  <img
+                                    src={imageSrc}
+                                    alt="AI生成的图像"
+                                    className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleImagePreview(imageSrc, 'AI生成的图像');
+                                    }}
+                                    title="点击全屏预览"
+                                  />
+                                );
+                              })()}
                             </div>
                           </div>
                         ) : (

@@ -13,9 +13,37 @@ import type {
   AIImageAnalysisResult,
   AITextChatResult,
   AIServiceResponse,
+  SupportedAIProvider,
 } from '@/types/ai';
 
 const API_BASE_URL = '/api';
+
+type ImageResponseLogMeta = {
+  endpoint: string;
+  provider?: SupportedAIProvider;
+  model?: string;
+  prompt?: string;
+};
+
+const truncateText = (value: string, maxLength: number = 80) =>
+  typeof value === 'string' && value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+
+const logAIImageResponse = (
+  meta: ImageResponseLogMeta,
+  payload: { imageData?: string; textResponse?: string }
+) => {
+  const hasImageData = typeof payload.imageData === 'string' && payload.imageData.trim().length > 0;
+  const logger = hasImageData ? console.log : console.warn;
+
+  logger(`${hasImageData ? '🖼️' : '📝'} [AI API] ${meta.endpoint} 响应摘要`, {
+    provider: meta.provider || 'unknown',
+    model: meta.model || 'unspecified',
+    promptPreview: meta.prompt ? truncateText(meta.prompt, 60) : 'N/A',
+    hasImageData,
+    imageDataLength: payload.imageData?.length || 0,
+    textResponsePreview: payload.textResponse ? truncateText(payload.textResponse, 80) : 'N/A'
+  });
+};
 
 /**
  * 执行带有自动令牌刷新的 fetch 请求
@@ -78,6 +106,19 @@ export async function generateImageViaAPI(request: AIImageGenerateRequest): Prom
     const resolvedModel =
       request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
 
+    logAIImageResponse(
+      {
+        endpoint: 'generate-image',
+        provider: request.aiProvider,
+        model: resolvedModel,
+        prompt: request.prompt
+      },
+      {
+        imageData: data.imageData,
+        textResponse: data.textResponse
+      }
+    );
+
     // 构建返回结果
     return {
       success: true,
@@ -136,6 +177,19 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
     const resolvedModel =
       request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
 
+    logAIImageResponse(
+      {
+        endpoint: 'edit-image',
+        provider: request.aiProvider,
+        model: resolvedModel,
+        prompt: request.prompt
+      },
+      {
+        imageData: data.imageData,
+        textResponse: data.textResponse
+      }
+    );
+
     return {
       success: true,
       data: {
@@ -192,6 +246,19 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
 
     const resolvedModel =
       request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
+
+    logAIImageResponse(
+      {
+        endpoint: 'blend-images',
+        provider: request.aiProvider,
+        model: resolvedModel,
+        prompt: request.prompt
+      },
+      {
+        imageData: data.imageData,
+        textResponse: data.textResponse
+      }
+    );
 
     return {
       success: true,
