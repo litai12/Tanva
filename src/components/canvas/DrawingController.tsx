@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import paper from 'paper';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
@@ -7,10 +7,12 @@ import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
 import ImageContainer from './ImageContainer';
+import SelectionGroupToolbar from './SelectionGroupToolbar';
 import { DrawingLayerManager } from './drawing/DrawingLayerManager';
 import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { logger } from '@/utils/logger';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
+import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
@@ -54,13 +56,16 @@ interface DrawingControllerProps {
 
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, fillColor, strokeWidth, isEraser, hasFill, setDrawMode } = useToolStore();
-  const { zoom } = useCanvasStore();
+  const zoom = useCanvasStore((state) => state.zoom);
+  const panX = useCanvasStore((state) => state.panX);
+  const panY = useCanvasStore((state) => state.panY);
   const { toggleVisibility } = useLayerStore();
   const { setSourceImageForEditing, showDialog: showAIDialog } = useAIChatStore();
   const projectId = useProjectContentStore((s) => s.projectId);
   const projectAssets = useProjectContentStore((s) => s.content?.assets);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   const lastDrawModeRef = useRef<string>(drawMode);
+  const [isGroupCapturePending, setIsGroupCapturePending] = useState(false);
 
   // 初始化图层管理器
   useEffect(() => {
@@ -776,6 +781,149 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       handleScreenshot();
     }
   }, [drawMode, handleScreenshot]);
+
+  // ========== 组合选择工具栏 ==========
+  const selectedImageInstances = useMemo(() => {
+    if (!imageTool.selectedImageIds?.length) return [];
+    const set = new Set(imageTool.selectedImageIds);
+    return imageTool.imageInstances.filter((instance) => set.has(instance.id));
+  }, [imageTool.imageInstances, imageTool.selectedImageIds]);
+
+  const selectedModelInstances = useMemo(() => {
+    if (!model3DTool.selectedModel3DIds?.length) return [];
+    const set = new Set(model3DTool.selectedModel3DIds);
+    return model3DTool.model3DInstances.filter((instance) => set.has(instance.id));
+  }, [model3DTool.model3DInstances, model3DTool.selectedModel3DIds]);
+
+  const selectedPaperItems = useMemo(() => {
+    const set = new Set<paper.Item>();
+    if (selectionTool.selectedPath) set.add(selectionTool.selectedPath);
+    if (Array.isArray(selectionTool.selectedPaths)) {
+      selectionTool.selectedPaths.forEach((item) => {
+        if (item) set.add(item);
+      });
+    }
+    return Array.from(set);
+  }, [selectionTool.selectedPath, selectionTool.selectedPaths]);
+
+  const groupSelectionCount = selectedImageInstances.length + selectedModelInstances.length + selectedPaperItems.length;
+  const isGroupSelection = groupSelectionCount >= 2;
+
+  const groupPaperBounds = useMemo(() => {
+    if (!isGroupSelection) return null;
+    const bounds = BoundsCalculator.calculateSelectionBounds(
+      selectedImageInstances,
+      selectedModelInstances,
+      selectedPaperItems,
+      0
+    );
+    if (bounds.isEmpty) return null;
+    return bounds;
+  }, [isGroupSelection, selectedImageInstances, selectedModelInstances, selectedPaperItems]);
+
+  const paperRectToScreen = useCallback((rect: { x: number; y: number; width: number; height: number } | null) => {
+    if (!rect || !paper.view) return null;
+    try {
+      const dpr = window.devicePixelRatio || 1;
+      const topLeft = paper.view.projectToView(new paper.Point(rect.x, rect.y));
+      const bottomRight = paper.view.projectToView(new paper.Point(rect.x + rect.width, rect.y + rect.height));
+      if (
+        !Number.isFinite(topLeft.x) ||
+        !Number.isFinite(topLeft.y) ||
+        !Number.isFinite(bottomRight.x) ||
+        !Number.isFinite(bottomRight.y)
+      ) {
+        return null;
+      }
+      return {
+        x: topLeft.x / dpr,
+        y: topLeft.y / dpr,
+        width: (bottomRight.x - topLeft.x) / dpr,
+        height: (bottomRight.y - topLeft.y) / dpr,
+      };
+    } catch (error) {
+      console.warn('Group toolbar 坐标转换失败:', error);
+      return null;
+    }
+  }, [zoom, panX, panY]);
+
+  const groupScreenBounds = useMemo(() => paperRectToScreen(groupPaperBounds), [groupPaperBounds, paperRectToScreen]);
+
+  const handleGroupCapture = useCallback(async () => {
+    if (!isGroupSelection || !groupPaperBounds) return;
+    if (isGroupCapturePending) return;
+    setIsGroupCapturePending(true);
+    try {
+      const selection = {
+        paperItems: selectedPaperItems,
+        imageIds: [...(imageTool.selectedImageIds ?? [])],
+        modelIds: [...(model3DTool.selectedModel3DIds ?? [])],
+      };
+      const result = await AutoScreenshotService.captureAutoScreenshot(
+        imageTool.imageInstances,
+        model3DTool.model3DInstances,
+        {
+          format: 'png',
+          includeBackground: true,
+          autoDownload: false,
+          selection,
+        }
+      );
+
+      if (result.success && result.dataUrl) {
+        const boundsPayload = {
+          x: groupPaperBounds.x,
+          y: groupPaperBounds.y,
+          width: groupPaperBounds.width,
+          height: groupPaperBounds.height,
+        };
+
+        if (quickImageUpload.handleQuickImageUploaded) {
+          await quickImageUpload.handleQuickImageUploaded(
+            result.dataUrl,
+            `group-${Date.now()}.png`,
+            boundsPayload,
+            undefined,
+            'manual'
+          );
+        } else {
+          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+            detail: {
+              imageData: result.dataUrl,
+              fileName: `group-${Date.now()}.png`,
+              selectedImageBounds: boundsPayload,
+              operationType: 'manual',
+            }
+          }));
+        }
+
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '已生成组合图层', type: 'success' }
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: result.error || '组合失败，请重试', type: 'error' }
+        }));
+      }
+    } catch (error) {
+      console.error('Group capture failed:', error);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '组合失败，请重试', type: 'error' }
+      }));
+    } finally {
+      setIsGroupCapturePending(false);
+    }
+  }, [
+    isGroupSelection,
+    groupPaperBounds,
+    isGroupCapturePending,
+    imageTool.imageInstances,
+    model3DTool.model3DInstances,
+    imageTool.selectedImageIds,
+    model3DTool.selectedModel3DIds,
+    selectedPaperItems,
+    quickImageUpload.handleQuickImageUploaded,
+  ]);
 
   // ========== 初始化交互控制器Hook ==========
   useInteractionController({
@@ -1929,6 +2077,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
             onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
             getImageDataForEditing={imageTool.getImageDataForEditing}
+            showIndividualTools={!isGroupSelection}
           />
         );
       })}
@@ -1954,6 +2103,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           />
         );
       })}
+
+      {isGroupSelection && groupScreenBounds && (
+        <SelectionGroupToolbar
+          bounds={groupScreenBounds}
+          selectedCount={groupSelectionCount}
+          onCapture={handleGroupCapture}
+          isCapturing={isGroupCapturePending}
+        />
+      )}
 
       {/* 文本选择框覆盖层 */}
       <TextSelectionOverlay

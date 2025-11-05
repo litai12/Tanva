@@ -34,6 +34,7 @@ interface ImageContainerProps {
   onMoveLayerDown?: (imageId: string) => void; // 图层下移回调
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
+  showIndividualTools?: boolean;
 }
 
 const ImageContainer: React.FC<ImageContainerProps> = ({
@@ -51,7 +52,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onMoveLayerUp,
   onMoveLayerDown,
   onToggleVisibility,
-  getImageDataForEditing
+  getImageDataForEditing,
+  showIndividualTools = true
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -496,7 +498,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       />
 
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部 */}
-      {isSelected && (
+      {isSelected && showIndividualTools && (
         <div
           className={`absolute flex items-center justify-center gap-2 transition-all duration-150 ease-out ${
             !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
@@ -627,7 +629,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       )}
 
       {/* 图层顺序调整按钮 - 只在选中时显示，位于图片右侧 */}
-      {isSelected && (
+      {isSelected && showIndividualTools && (
         <div
           className={`absolute flex flex-col gap-1 transition-all duration-150 ease-out ${
             !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
