@@ -40,6 +40,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     dragImageId: null,
     imageDragStartPoint: null,
     imageDragStartBounds: null,
+    groupImageIds: undefined,
+    groupStartBounds: undefined,
   });
 
   // 图片调整大小状态

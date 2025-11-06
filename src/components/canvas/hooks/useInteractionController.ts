@@ -207,11 +207,27 @@ export const useInteractionController = ({
       if (selectionResult?.type === 'image') {
         const clickedImage = imageTool.imageInstances.find(img => img.id === selectionResult.id);
         if (clickedImage?.isSelected) {
+          const selectedIds = Array.isArray(imageTool.selectedImageIds) && imageTool.selectedImageIds.length > 0
+            ? (imageTool.selectedImageIds.includes(selectionResult.id)
+                ? imageTool.selectedImageIds
+                : [selectionResult.id])
+            : [selectionResult.id];
+
+          const boundsMap: Record<string, { x: number; y: number }> = {};
+          selectedIds.forEach((id) => {
+            const inst = imageTool.imageInstances.find((img) => img.id === id);
+            if (inst) {
+              boundsMap[id] = { x: inst.bounds.x, y: inst.bounds.y };
+            }
+          });
+
           imageTool.setImageDragState({
             isImageDragging: true,
             dragImageId: selectionResult.id,
             imageDragStartPoint: point,
-            imageDragStartBounds: { x: clickedImage.bounds.x, y: clickedImage.bounds.y }
+            imageDragStartBounds: { x: clickedImage.bounds.x, y: clickedImage.bounds.y },
+            groupImageIds: selectedIds,
+            groupStartBounds: boundsMap,
           });
         }
       }
@@ -279,20 +295,32 @@ export const useInteractionController = ({
       }
 
       // 处理图像拖拽
-      if (imageTool.imageDragState.isImageDragging &&
+      if (
+        imageTool.imageDragState.isImageDragging &&
         imageTool.imageDragState.dragImageId &&
         imageTool.imageDragState.imageDragStartPoint &&
-        imageTool.imageDragState.imageDragStartBounds) {
-
+        imageTool.imageDragState.imageDragStartBounds
+      ) {
         const deltaX = point.x - imageTool.imageDragState.imageDragStartPoint.x;
         const deltaY = point.y - imageTool.imageDragState.imageDragStartPoint.y;
 
-        const newPosition = {
-          x: imageTool.imageDragState.imageDragStartBounds.x + deltaX,
-          y: imageTool.imageDragState.imageDragStartBounds.y + deltaY
-        };
+        const groupIds = imageTool.imageDragState.groupImageIds?.length
+          ? imageTool.imageDragState.groupImageIds
+          : [imageTool.imageDragState.dragImageId];
+        const groupStart = imageTool.imageDragState.groupStartBounds || {};
 
-        imageTool.handleImageMove(imageTool.imageDragState.dragImageId, newPosition, false);
+        groupIds.forEach((id) => {
+          const start = groupStart[id] || imageTool.imageDragState.imageDragStartBounds;
+          if (!start) {
+            return;
+          }
+          const newPosition = {
+            x: start.x + deltaX,
+            y: start.y + deltaY,
+          };
+          imageTool.handleImageMove(id, newPosition, false);
+        });
+
         return;
       }
 
@@ -380,7 +408,9 @@ export const useInteractionController = ({
           isImageDragging: false,
           dragImageId: null,
           imageDragStartPoint: null,
-          imageDragStartBounds: null
+          imageDragStartBounds: null,
+          groupImageIds: undefined,
+          groupStartBounds: undefined,
         });
         historyService.commit('move-image').catch(() => {});
         return;

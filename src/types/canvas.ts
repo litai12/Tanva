@@ -58,6 +58,8 @@ export interface ImageDragState {
   dragImageId: string | null;
   imageDragStartPoint: paper.Point | null;
   imageDragStartBounds: { x: number; y: number } | null;
+  groupImageIds?: string[];
+  groupStartBounds?: Record<string, { x: number; y: number }>;
 }
 
 // 图片调整大小状态类型
