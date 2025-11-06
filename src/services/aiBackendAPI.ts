@@ -16,6 +16,7 @@ import type {
   AIServiceResponse,
   SupportedAIProvider,
 } from '@/types/ai';
+import { fetchWithAuth } from './authFetch';
 
 const API_BASE_URL = '/api';
 
@@ -87,37 +88,6 @@ const generateUUID = () => {
 
   return `fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
-
-/**
- * 执行带有自动令牌刷新的 fetch 请求
- * 如果收到 401，尝试刷新令牌并重试
- */
-async function fetchWithAuth(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const res = await fetch(input, { ...(init || {}), credentials: 'include' });
-
-  if (res.status !== 401) {
-    return res;
-  }
-
-  // 尝试刷新令牌
-  try {
-    const refreshRes = await fetch(`${API_BASE_URL}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-    });
-
-    if (refreshRes.ok) {
-      // 令牌刷新成功，重试原始请求
-      return fetch(input, { ...(init || {}), credentials: 'include' });
-    }
-  } catch (error) {
-    // 刷新失败，继续返回原始 401 响应
-    console.error('Token refresh failed:', error);
-  }
-
-  // 返回原始的 401 响应
-  return res;
-}
 
 /**
  * 生成图像 - 通过后端 API

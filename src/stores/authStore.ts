@@ -11,6 +11,7 @@ type AuthState = {
   loginWithSms: (phone: string, code: string) => Promise<void>;
   register: (phone: string, password: string, name?: string, email?: string) => Promise<void>;
   logout: () => Promise<void>;
+  forceLogout: (reason?: string) => void;
 };
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -67,5 +68,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch (e: any) {
       set({ loading: false, error: e?.message || '登出失败' });
     }
+  },
+  forceLogout: (reason) => {
+    set({
+      user: null,
+      loading: false,
+      connection: null,
+      error: reason || '登录状态已失效，请重新登录',
+    });
+    try { localStorage.removeItem('mock_user'); } catch {}
   }
 }));

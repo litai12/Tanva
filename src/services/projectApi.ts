@@ -1,4 +1,5 @@
 import { createEmptyProjectContent, type ProjectContentSnapshot } from '@/types/project';
+import { fetchWithAuth } from './authFetch';
 
 export type Project = {
   id: string;
@@ -21,19 +22,6 @@ async function json<T>(res: Response): Promise<T> {
     throw new Error(msg);
   }
   return res.json();
-}
-
-async function fetchWithAuth(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const res = await fetch(input, { ...(init || {}), credentials: 'include' });
-  if (res.status !== 401) return res;
-  // 尝试刷新一次
-  try {
-    const r = await fetch(`/api/auth/refresh`, { method: 'POST', credentials: 'include' });
-    if (r.ok) {
-      return fetch(input, { ...(init || {}), credentials: 'include' });
-    }
-  } catch {}
-  return res; // 返回401
 }
 
 export const projectApi = {

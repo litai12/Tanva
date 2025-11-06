@@ -3,7 +3,7 @@
  * 协调所有鼠标事件处理，管理不同工具间的交互
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { clientToProject } from '@/utils/paperCoords';
@@ -15,6 +15,7 @@ import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 interface SelectionTool {
   isSelectionDragging: boolean;
   selectedPath: paper.Path | null;
+  selectedPaths: paper.Path[];
   handleSelectionClick: (point: paper.Point, multiSelect?: boolean) => any;
   updateSelectionBox: (point: paper.Point) => void;
   finishSelectionBox: (point: paper.Point) => void;
@@ -78,6 +79,15 @@ interface SimpleTextTool {
   handleKeyDown: (event: KeyboardEvent) => boolean;
 }
 
+type GroupPathDragMode = 'image';
+
+interface GroupPathDragState {
+  active: boolean;
+  mode: GroupPathDragMode | null;
+  startPoint: paper.Point | null;
+  paths: Array<{ path: paper.Path; startPosition: paper.Point }>;
+}
+
 interface UseInteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   drawMode: DrawMode;
@@ -110,6 +120,90 @@ export const useInteractionController = ({
 
   // 拖拽检测相关常量
   const DRAG_THRESHOLD = 3; // 3像素的拖拽阈值
+  const groupPathDragRef = useRef<GroupPathDragState>({
+    active: false,
+    mode: null,
+    startPoint: null,
+    paths: []
+  });
+
+  const currentSelectedPath = selectionTool.selectedPath;
+  const currentSelectedPaths = selectionTool.selectedPaths ?? [];
+
+  const collectSelectedPaths = useCallback(() => {
+    const set = new Set<paper.Path>();
+    if (currentSelectedPath && !currentSelectedPath.removed) {
+      set.add(currentSelectedPath);
+    }
+    currentSelectedPaths.forEach((path) => {
+      if (path && !path.removed) {
+        set.add(path);
+      }
+    });
+    return Array.from(set);
+  }, [currentSelectedPath, currentSelectedPaths]);
+
+  const resetGroupPathDrag = useCallback(() => {
+    groupPathDragRef.current = {
+      active: false,
+      mode: null,
+      startPoint: null,
+      paths: []
+    };
+  }, []);
+
+  const beginGroupPathDrag = useCallback((startPoint: paper.Point | null, mode: GroupPathDragMode) => {
+    if (!startPoint) {
+      resetGroupPathDrag();
+      return false;
+    }
+
+    const selected = collectSelectedPaths();
+    if (!selected.length) {
+      resetGroupPathDrag();
+      return false;
+    }
+
+    const start = startPoint.clone ? startPoint.clone() : new paper.Point(startPoint.x, startPoint.y);
+    const entries = selected
+      .map((path) => {
+        if (!path || path.removed) return null;
+        const position = path.position;
+        if (!position) return null;
+        const startPosition = position.clone ? position.clone() : new paper.Point(position.x, position.y);
+        return { path, startPosition };
+      })
+      .filter((entry): entry is { path: paper.Path; startPosition: paper.Point } => !!entry);
+
+    if (!entries.length) {
+      resetGroupPathDrag();
+      return false;
+    }
+
+    groupPathDragRef.current = {
+      active: true,
+      mode,
+      startPoint: start,
+      paths: entries
+    };
+    return true;
+  }, [collectSelectedPaths, resetGroupPathDrag]);
+
+  const applyGroupPathDrag = useCallback((point: paper.Point | null, expectedMode: GroupPathDragMode | null = null) => {
+    const state = groupPathDragRef.current;
+    if (!state.active || !state.startPoint || !point) return;
+    if (expectedMode && state.mode !== expectedMode) return;
+
+    const deltaX = point.x - state.startPoint.x;
+    const deltaY = point.y - state.startPoint.y;
+    if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
+
+    state.paths.forEach(({ path, startPosition }) => {
+      if (!path || path.removed || !startPosition) return;
+      const newPosition = new paper.Point(startPosition.x + deltaX, startPosition.y + deltaY);
+      path.position = newPosition;
+    });
+  }, []);
 
   // ========== 鼠标按下事件处理 ==========
   const handleMouseDown = useCallback((event: MouseEvent) => {
@@ -229,6 +323,7 @@ export const useInteractionController = ({
             groupImageIds: selectedIds,
             groupStartBounds: boundsMap,
           });
+          beginGroupPathDrag(point, 'image');
         }
       }
 
@@ -276,7 +371,8 @@ export const useInteractionController = ({
     pathEditor,
     drawingTools,
     imageTool,
-    logger
+    logger,
+    beginGroupPathDrag
   ]);
 
   // ========== 鼠标移动事件处理 ==========
@@ -321,6 +417,7 @@ export const useInteractionController = ({
           imageTool.handleImageMove(id, newPosition, false);
         });
 
+        applyGroupPathDrag(point, 'image');
         return;
       }
 
@@ -382,7 +479,8 @@ export const useInteractionController = ({
     pathEditor,
     drawingTools,
     imageTool,
-    DRAG_THRESHOLD
+    DRAG_THRESHOLD,
+    applyGroupPathDrag
   ]);
 
   // ========== 鼠标抬起事件处理 ==========
@@ -412,6 +510,7 @@ export const useInteractionController = ({
           groupImageIds: undefined,
           groupStartBounds: undefined,
         });
+        resetGroupPathDrag();
         historyService.commit('move-image').catch(() => {});
         return;
       }
@@ -480,7 +579,8 @@ export const useInteractionController = ({
     model3DTool,
     performErase,
     setDrawMode,
-    logger
+    logger,
+    resetGroupPathDrag
   ]);
 
   // ========== 辅助函数 ==========

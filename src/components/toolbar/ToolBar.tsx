@@ -10,6 +10,8 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
 
+const ENABLE_SCREENSHOT_TOOL = false;
+
 // 统一画板：移除 Node 模式专属按钮组件
 
 // 自定义图标组件（仅保留当前使用的）
@@ -541,19 +543,21 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           <Box className="w-4 h-4" />
         </Button>
 
-        {/* 截图工具（仅 Chat 模式） */}
-        <Button
-          variant={drawMode === 'screenshot' ? 'default' : 'outline'}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(drawMode === 'screenshot')
-          )}
-          onClick={() => setDrawMode('screenshot')}
-          title="AI截图 - 自动包含所有元素，同时下载和传入AI对话框"
-        >
-          <Camera className="w-4 h-4" />
-        </Button>
+        {/* 截图工具暂时隐藏，后续需要时启用 ENABLE_SCREENSHOT_TOOL */}
+        {ENABLE_SCREENSHOT_TOOL && (
+          <Button
+            variant={drawMode === 'screenshot' ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(drawMode === 'screenshot')
+            )}
+            onClick={() => setDrawMode('screenshot')}
+            title="AI截图 - 自动包含所有元素，同时下载和传入AI对话框"
+          >
+            <Camera className="w-4 h-4" />
+          </Button>
+        )}
 
       </>
 

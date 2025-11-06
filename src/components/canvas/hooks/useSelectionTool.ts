@@ -42,9 +42,9 @@ export const useSelectionTool = ({
   // ========== 路径选择功能 ==========
 
   // 选择路径并启用编辑模式
-  const handlePathSelect = useCallback((path: paper.Path) => {
+  const handlePathSelect = useCallback((path: paper.Path, preserveExisting: boolean = false) => {
     // 取消之前选中的路径
-    if (selectedPath && selectedPath !== path) {
+    if (!preserveExisting && selectedPath && selectedPath !== path) {
       selectedPath.selected = false;
       selectedPath.fullySelected = false;
       // 恢复原始样式
@@ -434,13 +434,22 @@ export const useSelectionTool = ({
               setSelectedPaths(prev => prev.filter(p => p !== path));
             } else {
               // 添加到选择
-              handlePathSelect(path);
+              handlePathSelect(path, true);
               setSelectedPaths(prev => [...prev, path]);
             }
           } else {
             // 单击：清除其他选择，只选择这个路径
-            clearAllSelections();
-            handlePathSelect(path);
+            const isAlreadySelected =
+              selectedPath === path || selectedPaths.includes(path);
+
+            if (!isAlreadySelected) {
+              clearAllSelections();
+              handlePathSelect(path);
+              setSelectedPaths([path]);
+            } else {
+              handlePathSelect(path, true);
+              setSelectedPaths(prev => prev.includes(path) ? prev : [...prev, path]);
+            }
           }
           logger.debug('选中路径:', path);
           return { type: 'path', path };
@@ -455,7 +464,19 @@ export const useSelectionTool = ({
       startSelectionBox(point);
       return { type: 'selection-box-start', point };
     }
-  }, [imageInstances, model3DInstances, zoom, clearAllSelections, onImageSelect, onModel3DSelect, handlePathSelect, startSelectionBox, detectClickedObject]);
+  }, [
+    imageInstances,
+    model3DInstances,
+    zoom,
+    clearAllSelections,
+    onImageSelect,
+    onModel3DSelect,
+    handlePathSelect,
+    startSelectionBox,
+    detectClickedObject,
+    selectedPath,
+    selectedPaths
+  ]);
 
   return {
     // 状态
