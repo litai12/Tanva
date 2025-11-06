@@ -4,7 +4,7 @@
  * 固定在屏幕底部中央的对话框，用于AI图像生成
  */
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -29,6 +29,23 @@ import type { AIStreamProgressEvent, SupportedAIProvider } from '@/types/ai';
 import PromptOptimizationPanel from '@/components/chat/PromptOptimizationPanel';
 import type { PromptOptimizationSettings } from '@/components/chat/PromptOptimizationPanel';
 import promptOptimizationService from '@/services/promptOptimizationService';
+
+type ManualModeOption = { value: ManualAIMode; label: string; description: string };
+
+const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
+  { value: 'auto', label: 'Auto', description: '智能判断并选择最佳工具' },
+  { value: 'text', label: 'Text', description: '直接进入文本对话模式' },
+  { value: 'generate', label: 'Generate', description: '始终调用生图功能' },
+  { value: 'edit', label: 'Edit', description: '使用图生图编辑功能' },
+  { value: 'blend', label: 'Blend', description: '多图融合生成新画面' },
+  { value: 'analyze', label: 'Analysis', description: '进行图像理解与分析' }
+];
+
+const PROVIDER_MODE_OPTIONS: Partial<Record<SupportedAIProvider, ManualModeOption[]>> = {
+  gemini: BASE_MANUAL_MODE_OPTIONS,
+  banana: BASE_MANUAL_MODE_OPTIONS,
+  runninghub: BASE_MANUAL_MODE_OPTIONS
+};
 
 const MinimalGlobeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg
@@ -151,15 +168,11 @@ const AIChatDialog: React.FC = () => {
   // 🔥 跟踪已处理过计数减少的消息 ID（避免重复减少）
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
 
-  const manualModeOptions: { value: ManualAIMode; label: string; description: string }[] = [
-    { value: 'auto', label: 'Auto', description: '智能判断并选择最佳工具' },
-    { value: 'text', label: 'Text', description: '直接进入文本对话模式' },
-    { value: 'generate', label: 'Generate', description: '始终调用生图功能' },
-    { value: 'edit', label: 'Edit', description: '使用图生图编辑功能' },
-    { value: 'blend', label: 'Blend', description: '多图融合生成新画面' },
-    { value: 'analyze', label: 'Analysis', description: '进行图像理解与分析' }
-  ];
-  const currentManualMode = manualModeOptions.find((option) => option.value === manualAIMode) ?? manualModeOptions[0];
+  const availableManualModeOptions = useMemo(() => {
+    return PROVIDER_MODE_OPTIONS[aiProvider] ?? BASE_MANUAL_MODE_OPTIONS;
+  }, [aiProvider]);
+  const currentManualMode =
+    availableManualModeOptions.find((option) => option.value === manualAIMode) ?? availableManualModeOptions[0];
 
   // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
@@ -167,7 +180,19 @@ const AIChatDialog: React.FC = () => {
     { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' }
   ];
   const currentAIProvider = aiProviderOptions.find((option) => option.value === aiProvider) ?? aiProviderOptions[0];
-  
+  const defaultAIProviderValue = aiProviderOptions[0]?.value;
+  const providerButtonLabel = currentAIProvider?.label ?? aiProviderOptions[0]?.label ?? '选择供应商';
+  const manualButtonLabel = currentManualMode?.label ?? availableManualModeOptions[0]?.label ?? '选择模式';
+
+  useEffect(() => {
+    if (!availableManualModeOptions.some((option) => option.value === manualAIMode)) {
+      const fallback = availableManualModeOptions[0];
+      if (fallback) {
+        setManualAIMode(fallback.value);
+      }
+    }
+  }, [aiProvider, availableManualModeOptions, manualAIMode, setManualAIMode]);
+
   // 图片预览状态
   const [previewImage, setPreviewImage] = useState<{
     src: string;
@@ -1061,93 +1086,120 @@ const AIChatDialog: React.FC = () => {
                 rows={showHistory ? 3 : 1}
               />
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={false}
-                    data-dropdown-trigger="true"
-                    className={cn(
-                      "absolute left-2 bottom-2 h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
-                      "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                      manualAIMode !== 'auto'
-                        ? "bg-blue-50 border-blue-300 text-blue-700"
-                        : !generationStatus.isGenerating
-                          ? "hover:bg-liquid-glass-hover text-gray-700"
-                          : "opacity-50 cursor-not-allowed text-gray-400"
-                    )}
+              <div className="absolute left-2 bottom-2 flex items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={false}
+                      className={cn(
+                        "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
+                        "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                        defaultAIProviderValue && aiProvider !== defaultAIProviderValue
+                          ? "bg-purple-50 border-purple-300 text-purple-700"
+                          : !generationStatus.isGenerating
+                            ? "hover:bg-liquid-glass-hover text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                      )}
+                    >
+                      <MinimalGlobeIcon className="h-3.5 w-3.5" />
+                      <span className="font-medium">{providerButtonLabel}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    side="top"
+                    sideOffset={8}
+                    className="min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
                   >
-                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                    <span className="font-medium">{currentManualMode.label}</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  side="top"
-                  sideOffset={8}
-                  className="dropdown-menu-root min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
-                >
-                  <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
-                    快速切换模式
-                  </DropdownMenuLabel>
-                  {manualModeOptions.map((option) => {
-                    const isActive = manualAIMode === option.value;
-                    return (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onClick={(event) => {
-                          setManualAIMode(option.value);
-                          const root = (event.currentTarget as HTMLElement).closest('.dropdown-menu-root');
-                          const trigger = root?.querySelector('[data-dropdown-trigger="true"]') as HTMLButtonElement | null;
-                          if (trigger && !trigger.disabled) {
-                            trigger.click();
-                          }
-                        }}
-                        className={cn(
-                          "flex items-start gap-2 px-3 py-2 text-xs",
-                          isActive ? "bg-blue-50 text-blue-600" : "text-slate-600"
-                        )}
-                      >
-                        <div className="flex-1 space-y-0.5">
-                          <div className="font-medium leading-none">{option.label}</div>
-                          <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
-                        </div>
-                        {isActive && <Check className="h-3.5 w-3.5 text-blue-500" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
+                    <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
+                      AI供应商
+                    </DropdownMenuLabel>
+                    {aiProviderOptions.map((option) => {
+                      const isActive = aiProvider === option.value;
+                      return (
+                        <DropdownMenuItem
+                          key={option.value}
+                          onClick={() => {
+                            console.log('🤖 选择 AI 提供商:', option.value, option.label);
+                            setAIProvider(option.value);
+                          }}
+                          className={cn(
+                            "flex items-start gap-2 px-3 py-2 text-xs cursor-pointer",
+                            isActive ? "bg-purple-50 text-purple-600" : "text-slate-600 hover:bg-slate-50"
+                          )}
+                        >
+                          <div className="flex-1 space-y-0.5">
+                            <div className="font-medium leading-none">{option.label}</div>
+                            <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
+                          </div>
+                          {isActive && <Check className="h-3.5 w-3.5 text-purple-500" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-                  {/* AI供应商选择分隔符 */}
-                  <div className="my-1 h-px bg-slate-200" />
-
-                  <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
-                    AI供应商
-                  </DropdownMenuLabel>
-                  {aiProviderOptions.map((option) => {
-                    const isActive = aiProvider === option.value;
-                    return (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onClick={(event) => {
-                          console.log('🤖 选择 AI 提供商:', option.value, option.label);
-                          setAIProvider(option.value);
-                        }}
-                        className={cn(
-                          "flex items-start gap-2 px-3 py-2 text-xs cursor-pointer",
-                          isActive ? "bg-purple-50 text-purple-600" : "text-slate-600 hover:bg-slate-50"
-                        )}
-                      >
-                        <div className="flex-1 space-y-0.5">
-                          <div className="font-medium leading-none">{option.label}</div>
-                          <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
-                        </div>
-                        {isActive && <Check className="h-3.5 w-3.5 text-purple-500" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={false}
+                      data-dropdown-trigger="true"
+                      className={cn(
+                        "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
+                        "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                        manualAIMode !== 'auto'
+                          ? "bg-blue-50 border-blue-300 text-blue-700"
+                          : !generationStatus.isGenerating
+                            ? "hover:bg-liquid-glass-hover text-gray-700"
+                            : "opacity-50 cursor-not-allowed text-gray-400"
+                      )}
+                    >
+                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                      <span className="font-medium">{manualButtonLabel}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    side="top"
+                    sideOffset={8}
+                    className="dropdown-menu-root min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
+                  >
+                    <DropdownMenuLabel className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400">
+                      快速切换模式
+                    </DropdownMenuLabel>
+                    {availableManualModeOptions.map((option) => {
+                      const isActive = manualAIMode === option.value;
+                      return (
+                        <DropdownMenuItem
+                          key={option.value}
+                          onClick={(event) => {
+                            setManualAIMode(option.value);
+                            const root = (event.currentTarget as HTMLElement).closest('.dropdown-menu-root');
+                            const trigger = root?.querySelector('[data-dropdown-trigger="true"]') as HTMLButtonElement | null;
+                            if (trigger && !trigger.disabled) {
+                              trigger.click();
+                            }
+                          }}
+                          className={cn(
+                            "flex items-start gap-2 px-3 py-2 text-xs",
+                            isActive ? "bg-blue-50 text-blue-600" : "text-slate-600"
+                          )}
+                        >
+                          <div className="flex-1 space-y-0.5">
+                            <div className="font-medium leading-none">{option.label}</div>
+                            <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
+                          </div>
+                          {isActive && <Check className="h-3.5 w-3.5 text-blue-500" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
 
               {/* 长宽比选择按钮 - 最左边 */}
               <Button
