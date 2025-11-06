@@ -91,6 +91,7 @@ export class AutoScreenshotService {
     const opts = { ...this.DEFAULT_OPTIONS, ...options };
     
     let restoreSelectionVisuals: (() => void) | null = null;
+    let restoreFlowHandles: (() => void) | null = null;
     this.currentImageOrderMap = new Map(
       imageInstances.map((img, index) => [img.id, index])
     );
@@ -100,6 +101,7 @@ export class AutoScreenshotService {
 
     try {
       logger.debug('🖼️ 开始自动截图...');
+      restoreFlowHandles = this.hideReactFlowHandles();
       
       let selectionState = this.detectSelection(imageInstances, model3DInstances);
 
@@ -238,6 +240,11 @@ export class AutoScreenshotService {
         restoreSelectionVisuals?.();
       } catch (restoreError) {
         logger.warn('恢复选中样式失败:', restoreError);
+      }
+      try {
+        restoreFlowHandles?.();
+      } catch (restoreHandlesError) {
+        logger.warn('恢复Flow句柄可见性失败:', restoreHandlesError);
       }
     }
   }
@@ -1248,6 +1255,59 @@ export class AutoScreenshotService {
     }
 
     return false;
+  }
+
+  /**
+   * 暂时隐藏 React Flow 句柄，避免截图时出现黑色圆点
+   */
+  private static hideReactFlowHandles(): () => void {
+    if (typeof document === 'undefined') {
+      return () => {};
+    }
+
+    const selectors = [
+      '.react-flow__handle',
+      '.react-flow__node-resizer-handle',
+      '.react-flow__resize-control'
+    ];
+
+    const originalStates: Array<{
+      el: HTMLElement;
+      visibility: string;
+      opacity: string;
+      pointerEvents: string;
+    }> = [];
+
+    try {
+      selectors.forEach((selector) => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach((node) => {
+          const el = node as HTMLElement | null;
+          if (!el || !el.style) return;
+          originalStates.push({
+            el,
+            visibility: el.style.visibility,
+            opacity: el.style.opacity,
+            pointerEvents: el.style.pointerEvents,
+          });
+          el.style.visibility = 'hidden';
+          el.style.opacity = '0';
+          el.style.pointerEvents = 'none';
+        });
+      });
+    } catch (error) {
+      logger.warn('隐藏React Flow句柄失败:', error);
+    }
+
+    return () => {
+      for (const state of originalStates) {
+        const { el } = state;
+        if (!el || !el.style) continue;
+        el.style.visibility = state.visibility;
+        el.style.opacity = state.opacity;
+        el.style.pointerEvents = state.pointerEvents;
+      }
+    };
   }
 
   private static extractImageIdFromItem(item: paper.Item): string | null {

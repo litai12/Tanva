@@ -10,58 +10,66 @@ type Props = {
 const clampProgress = (value: number) => Math.max(0, Math.min(100, value));
 
 export default function GenerationProgressBar({ status, progress }: Props) {
-  const [visible, setVisible] = React.useState(false);
-  const [displayedProgress, setDisplayedProgress] = React.useState(0);
+  const statusKey: GenerationStatus = status ?? 'idle';
   const numericProgress = typeof progress === 'number' ? clampProgress(progress) : null;
+  const baseProgress =
+    numericProgress ??
+    (statusKey === 'succeeded' || statusKey === 'failed'
+      ? 100
+      : statusKey === 'running'
+        ? 8
+        : 0);
+  const targetVisible = statusKey === 'running' || statusKey === 'succeeded' || statusKey === 'failed';
+
+  const [displayedProgress, setDisplayedProgress] = React.useState(baseProgress);
+  const [visible, setVisible] = React.useState(targetVisible);
 
   React.useEffect(() => {
-    if (status === 'running') {
-      setVisible(true);
-      if (numericProgress !== null) {
-        setDisplayedProgress(numericProgress);
-        return;
-      }
+    setDisplayedProgress(baseProgress);
+  }, [baseProgress]);
 
-      setDisplayedProgress((prev) => (prev <= 8 ? 8 : prev));
-      const interval = window.setInterval(() => {
-        setDisplayedProgress((prev) => {
-          if (prev >= 92) return prev;
-          const increment = prev < 30 ? 10 : prev < 60 ? 6 : 3;
-          return Math.min(prev + increment, 92);
-        });
-      }, 450);
-
-      return () => window.clearInterval(interval);
+  React.useEffect(() => {
+    if (!targetVisible) {
+      setVisible(false);
+      return;
     }
-
-    if (status === 'succeeded' || status === 'failed') {
-      setVisible(true);
-      setDisplayedProgress(100);
-      const timeout = window.setTimeout(() => {
-        setVisible(false);
-        setDisplayedProgress(0);
-      }, 1500);
+    setVisible(true);
+    if (statusKey === 'succeeded' || statusKey === 'failed') {
+      const timeout = window.setTimeout(() => setVisible(false), 1500);
       return () => window.clearTimeout(timeout);
     }
-
-    setVisible(false);
-    setDisplayedProgress(0);
-  }, [status]);
+    return;
+  }, [statusKey, targetVisible]);
 
   React.useEffect(() => {
-    if (status === 'running' && numericProgress !== null) {
-      setVisible(true);
+    if (statusKey !== 'running' || numericProgress !== null) return;
+    const interval = window.setInterval(() => {
+      setDisplayedProgress((prev) => {
+        if (prev >= 92) return prev;
+        const increment = prev < 30 ? 10 : prev < 60 ? 6 : 3;
+        return Math.min(prev + increment, 92);
+      });
+    }, 450);
+    return () => window.clearInterval(interval);
+  }, [statusKey, numericProgress]);
+
+  React.useEffect(() => {
+    if (statusKey === 'running' && numericProgress !== null) {
       setDisplayedProgress(numericProgress);
     }
-  }, [status, numericProgress]);
+  }, [statusKey, numericProgress]);
 
-  const stateClass = `flow-node-progress flow-node-progress--${status ?? 'idle'}`;
-  const isActive = status === 'running' || visible;
-  const fillWidth = isActive ? displayedProgress : 0;
+  if (!visible) {
+    return null;
+  }
+
+  const stateClass = `flow-node-progress flow-node-progress--${statusKey}`;
+  const isDeterminate = statusKey !== 'running' || numericProgress !== null;
+  const width = clampProgress(displayedProgress);
 
   return (
-    <div className={stateClass} data-active={isActive ? 'true' : 'false'}>
-      <div className="flow-node-progress__fill" style={{ width: `${fillWidth}%` }} />
+    <div className={stateClass} data-active="true" data-indeterminate={isDeterminate ? 'false' : 'true'}>
+      <div className="flow-node-progress__fill" style={{ width: `${width}%` }} />
     </div>
   );
 }

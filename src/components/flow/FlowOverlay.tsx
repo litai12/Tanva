@@ -39,7 +39,7 @@ import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
-import type { AIImageResult } from '@/types/ai';
+import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
 
 type RFNode = Node<any>;
@@ -417,7 +417,6 @@ function FlowInner() {
       if (data) {
         delete data.status;
         delete data.error;
-        delete data.progress;
       }
       return {
         id: n.id,
@@ -575,7 +574,22 @@ function FlowInner() {
     const ns = contentFlow?.nodes || [];
     const es = contentFlow?.edges || [];
     hydratingFromStoreRef.current = true;
-    setNodes(tplNodesToRfNodes(ns));
+    const nextNodes = tplNodesToRfNodes(ns);
+    setNodes((prev) => {
+      const prevMap = new Map((prev as RFNode[]).map((node) => [node.id, node]));
+      return nextNodes.map((node) => {
+        const prevNode = prevMap.get(node.id);
+        if (!prevNode) return node as RFNode;
+        return {
+          ...prevNode,
+          position: node.position,
+          data: { ...(prevNode.data || {}), ...(node.data || {}) },
+          width: node.width ?? prevNode.width,
+          height: node.height ?? prevNode.height,
+          style: node.style || prevNode.style,
+        } as RFNode;
+      });
+    });
     setEdges(tplEdgesToRfEdges(es));
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
     try { lastSyncedJSONRef.current = JSON.stringify({ n: ns, e: es }); } catch { lastSyncedJSONRef.current = null; }
@@ -1060,7 +1074,7 @@ function FlowInner() {
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
-      : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, progress: 0, boxW: size.w, boxH: size.h }
+      : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
@@ -1314,19 +1328,23 @@ function FlowInner() {
       imageDatas = collectImages(imgEdges);
     }
 
+    const aspectRatioValue = (() => {
+      const raw = (node.data as any)?.aspectRatio;
+      return typeof raw === 'string' && raw.trim().length ? raw.trim() as AIImageGenerateRequest['aspectRatio'] : undefined;
+    })();
+
     if (node.type === 'generate4') {
       const total = Math.max(1, Math.min(4, Number((node.data as any)?.count) || 4));
       setNodes(ns => ns.map(n => n.id === nodeId ? {
         ...n,
-        data: { ...n.data, status: 'running', error: undefined, images: [], progress: 0 }
+        data: { ...n.data, status: 'running', error: undefined, images: [] }
       } : n));
       const produced: string[] = [];
       const updateMultiGenerateProgress = (completedSlots: number) => {
         const ratio = Math.max(0, Math.min(1, completedSlots / total));
-        const percent = Math.round(ratio * 100);
         setNodes(ns => ns.map(n => n.id === nodeId ? {
           ...n,
-          data: { ...n.data, images: [...produced], progress: percent }
+          data: { ...n.data, images: [...produced] }
         } : n));
       };
 
@@ -1340,6 +1358,7 @@ function FlowInner() {
               outputFormat: 'png',
               aiProvider,
               model: imageModel,
+              aspectRatio: aspectRatioValue,
             });
           } else if (imageDatas.length === 1) {
             result = await aiImageService.editImage({
@@ -1348,6 +1367,7 @@ function FlowInner() {
               outputFormat: 'png',
               aiProvider,
               model: imageModel,
+              aspectRatio: aspectRatioValue,
             });
           } else {
             result = await aiImageService.blendImages({
@@ -1356,6 +1376,7 @@ function FlowInner() {
               outputFormat: 'png',
               aiProvider,
               model: imageModel,
+              aspectRatio: aspectRatioValue,
             });
           }
 
@@ -1419,6 +1440,7 @@ function FlowInner() {
           outputFormat: 'png',
           aiProvider,
           model: imageModel,
+          aspectRatio: aspectRatioValue,
         });
       } else if (imageDatas.length === 1) {
         result = await aiImageService.editImage({
@@ -1427,6 +1449,7 @@ function FlowInner() {
           outputFormat: 'png',
           aiProvider,
           model: imageModel,
+          aspectRatio: aspectRatioValue,
         });
       } else {
         result = await aiImageService.blendImages({
@@ -1435,6 +1458,7 @@ function FlowInner() {
           outputFormat: 'png',
           aiProvider,
           model: imageModel,
+          aspectRatio: aspectRatioValue,
         });
       }
 
@@ -1558,7 +1582,7 @@ function FlowInner() {
       },
       addGenerate4: (x = 0, y = 0) => {
         const id = `gen4_${Date.now()}`;
-        setNodes(ns => ns.concat([{ id, type: 'generate4', position: { x, y }, data: { status: 'idle', images: [], count: 4, progress: 0 } }] as any));
+        setNodes(ns => ns.concat([{ id, type: 'generate4', position: { x, y }, data: { status: 'idle', images: [], count: 4 } }] as any));
         return id;
       },
       connect: (source: string, target: string, targetHandle: 'text' | 'img' | 'image1' | 'image2' | 'refer') => {
@@ -1590,7 +1614,7 @@ function FlowInner() {
         type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false } :
         type === 'promptOptimize' ? { text: '', expandedText: '' } :
         type === 'generate' ? { status: 'idle' } :
-        type === 'generate4' ? { status: 'idle', images: [], count: 4, progress: 0 } :
+        type === 'generate4' ? { status: 'idle', images: [], count: 4 } :
         type === 'generateRef' ? { status: 'idle', referencePrompt: undefined } :
         type === 'analysis' ? { status: 'idle', prompt: '', analysisPrompt: undefined } :
         { imageData: undefined }
@@ -1704,7 +1728,7 @@ function FlowInner() {
       const newId = generateId(n.type || 'n');
       idMap.set(n.id, newId);
       const data: any = { ...(n.data || {}) };
-      delete data.onRun; delete data.onSend; delete data.status; delete data.error; delete data.progress;
+      delete data.onRun; delete data.onSend; delete data.status; delete data.error;
       return {
         id: newId,
         type: n.type as any,

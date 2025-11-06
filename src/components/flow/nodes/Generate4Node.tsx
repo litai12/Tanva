@@ -2,7 +2,6 @@ import React from 'react';
 import { Handle, Position } from 'reactflow';
 import { Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
-import GenerationProgressBar from './GenerationProgressBar';
 
 type Props = {
   id: string;
@@ -11,7 +10,7 @@ type Props = {
     error?: string;
     images?: string[]; // base64 strings, max 4
     count?: number; // 1-4
-    progress?: number;
+    aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
     onRun?: (id: string) => void;
     onSend?: (id: string) => void; // send all
     boxW?: number;
@@ -42,6 +41,18 @@ export default function Generate4Node({ id, data, selected }: Props) {
     const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { count } } });
     window.dispatchEvent(ev);
   }, [id]);
+
+  const updateAspectRatio = React.useCallback((value: string) => {
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { aspectRatio: value || undefined } }
+    }));
+  }, [id]);
+
+  const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+    const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    nativeEvent.stopImmediatePropagation?.();
+  }, []);
 
   // 2x2 网格渲染单元
   const renderCell = (idx: number) => {
@@ -76,6 +87,20 @@ export default function Generate4Node({ id, data, selected }: Props) {
 
   const boxW = data.boxW || 300;
   const boxH = data.boxH || 240;
+  const aspectRatioValue = data.aspectRatio ?? '';
+  const aspectOptions = React.useMemo(() => ([
+    { label: '自动', value: '' },
+    { label: '1:1', value: '1:1' },
+    { label: '3:4', value: '3:4' },
+    { label: '4:3', value: '4:3' },
+    { label: '2:3', value: '2:3' },
+    { label: '3:2', value: '3:2' },
+    { label: '4:5', value: '4:5' },
+    { label: '5:4', value: '5:4' },
+    { label: '9:16', value: '9:16' },
+    { label: '16:9', value: '16:9' },
+    { label: '21:9', value: '21:9' },
+  ]), []);
 
   return (
     <div style={{
@@ -126,9 +151,9 @@ export default function Generate4Node({ id, data, selected }: Props) {
         </div>
       </div>
 
-      {/* 数量选择：独立一排（在标题下方） */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginBottom: 8 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280' }}>
+      {/* 数量 & 尺寸 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+        <label className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280' }}>
           数量
           <input
             type="number"
@@ -136,8 +161,34 @@ export default function Generate4Node({ id, data, selected }: Props) {
             max={4}
             value={Math.max(1, Math.min(4, Number(data.count) || 4))}
             onChange={(e) => updateCount(Number(e.target.value))}
+            onPointerDown={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDown={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            onClick={stopNodeDrag}
+            onClickCapture={stopNodeDrag}
+            className="nodrag nopan"
             style={{ width: 56, fontSize: 12, padding: '2px 6px', border: '1px solid #e5e7eb', borderRadius: 8 }}
           />
+        </label>
+        <label className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280' }}>
+          尺寸
+          <select
+            value={aspectRatioValue}
+            onChange={(e) => updateAspectRatio(e.target.value)}
+            onPointerDown={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDown={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            onClick={stopNodeDrag}
+            onClickCapture={stopNodeDrag}
+            className="nodrag nopan"
+            style={{ fontSize: 12, padding: '2px 6px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', color: '#111827' }}
+          >
+            {aspectOptions.map(opt => (
+              <option key={opt.value || 'auto'} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </label>
       </div>
 
@@ -147,7 +198,6 @@ export default function Generate4Node({ id, data, selected }: Props) {
       </div>
 
       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>Status: {status || 'idle'}</div>
-      <GenerationProgressBar status={status} progress={data.progress} />
       {status === 'failed' && error && (
         <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4, whiteSpace: 'pre-wrap' }}>{error}</div>
       )}

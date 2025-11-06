@@ -12,6 +12,7 @@ type Props = {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
     imageData?: string;
     error?: string;
+    aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -37,6 +38,40 @@ export default function GenerateNode({ id, data, selected }: Props) {
     } as ImageItem)), 
     [history]
   );
+
+  const updateAspectRatio = React.useCallback((ratio: string) => {
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: {
+          id,
+          patch: {
+            aspectRatio: ratio || undefined
+          }
+        }
+      })
+    );
+  }, [id]);
+
+  const aspectRatioValue = data.aspectRatio ?? '';
+  const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(() => ([
+    { label: '自动', value: '' },
+    { label: '1:1', value: '1:1' },
+    { label: '3:4', value: '3:4' },
+    { label: '4:3', value: '4:3' },
+    { label: '2:3', value: '2:3' },
+    { label: '3:2', value: '3:2' },
+    { label: '4:5', value: '4:5' },
+    { label: '5:4', value: '5:4' },
+    { label: '9:16', value: '9:16' },
+    { label: '16:9', value: '16:9' },
+    { label: '21:9', value: '21:9' },
+  ]), []);
+
+  const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+    const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    nativeEvent.stopImmediatePropagation?.();
+  }, []);
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
@@ -125,6 +160,34 @@ export default function GenerateNode({ id, data, selected }: Props) {
             <SendIcon size={14} strokeWidth={2} />
           </button>
         </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <label className="nodrag nopan" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6b7280' }}>
+          尺寸
+          <select
+            value={aspectRatioValue}
+            onChange={(e) => updateAspectRatio(e.target.value)}
+            onPointerDown={stopNodeDrag}
+            onPointerDownCapture={stopNodeDrag}
+            onMouseDown={stopNodeDrag}
+            onMouseDownCapture={stopNodeDrag}
+            onClick={stopNodeDrag}
+            onClickCapture={stopNodeDrag}
+            className="nodrag nopan"
+            style={{
+              fontSize: 12,
+              padding: '2px 6px',
+              borderRadius: 6,
+              border: '1px solid #e5e7eb',
+              background: '#fff',
+              color: '#111827',
+            }}
+          >
+            {aspectOptions.map(opt => (
+              <option key={opt.value || 'auto'} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
       </div>
       <div
         onDoubleClick={() => src && setPreview(true)}

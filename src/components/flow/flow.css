@@ -125,7 +125,7 @@
   transition: width 0.35s ease;
 }
 
-.flow-node-progress--running .flow-node-progress__fill {
+.flow-node-progress[data-indeterminate="true"] .flow-node-progress__fill {
   animation: flow-progress-stripes 1s linear infinite;
 }
 
