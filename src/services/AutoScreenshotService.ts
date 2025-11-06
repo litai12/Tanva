@@ -615,25 +615,67 @@ export class AutoScreenshotService {
     bounds: ContentBounds,
     imageInstance: ImageInstance
   ): Promise<void> {
-    // 计算图片在截图中的相对位置
-    const relativeX = imageInstance.bounds.x - bounds.x;
-    const relativeY = imageInstance.bounds.y - bounds.y;
+    const drawFromElement = (
+      element: CanvasImageSource,
+      sourceBounds: { x: number; y: number; width: number; height: number }
+    ) => {
+      const relativeX = sourceBounds.x - bounds.x;
+      const relativeY = sourceBounds.y - bounds.y;
+      ctx.drawImage(
+        element,
+        relativeX,
+        relativeY,
+        sourceBounds.width,
+        sourceBounds.height
+      );
+    };
 
-    // 加载图片
-    const source = imageInstance.imageData.url || imageInstance.imageData.src;
-    if (!source) {
-      throw new Error('无法获取图片资源');
+    const sourceCandidates = [
+      imageInstance.imageData.localDataUrl,
+      imageInstance.imageData.src,
+      imageInstance.imageData.url,
+    ].filter((value): value is string => Boolean(value));
+
+    let lastError: unknown = null;
+
+    for (const source of sourceCandidates) {
+      try {
+        const img = await this.loadImageFromSrc(source);
+        drawFromElement(img, imageInstance.bounds);
+        return;
+      } catch (error) {
+        lastError = error;
+        logger.warn?.('⚠️ 缩略图截图: 图片加载失败，尝试备用来源', {
+          imageId: imageInstance.id,
+          source,
+          error,
+        });
+      }
     }
-    const img = await this.loadImageFromSrc(source);
-    
-    // 绘制图片
-    ctx.drawImage(
-      img,
-      relativeX,
-      relativeY,
-      imageInstance.bounds.width,
-      imageInstance.bounds.height
-    );
+
+    // 尝试从Paper.js中获取已加载的Raster（避免重新请求跨域资源）
+    const raster = this.findRasterByImageId(imageInstance.id);
+    if (raster?.canvas) {
+      try {
+        drawFromElement(raster.canvas, {
+          x: raster.bounds.x,
+          y: raster.bounds.y,
+          width: raster.bounds.width,
+          height: raster.bounds.height,
+        });
+        return;
+      } catch (error) {
+        lastError = error;
+        logger.warn?.('⚠️ 缩略图截图: 通过Raster绘制失败', {
+          imageId: imageInstance.id,
+          error,
+        });
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('无法绘制图片实例');
   }
 
   /**
@@ -799,7 +841,6 @@ export class AutoScreenshotService {
       ctx.beginPath();
       ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
       
-      // 填充和描边
       if (path.fillColor) {
         ctx.fill();
       }
@@ -1329,9 +1370,32 @@ export class AutoScreenshotService {
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error('图片加载失败'));
-      img.crossOrigin = 'anonymous'; // 处理跨域图片
+      if (!/^data:/i.test(src) && !/^blob:/i.test(src)) {
+        img.crossOrigin = 'anonymous';
+      }
       img.src = src;
     });
+  }
+
+  private static findRasterByImageId(imageId: string): paper.Raster | null {
+    if (!paper.project || !paper.project.layers) return null;
+
+    for (const layer of paper.project.layers) {
+      if (!layer.visible) continue;
+      for (const item of layer.children) {
+        if (!(item instanceof paper.Group)) continue;
+        if (item.data?.type !== 'image' || item.data?.imageId !== imageId) continue;
+
+        const raster = item.children.find(
+          (child): child is paper.Raster => child instanceof paper.Raster
+        );
+        if (raster) {
+          return raster;
+        }
+      }
+    }
+
+    return null;
   }
 
   /**

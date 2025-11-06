@@ -3,6 +3,7 @@ import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
+import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 
 export default function ManualSaveButton() {
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -32,6 +33,7 @@ export default function ManualSaveButton() {
       const result = await projectApi.saveContent(currentProjectId, { content, version });
 
       markSaved(result.version, result.updatedAt ?? new Date().toISOString());
+      void refreshProjectThumbnail(currentProjectId, { force: true });
 
       try {
         saveMonitor.push(currentProjectId, 'manual_save_success', {
