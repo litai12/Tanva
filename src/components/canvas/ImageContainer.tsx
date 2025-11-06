@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, EyeOff, Download, Wand2 } from 'lucide-react';
+import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, EyeOff, Download, Wand2, Copy } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal from '../ui/ImagePreviewModal';
 import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
@@ -407,6 +407,31 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [imageData.id, imageData.url, imageData.src, imageData.fileName, getImageDataForEditing]);
 
+  const handleCreateFlowImageNode = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const run = async () => {
+      const imageDataUrl = await resolveImageDataUrl();
+      if (!imageDataUrl) {
+        console.warn('⚠️ 无法获取图像数据，无法创建Flow节点');
+        return;
+      }
+      const base64 = imageDataUrl.includes(',') ? imageDataUrl.split(',')[1] : imageDataUrl;
+      window.dispatchEvent(new CustomEvent('flow:createImageNode', {
+        detail: {
+          imageData: base64,
+          label: 'Image'
+        }
+      }));
+      console.log('🧩 已请求创建Flow Image节点');
+    };
+
+    run().catch((error) => {
+      console.error('将图片发送到Flow失败:', error);
+    });
+  }, [imageData.fileName, resolveImageDataUrl]);
+
   const handleBackgroundRemoval = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -627,6 +652,39 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             }}
           >
             <Trash2 className="w-4 h-4 text-blue-600" />
+          </Button>
+        </div>
+      )}
+
+      {/* 发送到Flow按钮 - 选中时显示，位于图片左侧 */}
+      {isSelected && showIndividualTools && (
+        <div
+          className={`absolute flex flex-col gap-1 transition-all duration-150 ease-out ${
+            !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
+          }`}
+          style={{
+            left: -42,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 30,
+            pointerEvents: 'auto',
+            position: 'absolute'
+          }}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
+            onClick={handleCreateFlowImageNode}
+            title="复制到Flow为Image节点"
+            style={{
+              backdropFilter: 'blur(12px)',
+              background: 'rgba(255, 255, 255, 0.8)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+            }}
+          >
+            <Copy className="w-4 h-4 text-blue-600" />
           </Button>
         </div>
       )}

@@ -1241,6 +1241,38 @@ function FlowInner() {
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
   }, [setNodes]);
 
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { imageData?: string; label?: string };
+      if (!detail?.imageData) return;
+
+      const rect = containerRef.current?.getBoundingClientRect();
+      const screenPosition = {
+        x: (rect?.width || window.innerWidth) / 2 + (Math.random() * 120 - 60),
+        y: (rect?.height || window.innerHeight) / 2 + 60 + (Math.random() * 80 - 40),
+      };
+      const position = rf.screenToFlowPosition(screenPosition);
+      const id = `img_${Date.now()}`;
+      setNodes(ns => ns.concat([{
+        id,
+        type: 'image',
+        position,
+        data: {
+          imageData: detail.imageData,
+          label: detail.label || 'Image',
+          boxW: 260,
+          boxH: 240,
+        },
+        selected: true,
+      } as any]));
+      try {
+        historyService.commit('flow-create-image-from-canvas').catch(() => {});
+      } catch {}
+    };
+    window.addEventListener('flow:createImageNode', handler as EventListener);
+    return () => window.removeEventListener('flow:createImageNode', handler as EventListener);
+  }, [rf, setNodes]);
+
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(async (nodeId: string) => {
     const node = rf.getNode(nodeId);
