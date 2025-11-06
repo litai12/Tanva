@@ -164,13 +164,15 @@ const createProcessMetrics = (): ProcessMetrics => {
 const logProcessStep = (metrics: ProcessMetrics | undefined, label: string) => {
   if (!metrics) return;
   const now = getTimestamp();
-  const delta = now - metrics.lastStepTime;
-  const total = now - metrics.startTime;
   metrics.lastStepTime = now;
+  if (!label.includes('API response received')) {
+    return;
+  }
+
+  const totalSeconds = ((now - metrics.startTime) / 1000).toFixed(2);
   const idPart = metrics.messageId ? `${metrics.traceId}/${metrics.messageId}` : metrics.traceId;
-  console.log(
-    `⏱️ [${idPart}] ${label} | +${delta.toFixed(1)}ms | total ${total.toFixed(1)}ms`
-  );
+  const apiLabel = label.replace(' API response received', '').trim();
+  console.log(`⏱️ [${idPart}] ${apiLabel} API 耗时 ${totalSeconds}s`);
 };
 
 const ensureDataUrl = (imageData: string): string =>
@@ -1130,8 +1132,7 @@ export const useAIChatStore = create<AIChatState>()(
         });
       }
 
-      const maxAutoRetries = 3; // 总尝试次数（初次 + 最多2次补偿重试）
-      let result = await generateImageViaAPI({
+      const result = await generateImageViaAPI({
         prompt,
         model: modelToUse,
         aiProvider: state.aiProvider,
@@ -1141,33 +1142,6 @@ export const useAIChatStore = create<AIChatState>()(
         imageOnly: state.imageOnly
       });
       logProcessStep(metrics, 'generateImage API response received');
-
-      for (let attempt = 2; attempt <= maxAutoRetries; attempt++) {
-        if (!result?.success || !result.data) {
-          break;
-        }
-        if (result.data.hasImage && result.data.imageData) {
-          break;
-        }
-
-        console.warn('⚠️ Flow generate success but no image returned, auto retrying', {
-          attempt,
-          maxAutoRetries,
-          textResponse: result.data.textResponse,
-        });
-
-        logProcessStep(metrics, `generateImage auto retry ${attempt}`);
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        result = await generateImageViaAPI({
-          prompt,
-          model: modelToUse,
-          aiProvider: state.aiProvider,
-          providerOptions,
-          outputFormat: 'png',
-          aspectRatio: state.aspectRatio || undefined,
-          imageOnly: state.imageOnly
-        });
-      }
 
       if (progressInterval) clearInterval(progressInterval);
 

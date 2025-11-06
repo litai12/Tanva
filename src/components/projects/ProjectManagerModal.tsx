@@ -265,7 +265,7 @@ export default function ProjectManagerModal() {
                           selectionMode && isSelected ? 'border-sky-500 bg-sky-50' : ''
                         }`}
                       >
-                        <div className="aspect-[2/1] bg-slate-100 overflow-hidden relative">
+                        <div className="aspect-[2/1] bg-slate-100 overflow-hidden relative flex items-center justify-center">
                           {selectionMode && (
                             <button
                               type="button"
@@ -286,7 +286,7 @@ export default function ProjectManagerModal() {
                           <img
                             src={p.thumbnailUrl || placeholderThumb}
                             alt={p.name}
-                            className="w-full h-full object-cover"
+                            className="h-full w-auto max-w-full object-contain"
                           />
                         </div>
                         <div className="px-3 py-1.5 flex items-center justify-between gap-2">

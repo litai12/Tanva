@@ -89,10 +89,14 @@ const generateUUID = () => {
   return `fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
-/**
- * 生成图像 - 通过后端 API
- */
-export async function generateImageViaAPI(request: AIImageGenerateRequest): Promise<AIServiceResponse<AIImageResult>> {
+const MAX_IMAGE_GENERATION_ATTEMPTS = 3;
+const NO_IMAGE_RETRY_DELAY_MS = 800;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function performGenerateImageRequest(
+  request: AIImageGenerateRequest
+): Promise<AIServiceResponse<AIImageResult>> {
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-image`, {
       method: 'POST',
@@ -158,6 +162,47 @@ export async function generateImageViaAPI(request: AIImageGenerateRequest): Prom
       },
     };
   }
+}
+
+/**
+ * 生成图像 - 通过后端 API（在缺少图像数据时自动补偿重试）
+ */
+export async function generateImageViaAPI(
+  request: AIImageGenerateRequest
+): Promise<AIServiceResponse<AIImageResult>> {
+  let lastResponse: AIServiceResponse<AIImageResult> | undefined;
+
+  for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
+    lastResponse = await performGenerateImageRequest(request);
+
+    if (!lastResponse.success || !lastResponse.data) {
+      return lastResponse;
+    }
+
+    if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+      return lastResponse;
+    }
+
+    if (attempt < MAX_IMAGE_GENERATION_ATTEMPTS) {
+      console.warn('⚠️ Flow generate success but no image returned, auto retrying', {
+        nextAttempt: attempt + 1,
+        maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+        provider: request.aiProvider,
+        model: request.model,
+        textResponse: lastResponse.data.textResponse,
+      });
+      await sleep(NO_IMAGE_RETRY_DELAY_MS);
+    }
+  }
+
+  return lastResponse ?? {
+    success: false,
+    error: {
+      code: 'UNKNOWN_ERROR',
+      message: 'Image generation failed without a response',
+      timestamp: new Date(),
+    },
+  };
 }
 
 /**

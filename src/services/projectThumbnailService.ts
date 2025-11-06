@@ -41,8 +41,12 @@ export async function refreshProjectThumbnail(
     : [];
 
   const hasLayerContent = Boolean(useProjectContentStore.getState().content?.layers?.length);
+  const hasRenderableContent =
+    imageInstances.length > 0 ||
+    model3DInstances.length > 0 ||
+    hasLayerContent;
 
-  if (imageInstances.length === 0 && model3DInstances.length === 0 && !hasLayerContent) {
+  if (!hasRenderableContent) {
     logger.debug?.('🪄 Canvas empty, skip thumbnail refresh', { projectId });
     lastTriggerAt.set(projectId, Date.now());
     return;
@@ -70,6 +74,8 @@ export async function refreshProjectThumbnail(
       return;
     }
 
+    let thumbnailUrl: string | null = null;
+
     const upload = await imageUploadService.uploadImageDataUrl(screenshot.dataUrl, {
       dir: `projects/${projectId}/thumbnails/`,
       fileName: `thumbnail_${Date.now()}.png`,
@@ -77,13 +83,15 @@ export async function refreshProjectThumbnail(
       maxFileSize: 3 * 1024 * 1024,
     });
 
-    if (!upload.success || !upload.asset?.url) {
-      logger.warn?.('⚠️ Thumbnail upload failed', { projectId, error: upload.error });
-      return;
+    if (upload.success && upload.asset?.url) {
+      thumbnailUrl = upload.asset.url;
+    } else {
+      logger.warn?.('⚠️ Thumbnail upload failed，fallback to dataURL', { projectId, error: upload.error });
+      thumbnailUrl = screenshot.dataUrl;
     }
 
     await useProjectStore.getState().updateMeta(projectId, {
-      thumbnailUrl: upload.asset.url,
+      thumbnailUrl,
     });
 
     logger.debug?.('✅ Project thumbnail refreshed', { projectId });

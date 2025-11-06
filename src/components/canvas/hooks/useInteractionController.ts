@@ -88,6 +88,15 @@ interface GroupPathDragState {
   paths: Array<{ path: paper.Path; startPosition: paper.Point }>;
 }
 
+const isPaperItemRemoved = (item: paper.Item | null | undefined): boolean => {
+  if (!item) return true;
+  const removedFlag = (item as { removed?: unknown }).removed;
+  if (typeof removedFlag === 'boolean') {
+    return removedFlag;
+  }
+  return typeof item.isInserted === 'function' ? !item.isInserted() : false;
+};
+
 interface UseInteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   drawMode: DrawMode;
@@ -132,11 +141,11 @@ export const useInteractionController = ({
 
   const collectSelectedPaths = useCallback(() => {
     const set = new Set<paper.Path>();
-    if (currentSelectedPath && !currentSelectedPath.removed) {
+    if (currentSelectedPath && !isPaperItemRemoved(currentSelectedPath)) {
       set.add(currentSelectedPath);
     }
     currentSelectedPaths.forEach((path) => {
-      if (path && !path.removed) {
+      if (path && !isPaperItemRemoved(path)) {
         set.add(path);
       }
     });
@@ -167,7 +176,7 @@ export const useInteractionController = ({
     const start = startPoint.clone ? startPoint.clone() : new paper.Point(startPoint.x, startPoint.y);
     const entries = selected
       .map((path) => {
-        if (!path || path.removed) return null;
+        if (!path || isPaperItemRemoved(path)) return null;
         const position = path.position;
         if (!position) return null;
         const startPosition = position.clone ? position.clone() : new paper.Point(position.x, position.y);
@@ -199,7 +208,7 @@ export const useInteractionController = ({
     if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
 
     state.paths.forEach(({ path, startPosition }) => {
-      if (!path || path.removed || !startPosition) return;
+      if (!path || isPaperItemRemoved(path) || !startPosition) return;
       const newPosition = new paper.Point(startPosition.x + deltaX, startPosition.y + deltaY);
       path.position = newPosition;
     });
