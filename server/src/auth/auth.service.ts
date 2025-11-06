@@ -32,13 +32,26 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private cookieOptions() {
-    const secure = (this.config.get('COOKIE_SECURE') ?? 'false') === 'true';
-    const sameSite = (this.config.get('COOKIE_SAMESITE') as any) || 'lax';
+  private cookieOptions(request?: any) {
+    // 检测是否通过 HTTPS 访问（Cloudflare Tunnel 会设置 x-forwarded-proto: https）
+    const isHttps = request?.headers?.['x-forwarded-proto'] === 'https' || 
+                    request?.protocol === 'https' ||
+                    this.config.get('COOKIE_SECURE') === 'true';
+    
+    // 如果通过 HTTPS（如 Cloudflare Tunnel），使用 secure: true 和 sameSite: 'none'
+    // 否则使用 secure: false 和 sameSite: 'lax'（本地开发）
+    const secureEnv = this.config.get('COOKIE_SECURE');
+    const secure = secureEnv ? secureEnv === 'true' : isHttps;
+    
+    const sameSiteEnv = this.config.get('COOKIE_SAMESITE');
+    const sameSite = sameSiteEnv ? sameSiteEnv : (secure ? 'none' : 'lax');
+    
     const rawDomain = this.config.get<string>('COOKIE_DOMAIN');
     // 注意：localhost/127.0.0.1 不能作为 Cookie Domain；开发环境不要设置 domain
+    // Cloudflare Tunnel 也不需要设置 domain，让浏览器自动处理
     const invalidLocal = rawDomain === 'localhost' || rawDomain === '127.0.0.1' || rawDomain === '';
     const domain = invalidLocal ? undefined : rawDomain;
+    
     return { httpOnly: true, secure, sameSite, domain, path: '/' } as const;
   }
 
@@ -117,15 +130,15 @@ export class AuthService {
     await this.prisma.refreshToken.updateMany({ where: { userId, isRevoked: false }, data: { isRevoked: true } });
   }
 
-  setAuthCookies(reply: any, tokens: TokenPair) {
-    const base = this.cookieOptions();
+  setAuthCookies(reply: any, tokens: TokenPair, request?: any) {
+    const base = this.cookieOptions(request);
     reply.setCookie('access_token', tokens.accessToken, { ...base });
     const refreshTtl = this.parseTtlMs(this.config.get('JWT_REFRESH_TTL') || '30d');
     reply.setCookie('refresh_token', tokens.refreshToken, { ...base, maxAge: Math.floor(refreshTtl / 1000) });
   }
 
-  clearAuthCookies(reply: any) {
-    const base = this.cookieOptions();
+  clearAuthCookies(reply: any, request?: any) {
+    const base = this.cookieOptions(request);
     reply.clearCookie('access_token', base);
     reply.clearCookie('refresh_token', base);
   }

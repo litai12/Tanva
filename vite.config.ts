@@ -14,6 +14,15 @@ export default defineConfig({
     // 在本地开发时监听所有网络接口 (0.0.0.0)
     // 这样其他PC可以通过 http://192.168.2.115:5173 访问
     host: '0.0.0.0',
+    
+    // 允许 Cloudflare Tunnel 和其他内网穿透工具的域名访问
+    // 允许所有 trycloudflare.com 的子域名（用于 Cloudflare Tunnel）
+    allowedHosts: [
+      '.trycloudflare.com',  // 允许所有 trycloudflare.com 的子域名
+      'localhost',
+      '127.0.0.1',
+      '0.0.0.0',
+    ],
 
     proxy: {
       '/api': {

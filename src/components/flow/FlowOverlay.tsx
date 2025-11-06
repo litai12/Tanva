@@ -38,6 +38,7 @@ import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
+import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
 
@@ -416,6 +417,7 @@ function FlowInner() {
       if (data) {
         delete data.status;
         delete data.error;
+        delete data.progress;
       }
       return {
         id: n.id,
@@ -916,9 +918,12 @@ function FlowInner() {
 
       const sx = (event.clientX - rect.left) * dpr;
       const sy = (event.clientY - rect.top) * dpr;
+      const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
+      if (Math.abs(delta) < 1e-6) return;
+
       const z1 = store.zoom || 1;
-      const factor = Math.exp(-event.deltaY * 0.0015);
-      const z2 = Math.max(0.1, Math.min(3, z1 * factor));
+      const z2 = computeSmoothZoom(z1, delta);
+      if (z1 === z2) return;
 
       const pan2x = store.panX + sx * (1 / z2 - 1 / z1);
       const pan2y = store.panY + sy * (1 / z2 - 1 / z1);
@@ -1055,7 +1060,7 @@ function FlowInner() {
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
-      : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
+      : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, progress: 0, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
@@ -1311,9 +1316,22 @@ function FlowInner() {
 
     if (node.type === 'generate4') {
       const total = Math.max(1, Math.min(4, Number((node.data as any)?.count) || 4));
-      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined, images: [] } } : n));
+      setNodes(ns => ns.map(n => n.id === nodeId ? {
+        ...n,
+        data: { ...n.data, status: 'running', error: undefined, images: [], progress: 0 }
+      } : n));
       const produced: string[] = [];
+      const updateMultiGenerateProgress = (completedSlots: number) => {
+        const ratio = Math.max(0, Math.min(1, completedSlots / total));
+        const percent = Math.round(ratio * 100);
+        setNodes(ns => ns.map(n => n.id === nodeId ? {
+          ...n,
+          data: { ...n.data, images: [...produced], progress: percent }
+        } : n));
+      };
+
       for (let i = 0; i < total; i++) {
+        let generatedImage: string | undefined;
         try {
           let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
           if (imageDatas.length === 0) {
@@ -1352,15 +1370,19 @@ function FlowInner() {
                 hasImage: !!result.data.imageData,
               });
             }
-            continue;
+          } else {
+            generatedImage = result.data.imageData;
           }
+        } catch {
+          // 忽略单张失败，继续下一张
+        }
 
-          produced[i] = result.data.imageData;
-          setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, images: [...produced] } } : n));
+        if (generatedImage) {
+          produced[i] = generatedImage;
 
           const outs = rf.getEdges().filter(e => e.source === nodeId && (e as any).sourceHandle === `img${i + 1}`);
           if (outs.length) {
-            const imgB64 = produced[i];
+            const imgB64 = generatedImage;
             setNodes(ns => ns.map(n => {
               const hits = outs.filter(e => e.target === n.id);
               if (!hits.length) return n;
@@ -1368,13 +1390,21 @@ function FlowInner() {
               return n;
             }));
           }
-        } catch {
-          // 忽略单张失败，继续下一张
         }
+
+        updateMultiGenerateProgress(i + 1);
       }
 
       const hasAny = produced.filter(Boolean).length > 0;
-      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: hasAny ? 'succeeded' : 'failed', error: hasAny ? undefined : '全部生成失败', images: [...produced] } } : n));
+      setNodes(ns => ns.map(n => n.id === nodeId ? {
+        ...n,
+        data: {
+          ...n.data,
+          status: hasAny ? 'succeeded' : 'failed',
+          error: hasAny ? undefined : '全部生成失败',
+          images: [...produced],
+        }
+      } : n));
       return;
     }
 
@@ -1528,7 +1558,7 @@ function FlowInner() {
       },
       addGenerate4: (x = 0, y = 0) => {
         const id = `gen4_${Date.now()}`;
-        setNodes(ns => ns.concat([{ id, type: 'generate4', position: { x, y }, data: { status: 'idle', images: [], count: 4 } }] as any));
+        setNodes(ns => ns.concat([{ id, type: 'generate4', position: { x, y }, data: { status: 'idle', images: [], count: 4, progress: 0 } }] as any));
         return id;
       },
       connect: (source: string, target: string, targetHandle: 'text' | 'img' | 'image1' | 'image2' | 'refer') => {
@@ -1560,7 +1590,7 @@ function FlowInner() {
         type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false } :
         type === 'promptOptimize' ? { text: '', expandedText: '' } :
         type === 'generate' ? { status: 'idle' } :
-        type === 'generate4' ? { status: 'idle', images: [], count: 4 } :
+        type === 'generate4' ? { status: 'idle', images: [], count: 4, progress: 0 } :
         type === 'generateRef' ? { status: 'idle', referencePrompt: undefined } :
         type === 'analysis' ? { status: 'idle', prompt: '', analysisPrompt: undefined } :
         { imageData: undefined }
@@ -1674,7 +1704,7 @@ function FlowInner() {
       const newId = generateId(n.type || 'n');
       idMap.set(n.id, newId);
       const data: any = { ...(n.data || {}) };
-      delete data.onRun; delete data.onSend; delete data.status; delete data.error;
+      delete data.onRun; delete data.onSend; delete data.status; delete data.error; delete data.progress;
       return {
         id: newId,
         type: n.type as any,

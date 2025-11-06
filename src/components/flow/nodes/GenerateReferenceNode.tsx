@@ -4,6 +4,7 @@ import { Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
+import GenerationProgressBar from './GenerationProgressBar';
 
 type Props = {
   id: string;
@@ -222,6 +223,7 @@ export default function GenerateReferenceNode({ id, data, selected }: Props) {
       </div>
 
       <div style={{ fontSize: 12, color: '#6b7280' }}>Status: {status || 'idle'}</div>
+      <GenerationProgressBar status={status} />
       {status === 'failed' && error ? (
         <div style={{ fontSize: 12, color: '#ef4444', whiteSpace: 'pre-wrap' }}>{error}</div>
       ) : null}

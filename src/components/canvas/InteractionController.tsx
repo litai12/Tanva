@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useCanvasStore } from '@/stores';
+import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 
 interface InteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -113,9 +114,11 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
 
         const store = useCanvasStore.getState();
         const z1 = zoomRef.current;
-        // deltaY>0 通常为缩小，反向取指数更顺滑
-        const factor = Math.exp(-event.deltaY * 0.0015);
-        const z2 = Math.max(0.1, Math.min(3, z1 * factor));
+        const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
+        if (Math.abs(delta) < 1e-6) return;
+
+        const z2 = computeSmoothZoom(z1, delta);
+        if (z1 === z2) return;
 
         // 保持鼠标下的世界坐标点不动：
         // W = sx/z1 - pan1;  pan2 = sx/z2 - W

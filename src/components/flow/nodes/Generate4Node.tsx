@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position } from 'reactflow';
 import { Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
+import GenerationProgressBar from './GenerationProgressBar';
 
 type Props = {
   id: string;
@@ -10,6 +11,7 @@ type Props = {
     error?: string;
     images?: string[]; // base64 strings, max 4
     count?: number; // 1-4
+    progress?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void; // send all
     boxW?: number;
@@ -145,6 +147,7 @@ export default function Generate4Node({ id, data, selected }: Props) {
       </div>
 
       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>Status: {status || 'idle'}</div>
+      <GenerationProgressBar status={status} progress={data.progress} />
       {status === 'failed' && error && (
         <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4, whiteSpace: 'pre-wrap' }}>{error}</div>
       )}

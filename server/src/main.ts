@@ -26,8 +26,54 @@ async function bootstrap() {
   await app.register(fastifyMultipart);
 
   app.setGlobalPrefix('api');
+  
+  // CORS 配置：支持 Cloudflare Tunnel 和其他配置的域名
+  const corsOrigin = configService.get('CORS_ORIGIN');
+  const corsOrigins = corsOrigin ? corsOrigin.split(',').map((o: string) => o.trim()).filter(Boolean) : [];
+  const resolveHostname = (value: string) => {
+    try {
+      return new URL(value).hostname;
+    } catch {
+      // 最后一层兜底：去掉协议、路径，尽量获取 host
+      return value.replace(/^https?:\/\//, '').split('/')[0];
+    }
+  };
+  
+  // 动态检查 origin，允许 trycloudflare.com 的所有子域名（用于内网穿透）
+  const originCallback = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // 如果没有 origin（如同源请求），允许
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    const hostname = resolveHostname(origin);
+    
+    // 允许所有 trycloudflare.com 的子域名（Cloudflare Tunnel）
+    if (hostname === 'trycloudflare.com' || hostname.endsWith('.trycloudflare.com')) {
+      callback(null, origin);
+      return;
+    }
+    
+    // 如果配置了 CORS_ORIGIN，检查是否在允许列表中
+    if (corsOrigins.length > 0) {
+      const allowed = corsOrigins.some((allowedOrigin: string) => {
+        if (allowedOrigin === origin) {
+          return true;
+        }
+
+        return resolveHostname(allowedOrigin) === hostname;
+      });
+      callback(null, allowed ? origin : false);
+      return;
+    }
+    
+    // 如果没有配置 CORS_ORIGIN，允许所有来源（开发环境）
+    callback(null, origin);
+  };
+  
   app.enableCors({
-    origin: configService.get('CORS_ORIGIN')?.split(',') ?? true,
+    origin: corsOrigins.length > 0 ? originCallback : true,
     credentials: true,
   });
 

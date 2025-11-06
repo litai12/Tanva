@@ -26,7 +26,7 @@ export class AuthController {
       { id: user.id, email: user.email || '', role: user.role },
       { ip: req.ip, ua: req.headers['user-agent'] },
     );
-    this.auth.setAuthCookies(res, tokens);
+    this.auth.setAuthCookies(res, tokens, req);
     return { user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role } };
   }
 
@@ -47,7 +47,7 @@ export class AuthController {
       ip: req.ip,
       ua: req.headers['user-agent'],
     });
-    this.auth.setAuthCookies(res, tokens);
+    this.auth.setAuthCookies(res, tokens, req);
     return { user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role } };
   }
 
@@ -63,7 +63,7 @@ export class AuthController {
   @UseGuards(RefreshAuthGuard)
   async refresh(@Req() req: any, @Res({ passthrough: true }) res: any) {
     const tokens = await this.auth.refresh(req.user, req.user.refreshToken);
-    this.auth.setAuthCookies(res, tokens);
+    this.auth.setAuthCookies(res, tokens, req);
     return { ok: true };
   }
 
@@ -72,7 +72,7 @@ export class AuthController {
   @UseGuards(RefreshAuthGuard)
   async logout(@Req() req: any, @Res({ passthrough: true }) res: any) {
     await this.auth.logout(req.user.sub);
-    this.auth.clearAuthCookies(res);
+    this.auth.clearAuthCookies(res, req);
     return { ok: true };
   }
 }
