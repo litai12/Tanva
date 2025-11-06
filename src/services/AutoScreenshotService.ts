@@ -74,6 +74,8 @@ export class AutoScreenshotService {
     autoDownload: false, // 改为默认不自动下载，改为传入AI对话框
     filename: 'artboard-screenshot'
   };
+  private static currentImageOrderMap: Map<string, number> | null = null;
+  private static currentModelOrderMap: Map<string, number> | null = null;
 
   /**
    * 执行自动截图
@@ -89,6 +91,12 @@ export class AutoScreenshotService {
     const opts = { ...this.DEFAULT_OPTIONS, ...options };
     
     let restoreSelectionVisuals: (() => void) | null = null;
+    this.currentImageOrderMap = new Map(
+      imageInstances.map((img, index) => [img.id, index])
+    );
+    this.currentModelOrderMap = new Map(
+      model3DInstances.map((model, index) => [model.id, index])
+    );
 
     try {
       logger.debug('🖼️ 开始自动截图...');
@@ -224,6 +232,8 @@ export class AutoScreenshotService {
         error: error instanceof Error ? error.message : '未知错误'
       };
     } finally {
+      this.currentImageOrderMap = null;
+      this.currentModelOrderMap = null;
       try {
         restoreSelectionVisuals?.();
       } catch (restoreError) {
@@ -500,9 +510,10 @@ export class AutoScreenshotService {
     // 选中的图片（使用 selection.selectedImages）
     selection.selectedImages.forEach((image) => {
       if (!image.visible) return;
+      const layerIndex = this.computeImageLayerIndex(image, elements.length);
       elements.push({
         type: 'image',
-        layerIndex: 500_000 + elements.length,
+        layerIndex,
         bounds: {
           x: image.bounds.x,
           y: image.bounds.y,
@@ -516,9 +527,10 @@ export class AutoScreenshotService {
     // 选中的3D模型
     selection.selectedModels.forEach((model) => {
       if (!model.visible) return;
+      const layerIndex = this.computeModelLayerIndex(model, elements.length);
       elements.push({
         type: 'model3d',
-        layerIndex: 1_000_000_000 + elements.length,
+        layerIndex,
         bounds: {
           x: model.bounds.x,
           y: model.bounds.y,
@@ -547,6 +559,24 @@ export class AutoScreenshotService {
     }
 
     return layerIndex * 1_000_000 + order;
+  }
+
+  private static computeImageLayerIndex(image: ImageInstance, fallbackIndex: number): number {
+    const group = this.findImageGroup(image.id);
+    if (group) {
+      return this.computeLayerOrder(group);
+    }
+    const mapIndex = this.currentImageOrderMap?.get(image.id);
+    return 500_000 + (typeof mapIndex === 'number' ? mapIndex : fallbackIndex);
+  }
+
+  private static computeModelLayerIndex(model: Model3DInstance, fallbackIndex: number): number {
+    const group = this.findModelGroup(model.id);
+    if (group) {
+      return this.computeLayerOrder(group);
+    }
+    const mapIndex = this.currentModelOrderMap?.get(model.id);
+    return 1_000_000_000 + (typeof mapIndex === 'number' ? mapIndex : fallbackIndex);
   }
 
   /**
@@ -1474,5 +1504,29 @@ export class AutoScreenshotService {
     model3DInstances: Model3DInstance[]
   ): Promise<ScreenshotResult> {
     return this.captureAutoScreenshot(imageInstances, model3DInstances);
+  }
+
+  private static findImageGroup(imageId: string): paper.Group | null {
+    if (!paper.project || !paper.project.layers) return null;
+    for (const layer of paper.project.layers) {
+      for (const item of layer.children) {
+        if (item instanceof paper.Group && item.data?.type === 'image' && item.data?.imageId === imageId) {
+          return item;
+        }
+      }
+    }
+    return null;
+  }
+
+  private static findModelGroup(modelId: string): paper.Group | null {
+    if (!paper.project || !paper.project.layers) return null;
+    for (const layer of paper.project.layers) {
+      for (const item of layer.children) {
+        if (item instanceof paper.Group && item.data?.type === '3d-model' && item.data?.modelId === modelId) {
+          return item;
+        }
+      }
+    }
+    return null;
   }
 }

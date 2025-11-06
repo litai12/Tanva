@@ -56,6 +56,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   showIndividualTools = true
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const enableVisibilityToggle = false; // Temporarily hide layer visibility control
 
   // 获取AI聊天状态
   const { setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending } = useAIChatStore();
@@ -576,21 +577,23 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           </Button>
 
           {/* 隐藏/显示按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-orange-50 hover:border-orange-300"
-            onClick={handleToggleVisibility}
-            title="隐藏图层（可在图层面板中恢复）"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
-          >
-            <EyeOff className="w-4 h-4 text-blue-600" />
-          </Button>
+          {enableVisibilityToggle && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-orange-50 hover:border-orange-300"
+              onClick={handleToggleVisibility}
+              title="隐藏图层（可在图层面板中恢复）"
+              style={{
+                backdropFilter: 'blur(12px)',
+                background: 'rgba(255, 255, 255, 0.8)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+              }}
+            >
+              <EyeOff className="w-4 h-4 text-blue-600" />
+            </Button>
+          )}
 
           {/* 下载按钮 */}
           <Button
