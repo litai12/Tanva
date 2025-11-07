@@ -36,6 +36,7 @@ export default function ThreeNode({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
+  const lastModelUrlRef = React.useRef<string | undefined>(undefined);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   
@@ -126,6 +127,13 @@ export default function ThreeNode({ id, data, selected }: Props) {
     return () => { clearTimeout(t); if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [initIfNeeded]);
 
+  React.useEffect(() => {
+    if (!data.modelUrl) return;
+    if (lastModelUrlRef.current === data.modelUrl) return;
+    lastModelUrlRef.current = data.modelUrl;
+    loadModelFromUrl(data.modelUrl);
+  }, [data.modelUrl, loadModelFromUrl]);
+
   const onResize = (w: number, h: number) => {
     const r = rendererRef.current, c = cameraRef.current;
     if (r && c) {
@@ -156,32 +164,72 @@ export default function ThreeNode({ id, data, selected }: Props) {
     controls.update();
   };
 
-  const loadModel = (file: File) => {
+  const mountModel = React.useCallback((object: THREE.Object3D) => {
     initIfNeeded();
-    const url = URL.createObjectURL(file);
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (modelRef.current) {
+      scene.remove(modelRef.current);
+    }
+    modelRef.current = object;
+    scene.add(object);
+    try {
+      fitToObject(object);
+    } catch {}
+    setErr(null);
+    if (gridRef.current) gridRef.current.visible = false;
+    if (axesRef.current) axesRef.current.visible = false;
+  }, [initIfNeeded]);
+
+  const createLoader = React.useCallback(() => {
     const loader = new GLTFLoader();
     loader.setCrossOrigin('anonymous');
-    // 支持 Draco 压缩的 glb/gltf
     try {
       const draco = new DRACOLoader();
-      // 使用线上解码器（浏览器端加载），若离线可改为本地路径
       draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
       loader.setDRACOLoader(draco);
     } catch {}
+    return loader;
+  }, []);
 
-    loader.load(url, (gltf) => {
-      const scene = sceneRef.current!;
-      if (modelRef.current) scene.remove(modelRef.current);
-      modelRef.current = gltf.scene;
-      scene.add(gltf.scene);
-      try { fitToObject(gltf.scene); } catch {}
-      URL.revokeObjectURL(url);
-      setErr(null);
-      // 上传成功后隐藏辅助
-      if (gridRef.current) gridRef.current.visible = false;
-      if (axesRef.current) axesRef.current.visible = false;
-    }, undefined, (e) => { console.error('load gltf failed', e); setErr('加载模型失败，可能需要Draco/KTX2解码'); });
-  };
+  const handleLoadError = React.useCallback((error: unknown) => {
+    console.error('加载 3D 模型失败:', error);
+    setErr('加载模型失败，可能需要开启 Draco/KTX2 解码或检查链接是否可访问');
+  }, []);
+
+  const loadModelFromFile = React.useCallback((file: File) => {
+    initIfNeeded();
+    const url = URL.createObjectURL(file);
+    const loader = createLoader();
+    loader.load(
+      url,
+      (gltf) => {
+        mountModel(gltf.scene);
+        URL.revokeObjectURL(url);
+      },
+      undefined,
+      (e) => {
+        URL.revokeObjectURL(url);
+        handleLoadError(e);
+      }
+    );
+  }, [createLoader, handleLoadError, initIfNeeded, mountModel]);
+
+  const loadModelFromUrl = React.useCallback((url: string) => {
+    if (!url) return;
+    initIfNeeded();
+    const loader = createLoader();
+    loader.load(
+      url,
+      (gltf) => {
+        mountModel(gltf.scene);
+      },
+      undefined,
+      (e) => {
+        handleLoadError(e);
+      }
+    );
+  }, [createLoader, handleLoadError, initIfNeeded, mountModel]);
 
   const capture = () => {
     initIfNeeded();
@@ -275,7 +323,7 @@ export default function ThreeNode({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
-      <input ref={fileInput} type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) loadModel(f); }} />
+      <input ref={fileInput} type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) loadModelFromFile(f); }} />
       <div
         onDoubleClick={() => src && setPreview(true)}
         className="nodrag nowheel"

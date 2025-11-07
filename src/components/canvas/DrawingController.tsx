@@ -32,6 +32,7 @@ import TextSelectionOverlay from './TextSelectionOverlay';
 import type { DrawingContext } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { historyService } from '@/services/historyService';
+import type { Model3DData } from '@/services/model3DUploadService';
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
@@ -184,6 +185,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       onImageDeselect: () => console.log('取消图片选择')
     }
   });
+
   // ========== 初始化快速图片上传Hook ==========
   const quickImageUpload = useQuickImageUpload({
     context: drawingContext,
@@ -424,8 +426,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [quickImageUpload]);
 
-
-
   // ========== 初始化3D模型工具Hook ==========
   const model3DTool = useModel3DTool({
     context: drawingContext,
@@ -436,6 +436,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     },
     setDrawMode
   });
+
+  useEffect(() => {
+    const handleInsertModelFromLibrary = (event: CustomEvent) => {
+      const detail = event.detail as { modelData?: Partial<Model3DData>; size?: { width: number; height: number } } | undefined;
+      if (!detail?.modelData) return;
+      const center = paper?.view?.center ?? new paper.Point(0, 0);
+      const width = detail.size?.width ?? 320;
+      const height = detail.size?.height ?? 240;
+      const start = new paper.Point(center.x - width / 2, center.y - height / 2);
+      const end = new paper.Point(center.x + width / 2, center.y + height / 2);
+      const placeholder = model3DTool.create3DModelPlaceholder(start, end);
+      if (!placeholder) return;
+      model3DTool.currentModel3DPlaceholderRef.current = placeholder;
+      const normalized: Model3DData = {
+        url: detail.modelData.url || detail.modelData.path || '',
+        path: detail.modelData.path || detail.modelData.url || '',
+        key: detail.modelData.key,
+        format: detail.modelData.format || 'glb',
+        fileName: detail.modelData.fileName || '模型.glb',
+        fileSize: detail.modelData.fileSize ?? 0,
+        defaultScale: detail.modelData.defaultScale || { x: 1, y: 1, z: 1 },
+        defaultRotation: detail.modelData.defaultRotation || { x: 0, y: 0, z: 0 },
+        timestamp: detail.modelData.timestamp || Date.now(),
+        camera: detail.modelData.camera,
+      };
+      model3DTool.handleModel3DUploaded(normalized);
+    };
+
+    window.addEventListener('canvas:insert-model3d', handleInsertModelFromLibrary as EventListener);
+    return () => window.removeEventListener('canvas:insert-model3d', handleInsertModelFromLibrary as EventListener);
+  }, [model3DTool]);
 
   // ========== 初始化绘图工具Hook ==========
   const drawingTools = useDrawingTools({

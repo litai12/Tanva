@@ -41,6 +41,7 @@ import { aiImageService } from '@/services/aiImageService';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
+import PersonalLibraryPanel from './PersonalLibraryPanel';
 
 type RFNode = Node<any>;
 
@@ -713,7 +714,7 @@ function FlowInner() {
 
   // 双击空白处弹出添加面板
   const [addPanel, setAddPanel] = React.useState<{ visible: boolean; screen: { x: number; y: number }; world: { x: number; y: number } }>({ visible: false, screen: { x: 0, y: 0 }, world: { x: 0, y: 0 } });
-  const [addTab, setAddTab] = React.useState<'nodes' | 'templates'>('nodes');
+  const [addTab, setAddTab] = React.useState<'nodes' | 'templates' | 'personal'>('nodes');
   const addPanelRef = React.useRef<HTMLDivElement | null>(null);
   const lastPaneClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
   // 模板相关状态
@@ -1272,6 +1273,7 @@ function FlowInner() {
     window.addEventListener('flow:createImageNode', handler as EventListener);
     return () => window.removeEventListener('flow:createImageNode', handler as EventListener);
   }, [rf, setNodes]);
+
 
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(async (nodeId: string) => {
@@ -1931,6 +1933,23 @@ function FlowInner() {
               >
                 模板
               </button>
+              <button 
+                onClick={() => setAddTab('personal')} 
+                style={{ 
+                  padding: '10px 18px 14px', 
+                  fontSize: 13,
+                  fontWeight: addTab === 'personal' ? 600 : 500,
+                  borderRadius: '24px 24px 0 0', 
+                  border: 'none',
+                  background: addTab === 'personal' ? '#fff' : 'transparent', 
+                  color: addTab === 'personal' ? '#111827' : '#374151',
+                  marginBottom: -2,
+                  transition: 'all 0.15s ease',
+                  cursor: 'pointer'
+                }}
+              >
+                个人库
+              </button>
               </div>
             </div>
             {addTab === 'nodes' ? (
@@ -2505,6 +2524,8 @@ function FlowInner() {
                     </div>
                 ) : null}
               </div>
+            ) : addTab === 'personal' ? (
+              <PersonalLibraryPanel />
             ) : null}
           </div>
         )}

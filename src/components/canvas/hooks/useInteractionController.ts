@@ -893,7 +893,7 @@ export const useInteractionController = ({
     canvas.addEventListener('dblclick', handleDoubleClick); // 双击事件
     
     // 键盘事件需要绑定到document，因为canvas无法获取焦点
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown, true);
 
     return () => {
       // 清理事件监听器
@@ -902,7 +902,7 @@ export const useInteractionController = ({
       canvas.removeEventListener('mouseup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseUp);
       canvas.removeEventListener('dblclick', handleDoubleClick);
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [handleMouseDown, handleMouseMove, handleMouseUp]);
 

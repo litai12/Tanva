@@ -1,0 +1,543 @@
+import React from 'react';
+import { Download, Image as ImageIcon, Trash2, Upload, Box, Send } from 'lucide-react';
+import { imageUploadService } from '@/services/imageUploadService';
+import { model3DUploadService, type Model3DData } from '@/services/model3DUploadService';
+import {
+  createPersonalAssetId,
+  usePersonalLibraryStore,
+  type PersonalAssetType,
+  type PersonalLibraryAsset,
+  type PersonalImageAsset,
+  type PersonalModelAsset,
+} from '@/stores/personalLibraryStore';
+import type { StoredImageAsset } from '@/types/canvas';
+
+const TYPE_TABS: Array<{ value: PersonalAssetType; label: string }> = [
+  { value: '2d', label: '2D 图库' },
+  { value: '3d', label: '3D 模型' },
+];
+
+interface PersonalLibraryPanelProps {
+  padding?: string | number;
+}
+
+const formatSize = (bytes?: number): string => {
+  if (!bytes && bytes !== 0) return '-';
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+};
+
+const formatDate = (timestamp: number): string => {
+  return new Date(timestamp).toLocaleString();
+};
+
+const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '12px 18px 18px' }) => {
+  const [activeType, setActiveType] = React.useState<PersonalAssetType>('2d');
+  const [isUploading, setUploading] = React.useState(false);
+  const addAsset = usePersonalLibraryStore((state) => state.addAsset);
+  const removeAsset = usePersonalLibraryStore((state) => state.removeAsset);
+  const allAssets = usePersonalLibraryStore((state) => state.assets);
+  const assets = React.useMemo(
+    () => allAssets.filter((item) => item.type === activeType),
+    [allAssets, activeType]
+  );
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const accept = activeType === '2d' ? 'image/png,image/jpeg,image/jpg,image/gif,image/webp' : '.glb,.gltf';
+  const uploadLabel = activeType === '2d' ? '上传图片' : '上传 3D 模型';
+
+  const resetFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const triggerUpload = () => fileInputRef.current?.click();
+
+  const upsertImageAsset = React.useCallback(
+    (file: File, asset: NonNullable<Awaited<ReturnType<typeof imageUploadService.uploadImageFile>>['asset']>) => {
+      const id = createPersonalAssetId('pl2d');
+      const imageAsset: PersonalImageAsset = {
+        id,
+        type: '2d',
+        name: file.name.replace(/\.[^/.]+$/, '') || asset.fileName || '未命名图片',
+        url: asset.url,
+        thumbnail: asset.url,
+        width: asset.width,
+        height: asset.height,
+        fileName: asset.fileName ?? file.name,
+        fileSize: file.size,
+        contentType: asset.contentType ?? file.type,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      addAsset(imageAsset);
+    },
+    [addAsset]
+  );
+
+  const upsertModelAsset = React.useCallback(
+    (
+      file: File,
+      asset: NonNullable<Awaited<ReturnType<typeof model3DUploadService.uploadModelFile>>['asset']>
+    ) => {
+      const id = createPersonalAssetId('pl3d');
+      const modelAsset: PersonalModelAsset = {
+        id,
+        type: '3d',
+        name: file.name.replace(/\.[^/.]+$/, '') || asset.fileName || '未命名模型',
+        url: asset.url,
+        fileName: asset.fileName ?? file.name,
+        fileSize: asset.fileSize ?? file.size,
+        contentType: asset.contentType ?? file.type,
+        format: asset.format,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      addAsset(modelAsset);
+    },
+    [addAsset]
+  );
+
+  const handleUploadFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setUploading(true);
+    try {
+      if (activeType === '2d') {
+        const result = await imageUploadService.uploadImageFile(file, {
+          dir: 'uploads/personal-library/images/',
+        });
+        if (!result.success || !result.asset) {
+          alert(result.error || '图片上传失败，请重试');
+          return;
+        }
+        upsertImageAsset(file, result.asset);
+      } else {
+        const result = await model3DUploadService.uploadModelFile(file, {
+          dir: 'uploads/personal-library/models/',
+        });
+        if (!result.success || !result.asset) {
+          alert(result.error || '3D 模型上传失败，请重试');
+          return;
+        }
+        upsertModelAsset(file, result.asset);
+      }
+    } finally {
+      setUploading(false);
+      resetFileInput();
+    }
+  };
+
+  const handleDownload = (asset: PersonalLibraryAsset) => {
+    try {
+      const link = document.createElement('a');
+      link.href = asset.url;
+      link.download = asset.fileName || asset.name;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch {
+      window.open(asset.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const handleRemoveAsset = (asset: PersonalLibraryAsset) => {
+    if (!confirm(`确定要删除「${asset.name}」吗？`)) {
+      return;
+    }
+    removeAsset(asset.id);
+  };
+
+  const readDataUrl = async (url: string): Promise<string | null> => {
+    try {
+      const response = await fetch(url, { mode: 'cors', credentials: 'include' });
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.warn('[PersonalLibrary] 将远程图片转换为 DataURL 失败:', error);
+      return null;
+    }
+  };
+
+  const handleSendToCanvas = async (asset: PersonalLibraryAsset) => {
+    if (!asset.url) {
+      alert('资源缺少可用的链接，无法发送到画板');
+      return;
+    }
+    if (asset.type === '2d') {
+      const inlineData =
+        typeof asset.thumbnail === 'string' && asset.thumbnail.startsWith('data:')
+          ? asset.thumbnail
+          : null;
+      const dataUrl = inlineData || (await readDataUrl(asset.url));
+
+      const displayFileName = asset.fileName || `${asset.name}.png`;
+      const payload: string | StoredImageAsset = dataUrl
+        ? dataUrl
+        : {
+            id: asset.id,
+            url: asset.url,
+            src: asset.url,
+            fileName: displayFileName,
+            width: asset.width,
+            height: asset.height,
+            contentType: asset.contentType,
+            localDataUrl: asset.thumbnail,
+          };
+
+      window.dispatchEvent(
+        new CustomEvent('triggerQuickImageUpload', {
+            detail: {
+              imageData: payload,
+              fileName: displayFileName,
+              operationType: 'manual',
+            },
+          })
+      );
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '图片已发送到画板', type: 'success' } }));
+      return;
+    }
+
+    if (asset.type === '3d') {
+      const modelData: Model3DData = {
+        url: asset.url,
+        key: asset.key,
+        path: asset.path || asset.url,
+        format: asset.format,
+        fileName: asset.fileName || asset.name,
+        fileSize: asset.fileSize ?? 0,
+        defaultScale: asset.defaultScale || { x: 1, y: 1, z: 1 },
+        defaultRotation: asset.defaultRotation || { x: 0, y: 0, z: 0 },
+        timestamp: asset.updatedAt || Date.now(),
+        camera: asset.camera,
+      };
+      window.dispatchEvent(
+        new CustomEvent('canvas:insert-model3d', {
+          detail: {
+            modelData,
+          },
+        })
+      );
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '3D 模型已发送到画板', type: 'success' } }));
+    }
+  };
+
+  return (
+    <div style={{ height: 'min(70vh, 640px)', overflowY: 'auto', overflowX: 'hidden', padding }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>个人库</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            支持上传 2D 图片与 3D 模型，随时复用与下载
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={triggerUpload}
+            disabled={isUploading}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 14px',
+              borderRadius: 999,
+              border: '1px solid #c7d2fe',
+              background: isUploading ? '#e0e7ff' : '#eef2ff',
+              color: '#4338ca',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isUploading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Upload size={16} strokeWidth={2} />
+            {isUploading ? '上传中…' : uploadLabel}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={accept}
+            onChange={handleUploadFiles}
+            style={{ display: 'none' }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
+        {TYPE_TABS.map((tab) => {
+          const isActive = tab.value === activeType;
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setActiveType(tab.value)}
+              style={{
+                padding: '6px 16px',
+                borderRadius: 999,
+                border: '1px solid ' + (isActive ? '#0ea5e9' : '#e5e7eb'),
+                background: isActive ? '#0ea5e9' : '#fff',
+                color: isActive ? '#fff' : '#374151',
+                fontSize: 12,
+                fontWeight: isActive ? 600 : 500,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                boxShadow: isActive ? '0 10px 18px rgba(14, 165, 233, 0.25)' : 'none',
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {assets.length === 0 ? (
+        <div
+          style={{
+            border: '1px dashed #cbd5f5',
+            borderRadius: 16,
+            padding: 36,
+            textAlign: 'center',
+            color: '#6b7280',
+            background: '#f8fafc',
+          }}
+        >
+          <div style={{ fontSize: 16, fontWeight: 600 }}>
+            {activeType === '2d' ? '暂未上传图片' : '暂未上传 3D 模型'}
+          </div>
+          <div style={{ fontSize: 13, marginTop: 8 }}>点击右上角上传按钮即可添加资源</div>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns:
+              assets.length <= 1 ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(360px, 1fr))',
+            gap: 20,
+            justifyContent: 'flex-start',
+          }}
+        >
+          {assets.map((asset) => {
+            const is2d = asset.type === '2d';
+            return (
+              <div
+                key={asset.id}
+                style={{
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 12,
+                  background: '#fff',
+                  padding: 16,
+                  paddingBottom: 64,
+                  display: 'flex',
+                  gap: 14,
+                  minHeight: 150,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  width: '100%',
+                }}
+              >
+                <div
+                  style={{
+                    flex: '0 0 44%',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                    background: is2d ? '#f3f4f6' : 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                  }}
+                >
+                  {is2d ? (
+                    <img
+                      src={asset.thumbnail || asset.url}
+                      alt={asset.name}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div style={{ color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <Box size={24} />
+                      <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+                        {(asset as PersonalModelAsset).format?.toUpperCase() || '3D'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 15,
+                        fontWeight: 600,
+                        color: '#111827',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={asset.name}
+                    >
+                      {asset.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: '#6b7280',
+                        marginTop: 4,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={asset.fileName}
+                    >
+                      {asset.fileName}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 8 }}>
+                      {is2d
+                        ? `${(asset as PersonalImageAsset).width ?? '-'} × ${(
+                            asset as PersonalImageAsset
+                          ).height ?? '-'}`
+                        : (asset as PersonalModelAsset).format?.toUpperCase()}
+                      {' · '}
+                      {formatSize(asset.fileSize)}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                      更新时间：{formatDate(asset.updatedAt)}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: 16,
+                      bottom: 16,
+                      display: 'flex',
+                      gap: 8,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <button
+                      onClick={() => void handleSendToCanvas(asset)}
+                      title="发送到画布"
+                      style={{
+                        width: 40,
+                        height: 36,
+                        borderRadius: 10,
+                        border: '1px solid #bae6fd',
+                        background: '#e0f2fe',
+                        color: '#0284c7',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Send size={16} strokeWidth={2} />
+                    </button>
+                    <button
+                      onClick={() => handleDownload(asset)}
+                      title="下载"
+                      style={{
+                        width: 40,
+                        height: 36,
+                        borderRadius: 10,
+                        border: '1px solid #dbeafe',
+                        background: '#eff6ff',
+                        color: '#1d4ed8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Download size={16} strokeWidth={2} />
+                    </button>
+                    <button
+                      onClick={() => handleRemoveAsset(asset)}
+                      style={{
+                        width: 40,
+                        height: 36,
+                        borderRadius: 10,
+                        border: '1px solid #fecaca',
+                        background: '#fff1f2',
+                        color: '#dc2626',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                      }}
+                      title="删除资源"
+                    >
+                      <Trash2 size={16} strokeWidth={2} />
+                    </button>
+                  </div>
+                </div>
+                {!is2d && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 12,
+                      left: 12,
+                      background: 'rgba(255,255,255,0.85)',
+                      color: '#0f172a',
+                      borderRadius: 999,
+                      padding: '2px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <Box size={12} />
+                    3D
+                  </div>
+                )}
+                {is2d && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 12,
+                      left: 12,
+                      background: 'rgba(255,255,255,0.85)',
+                      color: '#0f172a',
+                      borderRadius: 999,
+                      padding: '2px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <ImageIcon size={12} />
+                    2D
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default PersonalLibraryPanel;
