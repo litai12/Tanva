@@ -45,6 +45,20 @@ import PersonalLibraryPanel from './PersonalLibraryPanel';
 
 type RFNode = Node<any>;
 
+type EdgeLabelEditorState = {
+  visible: boolean;
+  edgeId: string | null;
+  value: string;
+  position: { x: number; y: number };
+};
+
+const createEdgeLabelEditorState = (): EdgeLabelEditorState => ({
+  visible: false,
+  edgeId: null,
+  value: '',
+  position: { x: 0, y: 0 },
+});
+
 const nodeTypes = {
   textPrompt: TextPromptNode,
   textChat: TextChatNode,
@@ -378,6 +392,22 @@ function FlowInner() {
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
+  const [edgeLabelEditor, setEdgeLabelEditor] = React.useState<EdgeLabelEditorState>(() => createEdgeLabelEditorState());
+  const edgeLabelInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    if (edgeLabelEditor.visible) {
+      const id = window.setTimeout(() => edgeLabelInputRef.current?.focus(), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [edgeLabelEditor.visible]);
+
+  React.useEffect(() => {
+    if (!edgeLabelEditor.visible || !edgeLabelEditor.edgeId) return;
+    if (!edges.some(edge => edge.id === edgeLabelEditor.edgeId)) {
+      setEdgeLabelEditor(createEdgeLabelEditorState());
+    }
+  }, [edges, edgeLabelEditor.visible, edgeLabelEditor.edgeId]);
   // 统一画板：节点橡皮已禁用
 
   // —— 项目内容（文件）中的 Flow 图谱持久化 ——
@@ -440,6 +470,7 @@ function FlowInner() {
     sourceHandle: e.sourceHandle,
     targetHandle: e.targetHandle,
     type: e.type || 'default',
+    label: typeof e.label === 'string' ? e.label : undefined,
   })), []);
 
   const tplNodesToRfNodes = React.useCallback((ns: TemplateNode[]): RFNode[] => ns.map((n) => ({
@@ -456,6 +487,7 @@ function FlowInner() {
     sourceHandle: e.sourceHandle,
     targetHandle: e.targetHandle,
     type: e.type || 'default',
+    label: e.label,
   })) as any, []);
 
   const handleCopyFlow = React.useCallback(() => {
@@ -518,6 +550,7 @@ function FlowInner() {
         sourceHandle: edge.sourceHandle,
         targetHandle: edge.targetHandle,
         type: edge.type || 'default',
+        label: edge.label,
       } as any;
     }).filter(Boolean) as Edge[];
 
@@ -1752,6 +1785,95 @@ function FlowInner() {
     if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY);
   }, [openAddPanelAt, isBlankArea]);
 
+  const commitEdgeLabelValue = React.useCallback((edgeId: string, value: string) => {
+    const trimmed = value.trim();
+    let changed = false;
+    setEdges(prev =>
+      prev.map(edge => {
+        if (edge.id !== edgeId) return edge;
+        const prevValue = typeof edge.label === 'string' ? edge.label : '';
+        if (prevValue === trimmed) return edge;
+        changed = true;
+        if (trimmed) {
+          return { ...edge, label: trimmed };
+        }
+        const next = { ...edge };
+        delete (next as any).label;
+        return next;
+      })
+    );
+    if (changed) {
+      try { historyService.commit('flow-edge-label').catch(() => {}); } catch {}
+    }
+  }, [setEdges]);
+
+  const finalizeEdgeLabelEditor = React.useCallback((commit: boolean) => {
+    setEdgeLabelEditor(prev => {
+      if (commit && prev.edgeId) {
+        commitEdgeLabelValue(prev.edgeId, prev.value);
+      }
+      return createEdgeLabelEditorState();
+    });
+  }, [commitEdgeLabelValue]);
+
+  const handleEdgeLabelChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setEdgeLabelEditor(prev => ({ ...prev, value }));
+  }, []);
+
+  const handleEdgeLabelKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      finalizeEdgeLabelEditor(true);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      finalizeEdgeLabelEditor(false);
+    }
+  }, [finalizeEdgeLabelEditor]);
+
+  const handleEdgeLabelBlur = React.useCallback(() => {
+    finalizeEdgeLabelEditor(true);
+  }, [finalizeEdgeLabelEditor]);
+
+  const handleEdgeDoubleClick = React.useCallback((event: React.MouseEvent, edge: Edge) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const targetElement = event.target as HTMLElement | null;
+    const targetRect = targetElement?.getBoundingClientRect?.();
+    const globalX = targetRect ? targetRect.left + targetRect.width / 2 : event.clientX;
+    const globalY = targetRect ? targetRect.top + targetRect.height / 2 : event.clientY;
+    let localX = containerRect ? globalX - containerRect.left : globalX;
+    let localY = containerRect ? globalY - containerRect.top : globalY;
+    if (containerRect) {
+      const margin = 16;
+      localX = Math.min(Math.max(margin, localX), containerRect.width - margin);
+      localY = Math.min(Math.max(margin, localY), containerRect.height - margin);
+    }
+
+    const allEdges = (rf.getEdges?.() || edges) as Edge[];
+    const currentEdge = allEdges.find(e => e.id === edge.id);
+    const existingValue = typeof currentEdge?.label === 'string' ? currentEdge.label : '';
+
+    setEdgeLabelEditor(prev => {
+      if (prev.visible && prev.edgeId && prev.edgeId !== edge.id) {
+        commitEdgeLabelValue(prev.edgeId, prev.value);
+      }
+      return {
+        visible: true,
+        edgeId: edge.id,
+        value: existingValue,
+        position: { x: localX, y: localY },
+      };
+    });
+
+    try {
+      const selection = window.getSelection?.();
+      selection?.removeAllRanges?.();
+    } catch {}
+  }, [rf, edges, commitEdgeLabelValue]);
+
   // -------- 模板：实例化与保存 --------
   const instantiateTemplateAt = React.useCallback(async (tpl: FlowTemplate, world: { x: number; y: number }) => {
     if (!tpl?.nodes?.length) return;
@@ -1777,6 +1899,7 @@ function FlowInner() {
       sourceHandle: (e as any).sourceHandle,
       targetHandle: (e as any).targetHandle,
       type: e.type || 'default',
+      label: e.label,
     })) as any[];
     setNodes(ns => ns.concat(newNodes));
     setEdges(es => es.concat(newEdges));
@@ -1807,7 +1930,15 @@ function FlowInner() {
         boxW: (n as any).data?.boxW,
         boxH: (n as any).data?.boxH,
       })) as any,
-      edges: edgesToSave.map(e => ({ id: e.id, source: e.source, target: e.target, sourceHandle: (e as any).sourceHandle, targetHandle: (e as any).targetHandle, type: e.type || 'default' })) as any,
+      edges: edgesToSave.map(e => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: (e as any).sourceHandle,
+        targetHandle: (e as any).targetHandle,
+        type: e.type || 'default',
+        label: typeof e.label === 'string' ? e.label : undefined,
+      })) as any,
     };
     await saveUserTemplate(tpl);
     const list = await listUserTemplates();
@@ -1839,6 +1970,7 @@ function FlowInner() {
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onPaneClick={onPaneClick}
+        onEdgeDoubleClick={handleEdgeDoubleClick}
         
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
@@ -1874,6 +2006,23 @@ function FlowInner() {
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
         <MiniMapImageOverlay />
       </ReactFlow>
+
+      {edgeLabelEditor.visible && (
+        <div
+          className="tanva-edge-label-editor"
+          style={{ left: edgeLabelEditor.position.x, top: edgeLabelEditor.position.y }}
+          data-prevent-add-panel
+        >
+          <input
+            ref={edgeLabelInputRef}
+            value={edgeLabelEditor.value}
+            onChange={handleEdgeLabelChange}
+            onKeyDown={handleEdgeLabelKeyDown}
+            onBlur={handleEdgeLabelBlur}
+            placeholder="输入文本"
+          />
+        </div>
+      )}
 
       {/* 添加面板（双击空白处出现） */}
       <div ref={addPanelRef} style={addPanelStyle} className="tanva-add-panel">

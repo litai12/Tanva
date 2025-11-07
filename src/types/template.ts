@@ -24,6 +24,7 @@ export interface TemplateEdge {
   sourceHandle?: string;
   targetHandle?: string;
   type?: string;
+  label?: string;
 }
 
 export interface FlowTemplateV1 {
@@ -39,4 +40,3 @@ export interface FlowTemplateV1 {
 }
 
 export type FlowTemplate = FlowTemplateV1; // future-proof
-

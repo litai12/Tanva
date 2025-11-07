@@ -12,7 +12,8 @@
 .tanva-flow-overlay .react-flow__node-resizer,
 .tanva-flow-overlay .react-flow__node-resizer-handle,
 .tanva-flow-overlay .tanva-flow-toolbar,
-.tanva-flow-overlay .tanva-add-panel {
+.tanva-flow-overlay .tanva-add-panel,
+.tanva-flow-overlay .tanva-edge-label-editor {
   pointer-events: auto;
 }
 
@@ -26,6 +27,43 @@
   opacity: 0.6;
   z-index: -1 !important; /* 将点阵放到所有Flow子元素之下 */
   position: absolute; /* 确保可应用z-index */
+}
+
+/* 禁止 MiniMap 和连线被浏览器选中，避免双击出现蓝色选区 */
+.tanva-flow-overlay .react-flow__minimap,
+.tanva-flow-overlay .react-flow__minimap *,
+.tanva-flow-overlay .react-flow__edge,
+.tanva-flow-overlay .react-flow__edge *,
+.tanva-flow-overlay .react-flow__edges,
+.tanva-flow-overlay .react-flow__edges * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tanva-edge-label-editor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 4px 6px;
+  min-width: 140px;
+  max-width: 220px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15);
+  z-index: 30;
+}
+
+.tanva-edge-label-editor input {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: #0f172a;
+  background: transparent;
+}
+
+.tanva-edge-label-editor input::placeholder {
+  color: #94a3b8;
 }
 
 /* ==================== 连线选择优化 ==================== */
