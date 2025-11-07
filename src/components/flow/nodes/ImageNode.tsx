@@ -156,10 +156,6 @@ export default function ImageNode({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ fontWeight: 600 }}>{data.label || 'Image'}</div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            onClick={() => inputRef.current?.click()}
-            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}
-          >上传</button>
           {hasInputConnection && (
           <button
             onClick={() => {
@@ -203,13 +199,19 @@ export default function ImageNode({ id, data, selected }: Props) {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDoubleClick={() => src && setPreview(true)}
+        onClick={() => {
+          if (!src) {
+            inputRef.current?.click();
+          }
+        }}
         style={{
           flex: 1,
           minHeight: 120,
           background: '#fff',
           borderRadius: 6,
           display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-          border: '1px solid #e5e7eb'
+          border: '1px solid #e5e7eb',
+          cursor: src ? 'default' : 'pointer'
         }}
         title="拖拽图片到此或点击上传"
       >

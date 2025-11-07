@@ -64,6 +64,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 获取画布状态 - 用于监听画布移动变化
   const { zoom, panX, panY } = useCanvasStore();
 
+  const sharedButtonStyle = useMemo<React.CSSProperties>(() => ({
+    backdropFilter: 'blur(12px)',
+    background: 'rgba(255, 255, 255, 0.8)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
+  }), []);
+
+  const sharedButtonClass =
+    'p-1.5 h-7 w-7 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300';
+  const sharedIconClass = 'w-3.5 h-3.5 text-blue-600';
+
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
   const [isPositionStable, setIsPositionStable] = useState(true);
@@ -550,20 +561,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             variant="outline"
             size="sm"
             disabled={isRemovingBackground}
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105"
+            className={sharedButtonClass}
             onClick={handleBackgroundRemoval}
             title={isRemovingBackground ? '正在抠图...' : '一键抠图'}
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
+            style={sharedButtonStyle}
           >
             {isRemovingBackground ? (
-              <LoadingSpinner size="sm" className="text-purple-600" />
+              <LoadingSpinner size="sm" className="text-blue-600" />
             ) : (
-              <Wand2 className="w-4 h-4 text-purple-600" />
+              <Wand2 className={sharedIconClass} />
             )}
           </Button>
 
@@ -571,34 +577,24 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           <Button
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105"
+            className={sharedButtonClass}
             onClick={handleAIEdit}
             title="添加到AI对话框进行编辑"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
+            style={sharedButtonStyle}
           >
-            <Sparkles className="w-4 h-4 text-blue-600" />
+            <Sparkles className={sharedIconClass} />
           </Button>
 
           {/* 预览按钮 */}
           <Button
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
+            className={sharedButtonClass}
             onClick={handlePreview}
             title="全屏预览图片"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
+            style={sharedButtonStyle}
           >
-            <Eye className="w-4 h-4 text-blue-600" />
+            <Eye className={sharedIconClass} />
           </Button>
 
           {/* 隐藏/显示按钮 */}
@@ -606,85 +602,49 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             <Button
               variant="outline"
               size="sm"
-              className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-orange-50 hover:border-orange-300"
+              className={sharedButtonClass}
               onClick={handleToggleVisibility}
               title="隐藏图层（可在图层面板中恢复）"
-              style={{
-                backdropFilter: 'blur(12px)',
-                background: 'rgba(255, 255, 255, 0.8)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-              }}
+              style={sharedButtonStyle}
             >
-              <EyeOff className="w-4 h-4 text-blue-600" />
+              <EyeOff className={sharedIconClass} />
             </Button>
           )}
+
+          {/* 发送到Flow按钮 */}
+          <Button
+            variant="outline"
+            size="sm"
+            className={sharedButtonClass}
+            onClick={handleCreateFlowImageNode}
+            title="复制到Flow为Image节点"
+            style={sharedButtonStyle}
+          >
+            <Copy className={sharedIconClass} />
+          </Button>
 
           {/* 下载按钮 */}
           <Button
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-green-50 hover:border-green-300"
+            className={sharedButtonClass}
             onClick={handleDownload}
             title="下载图片"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
+            style={sharedButtonStyle}
           >
-            <Download className="w-4 h-4 text-blue-600" />
+            <Download className={sharedIconClass} />
           </Button>
 
           {/* 删除按钮 */}
           <Button
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-red-50 hover:border-red-300"
+            className={sharedButtonClass}
             onClick={handleDelete}
             title="删除图片"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
+            style={sharedButtonStyle}
           >
-            <Trash2 className="w-4 h-4 text-blue-600" />
-          </Button>
-        </div>
-      )}
-
-      {/* 发送到Flow按钮 - 选中时显示，位于图片左侧 */}
-      {isSelected && showIndividualTools && (
-        <div
-          className={`absolute flex flex-col gap-1 transition-all duration-150 ease-out ${
-            !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
-          }`}
-          style={{
-            left: -42,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            zIndex: 30,
-            pointerEvents: 'auto',
-            position: 'absolute'
-          }}
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
-            onClick={handleCreateFlowImageNode}
-            title="复制到Flow为Image节点"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
-          >
-            <Copy className="w-4 h-4 text-blue-600" />
+            <Trash2 className={sharedIconClass} />
           </Button>
         </div>
       )}
@@ -708,34 +668,24 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           <Button
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
+            className={sharedButtonClass}
             onClick={handleLayerMoveUp}
             title="图层上移"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
+            style={sharedButtonStyle}
           >
-            <ChevronUp className="w-4 h-4 text-blue-600" />
+            <ChevronUp className={sharedIconClass} />
           </Button>
 
           {/* 图层下移按钮 */}
           <Button
             variant="outline"
             size="sm"
-            className="px-2 py-2 h-8 w-8 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300"
+            className={sharedButtonClass}
             onClick={handleLayerMoveDown}
             title="图层下移"
-            style={{
-              backdropFilter: 'blur(12px)',
-              background: 'rgba(255, 255, 255, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
+            style={sharedButtonStyle}
           >
-            <ChevronDown className="w-4 h-4 text-blue-600" />
+            <ChevronDown className={sharedIconClass} />
           </Button>
         </div>
       )}

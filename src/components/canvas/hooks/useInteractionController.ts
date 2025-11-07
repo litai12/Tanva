@@ -139,6 +139,23 @@ export const useInteractionController = ({
   const currentSelectedPath = selectionTool.selectedPath;
   const currentSelectedPaths = selectionTool.selectedPaths ?? [];
 
+  // Refs to always read the latest tool states inside global event handlers
+  const selectionToolRef = useRef(selectionTool);
+  const imageToolRef = useRef(imageTool);
+  const model3DToolRef = useRef(model3DTool);
+
+  useEffect(() => {
+    selectionToolRef.current = selectionTool;
+  }, [selectionTool]);
+
+  useEffect(() => {
+    imageToolRef.current = imageTool;
+  }, [imageTool]);
+
+  useEffect(() => {
+    model3DToolRef.current = model3DTool;
+  }, [model3DTool]);
+
   const collectSelectedPaths = useCallback(() => {
     const set = new Set<paper.Path>();
     if (currentSelectedPath && !isPaperItemRemoved(currentSelectedPath)) {
@@ -727,6 +744,10 @@ export const useInteractionController = ({
 
     // 键盘事件处理
     const handleKeyDown = (event: KeyboardEvent) => {
+      const latestSelectionTool = selectionToolRef.current;
+      const latestImageTool = imageToolRef.current;
+      const latestModel3DTool = model3DToolRef.current;
+
       // 输入框/可编辑区域不拦截
       const active = document.activeElement as Element | null;
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
@@ -746,35 +767,35 @@ export const useInteractionController = ({
 
         // 删除路径（单选与多选）
         try {
-          const selectedPath = (selectionTool as any).selectedPath as paper.Path | null;
-          const selectedPaths = (selectionTool as any).selectedPaths as paper.Path[] | undefined;
+          const selectedPath = (latestSelectionTool as any)?.selectedPath as paper.Path | null;
+          const selectedPaths = (latestSelectionTool as any)?.selectedPaths as paper.Path[] | undefined;
           if (selectedPath) {
             try { selectedPath.remove(); didDelete = true; } catch {}
-            try { (selectionTool as any).setSelectedPath?.(null); } catch {}
+            try { (latestSelectionTool as any)?.setSelectedPath?.(null); } catch {}
           }
           if (Array.isArray(selectedPaths) && selectedPaths.length > 0) {
             selectedPaths.forEach(p => { try { p.remove(); didDelete = true; } catch {} });
-            try { (selectionTool as any).setSelectedPaths?.([]); } catch {}
+            try { (latestSelectionTool as any)?.setSelectedPaths?.([]); } catch {}
           }
         } catch {}
 
         // 删除图片（按选中ID或状态）
         try {
-          const ids = (imageTool.selectedImageIds && imageTool.selectedImageIds.length > 0)
-            ? imageTool.selectedImageIds
-            : (imageTool.imageInstances || []).filter((img: any) => img.isSelected).map((img: any) => img.id);
-          if (ids && ids.length > 0) {
-            ids.forEach((id: string) => { try { imageTool.handleImageDelete?.(id); didDelete = true; } catch {} });
+          const ids = (latestImageTool?.selectedImageIds && latestImageTool.selectedImageIds.length > 0)
+            ? latestImageTool.selectedImageIds
+            : (latestImageTool?.imageInstances || []).filter((img: any) => img.isSelected).map((img: any) => img.id);
+          if (ids && ids.length > 0 && typeof latestImageTool?.handleImageDelete === 'function') {
+            ids.forEach((id: string) => { try { latestImageTool.handleImageDelete?.(id); didDelete = true; } catch {} });
           }
         } catch {}
 
         // 删除3D模型（若工具暴露了API）
         try {
-          const mids = (model3DTool.selectedModel3DIds && model3DTool.selectedModel3DIds.length > 0)
-            ? model3DTool.selectedModel3DIds
-            : (model3DTool.model3DInstances || []).filter((m: any) => m.isSelected).map((m: any) => m.id);
-          if (mids && mids.length > 0 && typeof model3DTool.handleModel3DDelete === 'function') {
-            mids.forEach((id: string) => { try { model3DTool.handleModel3DDelete?.(id); didDelete = true; } catch {} });
+          const mids = (latestModel3DTool?.selectedModel3DIds && latestModel3DTool.selectedModel3DIds.length > 0)
+            ? latestModel3DTool.selectedModel3DIds
+            : (latestModel3DTool?.model3DInstances || []).filter((m: any) => m.isSelected).map((m: any) => m.id);
+          if (mids && mids.length > 0 && typeof latestModel3DTool?.handleModel3DDelete === 'function') {
+            mids.forEach((id: string) => { try { latestModel3DTool.handleModel3DDelete?.(id); didDelete = true; } catch {} });
           }
         } catch {}
 
