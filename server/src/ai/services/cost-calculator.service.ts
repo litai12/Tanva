@@ -47,6 +47,13 @@ export class CostCalculatorService {
       imageAnalysis: 0,
       textChat: 0,
     },
+    midjourney: {
+      imageGeneration: 0.06,
+      imageEditing: 0.06,
+      imageBlending: 0.065,
+      imageAnalysis: 0.02,
+      textChat: 0,
+    },
   };
 
   /**

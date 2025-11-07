@@ -19,12 +19,35 @@ export interface RunningHubGenerateOptions {
   maxPollAttempts?: number;
 }
 
+export interface MidjourneyAccountFilter {
+  channelId?: string;
+  instanceId?: string;
+  modes?: string[];
+  remark?: string;
+  remix?: string;
+  remixAutoConsidered?: boolean;
+}
+
+export interface MidjourneyProviderOptions {
+  mode?: 'FAST' | 'RELAX';
+  botType?: string;
+  notifyHook?: string;
+  state?: string;
+  dimensions?: 'PORTRAIT' | 'SQUARE' | 'LANDSCAPE';
+  base64Array?: string[];
+  base64?: string;
+  maskBase64?: string;
+  remix?: boolean;
+  accountFilter?: MidjourneyAccountFilter;
+}
+
 export interface AIProviderOptions {
   runningHub?: RunningHubGenerateOptions;
+  midjourney?: MidjourneyProviderOptions;
   [key: string]: unknown;
 }
 
-export type SupportedAIProvider = 'gemini' | 'banana' | 'runninghub';
+export type SupportedAIProvider = 'gemini' | 'banana' | 'runninghub' | 'midjourney';
 
 export interface AIImageGenerateRequest {
   prompt: string;

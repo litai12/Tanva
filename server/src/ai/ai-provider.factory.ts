@@ -4,6 +4,7 @@ import { IAIProvider } from './providers/ai-provider.interface';
 import { GeminiProvider } from './providers/gemini.provider';
 import { BananaProvider } from './providers/banana.provider';
 import { RunningHubProvider } from './providers/runninghub.provider';
+import { MidjourneyProvider } from './providers/midjourney.provider';
 
 @Injectable()
 export class AIProviderFactory implements OnModuleInit {
@@ -14,7 +15,8 @@ export class AIProviderFactory implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly geminiProvider: GeminiProvider,
     private readonly bananaProvider: BananaProvider,
-    private readonly runningHubProvider: RunningHubProvider
+    private readonly runningHubProvider: RunningHubProvider,
+    private readonly midjourneyProvider: MidjourneyProvider
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -35,6 +37,10 @@ export class AIProviderFactory implements OnModuleInit {
     // 注册 RunningHub 提供商
     this.providers.set('runninghub', this.runningHubProvider);
     await this.runningHubProvider.initialize();
+
+    // 注册 Midjourney 提供商
+    this.providers.set('midjourney', this.midjourneyProvider);
+    await this.midjourneyProvider.initialize();
 
     // TODO: 在这里注册其他提供商 (OpenAI, Claude, StableDiffusion等)
     // 例如:
@@ -63,6 +69,12 @@ export class AIProviderFactory implements OnModuleInit {
         return this.providers.get('banana') || this.providers.get('gemini')!;
       } else if (model.includes('runninghub') || model.includes('su-effect')) {
         return this.providers.get('runninghub') || this.providers.get('gemini')!;
+      } else if (model.includes('midjourney')) {
+        return (
+          this.providers.get('midjourney') ||
+          this.providers.get('banana') ||
+          this.providers.get('gemini')!
+        );
       } else if (model.includes('gpt') || model.includes('openai')) {
         return this.providers.get('openai') || this.providers.get('gemini')!;
       } else if (model.includes('claude')) {

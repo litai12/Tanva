@@ -44,7 +44,8 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
 const PROVIDER_MODE_OPTIONS: Partial<Record<SupportedAIProvider, ManualModeOption[]>> = {
   gemini: BASE_MANUAL_MODE_OPTIONS,
   banana: BASE_MANUAL_MODE_OPTIONS,
-  runninghub: BASE_MANUAL_MODE_OPTIONS
+  runninghub: BASE_MANUAL_MODE_OPTIONS,
+  midjourney: BASE_MANUAL_MODE_OPTIONS
 };
 
 const MinimalGlobeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -177,7 +178,8 @@ const AIChatDialog: React.FC = () => {
   // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
     { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
-    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' }
+    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' },
+    { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
   ];
   const currentAIProvider = aiProviderOptions.find((option) => option.value === aiProvider) ?? aiProviderOptions[0];
   const defaultAIProviderValue = aiProviderOptions[0]?.value;

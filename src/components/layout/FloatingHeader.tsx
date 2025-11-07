@@ -642,6 +642,29 @@ const FloatingHeader: React.FC = () => {
                                     </div>
                                 </button>
 
+                                <button
+                                    onClick={() => setAIProvider('midjourney')}
+                                    className={cn(
+                                        "relative rounded-xl border-2 p-4 text-left transition-all",
+                                        aiProvider === 'midjourney'
+                                            ? "border-purple-500 bg-purple-50"
+                                            : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/40"
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Sparkles className="h-4 w-4 text-purple-600" />
+                                                <span className="font-medium text-sm text-slate-700">Midjourney</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">使用 Midjourney 快速通道 (147)</div>
+                                        </div>
+                                        {aiProvider === 'midjourney' && (
+                                            <Check className="h-5 w-5 text-purple-600 flex-shrink-0" />
+                                        )}
+                                    </div>
+                                </button>
+
                             </div>
                         </div>
                     </div>

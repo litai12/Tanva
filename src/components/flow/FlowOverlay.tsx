@@ -31,6 +31,7 @@ import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
 import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import AnalysisNode from './nodes/AnalyzeNode';
+import TextNoteNode from './nodes/TextNoteNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
@@ -63,6 +64,7 @@ const nodeTypes = {
   textPrompt: TextPromptNode,
   textChat: TextChatNode,
   promptOptimize: PromptOptimizeNode,
+  textNote: TextNoteNode,
   image: ImageNode,
   generate: GenerateNode,
   generate4: Generate4Node,
@@ -732,11 +734,11 @@ function FlowInner() {
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
     if (isConnecting) {
-      document.body.classList.add('tanva-no-select');
+      document.body.classList.add('tanva-no-select', 'tanva-flow-connecting');
     } else {
-      document.body.classList.remove('tanva-no-select');
+      document.body.classList.remove('tanva-no-select', 'tanva-flow-connecting');
     }
-    return () => document.body.classList.remove('tanva-no-select');
+    return () => document.body.classList.remove('tanva-no-select', 'tanva-flow-connecting');
   }, [isConnecting]);
 
   // 擦除模式退出时清除高亮
@@ -1087,10 +1089,11 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
+      textNote: { w: 220, h: 140 },
       textChat: { w: 320, h: 540 },
       promptOptimize: { w: 360, h: 300 },
       image: { w: 260, h: 240 },
@@ -1104,6 +1107,7 @@ function FlowInner() {
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
     const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h }
+      : type === 'textNote' ? { text: '', boxW: size.w, boxH: size.h }
       : type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false, boxW: size.w, boxH: size.h }
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
@@ -1118,6 +1122,9 @@ function FlowInner() {
     return id;
   }, [setNodes]);
 
+  const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote'], []);
+  const isTextHandle = React.useCallback((handle?: string | null) => typeof handle === 'string' && handle.startsWith('text'), []);
+
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback((connection: Connection) => {
     const { source, target, targetHandle } = connection;
@@ -1130,13 +1137,13 @@ function FlowInner() {
 
     // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
     if (targetNode.type === 'generateRef') {
-      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
       if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       if (targetHandle === 'image2' || targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'generate' || targetNode.type === 'generate4') {
-      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
+      if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
       if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
@@ -1146,11 +1153,11 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'promptOptimize') {
-      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
+      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'textPrompt') {
-      if (targetHandle === 'text') return ['promptOptimize','analysis','textPrompt','textChat'].includes(sourceNode.type || '');
+      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'analysis') {
@@ -1158,11 +1165,15 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'textChat') {
-      if (targetHandle === 'text') return ['textPrompt','textChat','promptOptimize','analysis'].includes(sourceNode.type || '');
+      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
+      return false;
+    }
+    if (targetNode.type === 'textNote') {
+      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
       return false;
     }
     return false;
-  }, [rf]);
+  }, [rf, isTextHandle, textSourceTypes]);
 
   // 限制：Generate(text) 仅一个连接；Generate(img) 最多6条
   const canAcceptConnection = React.useCallback((params: Connection) => {
@@ -1184,19 +1195,22 @@ function FlowInner() {
       if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
     }
     if (targetNode?.type === 'promptOptimize') {
-      if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
+      if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
     }
     if (targetNode?.type === 'textPrompt') {
-      if (params.targetHandle === 'text') return true; // 仅一条连接，后续替换
+      if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
+    }
+    if (targetNode?.type === 'textNote') {
+      if (isTextHandle(params.targetHandle)) return true;
     }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
     }
     if (targetNode?.type === 'textChat') {
-      if (params.targetHandle === 'text') return true;
+      if (isTextHandle(params.targetHandle)) return true;
     }
     return false;
-  }, [rf]);
+  }, [rf, isTextHandle]);
 
   const onConnect = React.useCallback((params: Connection) => {
     if (!isValidConnection(params)) return;
@@ -1212,8 +1226,8 @@ function FlowInner() {
       }
       
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt')) && params.targetHandle === 'text') {
-        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'text'));
+      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt') || (tgt?.type === 'textNote')) && isTextHandle(params.targetHandle)) {
+        next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       if (tgt?.type === 'generateRef') {
         const image1Handles = ['image1','refer'];
@@ -1258,7 +1272,7 @@ function FlowInner() {
         }
       }
     } catch {}
-  }, [isValidConnection, canAcceptConnection, setEdges, rf, setNodes]);
+  }, [isValidConnection, canAcceptConnection, setEdges, rf, setNodes, isTextHandle]);
 
   // 监听来自节点的本地数据写入（TextPrompt）
   React.useEffect(() => {
@@ -1627,6 +1641,11 @@ function FlowInner() {
         setNodes(ns => ns.concat([{ id, type: 'textPrompt', position: { x, y }, data: { text } }] as any));
         return id;
       },
+      addTextNote: (x = 0, y = 0, text = '') => {
+        const id = `tn_${Date.now()}`;
+        setNodes(ns => ns.concat([{ id, type: 'textNote', position: { x, y }, data: { text } }] as any));
+        return id;
+      },
       addImage: (x = 0, y = 0, imageData?: string) => {
         const id = `img_${Date.now()}`;
         setNodes(ns => ns.concat([{ id, type: 'image', position: { x, y }, data: { imageData } }] as any));
@@ -1652,7 +1671,7 @@ function FlowInner() {
         setNodes(ns => ns.concat([{ id, type: 'generate4', position: { x, y }, data: { status: 'idle', images: [], count: 4 } }] as any));
         return id;
       },
-      connect: (source: string, target: string, targetHandle: 'text' | 'img' | 'image1' | 'image2' | 'refer') => {
+      connect: (source: string, target: string, targetHandle: 'text' | 'img' | 'image1' | 'image2' | 'refer' | 'text-top-in' | 'text-bottom-in' | 'text-left-in' | 'text-right-in') => {
         const conn = { source, target, targetHandle } as any;
         if (isValidConnection(conn as any) && canAcceptConnection(conn as any)) {
           setEdges(eds => addEdge(conn, eds));
@@ -1664,7 +1683,7 @@ function FlowInner() {
     return () => { delete (window as any).tanvaFlow; };
   }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
 
-  const addAtCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'analysis') => {
+  const addAtCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'analysis') => {
     const rect = containerRef.current?.getBoundingClientRect();
     const centerScreen = {
       x: (rect?.width || window.innerWidth) / 2,
@@ -1678,6 +1697,7 @@ function FlowInner() {
       position: center,
       data:
         type === 'textPrompt' ? { text: '' } :
+        type === 'textNote' ? { text: '' } :
         type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false } :
         type === 'promptOptimize' ? { text: '', expandedText: '' } :
         type === 'generate' ? { status: 'idle' } :
@@ -1699,6 +1719,7 @@ function FlowInner() {
       style={{ position: 'absolute', top: 56, right: 16, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(255,255,255,0.9)', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}
     >
       <button onClick={() => addAtCenter('textPrompt')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字</button>
+      <button onClick={() => addAtCenter('textNote')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文本卡片</button>
       <button onClick={() => addAtCenter('textChat')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>文字交互</button>
       <button onClick={() => addAtCenter('promptOptimize')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>优化</button>
       <button onClick={() => addAtCenter('analysis')} style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, border: '1px solid #e5e7eb', background: '#fff' }}>分析</button>
@@ -2179,6 +2200,39 @@ function FlowInner() {
                 >
                   <span>Text Chat Node</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>纯文本交互</span>
+                </button>
+                <button 
+                  onClick={() => createNodeAtWorldCenter('textNote', addPanel.world)} 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13, 
+                    fontWeight: 500,
+                    padding: '12px 16px', 
+                    borderRadius: 8, 
+                    border: '1px solid #e5e7eb', 
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Text Note Node</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>纯文本</span>
                 </button>
                 <button 
                   onClick={() => createNodeAtWorldCenter('promptOptimize', addPanel.world)} 

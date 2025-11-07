@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'promptOptimize' | 'image' | 'generate' | 'generate4';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4';
 
 export type TextPromptData = {
   text: string;

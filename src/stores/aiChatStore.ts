@@ -119,6 +119,7 @@ type AIProviderType = SupportedAIProvider;
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
+const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 const RUNNINGHUB_PRIMARY_NODE_ID =
   import.meta.env?.VITE_RUNNINGHUB_PRIMARY_NODE_ID ?? '112';
 const RUNNINGHUB_REFERENCE_NODE_ID =
@@ -129,6 +130,9 @@ const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
 export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === 'runninghub') {
     return RUNNINGHUB_IMAGE_MODEL;
+  }
+  if (provider === 'midjourney') {
+    return MIDJOURNEY_IMAGE_MODEL;
   }
   return DEFAULT_IMAGE_MODEL;
 };
@@ -501,7 +505,7 @@ interface AIChatState {
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
   aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
   manualAIMode: ManualAIMode;
-  aiProvider: AIProviderType;  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果)
+  aiProvider: AIProviderType;  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
 
   // 操作方法
   showDialog: () => void;

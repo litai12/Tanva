@@ -24,8 +24,31 @@ export interface RunningHubGenerateOptions {
   maxPollAttempts?: number;
 }
 
+export interface MidjourneyAccountFilter {
+  channelId?: string;
+  instanceId?: string;
+  modes?: string[];
+  remark?: string;
+  remix?: string;
+  remixAutoConsidered?: boolean;
+}
+
+export interface MidjourneyProviderOptions {
+  mode?: 'FAST' | 'RELAX';
+  botType?: string;
+  notifyHook?: string;
+  state?: string;
+  dimensions?: 'PORTRAIT' | 'SQUARE' | 'LANDSCAPE';
+  base64Array?: string[];
+  base64?: string;
+  maskBase64?: string;
+  remix?: boolean;
+  accountFilter?: MidjourneyAccountFilter;
+}
+
 export interface ProviderOptionsPayload {
   runningHub?: RunningHubGenerateOptions;
+  midjourney?: MidjourneyProviderOptions;
   [key: string]: any;
 }
 

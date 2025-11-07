@@ -19,6 +19,9 @@ import type {
 import { fetchWithAuth } from './authFetch';
 
 const API_BASE_URL = '/api';
+const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
+const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 
 type ImageResponseLogMeta = {
   endpoint: string;
@@ -94,6 +97,16 @@ const NO_IMAGE_RETRY_DELAY_MS = 800;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const resolveDefaultModel = (
+  requestModel: string | undefined,
+  provider: SupportedAIProvider | undefined
+): string => {
+  if (requestModel) return requestModel;
+  if (provider === 'runninghub') return RUNNINGHUB_IMAGE_MODEL;
+  if (provider === 'midjourney') return MIDJOURNEY_IMAGE_MODEL;
+  return DEFAULT_IMAGE_MODEL;
+};
+
 async function performGenerateImageRequest(
   request: AIImageGenerateRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
@@ -120,8 +133,7 @@ async function performGenerateImageRequest(
 
     const data = await response.json();
 
-    const resolvedModel =
-      request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
+    const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
 
     logAIImageResponse(
       {
@@ -232,8 +244,7 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
 
     const data = await response.json();
 
-    const resolvedModel =
-      request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
+    const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
 
     logAIImageResponse(
       {
@@ -302,8 +313,7 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
 
     const data = await response.json();
 
-    const resolvedModel =
-      request.model || (request.aiProvider === 'runninghub' ? 'runninghub-su-effect' : 'gemini-2.5-flash-image');
+    const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
 
     logAIImageResponse(
       {
