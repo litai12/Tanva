@@ -849,56 +849,6 @@ export class AutoScreenshotService {
       ctx.fillStyle = path.fillColor.toCSS(true);
     }
 
-    // 增强圆形检测：检查多种可能的圆形标识
-    const isCircle = path instanceof paper.Path.Circle || 
-                    path.className === 'Path.Circle' ||
-                    (path as any).radius !== undefined ||
-                    (path as any).isCirclePath === true; // 我们自定义的圆形标识
-    
-    const isLikelyCircle = path.segments.length === 4 && 
-                         path.closed && 
-                         Math.abs(path.bounds.width - path.bounds.height) < 1; // 宽高接近相等
-    
-    // 特殊处理：如果是圆形，使用Canvas原生的arc方法以保证完美的圆形
-    if (isCircle || isLikelyCircle) {
-      const center = path.position;
-      const radius = (path as any).radius || (Math.min(path.bounds.width, path.bounds.height) / 2);
-      
-      console.log('🔍 检测到圆形，使用arc方法绘制:', {
-        center: { x: center.x, y: center.y },
-        radius: radius,
-        bounds: `${path.bounds.x},${path.bounds.y} ${path.bounds.width}x${path.bounds.height}`,
-        className: path.className,
-        isCircleInstance: path instanceof paper.Path.Circle,
-        hasRadiusProperty: (path as any).radius !== undefined,
-        segments: path.segments.length,
-        isLikelyCircle: isLikelyCircle
-      });
-      
-      ctx.beginPath();
-      ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
-      
-      if (path.fillColor) {
-        ctx.fill();
-      }
-      if (path.strokeColor) {
-        ctx.stroke();
-      }
-      
-      ctx.restore();
-      return;
-    }
-    
-    // 调试：记录非圆形路径信息
-    console.log('🔍 绘制一般路径:', {
-      className: path.className,
-      isCircle: path instanceof paper.Path.Circle,
-      segments: path.segments.length,
-      closed: path.closed,
-      bounds: `${path.bounds.x},${path.bounds.y} ${path.bounds.width}x${path.bounds.height}`,
-      widthHeightRatio: path.bounds.width / path.bounds.height
-    });
-
     // 对于其他路径，使用原有的段绘制方法
     ctx.beginPath();
     

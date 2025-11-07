@@ -12,6 +12,7 @@ import {
   blendImagesViaAPI,
   analyzeImageViaAPI,
   generateTextResponseViaAPI,
+  midjourneyActionViaAPI,
 } from '@/services/aiBackendAPI';
 import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
@@ -25,6 +26,7 @@ import type {
   RunningHubGenerateOptions,
   AIProviderOptions,
   SupportedAIProvider,
+  MidjourneyMetadata,
 } from '@/types/ai';
 import type {
   ConversationContext,
@@ -69,6 +71,8 @@ export interface ChatMessage {
   sourceImageData?: string;
   sourceImagesData?: string[];
   webSearchResult?: unknown;
+  provider?: AIProviderType;
+  metadata?: Record<string, any>;
   // 🔥 每条消息的独立生成状态
   generationStatus?: {
     isGenerating: boolean;
@@ -151,6 +155,14 @@ type ProcessMetrics = {
   messageId?: string;
 };
 
+type MidjourneyActionOptions = {
+  parentMessageId: string;
+  taskId: string;
+  customId: string;
+  buttonLabel?: string;
+  displayPrompt?: string;
+};
+
 const getTimestamp = () =>
   typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
@@ -163,6 +175,14 @@ const createProcessMetrics = (): ProcessMetrics => {
     lastStepTime: now,
     traceId: `flow-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   };
+};
+
+const getResultImageRemoteUrl = (result?: AIImageResult | null): string | undefined => {
+  if (!result?.metadata) return undefined;
+  const midMeta = result.metadata.midjourney as MidjourneyMetadata | undefined;
+  if (midMeta?.imageUrl) return midMeta.imageUrl;
+  if (typeof result.metadata.imageUrl === 'string') return result.metadata.imageUrl;
+  return undefined;
 };
 
 const logProcessStep = (metrics: ProcessMetrics | undefined, label: string) => {
@@ -341,6 +361,8 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
         expectsImageOutput: message.expectsImageOutput,
         sourceImageData: message.sourceImageData,
         sourceImagesData: message.sourceImagesData,
+        provider: message.provider,
+        metadata: message.metadata ? cloneSafely(message.metadata) : undefined,
         generationStatus: message.generationStatus
           ? {
               isGenerating: !!message.generationStatus.isGenerating,
@@ -407,6 +429,8 @@ const deserializeConversation = (data: SerializedConversationContext): Conversat
       expectsImageOutput: message.expectsImageOutput,
       sourceImageData: message.sourceImageData,
       sourceImagesData: message.sourceImagesData,
+      provider: message.provider as AIProviderType | undefined,
+      metadata: message.metadata ? { ...message.metadata } : undefined,
       generationStatus: message.generationStatus
         ? {
             isGenerating: !!message.generationStatus.isGenerating,
@@ -545,6 +569,7 @@ interface AIChatState {
   addImageForBlending: (imageData: string) => void;
   removeImageFromBlending: (index: number) => void;
   clearImagesForBlending: () => void;
+  executeMidjourneyAction: (options: MidjourneyActionOptions) => Promise<void>;
 
   // 图像分析功能
   analyzeImage: (prompt: string, sourceImage: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
@@ -1045,7 +1070,8 @@ export const useAIChatStore = create<AIChatState>()(
           error: null,
           stage: '准备中'
         },
-        expectsImageOutput: true
+        expectsImageOutput: true,
+        provider: state.aiProvider
       };
 
       const storedPlaceholder = state.addMessage(placeholderMessage);
@@ -1154,6 +1180,8 @@ export const useAIChatStore = create<AIChatState>()(
         const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已生成图像: ${prompt}` : `无法生成图像: ${prompt}`);
 
+        const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+
         // 🔥 更新消息内容和完成状态
         set((state) => ({
           messages: state.messages.map((msg) =>
@@ -1163,6 +1191,9 @@ export const useAIChatStore = create<AIChatState>()(
                   content: messageContent,
                   imageData: result.data?.imageData,
                   thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
+                  imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                  metadata: result.data?.metadata,
+                  provider: state.aiProvider,
                   generationStatus: {
                     isGenerating: false,
                     progress: 100,
@@ -1185,6 +1216,9 @@ export const useAIChatStore = create<AIChatState>()(
             if (result.data?.imageData) {
               message.thumbnail = ensureDataUrl(result.data.imageData);
             }
+            message.imageRemoteUrl = imageRemoteUrl || message.imageRemoteUrl;
+            message.metadata = result.data?.metadata;
+            message.provider = state.aiProvider;
             message.generationStatus = {
               isGenerating: false,
               progress: 100,
@@ -1416,7 +1450,8 @@ export const useAIChatStore = create<AIChatState>()(
           stage: '准备中'
         },
         expectsImageOutput: true,
-        sourceImageData: showImagePlaceholder ? normalizedSourceImage : undefined
+        sourceImageData: showImagePlaceholder ? normalizedSourceImage : undefined,
+        provider: state.aiProvider
       };
 
       const storedPlaceholder = state.addMessage(placeholderMessage);
@@ -1518,6 +1553,7 @@ export const useAIChatStore = create<AIChatState>()(
       logProcessStep(metrics, 'editImage API response received');
 
       if (result.success && result.data) {
+        const imageRemoteUrl = getResultImageRemoteUrl(result.data);
         // 编辑成功 - 更新消息内容和状态
         const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已编辑图像: ${prompt}` : `无法编辑图像: ${prompt}`);
@@ -1531,6 +1567,9 @@ export const useAIChatStore = create<AIChatState>()(
                   content: messageContent,
                   imageData: result.data?.imageData,
                   thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
+                  imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                  metadata: result.data?.metadata,
+                  provider: state.aiProvider,
                   generationStatus: {
                     isGenerating: false,
                     progress: 100,
@@ -1551,6 +1590,9 @@ export const useAIChatStore = create<AIChatState>()(
             if (result.data?.imageData) {
               message.thumbnail = ensureDataUrl(result.data.imageData);
             }
+            message.imageRemoteUrl = imageRemoteUrl || message.imageRemoteUrl;
+            message.metadata = result.data?.metadata;
+            message.provider = state.aiProvider;
             message.generationStatus = {
               isGenerating: false,
               progress: 100,
@@ -1763,7 +1805,8 @@ export const useAIChatStore = create<AIChatState>()(
           stage: '准备中'
         },
         expectsImageOutput: true,
-        sourceImagesData: sourceImages
+        sourceImagesData: sourceImages,
+        provider: state.aiProvider
       };
 
       const storedPlaceholder = state.addMessage(placeholderMessage);
@@ -1837,6 +1880,7 @@ export const useAIChatStore = create<AIChatState>()(
       clearInterval(progressInterval);
 
       if (result.success && result.data) {
+        const imageRemoteUrl = getResultImageRemoteUrl(result.data);
         const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已融合图像: ${prompt}` : `无法融合图像: ${prompt}`);
 
@@ -1849,6 +1893,9 @@ export const useAIChatStore = create<AIChatState>()(
                   content: messageContent,
                   imageData: result.data?.imageData,
                   thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
+                  imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                  metadata: result.data?.metadata,
+                  provider: state.aiProvider,
                   generationStatus: {
                     isGenerating: false,
                     progress: 100,
@@ -1870,6 +1917,9 @@ export const useAIChatStore = create<AIChatState>()(
             if (result.data?.imageData) {
               message.thumbnail = ensureDataUrl(result.data.imageData);
             }
+            message.imageRemoteUrl = imageRemoteUrl || message.imageRemoteUrl;
+            message.metadata = result.data?.metadata;
+            message.provider = state.aiProvider;
             message.generationStatus = {
               isGenerating: false,
               progress: 100,
@@ -2011,6 +2061,128 @@ export const useAIChatStore = create<AIChatState>()(
     set({ sourceImagesForBlending: [] });
   },
 
+  executeMidjourneyAction: async ({
+    parentMessageId,
+    taskId,
+    customId,
+    buttonLabel,
+    displayPrompt,
+  }: MidjourneyActionOptions) => {
+    const state = get();
+    const actionLabel = buttonLabel || 'Midjourney 操作';
+    const parentMessage = state.messages.find((msg) => msg.id === parentMessageId);
+    const prompt =
+      displayPrompt ||
+      (parentMessage?.metadata?.midjourney?.prompt as string | undefined) ||
+      parentMessage?.content ||
+      actionLabel;
+
+    const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+      type: 'ai',
+      content: `正在执行 ${actionLabel}...`,
+      generationStatus: {
+        isGenerating: true,
+        progress: 0,
+        error: null,
+        stage: '准备中',
+      },
+      expectsImageOutput: true,
+      provider: 'midjourney',
+    };
+
+    const aiMessage = state.addMessage(placeholderMessage);
+    generatingImageCount += 1;
+
+    try {
+      const result = await midjourneyActionViaAPI({
+        taskId,
+        customId,
+        actionLabel,
+        displayPrompt: prompt,
+      });
+
+      if (result.success && result.data) {
+        const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+        const messageContent =
+          result.data.textResponse ||
+          (result.data.hasImage ? `已生成图像: ${prompt}` : `无法生成图像: ${prompt}`);
+
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg.id === aiMessage.id
+              ? {
+                  ...msg,
+                  content: messageContent,
+                  imageData: result.data?.imageData,
+                  thumbnail: result.data?.imageData
+                    ? ensureDataUrl(result.data.imageData)
+                    : msg.thumbnail,
+                  imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                  metadata: result.data?.metadata,
+                  provider: 'midjourney',
+                  generationStatus: {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null,
+                  },
+                }
+              : msg
+          ),
+        }));
+
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const messageRef = context.messages.find((m) => m.id === aiMessage.id);
+          if (messageRef) {
+            messageRef.content = messageContent;
+            messageRef.imageData = result.data?.imageData;
+            if (result.data?.imageData) {
+              messageRef.thumbnail = ensureDataUrl(result.data.imageData);
+            }
+            messageRef.imageRemoteUrl = imageRemoteUrl || messageRef.imageRemoteUrl;
+            messageRef.metadata = result.data?.metadata;
+            messageRef.provider = 'midjourney';
+            messageRef.generationStatus = {
+              isGenerating: false,
+              progress: 100,
+              error: null,
+            };
+          }
+        }
+
+        set({ lastGeneratedImage: result.data });
+
+        if (result.data.imageData) {
+          await registerMessageImageHistory({
+            aiMessageId: aiMessage.id,
+            prompt,
+            result: result.data,
+            operationType: 'generate',
+          });
+        }
+
+        await get().refreshSessions();
+      } else {
+        const errorMessage = result.error?.message || 'Midjourney 操作失败';
+        get().updateMessageStatus(aiMessage.id, {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage,
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Midjourney 操作失败';
+      get().updateMessageStatus(aiMessage.id, {
+        isGenerating: false,
+        progress: 0,
+        error: errorMessage,
+      });
+      console.error('❌ Midjourney action异常:', error);
+    } finally {
+      generatingImageCount = Math.max(0, generatingImageCount - 1);
+    }
+  },
+
   // 图像分析功能（支持并行）
   analyzeImage: async (
     prompt: string,
@@ -2065,7 +2237,8 @@ export const useAIChatStore = create<AIChatState>()(
           error: null,
           stage: '准备中'
         },
-        sourceImageData: formattedImageData
+        sourceImageData: formattedImageData,
+        provider: state.aiProvider
       };
 
       const storedPlaceholder = state.addMessage(placeholderMessage);
@@ -2240,7 +2413,8 @@ export const useAIChatStore = create<AIChatState>()(
           progress: 0,
           error: null,
           stage: '准备中'
-        }
+        },
+        provider: get().aiProvider
       };
 
       const storedPlaceholder = get().addMessage(placeholderMessage);

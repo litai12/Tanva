@@ -5,6 +5,7 @@ import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
 export interface ImageGenerationResult {
   imageData?: string;
   textResponse: string;
+  metadata?: Record<string, any>;
 }
 
 interface GenerateImageRequest {

@@ -9,6 +9,9 @@ import {
   ImageEditRequest,
   ImageGenerationRequest,
   ImageResult,
+  MidjourneyActionRequest,
+  MidjourneyButtonInfo,
+  MidjourneyModalRequest,
   MidjourneyProviderOptions,
   ProviderOptionsPayload,
   TextChatRequest,
@@ -35,7 +38,7 @@ type MidjourneyTaskResponse = {
   status: MidjourneyTaskStatus | string;
   progress?: string;
   failReason?: string;
-  buttons?: Array<{ label: string; customId: string }>;
+  buttons?: MidjourneyButtonInfo[];
   properties?: Record<string, any>;
 };
 
@@ -136,6 +139,12 @@ export class MidjourneyProvider implements IAIProvider {
       payload,
       `${operation} submit`
     );
+
+    if (response?.code === 21) {
+      throw new Error(
+        response.description || 'Midjourney API requires modal input for this action.'
+      );
+    }
 
     const taskId = response?.result ?? response?.properties?.taskId;
     if (!taskId) {
@@ -365,7 +374,8 @@ export class MidjourneyProvider implements IAIProvider {
 
   private buildSuccessImageResponse(
     task: MidjourneyTaskResponse,
-    imageData: string | null
+    imageData: string | null,
+    extraMetadata: Record<string, any> = {}
   ): AIProviderResponse<ImageResult> {
     const textResponse =
       task.description ||
@@ -373,12 +383,30 @@ export class MidjourneyProvider implements IAIProvider {
       task.promptEn ||
       'Midjourney image generated successfully.';
 
+    const imageUrl = this.extractImageUrl(task);
+    const midjourneyMeta = {
+      taskId: task.id,
+      status: task.status,
+      buttons: task.buttons,
+      prompt: task.prompt,
+      promptEn: task.promptEn,
+      description: task.description,
+      properties: task.properties,
+      imageUrl,
+    };
+
     return {
       success: true,
       data: {
         imageData: imageData ?? undefined,
         textResponse,
         hasImage: Boolean(imageData),
+        metadata: {
+          provider: 'midjourney',
+          imageUrl,
+          midjourney: midjourneyMeta,
+          ...extraMetadata,
+        },
       },
     };
   }
@@ -559,5 +587,69 @@ export class MidjourneyProvider implements IAIProvider {
       version: '1.0.0',
       supportedModels: ['midjourney-fast', 'midjourney-relax'],
     };
+  }
+  async triggerAction(
+    request: MidjourneyActionRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    try {
+      const payload = {
+        taskId: request.taskId,
+        customId: request.customId,
+        state: request.state,
+        notifyHook: request.notifyHook,
+        chooseSameChannel: request.chooseSameChannel,
+        accountFilter: request.accountFilter,
+      };
+
+      const newTaskId = await this.submitTask('/mj/submit/action', payload, 'action');
+      const task = await this.pollTask(newTaskId, 'action');
+      const imageUrl = this.extractImageUrl(task);
+      const imageData = await this.downloadImageAsBase64(imageUrl);
+
+      return this.buildSuccessImageResponse(task, imageData, {
+        parentTaskId: request.taskId,
+        actionCustomId: request.customId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: {
+          code: 'MIDJOURNEY_ACTION_ERROR',
+          message,
+        },
+      };
+    }
+  }
+
+  async executeModal(
+    request: MidjourneyModalRequest
+  ): Promise<AIProviderResponse<ImageResult>> {
+    try {
+      const payload = {
+        taskId: request.taskId,
+        prompt: request.prompt,
+        maskBase64: request.maskBase64,
+      };
+
+      const newTaskId = await this.submitTask('/mj/submit/modal', payload, 'modal');
+      const task = await this.pollTask(newTaskId, 'modal');
+      const imageUrl = this.extractImageUrl(task);
+      const imageData = await this.downloadImageAsBase64(imageUrl);
+
+      return this.buildSuccessImageResponse(task, imageData, {
+        parentTaskId: request.taskId,
+        modalPrompt: request.prompt,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: {
+          code: 'MIDJOURNEY_MODAL_ERROR',
+          message,
+        },
+      };
+    }
   }
 }

@@ -21,11 +21,16 @@ import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen, SlidersHorizontal, Check } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen, SlidersHorizontal, Check, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AIStreamProgressEvent, SupportedAIProvider } from '@/types/ai';
+import type {
+  AIStreamProgressEvent,
+  MidjourneyButtonInfo,
+  MidjourneyMetadata,
+  SupportedAIProvider,
+} from '@/types/ai';
 import PromptOptimizationPanel from '@/components/chat/PromptOptimizationPanel';
 import type { PromptOptimizationSettings } from '@/components/chat/PromptOptimizationPanel';
 import promptOptimizationService from '@/services/promptOptimizationService';
@@ -81,6 +86,63 @@ const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </svg>
 );
 
+type MidjourneyActionButtonsProps = {
+  buttons: MidjourneyButtonInfo[];
+  onAction: (button: MidjourneyButtonInfo) => Promise<void>;
+};
+
+const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({ buttons, onAction }) => {
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const actionableButtons = useMemo(
+    () => buttons.filter((btn) => Boolean(btn?.customId && (btn.label || btn.customId))),
+    [buttons]
+  );
+
+  if (actionableButtons.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-200">
+      <div className="text-xs text-slate-500 mb-2">Midjourney 操作</div>
+      <div className="flex flex-wrap gap-2">
+        {actionableButtons.map((button) => {
+          const isLoading = loadingId === button.customId;
+          return (
+            <button
+              key={button.customId}
+              className={cn(
+                "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1",
+                button.disabled
+                  ? "bg-slate-50 text-slate-400 border-slate-100 cursor-not-allowed"
+                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50",
+                isLoading && "cursor-wait"
+              )}
+              disabled={button.disabled || isLoading}
+              onClick={async () => {
+                if (!button.customId) return;
+                setLoadingId(button.customId);
+                try {
+                  await onAction(button);
+                } finally {
+                  setLoadingId(null);
+                }
+              }}
+              title={button.label || button.customId}
+            >
+              {isLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+              ) : (
+                <span>{button.label || button.customId}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const AIChatDialog: React.FC = () => {
   const {
     isVisible,
@@ -114,7 +176,8 @@ const AIChatDialog: React.FC = () => {
     manualAIMode,
     setManualAIMode,
     aiProvider,
-    setAIProvider
+    setAIProvider,
+    executeMidjourneyAction
   } = useAIChatStore();
   const focusMode = useUIStore(state => state.focusMode);
 
@@ -200,30 +263,6 @@ const AIChatDialog: React.FC = () => {
     src: string;
     title: string;
   } | null>(null);
-
-  /**
-   * 渲染AI生图任务的进度条，直接复用消息里的进度信息。
-   * 使用细蓝条展示状态，不再显示具体百分数字样。
-   */
-  const renderGenerationProgressBar = (message: any) => {
-    const status = message?.generationStatus;
-    if (!status?.isGenerating) {
-      return null;
-    }
-
-    const progressValue = Math.max(0, Math.min(status.progress ?? 0, 100));
-    const progressWidth = `${progressValue}%`;
-    return (
-      <div className="mt-2">
-        <div className="relative h-1.5 w-full rounded-full bg-blue-100 overflow-hidden">
-          <div
-            className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-blue-500 via-blue-500 to-blue-400 transition-all duration-300 ease-out"
-            style={{ width: progressWidth }}
-          />
-        </div>
-      </div>
-    );
-  };
 
   // 🧠 初始化上下文记忆系统
   useEffect(() => {
@@ -1475,16 +1514,26 @@ const AIChatDialog: React.FC = () => {
                     </span>
                   </div>
                 </div>
-                {messages.slice(isMaximized ? -50 : -5).map((message) => (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      "p-2 transition-colors text-sm",
-                      message.type === 'user' && "text-black ml-3 mr-1",
-                      message.type === 'ai' && "text-black mr-3",
-                      message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
-                    )}
-                  >
+                {messages.slice(isMaximized ? -50 : -5).map((message) => {
+                  const midjourneyMeta = message.metadata?.midjourney as MidjourneyMetadata | undefined;
+                  const generationStatus = message.generationStatus;
+                  const expectsImageOutput = Boolean(message.expectsImageOutput || (generationStatus?.isGenerating && message.type === 'ai'));
+                  const hasGeneratedImage = Boolean(message.imageData || message.imageRemoteUrl || message.thumbnail);
+                  const hasReferenceImages =
+                    Boolean(message.sourceImageData) ||
+                    Boolean(message.sourceImagesData && message.sourceImagesData.length > 0);
+                  const showImageLayout = hasGeneratedImage || hasReferenceImages || expectsImageOutput;
+                  const shouldUseVerticalLayout = message.type === 'ai' && (hasGeneratedImage || expectsImageOutput);
+                  return (
+                    <div
+                      key={message.id}
+                      className={cn(
+                        "p-2 transition-colors text-sm",
+                        message.type === 'user' && "text-black ml-3 mr-1",
+                        message.type === 'ai' && "text-black mr-3",
+                        message.type === 'error' && "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
+                      )}
+                    >
                     {/* 🔥 错误显示 - AI 消息级别的错误 */}
                     {message.type === 'ai' && message.generationStatus?.error && (
                       <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
@@ -1492,8 +1541,8 @@ const AIChatDialog: React.FC = () => {
                       </div>
                     )}
 
-                    {/* 如果有图像或源图像，使用特殊布局 */}
-                    {(message.imageData || message.imageRemoteUrl || message.thumbnail || message.sourceImageData || message.sourceImagesData) ? (
+                    {/* 如果有图像、源图像或正在等待图像，使用特殊布局 */}
+                    {showImageLayout ? (
                       <div className={cn(
                         "inline-block rounded-lg p-3",
                         message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
@@ -1514,8 +1563,8 @@ const AIChatDialog: React.FC = () => {
                           </div>
                         )}
 
-                        {/* AI消息：同时显示文本回复和图像 */}
-                        {message.type === 'ai' && (message.imageRemoteUrl || message.imageData || message.thumbnail) ? (
+                        {/* AI消息：显示文本回复与图像/占位 */}
+                        {shouldUseVerticalLayout ? (
                           <div className="space-y-3">
                             {/* 文本回复部分 */}
                             <div className="text-sm leading-relaxed text-black break-words markdown-content">
@@ -1545,7 +1594,7 @@ const AIChatDialog: React.FC = () => {
                               </ReactMarkdown>
                             </div>
                             
-                            {/* 图像部分 */}
+                            {/* 图像/占位部分 */}
                             <div className="flex justify-center">
                               {(() => {
                                 const imageSrc =
@@ -1560,21 +1609,52 @@ const AIChatDialog: React.FC = () => {
                                         ? message.thumbnail
                                         : `data:image/png;base64,${message.thumbnail}`)
                                     : undefined);
-                                if (!imageSrc) return null;
+                                if (imageSrc) {
+                                  return (
+                                    <img
+                                      src={imageSrc}
+                                      alt="AI生成的图像"
+                                      className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleImagePreview(imageSrc, 'AI生成的图像');
+                                      }}
+                                      title="点击全屏预览"
+                                    />
+                                  );
+                                }
+                                if (!expectsImageOutput) return null;
                                 return (
-                                  <img
-                                    src={imageSrc}
-                                    alt="AI生成的图像"
-                                    className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleImagePreview(imageSrc, 'AI生成的图像');
-                                    }}
-                                    title="点击全屏预览"
-                                  />
+                                  <div className="relative w-32 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse" />
+                                    <div className="relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600">
+                                      <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                                      <span className="font-medium">
+                                        {generationStatus?.stage || '正在生成图像'}
+                                      </span>
+                                      {typeof generationStatus?.progress === 'number' && (
+                                        <span className="text-[11px] text-blue-500">{generationStatus.progress}%</span>
+                                      )}
+                                    </div>
+                                  </div>
                                 );
                               })()}
                             </div>
+                            {midjourneyMeta?.buttons?.length && midjourneyMeta.taskId && (
+                              <MidjourneyActionButtons
+                                buttons={midjourneyMeta.buttons as MidjourneyButtonInfo[]}
+                                onAction={async (button) => {
+                                  if (!button.customId) return;
+                                  await executeMidjourneyAction({
+                                    parentMessageId: message.id,
+                                    taskId: midjourneyMeta.taskId,
+                                    customId: button.customId,
+                                    buttonLabel: button.label,
+                                    displayPrompt: midjourneyMeta.prompt || message.content,
+                                  });
+                                }}
+                              />
+                            )}
                           </div>
                         ) : (
                           /* 其他情况使用横向布局（图片+文字） */
@@ -1654,7 +1734,6 @@ const AIChatDialog: React.FC = () => {
                             </div>
                           </div>
                         )}
-                        {renderGenerationProgressBar(message)}
                       </div>
                     ) : (
                       /* 没有图像时使用原来的纵向布局 */
@@ -1726,8 +1805,9 @@ const AIChatDialog: React.FC = () => {
                         </div>
                       </div>
                     )}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
 
                 {/* 流式文本临时气泡（仅文本对话） */}
                 {isStreaming && streamingText && (

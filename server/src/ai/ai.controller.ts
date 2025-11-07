@@ -22,7 +22,10 @@ import {
   BlendImagesDto,
   AnalyzeImageDto,
   TextChatDto,
+  MidjourneyActionDto,
+  MidjourneyModalDto,
 } from './dto/image-generation.dto';
+import { MidjourneyProvider } from './providers/midjourney.provider';
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -135,6 +138,7 @@ export class AiController {
         return {
           imageData: result.data.imageData,
           textResponse: result.data.textResponse || '',
+          metadata: result.data.metadata,
         };
       }
       throw new Error(result.error?.message || 'Failed to generate image');
@@ -167,6 +171,7 @@ export class AiController {
         return {
           imageData: result.data.imageData,
           textResponse: result.data.textResponse || '',
+          metadata: result.data.metadata,
         };
       }
       throw new Error(result.error?.message || 'Failed to edit image');
@@ -199,6 +204,7 @@ export class AiController {
         return {
           imageData: result.data.imageData,
           textResponse: result.data.textResponse || '',
+          metadata: result.data.metadata,
         };
       }
       throw new Error(result.error?.message || 'Failed to blend images');
@@ -207,6 +213,61 @@ export class AiController {
     // 否则使用默认的Gemini服务
     const result = await this.imageGeneration.blendImages(dto);
     return result;
+  }
+
+  @Post('midjourney/action')
+  async midjourneyAction(@Body() dto: MidjourneyActionDto): Promise<ImageGenerationResult> {
+    const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
+    if (!(provider instanceof MidjourneyProvider)) {
+      throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+    }
+
+    const result = await provider.triggerAction({
+      taskId: dto.taskId,
+      customId: dto.customId,
+      state: dto.state,
+      notifyHook: dto.notifyHook,
+      chooseSameChannel: dto.chooseSameChannel,
+      accountFilter: dto.accountFilter,
+    });
+
+    if (result.success && result.data) {
+      return {
+        imageData: result.data.imageData,
+        textResponse: result.data.textResponse || '',
+        metadata: result.data.metadata,
+      };
+    }
+
+    throw new ServiceUnavailableException(
+      result.error?.message || 'Failed to execute Midjourney action.'
+    );
+  }
+
+  @Post('midjourney/modal')
+  async midjourneyModal(@Body() dto: MidjourneyModalDto): Promise<ImageGenerationResult> {
+    const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
+    if (!(provider instanceof MidjourneyProvider)) {
+      throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+    }
+
+    const result = await provider.executeModal({
+      taskId: dto.taskId,
+      prompt: dto.prompt,
+      maskBase64: dto.maskBase64,
+    });
+
+    if (result.success && result.data) {
+      return {
+        imageData: result.data.imageData,
+        textResponse: result.data.textResponse || '',
+        metadata: result.data.metadata,
+      };
+    }
+
+    throw new ServiceUnavailableException(
+      result.error?.message || 'Failed to execute Midjourney modal action.'
+    );
   }
 
   @Post('analyze-image')

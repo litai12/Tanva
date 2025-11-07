@@ -4,7 +4,7 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 
-const AUTOSAVE_DELAY = 60000;
+const AUTOSAVE_DELAY = 5 * 60 * 1000; // 5 分钟
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 2000;
 

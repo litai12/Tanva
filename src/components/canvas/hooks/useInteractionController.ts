@@ -508,8 +508,8 @@ export const useInteractionController = ({
     canvas.style.cursor = 'default';
   }
 
-  // 处理图像调整大小，保持宽高比
-  const handleImageResize = useCallback((point: paper.Point) => {
+  // 处理图像调整大小，默认保持宽高比，按住Shift自由缩放
+  const handleImageResize = useCallback((point: paper.Point, shiftPressed: boolean = false) => {
     const latestImageTool = imageToolRef.current;
     if (!latestImageTool ||
       !latestImageTool.imageResizeState.isImageResizing ||
@@ -519,61 +519,90 @@ export const useInteractionController = ({
       return;
     }
 
-    const aspectRatio = latestImageTool.imageResizeState.resizeStartBounds.width /
-      latestImageTool.imageResizeState.resizeStartBounds.height;
+    const startBounds = latestImageTool.imageResizeState.resizeStartBounds;
+    const aspectRatio = startBounds.width / startBounds.height;
+    const MIN_SIZE = 50;
 
-    const newBounds = latestImageTool.imageResizeState.resizeStartBounds.clone();
+    const newBounds = startBounds.clone();
 
     const direction = latestImageTool.imageResizeState.resizeDirection;
 
-    if (direction === 'se') {
-      const dx = point.x - latestImageTool.imageResizeState.resizeStartBounds.x;
-      const dy = point.y - latestImageTool.imageResizeState.resizeStartBounds.y;
+    const applyLockedAspectResize = () => {
+      if (direction === 'se') {
+        const dx = point.x - startBounds.x;
+        const dy = point.y - startBounds.y;
 
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
+        const diagonalX = 1;
+        const diagonalY = 1 / aspectRatio;
 
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+        const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
 
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-    } else if (direction === 'nw') {
-      const dx = latestImageTool.imageResizeState.resizeStartBounds.right - point.x;
-      const dy = latestImageTool.imageResizeState.resizeStartBounds.bottom - point.y;
+        newBounds.width = Math.max(MIN_SIZE, projectionLength * diagonalX);
+        newBounds.height = newBounds.width / aspectRatio;
+      } else if (direction === 'nw') {
+        const dx = startBounds.right - point.x;
+        const dy = startBounds.bottom - point.y;
 
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
+        const diagonalX = 1;
+        const diagonalY = 1 / aspectRatio;
 
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+        const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
 
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-      newBounds.x = latestImageTool.imageResizeState.resizeStartBounds.right - newBounds.width;
-      newBounds.y = latestImageTool.imageResizeState.resizeStartBounds.bottom - newBounds.height;
-    } else if (direction === 'ne') {
-      const dx = point.x - latestImageTool.imageResizeState.resizeStartBounds.x;
-      const dy = latestImageTool.imageResizeState.resizeStartBounds.bottom - point.y;
+        newBounds.width = Math.max(MIN_SIZE, projectionLength * diagonalX);
+        newBounds.height = newBounds.width / aspectRatio;
+        newBounds.x = startBounds.right - newBounds.width;
+        newBounds.y = startBounds.bottom - newBounds.height;
+      } else if (direction === 'ne') {
+        const dx = point.x - startBounds.x;
+        const dy = startBounds.bottom - point.y;
 
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
+        const diagonalX = 1;
+        const diagonalY = 1 / aspectRatio;
 
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+        const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
 
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-      newBounds.y = latestImageTool.imageResizeState.resizeStartBounds.bottom - newBounds.height;
-    } else if (direction === 'sw') {
-      const dx = latestImageTool.imageResizeState.resizeStartBounds.right - point.x;
-      const dy = point.y - latestImageTool.imageResizeState.resizeStartBounds.y;
+        newBounds.width = Math.max(MIN_SIZE, projectionLength * diagonalX);
+        newBounds.height = newBounds.width / aspectRatio;
+        newBounds.y = startBounds.bottom - newBounds.height;
+      } else if (direction === 'sw') {
+        const dx = startBounds.right - point.x;
+        const dy = point.y - startBounds.y;
 
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
+        const diagonalX = 1;
+        const diagonalY = 1 / aspectRatio;
 
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+        const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
 
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-      newBounds.x = latestImageTool.imageResizeState.resizeStartBounds.right - newBounds.width;
+        newBounds.width = Math.max(MIN_SIZE, projectionLength * diagonalX);
+        newBounds.height = newBounds.width / aspectRatio;
+        newBounds.x = startBounds.right - newBounds.width;
+      }
+    };
+
+    const applyFreeResize = () => {
+      if (direction === 'se') {
+        newBounds.width = Math.max(MIN_SIZE, point.x - startBounds.x);
+        newBounds.height = Math.max(MIN_SIZE, point.y - startBounds.y);
+      } else if (direction === 'nw') {
+        newBounds.width = Math.max(MIN_SIZE, startBounds.right - point.x);
+        newBounds.height = Math.max(MIN_SIZE, startBounds.bottom - point.y);
+        newBounds.x = startBounds.right - newBounds.width;
+        newBounds.y = startBounds.bottom - newBounds.height;
+      } else if (direction === 'ne') {
+        newBounds.width = Math.max(MIN_SIZE, point.x - startBounds.x);
+        newBounds.height = Math.max(MIN_SIZE, startBounds.bottom - point.y);
+        newBounds.y = startBounds.bottom - newBounds.height;
+      } else if (direction === 'sw') {
+        newBounds.width = Math.max(MIN_SIZE, startBounds.right - point.x);
+        newBounds.height = Math.max(MIN_SIZE, point.y - startBounds.y);
+        newBounds.x = startBounds.right - newBounds.width;
+      }
+    };
+
+    if (shiftPressed) {
+      applyFreeResize();
+    } else {
+      applyLockedAspectResize();
     }
 
     latestImageTool.handleImageResize(latestImageTool.imageResizeState.resizeImageId, {
@@ -647,7 +676,7 @@ export const useInteractionController = ({
         latestImageTool.imageResizeState.resizeStartBounds &&
         latestImageTool.imageResizeState.resizeStartPoint) {
 
-        handleImageResize(point);
+        handleImageResize(point, event.shiftKey);
         return;
       }
 
@@ -887,10 +916,12 @@ export const useInteractionController = ({
 
     // 绑定事件监听器
     canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
-    canvas.addEventListener('mouseleave', handleMouseUp); // 鼠标离开也结束绘制
     canvas.addEventListener('dblclick', handleDoubleClick); // 双击事件
+
+    // 在窗口级别监听移动/抬起，避免经过 Flow 节点时中断拖拽
+    window.addEventListener('mousemove', handleMouseMove, { capture: true });
+    window.addEventListener('mouseup', handleMouseUp, { capture: true });
+    window.addEventListener('mouseleave', handleMouseUp, { capture: true });
     
     // 键盘事件需要绑定到document，因为canvas无法获取焦点
     document.addEventListener('keydown', handleKeyDown, true);
@@ -898,10 +929,10 @@ export const useInteractionController = ({
     return () => {
       // 清理事件监听器
       canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mouseup', handleMouseUp);
-      canvas.removeEventListener('mouseleave', handleMouseUp);
       canvas.removeEventListener('dblclick', handleDoubleClick);
+      window.removeEventListener('mousemove', handleMouseMove, { capture: true });
+      window.removeEventListener('mouseup', handleMouseUp, { capture: true });
+      window.removeEventListener('mouseleave', handleMouseUp, { capture: true });
       document.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [handleMouseDown, handleMouseMove, handleMouseUp]);

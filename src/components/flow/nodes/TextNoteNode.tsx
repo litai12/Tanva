@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
+import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 
 type Props = {
   id: string;
@@ -14,12 +14,8 @@ const handleConfigs = [
   { key: 'right', position: Position.Right, style: { right: 0, top: '50%', transform: 'translate(50%, -50%)' } },
 ] as const;
 
-const isTextHandleId = (handle?: string | null) => typeof handle === 'string' && handle.startsWith('text');
-
 export default function TextNoteNode({ id, data, selected }: Props) {
   const rf = useReactFlow();
-  const edges = useStore((state: ReactFlowState) => state.edges);
-  const edgesRef = React.useRef<Edge[]>(edges);
   const [value, setValue] = React.useState<string>(data.text || '');
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
@@ -28,55 +24,10 @@ export default function TextNoteNode({ id, data, selected }: Props) {
   const editorRef = React.useRef<HTMLDivElement | null>(null);
   const [isEditing, setIsEditing] = React.useState(false);
 
-  const applyIncomingText = React.useCallback((incoming: string) => {
-    setValue((prev) => (prev === incoming ? prev : incoming));
-    const currentDataText = typeof data.text === 'string' ? data.text : '';
-    if (currentDataText !== incoming) {
-      window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-        detail: { id, patch: { text: incoming } },
-      }));
-    }
-  }, [data.text, id]);
-
-  const syncFromSource = React.useCallback((sourceId: string) => {
-    const srcNode = rf.getNode(sourceId);
-    if (!srcNode) return;
-    const srcData = (srcNode.data as any) || {};
-    const candidateText = typeof srcData.text === 'string' ? srcData.text : undefined;
-    const fallbackPrompt = typeof srcData.prompt === 'string' ? srcData.prompt : '';
-    const upstream = typeof candidateText === 'string' ? candidateText : fallbackPrompt;
-    applyIncomingText(upstream);
-  }, [rf, applyIncomingText]);
-
   React.useEffect(() => {
     if ((data.text || '') !== value) setValue(data.text || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.text]);
-
-  React.useEffect(() => {
-    edgesRef.current = edges;
-    const incoming = edges.find((e) => e.target === id && isTextHandleId(e.targetHandle));
-    if (incoming?.source) {
-      syncFromSource(incoming.source);
-    }
-  }, [edges, id, syncFromSource]);
-
-  React.useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ id: string; patch: Record<string, unknown> }>).detail;
-      if (!detail?.id || detail.id === id) return;
-      const incoming = edgesRef.current.find((e) => e.target === id && isTextHandleId(e.targetHandle));
-      if (!incoming || incoming.source !== detail.id) return;
-      const patch = detail.patch || {};
-      const textPatch = typeof patch.text === 'string' ? patch.text : undefined;
-      if (typeof textPatch === 'string') return applyIncomingText(textPatch);
-      const promptPatch = typeof patch.prompt === 'string' ? patch.prompt : undefined;
-      if (typeof promptPatch === 'string') return applyIncomingText(promptPatch);
-      syncFromSource(detail.id);
-    };
-    window.addEventListener('flow:updateNodeData', handler as EventListener);
-    return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
-  }, [id, applyIncomingText, syncFromSource]);
 
   const stopPropagation = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -103,11 +54,14 @@ export default function TextNoteNode({ id, data, selected }: Props) {
   }, [commitValue]);
 
   const exitEditing = React.useCallback((commit = true) => {
-    setIsEditing(false);
-    if (!commit && editorRef.current) {
+    if (commit && editorRef.current) {
+      const finalText = editorRef.current.innerText ?? '';
+      commitValue(finalText);
+    } else if (!commit && editorRef.current) {
       editorRef.current.innerText = value;
     }
-  }, [value]);
+    setIsEditing(false);
+  }, [commitValue, value]);
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -150,6 +104,19 @@ export default function TextNoteNode({ id, data, selected }: Props) {
         transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
       }}
     >
+      <NodeResizer
+        isVisible
+        minWidth={160}
+        minHeight={96}
+        lineStyle={{ display: 'none' }}
+        handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0, cursor: 'nwse-resize' }}
+        onResize={(_, params) => {
+          rf.setNodes(ns => ns.map(node => node.id === id ? { ...node, data: { ...(node.data || {}), boxW: params.width, boxH: params.height } } : node));
+        }}
+        onResizeEnd={(_, params) => {
+          rf.setNodes(ns => ns.map(node => node.id === id ? { ...node, data: { ...(node.data || {}), boxW: params.width, boxH: params.height } } : node));
+        }}
+      />
       <div
         ref={editorRef}
         className="tanva-textnote-editor"
@@ -178,6 +145,8 @@ export default function TextNoteNode({ id, data, selected }: Props) {
           alignItems: 'center',
           justifyContent: 'center',
           whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          overflowWrap: 'anywhere',
           pointerEvents: 'auto',
         }}
       />

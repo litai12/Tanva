@@ -41,10 +41,48 @@ export interface MidjourneyProviderOptions {
   accountFilter?: MidjourneyAccountFilter;
 }
 
+export interface MidjourneyButtonInfo {
+  customId: string;
+  label: string;
+  emoji?: string | null;
+  type?: number;
+  style?: number;
+  disabled?: boolean;
+}
+
+export interface MidjourneyMetadata {
+  taskId: string;
+  buttons?: MidjourneyButtonInfo[];
+  imageUrl?: string;
+  status?: string;
+  parentTaskId?: string;
+  actionCustomId?: string;
+  modalPrompt?: string;
+  prompt?: string;
+  promptEn?: string;
+  description?: string;
+  properties?: Record<string, unknown>;
+}
+
 export interface AIProviderOptions {
   runningHub?: RunningHubGenerateOptions;
   midjourney?: MidjourneyProviderOptions;
   [key: string]: unknown;
+}
+
+export interface MidjourneyActionRequest {
+  taskId: string;
+  customId: string;
+  state?: string;
+  notifyHook?: string;
+  chooseSameChannel?: string | boolean;
+  accountFilter?: MidjourneyAccountFilter;
+}
+
+export interface MidjourneyModalRequest {
+  taskId: string;
+  prompt?: string;
+  maskBase64?: string;
 }
 
 export type SupportedAIProvider = 'gemini' | 'banana' | 'runninghub' | 'midjourney';
@@ -93,10 +131,14 @@ export interface AIImageResult {
   createdAt: Date;
   hasImage: boolean; // 标识是否包含图像数据
   metadata?: {
+    provider?: string;
     aspectRatio?: string;
     outputFormat?: string;
     processingTime?: number;
     tokenUsage?: number;
+    imageUrl?: string;
+    midjourney?: MidjourneyMetadata;
+    [key: string]: unknown;
   };
 }
 

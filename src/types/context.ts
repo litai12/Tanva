@@ -90,6 +90,8 @@ export interface SerializedChatMessage {
   };
   // 🔥 新增：OSS 图片 URL（优化性能）
   imageUrl?: string;
+  provider?: ChatMessage['provider'];
+  metadata?: Record<string, unknown>;
 }
 
 export interface SerializedOperationHistory {

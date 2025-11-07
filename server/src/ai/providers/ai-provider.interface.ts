@@ -46,6 +46,30 @@ export interface MidjourneyProviderOptions {
   accountFilter?: MidjourneyAccountFilter;
 }
 
+export interface MidjourneyButtonInfo {
+  customId: string;
+  label: string;
+  emoji?: string | null;
+  type?: number;
+  style?: number;
+  disabled?: boolean;
+}
+
+export interface MidjourneyActionRequest {
+  taskId: string;
+  customId: string;
+  state?: string;
+  notifyHook?: string;
+  chooseSameChannel?: string | boolean;
+  accountFilter?: MidjourneyAccountFilter;
+}
+
+export interface MidjourneyModalRequest {
+  taskId: string;
+  prompt?: string;
+  maskBase64?: string;
+}
+
 export interface ProviderOptionsPayload {
   runningHub?: RunningHubGenerateOptions;
   midjourney?: MidjourneyProviderOptions;
@@ -110,6 +134,7 @@ export interface ImageResult {
   imageData?: string; // base64 编码的图像数据
   textResponse: string; // AI 的文本回复
   hasImage: boolean;
+  metadata?: Record<string, any>;
 }
 
 export interface AnalysisResult {
