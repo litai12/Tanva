@@ -1,8 +1,11 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
 import type { Model3DData, Model3DCameraState } from '@/services/model3DUploadService';
+import { Button } from '../ui/button';
+import { Camera, Trash2 } from 'lucide-react';
+import { LoadingSpinner } from '../ui/loading-spinner';
 
 interface Model3DContainerProps {
   modelData: Model3DData;
@@ -12,11 +15,15 @@ interface Model3DContainerProps {
   visible?: boolean; // 是否可见
   drawMode?: string; // 当前绘图模式
   isSelectionDragging?: boolean; // 是否正在拖拽选择框
-  onSelect?: () => void;
+  onSelect?: (addToSelection?: boolean) => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
   onDeselect?: () => void;
   onCameraChange?: (camera: Model3DCameraState) => void;
+  onDelete?: (modelId: string) => void;
+  onCapture?: (modelId: string) => void;
+  isCapturePending?: boolean;
+  showIndividualTools?: boolean;
 }
 
 const Model3DContainer: React.FC<Model3DContainerProps> = ({
@@ -31,7 +38,11 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   onMove,
   onResize,
   onDeselect,
-  onCameraChange
+  onCameraChange,
+  onDelete,
+  onCapture,
+  isCapturePending = false,
+  showIndividualTools = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -137,6 +148,17 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   // 控制点位置：边框外侧，中心对齐边框边缘
   const handleOffset = -(handleSize / 2); // 控制点中心对齐边框边缘
 
+  const actionButtonStyle = useMemo<React.CSSProperties>(() => ({
+    backdropFilter: 'blur(12px)',
+    background: 'rgba(255, 255, 255, 0.9)',
+    border: '1px solid rgba(148, 163, 184, 0.35)',
+    boxShadow:
+      '0 8px 24px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255,255,255,0.35)',
+  }), []);
+  const actionButtonClass =
+    'p-1.5 h-8 w-8 rounded-full shadow-lg hover:shadow-xl transition-all duration-150 ease-out hover:scale-105';
+  const actionIconClass = 'w-4 h-4 text-slate-600';
+
   // 处理wheel事件，防止3D缩放时影响画布缩放
   const handleWheel = useCallback((e: WheelEvent) => {
     if (isSelected) {
@@ -150,6 +172,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     if (e.button !== 0) return; // 只处理左键
 
     const target = e.target as HTMLElement;
+    const additiveSelection = e.metaKey || e.ctrlKey;
 
     if (target === containerRef.current) {
       if (isSelected) {
@@ -161,9 +184,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     // 如果点击的是Three.js canvas，不处理拖拽，让OrbitControls处理
     if (target.tagName === 'CANVAS') {
       // 仅选中模型，不开始拖拽
-      if (onSelect) {
-        onSelect();
-      }
+      onSelect?.(additiveSelection);
       return;
     }
 
@@ -172,9 +193,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      if (onSelect) {
-        onSelect();
-      }
+      onSelect?.(additiveSelection);
 
       setIsResizing(true);
       setInitialBounds(bounds);
@@ -192,9 +211,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      if (onSelect) {
-        onSelect();
-      }
+      onSelect?.(additiveSelection);
 
       setIsDragging(true);
       setDragStart({ x: e.clientX - screenBounds.x, y: e.clientY - screenBounds.y });
@@ -202,9 +219,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     }
 
     // 其他情况只选中
-    if (onSelect) {
-      onSelect();
-    }
+    onSelect?.(additiveSelection);
   };
 
   // 节流控制
@@ -484,6 +499,48 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             }}
           />
         </>
+      )}
+
+      {/* 单独操作按钮 */}
+      {isSelected && showIndividualTools && (
+        <div
+          className={`absolute flex items-center justify-center gap-2 transition-all duration-150 ${
+            isCapturePending ? 'opacity-90' : 'opacity-100'
+          }`}
+          style={{
+            bottom: -48,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 20,
+            pointerEvents: 'auto',
+          }}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isCapturePending}
+            className={actionButtonClass}
+            style={actionButtonStyle}
+            title="定格当前3D画面并贴到画布"
+            onClick={() => onCapture?.(modelId)}
+          >
+            {isCapturePending ? (
+              <LoadingSpinner size="sm" className="text-blue-600" />
+            ) : (
+              <Camera className={actionIconClass} />
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={`${actionButtonClass} hover:text-red-600`}
+            style={actionButtonStyle}
+            title="删除3D模型"
+            onClick={() => onDelete?.(modelId)}
+          >
+            <Trash2 className="w-4 h-4 text-red-500" />
+          </Button>
+        </div>
       )}
     </div>
   );

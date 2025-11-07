@@ -10,7 +10,7 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
 
-const ENABLE_SCREENSHOT_TOOL = true;
+const ENABLE_SCREENSHOT_TOOL = false;
 
 // 统一画板：移除 Node 模式专属按钮组件
 

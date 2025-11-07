@@ -136,13 +136,18 @@ export const useInteractionController = ({
     paths: []
   });
 
-  const currentSelectedPath = selectionTool.selectedPath;
-  const currentSelectedPaths = selectionTool.selectedPaths ?? [];
-
   // Refs to always read the latest tool states inside global event handlers
   const selectionToolRef = useRef(selectionTool);
   const imageToolRef = useRef(imageTool);
   const model3DToolRef = useRef(model3DTool);
+  const pathEditorRef = useRef(pathEditor);
+  const drawingToolsRef = useRef(drawingTools);
+  const simpleTextToolRef = useRef(simpleTextTool);
+  const drawModeRef = useRef(drawMode);
+  const isEraserRef = useRef(isEraser);
+  const zoomRef = useRef(zoom);
+  const performEraseRef = useRef(performErase);
+  const setDrawModeRef = useRef(setDrawMode);
 
   useEffect(() => {
     selectionToolRef.current = selectionTool;
@@ -156,18 +161,54 @@ export const useInteractionController = ({
     model3DToolRef.current = model3DTool;
   }, [model3DTool]);
 
+  useEffect(() => {
+    pathEditorRef.current = pathEditor;
+  }, [pathEditor]);
+
+  useEffect(() => {
+    drawingToolsRef.current = drawingTools;
+  }, [drawingTools]);
+
+  useEffect(() => {
+    simpleTextToolRef.current = simpleTextTool;
+  }, [simpleTextTool]);
+
+  useEffect(() => {
+    drawModeRef.current = drawMode;
+  }, [drawMode]);
+
+  useEffect(() => {
+    isEraserRef.current = isEraser;
+  }, [isEraser]);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    performEraseRef.current = performErase;
+  }, [performErase]);
+
+  useEffect(() => {
+    setDrawModeRef.current = setDrawMode;
+  }, [setDrawMode]);
+
   const collectSelectedPaths = useCallback(() => {
+    const latestSelectionTool = selectionToolRef.current;
+    const single = latestSelectionTool?.selectedPath ?? null;
+    const multiple = latestSelectionTool?.selectedPaths ?? [];
+
     const set = new Set<paper.Path>();
-    if (currentSelectedPath && !isPaperItemRemoved(currentSelectedPath)) {
-      set.add(currentSelectedPath);
+    if (single && !isPaperItemRemoved(single)) {
+      set.add(single);
     }
-    currentSelectedPaths.forEach((path) => {
+    multiple.forEach((path) => {
       if (path && !isPaperItemRemoved(path)) {
         set.add(path);
       }
     });
     return Array.from(set);
-  }, [currentSelectedPath, currentSelectedPaths]);
+  }, []);
 
   const resetGroupPathDrag = useCallback(() => {
     groupPathDragRef.current = {
@@ -237,14 +278,27 @@ export const useInteractionController = ({
 
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const currentDrawMode = drawModeRef.current;
+    const latestSelectionTool = selectionToolRef.current;
+    const latestImageTool = imageToolRef.current;
+    const latestModel3DTool = model3DToolRef.current;
+    const latestPathEditor = pathEditorRef.current;
+    const latestDrawingTools = drawingToolsRef.current;
+    const latestSimpleTextTool = simpleTextToolRef.current;
+    const currentZoom = Math.max(zoomRef.current ?? 1, 0.0001);
+    const isEraserActive = isEraserRef.current;
+
+    if (!currentDrawMode || !latestSelectionTool || !latestImageTool || !latestPathEditor || !latestDrawingTools || !latestSimpleTextTool) {
+      return;
+    }
 
     // 转换为 Paper.js 项目坐标（考虑 devicePixelRatio）
     const point = clientToProject(canvas, event.clientX, event.clientY);
 
     // ========== 选择模式处理 ==========
-    if (drawMode === 'select') {
+    if (currentDrawMode === 'select') {
       // 橡皮擦模式下，不允许激活选择框功能
-      if (isEraser) {
+      if (isEraserActive) {
         logger.debug('🧹 橡皮擦模式下，跳过选择框激活');
         return;
       }
@@ -255,33 +309,53 @@ export const useInteractionController = ({
           segments: false,
           stroke: true,
           fill: true,
-          tolerance: 2 / Math.max(zoom, 0.0001),
+          tolerance: 2 / currentZoom,
         } as any);
-        if (hit && hit.item) {
-          let node: any = hit.item;
-          while (node && !node.data?.type && node.parent) node = node.parent;
-          const isPlaceholder = !!node && node.data?.type === 'image-placeholder';
-          if (isPlaceholder) {
-            // 将该占位组设置为当前占位，并触发上传
-            try { (imageTool as any).currentPlaceholderRef.current = node; } catch {}
-            try { (imageTool as any).setTriggerImageUpload(true); } catch {}
-            logger.upload('📸 命中图片占位框，触发上传');
-            return;
+          if (hit && hit.item) {
+            let node: any = hit.item;
+            while (node && !node.data?.type && node.parent) node = node.parent;
+            const isPlaceholder = !!node && node.data?.type === 'image-placeholder';
+            if (isPlaceholder) {
+              // 将该占位组设置为当前占位，并触发上传
+              try {
+                const placeholderRef = (latestImageTool as any)?.currentPlaceholderRef;
+                if (placeholderRef) {
+                  placeholderRef.current = node;
+                }
+              } catch {}
+              try {
+                const triggerUpload = (latestImageTool as any)?.setTriggerImageUpload;
+                if (typeof triggerUpload === 'function') {
+                  triggerUpload(true);
+                }
+              } catch {}
+              logger.upload('📸 命中图片占位框，触发上传');
+              return;
+            }
+            const isModelPlaceholder = !!node && node.data?.type === '3d-model-placeholder';
+            if (isModelPlaceholder) {
+              try {
+                const placeholderRef = (latestModel3DTool as any)?.currentModel3DPlaceholderRef;
+                if (placeholderRef) {
+                  placeholderRef.current = node;
+                }
+              } catch {}
+              try {
+                const triggerUpload = (latestModel3DTool as any)?.setTriggerModel3DUpload;
+                if (typeof triggerUpload === 'function') {
+                  triggerUpload(true);
+                }
+              } catch {}
+              logger.upload('🎲 命中3D模型占位框，触发上传');
+              return;
+            }
           }
-          const isModelPlaceholder = !!node && node.data?.type === '3d-model-placeholder';
-          if (isModelPlaceholder) {
-            try { (model3DTool as any).currentModel3DPlaceholderRef.current = node; } catch {}
-            try { (model3DTool as any).setTriggerModel3DUpload(true); } catch {}
-            logger.upload('🎲 命中3D模型占位框，触发上传');
-            return;
-          }
-        }
       } catch {}
 
       // 首先检查是否点击在图像的调整控制点上
       const resizeHandleHit = paper.project.hitTest(point, {
         fill: true,
-        tolerance: 10 / zoom
+        tolerance: 10 / currentZoom
       });
 
       if (resizeHandleHit && resizeHandleHit.item.data?.isResizeHandle) {
@@ -301,7 +375,7 @@ export const useInteractionController = ({
           const raster = imageGroup.children.find(child => child instanceof paper.Raster);
           const actualBounds = raster ? raster.bounds.clone() : imageGroup.bounds.clone();
 
-          imageTool.setImageResizeState({
+          latestImageTool.setImageResizeState({
             isImageResizing: true,
             resizeImageId: imageId,
             resizeDirection: direction,
@@ -314,34 +388,34 @@ export const useInteractionController = ({
 
       // 处理路径编辑交互
       const shiftPressed = event.shiftKey;
-      const pathEditResult = pathEditor.handlePathEditInteraction(point, selectionTool.selectedPath, 'mousedown', shiftPressed);
+      const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousedown', shiftPressed);
       if (pathEditResult) {
         return; // 路径编辑处理了这个事件
       }
 
       // 处理选择相关的点击（传递Ctrl键状态）
       const ctrlPressed = event.ctrlKey || event.metaKey;  // Mac上使用Cmd键
-      const selectionResult = selectionTool.handleSelectionClick(point, ctrlPressed);
+      const selectionResult = latestSelectionTool.handleSelectionClick(point, ctrlPressed);
 
       // 如果点击了图片且准备拖拽
       if (selectionResult?.type === 'image') {
-        const clickedImage = imageTool.imageInstances.find(img => img.id === selectionResult.id);
+        const clickedImage = latestImageTool.imageInstances.find(img => img.id === selectionResult.id);
         if (clickedImage?.isSelected) {
-          const selectedIds = Array.isArray(imageTool.selectedImageIds) && imageTool.selectedImageIds.length > 0
-            ? (imageTool.selectedImageIds.includes(selectionResult.id)
-                ? imageTool.selectedImageIds
+          const selectedIds = Array.isArray(latestImageTool.selectedImageIds) && latestImageTool.selectedImageIds.length > 0
+            ? (latestImageTool.selectedImageIds.includes(selectionResult.id)
+                ? latestImageTool.selectedImageIds
                 : [selectionResult.id])
             : [selectionResult.id];
 
           const boundsMap: Record<string, { x: number; y: number }> = {};
           selectedIds.forEach((id) => {
-            const inst = imageTool.imageInstances.find((img) => img.id === id);
+            const inst = latestImageTool.imageInstances.find((img) => img.id === id);
             if (inst) {
               boundsMap[id] = { x: inst.bounds.x, y: inst.bounds.y };
             }
           });
 
-          imageTool.setImageDragState({
+          latestImageTool.setImageDragState({
             isImageDragging: true,
             dragImageId: selectionResult.id,
             imageDragStartPoint: point,
@@ -354,85 +428,204 @@ export const useInteractionController = ({
       }
 
       // 在选择模式下，让文本工具也处理点击事件（用于文本选择/取消选择）
-      simpleTextTool.handleCanvasClick(point, event as any, 'select');
+      latestSimpleTextTool.handleCanvasClick(point, event as any, 'select');
 
       return;
     }
 
     // ========== 绘图模式处理 ==========
-    logger.drawing(`开始绘制: 模式=${drawMode}, 坐标=(${point.x.toFixed(1)}, ${point.y.toFixed(1)}), 橡皮擦=${isEraser}`);
+    logger.drawing(`开始绘制: 模式=${currentDrawMode}, 坐标=(${point.x.toFixed(1)}, ${point.y.toFixed(1)}), 橡皮擦=${isEraserActive}`);
 
-    if (drawMode === 'free') {
-      drawingTools.startFreeDraw(point);
-    } else if (drawMode === 'line') {
+    if (currentDrawMode === 'free') {
+      latestDrawingTools.startFreeDraw(point);
+    } else if (currentDrawMode === 'line') {
       // 直线绘制模式：第一次点击开始，第二次点击完成
-      if (!drawingTools.pathRef.current || !(drawingTools.pathRef.current as any).startPoint) {
-        drawingTools.startLineDraw(point);
+      if (!latestDrawingTools.pathRef.current || !(latestDrawingTools.pathRef.current as any).startPoint) {
+        latestDrawingTools.startLineDraw(point);
       } else {
-        drawingTools.finishLineDraw(point);
+        latestDrawingTools.finishLineDraw(point);
       }
-    } else if (drawMode === 'rect') {
-      drawingTools.startRectDraw(point);
-    } else if (drawMode === 'circle') {
-      drawingTools.startCircleDraw(point);
-    } else if (drawMode === 'image') {
-      drawingTools.startImageDraw(point);
-    } else if (drawMode === 'quick-image') {
+    } else if (currentDrawMode === 'rect') {
+      latestDrawingTools.startRectDraw(point);
+    } else if (currentDrawMode === 'circle') {
+      latestDrawingTools.startCircleDraw(point);
+    } else if (currentDrawMode === 'image') {
+      latestDrawingTools.startImageDraw(point);
+    } else if (currentDrawMode === 'quick-image') {
       // 快速图片上传模式不需要绘制占位框，直接触发上传
       return;
-    } else if (drawMode === '3d-model') {
-      drawingTools.start3DModelDraw(point);
-    } else if (drawMode === 'text') {
+    } else if (currentDrawMode === '3d-model') {
+      latestDrawingTools.start3DModelDraw(point);
+    } else if (currentDrawMode === 'text') {
       // 文本工具处理，传递当前工具模式
-      simpleTextTool.handleCanvasClick(point, event as any, drawMode);
+      latestSimpleTextTool.handleCanvasClick(point, event as any, currentDrawMode);
       return; // 文本工具不需要设置 isDrawingRef
     }
 
-    drawingTools.isDrawingRef.current = true;
-  }, [
-    canvasRef,
-    drawMode,
-    zoom,
-    selectionTool,
-    pathEditor,
-    drawingTools,
-    imageTool,
-    logger,
-    beginGroupPathDrag
-  ]);
+    latestDrawingTools.isDrawingRef.current = true;
+  }, [canvasRef, beginGroupPathDrag]);
+
+  // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
+  function updateCursorStyle(point: paper.Point, canvas: HTMLCanvasElement) {
+    const currentZoom = Math.max(zoomRef.current ?? 1, 0.0001);
+    const latestImageTool = imageToolRef.current;
+    const latestSelectionTool = selectionToolRef.current;
+    const latestPathEditor = pathEditorRef.current;
+
+    const hoverHit = paper.project.hitTest(point, {
+      fill: true,
+      tolerance: 10 / currentZoom,
+    });
+
+    if (hoverHit && hoverHit.item.data?.isResizeHandle) {
+      const direction = hoverHit.item.data.direction;
+      canvas.style.cursor =
+        direction === 'nw' || direction === 'se' ? 'nwse-resize' : 'nesw-resize';
+      return;
+    }
+
+    for (const image of latestImageTool?.imageInstances ?? []) {
+      if (
+        image.isSelected &&
+        point.x >= image.bounds.x &&
+        point.x <= image.bounds.x + image.bounds.width &&
+        point.y >= image.bounds.y &&
+        point.y <= image.bounds.y + image.bounds.height
+      ) {
+        canvas.style.cursor = 'move';
+        return;
+      }
+    }
+
+    if (latestSelectionTool?.selectedPath && latestPathEditor) {
+      canvas.style.cursor = latestPathEditor.getCursorStyle(
+        point,
+        latestSelectionTool.selectedPath,
+      );
+      return;
+    }
+
+    canvas.style.cursor = 'default';
+  }
+
+  // 处理图像调整大小，保持宽高比
+  const handleImageResize = useCallback((point: paper.Point) => {
+    const latestImageTool = imageToolRef.current;
+    if (!latestImageTool ||
+      !latestImageTool.imageResizeState.isImageResizing ||
+      !latestImageTool.imageResizeState.resizeStartBounds ||
+      !latestImageTool.imageResizeState.resizeImageId ||
+      !latestImageTool.imageResizeState.resizeDirection) {
+      return;
+    }
+
+    const aspectRatio = latestImageTool.imageResizeState.resizeStartBounds.width /
+      latestImageTool.imageResizeState.resizeStartBounds.height;
+
+    const newBounds = latestImageTool.imageResizeState.resizeStartBounds.clone();
+
+    const direction = latestImageTool.imageResizeState.resizeDirection;
+
+    if (direction === 'se') {
+      const dx = point.x - latestImageTool.imageResizeState.resizeStartBounds.x;
+      const dy = point.y - latestImageTool.imageResizeState.resizeStartBounds.y;
+
+      const diagonalX = 1;
+      const diagonalY = 1 / aspectRatio;
+
+      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+
+      newBounds.width = Math.max(50, projectionLength * diagonalX);
+      newBounds.height = newBounds.width / aspectRatio;
+    } else if (direction === 'nw') {
+      const dx = latestImageTool.imageResizeState.resizeStartBounds.right - point.x;
+      const dy = latestImageTool.imageResizeState.resizeStartBounds.bottom - point.y;
+
+      const diagonalX = 1;
+      const diagonalY = 1 / aspectRatio;
+
+      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+
+      newBounds.width = Math.max(50, projectionLength * diagonalX);
+      newBounds.height = newBounds.width / aspectRatio;
+      newBounds.x = latestImageTool.imageResizeState.resizeStartBounds.right - newBounds.width;
+      newBounds.y = latestImageTool.imageResizeState.resizeStartBounds.bottom - newBounds.height;
+    } else if (direction === 'ne') {
+      const dx = point.x - latestImageTool.imageResizeState.resizeStartBounds.x;
+      const dy = latestImageTool.imageResizeState.resizeStartBounds.bottom - point.y;
+
+      const diagonalX = 1;
+      const diagonalY = 1 / aspectRatio;
+
+      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+
+      newBounds.width = Math.max(50, projectionLength * diagonalX);
+      newBounds.height = newBounds.width / aspectRatio;
+      newBounds.y = latestImageTool.imageResizeState.resizeStartBounds.bottom - newBounds.height;
+    } else if (direction === 'sw') {
+      const dx = latestImageTool.imageResizeState.resizeStartBounds.right - point.x;
+      const dy = point.y - latestImageTool.imageResizeState.resizeStartBounds.y;
+
+      const diagonalX = 1;
+      const diagonalY = 1 / aspectRatio;
+
+      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
+
+      newBounds.width = Math.max(50, projectionLength * diagonalX);
+      newBounds.height = newBounds.width / aspectRatio;
+      newBounds.x = latestImageTool.imageResizeState.resizeStartBounds.right - newBounds.width;
+    }
+
+    latestImageTool.handleImageResize(latestImageTool.imageResizeState.resizeImageId, {
+      x: newBounds.x,
+      y: newBounds.y,
+      width: newBounds.width,
+      height: newBounds.height
+    });
+  }, []);
 
   // ========== 鼠标移动事件处理 ==========
   const handleMouseMove = useCallback((event: MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    const currentDrawMode = drawModeRef.current;
+    const latestSelectionTool = selectionToolRef.current;
+    const latestPathEditor = pathEditorRef.current;
+    const latestDrawingTools = drawingToolsRef.current;
+    const latestImageTool = imageToolRef.current;
+
+    if (!currentDrawMode || !latestSelectionTool || !latestPathEditor || !latestDrawingTools || !latestImageTool) {
+      return;
+    }
+
     const point = clientToProject(canvas, event.clientX, event.clientY);
 
     // ========== 选择模式处理 ==========
-    if (drawMode === 'select') {
+    if (currentDrawMode === 'select') {
       // 处理路径编辑移动
-      const pathEditResult = pathEditor.handlePathEditInteraction(point, selectionTool.selectedPath, 'mousemove');
+      const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousemove');
       if (pathEditResult) {
         return; // 路径编辑处理了这个事件
       }
 
       // 处理图像拖拽
       if (
-        imageTool.imageDragState.isImageDragging &&
-        imageTool.imageDragState.dragImageId &&
-        imageTool.imageDragState.imageDragStartPoint &&
-        imageTool.imageDragState.imageDragStartBounds
+        latestImageTool.imageDragState.isImageDragging &&
+        latestImageTool.imageDragState.dragImageId &&
+        latestImageTool.imageDragState.imageDragStartPoint &&
+        latestImageTool.imageDragState.imageDragStartBounds
       ) {
-        const deltaX = point.x - imageTool.imageDragState.imageDragStartPoint.x;
-        const deltaY = point.y - imageTool.imageDragState.imageDragStartPoint.y;
+        const deltaX = point.x - latestImageTool.imageDragState.imageDragStartPoint.x;
+        const deltaY = point.y - latestImageTool.imageDragState.imageDragStartPoint.y;
 
-        const groupIds = imageTool.imageDragState.groupImageIds?.length
-          ? imageTool.imageDragState.groupImageIds
-          : [imageTool.imageDragState.dragImageId];
-        const groupStart = imageTool.imageDragState.groupStartBounds || {};
+        const groupIds = latestImageTool.imageDragState.groupImageIds?.length
+          ? latestImageTool.imageDragState.groupImageIds
+          : [latestImageTool.imageDragState.dragImageId];
+        const groupStart = latestImageTool.imageDragState.groupStartBounds || {};
 
         groupIds.forEach((id) => {
-          const start = groupStart[id] || imageTool.imageDragState.imageDragStartBounds;
+          const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
           if (!start) {
             return;
           }
@@ -440,7 +633,7 @@ export const useInteractionController = ({
             x: start.x + deltaX,
             y: start.y + deltaY,
           };
-          imageTool.handleImageMove(id, newPosition, false);
+          latestImageTool.handleImageMove(id, newPosition, false);
         });
 
         applyGroupPathDrag(point, 'image');
@@ -448,19 +641,19 @@ export const useInteractionController = ({
       }
 
       // 处理图像调整大小
-      if (imageTool.imageResizeState.isImageResizing &&
-        imageTool.imageResizeState.resizeImageId &&
-        imageTool.imageResizeState.resizeDirection &&
-        imageTool.imageResizeState.resizeStartBounds &&
-        imageTool.imageResizeState.resizeStartPoint) {
+      if (latestImageTool.imageResizeState.isImageResizing &&
+        latestImageTool.imageResizeState.resizeImageId &&
+        latestImageTool.imageResizeState.resizeDirection &&
+        latestImageTool.imageResizeState.resizeStartBounds &&
+        latestImageTool.imageResizeState.resizeStartPoint) {
 
         handleImageResize(point);
         return;
       }
 
       // 处理选择框拖拽
-      if (selectionTool.isSelectionDragging) {
-        selectionTool.updateSelectionBox(point);
+      if (latestSelectionTool.isSelectionDragging) {
+        latestSelectionTool.updateSelectionBox(point);
         return;
       }
 
@@ -472,54 +665,63 @@ export const useInteractionController = ({
     // ========== 绘图模式处理 ==========
 
     // 直线模式：检查拖拽阈值或跟随鼠标
-    if (drawMode === 'line') {
-      if (drawingTools.initialClickPoint && !drawingTools.hasMoved && !drawingTools.pathRef.current) {
-        const distance = drawingTools.initialClickPoint.getDistance(point);
+    if (currentDrawMode === 'line') {
+      if (latestDrawingTools.initialClickPoint && !latestDrawingTools.hasMoved && !latestDrawingTools.pathRef.current) {
+        const distance = latestDrawingTools.initialClickPoint.getDistance(point);
         if (distance >= DRAG_THRESHOLD) {
-          drawingTools.createLinePath(drawingTools.initialClickPoint);
+          latestDrawingTools.createLinePath(latestDrawingTools.initialClickPoint);
         }
       }
 
-      if (drawingTools.pathRef.current && (drawingTools.pathRef.current as any).startPoint) {
-        drawingTools.updateLineDraw(point);
+      if (latestDrawingTools.pathRef.current && (latestDrawingTools.pathRef.current as any).startPoint) {
+        latestDrawingTools.updateLineDraw(point);
       }
       return;
     }
 
     // 其他绘图模式
-    if (drawMode === 'free') {
-      drawingTools.continueFreeDraw(point);
-    } else if (drawMode === 'rect') {
-      drawingTools.updateRectDraw(point);
-    } else if (drawMode === 'circle') {
-      drawingTools.updateCircleDraw(point);
-    } else if (drawMode === 'image') {
-      drawingTools.updateImageDraw(point);
-    } else if (drawMode === '3d-model') {
-      drawingTools.update3DModelDraw(point);
+    if (currentDrawMode === 'free') {
+      latestDrawingTools.continueFreeDraw(point);
+    } else if (currentDrawMode === 'rect') {
+      latestDrawingTools.updateRectDraw(point);
+    } else if (currentDrawMode === 'circle') {
+      latestDrawingTools.updateCircleDraw(point);
+    } else if (currentDrawMode === 'image') {
+      latestDrawingTools.updateImageDraw(point);
+    } else if (currentDrawMode === '3d-model') {
+      latestDrawingTools.update3DModelDraw(point);
     }
   }, [
     canvasRef,
-    drawMode,
-    selectionTool,
-    pathEditor,
-    drawingTools,
-    imageTool,
     DRAG_THRESHOLD,
-    applyGroupPathDrag
+    applyGroupPathDrag,
+    updateCursorStyle,
+    handleImageResize
   ]);
 
   // ========== 鼠标抬起事件处理 ==========
   const handleMouseUp = useCallback((event: MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const currentDrawMode = drawModeRef.current;
+    const latestSelectionTool = selectionToolRef.current;
+    const latestPathEditor = pathEditorRef.current;
+    const latestImageTool = imageToolRef.current;
+    const latestDrawingTools = drawingToolsRef.current;
+    const latestPerformErase = performEraseRef.current;
+    const latestSetDrawMode = setDrawModeRef.current;
+    const latestModel3DTool = model3DToolRef.current;
+
+    if (!currentDrawMode || !latestSelectionTool || !latestPathEditor || !latestImageTool || !latestDrawingTools) {
+      return;
+    }
 
     // ========== 选择模式处理 ==========
-    if (drawMode === 'select') {
+    if (currentDrawMode === 'select') {
       // 处理路径编辑结束
-      const pathEditResult = pathEditor.handlePathEditInteraction(
+      const pathEditResult = latestPathEditor.handlePathEditInteraction(
         clientToProject(canvas, event.clientX, event.clientY),
-        selectionTool.selectedPath,
+        latestSelectionTool.selectedPath,
         'mouseup'
       );
       if (pathEditResult) {
@@ -527,8 +729,8 @@ export const useInteractionController = ({
       }
 
       // 处理图像拖拽结束
-      if (imageTool.imageDragState.isImageDragging) {
-        imageTool.setImageDragState({
+      if (latestImageTool.imageDragState.isImageDragging) {
+        latestImageTool.setImageDragState({
           isImageDragging: false,
           dragImageId: null,
           imageDragStartPoint: null,
@@ -542,8 +744,8 @@ export const useInteractionController = ({
       }
 
       // 处理图像调整大小结束
-      if (imageTool.imageResizeState.isImageResizing) {
-        imageTool.setImageResizeState({
+      if (latestImageTool.imageResizeState.isImageResizing) {
+        latestImageTool.setImageResizeState({
           isImageResizing: false,
           resizeImageId: null,
           resizeDirection: null,
@@ -555,9 +757,9 @@ export const useInteractionController = ({
       }
 
       // 处理选择框完成
-      if (selectionTool.isSelectionDragging) {
-    const point = clientToProject(canvas, event.clientX, event.clientY);
-        selectionTool.finishSelectionBox(point);
+      if (latestSelectionTool.isSelectionDragging) {
+        const point = clientToProject(canvas, event.clientX, event.clientY);
+        latestSelectionTool.finishSelectionBox(point);
         return;
       }
     }
@@ -565,177 +767,37 @@ export const useInteractionController = ({
     // ========== 绘图模式处理 ==========
     const validDrawingModes: DrawMode[] = ['line', 'free', 'rect', 'circle', 'image', '3d-model'];
 
-    if (validDrawingModes.includes(drawMode)) {
+    if (validDrawingModes.includes(currentDrawMode as DrawMode)) {
       // 只有在实际有绘制活动时才调用 finishDraw
-      if (drawingTools.isDrawingRef.current ||
-        drawingTools.pathRef.current ||
-        drawingTools.hasMoved ||
-        drawingTools.initialClickPoint) {
+      if (latestDrawingTools.isDrawingRef.current ||
+        latestDrawingTools.pathRef.current ||
+        latestDrawingTools.hasMoved ||
+        latestDrawingTools.initialClickPoint) {
 
-        logger.debug(`🎨 ${drawMode}模式结束，交给finishDraw处理`);
-        drawingTools.finishDraw(
-          drawMode,
-          performErase,
-          imageTool.createImagePlaceholder,
-          model3DTool.create3DModelPlaceholder,
-          setDrawMode
+        logger.debug(`🎨 ${currentDrawMode}模式结束，交给finishDraw处理`);
+        latestDrawingTools.finishDraw(
+          currentDrawMode,
+          latestPerformErase,
+          latestImageTool.createImagePlaceholder,
+          latestModel3DTool.create3DModelPlaceholder,
+          latestSetDrawMode
         );
-        historyService.commit(`finish-${String(drawMode)}`).catch(() => {});
+        historyService.commit(`finish-${String(currentDrawMode)}`).catch(() => {});
       }
-    } else if (drawingTools.isDrawingRef.current) {
-      logger.drawing(`结束绘制: 模式=${drawMode}`);
-      drawingTools.finishDraw(
-        drawMode,
-        performErase,
-        imageTool.createImagePlaceholder,
-        model3DTool.create3DModelPlaceholder,
-        setDrawMode
+    } else if (latestDrawingTools.isDrawingRef.current) {
+      logger.drawing(`结束绘制: 模式=${currentDrawMode}`);
+      latestDrawingTools.finishDraw(
+        currentDrawMode,
+        latestPerformErase,
+        latestImageTool.createImagePlaceholder,
+        latestModel3DTool.create3DModelPlaceholder,
+        latestSetDrawMode
       );
-      historyService.commit(`finish-${String(drawMode)}`).catch(() => {});
+      historyService.commit(`finish-${String(currentDrawMode)}`).catch(() => {});
     }
 
-    drawingTools.isDrawingRef.current = false;
-  }, [
-    canvasRef,
-    drawMode,
-    pathEditor,
-    selectionTool,
-    imageTool,
-    drawingTools,
-    model3DTool,
-    performErase,
-    setDrawMode,
-    logger,
-    resetGroupPathDrag
-  ]);
-
-  // ========== 辅助函数 ==========
-
-  // 处理图像调整大小
-  const handleImageResize = useCallback((point: paper.Point) => {
-    if (!imageTool.imageResizeState.isImageResizing ||
-      !imageTool.imageResizeState.resizeStartBounds ||
-      !imageTool.imageResizeState.resizeImageId ||
-      !imageTool.imageResizeState.resizeDirection) {
-      return;
-    }
-
-    // 获取原始宽高比
-    const aspectRatio = imageTool.imageResizeState.resizeStartBounds.width /
-      imageTool.imageResizeState.resizeStartBounds.height;
-
-    const newBounds = imageTool.imageResizeState.resizeStartBounds.clone();
-
-    // 根据拖拽方向调整边界，保持宽高比
-    const direction = imageTool.imageResizeState.resizeDirection;
-
-    if (direction === 'se') {
-      // 右下角调整
-      const dx = point.x - imageTool.imageResizeState.resizeStartBounds.x;
-      const dy = point.y - imageTool.imageResizeState.resizeStartBounds.y;
-
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
-
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
-
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-
-    } else if (direction === 'nw') {
-      // 左上角调整
-      const dx = imageTool.imageResizeState.resizeStartBounds.right - point.x;
-      const dy = imageTool.imageResizeState.resizeStartBounds.bottom - point.y;
-
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
-
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
-
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-      newBounds.x = imageTool.imageResizeState.resizeStartBounds.right - newBounds.width;
-      newBounds.y = imageTool.imageResizeState.resizeStartBounds.bottom - newBounds.height;
-
-    } else if (direction === 'ne') {
-      // 右上角调整
-      const dx = point.x - imageTool.imageResizeState.resizeStartBounds.x;
-      const dy = imageTool.imageResizeState.resizeStartBounds.bottom - point.y;
-
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
-
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
-
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-      newBounds.y = imageTool.imageResizeState.resizeStartBounds.bottom - newBounds.height;
-
-    } else if (direction === 'sw') {
-      // 左下角调整
-      const dx = imageTool.imageResizeState.resizeStartBounds.right - point.x;
-      const dy = point.y - imageTool.imageResizeState.resizeStartBounds.y;
-
-      const diagonalX = 1;
-      const diagonalY = 1 / aspectRatio;
-
-      const projectionLength = (dx * diagonalX + dy * diagonalY) / (diagonalX * diagonalX + diagonalY * diagonalY);
-
-      newBounds.width = Math.max(50, projectionLength * diagonalX);
-      newBounds.height = newBounds.width / aspectRatio;
-      newBounds.x = imageTool.imageResizeState.resizeStartBounds.right - newBounds.width;
-    }
-
-    // 更新图像边界
-    imageTool.handleImageResize(imageTool.imageResizeState.resizeImageId, {
-      x: newBounds.x,
-      y: newBounds.y,
-      width: newBounds.width,
-      height: newBounds.height
-    });
-
-    // 不强制更新Paper.js视图，让它自然渲染
-  }, [imageTool]);
-
-  // 更新鼠标光标样式
-  const updateCursorStyle = useCallback((point: paper.Point, canvas: HTMLCanvasElement) => {
-    // 首先检查是否悬停在图像调整控制点上
-    const hoverHit = paper.project.hitTest(point, {
-      fill: true,
-      tolerance: 10 / zoom
-    });
-
-    if (hoverHit && hoverHit.item.data?.isResizeHandle) {
-      const direction = hoverHit.item.data.direction;
-      if (direction === 'nw' || direction === 'se') {
-        canvas.style.cursor = 'nwse-resize';
-      } else if (direction === 'ne' || direction === 'sw') {
-        canvas.style.cursor = 'nesw-resize';
-      }
-      return;
-    }
-
-    // 检查是否悬停在已选中的图像上
-    for (const image of imageTool.imageInstances) {
-      if (image.isSelected &&
-        point.x >= image.bounds.x &&
-        point.x <= image.bounds.x + image.bounds.width &&
-        point.y >= image.bounds.y &&
-        point.y <= image.bounds.y + image.bounds.height) {
-        canvas.style.cursor = 'move';
-        return;
-      }
-    }
-
-    // 检查路径编辑相关的光标
-    if (selectionTool.selectedPath) {
-      const cursor = pathEditor.getCursorStyle(point, selectionTool.selectedPath);
-      canvas.style.cursor = cursor;
-      return;
-    }
-
-    canvas.style.cursor = 'default'; // 默认光标
-  }, [zoom, imageTool.imageInstances, selectionTool.selectedPath, pathEditor]);
+    latestDrawingTools.isDrawingRef.current = false;
+  }, [canvasRef, resetGroupPathDrag]);
 
   // ========== 事件监听器绑定 ==========
   useEffect(() => {
@@ -747,14 +809,16 @@ export const useInteractionController = ({
       const latestSelectionTool = selectionToolRef.current;
       const latestImageTool = imageToolRef.current;
       const latestModel3DTool = model3DToolRef.current;
+      const currentDrawMode = drawModeRef.current;
+      const latestSimpleTextTool = simpleTextToolRef.current;
 
       // 输入框/可编辑区域不拦截
       const active = document.activeElement as Element | null;
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
 
       // 文本工具优先处理
-      if (drawMode === 'text') {
-        const handled = simpleTextTool.handleKeyDown(event);
+      if (currentDrawMode === 'text' && latestSimpleTextTool) {
+        const handled = latestSimpleTextTool.handleKeyDown(event);
         if (handled) {
           event.preventDefault();
           return;
@@ -810,12 +874,15 @@ export const useInteractionController = ({
     // 双击事件处理
     const handleDoubleClick = (event: MouseEvent) => {
       const point = clientToProject(canvas, event.clientX, event.clientY);
-      
-      console.log('🎯 检测到原生双击事件，当前模式:', drawMode);
+
+      const currentDrawMode = drawModeRef.current;
+      const latestSimpleTextTool = simpleTextToolRef.current;
+
+      console.log('🎯 检测到原生双击事件，当前模式:', currentDrawMode);
       
       // 允许在任何模式下双击文本进行编辑
       // 这样即使在选择模式下也能双击编辑文本
-      simpleTextTool.handleDoubleClick(point);
+      latestSimpleTextTool?.handleDoubleClick(point);
     };
 
     // 绑定事件监听器
@@ -837,7 +904,7 @@ export const useInteractionController = ({
       canvas.removeEventListener('dblclick', handleDoubleClick);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleMouseDown, handleMouseMove, handleMouseUp, drawMode, simpleTextTool]);
+  }, [handleMouseDown, handleMouseMove, handleMouseUp]);
 
   return {
     // 主要事件处理器

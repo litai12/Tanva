@@ -66,6 +66,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   const lastDrawModeRef = useRef<string>(drawMode);
   const [isGroupCapturePending, setIsGroupCapturePending] = useState(false);
+  const [modelCapturePending, setModelCapturePending] = useState<Record<string, boolean>>({});
 
   // 初始化图层管理器
   useEffect(() => {
@@ -924,6 +925,108 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectedPaperItems,
     quickImageUpload.handleQuickImageUploaded,
   ]);
+
+  const handleModelCapture = useCallback(async (modelId: string) => {
+    let abort = false;
+    setModelCapturePending((prev) => {
+      if (prev[modelId]) {
+        abort = true;
+        return prev;
+      }
+      return { ...prev, [modelId]: true };
+    });
+    if (abort) return;
+
+    const targetModel = model3DTool.model3DInstances.find((model) => model.id === modelId);
+    if (!targetModel) {
+      setModelCapturePending((prev) => {
+        const next = { ...prev };
+        delete next[modelId];
+        return next;
+      });
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '未找到对应的3D模型', type: 'error' },
+      }));
+      return;
+    }
+
+    try {
+      const selection = {
+        paperItems: [] as paper.Item[],
+        imageIds: [] as string[],
+        modelIds: [modelId],
+      };
+      const result = await AutoScreenshotService.captureAutoScreenshot(
+        imageTool.imageInstances,
+        model3DTool.model3DInstances,
+        {
+          format: 'png',
+          includeBackground: true,
+          autoDownload: false,
+          selection,
+        }
+      );
+
+      if (result.success && result.dataUrl) {
+        const boundsPayload = {
+          x: targetModel.bounds.x,
+          y: targetModel.bounds.y,
+          width: targetModel.bounds.width,
+          height: targetModel.bounds.height,
+        };
+        const fileName = `model-${Date.now()}.png`;
+
+        if (quickImageUpload.handleQuickImageUploaded) {
+          await quickImageUpload.handleQuickImageUploaded(
+            result.dataUrl,
+            fileName,
+            boundsPayload,
+            undefined,
+            'manual'
+          );
+        } else {
+          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+            detail: {
+              imageData: result.dataUrl,
+              fileName,
+              selectedImageBounds: boundsPayload,
+              operationType: 'manual',
+            }
+          }));
+        }
+
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '已生成3D截图', type: 'success' }
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: result.error || '截图失败，请重试', type: 'error' }
+        }));
+      }
+    } catch (error) {
+      console.error('3D capture failed:', error);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '截图失败，请重试', type: 'error' }
+      }));
+    } finally {
+      setModelCapturePending((prev) => {
+        const next = { ...prev };
+        delete next[modelId];
+        return next;
+      });
+    }
+  }, [
+    imageTool.imageInstances,
+    model3DTool.model3DInstances,
+    quickImageUpload.handleQuickImageUploaded,
+  ]);
+
+  const handleModelSelectFromOverlay = useCallback((modelId: string, addToSelection: boolean = false) => {
+    if (!addToSelection) {
+      clearSelections();
+    }
+    model3DTool.handleModel3DSelect(modelId, addToSelection);
+  }, [clearSelections, model3DTool]);
 
   // ========== 初始化交互控制器Hook ==========
   useInteractionController({
@@ -2095,11 +2198,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             visible={model.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
-            onSelect={() => model3DTool.handleModel3DSelect(model.id)}
             onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
             onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
             onDeselect={() => model3DTool.handleModel3DDeselect()}
             onCameraChange={(camera) => model3DTool.handleModel3DCameraChange(model.id, camera)}
+            onDelete={() => model3DTool.handleModel3DDelete(model.id)}
+            onCapture={() => handleModelCapture(model.id)}
+            isCapturePending={!!modelCapturePending[model.id]}
+            showIndividualTools={!isGroupSelection}
+            onSelect={(addToSelection) => handleModelSelectFromOverlay(model.id, !!addToSelection)}
           />
         );
       })}
