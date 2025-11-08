@@ -93,10 +93,18 @@ type MidjourneyActionButtonsProps = {
 
 const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({ buttons, onAction }) => {
   const [loadingId, setLoadingId] = useState<string | null>(null);
-  const actionableButtons = useMemo(
-    () => buttons.filter((btn) => Boolean(btn?.customId && (btn.label || btn.customId))),
-    [buttons]
-  );
+  const actionableButtons = useMemo(() => {
+    const soloSuffix = /::SOLO$/i;
+    return buttons.filter((btn) => {
+      const customId = btn?.customId?.trim();
+      if (!customId) return false;
+      if (soloSuffix.test(customId)) {
+        // Midjourney 会附带一个 Solo reroll 占位按钮，界面上不需要展示
+        return false;
+      }
+      return Boolean(btn.label?.trim() || customId);
+    });
+  }, [buttons]);
 
   if (actionableButtons.length === 0) {
     return null;

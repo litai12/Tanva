@@ -26,3 +26,10 @@ dist-ssr
 # Local server secrets (do not commit)
 server/aliyun-oss-config.json
 server/.env
+backend/.env
+backend/aliyun-oss-config.json
+frontend/bake/.env
+frontend/bake/.env.local
+frontend/bake/.env.production
+frontend/bake/back/.env
+frontend/bake/back/.env.production
