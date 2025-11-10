@@ -19,6 +19,7 @@ export default defineConfig({
     // 允许所有 trycloudflare.com 的子域名（用于 Cloudflare Tunnel）
     allowedHosts: [
       '.trycloudflare.com',  // 允许所有 trycloudflare.com 的子域名
+      '.tanvas.cn',          // 允许所有 tanvas.cn 的子域名（Cloudflare Tunnel）
       'localhost',
       '127.0.0.1',
       '0.0.0.0',

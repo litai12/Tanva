@@ -127,13 +127,6 @@ export default function ThreeNode({ id, data, selected }: Props) {
     return () => { clearTimeout(t); if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [initIfNeeded]);
 
-  React.useEffect(() => {
-    if (!data.modelUrl) return;
-    if (lastModelUrlRef.current === data.modelUrl) return;
-    lastModelUrlRef.current = data.modelUrl;
-    loadModelFromUrl(data.modelUrl);
-  }, [data.modelUrl, loadModelFromUrl]);
-
   const onResize = (w: number, h: number) => {
     const r = rendererRef.current, c = cameraRef.current;
     if (r && c) {
@@ -230,6 +223,14 @@ export default function ThreeNode({ id, data, selected }: Props) {
       }
     );
   }, [createLoader, handleLoadError, initIfNeeded, mountModel]);
+
+  // Keep effect below loadModelFromUrl so dependency array doesn't hit TDZ
+  React.useEffect(() => {
+    if (!data.modelUrl) return;
+    if (lastModelUrlRef.current === data.modelUrl) return;
+    lastModelUrlRef.current = data.modelUrl;
+    loadModelFromUrl(data.modelUrl);
+  }, [data.modelUrl, loadModelFromUrl]);
 
   const capture = () => {
     initIfNeeded();

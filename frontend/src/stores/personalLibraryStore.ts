@@ -36,10 +36,12 @@ export interface PersonalModelAsset extends PersonalLibraryBase {
 
 export type PersonalLibraryAsset = PersonalImageAsset | PersonalModelAsset;
 
+type PersonalLibraryUpdate = Partial<Omit<PersonalLibraryAsset, 'type'>>;
+
 export interface PersonalLibraryStore {
   assets: PersonalLibraryAsset[];
   addAsset: (asset: PersonalLibraryAsset) => void;
-  updateAsset: (id: string, patch: Partial<PersonalLibraryAsset>) => void;
+  updateAsset: (id: string, patch: PersonalLibraryUpdate) => void;
   removeAsset: (id: string) => void;
   clear: () => void;
   getAssetsByType: (type: PersonalAssetType) => PersonalLibraryAsset[];

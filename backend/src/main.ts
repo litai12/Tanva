@@ -8,6 +8,28 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
+import { setGlobalDispatcher, ProxyAgent } from 'undici';
+
+// 配置 undici ProxyAgent 以支持代理（修复 Node.js 20+ 中 @google/genai 的代理问题）
+function configureProxyForUndici() {
+  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const proxyUrl = httpsProxy || httpProxy;
+
+  if (proxyUrl) {
+    try {
+      const agent = new ProxyAgent(proxyUrl);
+      setGlobalDispatcher(agent);
+      // eslint-disable-next-line no-console
+      console.log(`[Proxy] undici configured with proxy: ${proxyUrl.split('@')[1] || proxyUrl.substring(0, 50)}...`);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`[Proxy] Failed to configure undici ProxyAgent: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+}
+
+configureProxyForUndici();
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -40,7 +62,7 @@ async function bootstrap() {
   };
   
   // 动态检查 origin，允许 trycloudflare.com 的所有子域名（用于内网穿透）
-  const originCallback = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  const originCallback = (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
     // 如果没有 origin（如同源请求），允许
     if (!origin) {
       callback(null, true);
@@ -48,13 +70,13 @@ async function bootstrap() {
     }
 
     const hostname = resolveHostname(origin);
-    
+
     // 允许所有 trycloudflare.com 的子域名（Cloudflare Tunnel）
     if (hostname === 'trycloudflare.com' || hostname.endsWith('.trycloudflare.com')) {
-      callback(null, origin);
+      callback(null, true);
       return;
     }
-    
+
     // 如果配置了 CORS_ORIGIN，检查是否在允许列表中
     if (corsOrigins.length > 0) {
       const allowed = corsOrigins.some((allowedOrigin: string) => {
@@ -64,12 +86,12 @@ async function bootstrap() {
 
         return resolveHostname(allowedOrigin) === hostname;
       });
-      callback(null, allowed ? origin : false);
+      callback(null, allowed);
       return;
     }
-    
+
     // 如果没有配置 CORS_ORIGIN，允许所有来源（开发环境）
-    callback(null, origin);
+    callback(null, true);
   };
   
   app.enableCors({
