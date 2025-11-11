@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import paper from 'paper';
+import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Trash2 } from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -16,6 +17,7 @@ import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
+import ContextMenu from '@/components/ui/context-menu';
 
 // 导入新的hooks
 import { useImageTool } from './hooks/useImageTool';
@@ -33,6 +35,7 @@ import type { DrawingContext } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { historyService } from '@/services/historyService';
 import type { Model3DData } from '@/services/model3DUploadService';
+import { clientToProject } from '@/utils/paperCoords';
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
@@ -55,6 +58,22 @@ interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
+type ContextMenuTargetType = 'canvas' | 'selection' | 'image' | 'model3d' | 'text' | 'path';
+
+interface CanvasContextMenuState {
+  x: number;
+  y: number;
+  type: ContextMenuTargetType;
+  targetId?: string;
+}
+
+type HitTestTarget =
+  | { type: 'image'; id: string }
+  | { type: 'model3d'; id: string }
+  | { type: 'text'; id?: string }
+  | { type: 'path'; path: paper.Path }
+  | null;
+
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const { drawMode, currentColor, fillColor, strokeWidth, isEraser, hasFill, setDrawMode } = useToolStore();
   const zoom = useCanvasStore((state) => state.zoom);
@@ -68,6 +87,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const lastDrawModeRef = useRef<string>(drawMode);
   const [isGroupCapturePending, setIsGroupCapturePending] = useState(false);
   const [modelCapturePending, setModelCapturePending] = useState<Record<string, boolean>>({});
+  const [contextMenuState, setContextMenuState] = useState<CanvasContextMenuState | null>(null);
+  const zoomRef = useRef(zoom);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
 
   // 初始化图层管理器
   useEffect(() => {
@@ -587,6 +612,80 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentColor,
     ensureDrawingLayer: drawingContext.ensureDrawingLayer,
   });
+
+  const hasSelection = useMemo(() => {
+    const imageCount = imageTool.selectedImageIds?.length ?? 0;
+    const modelCount = model3DTool.selectedModel3DIds?.length ?? 0;
+    const pathCount =
+      (selectionTool.selectedPath ? 1 : 0) + (selectionTool.selectedPaths?.length ?? 0);
+    const textSelected = !!simpleTextTool.selectedTextId;
+    return imageCount > 0 || modelCount > 0 || pathCount > 0 || textSelected;
+  }, [
+    imageTool.selectedImageIds,
+    model3DTool.selectedModel3DIds,
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
+    simpleTextTool.selectedTextId,
+  ]);
+
+  const hasSelectionRef = useRef(hasSelection);
+  useEffect(() => {
+    hasSelectionRef.current = hasSelection;
+  }, [hasSelection]);
+
+  const selectionSnapshotRef = useRef<{
+    imageIds: string[];
+    modelIds: string[];
+    textId: string | null;
+    paths: paper.Path[];
+  }>({
+    imageIds: [],
+    modelIds: [],
+    textId: null,
+    paths: [],
+  });
+
+  useEffect(() => {
+    selectionSnapshotRef.current = {
+      imageIds: [...(imageTool.selectedImageIds ?? [])],
+      modelIds: [...(model3DTool.selectedModel3DIds ?? [])],
+      textId: simpleTextTool.selectedTextId ?? null,
+      paths: [
+        ...(selectionTool.selectedPath ? [selectionTool.selectedPath] : []),
+        ...((selectionTool.selectedPaths ?? []) as paper.Path[]),
+      ].filter((path): path is paper.Path => !!path),
+    };
+  }, [
+    imageTool.selectedImageIds,
+    model3DTool.selectedModel3DIds,
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
+    simpleTextTool.selectedTextId,
+  ]);
+
+  const {
+    createImageFromSnapshot,
+    handleImageMultiSelect,
+    setSelectedImageIds,
+  } = imageTool;
+  const {
+    createModel3DFromSnapshot,
+    handleModel3DMultiSelect,
+    setSelectedModel3DIds,
+  } = model3DTool;
+  const {
+    clearAllSelections,
+    setSelectedPaths,
+    setSelectedPath,
+    handlePathSelect: selectToolHandlePathSelect,
+  } = selectionTool;
+  const {
+    createText: createSimpleText,
+    stopEditText,
+    selectText: selectSimpleText,
+    deselectText: deselectSimpleText,
+    deleteText: deleteSimpleText,
+  } = simpleTextTool;
   const modelPlaceholderRef = model3DTool.currentModel3DPlaceholderRef;
   const resetImageInstances = imageTool.setImageInstances;
   const resetSelectedImageIds = imageTool.setSelectedImageIds;
@@ -1203,29 +1302,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return true;
   }, [collectCanvasClipboardData]);
 
-  const {
-    createImageFromSnapshot,
-    handleImageMultiSelect,
-    setSelectedImageIds,
-  } = imageTool;
-  const {
-    createModel3DFromSnapshot,
-    handleModel3DMultiSelect,
-    setSelectedModel3DIds,
-  } = model3DTool;
-  const {
-    clearAllSelections,
-    setSelectedPaths,
-    setSelectedPath,
-    handlePathSelect: selectToolHandlePathSelect,
-  } = selectionTool;
-  const {
-    createText: createSimpleText,
-    stopEditText,
-    selectText: selectSimpleText,
-    deselectText: deselectSimpleText,
-  } = simpleTextTool;
-
   const handleCanvasPaste = useCallback(() => {
     const payload = clipboardService.getCanvasData();
     if (!payload) return false;
@@ -1452,94 +1528,64 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   }, [handleCanvasCopy, handleCanvasPaste, editingTextId]);
 
   // ========== 图元顺序调整处理 ==========
+  const adjustItemOrderWithinLayer = useCallback((
+    itemType: 'image' | '3d-model',
+    targetId: string,
+    direction: 'up' | 'down',
+  ) => {
+    try {
+      if (!paper?.project) return;
+      const idKey = itemType === 'image' ? 'imageId' : 'modelId';
+      const group = paper.project.layers.flatMap((layer) =>
+        layer.children.filter((child) =>
+          child.data?.type === itemType && child.data?.[idKey] === targetId,
+        )
+      )[0];
 
-  // 图元上移处理函数（在同一图层内调整顺序）
+      if (!(group instanceof paper.Group) || !group.layer) {
+        console.warn(`未找到可调整顺序的 ${itemType} 元素`, targetId);
+        return;
+      }
+
+      const siblings = group.layer.children.filter(
+        (child) => child.data?.type === itemType && child.data?.[idKey],
+      );
+      const currentIndex = siblings.indexOf(group);
+      if (currentIndex === -1) return;
+
+      if (direction === 'up') {
+        if (currentIndex >= siblings.length - 1) return;
+        const nextItem = siblings[currentIndex + 1];
+        group.insertAbove(nextItem);
+      } else {
+        if (currentIndex <= 0) return;
+        const prevItem = siblings[currentIndex - 1];
+        group.insertBelow(prevItem);
+      }
+
+      try { paper.view.update(); } catch {}
+      try { paperSaveService.triggerAutoSave('item-reorder'); } catch {}
+      try { historyService.commit(`${itemType}-${direction}-layer`).catch(() => {}); } catch {}
+    } catch (error) {
+      console.error('调整元素顺序失败:', error);
+    }
+  }, []);
+
   const handleImageLayerMoveUp = useCallback((imageId: string) => {
-    try {
-      // 找到对应的Paper.js图层组
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === imageId
-        )
-      )[0];
+    adjustItemOrderWithinLayer('image', imageId, 'up');
+  }, [adjustItemOrderWithinLayer]);
 
-      if (imageGroup instanceof paper.Group) {
-        // 获取图片所在的图层
-        const currentLayer = imageGroup.layer;
-        if (currentLayer) {
-          // 在同一图层内查找其他图片元素（排除辅助元素）
-          const imageItemsInLayer = currentLayer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId
-          );
-
-          // 找到当前图片在图层内的索引
-          const currentIndex = imageItemsInLayer.indexOf(imageGroup);
-
-          // 如果不是最顶层，可以上移
-          if (currentIndex < imageItemsInLayer.length - 1) {
-            // 获取上面的图片元素
-            const nextImageItem = imageItemsInLayer[currentIndex + 1];
-            if (nextImageItem) {
-              // 将当前图片插入到上面图片的前面
-              imageGroup.insertAbove(nextImageItem);
-              console.log(`⬆️ 图片 ${imageId} 在图层内上移 (图层: ${currentLayer.name})`);
-              console.log(`📊 图层内顺序: ${imageItemsInLayer.map(item => item.data?.imageId).join(' → ')}`);
-            }
-          } else {
-            console.log('📍 图片已在图层内最顶层');
-          }
-        }
-      } else {
-        console.warn('未找到对应的图片图层组');
-      }
-    } catch (error) {
-      console.error('图元上移失败:', error);
-    }
-  }, []);
-
-  // 图元下移处理函数（在同一图层内调整顺序）
   const handleImageLayerMoveDown = useCallback((imageId: string) => {
-    try {
-      // 找到对应的Paper.js图层组
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === imageId
-        )
-      )[0];
+    adjustItemOrderWithinLayer('image', imageId, 'down');
+  }, [adjustItemOrderWithinLayer]);
 
-      if (imageGroup instanceof paper.Group) {
-        // 获取图片所在的图层
-        const currentLayer = imageGroup.layer;
-        if (currentLayer) {
-          // 在同一图层内查找其他图片元素（排除辅助元素）
-          const imageItemsInLayer = currentLayer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId
-          );
+  const handleModelLayerMoveUp = useCallback((modelId: string) => {
+    adjustItemOrderWithinLayer('3d-model', modelId, 'up');
+  }, [adjustItemOrderWithinLayer]);
 
-          // 找到当前图片在图层内的索引
-          const currentIndex = imageItemsInLayer.indexOf(imageGroup);
-
-          // 如果不是最底层，可以下移
-          if (currentIndex > 0) {
-            // 获取下面的图片元素
-            const prevImageItem = imageItemsInLayer[currentIndex - 1];
-            if (prevImageItem) {
-              // 将当前图片插入到下面图片的后面
-              imageGroup.insertBelow(prevImageItem);
-              console.log(`⬇️ 图片 ${imageId} 在图层内下移 (图层: ${currentLayer.name})`);
-              console.log(`📊 图层内顺序: ${imageItemsInLayer.map(item => item.data?.imageId).join(' → ')}`);
-            }
-          } else {
-            console.log('📍 图片已在图层内最底层');
-          }
-        }
-      } else {
-        console.warn('未找到对应的图片图层组');
-      }
-    } catch (error) {
-      console.error('图元下移失败:', error);
-    }
-  }, []);
+  const handleModelLayerMoveDown = useCallback((modelId: string) => {
+    adjustItemOrderWithinLayer('3d-model', modelId, 'down');
+  }, [adjustItemOrderWithinLayer]);
 
   // 处理图片图层可见性切换
   const handleImageToggleVisibility = useCallback((imageId: string) => {
@@ -1572,6 +1618,295 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.error('切换图层可见性失败:', error);
     }
   }, [toggleVisibility]);
+
+  const resolveContextTarget = useCallback((event: MouseEvent): HitTestTarget => {
+    const canvas = canvasRef.current;
+    if (!canvas || !paper?.project) return null;
+
+    const projectPoint = clientToProject(canvas, event.clientX, event.clientY);
+    const zoomValue = Math.max(zoomRef.current || 1, 0.01);
+    const tolerance = 6 / zoomValue;
+
+    let hitResult: paper.HitResult | null = null;
+    try {
+      hitResult = paper.project.hitTest(projectPoint, {
+        segments: true,
+        stroke: true,
+        fill: true,
+        bounds: true,
+        tolerance,
+        handles: false,
+      });
+    } catch {
+      hitResult = null;
+    }
+
+    if (!hitResult?.item) return null;
+
+    let current: paper.Item | null = hitResult.item;
+    while (current) {
+      const data = current.data || {};
+      if (data.isHelper || data.isSelectionHelper || data.isResizeHandle) {
+        current = current.parent;
+        continue;
+      }
+      if ((data.type === 'image-placeholder' || data.type === '3d-model-placeholder' || data.type === 'selection-box')) {
+        current = current.parent;
+        continue;
+      }
+      if ((data.type === 'image-selection-area' || data.type === '3d-model-selection-area') && current.parent) {
+        current = current.parent;
+        continue;
+      }
+
+      if (data.type === 'image' && data.imageId) {
+        return { type: 'image', id: data.imageId };
+      }
+      if (data.type === '3d-model' && data.modelId) {
+        return { type: 'model3d', id: data.modelId };
+      }
+      if (data.type === 'text' && data.textId) {
+        return { type: 'text', id: data.textId };
+      }
+      if (current instanceof paper.PointText) {
+        const textId = data.textId || current.data?.textId;
+        return { type: 'text', id: textId };
+      }
+      if (current instanceof paper.Path && !data.isHelper) {
+        const layerName = current.layer?.name;
+        if (layerName === 'grid' || layerName === 'background') {
+          current = current.parent;
+          continue;
+        }
+        return { type: 'path', path: current };
+      }
+
+      current = current.parent;
+    }
+
+    return null;
+  }, [canvasRef]);
+
+  const ensureSelectionForTarget = useCallback((target: HitTestTarget) => {
+    if (!target) return;
+
+    if (target.type === 'image' && target.id) {
+      const alreadySelected = selectionSnapshotRef.current.imageIds.includes(target.id);
+      if (!alreadySelected) {
+        clearSelections();
+        deselectSimpleText();
+        imageTool.handleImageSelect(target.id);
+      }
+      return;
+    }
+
+    if (target.type === 'model3d' && target.id) {
+      const alreadySelected = selectionSnapshotRef.current.modelIds.includes(target.id);
+      if (!alreadySelected) {
+        clearSelections();
+        deselectSimpleText();
+        model3DTool.handleModel3DSelect(target.id);
+      }
+      return;
+    }
+
+    if (target.type === 'text' && target.id) {
+      if (selectionSnapshotRef.current.textId !== target.id) {
+        clearSelections();
+        selectSimpleText(target.id);
+      }
+      return;
+    }
+
+    if (target.type === 'path') {
+      const alreadySelected = selectionSnapshotRef.current.paths.some((path) => path === target.path);
+      if (!alreadySelected) {
+        clearSelections();
+        deselectSimpleText();
+        selectToolHandlePathSelect(target.path);
+        setSelectedPath(target.path);
+    setSelectedPaths([target.path]);
+      }
+    }
+  }, [
+    clearSelections,
+    deselectSimpleText,
+    imageTool.handleImageSelect,
+    model3DTool.handleModel3DSelect,
+    selectSimpleText,
+    selectToolHandlePathSelect,
+    setSelectedPath,
+    setSelectedPaths,
+  ]);
+
+  useEffect(() => {
+    const canvasElement = canvasRef.current;
+    if (!canvasElement) return;
+
+    const handleContextMenu = (event: MouseEvent) => {
+      const target = resolveContextTarget(event);
+      if (target) {
+        ensureSelectionForTarget(target);
+        setContextMenuState({
+          x: event.clientX,
+          y: event.clientY,
+          type: target.type as ContextMenuTargetType,
+          targetId: 'id' in target ? target.id : undefined,
+        });
+      } else {
+        const fallbackType: ContextMenuTargetType = hasSelectionRef.current ? 'selection' : 'canvas';
+        setContextMenuState({
+          x: event.clientX,
+          y: event.clientY,
+          type: fallbackType,
+        });
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    canvasElement.addEventListener('contextmenu', handleContextMenu);
+    return () => {
+      canvasElement.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [canvasRef, ensureSelectionForTarget, resolveContextTarget]);
+
+  const handleDeleteSelection = useCallback(() => {
+    let didDelete = false;
+
+    const pathTargets: paper.Path[] = [];
+    if (selectionTool.selectedPath) pathTargets.push(selectionTool.selectedPath);
+    if (Array.isArray(selectionTool.selectedPaths)) {
+      selectionTool.selectedPaths.forEach((path) => {
+        if (path && !pathTargets.includes(path)) {
+          pathTargets.push(path);
+        }
+      });
+    }
+
+    if (pathTargets.length > 0) {
+      pathTargets.forEach((path) => {
+        try { path.remove(); didDelete = true; } catch {}
+      });
+      setSelectedPaths([]);
+      setSelectedPath(null);
+    }
+
+    if ((imageTool.selectedImageIds?.length ?? 0) > 0 && typeof imageTool.handleImageDelete === 'function') {
+      imageTool.selectedImageIds!.forEach((id) => {
+        try { imageTool.handleImageDelete?.(id); didDelete = true; } catch {}
+      });
+    }
+
+    if ((model3DTool.selectedModel3DIds?.length ?? 0) > 0 && typeof model3DTool.handleModel3DDelete === 'function') {
+      model3DTool.selectedModel3DIds!.forEach((id) => {
+        try { model3DTool.handleModel3DDelete?.(id); didDelete = true; } catch {}
+      });
+    }
+
+    if (simpleTextTool.selectedTextId) {
+      deleteSimpleText(simpleTextTool.selectedTextId);
+      didDelete = true;
+    }
+
+    if (didDelete) {
+      try { paper.view.update(); } catch {}
+      try { historyService.commit('delete-selection-contextmenu').catch(() => {}); } catch {}
+      clearSelections();
+      deselectSimpleText();
+    }
+  }, [
+    clearSelections,
+    deleteSimpleText,
+    deselectSimpleText,
+    imageTool.handleImageDelete,
+    imageTool.selectedImageIds,
+    model3DTool.handleModel3DDelete,
+    model3DTool.selectedModel3DIds,
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
+    setSelectedPath,
+    setSelectedPaths,
+    simpleTextTool.selectedTextId,
+  ]);
+
+  const closeContextMenu = useCallback(() => setContextMenuState(null), []);
+
+  const contextMenuItems = useMemo(() => {
+    if (!contextMenuState) return [];
+
+    const canCopy = hasSelection && contextMenuState.type !== 'canvas';
+    const canPaste = !!clipboardService.getCanvasData();
+
+    const items: Array<{
+      label: string;
+      icon: React.ReactNode;
+      onClick: () => void;
+      disabled?: boolean;
+    }> = [
+      {
+        label: '复制',
+        icon: <Copy className="w-4 h-4" />,
+        onClick: () => { handleCanvasCopy(); },
+        disabled: !canCopy,
+      },
+      {
+        label: '粘贴',
+        icon: <ClipboardPaste className="w-4 h-4" />,
+        onClick: () => { handleCanvasPaste(); },
+        disabled: !canPaste,
+      },
+    ];
+
+    if (contextMenuState.type === 'image' && contextMenuState.targetId) {
+      const targetId = contextMenuState.targetId;
+      items.push(
+        {
+          label: '上移一层',
+          icon: <ArrowUp className="w-4 h-4" />,
+          onClick: () => handleImageLayerMoveUp(targetId),
+        },
+        {
+          label: '下移一层',
+          icon: <ArrowDown className="w-4 h-4" />,
+          onClick: () => handleImageLayerMoveDown(targetId),
+        },
+      );
+    } else if (contextMenuState.type === 'model3d' && contextMenuState.targetId) {
+      const targetId = contextMenuState.targetId;
+      items.push(
+        {
+          label: '上移一层',
+          icon: <ArrowUp className="w-4 h-4" />,
+          onClick: () => handleModelLayerMoveUp(targetId),
+        },
+        {
+          label: '下移一层',
+          icon: <ArrowDown className="w-4 h-4" />,
+          onClick: () => handleModelLayerMoveDown(targetId),
+        },
+      );
+    }
+
+    items.push({
+      label: '删除',
+      icon: <Trash2 className="w-4 h-4" />,
+      onClick: handleDeleteSelection,
+      disabled: !hasSelection,
+    });
+
+    return items;
+  }, [
+    contextMenuState,
+    handleCanvasCopy,
+    handleCanvasPaste,
+    handleDeleteSelection,
+    handleImageLayerMoveDown,
+    handleImageLayerMoveUp,
+    handleModelLayerMoveDown,
+    handleModelLayerMoveUp,
+    hasSelection,
+  ]);
 
   // 同步图片和3D模型的可见性状态
   useEffect(() => {
@@ -2273,6 +2608,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onUpdateContent={simpleTextTool.updateTextContent}
         onStopEdit={simpleTextTool.stopEditText}
       />
+
+      {contextMenuState && contextMenuItems.length > 0 && (
+        <ContextMenu
+          x={contextMenuState.x}
+          y={contextMenuState.y}
+          items={contextMenuItems}
+          onClose={closeContextMenu}
+        />
+      )}
     </>
   );
 };

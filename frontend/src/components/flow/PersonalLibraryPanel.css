@@ -1,0 +1,59 @@
+.personal-library-action-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #0f172a;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.personal-library-action-button:focus-visible {
+  outline: 2px solid rgba(191, 219, 254, 0.9);
+  outline-offset: 3px;
+}
+
+.personal-library-action-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.18);
+}
+
+.personal-library-action-button:active {
+  transform: scale(0.95);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+}
+
+.personal-library-action-button--send {
+  background: #e0f2fe;
+  border-color: #bae6fd;
+  color: #0284c7;
+}
+
+.personal-library-action-button--send:hover {
+  background: #bae6fd;
+}
+
+.personal-library-action-button--download {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #4338ca;
+}
+
+.personal-library-action-button--download:hover {
+  background: #c7d2fe;
+}
+
+.personal-library-action-button--delete {
+  background: #fff1f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.personal-library-action-button--delete:hover {
+  background: #fecaca;
+}

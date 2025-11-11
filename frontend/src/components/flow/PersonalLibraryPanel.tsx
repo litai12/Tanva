@@ -1,7 +1,9 @@
 import React from 'react';
 import { Download, Image as ImageIcon, Trash2, Upload, Box, Send } from 'lucide-react';
+import './PersonalLibraryPanel.css';
 import { imageUploadService } from '@/services/imageUploadService';
 import { model3DUploadService, type Model3DData } from '@/services/model3DUploadService';
+import { model3DPreviewService } from '@/services/model3DPreviewService';
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -37,12 +39,19 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
   const [isUploading, setUploading] = React.useState(false);
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
   const removeAsset = usePersonalLibraryStore((state) => state.removeAsset);
+  const updateAsset = usePersonalLibraryStore((state) => state.updateAsset);
   const allAssets = usePersonalLibraryStore((state) => state.assets);
   const assets = React.useMemo(
     () => allAssets.filter((item) => item.type === activeType),
     [allAssets, activeType]
   );
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const handleModelThumbnailUpdate = React.useCallback(
+    (assetId: string, thumbnail: string) => {
+      updateAsset(assetId, { thumbnail });
+    },
+    [updateAsset]
+  );
 
   const accept = activeType === '2d' ? 'image/png,image/jpeg,image/jpg,image/gif,image/webp' : '.glb,.gltf';
   const uploadLabel = activeType === '2d' ? '上传图片' : '上传 3D 模型';
@@ -83,6 +92,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
       asset: NonNullable<Awaited<ReturnType<typeof model3DUploadService.uploadModelFile>>['asset']>
     ) => {
       const id = createPersonalAssetId('pl3d');
+      const now = Date.now();
       const modelAsset: PersonalModelAsset = {
         id,
         type: '3d',
@@ -92,12 +102,24 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
         fileSize: asset.fileSize ?? file.size,
         contentType: asset.contentType ?? file.type,
         format: asset.format,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
       };
       addAsset(modelAsset);
+      if (asset.url) {
+        void model3DPreviewService
+          .generatePreviewFromUrl(asset.url)
+          .then((thumbnail) => {
+            if (thumbnail) {
+              handleModelThumbnailUpdate(id, thumbnail);
+            }
+          })
+          .catch((error) => {
+            console.warn('[PersonalLibrary] 3D 预览生成失败:', error);
+          });
+      }
     },
-    [addAsset]
+    [addAsset, handleModelThumbnailUpdate]
   );
 
   const handleUploadFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -351,7 +373,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                     flex: '0 0 44%',
                     borderRadius: 10,
                     overflow: 'hidden',
-                    background: is2d ? '#f3f4f6' : 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+                    background: is2d ? '#f3f4f6' : '#0f172a',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -365,12 +387,10 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   ) : (
-                    <div style={{ color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <Box size={24} />
-                      <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
-                        {(asset as PersonalModelAsset).format?.toUpperCase() || '3D'}
-                      </div>
-                    </div>
+                    <ModelAssetPreview
+                      asset={asset as PersonalModelAsset}
+                      onThumbnailReady={handleModelThumbnailUpdate}
+                    />
                   )}
                 </div>
                 <div
@@ -434,55 +454,25 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                     }}
                   >
                     <button
+                      type="button"
                       onClick={() => void handleSendToCanvas(asset)}
                       title="发送到画布"
-                      style={{
-                        width: 40,
-                        height: 36,
-                        borderRadius: 10,
-                        border: '1px solid #bae6fd',
-                        background: '#e0f2fe',
-                        color: '#0284c7',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                      }}
+                      className="personal-library-action-button personal-library-action-button--send"
                     >
                       <Send size={16} strokeWidth={2} />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDownload(asset)}
                       title="下载"
-                      style={{
-                        width: 40,
-                        height: 36,
-                        borderRadius: 10,
-                        border: '1px solid #dbeafe',
-                        background: '#eff6ff',
-                        color: '#1d4ed8',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                      }}
+                      className="personal-library-action-button personal-library-action-button--download"
                     >
                       <Download size={16} strokeWidth={2} />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleRemoveAsset(asset)}
-                      style={{
-                        width: 40,
-                        height: 36,
-                        borderRadius: 10,
-                        border: '1px solid #fecaca',
-                        background: '#fff1f2',
-                        color: '#dc2626',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                      }}
+                      className="personal-library-action-button personal-library-action-button--delete"
                       title="删除资源"
                     >
                       <Trash2 size={16} strokeWidth={2} />
@@ -541,3 +531,86 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
 };
 
 export default PersonalLibraryPanel;
+
+interface ModelAssetPreviewProps {
+  asset: PersonalModelAsset;
+  onThumbnailReady: (id: string, thumbnail: string) => void;
+}
+
+const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({ asset, onThumbnailReady }) => {
+  const [previewSrc, setPreviewSrc] = React.useState<string | null>(asset.thumbnail ?? null);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [hasFailed, setHasFailed] = React.useState(false);
+  const requestStartedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    setPreviewSrc(asset.thumbnail ?? null);
+  }, [asset.thumbnail]);
+
+  React.useEffect(() => {
+    if (asset.thumbnail || !asset.url || requestStartedRef.current) {
+      return;
+    }
+    let cancelled = false;
+    requestStartedRef.current = true;
+    setIsLoading(true);
+    setHasFailed(false);
+    model3DPreviewService
+      .generatePreviewFromUrl(asset.url)
+      .then((dataUrl) => {
+        if (cancelled) return;
+        if (!dataUrl) {
+          setHasFailed(true);
+          return;
+        }
+        setPreviewSrc(dataUrl);
+        onThumbnailReady(asset.id, dataUrl);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn('[PersonalLibrary] 3D 预览生成失败:', error);
+        setHasFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [asset.id, asset.thumbnail, asset.url, onThumbnailReady]);
+
+  if (previewSrc) {
+    return (
+      <img
+        src={previewSrc}
+        alt={`${asset.name} 预览`}
+        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      />
+    );
+  }
+
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#fff',
+        padding: 12,
+        gap: 6,
+        textAlign: 'center',
+      }}
+    >
+      <Box size={24} />
+      <div style={{ fontSize: 12, opacity: 0.85 }}>{asset.format?.toUpperCase() || '3D'}</div>
+      {isLoading && <div style={{ fontSize: 11, opacity: 0.9 }}>预览生成中…</div>}
+      {hasFailed && !isLoading && <div style={{ fontSize: 11, opacity: 0.75 }}>无法生成预览</div>}
+    </div>
+  );
+};

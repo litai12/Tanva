@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import AccountBadge from '@/components/AccountBadge';
 
@@ -8,14 +8,11 @@ export default function Home() {
     <div className="min-h-screen w-full bg-gradient-to-b from-white to-sky-50 text-slate-800">
       <header className="max-w-6xl mx-auto flex items-center justify-between py-6 px-4">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="TAI" className="h-8 w-8" />
+          <img src="/logo.png" alt="TAI" className="h-8 w-auto" />
           <span className="font-semibold text-2xl tracking-wide">TAI</span>
         </div>
         <nav className="flex items-center gap-4">
           <AccountBadge />
-          <Link className="text-slate-600 hover:text-slate-900" to="/docs">文档</Link>
-          <Link className="text-sky-600 hover:underline" to="/oss">OSS Demo</Link>
-          <Link className="text-purple-600 hover:underline" to="/veo-test">🎬 Veo 测试</Link>
           <Button variant="ghost" onClick={() => navigate('/auth/login')}>登录</Button>
           <Button onClick={() => navigate('/auth/register')}>注册</Button>
         </nav>

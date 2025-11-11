@@ -49,7 +49,7 @@ export default function OSSDemo() {
     <div className="min-h-screen w-full bg-gradient-to-b from-white to-sky-50 text-slate-800">
       <header className="max-w-4xl mx-auto flex items-center justify-between py-6 px-4">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="TAI" className="h-8 w-8" />
+          <img src="/logo.png" alt="TAI" className="h-8 w-auto" />
           <span className="font-semibold text-2xl tracking-wide">TAI OSS Demo</span>
         </div>
         <div className="flex items-center gap-4">
