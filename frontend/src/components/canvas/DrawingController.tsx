@@ -2538,17 +2538,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             visible={image.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
-            onSelect={() => imageTool.handleImageSelect(image.id)}
-            onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
-            onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
-            onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
-            onMoveLayerUp={(imageId) => handleImageLayerMoveUp(imageId)}
-            onMoveLayerDown={(imageId) => handleImageLayerMoveDown(imageId)}
-            onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
-            getImageDataForEditing={imageTool.getImageDataForEditing}
-            showIndividualTools={!isGroupSelection}
-          />
-        );
+          onSelect={() => imageTool.handleImageSelect(image.id)}
+          onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
+          onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
+          onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
+          getImageDataForEditing={imageTool.getImageDataForEditing}
+          showIndividualTools={!isGroupSelection}
+        />
+      );
       })}
 
       {/* 3D模型渲染实例 */}

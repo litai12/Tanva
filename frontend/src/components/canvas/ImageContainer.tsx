@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Trash2, ChevronUp, ChevronDown, Eye, EyeOff, Download, Wand2, Copy } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, Download, Wand2, Copy } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal from '../ui/ImagePreviewModal';
 import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
@@ -29,9 +29,6 @@ interface ImageContainerProps {
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
-  onDelete?: (imageId: string) => void; // 删除图片回调
-  onMoveLayerUp?: (imageId: string) => void; // 图层上移回调
-  onMoveLayerDown?: (imageId: string) => void; // 图层下移回调
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
   showIndividualTools?: boolean;
@@ -48,9 +45,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onSelect,
   onMove,
   onResize,
-  onDelete,
-  onMoveLayerUp,
-  onMoveLayerDown,
   onToggleVisibility,
   getImageDataForEditing,
   showIndividualTools = true
@@ -325,39 +319,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       console.error('获取图像数据失败:', error);
     });
   }, [resolveImageDataUrl, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
-
-  // 处理删除按钮点击
-  const handleDelete = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (onDelete) {
-      onDelete(imageData.id);
-      console.log('🗑️ 已删除图像:', imageData.id);
-    }
-  }, [imageData.id, onDelete]);
-
-  // 处理图层上移
-  const handleLayerMoveUp = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (onMoveLayerUp) {
-      onMoveLayerUp(imageData.id);
-      console.log('⬆️ 图层上移:', imageData.id);
-    }
-  }, [imageData.id, onMoveLayerUp]);
-
-  // 处理图层下移
-  const handleLayerMoveDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (onMoveLayerDown) {
-      onMoveLayerDown(imageData.id);
-      console.log('⬇️ 图层下移:', imageData.id);
-    }
-  }, [imageData.id, onMoveLayerDown]);
 
   // 处理预览按钮点击
   const handlePreview = useCallback((e: React.MouseEvent) => {
@@ -634,62 +595,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           >
             <Download className={sharedIconClass} />
           </Button>
-
-          {/* 删除按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={sharedButtonClass}
-            onClick={handleDelete}
-            title="删除图片"
-            style={sharedButtonStyle}
-          >
-            <Trash2 className={sharedIconClass} />
-          </Button>
         </div>
       )}
 
-      {/* 图层顺序调整按钮 - 只在选中时显示，位于图片右侧 */}
-      {isSelected && showIndividualTools && (
-        <div
-          className={`absolute flex flex-col gap-1 transition-all duration-150 ease-out ${
-            !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
-          }`}
-          style={{
-            right: -42, // 位于图片右侧外侧
-            top: '50%', // 垂直居中
-            transform: 'translateY(-50%)', // 确保垂直居中
-            zIndex: 30,
-            pointerEvents: 'auto',
-            position: 'absolute'
-          }}
-        >
-          {/* 图层上移按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={sharedButtonClass}
-            onClick={handleLayerMoveUp}
-            title="图层上移"
-            style={sharedButtonStyle}
-          >
-            <ChevronUp className={sharedIconClass} />
-          </Button>
-
-          {/* 图层下移按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={sharedButtonClass}
-            onClick={handleLayerMoveDown}
-            title="图层下移"
-            style={sharedButtonStyle}
-          >
-            <ChevronDown className={sharedIconClass} />
-          </Button>
-        </div>
-      )}
-      
       {/* 图片预览模态框 */}
       <ImagePreviewModal
         isOpen={showPreview}
