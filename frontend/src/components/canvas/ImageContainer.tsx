@@ -2,10 +2,9 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Eye, EyeOff, Download, Wand2, Copy } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, Wand2, Copy } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal from '../ui/ImagePreviewModal';
-import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { LoadingSpinner } from '../ui/loading-spinner';
 import { logger } from '@/utils/logger';
@@ -58,16 +57,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 获取画布状态 - 用于监听画布移动变化
   const { zoom, panX, panY } = useCanvasStore();
 
-  const sharedButtonStyle = useMemo<React.CSSProperties>(() => ({
-    backdropFilter: 'blur(12px)',
-    background: 'rgba(255, 255, 255, 0.8)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-  }), []);
+  const sharedButtonStyle = undefined;
 
   const sharedButtonClass =
-    'p-1.5 h-7 w-7 shadow-lg hover:shadow-xl transition-all duration-200 ease-in-out hover:scale-105 hover:bg-blue-50 hover:border-blue-300';
-  const sharedIconClass = 'w-3.5 h-3.5 text-blue-600';
+    'p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center';
+  const sharedIconClass = 'w-3.5 h-3.5';
 
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
@@ -339,46 +333,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [imageData.id, onToggleVisibility]);
 
-  // 处理下载按钮点击
-  const handleDownload = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    try {
-      // 🎯 优先使用原始高质量图像数据
-      let imageDataUrl: string | null = null;
-      
-      // 首先尝试从getImageDataForEditing获取原始数据
-      if (getImageDataForEditing) {
-        imageDataUrl = getImageDataForEditing(imageData.id);
-        if (imageDataUrl) {
-          // console.log('💾 下载：使用原始高质量图像数据');
-        }
-      }
-      
-      // 备用方案：使用imageData.src
-      if (!imageDataUrl) {
-        imageDataUrl = imageData.url || imageData.src || null;
-        console.log('💾 下载：使用 imageData 原始链接');
-      }
-      
-      if (!imageDataUrl) {
-        console.error('❌ 无法获取图像数据进行下载');
-        return;
-      }
-      
-      // 生成建议的文件名
-      const fileName = getSuggestedFileName(imageData.fileName, 'image');
-      
-      // 下载图片
-      downloadImage(imageDataUrl, fileName);
-      
-      console.log('✅ 图片下载成功:', fileName);
-    } catch (error) {
-      console.error('❌ 图片下载失败:', error);
-    }
-  }, [imageData.id, imageData.url, imageData.src, imageData.fileName, getImageDataForEditing]);
-
   const handleCreateFlowImageNode = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -498,103 +452,82 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部 */}
       {isSelected && showIndividualTools && (
         <div
-          className={`absolute flex items-center justify-center gap-2 transition-all duration-150 ease-out ${
-            !isPositionStable ? 'opacity-85 scale-95' : 'opacity-100 scale-100'
+          className={`absolute transition-all duration-150 ease-out ${
+            !isPositionStable ? 'opacity-90 translate-y-1' : 'opacity-100 translate-y-0'
           }`}
           style={{
-            bottom: -42, // 位于图片底部外侧
-            left: 0,
-            right: 0, // 使用left: 0, right: 0来确保完全居中
-            marginLeft: 'auto',
-            marginRight: 'auto',
-            width: 'fit-content', // 自适应内容宽度
+            bottom: -60,
+            left: '50%',
+            transform: 'translateX(-50%)',
             zIndex: 30,
             pointerEvents: 'auto',
-            position: 'absolute',
-            // 添加固定定位确保稳定性
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center'
           }}
         >
-          {/* 抠图按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isRemovingBackground}
-            className={sharedButtonClass}
-            onClick={handleBackgroundRemoval}
-            title={isRemovingBackground ? '正在抠图...' : '一键抠图'}
-            style={sharedButtonStyle}
+          <div
+            className="flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass"
           >
-            {isRemovingBackground ? (
-              <LoadingSpinner size="sm" className="text-blue-600" />
-            ) : (
-              <Wand2 className={sharedIconClass} />
-            )}
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isRemovingBackground}
+              className={sharedButtonClass}
+              onClick={handleBackgroundRemoval}
+              title={isRemovingBackground ? '正在抠图...' : '一键抠图'}
+              style={sharedButtonStyle}
+            >
+              {isRemovingBackground ? (
+                <LoadingSpinner size="sm" className="text-blue-600" />
+              ) : (
+                <Wand2 className={sharedIconClass} />
+              )}
+            </Button>
 
-          {/* AI编辑按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={sharedButtonClass}
-            onClick={handleAIEdit}
-            title="添加到AI对话框进行编辑"
-            style={sharedButtonStyle}
-          >
-            <Sparkles className={sharedIconClass} />
-          </Button>
-
-          {/* 预览按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={sharedButtonClass}
-            onClick={handlePreview}
-            title="全屏预览图片"
-            style={sharedButtonStyle}
-          >
-            <Eye className={sharedIconClass} />
-          </Button>
-
-          {/* 隐藏/显示按钮 */}
-          {enableVisibilityToggle && (
             <Button
               variant="outline"
               size="sm"
               className={sharedButtonClass}
-              onClick={handleToggleVisibility}
-              title="隐藏图层（可在图层面板中恢复）"
+              onClick={handleAIEdit}
+              title="添加到AI对话框进行编辑"
               style={sharedButtonStyle}
             >
-              <EyeOff className={sharedIconClass} />
+              <Sparkles className={sharedIconClass} />
             </Button>
-          )}
 
-          {/* 发送到Flow按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={sharedButtonClass}
-            onClick={handleCreateFlowImageNode}
-            title="复制到Flow为Image节点"
-            style={sharedButtonStyle}
-          >
-            <Copy className={sharedIconClass} />
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className={sharedButtonClass}
+              onClick={handlePreview}
+              title="全屏预览图片"
+              style={sharedButtonStyle}
+            >
+              <Eye className={sharedIconClass} />
+            </Button>
 
-          {/* 下载按钮 */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={sharedButtonClass}
-            onClick={handleDownload}
-            title="下载图片"
-            style={sharedButtonStyle}
-          >
-            <Download className={sharedIconClass} />
-          </Button>
+            {enableVisibilityToggle && (
+              <Button
+                variant="outline"
+                size="sm"
+                className={sharedButtonClass}
+                onClick={handleToggleVisibility}
+                title="隐藏图层（可在图层面板中恢复）"
+                style={sharedButtonStyle}
+              >
+                <EyeOff className={sharedIconClass} />
+              </Button>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              className={sharedButtonClass}
+              onClick={handleCreateFlowImageNode}
+              title="复制到Flow为Image节点"
+              style={sharedButtonStyle}
+            >
+              <Copy className={sharedIconClass} />
+            </Button>
+          </div>
         </div>
       )}
 

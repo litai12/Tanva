@@ -91,6 +91,20 @@ function normalizeBuiltinCategory(category?: string): string {
   return BUILTIN_CATEGORY_VALUE_SET.has(category) ? category : '其他';
 }
 
+const ADD_PANEL_TAB_STORAGE_KEY = 'tanva-add-panel-tab';
+
+const getStoredAddPanelTab = (): 'nodes' | 'templates' | 'personal' => {
+  if (typeof window === 'undefined') {
+    return 'nodes';
+  }
+  try {
+    const saved = window.localStorage.getItem(ADD_PANEL_TAB_STORAGE_KEY);
+    return saved === 'templates' || saved === 'personal' || saved === 'nodes' ? saved : 'nodes';
+  } catch {
+    return 'nodes';
+  }
+};
+
 // 用户模板卡片组件
 const UserTemplateCard: React.FC<{
   item: {id:string;name:string;category?:string;tags?:string[];thumbnail?:string;createdAt:string;updatedAt:string};
@@ -749,7 +763,17 @@ function FlowInner() {
 
   // 双击空白处弹出添加面板
   const [addPanel, setAddPanel] = React.useState<{ visible: boolean; screen: { x: number; y: number }; world: { x: number; y: number } }>({ visible: false, screen: { x: 0, y: 0 }, world: { x: 0, y: 0 } });
-  const [addTab, setAddTab] = React.useState<'nodes' | 'templates' | 'personal'>('nodes');
+  const [addTab, setAddTab] = React.useState<'nodes' | 'templates' | 'personal'>(() => getStoredAddPanelTab());
+  const setAddTabWithMemory = React.useCallback((tab: 'nodes' | 'templates' | 'personal') => {
+    setAddTab(tab);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(ADD_PANEL_TAB_STORAGE_KEY, tab);
+      } catch (error) {
+        console.warn('[FlowOverlay] 无法保存添加面板的页签状态', error);
+      }
+    }
+  }, [setAddTab]);
   const addPanelRef = React.useRef<HTMLDivElement | null>(null);
   const lastPaneClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
   // 模板相关状态
@@ -775,7 +799,6 @@ function FlowInner() {
 
   const openAddPanelAt = React.useCallback((clientX: number, clientY: number) => {
     const world = rf.screenToFlowPosition({ x: clientX, y: clientY });
-    setAddTab('nodes');
     setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
   }, [rf]);
 
@@ -2070,7 +2093,7 @@ function FlowInner() {
             }}>
               <div style={{ display: 'flex', gap: 2 }}>
                 <button 
-                onClick={() => setAddTab('nodes')} 
+                onClick={() => setAddTabWithMemory('nodes')} 
                 style={{ 
                   padding: '10px 18px 14px', 
                   fontSize: 13,
@@ -2087,7 +2110,7 @@ function FlowInner() {
                 节点
               </button>
               <button 
-                onClick={() => setAddTab('templates')} 
+                onClick={() => setAddTabWithMemory('templates')} 
                 style={{ 
                   padding: '10px 18px 14px', 
                   fontSize: 13,
@@ -2104,7 +2127,7 @@ function FlowInner() {
                 模板
               </button>
               <button 
-                onClick={() => setAddTab('personal')} 
+                onClick={() => setAddTabWithMemory('personal')} 
                 style={{ 
                   padding: '10px 18px 14px', 
                   fontSize: 13,

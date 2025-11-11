@@ -21,7 +21,7 @@ import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, Search, BookOpen, SlidersHorizontal, Check, Loader2 } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1525,13 +1525,80 @@ const AIChatDialog: React.FC = () => {
                 {messages.slice(isMaximized ? -50 : -5).map((message) => {
                   const midjourneyMeta = message.metadata?.midjourney as MidjourneyMetadata | undefined;
                   const generationStatus = message.generationStatus;
-                  const expectsImageOutput = Boolean(message.expectsImageOutput || (generationStatus?.isGenerating && message.type === 'ai'));
+                  const expectsImageOutput = Boolean(message.expectsImageOutput);
                   const hasGeneratedImage = Boolean(message.imageData || message.imageRemoteUrl || message.thumbnail);
                   const hasReferenceImages =
                     Boolean(message.sourceImageData) ||
                     Boolean(message.sourceImagesData && message.sourceImagesData.length > 0);
-                  const showImageLayout = hasGeneratedImage || hasReferenceImages || expectsImageOutput;
-                  const shouldUseVerticalLayout = message.type === 'ai' && (hasGeneratedImage || expectsImageOutput);
+                  const isAiMessage = message.type === 'ai';
+                  const isImageTaskInFlight = Boolean(
+                    isAiMessage &&
+                    generationStatus?.isGenerating &&
+                    (expectsImageOutput || hasGeneratedImage || hasReferenceImages)
+                  );
+                  const showImageLayout = hasGeneratedImage || hasReferenceImages || expectsImageOutput || isImageTaskInFlight;
+                  const shouldUseVerticalLayout = isAiMessage && (hasGeneratedImage || expectsImageOutput || isImageTaskInFlight);
+                  const aiHeader = isAiMessage ? (
+                    <div className="flex items-center gap-2 mb-2">
+                      <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
+                      <span className="text-sm font-bold text-black">TAI</span>
+                      {message.webSearchResult?.hasSearchResults && (
+                        <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                          <MinimalGlobeIcon className="w-3 h-3" />
+                          <span>已联网</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : null;
+                  const aiTextContent = isAiMessage ? (
+                    <div className="text-sm leading-relaxed text-black break-words markdown-content">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          p: ({ children }) => <p className="mb-1 text-sm">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc list-inside mb-1 ml-2 text-sm">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal list-inside mb-1 ml-2 text-sm">{children}</ol>,
+                          li: ({ children }) => <li className="mb-0.5 text-sm">{children}</li>,
+                          h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-2">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-base font-bold mb-1 mt-1">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-base font-bold mb-1">{children}</h3>,
+                          code: ({ children, ...props }: any) => {
+                            const inline = !('className' in props && props.className?.includes('language-'));
+                            return inline
+                              ? <code className="bg-gray-100 px-1 rounded text-xs">{children}</code>
+                              : <pre className="bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1"><code>{children}</code></pre>;
+                          },
+                          blockquote: ({ children }) => <blockquote className="border-l-2 border-gray-300 pl-2 italic text-xs mb-1">{children}</blockquote>,
+                          a: ({ href, children }) => <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+
+                      {message.webSearchResult?.hasSearchResults && (
+                        <div className="mt-2 pt-2 border-t border-gray-100">
+                          <div className="text-xs text-gray-500 mb-1">信息来源：</div>
+                          <div className="space-y-1">
+                            {message.webSearchResult.sources.slice(0, 3).map((source: any, idx: number) => (
+                              <div key={idx} className="text-xs">
+                                <a
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline"
+                                  title={source.snippet}
+                                >
+                                  {source.title}
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null;
                   return (
                     <div
                       key={message.id}
@@ -1551,121 +1618,136 @@ const AIChatDialog: React.FC = () => {
 
                     {/* 如果有图像、源图像或正在等待图像，使用特殊布局 */}
                     {showImageLayout ? (
-                      <div className={cn(
-                        "inline-block rounded-lg p-3",
-                        message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                        message.type === 'ai' && "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
-                      )}>
-                        {/* AI消息标识 - 单独一行 */}
-                        {message.type === 'ai' && (
-                          <div className="flex items-center gap-2 mb-3">
-                            <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
-                            <span className="text-sm font-bold text-black">TAI</span>
-                            {/* 显示联网搜索标识 */}
-                            {message.webSearchResult?.hasSearchResults && (
-                              <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                                <MinimalGlobeIcon className="w-3 h-3" />
-                                <span>已联网</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* AI消息：显示文本回复与图像/占位 */}
-                        {shouldUseVerticalLayout ? (
-                          <div className="space-y-3">
-                            {/* 文本回复部分 */}
-                            <div className="text-sm leading-relaxed text-black break-words markdown-content">
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  p: ({ children }) => <p className="mb-1 text-sm">{children}</p>,
-                                  ul: ({ children }) => <ul className="list-disc list-inside mb-1 ml-2 text-sm">{children}</ul>,
-                                  ol: ({ children }) => <ol className="list-decimal list-inside mb-1 ml-2 text-sm">{children}</ol>,
-                                  li: ({ children }) => <li className="mb-0.5 text-sm">{children}</li>,
-                                  h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-2">{children}</h1>,
-                                  h2: ({ children }) => <h2 className="text-base font-bold mb-1 mt-1">{children}</h2>,
-                                  h3: ({ children }) => <h3 className="text-base font-bold mb-1">{children}</h3>,
-                                  code: ({ children, ...props }: any) => {
-                                    const inline = !('className' in props && props.className?.includes('language-'));
-                                    return inline
-                                      ? <code className="bg-gray-100 px-1 rounded text-xs">{children}</code>
-                                      : <pre className="bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1"><code>{children}</code></pre>;
-                                  },
-                                  blockquote: ({ children }) => <blockquote className="border-l-2 border-gray-300 pl-2 italic text-xs mb-1">{children}</blockquote>,
-                                  a: ({ href, children }) => <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
-                                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                                  em: ({ children }) => <em className="italic">{children}</em>,
-                                }}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                            </div>
-                            
-                            {/* 图像/占位部分 */}
-                            <div className="flex justify-center">
-                              {(() => {
-                                const imageSrc =
-                                  message.imageRemoteUrl ||
-                                  (message.imageData
-                                    ? (message.imageData.startsWith('data:image')
-                                        ? message.imageData
-                                        : `data:image/png;base64,${message.imageData}`)
-                                    : undefined) ||
-                                  (message.thumbnail
-                                    ? (message.thumbnail.startsWith('data:image')
-                                        ? message.thumbnail
-                                        : `data:image/png;base64,${message.thumbnail}`)
-                                    : undefined);
-                                if (imageSrc) {
-                                  return (
-                                    <img
-                                      src={imageSrc}
-                                      alt="AI生成的图像"
-                                      className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleImagePreview(imageSrc, 'AI生成的图像');
-                                      }}
-                                      title="点击全屏预览"
-                                    />
-                                  );
-                                }
-                                if (!expectsImageOutput) return null;
-                                return (
-                                  <div className="relative w-32 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden">
-                                    <div className="absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse" />
-                                    <div className="relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600">
-                                      <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                                      <span className="font-medium">
-                                        {generationStatus?.stage || '正在生成图像'}
-                                      </span>
-                                      {typeof generationStatus?.progress === 'number' && (
-                                        <span className="text-[11px] text-blue-500">{generationStatus.progress}%</span>
-                                      )}
-                                    </div>
+                      isAiMessage ? (
+                        <>
+                          {aiHeader}
+                          {aiTextContent}
+                          <div className="mt-3">
+                            <div
+                              className={cn(
+                                "inline-block rounded-lg p-3",
+                                "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
+                              )}
+                            >
+                              {shouldUseVerticalLayout ? (
+                                <>
+                                  <div className="flex justify-center">
+                                    {(() => {
+                                      const imageSrc =
+                                        message.imageRemoteUrl ||
+                                        (message.imageData
+                                          ? (message.imageData.startsWith('data:image')
+                                              ? message.imageData
+                                              : `data:image/png;base64,${message.imageData}`)
+                                          : undefined) ||
+                                        (message.thumbnail
+                                          ? (message.thumbnail.startsWith('data:image')
+                                              ? message.thumbnail
+                                              : `data:image/png;base64,${message.thumbnail}`)
+                                          : undefined);
+                                      if (imageSrc) {
+                                        return (
+                                          <img
+                                            src={imageSrc}
+                                            alt="AI生成的图像"
+                                            className="w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleImagePreview(imageSrc, 'AI生成的图像');
+                                            }}
+                                            title="点击全屏预览"
+                                          />
+                                        );
+                                      }
+                                      if (!expectsImageOutput) return null;
+                                      return (
+                                        <div className="relative w-32 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden">
+                                          <div className="absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse" />
+                                          <div className="relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600">
+                                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                                            <span className="font-medium">
+                                              {generationStatus?.stage || '正在生成图像'}
+                                            </span>
+                                            {typeof generationStatus?.progress === 'number' && (
+                                              <span className="text-[11px] text-blue-500">{generationStatus.progress}%</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
-                                );
-                              })()}
+                                  {midjourneyMeta?.buttons?.length && midjourneyMeta.taskId && (
+                                    <MidjourneyActionButtons
+                                      buttons={midjourneyMeta.buttons as MidjourneyButtonInfo[]}
+                                      onAction={async (button) => {
+                                        if (!button.customId) return;
+                                        await executeMidjourneyAction({
+                                          parentMessageId: message.id,
+                                          taskId: midjourneyMeta.taskId,
+                                          customId: button.customId,
+                                          buttonLabel: button.label,
+                                          displayPrompt: midjourneyMeta.prompt || message.content,
+                                        });
+                                      }}
+                                    />
+                                  )}
+                                </>
+                              ) : (
+                                <div className="flex gap-3 items-start">
+                                  <div className="flex-shrink-0">
+                                    {message.sourceImageData && (
+                                      <div className="mb-2">
+                                        <img
+                                          src={message.sourceImageData}
+                                          alt="源图像"
+                                          className="w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleImagePreview(message.sourceImageData!, '源图像');
+                                          }}
+                                          title="点击全屏预览"
+                                        />
+                                      </div>
+                                    )}
+                                    {message.sourceImagesData && message.sourceImagesData.length > 0 && (
+                                      <div className="mb-2">
+                                        <div className="grid grid-cols-2 gap-1 max-w-20">
+                                          {message.sourceImagesData.map((imageData, index) => (
+                                            <div key={index} className="relative">
+                                              <img
+                                                src={imageData}
+                                                alt={`融合图像 ${index + 1}`}
+                                                className="w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleImagePreview(imageData, `融合图像 ${index + 1}`);
+                                                }}
+                                                title={`点击全屏预览融合图像 ${index + 1}`}
+                                              />
+                                              {index === 0 && message.sourceImagesData && message.sourceImagesData.length > 1 && (
+                                                <div className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs px-1 py-0.5 rounded-full font-medium shadow-sm" style={{ fontSize: '0.6rem' }}>
+                                                  主
+                                                </div>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            {midjourneyMeta?.buttons?.length && midjourneyMeta.taskId && (
-                              <MidjourneyActionButtons
-                                buttons={midjourneyMeta.buttons as MidjourneyButtonInfo[]}
-                                onAction={async (button) => {
-                                  if (!button.customId) return;
-                                  await executeMidjourneyAction({
-                                    parentMessageId: message.id,
-                                    taskId: midjourneyMeta.taskId,
-                                    customId: button.customId,
-                                    buttonLabel: button.label,
-                                    displayPrompt: midjourneyMeta.prompt || message.content,
-                                  });
-                                }}
-                              />
-                            )}
                           </div>
-                        ) : (
-                          /* 其他情况使用横向布局（图片+文字） */
+                        </>
+                      ) : (
+                        <div
+                          className={cn(
+                            "inline-block rounded-lg p-3",
+                            message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                            message.type !== 'user' && "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
+                          )}
+                        >
                           <div className="flex gap-3 items-start">
                             {/* 左边：图像 */}
                             <div className="flex-shrink-0">
@@ -1698,7 +1780,6 @@ const AIChatDialog: React.FC = () => {
                                           }}
                                           title={`点击全屏预览融合图像 ${index + 1}`}
                                         />
-                                        {/* 主场景标签 - 显示在第一张图片上 */}
                                         {index === 0 && message.sourceImagesData && message.sourceImagesData.length > 1 && (
                                           <div className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs px-1 py-0.5 rounded-full font-medium shadow-sm" style={{ fontSize: '0.6rem' }}>
                                             主
@@ -1741,25 +1822,15 @@ const AIChatDialog: React.FC = () => {
                               </div>
                             </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )
                     ) : (
-                      /* 没有图像时使用原来的纵向布局 */
-                      <div>
-                        {/* AI消息标识 */}
-                        {message.type === 'ai' && (
-                          <div className="flex items-center gap-2 mb-2">
-                            <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
-                            <span className="text-sm font-bold text-black">TAI</span>
-                            {/* 显示联网搜索标识 */}
-                            {message.webSearchResult?.hasSearchResults && (
-                              <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                                <Search className="w-3 h-3" />
-                                <span>已联网</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                      isAiMessage ? (
+                        <>
+                          {aiHeader}
+                          {aiTextContent}
+                        </>
+                      ) : (
                         <div className={cn(
                           "text-sm text-black markdown-content leading-relaxed",
                           message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
@@ -1788,37 +1859,15 @@ const AIChatDialog: React.FC = () => {
                           >
                             {message.content}
                           </ReactMarkdown>
-                          
-                          {/* 显示搜索来源 */}
-                          {message.type === 'ai' && message.webSearchResult?.hasSearchResults && (
-                            <div className="mt-2 pt-2 border-t border-gray-100">
-                              <div className="text-xs text-gray-500 mb-1">信息来源：</div>
-                              <div className="space-y-1">
-                                {message.webSearchResult.sources.slice(0, 3).map((source: any, idx: number) => (
-                                  <div key={idx} className="text-xs">
-                                    <a 
-                                      href={source.url} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer"
-                                      className="text-blue-600 hover:underline"
-                                      title={source.snippet}
-                                    >
-                                      {source.title}
-                                    </a>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
-                      </div>
+                      )
                     )}
-                    </div>
-                  );
-                })}
+                  </div>
+                );
+              })}
 
-                {/* 流式文本临时气泡（仅文本对话） */}
-                {isStreaming && streamingText && (
+              {/* 流式文本临时气泡（仅文本对话） */}
+              {isStreaming && streamingText && (
                   <div
                     className={cn(
                       "p-2 transition-colors text-sm text-black mr-3"
@@ -1829,24 +1878,20 @@ const AIChatDialog: React.FC = () => {
                       <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
                       <span className="text-sm font-bold text-black">TAI</span>
                     </div>
-                    <div className={cn(
-                      "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass rounded-lg p-3"
-                    )}>
-                      <div className="text-sm leading-relaxed text-black break-words markdown-content">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {streamingText}
-                        </ReactMarkdown>
-                      </div>
+                    <div className="text-sm leading-relaxed text-black break-words markdown-content">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {streamingText}
+                      </ReactMarkdown>
                     </div>
                   </div>
-                )}
-              </div>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
 
-        </div>
       </div>
+    </div>
 
       {/* 图片预览模态框 */}
       {previewImage && (

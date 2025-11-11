@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import paper from 'paper';
-import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Download, Trash2 } from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -36,6 +36,7 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { historyService } from '@/services/historyService';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { clientToProject } from '@/utils/paperCoords';
+import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
@@ -1619,6 +1620,52 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [toggleVisibility]);
 
+  const handleDownloadImage = useCallback(async (imageId: string) => {
+    try {
+      const instance = imageTool.imageInstances.find((img) => img.id === imageId);
+      if (!instance) {
+        console.warn('下载失败：未找到图片实例', imageId);
+        return;
+      }
+
+      let dataUrl: string | null = null;
+      if (typeof imageTool.getImageDataForEditing === 'function') {
+        try {
+          dataUrl = imageTool.getImageDataForEditing(imageId);
+        } catch (error) {
+          console.warn('获取高质量图片数据失败，尝试备用地址', error);
+        }
+      }
+
+      if (!dataUrl) {
+        dataUrl =
+          instance.imageData?.localDataUrl ||
+          instance.imageData?.src ||
+          instance.imageData?.url ||
+          null;
+      }
+
+      if (!dataUrl) {
+        console.warn('下载失败：缺少可用的图片数据', imageId);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '无法获取图像数据，下载失败', type: 'error' }
+        }));
+        return;
+      }
+
+      const fileName = getSuggestedFileName(instance.imageData?.fileName, 'image');
+      downloadImage(dataUrl, fileName);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '已开始下载图片', type: 'success' }
+      }));
+    } catch (error) {
+      console.error('下载图片失败:', error);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '下载失败，请稍后再试', type: 'error' }
+      }));
+    }
+  }, [imageTool.imageInstances, imageTool.getImageDataForEditing]);
+
   const resolveContextTarget = useCallback((event: MouseEvent): HitTestTarget => {
     const canvas = canvasRef.current;
     if (!canvas || !paper?.project) return null;
@@ -1862,6 +1909,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const targetId = contextMenuState.targetId;
       items.push(
         {
+          label: '下载图片',
+          icon: <Download className="w-4 h-4" />,
+          onClick: () => handleDownloadImage(targetId),
+        },
+        {
           label: '上移一层',
           icon: <ArrowUp className="w-4 h-4" />,
           onClick: () => handleImageLayerMoveUp(targetId),
@@ -1901,6 +1953,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleCanvasCopy,
     handleCanvasPaste,
     handleDeleteSelection,
+    handleDownloadImage,
     handleImageLayerMoveDown,
     handleImageLayerMoveUp,
     handleModelLayerMoveDown,
