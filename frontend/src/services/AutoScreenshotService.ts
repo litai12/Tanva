@@ -875,8 +875,23 @@ export class AutoScreenshotService {
       }
     }
 
-    // 如果是闭合路径
-    if (path.closed) {
+    // 对闭合路径补上首尾段，避免圆形被直线闭合
+    if (path.closed && path.segments.length > 1) {
+      const lastSegment = path.segments[path.segments.length - 1];
+      if (lastSegment.handleOut.length > 0 || firstSegment.handleIn.length > 0) {
+        ctx.bezierCurveTo(
+          lastSegment.point.x + lastSegment.handleOut.x,
+          lastSegment.point.y + lastSegment.handleOut.y,
+          firstSegment.point.x + firstSegment.handleIn.x,
+          firstSegment.point.y + firstSegment.handleIn.y,
+          firstSegment.point.x,
+          firstSegment.point.y
+        );
+      } else {
+        ctx.lineTo(firstSegment.point.x, firstSegment.point.y);
+      }
+      ctx.closePath();
+    } else if (path.closed) {
       ctx.closePath();
     }
 

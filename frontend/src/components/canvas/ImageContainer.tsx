@@ -2,12 +2,13 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Eye, EyeOff, Wand2, Copy } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, Wand2, Copy, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal from '../ui/ImagePreviewModal';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { LoadingSpinner } from '../ui/loading-spinner';
 import { logger } from '@/utils/logger';
+import { cn } from '@/lib/utils';
 
 interface ImageData {
   id: string;
@@ -28,6 +29,7 @@ interface ImageContainerProps {
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
   onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
+  onDelete?: (imageId: string) => void;
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
   showIndividualTools?: boolean;
@@ -44,6 +46,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onSelect,
   onMove,
   onResize,
+  onDelete,
   onToggleVisibility,
   getImageDataForEditing,
   showIndividualTools = true
@@ -526,6 +529,21 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               style={sharedButtonStyle}
             >
               <Copy className={sharedIconClass} />
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(sharedButtonClass, 'text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300')}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDelete?.(imageData.id);
+              }}
+              title="删除图片"
+              style={sharedButtonStyle}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
             </Button>
           </div>
         </div>

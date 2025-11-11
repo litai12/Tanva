@@ -981,6 +981,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const groupScreenBounds = useMemo(() => paperRectToScreen(groupPaperBounds), [groupPaperBounds, paperRectToScreen]);
 
+  const getCameraSmartPosition = useCallback((bounds?: { x: number; y: number; width: number; height: number }) => {
+    if (!bounds) return undefined;
+    const gap = Math.max(48, Math.min(160, bounds.height * 0.25));
+    return {
+      x: bounds.x + bounds.width / 2,
+      y: bounds.y + bounds.height / 2 + bounds.height + gap,
+    };
+  }, []);
+
   const handleGroupCapture = useCallback(async () => {
     if (!isGroupSelection || !groupPaperBounds) return;
     if (isGroupCapturePending) return;
@@ -1009,14 +1018,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           width: groupPaperBounds.width,
           height: groupPaperBounds.height,
         };
+        const smartPosition = getCameraSmartPosition(boundsPayload);
 
         if (quickImageUpload.handleQuickImageUploaded) {
           await quickImageUpload.handleQuickImageUploaded(
             result.dataUrl,
             `group-${Date.now()}.png`,
             boundsPayload,
-            undefined,
-            'manual'
+            smartPosition,
+            'camera'
           );
         } else {
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
@@ -1024,7 +1034,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageData: result.dataUrl,
               fileName: `group-${Date.now()}.png`,
               selectedImageBounds: boundsPayload,
-              operationType: 'manual',
+              smartPosition,
+              operationType: 'camera',
             }
           }));
         }
@@ -1055,6 +1066,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     model3DTool.selectedModel3DIds,
     selectedPaperItems,
     quickImageUpload.handleQuickImageUploaded,
+    getCameraSmartPosition,
   ]);
 
   const handleModelCapture = useCallback(async (modelId: string) => {
@@ -1106,14 +1118,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           height: targetModel.bounds.height,
         };
         const fileName = `model-${Date.now()}.png`;
+        const smartPosition = getCameraSmartPosition(boundsPayload);
 
         if (quickImageUpload.handleQuickImageUploaded) {
           await quickImageUpload.handleQuickImageUploaded(
             result.dataUrl,
             fileName,
             boundsPayload,
-            undefined,
-            'manual'
+            smartPosition,
+            'camera'
           );
         } else {
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
@@ -1121,7 +1134,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageData: result.dataUrl,
               fileName,
               selectedImageBounds: boundsPayload,
-              operationType: 'manual',
+              smartPosition,
+              operationType: 'camera',
             }
           }));
         }
@@ -1150,6 +1164,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     imageTool.imageInstances,
     model3DTool.model3DInstances,
     quickImageUpload.handleQuickImageUploaded,
+    getCameraSmartPosition,
   ]);
 
   const handleModelSelectFromOverlay = useCallback((modelId: string, addToSelection: boolean = false) => {
@@ -2591,14 +2606,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             visible={image.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
-          onSelect={() => imageTool.handleImageSelect(image.id)}
-          onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
-          onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
-          onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
-          getImageDataForEditing={imageTool.getImageDataForEditing}
-          showIndividualTools={!isGroupSelection}
-        />
-      );
+            onSelect={() => imageTool.handleImageSelect(image.id)}
+            onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
+            onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
+            onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
+            onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
+            getImageDataForEditing={imageTool.getImageDataForEditing}
+            showIndividualTools={!isGroupSelection}
+          />
+        );
       })}
 
       {/* 3D模型渲染实例 */}

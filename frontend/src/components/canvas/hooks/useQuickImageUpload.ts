@@ -465,7 +465,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
                     if (useOriginalSize) {
                         // 原始尺寸模式：以目标边界中心为基准，使用图片原始尺寸
-                        finalPosition = targetCenter;
+                        if (!smartPosition) {
+                            finalPosition = targetCenter;
+                        } else {
+                            finalPosition = targetPosition;
+                        }
                         displayWidth = originalWidth;
                         displayHeight = originalHeight;
                     } else {
@@ -479,7 +483,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                             displayHeight = targetBounds.height;
                             displayWidth = displayHeight * imageAspectRatio;
                         }
-                        finalPosition = targetCenter;
+                        if (!smartPosition) {
+                            finalPosition = targetCenter;
+                        } else {
+                            finalPosition = targetPosition;
+                        }
                     }
 
                     // 删除占位框（如果存在）
