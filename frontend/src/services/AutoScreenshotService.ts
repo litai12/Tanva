@@ -833,6 +833,7 @@ export class AutoScreenshotService {
    * 绘制Paper.js路径（增强版，支持圆形特殊处理）
    */
   private static drawPaperPath(ctx: CanvasRenderingContext2D, path: paper.Path): void {
+    if ((path.data as any)?.isHelper) return;
     if (!path.segments || path.segments.length === 0) return;
 
     ctx.save();
@@ -894,6 +895,8 @@ export class AutoScreenshotService {
    * 绘制Paper.js文本（PointText）
    */
   private static drawPaperText(ctx: CanvasRenderingContext2D, text: paper.PointText): void {
+    if ((text.data as any)?.isHelper) return;
+
     ctx.save();
 
     // 字体与样式
@@ -952,8 +955,11 @@ export class AutoScreenshotService {
    * 绘制Paper.js组
    */
   private static drawPaperGroup(ctx: CanvasRenderingContext2D, group: paper.Group): void {
+    if ((group.data as any)?.isHelper) return;
+
     for (const child of group.children) {
       if (!child.visible) continue;
+      if ((child.data as any)?.isHelper) continue;
 
       if (child instanceof paper.Path) {
         this.drawPaperPath(ctx, child);
