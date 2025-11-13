@@ -122,6 +122,7 @@ type AIProviderType = SupportedAIProvider;
 
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
+const BANANA_TEXT_MODEL = 'banana-gemini-2.5-flash';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 const RUNNINGHUB_PRIMARY_NODE_ID =
@@ -141,9 +142,15 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
   return DEFAULT_IMAGE_MODEL;
 };
 
-export const getTextModelForProvider = (_provider: AIProviderType): string => {
-  // 目前仅支持 Gemini 文本模型，如需接入其它供应商可在此扩展映射
-  return DEFAULT_TEXT_MODEL;
+const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
+  gemini: DEFAULT_TEXT_MODEL,
+  banana: BANANA_TEXT_MODEL,
+  runninghub: DEFAULT_TEXT_MODEL,
+  midjourney: DEFAULT_TEXT_MODEL,
+};
+
+export const getTextModelForProvider = (provider: AIProviderType): string => {
+  return TEXT_MODEL_BY_PROVIDER[provider] || DEFAULT_TEXT_MODEL;
 };
 
 type RunningHubStageUpdater = (stage: string, progress?: number) => void;
