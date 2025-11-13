@@ -1,5 +1,5 @@
-import { GoogleGenAI } from '@google/genai';
-import type { AIServiceResponse } from '@/types/ai';
+import { generateTextResponseViaAPI } from '@/services/aiBackendAPI';
+import type { AIServiceResponse, SupportedAIProvider } from '@/types/ai';
 
 export interface PromptOptimizationRequest {
   input: string;
@@ -7,6 +7,8 @@ export interface PromptOptimizationRequest {
   focus?: string;
   tone?: string;
   lengthPreference?: 'concise' | 'balanced' | 'detailed';
+  aiProvider?: SupportedAIProvider;
+  model?: string;
 }
 
 export interface PromptOptimizationResult {
@@ -16,61 +18,12 @@ export interface PromptOptimizationResult {
 }
 
 class PromptOptimizationService {
-  private genAI: GoogleGenAI | null = null;
   private readonly DEFAULT_MODEL = 'gemini-2.5-flash';
-  private readonly DEFAULT_TIMEOUT = 90000;
-
-  constructor() {
-    this.initializeClient();
-  }
-
-  private initializeClient(): void {
-    const apiKey = typeof import.meta !== 'undefined' && import.meta.env
-      ? import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
-      : (typeof process !== 'undefined' ? (process as any).env?.VITE_GOOGLE_GEMINI_API_KEY : undefined);
-
-    const defaultApiKey = 'AIzaSyAWVrzl5s4JQDhrZN8iSPcxmbFmgEJTTxw';
-    const finalApiKey = apiKey || defaultApiKey;
-
-    if (!finalApiKey) {
-      console.warn('Google Gemini API key not found. Please set VITE_GOOGLE_GEMINI_API_KEY in your .env.local file');
-      return;
-    }
-
-    try {
-      this.genAI = new GoogleGenAI({ apiKey: finalApiKey });
-      console.log('✅ PromptOptimizationService initialized');
-    } catch (error) {
-      console.error('❌ Failed to initialize PromptOptimizationService:', error);
-    }
-  }
-
-  private async withTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number,
-    label: string
-  ): Promise<T> {
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-    });
-
-    try {
-      return await Promise.race([promise, timeoutPromise]);
-    } finally {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-    }
-  }
 
   private async withRetry<T>(
     operation: (attempt: number) => Promise<T>,
-    retryCount: number = 5,
-    baseDelayMs: number = 400
+    retryCount: number = 3,
+    baseDelayMs: number = 500
   ): Promise<T> {
     let lastError: unknown;
 
@@ -133,7 +86,8 @@ class PromptOptimizationService {
   }
 
   async optimizePrompt(request: PromptOptimizationRequest): Promise<AIServiceResponse<PromptOptimizationResult>> {
-    if (!request.input || !request.input.trim()) {
+    const trimmedInput = request.input?.trim();
+    if (!trimmedInput) {
       return {
         success: false,
         error: {
@@ -144,33 +98,29 @@ class PromptOptimizationService {
       };
     }
 
-    if (!this.genAI) {
-      return {
-        success: false,
-        error: {
-          code: 'CLIENT_NOT_INITIALIZED',
-          message: 'PromptOptimizationService not initialized',
-          timestamp: new Date()
-        }
-      };
-    }
-
     try {
-      const instruction = this.buildInstruction(request);
+      const instruction = this.buildInstruction({ ...request, input: trimmedInput });
       const language = request.language || '中文';
+      const modelToUse = request.model || this.DEFAULT_MODEL;
 
-      const response = await this.withRetry((attempt) => {
-        const apiCall = this.genAI!.models.generateContent({
-          model: this.DEFAULT_MODEL,
-          contents: [{ text: instruction }]
+      const result = await this.withRetry(async () => {
+        const response = await generateTextResponseViaAPI({
+          prompt: instruction,
+          aiProvider: request.aiProvider,
+          model: modelToUse,
+          enableWebSearch: false,
         });
 
-        return this.withTimeout(apiCall, this.DEFAULT_TIMEOUT, `Prompt optimization (attempt ${attempt})`);
-      }, 5);
-      const optimized = response.text?.trim();
+        if (!response.success || !response.data?.text) {
+          throw new Error(response.error?.message || 'Prompt optimization failed');
+        }
 
+        return response.data;
+      });
+
+      const optimized = result.text?.trim();
       if (!optimized) {
-        throw new Error('No optimized prompt returned from API');
+        throw new Error('优化结果为空');
       }
 
       const cleaned = this.normalizeOutput(optimized, language);
@@ -179,12 +129,12 @@ class PromptOptimizationService {
         success: true,
         data: {
           optimizedPrompt: cleaned,
-          model: this.DEFAULT_MODEL,
-          tokenUsage: (response as any)?.usageMetadata?.totalTokenCount
+          model: result.model || modelToUse,
+          tokenUsage: result.tokenUsage
         }
       };
     } catch (error) {
-      console.error('❌ Prompt optimization failed:', error);
+      console.error('❌ Prompt optimization failed via backend:', error);
       return {
         success: false,
         error: {

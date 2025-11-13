@@ -158,6 +158,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
   const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, toggleFocusMode } = useUIStore();
 
+  const selectionGroupRef = React.useRef<HTMLDivElement>(null);
+  const drawingGroupRef = React.useRef<HTMLDivElement>(null);
+  const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
+  const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
+  const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
+
   // 判断当前工具是否支持填充
   const supportsFill = (mode: any): boolean => {
     return ['rect', 'circle'].includes(mode);
@@ -246,6 +252,49 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     return () => window.removeEventListener('tanvaTextStyleChanged', tick);
   }, []);
 
+  // 自动关闭选择菜单：当不在选择模式时
+  React.useEffect(() => {
+    if (drawMode !== 'select' && drawMode !== 'pointer') {
+      setSelectionMenuOpen(false);
+    }
+  }, [drawMode]);
+
+  // 自动关闭绘制菜单：当离开绘制相关模式或启用橡皮擦时
+  React.useEffect(() => {
+    if (!drawingModes.includes(drawMode as typeof drawingModes[number]) || isEraser) {
+      setDrawingMenuOpen(false);
+    }
+  }, [drawMode, isEraser]);
+
+  // 点击画布空白处自动收起次级菜单
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
+      if (
+        isSelectionMenuOpen &&
+        selectionGroupRef.current &&
+        !selectionGroupRef.current.contains(target)
+      ) {
+        setSelectionMenuOpen(false);
+      }
+
+      if (
+        isDrawingMenuOpen &&
+        drawingGroupRef.current &&
+        !drawingGroupRef.current.contains(target)
+      ) {
+        setDrawingMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSelectionMenuOpen, isDrawingMenuOpen]);
+
+  // 监听文本样式变化以刷新UI
+  //（保留原有逻辑，放到增量effect前已处理）
+
   return (
     <div
       className={cn(
@@ -289,8 +338,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* 预留：若需在主工具栏控制网格背景颜色，可在此恢复控件 */}
 
-      {/* 选择工具分组 - 激活时固定显示 */}
-      <div className="relative">
+      {/* 选择工具分组 */}
+      <div className="relative" ref={selectionGroupRef}>
         {/* 主按钮 - 显示当前选择模式 */}
         <Button
           variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
@@ -300,11 +349,14 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
           )}
           onClick={() => {
-            // 如果当前没有激活选择工具，切换到默认的框选工具
             if (drawMode !== 'select' && drawMode !== 'pointer') {
               setDrawMode('select');
               logger.tool('工具栏主按钮：切换到框选工具');
+              setSelectionMenuOpen(true);
+            } else {
+              setSelectionMenuOpen((prev) => !prev);
             }
+            setDrawingMenuOpen(false);
           }}
           title={
             drawMode === 'select' ? '框选工具' : drawMode === 'pointer' ? '节点选择工具' : '点击切换到框选工具'
@@ -316,10 +368,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           {drawMode !== 'select' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
         </Button>
 
-        {/* 固定显示的选择工具菜单 - 当选择工具激活时显示 */}
-        {(drawMode === 'select' || drawMode === 'pointer') && (
+        {/* 选择次级菜单：点击展开显示 */}
+        {isSelectionMenuOpen && (
           <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
-            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
+            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-[999px] bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 选择工具按钮组 */}
               <div className="flex flex-col gap-1">
                 <Button
@@ -352,8 +404,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         )}
       </div>
 
-      {/* 绘制工具分组 - 激活时固定显示 */}
-      <div className="relative">
+      {/* 绘制工具分组 */}
+      <div className="relative" ref={drawingGroupRef}>
         {/* 主按钮 - 显示当前绘制模式 */}
         <Button
           variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
@@ -363,11 +415,15 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
           )}
           onClick={() => {
-            // 如果当前没有激活绘图工具（选择模式、橡皮擦模式或其他独立工具），切换到默认的绘线工具
-            if (drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot') {
+            const isDrawingMode = drawingModes.includes(drawMode as typeof drawingModes[number]);
+            if (!isDrawingMode || isEraser) {
               setDrawMode('free');
               logger.tool('工具栏主按钮：切换到绘线工具');
+              setDrawingMenuOpen(true);
+            } else {
+              setDrawingMenuOpen((prev) => !prev);
             }
+            setSelectionMenuOpen(false);
           }}
           title={
             drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
@@ -383,10 +439,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           {(drawMode === 'select' || drawMode === 'pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
         </Button>
 
-        {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}
-        {(drawMode === 'free' || drawMode === 'line' || drawMode === 'rect' || drawMode === 'circle') && !isEraser && (
+        {/* 绘制次级菜单：点击展开显示 */}
+        {isDrawingMenuOpen && !isEraser && (
           <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
-            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
+            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-[999px] bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
               <div className="flex flex-col gap-1">
                 <Button

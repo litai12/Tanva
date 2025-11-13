@@ -77,13 +77,45 @@ class AIImageService {
 
   /**
    * 分析图像 - 使用内部认证 API
+   * 后端目前返回的数据字段在不同路径下不一致（可能是 text 或 analysis），
+   * 这里统一归一化为 AIImageAnalysisResult，避免调用方做额外判断。
    */
   async analyzeImage(request: AIImageAnalyzeRequest): Promise<AIServiceResponse<AIImageAnalysisResult>> {
-    return this.callAPI<AIImageAnalysisResult>(
+    const response = await this.callAPI<any>(
       `${this.API_BASE}/ai/analyze-image`,
       request,
       'Image analysis'
     );
+
+    if (!response.success || !response.data) {
+      return response as AIServiceResponse<AIImageAnalysisResult>;
+    }
+
+    const raw = response.data as Partial<AIImageAnalysisResult> & {
+      text?: string;
+      textResponse?: string;
+      result?: string;
+    };
+
+    const analysisText =
+      typeof raw.analysis === 'string' && raw.analysis.length
+        ? raw.analysis
+        : typeof raw.text === 'string' && raw.text.length
+        ? raw.text
+        : typeof raw.textResponse === 'string' && raw.textResponse.length
+        ? raw.textResponse
+        : typeof raw.result === 'string'
+        ? raw.result
+        : '';
+
+    return {
+      success: true,
+      data: {
+        analysis: analysisText,
+        confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
+        tags: Array.isArray(raw.tags) ? raw.tags : [],
+      },
+    };
   }
 
   /**

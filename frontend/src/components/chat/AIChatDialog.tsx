@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 // 比例选择改为自定义浮层（定位到对话框上方）
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
-import { useAIChatStore } from '@/stores/aiChatStore';
+import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode } from '@/stores/aiChatStore';
 import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2 } from 'lucide-react';
@@ -218,6 +218,7 @@ const AIChatDialog: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [autoOptimizeEnabled, setAutoOptimizeEnabled] = useState(false);
   const [autoOptimizing, setAutoOptimizing] = useState(false);
+  const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
   const [isPromptPanelOpen, setIsPromptPanelOpen] = useState(false);
   const promptButtonRef = useRef<HTMLButtonElement>(null);
   const promptPanelRef = useRef<HTMLDivElement>(null);
@@ -731,7 +732,9 @@ const AIChatDialog: React.FC = () => {
           language: promptSettings.language,
           tone: promptSettings.tone || undefined,
           focus: promptSettings.focus || undefined,
-          lengthPreference: promptSettings.lengthPreference
+          lengthPreference: promptSettings.lengthPreference,
+          aiProvider,
+          model: textModel
         });
 
         if (response.success && response.data) {

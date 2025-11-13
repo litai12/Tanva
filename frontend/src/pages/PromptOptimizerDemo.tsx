@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import usePromptOptimization from '@/hooks/usePromptOptimization';
+import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 
 const PromptOptimizerDemo: React.FC = () => {
   const { optimize, loading, result, error, reset } = usePromptOptimization();
@@ -9,6 +10,8 @@ const PromptOptimizerDemo: React.FC = () => {
   const [focus, setFocus] = useState('描绘环境、光线、角色活动以及视觉风格');
   const [lengthPreference, setLengthPreference] = useState<'concise' | 'balanced' | 'detailed'>('balanced');
   const [localError, setLocalError] = useState<string | null>(null);
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
 
   const disableSubmit = useMemo(() => loading || !input.trim(), [loading, input]);
 
@@ -25,7 +28,9 @@ const PromptOptimizerDemo: React.FC = () => {
       language,
       tone: tone.trim() || undefined,
       focus: focus.trim() || undefined,
-      lengthPreference
+      lengthPreference,
+      aiProvider,
+      model: textModel
     });
 
     if (!res) {
@@ -47,10 +52,7 @@ const PromptOptimizerDemo: React.FC = () => {
         <header className="space-y-2">
           <h1 className="text-2xl font-semibold">提示词优化测试台</h1>
           <p className="text-sm text-slate-300">
-            输入基础描述，调用 Google AI 生成扩展且不偏题的提示词。默认返回中文且为单段文本。
-          </p>
-          <p className="text-xs text-slate-500">
-            温馨提示：启动时读取 <code>VITE_GOOGLE_GEMINI_API_KEY</code>，未配置会 fallback 到默认测试 Key。
+            输入基础描述，调用后端 AI 服务生成扩展且不偏题的提示词。默认返回中文且为单段文本。
           </p>
         </header>
 

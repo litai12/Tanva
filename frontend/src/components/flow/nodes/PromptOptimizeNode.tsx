@@ -4,6 +4,7 @@ import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import usePromptOptimization from '@/hooks/usePromptOptimization';
 import type { PromptOptimizationRequest } from '@/services/promptOptimizationService';
+import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 
 // 已去除可视化设置面板，采用内部默认参数
 
@@ -27,6 +28,8 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : 'none';
 
   const { optimize, loading, result, error, reset } = usePromptOptimization();
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const textModel = React.useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
 
   // 初始化时尝试读取上游文本
   React.useEffect(() => {
@@ -102,7 +105,9 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
       language: '中文',
       tone: undefined,
       focus: undefined,
-      lengthPreference: 'balanced'
+      lengthPreference: 'balanced',
+      aiProvider,
+      model: textModel
     } satisfies PromptOptimizationRequest);
   };
 

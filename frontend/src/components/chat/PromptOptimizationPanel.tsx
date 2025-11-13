@@ -13,6 +13,7 @@ import type { PromptOptimizationRequest } from '@/services/promptOptimizationSer
 import { Textarea } from '@/components/ui/textarea';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { createPortal } from 'react-dom';
+import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 
 export interface PromptOptimizationSettings {
   language: '中文' | 'English';
@@ -47,6 +48,8 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
   } = props;
 
   const { optimize, loading, result, error, reset } = usePromptOptimization();
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
   const [formError, setFormError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -131,7 +134,9 @@ const PromptOptimizationPanel = React.forwardRef<HTMLDivElement, PromptOptimizat
       language: settings.language,
       tone: settings.tone || undefined,
       focus: settings.focus || undefined,
-      lengthPreference: settings.lengthPreference
+      lengthPreference: settings.lengthPreference,
+      aiProvider,
+      model: textModel
     } satisfies PromptOptimizationRequest);
   };
 
