@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2, Minimize2 } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2, Minimize2, MousePointer2 } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -306,25 +306,42 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <DashedSelectIcon className="w-4 h-4" />
       </Button>
 
+      {/* 指针选择工具 - 新增按钮 */}
+      <Button
+        variant={drawMode === 'pointer' ? 'default' : 'outline'}
+        size="sm"
+        className={cn(
+          "p-0 h-8 w-8 rounded-full",
+          getActiveButtonStyle(drawMode === 'pointer')
+        )}
+        onClick={() => {
+          setDrawMode('pointer');
+          logger.tool('工具栏：切换到指针选择工具');
+        }}
+        title="指针选择工具"
+      >
+        <MousePointer2 className="w-4 h-4" />
+      </Button>
+
       {/* 绘制工具分组 - 激活时固定显示 */}
       <div className="relative">
         {/* 主按钮 - 显示当前绘制模式 */}
         <Button
-          variant={drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
+          variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
           size="sm"
           className={cn(
             "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
+            getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
           )}
           onClick={() => {
             // 如果当前没有激活绘图工具（选择模式、橡皮擦模式或其他独立工具），切换到默认的绘线工具
-            if (drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot') {
+            if (drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot') {
               setDrawMode('free');
               logger.tool('工具栏主按钮：切换到绘线工具');
             }
           }}
           title={
-            drawMode === 'select' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
+            drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
               ? '点击切换到自由绘制工具'
               : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`
           }
@@ -334,7 +351,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           {drawMode === 'rect' && <Square className="w-4 h-4" />}
           {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
           {/* 如果是选择模式或独立工具模式，显示默认的自由绘制图标但为非激活状态 */}
-          {(drawMode === 'select' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
+          {(drawMode === 'select' || drawMode === 'pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
         </Button>
 
         {/* 固定显示的绘制工具菜单 - 当绘制工具激活时显示 */}

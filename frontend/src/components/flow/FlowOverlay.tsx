@@ -16,6 +16,7 @@ import ReactFlow, {
 } from 'reactflow';
 import { ReactFlowProvider } from 'reactflow';
 import { useCanvasStore } from '@/stores';
+import { useToolStore } from '@/stores';
 import 'reactflow/dist/style.css';
 import './flow.css';
 import type { FlowTemplate, TemplateIndexEntry, TemplateNode, TemplateEdge } from '@/types/template';
@@ -387,6 +388,10 @@ function FlowInner() {
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
   );
+
+  // 获取当前工具模式
+  const drawMode = useToolStore((state) => state.drawMode);
+  const isPointerMode = drawMode === 'pointer';
 
   const onNodesChangeWithHistory = React.useCallback((changes: any) => {
     onNodesChange(changes);
@@ -1025,11 +1030,11 @@ function FlowInner() {
     lastPaneClickRef.current = { t: now, x, y };
     if (last && (now - last.t) < 200 && Math.hypot(last.x - x, last.y - y) < 10) {
       if (isBlankArea(x, y)) openAddPanelAt(x, y);
-    } else {
-      // 单击空白区域时，取消所有节点的选择
+    } else if (!isPointerMode) {
+      // 单击空白区域时，取消所有节点的选择（pointer 模式下不自动取消选择）
       setNodes((prev: any[]) => prev.map((node) => ({ ...node, selected: false })));
     }
-  }, [openAddPanelAt, isBlankArea, setNodes]);
+  }, [openAddPanelAt, isBlankArea, setNodes, isPointerMode]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddPanel(v => ({ ...v, visible: false })); };
@@ -1050,6 +1055,9 @@ function FlowInner() {
     if (!container) return;
 
     const handleClick = (e: MouseEvent) => {
+      // pointer 模式下不自动取消选择
+      if (isPointerMode) return;
+
       // 检查点击是否在容器内
       const rect = container.getBoundingClientRect();
       if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
@@ -1074,7 +1082,7 @@ function FlowInner() {
     return () => {
       window.removeEventListener('click', handleClick, true);
     };
-  }, [isBlankArea, setNodes]);
+  }, [isBlankArea, setNodes, isPointerMode]);
 
   // 在打开模板页签时加载内置与用户模板
   React.useEffect(() => {
@@ -2029,7 +2037,7 @@ function FlowInner() {
   return (
     <div
       ref={containerRef}
-      className={"tanva-flow-overlay absolute inset-0"}
+      className={`tanva-flow-overlay absolute inset-0 ${isPointerMode ? 'pointer-mode' : ''}`}
       onDoubleClick={handleContainerDoubleClick}
       onWheelCapture={handleWheelCapture}
     >
@@ -2051,18 +2059,20 @@ function FlowInner() {
         onConnectEnd={onConnectEnd}
         onPaneClick={onPaneClick}
         onEdgeDoubleClick={handleEdgeDoubleClick}
-        
+
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
         fitView={false}
-        panOnDrag={false}
+        panOnDrag={!isPointerMode}
         zoomOnScroll={false}
         zoomOnPinch={false}
         zoomOnDoubleClick={false}
-        selectionOnDrag={true}
-        selectNodesOnDrag={true}
-        multiSelectionKeyCode={['Meta', 'Control']}
-        selectionKeyCode={null}
+        selectionOnDrag={isPointerMode}
+        selectNodesOnDrag={!isPointerMode}
+        nodesDraggable={true}
+        nodesConnectable={!isPointerMode}
+        multiSelectionKeyCode={isPointerMode ? null : ['Meta', 'Control']}
+        selectionKeyCode={isPointerMode ? null : null}
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
       >

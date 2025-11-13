@@ -214,3 +214,22 @@
     background-position: -200% 50%;
   }
 }
+
+/* Pointer 选择工具模式样式 */
+.tanva-flow-overlay.pointer-mode {
+  cursor: crosshair !important;
+}
+
+.tanva-flow-overlay.pointer-mode .react-flow__pane {
+  cursor: crosshair !important;
+  pointer-events: auto !important;
+}
+
+.tanva-flow-overlay.pointer-mode .react-flow__node {
+  cursor: pointer !important;
+}
+
+.tanva-flow-overlay.pointer-mode .react-flow__node.selected > div {
+  box-shadow: 0 0 0 2px #2563eb inset !important;
+  border-radius: 8px;
+}
