@@ -289,39 +289,68 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* 预留：若需在主工具栏控制网格背景颜色，可在此恢复控件 */}
 
-      {/* 选择工具 - 独立按钮 */}
-      <Button
-        variant={drawMode === 'select' ? 'default' : 'outline'}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(drawMode === 'select')
-        )}
-        onClick={() => {
-          setDrawMode('select');
-          logger.tool('工具栏：切换到选择工具');
-        }}
-        title="选择模式"
-      >
-        <DashedSelectIcon className="w-4 h-4" />
-      </Button>
+      {/* 选择工具分组 - 激活时固定显示 */}
+      <div className="relative">
+        {/* 主按钮 - 显示当前选择模式 */}
+        <Button
+          variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
+          size="sm"
+          className={cn(
+            "p-0 h-8 w-8 rounded-full",
+            getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
+          )}
+          onClick={() => {
+            // 如果当前没有激活选择工具，切换到默认的框选工具
+            if (drawMode !== 'select' && drawMode !== 'pointer') {
+              setDrawMode('select');
+              logger.tool('工具栏主按钮：切换到框选工具');
+            }
+          }}
+          title={
+            drawMode === 'select' ? '框选工具' : drawMode === 'pointer' ? '节点选择工具' : '点击切换到框选工具'
+          }
+        >
+          {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
+          {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
+          {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
+          {drawMode !== 'select' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
+        </Button>
 
-      {/* 指针选择工具 - 新增按钮 */}
-      <Button
-        variant={drawMode === 'pointer' ? 'default' : 'outline'}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(drawMode === 'pointer')
+        {/* 固定显示的选择工具菜单 - 当选择工具激活时显示 */}
+        {(drawMode === 'select' || drawMode === 'pointer') && (
+          <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
+            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-2xl bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
+              {/* 选择工具按钮组 */}
+              <div className="flex flex-col gap-1">
+                <Button
+                  variant={drawMode === 'select' ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    "p-0 h-8 w-8 rounded-full",
+                    getSubPanelButtonStyle(drawMode === 'select')
+                  )}
+                  onClick={() => setDrawMode('select')}
+                  title="框选工具"
+                >
+                  <DashedSelectIcon className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={drawMode === 'pointer' ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    "p-0 h-8 w-8 rounded-full",
+                    getSubPanelButtonStyle(drawMode === 'pointer')
+                  )}
+                  onClick={() => setDrawMode('pointer')}
+                  title="节点选择工具"
+                >
+                  <MousePointer2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
-        onClick={() => {
-          setDrawMode('pointer');
-          logger.tool('工具栏：切换到指针选择工具');
-        }}
-        title="指针选择工具"
-      >
-        <MousePointer2 className="w-4 h-4" />
-      </Button>
+      </div>
 
       {/* 绘制工具分组 - 激活时固定显示 */}
       <div className="relative">
