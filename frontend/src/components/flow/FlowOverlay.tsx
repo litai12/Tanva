@@ -1025,8 +1025,11 @@ function FlowInner() {
     lastPaneClickRef.current = { t: now, x, y };
     if (last && (now - last.t) < 200 && Math.hypot(last.x - x, last.y - y) < 10) {
       if (isBlankArea(x, y)) openAddPanelAt(x, y);
+    } else {
+      // 单击空白区域时，取消所有节点的选择
+      setNodes((prev: any[]) => prev.map((node) => ({ ...node, selected: false })));
     }
-  }, [openAddPanelAt, isBlankArea]);
+  }, [openAddPanelAt, isBlankArea, setNodes]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddPanel(v => ({ ...v, visible: false })); };
@@ -1039,6 +1042,39 @@ function FlowInner() {
     window.addEventListener('mousedown', onDown);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('mousedown', onDown); };
   }, [addPanel.visible]);
+
+  // 监听点击事件，在空白区域点击时取消节点选择
+  // 在 window 级别监听，确保能捕获到事件（即使 CSS 阻止了子元素的事件）
+  React.useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleClick = (e: MouseEvent) => {
+      // 检查点击是否在容器内
+      const rect = container.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+        return; // 点击在容器外，不处理
+      }
+
+      // 检查是否点击了节点、连线或其他 Flow 交互元素
+      const target = e.target as HTMLElement;
+      if (target.closest('.react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__controls, .react-flow__minimap, .tanva-add-panel, .tanva-flow-toolbar, [data-prevent-add-panel]')) {
+        return; // 点击了 Flow 元素，不处理
+      }
+
+      // 检查是否是空白区域
+      if (isBlankArea(e.clientX, e.clientY)) {
+        // 取消所有节点的选择
+        setNodes((prev: any[]) => prev.map((node) => ({ ...node, selected: false })));
+      }
+    };
+
+    // 在 window 级别监听，使用捕获阶段确保能捕获到事件
+    window.addEventListener('click', handleClick, true);
+    return () => {
+      window.removeEventListener('click', handleClick, true);
+    };
+  }, [isBlankArea, setNodes]);
 
   // 在打开模板页签时加载内置与用户模板
   React.useEffect(() => {
@@ -2023,9 +2059,9 @@ function FlowInner() {
         zoomOnScroll={false}
         zoomOnPinch={false}
         zoomOnDoubleClick={false}
-        selectionOnDrag={false}
-        selectNodesOnDrag={false}
-        multiSelectionKeyCode={null}
+        selectionOnDrag={true}
+        selectNodesOnDrag={true}
+        multiSelectionKeyCode={['Meta', 'Control']}
         selectionKeyCode={null}
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
