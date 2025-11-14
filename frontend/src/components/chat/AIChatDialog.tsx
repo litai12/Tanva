@@ -257,7 +257,7 @@ const AIChatDialog: React.FC = () => {
   const defaultAIProviderValue = aiProviderOptions[0]?.value;
   const providerButtonLabel = currentAIProvider?.label ?? aiProviderOptions[0]?.label ?? '选择供应商';
   const manualButtonLabel = currentManualMode?.label ?? availableManualModeOptions[0]?.label ?? '选择模式';
-
+  const dropdownSide: 'top' | 'bottom' = isMaximized ? 'bottom' : 'top';
   useEffect(() => {
     if (!availableManualModeOptions.some((option) => option.value === manualAIMode)) {
       const fallback = availableManualModeOptions[0];
@@ -1161,7 +1161,7 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="start"
-                    side="top"
+                    side={dropdownSide}
                     sideOffset={8}
                     className="min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
                   >
@@ -1216,7 +1216,7 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="start"
-                    side="top"
+                    side={dropdownSide}
                     sideOffset={8}
                     className="dropdown-menu-root min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md"
                   >
