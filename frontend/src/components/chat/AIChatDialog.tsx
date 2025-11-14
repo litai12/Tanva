@@ -999,7 +999,7 @@ const AIChatDialog: React.FC = () => {
 
         {/* 内容区域 */}
         <div ref={contentRef} data-chat-content className={cn(
-          isMaximized ? "p-4 h-full overflow-hidden" : ""
+          isMaximized ? "p-4 h-full overflow-visible" : ""
         )}>
 
 

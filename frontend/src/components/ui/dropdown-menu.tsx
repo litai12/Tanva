@@ -17,16 +17,23 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, ...props }
         if (React.isValidElement(child)) {
           // 使用组件类型而非 role 属性来识别组件
           if (child.type === DropdownMenuTrigger) {
+            const originalOnClick = child.props?.onClick;
+            const composedOnClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+              if (typeof originalOnClick === 'function') {
+                originalOnClick(event);
+              }
+              if (!event.defaultPrevented) {
+                handleToggle();
+              }
+            };
             return React.cloneElement(child as React.ReactElement, {
-              onClick: handleToggle,
-              ...child.props
+              onClick: composedOnClick
             });
           }
           if (child.type === DropdownMenuContent) {
             return React.cloneElement(child as React.ReactElement, {
               isOpen,
-              onClose: handleClose,
-              ...child.props
+              onClose: handleClose
             });
           }
         }
