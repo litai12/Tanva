@@ -90,22 +90,48 @@ export default function ImageNode({ id, data, selected }: Props) {
     e.preventDefault();
   };
 
+  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    // 遍历剪贴板项，查找图片
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          const fileList = new DataTransfer();
+          fileList.items.add(file);
+          handleFiles(fileList.files);
+          return;
+        }
+      }
+    }
+  };
+
   const headerHeight = 34; // 顶部标题+按钮区域高度
 
   return (
-    <div style={{
-      width: data.boxW || 260,
-      height: data.boxH || 240,
-      padding: 8,
-      background: '#fff',
-      border: `1px solid ${borderColor}`,
-      borderRadius: 8,
-      boxShadow,
-      transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-      display: 'flex',
-      flexDirection: 'column',
-      position: 'relative'
-    }}>
+    <div
+      onPaste={onPaste}
+      tabIndex={0}
+      style={{
+        width: data.boxW || 260,
+        height: data.boxH || 240,
+        padding: 8,
+        background: '#fff',
+        border: `1px solid ${borderColor}`,
+        borderRadius: 8,
+        boxShadow,
+        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative',
+        outline: 'none'
+      }}>
       <NodeResizer
         isVisible
         minWidth={200}
