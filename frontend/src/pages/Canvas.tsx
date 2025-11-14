@@ -15,6 +15,7 @@ import FlowOverlay from '@/components/flow/FlowOverlay';
 import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 // import OriginCross from '@/components/debug/OriginCross';
 // import { useAIImageDisplay } from '@/hooks/useAIImageDisplay';  // 不再需要，改用快速上传逻辑
 
@@ -43,6 +44,7 @@ const Canvas: React.FC = () => {
 
     return (
         <div className="relative w-full h-full overflow-hidden">
+            <GlobalZoomCapture />
             <canvas
                 ref={canvasRef}
                 className="absolute inset-0 w-full h-full"
