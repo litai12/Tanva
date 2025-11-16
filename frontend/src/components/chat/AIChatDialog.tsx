@@ -21,7 +21,7 @@ import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2 } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1651,35 +1651,27 @@ const AIChatDialog: React.FC = () => {
                                       <source src={message.videoUrl} type="video/mp4" />
                                       您的浏览器不支持 HTML5 video 标签
                                     </video>
-                                    <div className="flex gap-2 text-xs flex-wrap">
-                                      {/* 在浏览器中打开（最可靠） */}
-                                      <a
-                                        href={message.videoUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors flex items-center gap-1"
-                                      >
-                                        🌐 在浏览器打开
-                                      </a>
-
-                                      {/* 复制链接到剪贴板 */}
+                                    <div className="flex gap-3 text-xs flex-wrap">
+                                      {/* 分享/复制 */}
                                       <button
                                         onClick={async () => {
+                                          if (!message.videoUrl) return;
                                           try {
-                                            await navigator.clipboard.writeText(message.videoUrl!);
-                                            console.log('✅ 视频链接已复制到剪贴板');
-                                            alert('✅ 视频链接已复制到剪贴板！');
+                                            await navigator.clipboard.writeText(message.videoUrl);
+                                            console.log('✅ 视频链接已复制，可直接粘贴分享');
+                                            alert('✅ 已复制视频链接');
                                           } catch (err) {
                                             console.error('❌ 复制失败:', err);
                                             alert('复制失败，请手动复制链接');
                                           }
                                         }}
-                                        className="px-3 py-1.5 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors flex items-center gap-1"
+                                        title="分享链接"
+                                        className="w-9 h-9 rounded-full bg-white text-purple-500 border border-purple-100 flex items-center justify-center shadow-sm hover:bg-purple-50 transition-colors"
                                       >
-                                        🔗 复制链接
+                                        <Share2 className="w-3.5 h-3.5" />
                                       </button>
 
-                                      {/* 直接下载视频 */}
+                                      {/* 下载视频 */}
                                       <button
                                         onClick={async () => {
                                           try {
@@ -1704,7 +1696,6 @@ const AIChatDialog: React.FC = () => {
                                                 link.click();
                                                 document.body.removeChild(link);
 
-                                                // 释放内存
                                                 setTimeout(() => {
                                                   URL.revokeObjectURL(downloadUrl);
                                                 }, 100);
@@ -1729,21 +1720,18 @@ const AIChatDialog: React.FC = () => {
                                           } catch (error) {
                                             console.error('❌ 视频下载失败:', error);
                                             alert(
-                                              '❌ 直接下载失败，已复制链接到剪贴板。\n\n' +
-                                              '您可以：\n' +
-                                              '1. 手动右键点击视频 → 保存视频\n' +
-                                              '2. 使用"在浏览器打开"按钮\n' +
-                                              '3. 使用链接进行下载'
+                                              '❌ 下载失败，已尝试复制链接。\n\n' +
+                                              '您可以在浏览器中新开标签或使用下载工具。'
                                             );
-                                            // 尝试复制链接作为备用
                                             try {
                                               await navigator.clipboard.writeText(message.videoUrl!);
                                             } catch {}
                                           }
                                         }}
-                                        className="px-3 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors flex items-center gap-1"
+                                        title="下载视频"
+                                        className="w-9 h-9 rounded-full bg-white text-blue-500 border border-blue-100 flex items-center justify-center shadow-sm hover:bg-blue-50 transition-colors"
                                       >
-                                        📥 下载视频
+                                        <Download className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
                                     {(message.videoStatus || message.videoTaskId) && (

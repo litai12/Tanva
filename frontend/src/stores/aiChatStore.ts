@@ -153,6 +153,7 @@ const SORA2_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
 const SORA2_ASYNC_HOST_HINTS = ['asyncdata.', 'asyncndata.'];
 const SORA2_MAX_FOLLOW_DEPTH = 2;
 const SORA2_FETCH_TIMEOUT_MS = 8000;
+const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
 
 type Sora2ResolvedMedia = {
   videoUrl?: string;
@@ -3219,20 +3220,21 @@ export const useAIChatStore = create<AIChatState>()(
       console.log('✅ 视频生成完成');
       logProcessStep(metrics, 'generateVideo finished');
 
-      // 自动尝试将视频缩略图放置到画布
-      void (async () => {
-        const placedPoster = await autoPlaceVideoOnCanvas({
-          prompt,
-          videoUrl: videoResult.videoUrl,
-          thumbnailUrl: videoResult.thumbnailUrl
-        });
-        if (placedPoster && aiMessageId) {
-          get().updateMessage(aiMessageId, (msg) => ({
-            ...msg,
-            videoThumbnail: msg.videoThumbnail || placedPoster
-          }));
-        }
-      })();
+      if (ENABLE_VIDEO_CANVAS_PLACEMENT) {
+        void (async () => {
+          const placedPoster = await autoPlaceVideoOnCanvas({
+            prompt,
+            videoUrl: videoResult.videoUrl,
+            thumbnailUrl: videoResult.thumbnailUrl
+          });
+          if (placedPoster && aiMessageId) {
+            get().updateMessage(aiMessageId, (msg) => ({
+              ...msg,
+              videoThumbnail: msg.videoThumbnail || placedPoster
+            }));
+          }
+        })();
+      }
 
       // 🧠 记录到上下文
       contextManager.recordOperation({
