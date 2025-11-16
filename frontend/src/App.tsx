@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Canvas from '@/pages/Canvas';
 import PromptOptimizerDemo from '@/pages/PromptOptimizerDemo';
+import Sora2Test from '@/pages/Sora2Test';
 import AccountBadge from '@/components/AccountBadge';
 import ProjectAutosaveManager from '@/components/autosave/ProjectAutosaveManager';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
@@ -20,6 +21,15 @@ const App: React.FC = () => {
     return search.includes('prompt-demo') || hash.includes('prompt-demo');
   });
 
+  const [showSora2Test, setShowSora2Test] = useState<boolean>(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    const search = window.location.search;
+    const hash = window.location.hash;
+    return search.includes('sora2-test') || hash.includes('sora2-test');
+  });
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return undefined;
@@ -29,6 +39,7 @@ const App: React.FC = () => {
       const search = window.location.search;
       const hash = window.location.hash;
       setShowPromptDemo(search.includes('prompt-demo') || hash.includes('prompt-demo'));
+      setShowSora2Test(search.includes('sora2-test') || hash.includes('sora2-test'));
     };
 
     window.addEventListener('hashchange', evaluate);
@@ -42,6 +53,10 @@ const App: React.FC = () => {
 
   if (showPromptDemo) {
     return <PromptOptimizerDemo />;
+  }
+
+  if (showSora2Test) {
+    return <Sora2Test />;
   }
 
   const [searchParams, setSearchParams] = useSearchParams();

@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sora2 API 测试页面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 0;
+            min-height: 600px;
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            border-right: 1px solid #e0e0e0;
+            padding: 30px 20px;
+            overflow-y: auto;
+        }
+
+        .main {
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="password"],
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            resize: none;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input[type="text"]:focus,
+        .form-group input[type="password"]:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .checkbox-group:hover {
+            background: #f0f0f0;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .stats {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 13px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: #666;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+
+        .status-idle {
+            background: #ccc;
+        }
+
+        .status-loading {
+            background: #ffa500;
+            animation: pulse 1s infinite;
+        }
+
+        .status-ready {
+            background: #4caf50;
+        }
+
+        .status-error {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .button-group {
+            display: grid;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 12px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            width: 100%;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #e0e0e0;
+        }
+
+        .input-section {
+            margin-bottom: 30px;
+        }
+
+        .input-section h3 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        textarea {
+            min-height: 100px;
+        }
+
+        .output-section {
+            margin-top: 30px;
+        }
+
+        .output-section h3 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .response-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 6px;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        .response-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .response-container::-webkit-scrollbar-track {
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
+
+        .response-container::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+
+        .response-container::-webkit-scrollbar-thumb:hover {
+            background: #777;
+        }
+
+        .empty-state {
+            color: #999;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 300px;
+        }
+
+        .message {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        .message.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+        }
+
+        .message.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-left: 4px solid #4caf50;
+        }
+
+        .message.info {
+            background: #e3f2fd;
+            color: #1565c0;
+            border-left: 4px solid #2196f3;
+        }
+
+        .hint {
+            font-size: 12px;
+            color: #999;
+            margin-top: 6px;
+        }
+
+        .api-info {
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 30px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .api-info h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .api-info-item {
+            margin: 8px 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                border-right: none;
+                border-bottom: 1px solid #e0e0e0;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #667eea;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎬 Sora2 API 测试页面</h1>
+            <p>Banana147 模型供应商 | OpenAI Chat Completions 兼容</p>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="section-title">⚙️ 配置</div>
+
+                <!-- API Key -->
+                <div class="form-group">
+                    <label for="apiKey">API 密钥</label>
+                    <input
+                        type="password"
+                        id="apiKey"
+                        placeholder="sk-ERFNrFQL..."
+                    >
+                    <div id="keyStatus" style="margin-top: 8px; font-size: 12px; color: #4caf50;">✓ API Key 已加载</div>
+                </div>
+
+                <!-- Mode Selection -->
+                <div class="form-group">
+                    <label class="checkbox-group">
+                        <input
+                            type="checkbox"
+                            id="streamMode"
+                            checked
+                        >
+                        <label for="streamMode" style="margin: 0;">使用流式模式</label>
+                    </label>
+                    <div class="hint" id="modeHint">流式模式：实时接收响应数据</div>
+                </div>
+
+                <!-- Statistics -->
+                <div class="stats">
+                    <div class="stat-item">
+                        <span class="stat-label">响应长度</span>
+                        <span class="stat-value" id="responseLength">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">状态</span>
+                        <span class="stat-value">
+                            <span class="status-indicator status-idle" id="statusDot"></span>
+                            <span id="statusText">就绪</span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Buttons -->
+                <div class="button-group">
+                    <button class="btn-secondary" onclick="clearResponse()">清除响应</button>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="main">
+                <!-- Input Section -->
+                <div class="input-section">
+                    <h3>📝 输入</h3>
+
+                    <!-- Prompt -->
+                    <div class="form-group">
+                        <label for="prompt">视频提示词</label>
+                        <textarea
+                            id="prompt"
+                            placeholder="例如：一只狗在公园里跑步 16:9&#10;或：A dog running in the park 16:9"
+                        ></textarea>
+                        <div class="hint">在提示词末尾添加宽高比：16:9、9:16、4:3 或 横屏、竖屏</div>
+                    </div>
+
+                    <!-- Image URL -->
+                    <div class="form-group">
+                        <label for="imageUrl">参考图像 URL（可选）</label>
+                        <input
+                            type="text"
+                            id="imageUrl"
+                            placeholder="https://example.com/image.jpg"
+                        >
+                        <div class="hint">提供一个图像 URL 作为生成参考</div>
+                    </div>
+
+                    <!-- Generate Button -->
+                    <button class="btn-primary" onclick="generateVideo()" id="generateBtn">
+                        🎬 生成视频
+                    </button>
+                </div>
+
+                <!-- Output Section -->
+                <div class="output-section">
+                    <h3>📤 响应</h3>
+
+                    <div id="messageContainer"></div>
+
+                    <!-- Video Preview Section -->
+                    <div id="videoSection" style="display: none; margin-bottom: 20px;">
+                        <div style="background: #f5f5f5; padding: 15px; border-radius: 6px;">
+                            <h4 style="margin-bottom: 10px;">🎬 视频信息</h4>
+                            <div id="videoInfo" style="font-size: 13px; color: #666; line-height: 1.6;"></div>
+                            <button class="btn-primary" onclick="getVideoDownloadLink()" style="margin-top: 10px;">
+                                ⬇️ 获取视频下载链接
+                            </button>
+                            <button class="btn-secondary" onclick="pollVideoStatus()" style="margin-top: 10px;">
+                                🔄 检查视频生成进度
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="responseContainer" class="response-container">
+                        <div class="empty-state">📝 无响应</div>
+                    </div>
+                </div>
+
+                <!-- API Info -->
+                <div class="api-info">
+                    <h4>📡 API 信息</h4>
+                    <div class="api-info-item"><strong>端点：</strong> https://api1.147ai.com/v1/chat/completions</div>
+                    <div class="api-info-item"><strong>模型：</strong> sora-2-reverse</div>
+                    <div class="api-info-item"><strong>认证：</strong> Bearer Token (Authorization header)</div>
+                    <div class="api-info-item"><strong>格式：</strong> OpenAI Chat Completions API 兼容</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 从 .env 文件读取配置（需要通过开发服务器）
+        // 或使用以下硬编码值
+        const API_ENDPOINT = 'https://api1.147ai.com/v1/chat/completions';
+        const MODEL = 'sora-2-reverse';
+        const DEFAULT_API_KEY = 'sk-CHWofejyw9IsGbCmr6uyOrvmmCqFABBalq4jxv51cipZVShM';
+
+        // DOM Elements
+        const apiKeyInput = document.getElementById('apiKey');
+        const promptInput = document.getElementById('prompt');
+        const imageUrlInput = document.getElementById('imageUrl');
+        const streamModeCheckbox = document.getElementById('streamMode');
+        const generateBtn = document.getElementById('generateBtn');
+        const responseContainer = document.getElementById('responseContainer');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const responseLengthSpan = document.getElementById('responseLength');
+        const messageContainer = document.getElementById('messageContainer');
+        const modeHint = document.getElementById('modeHint');
+
+        let isGenerating = false;
+
+        // Event Listeners
+        streamModeCheckbox.addEventListener('change', () => {
+            modeHint.textContent = streamModeCheckbox.checked
+                ? '流式模式：实时接收响应数据'
+                : '非流式模式：等待完整响应';
+        });
+
+        // Generate Video
+        async function generateVideo() {
+            const apiKey = apiKeyInput.value.trim();
+            const prompt = promptInput.value.trim();
+
+            if (!apiKey) {
+                showMessage('请输入 API 密钥', 'error');
+                return;
+            }
+
+            if (!apiKey.startsWith('sk-')) {
+                showMessage('API 密钥格式不正确（应以 sk- 开头）', 'error');
+                return;
+            }
+
+            if (!prompt) {
+                showMessage('请输入视频提示词', 'error');
+                return;
+            }
+
+            isGenerating = true;
+            generateBtn.disabled = true;
+            clearMessages();
+            clearResponse();
+            updateStatus('loading', '处理中...');
+
+            try {
+                const useStream = streamModeCheckbox.checked;
+                const result = await callSora2API(apiKey, prompt, imageUrlInput.value, useStream);
+
+                if (result.success) {
+                    showMessage('✓ 视频生成已提交！', 'success');
+                    updateStatus('ready', '就绪');
+
+                    // Display video information if available
+                    if (result.data) {
+                        displayVideoInfo(result.data);
+                    }
+                } else {
+                    showMessage(`错误: ${result.error}`, 'error');
+                    updateStatus('error', '错误');
+                }
+            } catch (error) {
+                showMessage(`异常: ${error.message}`, 'error');
+                updateStatus('error', '错误');
+                console.error('Generation error:', error);
+            } finally {
+                isGenerating = false;
+                generateBtn.disabled = false;
+            }
+        }
+
+        // Call Sora2 API
+        async function callSora2API(apiKey, prompt, imageUrl, useStream) {
+            const content = [
+                {
+                    type: 'text',
+                    text: prompt
+                }
+            ];
+
+            if (imageUrl) {
+                content.push({
+                    type: 'image_url',
+                    image_url: { url: imageUrl }
+                });
+            }
+
+            const request = {
+                model: MODEL,
+                stream: useStream,
+                messages: [
+                    {
+                        role: 'user',
+                        content: content
+                    }
+                ]
+            };
+
+            console.log('🎬 Sending request to Sora2 API...');
+            console.log('Endpoint:', API_ENDPOINT);
+            console.log('API Key:', apiKey.substring(0, 10) + '...');
+            console.log('Prompt:', prompt);
+            if (imageUrl) console.log('Image URL:', imageUrl);
+            console.log('Request body:', JSON.stringify(request, null, 2));
+
+            const response = await fetch(API_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify(request)
+            });
+
+            console.log('Response Status:', response.status);
+            console.log('Response Headers:', response.headers);
+
+            if (!response.ok) {
+                let errorData = {};
+                let errorText = '';
+                try {
+                    errorData = await response.json();
+                    errorText = JSON.stringify(errorData, null, 2);
+                } catch (e) {
+                    errorText = await response.text();
+                }
+                console.error('Error Response Data:', errorData);
+                console.error('Error Response Text:', errorText);
+
+                // 从不同的字段中提取错误信息
+                const errorMessage =
+                    errorData.message ||
+                    errorData.error ||
+                    errorData.error_description ||
+                    errorData.detail ||
+                    'API Error';
+
+                throw new Error(`HTTP ${response.status}: ${errorMessage}\n${errorText}`);
+            }
+
+            if (useStream) {
+                return await handleStreamResponse(response);
+            } else {
+                return await handleNonStreamResponse(response);
+            }
+        }
+
+        // Handle Stream Response
+        async function handleStreamResponse(response) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullContent = '';
+            let buffer = '';
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const jsonStr = line.slice(6);
+
+                            if (jsonStr === '[DONE]') {
+                                continue;
+                            }
+
+                            try {
+                                const parsed = JSON.parse(jsonStr);
+                                const content = parsed.choices[0]?.delta?.content || '';
+                                if (content) {
+                                    fullContent += content;
+                                    updateResponse(fullContent);
+                                }
+                            } catch (e) {
+                                console.debug('Failed to parse chunk:', jsonStr);
+                            }
+                        }
+                    }
+                }
+
+                if (buffer && buffer.startsWith('data: ')) {
+                    const jsonStr = buffer.slice(6);
+                    if (jsonStr !== '[DONE]') {
+                        try {
+                            const parsed = JSON.parse(jsonStr);
+                            const content = parsed.choices[0]?.delta?.content || '';
+                            if (content) {
+                                fullContent += content;
+                                updateResponse(fullContent);
+                            }
+                        } catch (e) {
+                            console.debug('Failed to parse final chunk:', jsonStr);
+                        }
+                    }
+                }
+
+                console.log('✅ Stream completed. Total length:', fullContent.length);
+                return { success: true, data: fullContent };
+            } finally {
+                reader.releaseLock();
+            }
+        }
+
+        // Handle Non-Stream Response
+        async function handleNonStreamResponse(response) {
+            const data = await response.json();
+            const content = data.choices[0]?.message?.content || '';
+            updateResponse(content);
+            console.log('✅ Response received. Length:', content.length);
+            return { success: true, data: content };
+        }
+
+        // Update Response Display
+        function updateResponse(content) {
+            if (content.length === 0) {
+                responseContainer.innerHTML = '<div class="empty-state">📝 无响应</div>';
+            } else {
+                responseContainer.textContent = content;
+                responseContainer.scrollTop = responseContainer.scrollHeight;
+            }
+            responseLengthSpan.textContent = content.length;
+        }
+
+        // Clear Response
+        function clearResponse() {
+            updateResponse('');
+            messageContainer.innerHTML = '';
+            updateStatus('idle', '就绪');
+        }
+
+        // Show Message
+        function showMessage(text, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = text;
+            messageContainer.appendChild(div);
+
+            if (type !== 'error') {
+                setTimeout(() => div.remove(), 5000);
+            }
+        }
+
+        // Clear Messages
+        function clearMessages() {
+            messageContainer.innerHTML = '';
+        }
+
+        // Update Status
+        function updateStatus(status, text) {
+            statusDot.className = `status-indicator status-${status}`;
+            statusText.textContent = text;
+        }
+
+        // Store task ID globally
+        let currentTaskId = null;
+        let currentApiKey = null;
+
+        // Extract and display video information
+        function displayVideoInfo(responseData) {
+            try {
+                // Try to parse JSON from response
+                let data = responseData;
+                if (typeof responseData === 'string') {
+                    // Extract JSON from the response text
+                    const jsonMatch = responseData.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        data = JSON.parse(jsonMatch[0]);
+                    }
+                }
+
+                if (data && data.task_id) {
+                    currentTaskId = data.task_id;
+                    currentApiKey = apiKeyInput.value;
+
+                    let infoHtml = `
+                        <div><strong>任务 ID:</strong> ${data.task_id}</div>
+                        ${data.prompt ? `<div><strong>提示词:</strong> ${data.prompt}</div>` : ''}
+                        ${data.orientation ? `<div><strong>方向:</strong> ${data.orientation}</div>` : ''}
+                        ${data.duration ? `<div><strong>时长:</strong> ${data.duration} 秒</div>` : ''}
+                        ${data.status ? `<div><strong>状态:</strong> ${data.status}</div>` : ''}
+                        ${data.progress ? `<div><strong>进度:</strong> ${data.progress}%</div>` : ''}
+                    `;
+
+                    document.getElementById('videoInfo').innerHTML = infoHtml;
+                    document.getElementById('videoSection').style.display = 'block';
+                    showMessage('✓ 已获取视频信息，请点击下方按钮获取下载链接或检查生成进度', 'success');
+                }
+            } catch (error) {
+                console.error('Error parsing video info:', error);
+            }
+        }
+
+        // Poll video status
+        async function pollVideoStatus() {
+            if (!currentTaskId) {
+                showMessage('请先生成视频', 'error');
+                return;
+            }
+
+            try {
+                const statusResponse = await fetch(`https://api1.147ai.com/v1/tasks/${currentTaskId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${currentApiKey}`
+                    }
+                });
+
+                if (!statusResponse.ok) {
+                    throw new Error(`HTTP ${statusResponse.status}`);
+                }
+
+                const statusData = await statusResponse.json();
+                console.log('Video status:', statusData);
+
+                let statusMsg = `状态: ${statusData.status || '未知'}\n`;
+                if (statusData.progress) statusMsg += `进度: ${statusData.progress}%\n`;
+                if (statusData.video_url) {
+                    statusMsg += `视频 URL: ${statusData.video_url}\n`;
+                    showMessage(`✓ 视频已生成！点击下方链接下载: ${statusData.video_url}`, 'success');
+                } else {
+                    showMessage(statusMsg, 'info');
+                }
+
+                updateResponse(statusMsg + '\n\n' + JSON.stringify(statusData, null, 2));
+            } catch (error) {
+                showMessage(`获取进度失败: ${error.message}`, 'error');
+            }
+        }
+
+        // Get video download link
+        async function getVideoDownloadLink() {
+            if (!currentTaskId) {
+                showMessage('请先生成视频', 'error');
+                return;
+            }
+
+            try {
+                const downloadResponse = await fetch(`https://api1.147ai.com/v1/tasks/${currentTaskId}/download`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${currentApiKey}`
+                    }
+                });
+
+                if (!downloadResponse.ok) {
+                    // Try alternative endpoint
+                    const altResponse = await fetch(`https://api1.147ai.com/v1/videos/${currentTaskId}`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${currentApiKey}`
+                        }
+                    });
+
+                    if (!altResponse.ok) {
+                        throw new Error(`HTTP ${altResponse.status}`);
+                    }
+
+                    const videoData = await altResponse.json();
+                    console.log('Video data:', videoData);
+
+                    if (videoData.video_url) {
+                        showMessage(`✓ 视频下载链接已获取！`, 'success');
+                        updateResponse(`视频下载链接:\n${videoData.video_url}\n\n完整响应:\n${JSON.stringify(videoData, null, 2)}`);
+                    }
+                } else {
+                    const downloadData = await downloadResponse.json();
+                    console.log('Download link:', downloadData);
+
+                    if (downloadData.video_url) {
+                        showMessage(`✓ 视频下载链接已获取！`, 'success');
+                        updateResponse(`视频下载链接:\n${downloadData.video_url}\n\n完整响应:\n${JSON.stringify(downloadData, null, 2)}`);
+                    }
+                }
+            } catch (error) {
+                showMessage(`获取下载链接失败: ${error.message}。可能视频还在生成中，请稍后重试`, 'error');
+                console.error('Download link error:', error);
+            }
+        }
+
+        // Initialize
+        console.log('🚀 Sora2 API Test Page loaded');
+        console.log('API Endpoint:', API_ENDPOINT);
+        console.log('Model:', MODEL);
+
+        // 从环境变量或使用默认值初始化
+        apiKeyInput.value = DEFAULT_API_KEY;
+        apiKeyInput.addEventListener('input', () => {
+            if (apiKeyInput.value.trim()) {
+                document.getElementById('keyStatus').textContent = '✓ API Key 已加载';
+                document.getElementById('keyStatus').style.color = '#4caf50';
+            } else {
+                document.getElementById('keyStatus').textContent = '⚠️ 请输入 API Key';
+                document.getElementById('keyStatus').style.color = '#ff9800';
+            }
+        });
+    </script>
+</body>
+</html>

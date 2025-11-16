@@ -23,6 +23,7 @@ export default function TextNoteNode({ id, data, selected }: Props) {
   const height = data.boxH || 120;
   const editorRef = React.useRef<HTMLDivElement | null>(null);
   const [isEditing, setIsEditing] = React.useState(false);
+  const isComposing = React.useRef(false);
 
   React.useEffect(() => {
     if ((data.text || '') !== value) setValue(data.text || '');
@@ -37,11 +38,12 @@ export default function TextNoteNode({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     if (!editorRef.current) return;
+    if (isEditing) return;
     const current = editorRef.current.innerText;
     if (current !== value) {
       editorRef.current.innerText = value;
     }
-  }, [value]);
+  }, [isEditing, value]);
 
   const commitValue = React.useCallback((next: string) => {
     setValue(next);
@@ -49,8 +51,18 @@ export default function TextNoteNode({ id, data, selected }: Props) {
   }, [id]);
 
   const onEditorInput = React.useCallback((event: React.FormEvent<HTMLDivElement>) => {
+    if (isComposing.current) return;
     const next = event.currentTarget.innerText;
     commitValue(next);
+  }, [commitValue]);
+
+  const handleCompositionStart = React.useCallback(() => {
+    isComposing.current = true;
+  }, []);
+
+  const handleCompositionEnd = React.useCallback((event: React.CompositionEvent<HTMLDivElement>) => {
+    isComposing.current = false;
+    commitValue(event.currentTarget.innerText);
   }, [commitValue]);
 
   const exitEditing = React.useCallback((commit = true) => {
@@ -79,11 +91,21 @@ export default function TextNoteNode({ id, data, selected }: Props) {
   }, []);
 
   React.useEffect(() => {
-    if (isEditing) {
-      const id = window.setTimeout(() => editorRef.current?.focus(), 0);
-      return () => window.clearTimeout(id);
-    }
-    return;
+    if (!isEditing || !editorRef.current) return;
+    // 进入编辑态后聚焦并将光标移动到文本末尾
+    const id = window.setTimeout(() => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [isEditing]);
 
   return (
@@ -98,9 +120,10 @@ export default function TextNoteNode({ id, data, selected }: Props) {
         borderRadius: 14,
         boxShadow,
         display: 'flex',
-        alignItems: 'stretch',
+        alignItems: 'center',
         justifyContent: 'center',
         position: 'relative',
+        boxSizing: 'border-box',
         transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
       }}
     >
@@ -126,6 +149,8 @@ export default function TextNoteNode({ id, data, selected }: Props) {
         onInput={onEditorInput}
         onWheelCapture={isEditing ? stopPropagation : undefined}
         onPointerDownCapture={isEditing ? stopPropagation : undefined}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         onBlur={() => exitEditing(true)}
         onKeyDown={handleKeyDown}
         onDoubleClick={startEditing}
@@ -141,9 +166,9 @@ export default function TextNoteNode({ id, data, selected }: Props) {
           outline: 'none',
           lineHeight: 1.4,
           padding: '8px 12px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          display: 'block',
+          boxSizing: 'border-box',
+          minWidth: 0,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
           overflowWrap: 'anywhere',
