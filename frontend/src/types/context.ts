@@ -19,7 +19,7 @@ export interface ConversationContext {
   operations: OperationHistory[];
   
   // 当前状态
-  currentMode: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat' | 'video_generate';
+  currentMode: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat' | 'video_generate' | 'generateVideo';
   activeImageId?: string;
   
   // 🖼️ 图像缓存状态
@@ -47,7 +47,7 @@ export interface ConversationContext {
 // 操作历史记录
 export interface OperationHistory {
   id: string;
-  type: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat' | 'video_generate';
+  type: 'generate' | 'edit' | 'blend' | 'analyze' | 'chat' | 'video_generate' | 'generateVideo';
   timestamp: Date;
   input: string;
   output?: string;
@@ -92,6 +92,13 @@ export interface SerializedChatMessage {
   imageUrl?: string;
   provider?: ChatMessage['provider'];
   metadata?: Record<string, unknown>;
+  videoUrl?: string;
+  videoThumbnail?: string;
+  videoDuration?: number;
+  videoReferencedUrls?: string[];
+  videoTaskId?: string | null;
+  videoStatus?: string | null;
+  videoSourceUrl?: string;
 }
 
 export interface SerializedOperationHistory {

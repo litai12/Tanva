@@ -43,7 +43,8 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
   { value: 'generate', label: 'Generate', description: '始终调用生图功能' },
   { value: 'edit', label: 'Edit', description: '使用图生图编辑功能' },
   { value: 'blend', label: 'Blend', description: '多图融合生成新画面' },
-  { value: 'analyze', label: 'Analysis', description: '进行图像理解与分析' }
+  { value: 'analyze', label: 'Analysis', description: '进行图像理解与分析' },
+  { value: 'video', label: 'Video', description: '生成动态视频内容' }
 ];
 
 const PROVIDER_MODE_OPTIONS: Partial<Record<SupportedAIProvider, ManualModeOption[]>> = {
@@ -794,11 +795,13 @@ const AIChatDialog: React.FC = () => {
         return "描述你想要做什么，AI会智能判断是编辑还是分析...";
       case 'analyze':
         return "询问关于这张图片的问题，或留空进行全面分析...";
+      case 'video':
+        return sourceImageForEditing ? "描述要生成的视频效果，AI将基于上传的图像生成视频..." : "描述要生成的视频场景、风格和动作...";
       default:
         if (manualAIMode === 'generate') {
           return "描述你想生成的图像场景、风格或细节...";
         }
-        return "输入任何内容，AI会智能判断是生图、对话还是其他操作...";
+        return "输入任何内容，AI会智能判断是生图、对话或视频...";
     }
   };
 
@@ -1533,14 +1536,23 @@ const AIChatDialog: React.FC = () => {
                   const hasReferenceImages =
                     Boolean(message.sourceImageData) ||
                     Boolean(message.sourceImagesData && message.sourceImagesData.length > 0);
+                  // 视频相关变量
+                  const expectsVideoOutput = Boolean(message.expectsVideoOutput);
+                  const hasGeneratedVideo = Boolean(message.videoUrl);
                   const isAiMessage = message.type === 'ai';
                   const isImageTaskInFlight = Boolean(
                     isAiMessage &&
                     generationStatus?.isGenerating &&
                     (expectsImageOutput || hasGeneratedImage || hasReferenceImages)
                   );
+                  const isVideoTaskInFlight = Boolean(
+                    isAiMessage &&
+                    generationStatus?.isGenerating &&
+                    (expectsVideoOutput || hasGeneratedVideo)
+                  );
                   const showImageLayout = hasGeneratedImage || hasReferenceImages || expectsImageOutput || isImageTaskInFlight;
-                  const shouldUseVerticalLayout = isAiMessage && (hasGeneratedImage || expectsImageOutput || isImageTaskInFlight);
+                  const showVideoLayout = hasGeneratedVideo || expectsVideoOutput || isVideoTaskInFlight;
+                  const shouldUseVerticalLayout = isAiMessage && ((hasGeneratedImage || expectsImageOutput || isImageTaskInFlight) || (hasGeneratedVideo || expectsVideoOutput || isVideoTaskInFlight));
                   const aiHeader = isAiMessage ? (
                     <div className="flex items-center gap-2 mb-2">
                       <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
@@ -1619,8 +1631,150 @@ const AIChatDialog: React.FC = () => {
                       </div>
                     )}
 
-                    {/* 如果有图像、源图像或正在等待图像，使用特殊布局 */}
-                    {showImageLayout ? (
+                    {/* 如果有视频或正在生成视频，显示视频 */}
+                    {showVideoLayout ? (
+                      isAiMessage ? (
+                        <>
+                          {aiHeader}
+                          {aiTextContent}
+                          <div className="mt-3">
+                            <div className="inline-block rounded-lg p-3 bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass">
+                              <div className="flex flex-col items-center gap-3">
+                                {message.videoUrl ? (
+                                  <>
+                                    <video
+                                      controls
+                                      className="w-full max-w-md rounded-lg border shadow-sm"
+                                      style={{ maxHeight: '400px' }}
+                                      poster={message.videoThumbnail}
+                                    >
+                                      <source src={message.videoUrl} type="video/mp4" />
+                                      您的浏览器不支持 HTML5 video 标签
+                                    </video>
+                                    <div className="flex gap-2 text-xs flex-wrap">
+                                      {/* 在浏览器中打开（最可靠） */}
+                                      <a
+                                        href={message.videoUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors flex items-center gap-1"
+                                      >
+                                        🌐 在浏览器打开
+                                      </a>
+
+                                      {/* 复制链接到剪贴板 */}
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            await navigator.clipboard.writeText(message.videoUrl!);
+                                            console.log('✅ 视频链接已复制到剪贴板');
+                                            alert('✅ 视频链接已复制到剪贴板！');
+                                          } catch (err) {
+                                            console.error('❌ 复制失败:', err);
+                                            alert('复制失败，请手动复制链接');
+                                          }
+                                        }}
+                                        className="px-3 py-1.5 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors flex items-center gap-1"
+                                      >
+                                        🔗 复制链接
+                                      </button>
+
+                                      {/* 直接下载视频 */}
+                                      <button
+                                        onClick={async () => {
+                                          try {
+                                            console.log('📥 开始下载视频:', message.videoUrl);
+
+                                            // 方案 1: 尝试直接 fetch 下载
+                                            try {
+                                              const response = await fetch(message.videoUrl!, {
+                                                mode: 'cors',
+                                                credentials: 'omit'
+                                              });
+
+                                              if (response.ok) {
+                                                const blob = await response.blob();
+                                                const downloadUrl = URL.createObjectURL(blob);
+                                                const link = document.createElement('a');
+
+                                                link.href = downloadUrl;
+                                                link.download = `video-${new Date().toISOString().split('T')[0]}.mp4`;
+
+                                                document.body.appendChild(link);
+                                                link.click();
+                                                document.body.removeChild(link);
+
+                                                // 释放内存
+                                                setTimeout(() => {
+                                                  URL.revokeObjectURL(downloadUrl);
+                                                }, 100);
+
+                                                console.log('✅ 视频下载成功');
+                                                alert('✅ 视频下载成功！');
+                                                return;
+                                              }
+                                            } catch (fetchError) {
+                                              console.warn('⚠️ Fetch 下载失败，使用降级方案...', fetchError);
+                                            }
+
+                                            // 降级方案: 在新标签页打开（让浏览器处理下载）
+                                            console.log('⚠️ 使用浏览器默认下载');
+                                            const link = document.createElement('a');
+                                            link.href = message.videoUrl!;
+                                            link.download = `video-${new Date().toISOString().split('T')[0]}.mp4`;
+                                            document.body.appendChild(link);
+                                            link.click();
+                                            document.body.removeChild(link);
+
+                                          } catch (error) {
+                                            console.error('❌ 视频下载失败:', error);
+                                            alert(
+                                              '❌ 直接下载失败，已复制链接到剪贴板。\n\n' +
+                                              '您可以：\n' +
+                                              '1. 手动右键点击视频 → 保存视频\n' +
+                                              '2. 使用"在浏览器打开"按钮\n' +
+                                              '3. 使用链接进行下载'
+                                            );
+                                            // 尝试复制链接作为备用
+                                            try {
+                                              await navigator.clipboard.writeText(message.videoUrl!);
+                                            } catch {}
+                                          }
+                                        }}
+                                        className="px-3 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors flex items-center gap-1"
+                                      >
+                                        📥 下载视频
+                                      </button>
+                                    </div>
+                                    {(message.videoStatus || message.videoTaskId) && (
+                                      <div className="text-[11px] text-gray-500 mt-1 w-full">
+                                        {message.videoStatus && <span>状态: {message.videoStatus}</span>}
+                                        {message.videoStatus && message.videoTaskId && <span className="mx-1">·</span>}
+                                        {message.videoTaskId && <span>任务ID: {message.videoTaskId}</span>}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="relative w-48 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse" />
+                                    <div className="relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600">
+                                      <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                                      <span className="font-medium">
+                                        {generationStatus?.stage || '正在生成视频'}
+                                      </span>
+                                      {typeof generationStatus?.progress === 'number' && (
+                                        <span className="text-[11px] text-blue-500">{generationStatus.progress}%</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      ) : null
+                    ) : /* 如果有图像、源图像或正在等待图像，使用特殊布局 */
+                    showImageLayout ? (
                       isAiMessage ? (
                         <>
                           {aiHeader}

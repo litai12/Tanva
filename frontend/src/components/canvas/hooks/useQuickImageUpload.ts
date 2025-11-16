@@ -29,14 +29,24 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     const [triggerQuickUpload, setTriggerQuickUpload] = useState(false);
 
     // 🔥 追踪正在加载中的图片（防止连续生成时位置重叠）
-    const pendingImagesRef = useRef<Array<{
+    type PendingImageEntry = {
         id: string;
         operationType?: string;
         expectedWidth: number;
         expectedHeight: number;
         x: number;
         y: number;
-    }>>([]);
+        videoInfo?: {
+            videoUrl: string;
+            sourceUrl?: string;
+            thumbnailUrl?: string;
+            prompt?: string;
+            durationSeconds?: number;
+            sid?: string;
+        };
+    };
+
+    const pendingImagesRef = useRef<Array<PendingImageEntry>>([]);
 
     // ========== 智能排版工具函数 ==========
     
@@ -287,7 +297,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         smartPosition?: { x: number; y: number },
         operationType?: string,
         sourceImageId?: string,
-        sourceImages?: string[]
+        sourceImages?: string[],
+        extraOptions?: {
+            videoInfo?: PendingImageEntry['videoInfo'];
+        }
     ) => {
         let asset: StoredImageAsset | null = null;
         if (typeof imagePayload === 'string') {
@@ -338,16 +351,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const expectedSize = 768;
             const pendingOperationType = operationType || 'manual';
             let targetPosition: paper.Point;
-            let pendingEntry: typeof pendingImagesRef.current[number] | null = null;
+            let pendingEntry: PendingImageEntry | null = null;
 
             const registerPending = (initialPoint: paper.Point | null) => {
-                const entry = {
+                const entry: PendingImageEntry = {
                     id: imageId,
                     operationType: pendingOperationType,
                     expectedWidth: expectedSize,
                     expectedHeight: expectedSize,
                     x: initialPoint?.x ?? 0,
-                    y: initialPoint?.y ?? 0
+                    y: initialPoint?.y ?? 0,
+                    videoInfo: extraOptions?.videoInfo
                 };
                 pendingImagesRef.current.push(entry);
                 console.log('🔄 添加待加载图片到预测队列:', imageId, initialPoint
@@ -539,7 +553,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     aspectRatio: originalWidth / originalHeight,
                     operationType: operationType || 'manual',
                     sourceImageId: sourceImageId,
-                    sourceImages: sourceImages
+                    sourceImages: sourceImages,
+                    videoInfo: extraOptions?.videoInfo
                 };
 
                 // 创建选择框（默认隐藏，点击时显示）

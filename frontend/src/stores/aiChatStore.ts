@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { aiImageService } from '@/services/aiImageService';
+import sora2Service from '@/services/sora2Service';
 import {
   generateImageViaAPI,
   editImageViaAPI,
@@ -65,9 +66,22 @@ export interface ChatMessage {
    * 是否预计会返回图像结果（用于控制 UI 的图像占位符）
    */
   expectsImageOutput?: boolean;
+  /**
+   * 是否预计会返回视频结果（用于控制 UI 的视频占位符）
+   */
+  expectsVideoOutput?: boolean;
   imageData?: string;
   imageRemoteUrl?: string;
   thumbnail?: string;
+  // 视频相关字段
+  videoUrl?: string;
+  videoThumbnail?: string;
+  videoDuration?: number;
+  videoReferencedUrls?: string[];
+  videoTaskId?: string | null;
+  videoStatus?: string | null;
+  videoSourceUrl?: string;
+  videoMetadata?: Record<string, any>;
   sourceImageData?: string;
   sourceImagesData?: string[];
   webSearchResult?: unknown;
@@ -115,14 +129,15 @@ const toISOString = (value: Date | string | number | null | undefined): string =
 
 const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) ?? (value as T);
 
-export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze';
-type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse';
+export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze' | 'video';
+type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse' | 'generateVideo';
 
 type AIProviderType = SupportedAIProvider;
 
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const BANANA_TEXT_MODEL = 'banana-gemini-2.5-flash';
+const SORA2_VIDEO_MODEL = 'sora-2-reverse';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 const RUNNINGHUB_PRIMARY_NODE_ID =
@@ -131,6 +146,190 @@ const RUNNINGHUB_REFERENCE_NODE_ID =
   import.meta.env?.VITE_RUNNINGHUB_REFERENCE_NODE_ID ?? '158';
 const RUNNINGHUB_WEBAPP_ID = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID;
 const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
+const SORA2_API_KEY = import.meta.env?.VITE_SORA2_API_KEY ?? '';
+
+const SORA2_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
+const SORA2_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+const SORA2_ASYNC_HOST_HINTS = ['asyncdata.', 'asyncndata.'];
+const SORA2_MAX_FOLLOW_DEPTH = 2;
+const SORA2_FETCH_TIMEOUT_MS = 8000;
+
+type Sora2ResolvedMedia = {
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  referencedUrls: string[];
+  taskInfo?: Record<string, any> | null;
+  taskId?: string;
+  status?: string;
+  errorMessage?: string;
+};
+
+type VideoPosterBuildResult = {
+  dataUrl: string;
+  origin: 'thumbnail' | 'videoFrame' | 'placeholder';
+  sourceImageUrl?: string;
+};
+
+const tryParseJson = (raw: string): any | null => {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeUrlCandidate = (value: string): string => {
+  return value
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[,.;)\]\s]+$/g, '');
+};
+
+const isLikelyVideoUrl = (url: string): boolean => {
+  const lower = url.toLowerCase();
+  return SORA2_VIDEO_EXTENSIONS.some((ext) => lower.includes(ext));
+};
+
+const isLikelyImageUrl = (url: string): boolean => {
+  const lower = url.toLowerCase();
+  return SORA2_IMAGE_EXTENSIONS.some((ext) => lower.includes(ext));
+};
+
+const isAsyncTaskUrl = (url: string): boolean =>
+  SORA2_ASYNC_HOST_HINTS.some((mark) => url.includes(mark));
+
+const extractUrlsFromText = (text: string): string[] => {
+  const matches = text.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+  return matches.map(normalizeUrlCandidate);
+};
+
+const collectUrlsFromObject = (value: unknown, bucket: Set<string>) => {
+  if (!value) return;
+  if (typeof value === 'string') {
+    if (value.startsWith('http')) {
+      bucket.add(normalizeUrlCandidate(value));
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectUrlsFromObject(item, bucket));
+    return;
+  }
+  if (typeof value === 'object') {
+    Object.values(value as Record<string, unknown>).forEach((item) => collectUrlsFromObject(item, bucket));
+  }
+};
+
+const pickFirstMatchingUrl = (urls: Iterable<string>, matcher: (url: string) => boolean): string | undefined => {
+  for (const url of urls) {
+    if (matcher(url)) {
+      return url;
+    }
+  }
+  return undefined;
+};
+
+const safeFetchTextWithTimeout = async (url: string, timeoutMs: number = SORA2_FETCH_TIMEOUT_MS): Promise<string | null> => {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!response.ok) {
+      console.warn('⚠️ Sora2 任务跟进请求失败:', { url, status: response.status });
+      return null;
+    }
+    const text = await response.text();
+    return text;
+  } catch (error) {
+    console.warn('⚠️ 无法访问 Sora2 任务地址:', url, error);
+    return null;
+  }
+};
+
+const resolveSora2Response = async (rawContent: string): Promise<Sora2ResolvedMedia> => {
+  const referencedUrls = new Set<string>();
+  const visitedTaskUrls = new Set<string>();
+  let videoUrl: string | undefined;
+  let thumbnailUrl: string | undefined;
+  let taskInfo: Record<string, any> | null = null;
+  let status: string | undefined;
+  let taskId: string | undefined;
+  let errorMessage: string | undefined;
+
+  type QueueEntry = { type: 'text' | 'url'; payload: string; depth: number };
+  const queue: QueueEntry[] = [{ type: 'text', payload: rawContent, depth: 0 }];
+
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (current.depth > SORA2_MAX_FOLLOW_DEPTH) {
+      continue;
+    }
+
+    if (current.type === 'url') {
+      if (visitedTaskUrls.has(current.payload)) continue;
+      visitedTaskUrls.add(current.payload);
+      const payload = await safeFetchTextWithTimeout(current.payload);
+      if (payload) {
+        queue.push({ type: 'text', payload, depth: current.depth + 1 });
+      }
+      continue;
+    }
+
+    const parsed = tryParseJson(current.payload);
+    if (parsed) {
+      taskInfo = { ...(taskInfo || {}), ...parsed };
+      if (!status && typeof parsed.status === 'string') {
+        status = parsed.status;
+      }
+      if (!taskId && typeof parsed.id === 'string') {
+        taskId = parsed.id;
+      }
+      if (!errorMessage) {
+        errorMessage =
+          typeof parsed.error?.message === 'string'
+            ? parsed.error.message
+            : typeof parsed.message === 'string'
+              ? parsed.message
+              : undefined;
+      }
+      collectUrlsFromObject(parsed, referencedUrls);
+    } else {
+      extractUrlsFromText(current.payload).forEach((url) => referencedUrls.add(url));
+    }
+
+    if (!videoUrl) {
+      videoUrl = pickFirstMatchingUrl(referencedUrls, isLikelyVideoUrl);
+    }
+    if (!thumbnailUrl) {
+      thumbnailUrl = pickFirstMatchingUrl(referencedUrls, isLikelyImageUrl);
+    }
+
+    if (!videoUrl) {
+      const taskCandidates = Array.from(referencedUrls).filter(
+        (url) => isAsyncTaskUrl(url) && !visitedTaskUrls.has(url)
+      );
+      taskCandidates.slice(0, 2).forEach((url) => {
+        queue.push({ type: 'url', payload: url, depth: current.depth + 1 });
+      });
+    }
+  }
+
+  return {
+    videoUrl,
+    thumbnailUrl,
+    referencedUrls: Array.from(referencedUrls),
+    taskInfo,
+    status,
+    taskId,
+    errorMessage,
+  };
+};
 
 export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === 'runninghub') {
@@ -208,6 +407,355 @@ const logProcessStep = (metrics: ProcessMetrics | undefined, label: string) => {
 
 const ensureDataUrl = (imageData: string): string =>
   imageData.startsWith('data:image') ? imageData : `data:image/png;base64,${imageData}`;
+
+// ==================== Sora2 视频生成相关函数 ====================
+
+/**
+ * 初始化 Sora2 服务（只执行一次）
+ */
+let sora2Initialized = false;
+function initializeSora2Service() {
+  if (!sora2Initialized && SORA2_API_KEY) {
+    sora2Service.setApiKey(SORA2_API_KEY);
+    sora2Initialized = true;
+    console.log('✅ Sora2 服务已初始化');
+  }
+}
+
+/**
+ * 生成视频 - 支持文本提示词和参考图像
+ * @param prompt 视频描述提示词
+ * @param referenceImageUrl 可选的参考图像 URL（来自 OSS 上传）
+ * @param onProgress 进度回调函数
+ */
+async function generateVideoResponse(
+  prompt: string,
+  referenceImageUrl?: string | null,
+  onProgress?: (stage: string, progress: number) => void
+): Promise<{
+  videoUrl: string;
+  content: string;
+  thumbnailUrl?: string;
+  referencedUrls: string[];
+  status?: string;
+  taskId?: string;
+  taskInfo?: Record<string, any> | null;
+}> {
+  initializeSora2Service();
+
+  if (!SORA2_API_KEY) {
+    throw new Error('Sora2 API Key 未配置，无法生成视频');
+  }
+
+  onProgress?.('初始化 Sora2 视频生成', 10);
+
+  try {
+    onProgress?.('发送视频生成请求', 30);
+    console.log('🎬 开始 Sora2 视频生成', {
+      prompt: prompt.substring(0, 50) + '...',
+      hasReference: !!referenceImageUrl
+    });
+
+    const result = await sora2Service.generateVideoStream(
+      prompt,
+      referenceImageUrl || undefined,
+      (chunk) => {
+        // 流式数据回调
+        console.log('📹 视频生成进度:', chunk.substring(0, 50) + '...');
+      }
+    );
+
+    if (!result.success || !result.data?.fullContent) {
+      throw new Error(result.error?.message || '视频生成失败');
+    }
+
+    onProgress?.('解析视频响应', 80);
+
+    const rawContent = result.data.fullContent.trim();
+    console.log('📄 Sora2 原始响应:', rawContent);
+
+    const resolved = await resolveSora2Response(rawContent);
+
+    if (resolved.status && ['failed', 'error', 'blocked'].includes(resolved.status)) {
+      const errorType = resolved.taskInfo?.error?.type || resolved.status;
+      const message =
+        resolved.taskInfo?.error?.message ||
+        resolved.errorMessage ||
+        'Sora2 返回失败状态';
+      throw new Error(`Sora2 生成失败 [${errorType}]: ${message}`);
+    }
+
+    if (resolved.status && ['queued', 'processing'].includes(resolved.status)) {
+      throw new Error(
+        `任务正在处理中（ID: ${resolved.taskId || 'unknown'}）\n` +
+        `当前状态: ${resolved.status}\n` +
+        `请稍后查看数据预览链接或重试`
+      );
+    }
+
+    const videoUrl = resolved.videoUrl;
+
+    if (!videoUrl) {
+      console.error('❌ 未找到视频 URL，原始响应:', rawContent);
+      const urlPreview = resolved.referencedUrls.slice(0, 5).map((url) => `- ${url}`).join('\n') || '无';
+      throw new Error(
+        `API 未返回有效的视频 URL\n\n` +
+        `响应内容：\n${rawContent.substring(0, 500)}${rawContent.length > 500 ? '\n...(截断)' : ''}\n\n` +
+        `已解析链接：\n${urlPreview}`
+      );
+    }
+
+    onProgress?.('视频生成完成', 100);
+
+    console.log('✅ Sora2 视频生成成功', {
+      videoUrl,
+      isHttpUrl: videoUrl.startsWith('http'),
+      thumbnailUrl: resolved.thumbnailUrl,
+      referencedUrls: resolved.referencedUrls
+    });
+
+    return {
+      videoUrl,
+      content: resolved.taskInfo
+        ? `视频已生成（任务 ID: ${resolved.taskId || resolved.taskInfo?.id || 'unknown'}）`
+        : `视频已生成，可在下方预览。`,
+      thumbnailUrl: resolved.thumbnailUrl,
+      referencedUrls: resolved.referencedUrls,
+      status: resolved.status,
+      taskId: resolved.taskId,
+      taskInfo: resolved.taskInfo
+    };
+
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : '未知错误';
+    console.error('❌ Sora2 视频生成失败:', errorMsg);
+    throw new Error(`视频生成失败: ${errorMsg}`);
+  }
+}
+
+/**
+ * 智能识别是否为视频生成意图
+ */
+function detectVideoIntent(input: string): boolean {
+  const videoKeywords = ['视频', 'video', '动画', 'animation', '动态', '运动', 'motion', '生成视频', '制作视频'];
+  return videoKeywords.some(kw =>
+    input.toLowerCase().includes(kw.toLowerCase())
+  );
+}
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(reader.error || new Error('读取 Blob 失败'));
+    reader.readAsDataURL(blob);
+  });
+
+const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SORA2_FETCH_TIMEOUT_MS);
+    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
+    clearTimeout(timer);
+    if (!response.ok) {
+      console.warn('⚠️ 下载缩略图失败:', url, response.status);
+      return null;
+    }
+    const blob = await response.blob();
+    return await blobToDataUrl(blob);
+  } catch (error) {
+    console.warn('⚠️ 无法下载缩略图:', url, error);
+    return null;
+  }
+};
+
+const fetchVideoBlob = async (url: string): Promise<Blob | null> => {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(SORA2_FETCH_TIMEOUT_MS, 12000));
+    const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
+    clearTimeout(timer);
+    if (!response.ok) {
+      console.warn('⚠️ 下载视频失败:', url, response.status);
+      return null;
+    }
+    return await response.blob();
+  } catch (error) {
+    console.warn('⚠️ 无法下载视频:', url, error);
+    return null;
+  }
+};
+
+const captureVideoPosterFromBlob = async (blob: Blob): Promise<string | null> => {
+  if (typeof document === 'undefined') return null;
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    const objectUrl = URL.createObjectURL(blob);
+    let resolved = false;
+
+    const cleanup = () => {
+      if (resolved) return;
+      resolved = true;
+      URL.revokeObjectURL(objectUrl);
+    };
+
+    const fail = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    video.addEventListener('error', fail);
+    video.addEventListener('loadeddata', () => {
+      try {
+        const seekTime = Math.min(0.2, (video.duration || 1) * 0.1);
+        const handleSeeked = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 960;
+            canvas.height = video.videoHeight || 540;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              fail();
+              return;
+            }
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/png');
+            cleanup();
+            resolve(dataUrl);
+          } catch (error) {
+            console.warn('⚠️ 无法捕获视频帧:', error);
+            fail();
+          }
+        };
+        if (seekTime > 0) {
+          video.currentTime = seekTime;
+          video.addEventListener('seeked', handleSeeked, { once: true });
+        } else {
+          handleSeeked();
+        }
+      } catch (error) {
+        console.warn('⚠️ 设置视频截帧失败:', error);
+        fail();
+      }
+    }, { once: true });
+
+    video.src = objectUrl;
+  });
+};
+
+const buildPlaceholderPoster = (prompt: string, videoUrl: string): string | null => {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 960;
+  canvas.height = 540;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, '#0f172a');
+  gradient.addColorStop(1, '#1e293b');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(40, 40, canvas.width - 80, canvas.height - 80);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 48px "Inter", sans-serif';
+  ctx.fillText('🎬 视频占位', 80, 120);
+
+  ctx.font = '24px "Inter", sans-serif';
+  const maxWidth = canvas.width - 160;
+  const words = `${prompt}\n${videoUrl}`.split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = '';
+  words.forEach((word) => {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth) {
+      if (currentLine) lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  });
+  if (currentLine) lines.push(currentLine);
+
+  ctx.font = '24px "Inter", sans-serif';
+  lines.slice(0, 5).forEach((line, index) => {
+    ctx.fillText(line, 80, 180 + index * 36);
+  });
+
+  return canvas.toDataURL('image/png');
+};
+
+const buildVideoPoster = async (params: { prompt: string; videoUrl: string; thumbnailUrl?: string }): Promise<VideoPosterBuildResult | null> => {
+  if (params.thumbnailUrl) {
+    const downloaded = await downloadUrlAsDataUrl(params.thumbnailUrl);
+    if (downloaded) {
+      return { dataUrl: downloaded, origin: 'thumbnail', sourceImageUrl: params.thumbnailUrl };
+    }
+  }
+
+  const blob = await fetchVideoBlob(params.videoUrl);
+  if (blob) {
+    const captured = await captureVideoPosterFromBlob(blob);
+    if (captured) {
+      return { dataUrl: captured, origin: 'videoFrame', sourceImageUrl: params.videoUrl };
+    }
+  }
+
+  const placeholder = buildPlaceholderPoster(params.prompt, params.videoUrl);
+  if (!placeholder) return null;
+  return { dataUrl: placeholder, origin: 'placeholder' };
+};
+
+const computeVideoSmartPosition = (): { x: number; y: number } | undefined => {
+  try {
+    const cached = contextManager.getCachedImage();
+    if (cached?.bounds) {
+      const offset = useUIStore.getState().smartPlacementOffset || 778;
+      return {
+        x: cached.bounds.x + cached.bounds.width / 2,
+        y: cached.bounds.y + cached.bounds.height / 2 + offset
+      };
+    }
+  } catch (error) {
+    console.warn('⚠️ 计算视频智能位置失败:', error);
+  }
+  return undefined;
+};
+
+const autoPlaceVideoOnCanvas = async (params: { prompt: string; videoUrl: string; thumbnailUrl?: string }) => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const poster = await buildVideoPoster(params);
+    if (!poster) return null;
+    const smartPosition = computeVideoSmartPosition();
+    window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+      detail: {
+        imageData: poster.dataUrl,
+        fileName: `sora-video-${Date.now()}.png`,
+        operationType: 'video',
+        smartPosition,
+        videoInfo: {
+          videoUrl: params.videoUrl,
+          sourceUrl: params.videoUrl,
+          thumbnailUrl: poster.sourceImageUrl ?? params.thumbnailUrl,
+          prompt: params.prompt
+        }
+      }
+    }));
+    return poster.dataUrl;
+  } catch (error) {
+    console.warn('⚠️ 自动投放视频缩略图失败:', error);
+    return null;
+  }
+};
+
+// ============================================================
 
 async function buildRunningHubProviderOptions(params: {
   primaryImage: string;
@@ -378,6 +926,13 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
               stage: message.generationStatus.stage,
             }
           : undefined,
+        videoUrl: message.videoUrl,
+        videoSourceUrl: message.videoSourceUrl,
+        videoThumbnail: message.videoThumbnail,
+        videoDuration: message.videoDuration,
+        videoReferencedUrls: message.videoReferencedUrls,
+        videoTaskId: message.videoTaskId ?? undefined,
+        videoStatus: message.videoStatus ?? undefined,
       };
 
       return serialized;
@@ -446,6 +1001,13 @@ const deserializeConversation = (data: SerializedConversationContext): Conversat
             stage: message.generationStatus.stage,
           }
         : undefined,
+      videoUrl: message.videoUrl,
+      videoSourceUrl: message.videoSourceUrl,
+      videoThumbnail: message.videoThumbnail,
+      videoDuration: message.videoDuration,
+      videoReferencedUrls: message.videoReferencedUrls,
+      videoTaskId: message.videoTaskId ?? null,
+      videoStatus: message.videoStatus ?? null,
     };
   });
 
@@ -585,6 +1147,9 @@ interface AIChatState {
   // 文本对话功能
   generateTextResponse: (prompt: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
 
+  // 视频生成功能
+  generateVideo: (prompt: string, referenceImage?: string | null, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
+
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
   
@@ -592,7 +1157,7 @@ interface AIChatState {
   executeProcessFlow: (input: string, isRetry?: boolean) => Promise<void>;
 
   // 智能模式检测
-  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'text';
+  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'text' | 'video';
 
   // 配置管理
   toggleAutoDownload: () => void;
@@ -2522,6 +3087,196 @@ export const useAIChatStore = create<AIChatState>()(
     }
   },
 
+  // 🎬 视频生成方法
+  generateVideo: async (
+    prompt: string,
+    referenceImage?: string | null,
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'generateVideo entered');
+
+    const override = options?.override;
+    let aiMessageId: string | undefined;
+
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在生成视频...',
+        expectsVideoOutput: true,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备视频生成'
+        }
+      }));
+    } else {
+      // 添加用户消息
+      get().addMessage({
+        type: 'user',
+        content: prompt
+      });
+
+      // 🔥 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在生成视频...',
+        expectsVideoOutput: true,
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备视频生成'
+        },
+        provider: get().aiProvider
+      };
+
+      const storedPlaceholder = get().addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('🎬 开始生成视频，消息ID:', aiMessageId);
+    logProcessStep(metrics, 'generateVideo message prepared');
+
+    try {
+      // 处理参考图像上传（如果有）
+      let referenceImageUrl: string | undefined;
+      if (referenceImage) {
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: true,
+          progress: 15,
+          error: null,
+          stage: '上传参考图像'
+        });
+
+        const projectId = useProjectContentStore.getState().projectId;
+        const uploadedUrl = await uploadImageToOSS(ensureDataUrl(referenceImage), projectId);
+
+        if (!uploadedUrl) {
+          console.warn('⚠️ 参考图像上传失败，继续生成视频');
+        } else {
+          referenceImageUrl = uploadedUrl;
+        }
+      }
+
+      // 🔥 使用消息级别的进度更新
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 30,
+        error: null,
+        stage: '发送请求到 Sora2'
+      });
+
+      // 调用视频生成函数
+      logProcessStep(metrics, 'generateVideo calling Sora2');
+      const videoResult = await generateVideoResponse(
+        prompt,
+        referenceImageUrl,
+        (stage, progress) => {
+          get().updateMessageStatus(aiMessageId!, {
+            isGenerating: true,
+            progress: Math.min(95, progress),
+            error: null,
+            stage
+          });
+        }
+      );
+
+      logProcessStep(metrics, 'generateVideo API response received');
+
+      // 更新消息，包含视频信息
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        type: 'ai',
+        content: videoResult.content,
+        videoUrl: videoResult.videoUrl,
+        videoSourceUrl: videoResult.videoUrl,
+        videoReferencedUrls: videoResult.referencedUrls,
+        videoTaskId: videoResult.taskId ?? null,
+        videoStatus: videoResult.status ?? null,
+        videoThumbnail: msg.videoThumbnail || videoResult.thumbnailUrl,
+        videoMetadata: {
+          ...(msg.videoMetadata || {}),
+          taskInfo: videoResult.taskInfo,
+          referencedUrls: videoResult.referencedUrls
+        },
+        expectsVideoOutput: false,
+        generationStatus: {
+          isGenerating: false,
+          progress: 100,
+          error: null,
+          stage: '完成'
+        }
+      }));
+
+      console.log('✅ 视频生成完成');
+      logProcessStep(metrics, 'generateVideo finished');
+
+      // 自动尝试将视频缩略图放置到画布
+      void (async () => {
+        const placedPoster = await autoPlaceVideoOnCanvas({
+          prompt,
+          videoUrl: videoResult.videoUrl,
+          thumbnailUrl: videoResult.thumbnailUrl
+        });
+        if (placedPoster && aiMessageId) {
+          get().updateMessage(aiMessageId, (msg) => ({
+            ...msg,
+            videoThumbnail: msg.videoThumbnail || placedPoster
+          }));
+        }
+      })();
+
+      // 🧠 记录到上下文
+      contextManager.recordOperation({
+        type: 'generateVideo',
+        input: prompt,
+        output: videoResult.videoUrl,
+        success: true,
+        metadata: {
+          referencedUrls: videoResult.referencedUrls,
+          taskId: videoResult.taskId,
+          status: videoResult.status
+        }
+      });
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '视频生成失败';
+      console.error('❌ 视频生成异常:', error);
+
+      // 更新消息状态为错误
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: `视频生成失败: ${errorMessage}`,
+        expectsVideoOutput: false,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage,
+          stage: '已终止'
+        }
+      }));
+
+      // 🧠 记录失败
+      contextManager.recordOperation({
+        type: 'generateVideo',
+        input: prompt,
+        output: undefined,
+        success: false
+      });
+
+      logProcessStep(metrics, 'generateVideo failed');
+    }
+  },
+
   // 🔄 核心处理流程 - 可重试的执行逻辑
   executeProcessFlow: async (input: string, isRetry: boolean = false) => {
     const state = get();
@@ -2591,7 +3346,7 @@ export const useAIChatStore = create<AIChatState>()(
       hasImages: totalImageCount > 0,
       imageCount: explicitImageCount, // 传递显式图片数量，不包含缓存
       hasCachedImage: !!cachedImage,  // 单独标记是否有缓存图片
-      availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse'],
+      availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse', 'generateVideo'],
       aiProvider: state.aiProvider,
       context: toolSelectionContext
     };
@@ -2618,7 +3373,8 @@ export const useAIChatStore = create<AIChatState>()(
       generate: 'generateImage',
       edit: 'editImage',
       blend: 'blendImages',
-      analyze: 'analyzeImage'
+      analyze: 'analyzeImage',
+      video: 'generateVideo'
     };
 
     let selectedTool: AvailableTool | null = null;
@@ -2628,21 +3384,27 @@ export const useAIChatStore = create<AIChatState>()(
       selectedTool = manualToolMap[manualMode];
       console.log('🎛️ 手动模式直接选择工具:', manualMode, '→', selectedTool);
     } else {
-      logProcessStep(metrics, 'tool selection start');
-      const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
-      logProcessStep(metrics, 'tool selection completed');
+      // 🎬 在 Auto 模式下智能检测视频意图
+      if (state.aiProvider === 'banana' && detectVideoIntent(input)) {
+        selectedTool = 'generateVideo';
+        console.log('🧠 智能检测到视频生成意图，自动选择 generateVideo 工具');
+      } else {
+        logProcessStep(metrics, 'tool selection start');
+        const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+        logProcessStep(metrics, 'tool selection completed');
 
-      if (!toolSelectionResult.success || !toolSelectionResult.data) {
-        const errorMsg = toolSelectionResult.error?.message || '工具选择失败';
-        console.error('❌ 工具选择失败:', errorMsg);
-        throw new Error(errorMsg);
+        if (!toolSelectionResult.success || !toolSelectionResult.data) {
+          const errorMsg = toolSelectionResult.error?.message || '工具选择失败';
+          console.error('❌ 工具选择失败:', errorMsg);
+          throw new Error(errorMsg);
+        }
+
+        selectedTool = toolSelectionResult.data.selectedTool as AvailableTool | null;
+        parameters = { prompt: (toolSelectionResult.data.parameters?.prompt || input) };
+
+        console.log('🎯 AI选择工具:', selectedTool);
+        logProcessStep(metrics, `tool decided: ${selectedTool ?? 'none'}`);
       }
-
-      selectedTool = toolSelectionResult.data.selectedTool as AvailableTool | null;
-      parameters = { prompt: (toolSelectionResult.data.parameters?.prompt || input) };
-
-      console.log('🎯 AI选择工具:', selectedTool);
-      logProcessStep(metrics, `tool decided: ${selectedTool ?? 'none'}`);
     }
 
     if (!selectedTool) {
@@ -2754,6 +3516,26 @@ export const useAIChatStore = create<AIChatState>()(
             console.log('✅ generateTextResponse 执行完成，返回值:', result);
           } catch (error) {
             console.error('❌ generateTextResponse 执行失败:', error);
+            if (error instanceof Error) {
+              console.error('❌ 错误堆栈:', error.stack);
+            }
+            throw error;
+          }
+          break;
+
+        case 'generateVideo':
+          console.log('🎬 执行视频生成，参数:', parameters.prompt);
+          try {
+            logProcessStep(metrics, 'invoking generateVideo');
+            await store.generateVideo(parameters.prompt, state.sourceImageForEditing, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'generateVideo finished');
+            console.log('✅ generateVideo 执行完成');
+            // 清理源图像
+            if (state.sourceImageForEditing) {
+              store.setSourceImageForEditing(null);
+            }
+          } catch (error) {
+            console.error('❌ generateVideo 执行失败:', error);
             if (error instanceof Error) {
               console.error('❌ 错误堆栈:', error.stack);
             }

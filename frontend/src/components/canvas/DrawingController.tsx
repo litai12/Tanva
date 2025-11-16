@@ -418,7 +418,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         smartPosition,
         operationType,
         sourceImageId,
-        sourceImages
+        sourceImages,
+        videoInfo
       } = event.detail;
       
       console.log('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { 
@@ -439,7 +440,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           smartPosition,
           operationType,
           sourceImageId,
-          sourceImages
+          sourceImages,
+          { videoInfo }
         );
         console.log('✅ [DEBUG] 已调用智能排版快速上传处理函数');
       }
