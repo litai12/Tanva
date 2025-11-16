@@ -154,6 +154,8 @@ const SORA2_ASYNC_HOST_HINTS = ['asyncdata.', 'asyncndata.'];
 const SORA2_MAX_FOLLOW_DEPTH = 2;
 const SORA2_FETCH_TIMEOUT_MS = 8000;
 const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
+const SORA2_MAX_RETRY = 3;
+const SORA2_RETRY_BASE_DELAY_MS = 1200;
 
 type Sora2ResolvedMedia = {
   videoUrl?: string;
@@ -450,88 +452,112 @@ async function generateVideoResponse(
 
   onProgress?.('初始化 Sora2 视频生成', 10);
 
-  try {
-    onProgress?.('发送视频生成请求', 30);
-    console.log('🎬 开始 Sora2 视频生成', {
-      prompt: prompt.substring(0, 50) + '...',
-      hasReference: !!referenceImageUrl
-    });
+  let attempt = 0;
+  let lastError: unknown = null;
 
-    const result = await sora2Service.generateVideoStream(
-      prompt,
-      referenceImageUrl || undefined,
-      (chunk) => {
-        // 流式数据回调
-        console.log('📹 视频生成进度:', chunk.substring(0, 50) + '...');
+  while (attempt < SORA2_MAX_RETRY) {
+    attempt += 1;
+    try {
+      onProgress?.(attempt === 1 ? '发送视频生成请求' : `网络波动，重试第 ${attempt} 次`, Math.min(30 + (attempt - 1) * 10, 80));
+      console.log('🎬 开始 Sora2 视频生成', {
+        prompt: prompt.substring(0, 50) + '...',
+        hasReference: !!referenceImageUrl,
+        attempt,
+      });
+
+      const result = await sora2Service.generateVideoStream(
+        prompt,
+        referenceImageUrl || undefined,
+        (chunk) => {
+          console.log('📹 视频生成进度:', chunk.substring(0, 50) + '...');
+        }
+      );
+
+      if (!result.success || !result.data?.fullContent) {
+        const errMessage = result.error?.message || '视频生成失败';
+        const errCode = result.error?.code;
+        const retryable = isRetryableVideoError({ message: errMessage, code: errCode });
+        if (retryable) {
+          throw new Error(errMessage);
+        }
+        throw new Error(errMessage);
       }
-    );
 
-    if (!result.success || !result.data?.fullContent) {
-      throw new Error(result.error?.message || '视频生成失败');
+      onProgress?.('解析视频响应', 80);
+
+      const rawContent = result.data.fullContent.trim();
+      console.log('📄 Sora2 原始响应:', rawContent);
+
+      const resolved = await resolveSora2Response(rawContent);
+
+      if (resolved.status && ['failed', 'error', 'blocked'].includes(resolved.status)) {
+        const errorType = resolved.taskInfo?.error?.type || resolved.status;
+        const message =
+          resolved.taskInfo?.error?.message ||
+          resolved.errorMessage ||
+          'Sora2 返回失败状态';
+        throw new Error(`Sora2 生成失败 [${errorType}]: ${message}`);
+      }
+
+      if (resolved.status && ['queued', 'processing'].includes(resolved.status)) {
+        throw new Error(
+          `任务正在处理中（ID: ${resolved.taskId || 'unknown'}）\n` +
+          `当前状态: ${resolved.status}\n` +
+          `请稍后查看数据预览链接或重试`
+        );
+      }
+
+      const videoUrl = resolved.videoUrl;
+
+      if (!videoUrl) {
+        console.error('❌ 未找到视频 URL，原始响应:', rawContent);
+        const urlPreview = resolved.referencedUrls.slice(0, 5).map((url) => `- ${url}`).join('\n') || '无';
+        throw new Error(
+          `API 未返回有效的视频 URL\n\n` +
+          `响应内容：\n${rawContent.substring(0, 500)}${rawContent.length > 500 ? '\n...(截断)' : ''}\n\n` +
+          `已解析链接：\n${urlPreview}`
+        );
+      }
+
+      onProgress?.('视频生成完成', 100);
+
+      console.log('✅ Sora2 视频生成成功', {
+        videoUrl,
+        isHttpUrl: videoUrl.startsWith('http'),
+        thumbnailUrl: resolved.thumbnailUrl,
+        referencedUrls: resolved.referencedUrls
+      });
+
+      return {
+        videoUrl,
+        content: resolved.taskInfo
+          ? `视频已生成（任务 ID: ${resolved.taskId || resolved.taskInfo?.id || 'unknown'}）`
+          : `视频已生成，可在下方预览。`,
+        thumbnailUrl: resolved.thumbnailUrl,
+        referencedUrls: resolved.referencedUrls,
+        status: resolved.status,
+        taskId: resolved.taskId,
+        taskInfo: resolved.taskInfo
+      };
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableVideoError(error);
+      if (retryable && attempt < SORA2_MAX_RETRY) {
+        const wait = SORA2_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        console.warn(`⚠️ Sora2 调用失败，准备重试第 ${attempt + 1} 次，等待 ${wait}ms`, error);
+        onProgress?.(`网络波动，重试第 ${attempt + 1} 次`, Math.min(60 + attempt * 10, 90));
+        await delay(wait);
+        continue;
+      }
+
+      const errorMsg = error instanceof Error ? error.message : '未知错误';
+      console.error('❌ Sora2 视频生成失败:', errorMsg);
+      throw new Error(`视频生成失败: ${errorMsg}`);
     }
-
-    onProgress?.('解析视频响应', 80);
-
-    const rawContent = result.data.fullContent.trim();
-    console.log('📄 Sora2 原始响应:', rawContent);
-
-    const resolved = await resolveSora2Response(rawContent);
-
-    if (resolved.status && ['failed', 'error', 'blocked'].includes(resolved.status)) {
-      const errorType = resolved.taskInfo?.error?.type || resolved.status;
-      const message =
-        resolved.taskInfo?.error?.message ||
-        resolved.errorMessage ||
-        'Sora2 返回失败状态';
-      throw new Error(`Sora2 生成失败 [${errorType}]: ${message}`);
-    }
-
-    if (resolved.status && ['queued', 'processing'].includes(resolved.status)) {
-      throw new Error(
-        `任务正在处理中（ID: ${resolved.taskId || 'unknown'}）\n` +
-        `当前状态: ${resolved.status}\n` +
-        `请稍后查看数据预览链接或重试`
-      );
-    }
-
-    const videoUrl = resolved.videoUrl;
-
-    if (!videoUrl) {
-      console.error('❌ 未找到视频 URL，原始响应:', rawContent);
-      const urlPreview = resolved.referencedUrls.slice(0, 5).map((url) => `- ${url}`).join('\n') || '无';
-      throw new Error(
-        `API 未返回有效的视频 URL\n\n` +
-        `响应内容：\n${rawContent.substring(0, 500)}${rawContent.length > 500 ? '\n...(截断)' : ''}\n\n` +
-        `已解析链接：\n${urlPreview}`
-      );
-    }
-
-    onProgress?.('视频生成完成', 100);
-
-    console.log('✅ Sora2 视频生成成功', {
-      videoUrl,
-      isHttpUrl: videoUrl.startsWith('http'),
-      thumbnailUrl: resolved.thumbnailUrl,
-      referencedUrls: resolved.referencedUrls
-    });
-
-    return {
-      videoUrl,
-      content: resolved.taskInfo
-        ? `视频已生成（任务 ID: ${resolved.taskId || resolved.taskInfo?.id || 'unknown'}）`
-        : `视频已生成，可在下方预览。`,
-      thumbnailUrl: resolved.thumbnailUrl,
-      referencedUrls: resolved.referencedUrls,
-      status: resolved.status,
-      taskId: resolved.taskId,
-      taskInfo: resolved.taskInfo
-    };
-
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : '未知错误';
-    console.error('❌ Sora2 视频生成失败:', errorMsg);
-    throw new Error(`视频生成失败: ${errorMsg}`);
   }
+
+  const fallbackMessage = lastError instanceof Error ? lastError.message : '未知错误';
+  throw new Error(`视频生成失败: ${fallbackMessage}`);
 }
 
 /**
@@ -711,6 +737,20 @@ const buildVideoPoster = async (params: { prompt: string; videoUrl: string; thum
   const placeholder = buildPlaceholderPoster(params.prompt, params.videoUrl);
   if (!placeholder) return null;
   return { dataUrl: placeholder, origin: 'placeholder' };
+};
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isRetryableVideoError = (error: unknown): boolean => {
+  const msg = error instanceof Error ? error.message : String(error || '');
+  const code = (error as any)?.code as string | undefined;
+  if (code?.startsWith('HTTP_5')) return true;
+  if (code === 'NETWORK_ERROR') return true;
+  if (/load failed/i.test(msg)) return true;
+  if (/failed to fetch/i.test(msg)) return true;
+  if (/network.*error/i.test(msg)) return true;
+  if (/timeout/i.test(msg)) return true;
+  return false;
 };
 
 const computeVideoSmartPosition = (): { x: number; y: number } | undefined => {
