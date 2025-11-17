@@ -241,6 +241,9 @@ const AIChatDialog: React.FC = () => {
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
   // 🔥 跟踪已处理过计数减少的消息 ID（避免重复减少）
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
+  // 彩雾渲染状态（避免初始就显示）
+  const [showAura, setShowAura] = useState(false);
+  const auraTimerRef = useRef<number | null>(null);
 
   const availableManualModeOptions = useMemo(() => {
     return PROVIDER_MODE_OPTIONS[aiProvider] ?? BASE_MANUAL_MODE_OPTIONS;
@@ -953,6 +956,30 @@ const AIChatDialog: React.FC = () => {
 
   // 🔥 显示计数 = pendingTaskCount（包括未开始和生成中的任务）
   const displayTaskCount = pendingTaskCount;
+  // 🔥 回复状态背景：仅在任务进行中（生成阶段）时显示
+  const hasActiveAura = generatingTaskCount > 0;
+
+  // 控制彩雾挂载/卸载，避免静止状态出现
+  useEffect(() => {
+    if (hasActiveAura) {
+      if (auraTimerRef.current) {
+        window.clearTimeout(auraTimerRef.current);
+        auraTimerRef.current = null;
+      }
+      setShowAura(true);
+      return;
+    }
+    auraTimerRef.current = window.setTimeout(() => {
+      setShowAura(false);
+      auraTimerRef.current = null;
+    }, 400);
+    return () => {
+      if (auraTimerRef.current) {
+        window.clearTimeout(auraTimerRef.current);
+        auraTimerRef.current = null;
+      }
+    };
+  }, [hasActiveAura]);
 
   return (
     <div
@@ -980,6 +1007,16 @@ const AIChatDialog: React.FC = () => {
         onDoubleClick={handleOuterDoubleClick}
         onDoubleClickCapture={handleDoubleClickCapture}
       >
+        {showAura && (
+          <div
+            aria-hidden="true"
+            className={cn(
+              "ai-chat-task-aura",
+              isMaximized ? "ai-chat-task-aura--maximized" : "ai-chat-task-aura--compact",
+              hasActiveAura && "ai-chat-task-aura--active"
+            )}
+          />
+        )}
         {/* 🔥 任务计数器徽章 - 右上角（更小尺寸）已关闭 */}
 
         {/* 内容区域 */}
