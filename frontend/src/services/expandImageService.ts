@@ -1,0 +1,74 @@
+/**
+ * 扩图服务
+ * 调用后端API进行图片扩图
+ */
+
+import { logger } from '@/utils/logger';
+import { fetchWithAuth } from './authFetch';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
+export interface ExpandImageRequest {
+  imageUrl: string; // OSS原生可访问的图片URL
+  expandRatios: {
+    left: number; // 左侧扩图部分/原图长度
+    top: number; // 上侧扩图部分/原图高度
+    right: number; // 右侧扩图部分/原图长度
+    bottom: number; // 下侧扩图部分/原图高度
+  };
+  prompt?: string; // 提示词，默认为"扩图"
+}
+
+export interface ExpandImageResponse {
+  success: boolean;
+  imageUrl: string; // 扩图后的图片访问URL
+  promptId?: string;
+  error?: string;
+}
+
+/**
+ * 扩图
+ */
+export async function expandImage(
+  request: ExpandImageRequest
+): Promise<ExpandImageResponse> {
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/ai/expand-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData?.message || `HTTP ${response.status}`;
+      logger.error('Expand image failed', { status: response.status, error: errorMessage });
+      
+      return {
+        success: false,
+        imageUrl: '',
+        error: errorMessage,
+      };
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      imageUrl: data.imageUrl,
+      promptId: data.promptId,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Network error';
+    logger.error('Expand image error', error);
+    
+    return {
+      success: false,
+      imageUrl: '',
+      error: message,
+    };
+  }
+}
+

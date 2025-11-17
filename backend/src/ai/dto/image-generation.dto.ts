@@ -201,3 +201,26 @@ export class MidjourneyModalDto {
   @IsString()
   maskBase64?: string;
 }
+
+export class Convert2Dto3DDto {
+  @IsString()
+  @IsNotEmpty()
+  imageUrl!: string; // OSS原生可访问的图片URL
+}export class ExpandImageDto {
+  @IsString()
+  @IsNotEmpty()
+  imageUrl!: string; // OSS原生可访问的图片URL
+
+  @IsNotEmpty()
+  @IsObject()
+  expandRatios!: {
+    left: number; // 左侧扩图部分/原图长度
+    top: number; // 上侧扩图部分/原图高度
+    right: number; // 右侧扩图部分/原图长度
+    bottom: number; // 下侧扩图部分/原图高度
+  };
+
+  @IsOptional()
+  @IsString()
+  prompt?: string; // 提示词，默认为"扩图"
+}

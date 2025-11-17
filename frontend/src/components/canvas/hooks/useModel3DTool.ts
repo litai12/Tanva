@@ -46,7 +46,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     const height = Math.abs(rect.height);
 
     // 最小尺寸限制（3D模型需要更大的空间）
-    const minSize = 80;
+    const minSize = 520;
     const finalWidth = Math.max(width, minSize);
     const finalHeight = Math.max(height, minSize);
 
@@ -498,9 +498,26 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     historyService.commit('delete-model3d').catch(() => {});
   }, [eventHandlers.onModel3DDelete]);
 
+  // 辅助函数：比较两个camera state是否相等
+  const cameraStatesEqual = (a: Model3DCameraState, b: Model3DCameraState): boolean => {
+    if (!a || !b) return false;
+    const EPSILON = 1e-4;
+    const arraysEqual = (arr1: number[], arr2: number[]) => 
+      arr1.length === arr2.length && arr1.every((val, idx) => Math.abs(val - arr2[idx]) < EPSILON);
+    return arraysEqual(a.position, b.position) && 
+           arraysEqual(a.target, b.target) && 
+           arraysEqual(a.up, b.up);
+  };
+
   const handleModel3DCameraChange = useCallback((modelId: string, camera: Model3DCameraState) => {
-    setModel3DInstances(prev => prev.map(model => {
-      if (model.id !== modelId) return model;
+    setModel3DInstances(prev => {
+      const model = prev.find(m => m.id === modelId);
+      if (!model) return prev;
+
+      // 检查camera是否真的改变了，避免不必要的更新
+      if (model.modelData.camera && cameraStatesEqual(model.modelData.camera, camera)) {
+        return prev;
+      }
 
       const updatedData: Model3DData = {
         ...model.modelData,
@@ -524,11 +541,12 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
         console.warn('同步3D模型摄像机状态到Paper失败:', e);
       }
 
-      return {
-        ...model,
-        modelData: updatedData
-      };
-    }));
+      return prev.map(m => 
+        m.id === modelId 
+          ? { ...m, modelData: updatedData }
+          : m
+      );
+    });
 
     const timers = cameraChangeTimersRef.current;
     if (timers[modelId]) {

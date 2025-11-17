@@ -74,3 +74,54 @@ export const getSuggestedFileName = (originalName?: string, prefix: string = 'do
   const baseName = originalName || prefix;
   return `${baseName}_${timestamp}.png`;
 };
+
+/**
+ * 下载文件（支持URL和Blob）
+ * @param url - 文件URL
+ * @param fileName - 下载的文件名
+ */
+export const downloadFile = async (url: string, fileName: string = 'download') => {
+  try {
+    // 如果是data URL或blob URL，直接下载
+    if (url.startsWith('data:') || url.startsWith('blob:')) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      console.log('✅ 文件下载成功:', fileName);
+      return;
+    }
+
+    // 如果是HTTP/HTTPS URL，先fetch再下载
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // 清理blob URL
+    URL.revokeObjectURL(blobUrl);
+    
+    console.log('✅ 文件下载成功:', fileName);
+  } catch (error) {
+    console.error('❌ 文件下载失败:', error);
+    // 如果下载失败，尝试在新窗口打开
+    try {
+      window.open(url, '_blank');
+    } catch (openError) {
+      console.error('❌ 无法打开文件:', openError);
+      throw error;
+    }
+  }
+};

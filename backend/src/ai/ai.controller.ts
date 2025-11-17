@@ -24,7 +24,11 @@ import {
   TextChatDto,
   MidjourneyActionDto,
   MidjourneyModalDto,
+  Convert2Dto3DDto,
+  ExpandImageDto,
 } from './dto/image-generation.dto';
+import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
+import { ExpandImageService } from './services/expand-image.service';
 import { MidjourneyProvider } from './providers/midjourney.provider';
 
 @ApiTags('ai')
@@ -38,6 +42,8 @@ export class AiController {
     private readonly imageGeneration: ImageGenerationService,
     private readonly backgroundRemoval: BackgroundRemovalService,
     private readonly factory: AIProviderFactory,
+    private readonly convert2Dto3DService: Convert2Dto3DService,
+    private readonly expandImageService: ExpandImageService,
   ) {}
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
@@ -404,5 +410,47 @@ export class AiController {
     this.logger.log('📊 Background removal info requested');
     const info = await this.backgroundRemoval.getInfo();
     return info;
+  }
+
+  @Post('convert-2d-to-3d')
+  async convert2Dto3D(@Body() dto: Convert2Dto3DDto) {
+    this.logger.log('🎨 2D to 3D conversion request received');
+    
+    try {
+      const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl);
+      
+      return {
+        success: true,
+        modelUrl: result.modelUrl,
+        promptId: result.promptId,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`❌ 2D to 3D conversion failed: ${message}`, error);
+      throw error;
+    }
+  }
+
+  @Post('expand-image')
+  async expandImage(@Body() dto: ExpandImageDto) {
+    this.logger.log('🖼️ Expand image request received');
+    
+    try {
+      const result = await this.expandImageService.expandImage(
+        dto.imageUrl,
+        dto.expandRatios,
+        dto.prompt || '扩图'
+      );
+      
+      return {
+        success: true,
+        imageUrl: result.imageUrl,
+        promptId: result.promptId,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`❌ Expand image failed: ${message}`, error);
+      throw error;
+    }
   }
 }

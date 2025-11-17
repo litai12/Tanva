@@ -467,13 +467,30 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   useEffect(() => {
     const handleInsertModelFromLibrary = (event: CustomEvent) => {
-      const detail = event.detail as { modelData?: Partial<Model3DData>; size?: { width: number; height: number } } | undefined;
+      const detail = event.detail as { 
+        modelData?: Partial<Model3DData>; 
+        size?: { width: number; height: number };
+        position?: { start: { x: number; y: number }; end: { x: number; y: number } };
+      } | undefined;
       if (!detail?.modelData) return;
-      const center = paper?.view?.center ?? new paper.Point(0, 0);
-      const width = detail.size?.width ?? 320;
-      const height = detail.size?.height ?? 240;
-      const start = new paper.Point(center.x - width / 2, center.y - height / 2);
-      const end = new paper.Point(center.x + width / 2, center.y + height / 2);
+      
+      // 如果提供了位置信息，使用提供的位置；否则使用画布中心
+      let start: paper.Point;
+      let end: paper.Point;
+      
+      if (detail.position) {
+        // 使用提供的位置（例如从图片旁边）
+        start = new paper.Point(detail.position.start.x, detail.position.start.y);
+        end = new paper.Point(detail.position.end.x, detail.position.end.y);
+      } else {
+        // 默认使用画布中心
+        const center = paper?.view?.center ?? new paper.Point(0, 0);
+        const width = detail.size?.width ?? 320;
+        const height = detail.size?.height ?? 240;
+        start = new paper.Point(center.x - width / 2, center.y - height / 2);
+        end = new paper.Point(center.x + width / 2, center.y + height / 2);
+      }
+      
       const placeholder = model3DTool.create3DModelPlaceholder(start, end);
       if (!placeholder) return;
       model3DTool.currentModel3DPlaceholderRef.current = placeholder;

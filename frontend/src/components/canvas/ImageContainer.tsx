@@ -2,13 +2,23 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Eye, EyeOff, Wand2, Copy, Trash2 } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, Wand2, Copy, Trash2, Box, Crop, ImageUp } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal from '../ui/ImagePreviewModal';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { LoadingSpinner } from '../ui/loading-spinner';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
+import { convert2Dto3D } from '@/services/convert2Dto3DService';
+import { uploadToOSS } from '@/services/ossUploadService';
+import { useProjectContentStore } from '@/stores/projectContentStore';
+import type { Model3DData } from '@/services/model3DUploadService';
+import { expandImage } from '@/services/expandImageService';
+import { optimizeHdImage } from '@/services/hdUpscaleService';
+import ExpandImageSelector from './ExpandImageSelector';
+import { useToolStore } from '@/stores';
+
+const HD_UPSCALE_RESOLUTION: '4k' = '4k';
 
 interface ImageData {
   id: string;
@@ -73,6 +83,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 预览模态框状态
   const [showPreview, setShowPreview] = useState(false);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
+  const [isConvertingTo3D, setIsConvertingTo3D] = useState(false);
+  const [isExpandingImage, setIsExpandingImage] = useState(false);
+  const [isOptimizingHd, setIsOptimizingHd] = useState(false);
+  const [showExpandSelector, setShowExpandSelector] = useState(false);
+  
+  // 获取项目ID用于上传
+  const projectId = useProjectContentStore((state) => state.projectId);
+  const setDrawMode = useToolStore((state) => state.setDrawMode);
 
   // 将Paper.js世界坐标转换为屏幕坐标（改进版）
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
@@ -277,6 +295,51 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     return null;
   }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src]);
 
+  const getProcessableImageUrl = useCallback(async (): Promise<string> => {
+    const imageGroup = paper.project?.layers
+      ?.flatMap(layer =>
+        layer.children.filter(child => child.data?.type === 'image' && child.data?.imageId === imageData.id)
+      )[0];
+
+    let rasterSource: string | null = null;
+    if (imageGroup) {
+      const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster | undefined;
+      if (raster && raster.source) {
+        rasterSource = typeof raster.source === 'string' ? raster.source : null;
+      }
+    }
+
+    const currentUrl = rasterSource || imageData.url || imageData.src;
+    if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
+      return currentUrl;
+    }
+
+    const imageDataUrl = await resolveImageDataUrl();
+    if (!imageDataUrl) {
+      throw new Error('无法获取当前图片的图像数据');
+    }
+
+    const response = await fetch(imageDataUrl);
+    const blob = await response.blob();
+
+    const uploadResult = await uploadToOSS(blob, {
+      dir: projectId ? `projects/${projectId}/images/` : 'uploads/images/',
+      fileName: `canvas-image-${Date.now()}.png`,
+      contentType: 'image/png',
+      projectId,
+    });
+
+    if (!uploadResult.success || !uploadResult.url) {
+      throw new Error(uploadResult.error || '当前图片上传失败');
+    }
+
+    if (!/^https?:\/\//i.test(uploadResult.url)) {
+      throw new Error(`无效的图片URL: ${uploadResult.url}`);
+    }
+
+    return uploadResult.url;
+  }, [imageData.id, imageData.url, imageData.src, projectId, resolveImageDataUrl]);
+
   // 处理AI编辑按钮点击
   const handleAIEdit = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -424,6 +487,284 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     });
   }, [imageData.id, resolveImageDataUrl, isRemovingBackground, realTimeBounds]);
 
+  // 处理2D转3D按钮点击
+  const handleConvertTo3D = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isConvertingTo3D) {
+      return;
+    }
+
+    const execute = async () => {
+      setIsConvertingTo3D(true);
+      try {
+        // 获取当前选中图片的URL，优先从Paper.js的raster获取
+        let imageUrl: string;
+        const imageGroup = paper.project?.layers?.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === 'image' && child.data?.imageId === imageData.id
+          )
+        )[0];
+        
+        let rasterSource: string | null = null;
+        if (imageGroup) {
+          const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster | undefined;
+          if (raster && raster.source) {
+            rasterSource = typeof raster.source === 'string' ? raster.source : null;
+          }
+        }
+        
+        const currentUrl = rasterSource || imageData.url || imageData.src;
+        
+        if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
+          imageUrl = currentUrl;
+        } else {
+          const imageDataUrl = await resolveImageDataUrl();
+          if (!imageDataUrl) {
+            throw new Error('无法获取当前图片的图像数据');
+          }
+
+          const response = await fetch(imageDataUrl);
+          const blob = await response.blob();
+
+          const uploadResult = await uploadToOSS(blob, {
+            dir: projectId ? `projects/${projectId}/images/` : 'uploads/images/',
+            fileName: `2d-to-3d-${Date.now()}.png`,
+            contentType: 'image/png',
+            projectId,
+          });
+
+          if (!uploadResult.success || !uploadResult.url) {
+            throw new Error(uploadResult.error || '当前图片上传失败');
+          }
+
+          imageUrl = uploadResult.url;
+        }
+        
+        if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+          throw new Error(`无效的图片URL: ${imageUrl}`);
+        }
+
+        const convertResult = await convert2Dto3D({ imageUrl });
+        
+        if (!convertResult.success || !convertResult.modelUrl) {
+          throw new Error(convertResult.error || '2D转3D失败');
+        }
+
+        const modelUrl = convertResult.modelUrl;
+        const fileName = modelUrl.split('/').pop() || `model-${Date.now()}.glb`;
+
+        const model3DData: Model3DData = {
+          url: modelUrl,
+          format: 'glb',
+          fileName,
+          fileSize: 0,
+          defaultScale: { x: 1, y: 1, z: 1 },
+          defaultRotation: { x: 0, y: 0, z: 0 },
+          timestamp: Date.now(),
+        };
+
+        const modelWidth = realTimeBounds.width;
+        const modelHeight = realTimeBounds.height;
+        const spacing = 20;
+        
+        const modelStartX = realTimeBounds.x + realTimeBounds.width + spacing;
+        const modelStartY = realTimeBounds.y;
+        const modelEndX = modelStartX + modelWidth;
+        const modelEndY = modelStartY + modelHeight;
+
+        window.dispatchEvent(new CustomEvent('canvas:insert-model3d', {
+          detail: {
+            modelData: model3DData,
+            size: {
+              width: modelWidth,
+              height: modelHeight
+            },
+            position: {
+              start: { x: modelStartX, y: modelStartY },
+              end: { x: modelEndX, y: modelEndY }
+            }
+          }
+        }));
+
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '✨ 2D转3D完成，已生成3D模型', type: 'success' }
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '2D转3D失败';
+        logger.error('2D转3D失败', error);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message, type: 'error' }
+        }));
+      } finally {
+        setIsConvertingTo3D(false);
+      }
+    };
+
+    execute();
+  }, [imageData.id, imageData.url, imageData.src, resolveImageDataUrl, isConvertingTo3D, realTimeBounds, projectId]);
+
+  // 处理扩图按钮点击
+  const handleExpandImage = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isExpandingImage) return;
+    setShowExpandSelector(true);
+  }, [isExpandingImage]);
+
+  // 处理扩图选择完成
+  const handleExpandSelect = useCallback(async (
+    selectedBounds: { x: number; y: number; width: number; height: number },
+    expandRatios: { left: number; top: number; right: number; bottom: number }
+  ) => {
+    setShowExpandSelector(false);
+    setIsExpandingImage(true);
+
+    try {
+      // 获取当前图片的URL
+      const imageUrl = await getProcessableImageUrl();
+
+      // 显示提示：扩图可能需要较长时间
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '⏳ 开始扩图，模型加载中，预计需要8-10分钟，请耐心等待...', type: 'info' }
+      }));
+
+      // 调用扩图API
+      const expandResult = await expandImage({
+        imageUrl,
+        expandRatios,
+        prompt: '扩图',
+      });
+
+      if (!expandResult.success || !expandResult.imageUrl) {
+        throw new Error(expandResult.error || '扩图失败');
+      }
+
+      // 将扩图后的图片添加到画布
+            const originalCenter = {
+              x: realTimeBounds.x + realTimeBounds.width / 2,
+              y: realTimeBounds.y + realTimeBounds.height / 2,
+            };
+            const expandPlacementGap = Math.max(32, Math.min(120, realTimeBounds.width * 0.1));
+            const expandResultCenter = {
+              x: originalCenter.x - realTimeBounds.width - expandPlacementGap,
+              y: originalCenter.y,
+            };
+
+      window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+        detail: {
+          imageData: expandResult.imageUrl,
+          fileName: `expanded-${Date.now()}.png`,
+                selectedImageBounds: {
+                  x: realTimeBounds.x,
+                  y: realTimeBounds.y,
+                  width: realTimeBounds.width,
+                  height: realTimeBounds.height,
+                },
+                smartPosition: expandResultCenter,
+          operationType: 'expand-image',
+          sourceImageId: imageData.id,
+        },
+      }));
+
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '✨ 扩图完成，已生成新图', type: 'success' }
+      }));
+
+      // 恢复画板的默认选择模式
+      setDrawMode('select');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '扩图失败';
+      logger.error('扩图失败', error);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message, type: 'error' }
+      }));
+
+      // 恢复画板的默认选择模式
+      setDrawMode('select');
+    } finally {
+      setIsExpandingImage(false);
+    }
+  }, [getProcessableImageUrl, realTimeBounds, imageData.id, setDrawMode]);
+
+  const handleOptimizeHdImage = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isOptimizingHd) return;
+
+    const execute = async () => {
+      setIsOptimizingHd(true);
+      try {
+        const imageUrl = await getProcessableImageUrl();
+        const resolutionLabel = HD_UPSCALE_RESOLUTION.toUpperCase();
+
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: {
+            message: `⏳ 开始高清放大（${resolutionLabel}），请稍候...`,
+            type: 'info',
+          },
+        }));
+
+        const result = await optimizeHdImage({
+          imageUrl,
+          resolution: HD_UPSCALE_RESOLUTION,
+          filenamePrefix: `optimize_HD_image_${HD_UPSCALE_RESOLUTION}`,
+        });
+
+        if (!result.success || !result.imageUrl) {
+          throw new Error(result.error || '高清放大失败');
+        }
+
+        const placementGap = Math.max(32, Math.min(120, realTimeBounds.width * 0.2));
+        const smartPosition = {
+          x: realTimeBounds.x + realTimeBounds.width + placementGap,
+          y: realTimeBounds.y + realTimeBounds.height / 2,
+        };
+
+        window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+          detail: {
+            imageData: result.imageUrl,
+            fileName: `hd-${HD_UPSCALE_RESOLUTION}-${Date.now()}.png`,
+            selectedImageBounds: {
+              x: realTimeBounds.x,
+              y: realTimeBounds.y,
+              width: realTimeBounds.width,
+              height: realTimeBounds.height,
+            },
+            smartPosition,
+            operationType: 'optimize-hd-image',
+            sourceImageId: imageData.id,
+          },
+        }));
+
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: {
+            message: `✨ 高清放大完成（${resolutionLabel}）`,
+            type: 'success',
+          },
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '高清放大失败';
+        logger.error('高清放大失败', error);
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message, type: 'error' },
+        }));
+      } finally {
+        setIsOptimizingHd(false);
+      }
+    };
+
+    execute();
+  }, [getProcessableImageUrl, imageData.id, isOptimizingHd, realTimeBounds]);
+
+  // 处理扩图取消
+  const handleExpandCancel = useCallback(() => {
+    setShowExpandSelector(false);
+    // 恢复画板的默认选择模式
+    setDrawMode('select');
+  }, [setDrawMode]);
+
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
   return (
@@ -452,8 +793,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
-      {/* 图片操作按钮组 - 只在选中时显示，位于图片底部 */}
-      {isSelected && showIndividualTools && (
+      {/* 扩图选择器 - 截图时显示，隐藏小工具栏 */}
+      {showExpandSelector && (
+        <ExpandImageSelector
+          imageBounds={realTimeBounds}
+          imageId={imageData.id}
+          imageUrl={imageData.url || imageData.src || ''}
+          onSelect={handleExpandSelect}
+          onCancel={handleExpandCancel}
+        />
+      )}
+
+      {/* 图片操作按钮组 - 只在选中时显示，位于图片底部，截图时隐藏 */}
+      {isSelected && showIndividualTools && !showExpandSelector && (
         <div
           className={`absolute transition-all duration-150 ease-out ${
             !isPositionStable ? 'opacity-90 translate-y-1' : 'opacity-100 translate-y-0'
@@ -482,6 +834,58 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 <LoadingSpinner size="sm" className="text-blue-600" />
               ) : (
                 <Wand2 className={sharedIconClass} />
+              )}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isConvertingTo3D}
+              className={sharedButtonClass}
+              onClick={handleConvertTo3D}
+              title={isConvertingTo3D ? '正在转换3D...' : '2D转3D'}
+              style={sharedButtonStyle}
+            >
+              {isConvertingTo3D ? (
+                <LoadingSpinner size="sm" className="text-blue-600" />
+              ) : (
+                <Box className={sharedIconClass} />
+              )}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isOptimizingHd}
+              className={sharedButtonClass}
+              onClick={handleOptimizeHdImage}
+              title={
+                isOptimizingHd
+                  ? '正在高清放大...'
+                  : `高清放大（${HD_UPSCALE_RESOLUTION.toUpperCase()}）`
+              }
+              style={sharedButtonStyle}
+            >
+              {isOptimizingHd ? (
+                <LoadingSpinner size="sm" className="text-blue-600" />
+              ) : (
+                <ImageUp className={sharedIconClass} />
+              )}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isExpandingImage || showExpandSelector}
+              className={sharedButtonClass}
+              onClick={handleExpandImage}
+              title={isExpandingImage ? '正在扩图，预计需要8-10分钟，请耐心等待...' : showExpandSelector ? '请选择扩图区域' : '扩图（预计8-10分钟）'}
+              style={sharedButtonStyle}
+            >
+              {isExpandingImage ? (
+                <LoadingSpinner size="sm" className="text-blue-600" />
+              ) : (
+                <Crop className={sharedIconClass} />
               )}
             </Button>
 
