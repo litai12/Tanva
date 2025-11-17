@@ -20,17 +20,32 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   const [hover, setHover] = React.useState<string | null>(null);
+  const [previewAspect, setPreviewAspect] = React.useState<string>('16/9');
 
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
   const onSend = React.useCallback(() => data.onSend?.(id), [data, id]);
 
   const renderPreview = () => {
+    const commonMediaStyle: React.CSSProperties = {
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+      borderRadius: 6,
+      background: '#000'
+    };
+
     if (data.videoUrl) {
       return (
         <video
           controls
           poster={data.thumbnail}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6, background: '#000' }}
+          style={commonMediaStyle}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            if (v.videoWidth && v.videoHeight) {
+              setPreviewAspect(`${v.videoWidth}/${v.videoHeight}`);
+            }
+          }}
         >
           <source src={data.videoUrl} type="video/mp4" />
           您的浏览器不支持 video 标签
@@ -38,7 +53,19 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
       );
     }
     if (data.thumbnail) {
-      return <img src={data.thumbnail} alt="video thumbnail" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
+      return (
+        <img
+          src={data.thumbnail}
+          alt="video thumbnail"
+          style={commonMediaStyle}
+          onLoad={(e) => {
+            const img = e.currentTarget;
+            if (img.naturalWidth && img.naturalHeight) {
+              setPreviewAspect(`${img.naturalWidth}/${img.naturalHeight}`);
+            }
+          }}
+        />
+      );
     }
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#94a3b8' }}>
@@ -95,39 +122,103 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Video size={18} />
-          <span>Sora2 Video</span>
+          <span>Sora2</span>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={onRun}
             disabled={data.status === 'running'}
             style={{
-              fontSize: 12,
-              padding: '4px 8px',
+              width: 36,
+              height: 32,
+              borderRadius: 8,
+              border: 'none',
               background: data.status === 'running' ? '#e5e7eb' : '#111827',
               color: '#fff',
-              borderRadius: 6,
-              border: 'none',
-              cursor: data.status === 'running' ? 'not-allowed' : 'pointer'
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: data.status === 'running' ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+              opacity: data.status === 'running' ? 0.6 : 1
             }}
           >
-            {data.status === 'running' ? 'Running...' : 'Run'}
+            Run
           </button>
           <button
-            onClick={onSend}
-            disabled={!data.videoUrl}
-            title={!data.videoUrl ? '无可发送的视频' : '发送到画布/下游'}
-            style={{
-              fontSize: 12,
-              padding: '4px 8px',
-              background: !data.videoUrl ? '#e5e7eb' : '#111827',
-              color: '#fff',
-              borderRadius: 6,
-              border: 'none',
-              cursor: !data.videoUrl ? 'not-allowed' : 'pointer'
+            onClick={async () => {
+              if (!data.videoUrl) return;
+              try {
+                await navigator.clipboard.writeText(data.videoUrl);
+                alert('已复制视频链接');
+              } catch (error) {
+                console.error('复制失败:', error);
+                alert('复制失败，请手动复制链接');
+              }
             }}
+            title="复制链接"
+            style={{
+              width: 36,
+              height: 32,
+              borderRadius: 8,
+              border: 'none',
+              background: '#111827',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: data.videoUrl ? 'pointer' : 'not-allowed',
+              color: '#fff',
+              opacity: data.videoUrl ? 1 : 0.35
+            }}
+            disabled={!data.videoUrl}
           >
-            <SendIcon size={14} strokeWidth={2} />
+            <Share2 size={14} />
+          </button>
+          <button
+            onClick={async () => {
+              if (!data.videoUrl) return;
+              try {
+                const response = await fetch(data.videoUrl, { mode: 'cors', credentials: 'omit' });
+                if (response.ok) {
+                  const blob = await response.blob();
+                  const downloadUrl = URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = downloadUrl;
+                  link.download = `video-${new Date().toISOString().split('T')[0]}.mp4`;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
+                } else {
+                  const link = document.createElement('a');
+                  link.href = data.videoUrl;
+                  link.target = '_blank';
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }
+              } catch (error) {
+                console.error('下载失败:', error);
+                alert('下载失败，请尝试在浏览器中打开链接');
+              }
+            }}
+            title="下载视频"
+            style={{
+              width: 36,
+              height: 32,
+              borderRadius: 8,
+              border: 'none',
+              background: '#111827',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: data.videoUrl ? 'pointer' : 'not-allowed',
+              color: '#fff',
+              opacity: data.videoUrl ? 1 : 0.35
+            }}
+            disabled={!data.videoUrl}
+          >
+            <Download size={14} />
           </button>
         </div>
       </div>
@@ -135,7 +226,8 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
       <div
         style={{
           width: '100%',
-          height: 140,
+          aspectRatio: previewAspect,
+          minHeight: 140,
           background: '#f8fafc',
           borderRadius: 6,
           border: '1px solid #eef0f2',
@@ -146,82 +238,6 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
         }}
       >
         {renderPreview()}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button
-          onClick={async () => {
-            if (!data.videoUrl) return;
-            try {
-              await navigator.clipboard.writeText(data.videoUrl);
-              alert('已复制视频链接');
-            } catch (error) {
-              console.error('复制失败:', error);
-              alert('复制失败，请手动复制链接');
-            }
-          }}
-          title="复制链接"
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            border: '1px solid #e2e8f0',
-            background: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: data.videoUrl ? 'pointer' : 'not-allowed',
-            color: data.videoUrl ? '#7c3aed' : '#cbd5f5'
-          }}
-          disabled={!data.videoUrl}
-        >
-          <Share2 size={16} />
-        </button>
-        <button
-          onClick={async () => {
-            if (!data.videoUrl) return;
-            try {
-              const response = await fetch(data.videoUrl, { mode: 'cors', credentials: 'omit' });
-              if (response.ok) {
-                const blob = await response.blob();
-                const downloadUrl = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = downloadUrl;
-                link.download = `video-${new Date().toISOString().split('T')[0]}.mp4`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
-              } else {
-                const link = document.createElement('a');
-                link.href = data.videoUrl;
-                link.target = '_blank';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-              }
-            } catch (error) {
-              console.error('下载失败:', error);
-              alert('下载失败，请尝试在浏览器中打开链接');
-            }
-          }}
-          title="下载视频"
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            border: '1px solid #e2e8f0',
-            background: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: data.videoUrl ? 'pointer' : 'not-allowed',
-            color: data.videoUrl ? '#2563eb' : '#cbd5f5'
-          }}
-          disabled={!data.videoUrl}
-        >
-          <Download size={16} />
-        </button>
       </div>
 
       <GenerationProgressBar

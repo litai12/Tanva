@@ -1286,6 +1286,10 @@ function FlowInner() {
     if (targetNode?.type === 'textNote') {
       if (isTextHandle(params.targetHandle)) return true;
     }
+    if (targetNode?.type === 'sora2Video') {
+      if (params.targetHandle === 'image') return true;
+      if (params.targetHandle === 'text') return true;
+    }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
     }
@@ -1309,8 +1313,11 @@ function FlowInner() {
       }
       
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt') || (tgt?.type === 'textNote')) && isTextHandle(params.targetHandle)) {
+      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video')) && isTextHandle(params.targetHandle)) {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
+      }
+      if ((tgt?.type === 'sora2Video') && params.targetHandle === 'image') {
+        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'image'));
       }
       if (tgt?.type === 'generateRef') {
         const image1Handles = ['image1','refer'];
