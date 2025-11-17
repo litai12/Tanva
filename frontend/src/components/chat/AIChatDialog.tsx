@@ -360,18 +360,7 @@ const AIChatDialog: React.FC = () => {
     };
   }, [isPromptPanelOpen]);
 
-  // 智能历史记录显示：生成新消息时自动展开（除非用户手动关闭或已最大化）
-  useEffect(() => {
-    if (messages.length === 0) return;
-    if (showHistory) return;
-    if (isMaximized) return;
-    if (manuallyClosedHistory) return;
-
-    const timer = window.setTimeout(() => {
-      setHistoryVisibility(true, false);
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [messages.length, showHistory, isMaximized, manuallyClosedHistory, setHistoryVisibility]);
+  // 智能历史记录显示：改为默认关闭，只有用户点击才展开
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -690,9 +679,6 @@ const AIChatDialog: React.FC = () => {
     if (!isVisible) {
       showDialog();
     }
-    if (!showHistory) {
-      setHistoryVisibility(true, false);
-    }
     const trimmed = optimized.trim();
     if (!trimmed) return;
 
@@ -716,10 +702,6 @@ const AIChatDialog: React.FC = () => {
     if (!isVisible) {
       showDialog();
     }
-    if (!showHistory) {
-      setHistoryVisibility(true, false);
-    }
-
     // 🔥 立即增加待处理任务计数（敲击回车的反馈）
     setPendingTaskCount(prev => prev + 1);
 
