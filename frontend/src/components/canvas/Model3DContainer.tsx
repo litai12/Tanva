@@ -4,8 +4,10 @@ import { useCanvasStore } from '@/stores';
 import Model3DViewer from './Model3DViewer';
 import type { Model3DData, Model3DCameraState } from '@/services/model3DUploadService';
 import { Button } from '../ui/button';
-import { Camera, Trash2 } from 'lucide-react';
+import { Camera, Trash2, Download } from 'lucide-react';
 import { LoadingSpinner } from '../ui/loading-spinner';
+import { downloadFile } from '@/utils/downloadHelper';
+import { logger } from '@/utils/logger';
 
 interface Model3DContainerProps {
   modelData: Model3DData;
@@ -161,30 +163,38 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
 
   // 处理wheel事件，防止3D缩放时影响画布缩放
   const handleWheel = useCallback((e: WheelEvent) => {
-    if (isSelected) {
-      // 当3D模型被选中时，阻止wheel事件传播到画布
-      e.stopPropagation();
+    if (isSelected && drawMode === 'select') {
+      // 当3D模型被选中且在select模式时，阻止wheel事件传播到画布
       // 允许OrbitControls处理缩放
+      e.stopPropagation();
+      e.preventDefault();
     }
-  }, [isSelected]);
+  }, [isSelected, drawMode]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // 只处理左键
-
     const target = e.target as HTMLElement;
     const additiveSelection = e.metaKey || e.ctrlKey;
+
+    // 如果点击的是Three.js canvas，完全让OrbitControls处理，不干扰
+    if (target.tagName === 'CANVAS') {
+      // 右键和中键完全由OrbitControls处理，不触发任何容器操作
+      if (e.button === 1 || e.button === 2) {
+        return;
+      }
+      // 左键仅选中模型，不开始拖拽
+      if (e.button === 0) {
+        onSelect?.(additiveSelection);
+      }
+      return;
+    }
+
+    // 只处理左键点击
+    if (e.button !== 0) return;
 
     if (target === containerRef.current) {
       if (isSelected) {
         onDeselect?.();
       }
-      return;
-    }
-
-    // 如果点击的是Three.js canvas，不处理拖拽，让OrbitControls处理
-    if (target.tagName === 'CANVAS') {
-      // 仅选中模型，不开始拖拽
-      onSelect?.(additiveSelection);
       return;
     }
 
@@ -330,6 +340,13 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}
+      onContextMenu={(e) => {
+        // 在3D canvas上右键时，阻止默认上下文菜单，让OrbitControls处理
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'CANVAS' && isSelected && drawMode === 'select') {
+          e.preventDefault();
+        }
+      }}
     >
       {/* 3D模型渲染器 - 使用屏幕坐标确保与边框和控制点对齐 */}
       <Model3DViewer
@@ -339,6 +356,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         isSelected={isSelected}
         drawMode={drawMode}
         onCameraChange={onCameraChange}
+        isResizing={isResizing}
       />
 
       {/* 选中状态的边框线 - 四条独立边框，只在边框上响应拖拽 */}
@@ -529,6 +547,41 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
             ) : (
               <Camera className={actionIconClass} />
             )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={actionButtonClass}
+            style={actionButtonStyle}
+            title="下载3D模型"
+            onClick={async () => {
+              try {
+                const modelUrl = modelData.url || modelData.path;
+                if (!modelUrl) {
+                  window.dispatchEvent(new CustomEvent('toast', {
+                    detail: { message: '无法获取模型URL', type: 'error' }
+                  }));
+                  return;
+                }
+
+                const fileName = modelData.fileName || `model-${Date.now()}.${modelData.format || 'glb'}`;
+                logger.info('📥 开始下载3D模型', { modelUrl, fileName });
+                
+                await downloadFile(modelUrl, fileName);
+                
+                window.dispatchEvent(new CustomEvent('toast', {
+                  detail: { message: '✨ 3D模型下载已开始', type: 'success' }
+                }));
+              } catch (error) {
+                const message = error instanceof Error ? error.message : '下载失败';
+                logger.error('❌ 3D模型下载失败', error);
+                window.dispatchEvent(new CustomEvent('toast', {
+                  detail: { message, type: 'error' }
+                }));
+              }
+            }}
+          >
+            <Download className={actionIconClass} />
           </Button>
           <Button
             variant="outline"
