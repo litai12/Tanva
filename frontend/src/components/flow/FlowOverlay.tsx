@@ -1188,7 +1188,7 @@ function FlowInner() {
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
-      : type === 'sora2Video' ? { status: 'idle' as const, prompt: '', videoUrl: undefined, thumbnail: undefined, boxW: size.w, boxH: size.h }
+      : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
     try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
@@ -1224,6 +1224,9 @@ function FlowInner() {
     if (targetNode.type === 'sora2Video') {
       if (targetHandle === 'image') {
         return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
+      }
+      if (targetHandle === 'text') {
+        return textSourceTypes.includes(sourceNode.type || '');
       }
       return false;
     }
@@ -1434,12 +1437,28 @@ function FlowInner() {
       edgesToCollect
         .map(resolveImageData)
         .filter((img): img is string => typeof img === 'string' && img.length > 0);
+    const getTextPromptForNode = (targetId: string) => {
+      const textEdge = currentEdges.find(e => e.target === targetId && e.targetHandle === 'text');
+      if (!textEdge) return { text: '', hasEdge: false };
+      const promptNode = rf.getNode(textEdge.source);
+      if (!promptNode) return { text: '', hasEdge: true };
+      const promptData = (promptNode.data || {}) as any;
+      const candidates = [
+        typeof promptData.text === 'string' ? promptData.text : '',
+        typeof promptData.prompt === 'string' ? promptData.prompt : '',
+        typeof promptData.manualInput === 'string' ? promptData.manualInput : '',
+      ];
+      const text = candidates.find((value) => value.trim().length > 0) || '';
+      return { text: text.trim(), hasEdge: true };
+    };
 
     if (node.type === 'sora2Video') {
       const projectId = useProjectContentStore.getState().projectId;
-      const promptText = typeof (node.data as any)?.prompt === 'string'
-        ? (node.data as any).prompt.trim()
-        : '';
+      const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+      if (!hasText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
+        return;
+      }
       if (!promptText) {
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
         return;
@@ -1490,16 +1509,7 @@ function FlowInner() {
 
     if (node.type !== 'generate' && node.type !== 'generate4' && node.type !== 'generateRef') return;
 
-    const incomingTextEdge = currentEdges.find(e => e.target === nodeId && e.targetHandle === 'text');
-
-    let promptFromText = '';
-    if (incomingTextEdge) {
-      const promptNode = rf.getNode(incomingTextEdge.source);
-      const promptData = (promptNode?.data || {}) as any;
-      const textValue = typeof promptData.text === 'string' ? promptData.text : '';
-      const altValue = typeof promptData.prompt === 'string' ? promptData.prompt : '';
-      promptFromText = textValue.trim().length ? textValue : altValue;
-    }
+    const { text: promptFromText, hasEdge: hasPromptEdge } = getTextPromptForNode(nodeId);
 
     const failWithMessage = (message: string) => {
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: message } } : n));
@@ -1519,7 +1529,7 @@ function FlowInner() {
         return;
       }
     } else {
-      if (!incomingTextEdge) {
+      if (!hasPromptEdge) {
         failWithMessage('缺少 TextPrompt 输入');
         return;
       }
