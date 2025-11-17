@@ -560,6 +560,14 @@ async function generateVideoResponse(
   throw new Error(`视频生成失败: ${fallbackMessage}`);
 }
 
+export async function requestSora2VideoGeneration(
+  prompt: string,
+  referenceImageUrl?: string | null,
+  onProgress?: (stage: string, progress: number) => void
+) {
+  return generateVideoResponse(prompt, referenceImageUrl, onProgress);
+}
+
 /**
  * 智能识别是否为视频生成意图
  */
@@ -858,7 +866,7 @@ async function buildRunningHubProviderOptions(params: {
 }
 
 // 🔥 图片上传到 OSS 的辅助函数
-async function uploadImageToOSS(imageData: string, projectId?: string | null): Promise<string | null> {
+export async function uploadImageToOSS(imageData: string, projectId?: string | null): Promise<string | null> {
   try {
     if (!imageData || !imageData.includes('base64,')) {
       console.warn('⚠️ 无效的图片数据，跳过上传');

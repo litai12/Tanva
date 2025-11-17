@@ -32,11 +32,12 @@ import ThreeNode from './nodes/ThreeNode';
 import CameraNode from './nodes/CameraNode';
 import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import AnalysisNode from './nodes/AnalyzeNode';
+import Sora2VideoNode from './nodes/Sora2VideoNode';
 import TextNoteNode from './nodes/TextNoteNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
-import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
+import { useAIChatStore, getImageModelForProvider, uploadImageToOSS, requestSora2VideoGeneration } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
@@ -61,6 +62,9 @@ const createEdgeLabelEditorState = (): EdgeLabelEditorState => ({
   position: { x: 0, y: 0 },
 });
 
+const ensureDataUrl = (imageData: string): string =>
+  imageData.startsWith('data:image') ? imageData : `data:image/png;base64,${imageData}`;
+
 const nodeTypes = {
   textPrompt: TextPromptNode,
   textChat: TextChatNode,
@@ -73,6 +77,7 @@ const nodeTypes = {
   three: ThreeNode,
   camera: CameraNode,
   analysis: AnalysisNode,
+  sora2Video: Sora2VideoNode,
 };
 
 const DEFAULT_REFERENCE_PROMPT = '请参考第二张图的内容';
@@ -1156,7 +1161,7 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
@@ -1170,6 +1175,7 @@ function FlowInner() {
       three: { w: 280, h: 260 },
       camera: { w: 260, h: 220 },
       analysis: { w: 260, h: 280 },
+      sora2Video: { w: 280, h: 260 },
     }[type];
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -1182,6 +1188,7 @@ function FlowInner() {
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
+      : type === 'sora2Video' ? { status: 'idle' as const, prompt: '', videoUrl: undefined, thumbnail: undefined, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
     try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
@@ -1212,6 +1219,12 @@ function FlowInner() {
     if (targetNode.type === 'generate' || targetNode.type === 'generate4') {
       if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
       if (targetHandle === 'img') return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
+      return false;
+    }
+    if (targetNode.type === 'sora2Video') {
+      if (targetHandle === 'image') {
+        return ['image','generate','generate4','three','camera'].includes(sourceNode.type || '');
+      }
       return false;
     }
 
@@ -1392,9 +1405,91 @@ function FlowInner() {
   // 运行：根据输入自动选择 生图/编辑/融合（支持 generate / generate4 / generateRef）
   const runNode = React.useCallback(async (nodeId: string) => {
     const node = rf.getNode(nodeId);
-    if (!node || (node.type !== 'generate' && node.type !== 'generate4' && node.type !== 'generateRef')) return;
+    if (!node) return;
 
     const currentEdges = rf.getEdges();
+
+    const resolveImageData = (edge: Edge): string | undefined => {
+      const srcNode = rf.getNode(edge.source);
+      if (!srcNode) return undefined;
+      const data = (srcNode.data as any);
+
+      if (srcNode.type === 'generate4') {
+        const handle = (edge as any).sourceHandle as string | undefined;
+        const idx = handle?.startsWith('img')
+          ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
+          : 0;
+        const imgs = Array.isArray(data?.images) ? data.images as string[] : undefined;
+        let img = imgs?.[idx];
+        if (!img && typeof data?.imageData === 'string' && data.imageData.length) {
+          img = data.imageData;
+        }
+        return img;
+      }
+
+      return typeof data?.imageData === 'string' ? data.imageData : undefined;
+    };
+
+    const collectImages = (edgesToCollect: Edge[]) =>
+      edgesToCollect
+        .map(resolveImageData)
+        .filter((img): img is string => typeof img === 'string' && img.length > 0);
+
+    if (node.type === 'sora2Video') {
+      const projectId = useProjectContentStore.getState().projectId;
+      const promptText = typeof (node.data as any)?.prompt === 'string'
+        ? (node.data as any).prompt.trim()
+        : '';
+      if (!promptText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
+        return;
+      }
+
+      const imageEdges = currentEdges
+        .filter(e => e.target === nodeId && e.targetHandle === 'image')
+        .slice(0, 1);
+      const referenceImages = collectImages(imageEdges);
+
+      let referenceImageUrl: string | undefined;
+      if (referenceImages.length) {
+        try {
+          const dataUrl = ensureDataUrl(referenceImages[0]);
+          const uploaded = await uploadImageToOSS(dataUrl, projectId);
+          if (!uploaded) {
+            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '参考图上传失败' } } : n));
+            return;
+          }
+          referenceImageUrl = uploaded;
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : '参考图上传失败';
+          setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+          return;
+        }
+      }
+
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
+
+      try {
+        const videoResult = await requestSora2VideoGeneration(promptText, referenceImageUrl);
+        setNodes(ns => ns.map(n => n.id === nodeId ? {
+          ...n,
+          data: {
+            ...n.data,
+            status: 'succeeded',
+            videoUrl: videoResult.videoUrl,
+            thumbnail: videoResult.thumbnailUrl || (n.data as any)?.thumbnail,
+            error: undefined,
+          }
+        } : n));
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '视频生成失败';
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+      }
+      return;
+    }
+
+    if (node.type !== 'generate' && node.type !== 'generate4' && node.type !== 'generateRef') return;
+
     const incomingTextEdge = currentEdges.find(e => e.target === nodeId && e.targetHandle === 'text');
 
     let promptFromText = '';
@@ -1434,32 +1529,6 @@ function FlowInner() {
         return;
       }
     }
-
-    const resolveImageData = (edge: Edge): string | undefined => {
-      const srcNode = rf.getNode(edge.source);
-      if (!srcNode) return undefined;
-      const data = (srcNode.data as any);
-
-      if (srcNode.type === 'generate4') {
-        const handle = (edge as any).sourceHandle as string | undefined;
-        const idx = handle?.startsWith('img')
-          ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
-          : 0;
-        const imgs = Array.isArray(data?.images) ? data.images as string[] : undefined;
-        let img = imgs?.[idx];
-        if (!img && typeof data?.imageData === 'string' && data.imageData.length) {
-          img = data.imageData;
-        }
-        return img;
-      }
-
-      return typeof data?.imageData === 'string' ? data.imageData : undefined;
-    };
-
-    const collectImages = (edgesToCollect: Edge[]) =>
-      edgesToCollect
-        .map(resolveImageData)
-        .filter((img): img is string => typeof img === 'string' && img.length > 0);
 
     let imageDatas: string[] = [];
 
@@ -1697,7 +1766,9 @@ function FlowInner() {
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
     (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef')
       ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
-      : n
+      : n.type === 'sora2Video'
+        ? { ...n, data: { ...n.data, onRun: runNode } }
+        : n
   )), [nodes, runNode, onSendHandler]);
 
   // 简单的全局调试API，便于从控制台添加节点
@@ -2533,6 +2604,39 @@ function FlowInner() {
                 >
                   <span>3D Node</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>三维</span>
+                </button>
+                <button 
+                  onClick={() => createNodeAtWorldCenter('sora2Video', addPanel.world)} 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13, 
+                    fontWeight: 500,
+                    padding: '12px 16px', 
+                    borderRadius: 8, 
+                    border: '1px solid #e5e7eb', 
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Sora2 Video</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>视频生成</span>
                 </button>
                 <button 
                   onClick={() => createNodeAtWorldCenter('camera', addPanel.world)} 
