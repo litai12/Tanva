@@ -25,6 +25,17 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
   const onSend = React.useCallback(() => data.onSend?.(id), [data, id]);
 
+  const handleMediaPointerDown = (event: React.PointerEvent | React.MouseEvent) => {
+    event.stopPropagation();
+    const nativeEvent = (event as any).nativeEvent;
+    nativeEvent?.stopImmediatePropagation?.();
+  };
+  const handleMediaTouchStart = (event: React.TouchEvent) => {
+    event.stopPropagation();
+    const nativeEvent = event.nativeEvent;
+    nativeEvent?.stopImmediatePropagation?.();
+  };
+
   const renderPreview = () => {
     const commonMediaStyle: React.CSSProperties = {
       width: '100%',
@@ -46,6 +57,9 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
               setPreviewAspect(`${v.videoWidth}/${v.videoHeight}`);
             }
           }}
+          onPointerDownCapture={handleMediaPointerDown}
+          onMouseDownCapture={handleMediaPointerDown}
+          onTouchStartCapture={handleMediaTouchStart}
         >
           <source src={data.videoUrl} type="video/mp4" />
           您的浏览器不支持 video 标签
@@ -64,6 +78,9 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
               setPreviewAspect(`${img.naturalWidth}/${img.naturalHeight}`);
             }
           }}
+          onPointerDownCapture={handleMediaPointerDown}
+          onMouseDownCapture={handleMediaPointerDown}
+          onTouchStartCapture={handleMediaTouchStart}
         />
       );
     }
