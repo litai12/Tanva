@@ -180,6 +180,7 @@ const AIChatDialog: React.FC = () => {
     initializeContext,
     getContextSummary,
     isIterativeMode,
+    updateMessageStatus,
     toggleWebSearch,
     setAspectRatio,
     manualAIMode,
@@ -461,6 +462,34 @@ const AIChatDialog: React.FC = () => {
       }
     };
   }, []);
+
+  // 检测长时间停留在“准备中”的生成任务，自动终止以防彩雾长驻
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const now = Date.now();
+    const STALE_MS = 45_000; // 45s 视为超时
+    const STALE_PROGRESS = 10; // 只处理早期阶段的卡住任务
+
+    messages.forEach((msg) => {
+      if (msg.type !== 'ai') return;
+      const status = msg.generationStatus;
+      if (!status?.isGenerating) return;
+
+      const ts = msg.timestamp instanceof Date ? msg.timestamp.getTime() : new Date(msg.timestamp).getTime();
+      if (!Number.isFinite(ts)) return;
+
+      const isPreparing = (status.stage && status.stage.includes('准备')) || (status.progress ?? 0) <= STALE_PROGRESS;
+      const isStale = now - ts > STALE_MS;
+
+      if (isPreparing && isStale) {
+        updateMessageStatus(msg.id, {
+          isGenerating: false,
+          stage: '已终止',
+          error: status.error ?? '任务已停止'
+        });
+      }
+    });
+  }, [messages, updateMessageStatus]);
 
   // 订阅AI流式进度事件，按增量渲染文本（仅限"文本对话"）
   useEffect(() => {
