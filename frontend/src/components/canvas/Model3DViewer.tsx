@@ -268,6 +268,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   onCameraChange,
   isResizing = false,
 }) => {
+  const devicePixelRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const maxDpr = Math.min(devicePixelRatio, 1.75);
   const [cameraState, setCameraState] = useState<Model3DCameraState>(() => modelData.camera ?? ({
     position: [4, 4, 4],
     target: [0, 0, 0],
@@ -278,6 +280,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   const [error] = useState<string | null>(null);
   const hasCustomCameraRef = useRef<boolean>(!!modelData.camera);
   const cameraChangeFrameRef = useRef<number | null>(null);
+  const lastCameraEmitRef = useRef(0);
 
   const onCameraChangeRef = useRef(onCameraChange);
   useEffect(() => {
@@ -300,7 +303,11 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
     if (cameraChangeFrameRef.current) cancelAnimationFrame(cameraChangeFrameRef.current);
     cameraChangeFrameRef.current = requestAnimationFrame(() => {
       if (onCameraChangeRef.current) {
-        onCameraChangeRef.current(cameraStateRef.current);
+        const now = performance.now();
+        if (now - lastCameraEmitRef.current > 1000 / 15) { // 约15fps推送到外部，降低渲染震动
+          lastCameraEmitRef.current = now;
+          onCameraChangeRef.current(cameraStateRef.current);
+        }
       }
       cameraChangeFrameRef.current = null;
     });
@@ -412,14 +419,16 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               near: 0.1,
               far: 1000
             }}
+            dpr={[1, maxDpr]}
             gl={{
               alpha: true,
               antialias: true,
               preserveDrawingBuffer: true,
               powerPreference: 'high-performance',
               toneMapping: THREE.ACESFilmicToneMapping,
-              toneMappingExposure: 1.5,
-              outputColorSpace: THREE.SRGBColorSpace
+              toneMappingExposure: 1.15,
+              outputColorSpace: THREE.SRGBColorSpace,
+              physicallyCorrectLights: true
             }}
             style={{
               background: 'transparent',
@@ -428,35 +437,13 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
           >
             
             <Suspense fallback={null}>
-              {/* 环境光 - 大幅增加强度使模型更亮 */}
-              <ambientLight intensity={3.5} />
-              
-              {/* 主方向光 - 从右上角照射 */}
-              <directionalLight
-                position={[10, 10, 10]}
-                intensity={4.0}
-                castShadow={false}
-              />
-              
-              {/* 辅助方向光 - 从左上角照射 */}
-              <directionalLight position={[-10, 10, 5]} intensity={3.0} />
-              
-              {/* 补充方向光 - 从前方照射 */}
-              <directionalLight position={[0, 5, 10]} intensity={2.5} />
-              
-              {/* 补充方向光 - 从后方照射，减少阴影 */}
-              <directionalLight position={[0, 5, -10]} intensity={2.0} />
-              
-              {/* 点光源 - 顶部和底部补充光照 */}
-              <pointLight position={[0, 10, 0]} intensity={2.0} />
-              <pointLight position={[0, -5, 0]} intensity={1.5} />
-              
-              {/* 半球光 - 提供更自然的环境光照，使用更亮的颜色 */}
-              <hemisphereLight args={[0xffffff, 0x888888, 2.0]} />
-              
-              {/* 额外的点光源 - 从多个角度补充光照 */}
-              <pointLight position={[10, 5, 5]} intensity={1.5} />
-              <pointLight position={[-10, 5, 5]} intensity={1.5} />
+              {/* 更自然的光照组合：柔和环境光 + 半球光 + 主/辅方向光 */}
+              <ambientLight color="#ffffff" intensity={0.4} />
+              <hemisphereLight args={['#f8fafc', '#cbd5e1', 0.85]} />
+              <directionalLight position={[6, 8, 6]} intensity={1.2} color="#ffffff" />
+              <directionalLight position={[-6, 6, -4]} intensity={0.6} color="#e2e8f0" />
+              <pointLight position={[0, 7, 0]} intensity={0.35} color="#ffffff" />
+              <pointLight position={[2, 3, -3]} intensity={0.25} color="#f1f5f9" />
 
               <Model3D
                 modelPath={modelData.url || modelData.path || ''}
@@ -514,6 +501,7 @@ const CameraController: React.FC<CameraControllerProps> = ({ cameraState, onStat
   // 使用ref存储最新的cameraState，避免在handleControlChange中依赖它导致无限循环
   const cameraStateRef = useRef<Model3DCameraState>(cameraState);
   const isUpdatingFromPropsRef = useRef(false);
+  const lastControlEmitRef = useRef(0);
 
   useEffect(() => {
     cameraStateRef.current = cameraState;
@@ -557,12 +545,25 @@ const CameraController: React.FC<CameraControllerProps> = ({ cameraState, onStat
     const controls = controlsRef.current;
     if (!controls || !enabled) return;
 
-    // 使用防抖，避免频繁更新导致抽搐
+    // 限制同步频率，降低频繁setState导致的卡顿
+    const now = performance.now();
+    const minInterval = 1000 / 24; // 约24fps的状态上报，更平滑且减少抖动
+
     if (controlChangeTimerRef.current) {
       cancelAnimationFrame(controlChangeTimerRef.current);
+      controlChangeTimerRef.current = null;
     }
 
-    controlChangeTimerRef.current = requestAnimationFrame(() => {
+    if (now - lastControlEmitRef.current < minInterval) {
+      controlChangeTimerRef.current = requestAnimationFrame(() => {
+        controlChangeTimerRef.current = null;
+        handleControlChange();
+      });
+      return;
+    }
+
+    lastControlEmitRef.current = now;
+
     const cam = controls.object as THREE.PerspectiveCamera;
     const next: Model3DCameraState = {
       position: [cam.position.x, cam.position.y, cam.position.z],
@@ -570,13 +571,17 @@ const CameraController: React.FC<CameraControllerProps> = ({ cameraState, onStat
       up: [cam.up.x, cam.up.y, cam.up.z],
     };
 
-      // 使用ref来避免依赖cameraState导致的无限循环
-      const currentState = cameraStateRef.current;
-      if (!cameraStatesEqual(next, currentState)) {
-      onStateChange(next);
+    // 使用ref来避免依赖cameraState导致的无限循环
+    const currentState = cameraStateRef.current;
+    pendingStateRef.current = next;
+    if (!cameraStatesEqual(next, currentState)) {
+      // 使用低优先级更新，避免阻塞主线程
+      if (typeof React.startTransition === 'function') {
+        React.startTransition(() => onStateChange(next));
+      } else {
+        onStateChange(next);
+      }
     }
-      controlChangeTimerRef.current = null;
-    });
   }, [enabled, onStateChange]);
 
   return (
@@ -586,13 +591,13 @@ const CameraController: React.FC<CameraControllerProps> = ({ cameraState, onStat
       enableZoom={true}
       enableRotate={true}
       enableDamping
-      dampingFactor={0.1} // 增加阻尼，使操作更平滑
+      dampingFactor={0.18} // 增加阻尼，使操作更平滑
       minDistance={0.5}
       maxDistance={50}
       autoRotate={false}
-      rotateSpeed={0.8} // 稍微降低旋转速度，使操作更稳定
-      zoomSpeed={1.0} // 降低缩放速度，避免过快变化
-      panSpeed={0.8} // 降低平移速度，使操作更平滑
+      rotateSpeed={0.65} // 降低旋转速度，配合阻尼更顺滑
+      zoomSpeed={0.85} // 调低缩放速度，避免突兀
+      panSpeed={0.7} // 平移稍慢，减少抖动感
       screenSpacePanning={false} // 在3D空间中平移，而不是屏幕空间
       mouseButtons={{
         LEFT: THREE.MOUSE.ROTATE,    // 左键旋转
