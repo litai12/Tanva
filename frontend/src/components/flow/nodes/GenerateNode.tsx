@@ -5,6 +5,7 @@ import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import GenerationProgressBar from './GenerationProgressBar';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 type Props = {
   id: string;
@@ -29,14 +30,26 @@ export default function GenerateNode({ id, data, selected }: Props) {
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   
   // 使用全局图片历史记录
+  const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
-  const allImages = React.useMemo(() => 
-    history.map(item => ({
-      id: item.id,
-      src: item.src,
-      title: item.title
-    } as ImageItem)), 
-    [history]
+  const projectHistory = React.useMemo(() => {
+    if (!projectId) return history;
+    return history.filter((item) => {
+      const pid = item.projectId ?? null;
+      return pid === projectId || pid === null;
+    });
+  }, [history, projectId]);
+  const allImages = React.useMemo(
+    () =>
+      projectHistory.map(
+        (item) =>
+          ({
+            id: item.id,
+            src: item.src,
+            title: item.title,
+          }) as ImageItem,
+      ),
+    [projectHistory],
   );
 
   const updateAspectRatio = React.useCallback((ratio: string) => {
@@ -93,9 +106,10 @@ export default function GenerateNode({ id, data, selected }: Props) {
         nodeId: id,
         nodeType: 'generate',
         fileName: `flow_generate_${newImageId}.png`,
+        projectId,
       });
     }
-  }, [data.imageData, status, id]);
+  }, [data.imageData, status, id, projectId]);
 
   // 处理图片切换
   const handleImageChange = React.useCallback((imageId: string) => {

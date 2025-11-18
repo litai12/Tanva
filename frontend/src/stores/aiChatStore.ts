@@ -1246,9 +1246,9 @@ export const useAIChatStore = create<AIChatState>()(
       }) => {
         if (!result.imageData) return;
         const dataUrl = ensureDataUrl(result.imageData);
+        const projectId = useProjectContentStore.getState().projectId;
         let remoteUrl: string | undefined;
         try {
-          const projectId = useProjectContentStore.getState().projectId;
           const historyRecord = await recordImageHistoryEntry({
             dataUrl,
             title: prompt,
@@ -1283,6 +1283,7 @@ export const useAIChatStore = create<AIChatState>()(
             title: prompt,
             nodeId: aiMessageId,
             nodeType: 'generate',
+            projectId,
             timestamp: storedHistory.timestamp.getTime()
           });
         } catch (error) {
@@ -1574,6 +1575,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       try {
         const imageHistoryStore = useImageHistoryStore.getState();
+        const projectId = useProjectContentStore.getState().projectId;
         const contexts = contextManager.getAllSessions();
         contexts.forEach((context) => {
           context.contextInfo.imageHistory.forEach((item) => {
@@ -1587,6 +1589,7 @@ export const useAIChatStore = create<AIChatState>()(
               title: item.prompt || '图片',
               nodeId: item.parentImageId || item.id,
               nodeType: 'generate',
+              projectId,
               timestamp: item.timestamp.getTime()
             });
           });

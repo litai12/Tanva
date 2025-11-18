@@ -656,7 +656,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         thumbnail: asset.localDataUrl || asset.url,
                         title: fileName ? `快速上传 · ${fileName}` : '快速上传图片',
                         nodeId: 'canvas',
-                        nodeType: 'image'
+                        nodeType: 'image',
+                        projectId: projectId ?? null
                     });
                 } catch (historyError) {
                     try { console.warn('[QuickUpload] 写入图片历史失败:', historyError); } catch {}

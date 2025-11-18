@@ -4,7 +4,7 @@ import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
 import { Sparkles, Eye, EyeOff, Wand2, Copy, Trash2, Box, Crop, ImageUp } from 'lucide-react';
 import { Button } from '../ui/button';
-import ImagePreviewModal from '../ui/ImagePreviewModal';
+import ImagePreviewModal, { type ImageItem } from '../ui/ImagePreviewModal';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { LoadingSpinner } from '../ui/loading-spinner';
 import { logger } from '@/utils/logger';
@@ -17,6 +17,7 @@ import { optimizeHdImage } from '@/services/hdUpscaleService';
 import ExpandImageSelector from './ExpandImageSelector';
 import { useToolStore } from '@/stores';
 import aiImageService from '@/services/aiImageService';
+import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 
 const HD_UPSCALE_RESOLUTION: '4k' = '4k';
 const EXPAND_PRESET_PROMPT = '帮我在空白部分扩展这张图，补全内容';
@@ -25,6 +26,15 @@ type Bounds = { x: number; y: number; width: number; height: number };
 const ensureDataUrlString = (imageData: string, mime: string = 'image/png'): string => {
   if (!imageData) return '';
   return imageData.startsWith('data:image') ? imageData : `data:${mime};base64,${imageData}`;
+};
+
+const normalizeImageSrc = (value?: string | null): string => {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (/^data:image\//i.test(trimmed) || /^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `data:image/png;base64,${trimmed}`;
 };
 
 const loadImageElement = (src: string): Promise<HTMLImageElement> => {
@@ -90,6 +100,7 @@ interface ImageData {
   src?: string;
   fileName?: string;
   pendingUpload?: boolean;
+  localDataUrl?: string;
 }
 
 interface ImageContainerProps {
@@ -146,6 +157,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   
   // 预览模态框状态
   const [showPreview, setShowPreview] = useState(false);
+  const [previewImageId, setPreviewImageId] = useState<string | null>(null);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
   const [isConvertingTo3D, setIsConvertingTo3D] = useState(false);
   const [isExpandingImage, setIsExpandingImage] = useState(false);
@@ -154,7 +166,26 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
+  const history = useImageHistoryStore((state) => state.history);
   const setDrawMode = useToolStore((state) => state.setDrawMode);
+
+  const scopedHistory = useMemo(() => {
+    if (!projectId) return history;
+    return history.filter((item) => {
+      const pid = item.projectId ?? null;
+      return pid === projectId || pid === null;
+    });
+  }, [history, projectId]);
+
+  const relatedHistoryImages = useMemo<ImageItem[]>(() => {
+    return scopedHistory
+      .filter((item) => !!item.src)
+      .map((item) => ({
+        id: item.id,
+        src: normalizeImageSrc(item.src),
+        title: item.title,
+      }));
+  }, [scopedHistory]);
 
   // 将Paper.js世界坐标转换为屏幕坐标（改进版）
   const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
@@ -449,6 +480,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     e.preventDefault();
     e.stopPropagation();
     setShowPreview(true);
+    setPreviewImageId(imageData.id);
     console.log('👁️ 打开图片预览:', imageData.id);
   }, [imageData.id]);
 
@@ -852,6 +884,46 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     setDrawMode('select');
   }, [setDrawMode]);
 
+  const basePreviewSrc = useMemo(() => {
+    const candidate = getImageDataForEditing?.(imageData.id) || imageData.url || imageData.src || imageData.localDataUrl;
+    return normalizeImageSrc(candidate);
+  }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src, imageData.localDataUrl]);
+
+  const previewCollection = useMemo<ImageItem[]>(() => {
+    const map = new Map<string, ImageItem>();
+    if (basePreviewSrc) {
+      map.set(imageData.id, {
+        id: imageData.id,
+        src: basePreviewSrc,
+        title: imageData.fileName || `图片 ${imageData.id}`,
+      });
+    }
+
+    relatedHistoryImages.forEach((item) => {
+      if (item.id && item.src && !map.has(item.id)) {
+        map.set(item.id, item);
+      }
+    });
+
+    return Array.from(map.values());
+  }, [basePreviewSrc, imageData.fileName, imageData.id, relatedHistoryImages]);
+
+  const activePreviewId = previewImageId ?? imageData.id;
+  const activePreviewSrc = useMemo(() => {
+    if (!previewCollection.length) return '';
+    const target = previewCollection.find((item) => item.id === activePreviewId);
+    return target?.src || previewCollection[0]?.src || '';
+  }, [activePreviewId, previewCollection]);
+
+  useEffect(() => {
+    if (!showPreview) return;
+    if (!previewCollection.length) return;
+    const exists = previewCollection.some((item) => item.id === activePreviewId);
+    if (!exists) {
+      setPreviewImageId(previewCollection[0].id);
+    }
+  }, [activePreviewId, previewCollection, showPreview]);
+
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
   return (
@@ -1043,9 +1115,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       {/* 图片预览模态框 */}
       <ImagePreviewModal
         isOpen={showPreview}
-        imageSrc={getImageDataForEditing ? (getImageDataForEditing(imageData.id) || imageData.url || imageData.src || '') : (imageData.url || imageData.src || '')}
+        imageSrc={activePreviewSrc}
         imageTitle={imageData.fileName || `图片 ${imageData.id}`}
-        onClose={() => setShowPreview(false)}
+        onClose={() => {
+          setShowPreview(false);
+          setPreviewImageId(null);
+        }}
+        imageCollection={previewCollection}
+        currentImageId={activePreviewId}
+        onImageChange={(imageId: string) => setPreviewImageId(imageId)}
+        collectionTitle="项目内图片"
       />
     </div>
   );

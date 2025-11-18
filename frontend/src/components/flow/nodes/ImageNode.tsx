@@ -4,6 +4,7 @@ import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 type Props = {
   id: string;
@@ -15,6 +16,7 @@ export default function ImageNode({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
@@ -40,13 +42,24 @@ export default function ImageNode({ id, data, selected }: Props) {
   
   // 使用全局图片历史记录
   const history = useImageHistoryStore((state) => state.history);
-  const allImages = React.useMemo(() => 
-    history.map(item => ({
-      id: item.id,
-      src: item.src,
-      title: item.title
-    } as ImageItem)), 
-    [history]
+  const projectHistory = React.useMemo(() => {
+    if (!projectId) return history;
+    return history.filter((item) => {
+      const pid = item.projectId ?? null;
+      return pid === projectId || pid === null;
+    });
+  }, [history, projectId]);
+  const allImages = React.useMemo(
+    () =>
+      projectHistory.map(
+        (item) =>
+          ({
+            id: item.id,
+            src: item.src,
+            title: item.title,
+          }) as ImageItem,
+      ),
+    [projectHistory],
   );
   React.useEffect(() => {
     if (!preview) return;
@@ -75,6 +88,7 @@ export default function ImageNode({ id, data, selected }: Props) {
         nodeId: id,
         nodeType: 'image',
         fileName: file.name || `flow_image_${newImageId}.png`,
+        projectId,
       });
     };
     reader.readAsDataURL(file);

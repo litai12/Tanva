@@ -70,6 +70,7 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
       title: options.title ?? '图片',
       nodeId,
       nodeType,
+      projectId,
       timestamp: options.timestamp ?? existing?.timestamp,
     });
   }
@@ -97,6 +98,7 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
         src: remoteUrl,
         remoteUrl,
         thumbnail: keepThumbnail ? dataUrl : undefined,
+        projectId,
       });
       return { id, remoteUrl };
     }

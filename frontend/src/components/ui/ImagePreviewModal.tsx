@@ -22,6 +22,7 @@ interface ImagePreviewModalProps {
   imageCollection?: ImageItem[]; // 图片集合
   currentImageId?: string; // 当前图片ID
   onImageChange?: (imageId: string) => void; // 切换图片回调
+  collectionTitle?: string; // 缩略图集合标题
 }
 
 const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
@@ -31,7 +32,8 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   onClose,
   imageCollection = [],
   currentImageId,
-  onImageChange
+  onImageChange,
+  collectionTitle = '历史记录'
 }) => {
   const [thumbnailScrollPosition, setThumbnailScrollPosition] = useState(0);
   const hasCollection = imageCollection.length > 0;
@@ -165,7 +167,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
           >
             {/* 缩略图标题 */}
             <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-              <h3 className="text-white text-sm font-medium">历史记录</h3>
+              <h3 className="text-white text-sm font-medium">{collectionTitle}</h3>
             </div>
 
             {/* 缩略图滚动容器 */}

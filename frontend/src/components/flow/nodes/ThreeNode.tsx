@@ -8,6 +8,7 @@ import { Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 type Props = {
   id: string;
@@ -41,14 +42,26 @@ export default function ThreeNode({ id, data, selected }: Props) {
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   
   // 使用全局图片历史记录
+  const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
-  const allImages = React.useMemo(() => 
-    history.map(item => ({
-      id: item.id,
-      src: item.src,
-      title: item.title
-    } as ImageItem)), 
-    [history]
+  const projectHistory = React.useMemo(() => {
+    if (!projectId) return history;
+    return history.filter((item) => {
+      const pid = item.projectId ?? null;
+      return pid === projectId || pid === null;
+    });
+  }, [history, projectId]);
+  const allImages = React.useMemo(
+    () =>
+      projectHistory.map(
+        (item) =>
+          ({
+            id: item.id,
+            src: item.src,
+            title: item.title,
+          }) as ImageItem,
+      ),
+    [projectHistory],
   );
 
   const initIfNeeded = React.useCallback(() => {
@@ -257,6 +270,7 @@ export default function ThreeNode({ id, data, selected }: Props) {
       nodeId: id,
       nodeType: '3d',
       fileName: `three_capture_${newImageId}.png`,
+      projectId,
     });
     setCurrentImageId(newImageId);
     

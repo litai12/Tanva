@@ -5,6 +5,7 @@ import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import GenerationProgressBar from './GenerationProgressBar';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 type Props = {
   id: string;
@@ -30,10 +31,18 @@ export default function GenerateReferenceNode({ id, data, selected }: Props) {
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
 
+  const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
+  const projectHistory = React.useMemo(() => {
+    if (!projectId) return history;
+    return history.filter((item) => {
+      const pid = item.projectId ?? null;
+      return pid === projectId || pid === null;
+    });
+  }, [history, projectId]);
   const allImages = React.useMemo(
     () =>
-      history.map(
+      projectHistory.map(
         (item) =>
           ({
             id: item.id,
@@ -41,7 +50,7 @@ export default function GenerateReferenceNode({ id, data, selected }: Props) {
             title: item.title,
           }) as ImageItem,
       ),
-    [history],
+    [projectHistory],
   );
 
   const referencePromptValue = data.referencePrompt ?? DEFAULT_REFERENCE_PROMPT;
@@ -75,9 +84,10 @@ export default function GenerateReferenceNode({ id, data, selected }: Props) {
         nodeId: id,
         nodeType: 'generate',
         fileName: `flow_generate_ref_${newImageId}.png`,
+        projectId,
       });
     }
-  }, [data.imageData, status, id]);
+  }, [data.imageData, status, id, projectId]);
 
   const handleImageChange = React.useCallback(
     (imageId: string) => {
