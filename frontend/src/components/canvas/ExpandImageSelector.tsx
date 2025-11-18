@@ -36,6 +36,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   const [expandRatios, setExpandRatios] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null);
   const [selectedSizeLabel, setSelectedSizeLabel] = useState('常用尺寸');
   const [frameBounds, setFrameBounds] = useState(imageBounds);
+  const isDraggingRef = useRef(false);
   const dragStateRef = useRef<{
     index: number;
     startBounds: { x: number; y: number; width: number; height: number };
@@ -44,6 +45,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   // const { zoom, panX, panY } = useCanvasStore();
 
   useEffect(() => {
+    if (isDraggingRef.current) return;
     setFrameBounds(imageBounds);
   }, [imageBounds]);
 
@@ -112,6 +114,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   const startHandleDrag = useCallback((index: number, clientX: number, clientY: number) => {
     const startPaper = getPaperPointFromClient(clientX, clientY);
     if (!startPaper) return;
+    isDraggingRef.current = true;
     dragStateRef.current = {
       index,
       startBounds: { ...frameBounds },
@@ -212,10 +215,13 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       dragStateRef.current = null;
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+      isDraggingRef.current = false;
     };
 
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
   }, [frameBounds, getPaperPointFromClient]);
 
   const handleHandlePointerDown = useCallback((index: number) => (event: React.PointerEvent<HTMLDivElement>) => {
@@ -286,6 +292,28 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       height: bottomRight.y - topLeft.y,
     };
   }, [frameBounds, convertToScreen]);
+
+  const imageScreenBounds = useMemo(() => {
+    const topLeft = convertToScreen(new paper.Point(imageBounds.x, imageBounds.y));
+    const bottomRight = convertToScreen(new paper.Point(imageBounds.x + imageBounds.width, imageBounds.y + imageBounds.height));
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y,
+    };
+  }, [imageBounds, convertToScreen]);
+
+  const previewImagePosition = useMemo(() => {
+    if (!screenBounds) return null;
+    if (!imageScreenBounds) return null;
+    return {
+      left: imageScreenBounds.x - screenBounds.x,
+      top: imageScreenBounds.y - screenBounds.y,
+      width: imageScreenBounds.width,
+      height: imageScreenBounds.height,
+    };
+  }, [imageScreenBounds, screenBounds]);
 
   // 阻止画板的默认交互，但允许截图选择层工作
   useEffect(() => {
@@ -398,13 +426,41 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
             <div
               style={{
                 position: 'absolute',
+                inset: 0,
+                background: '#fff',
+                boxShadow: '0 30px 70px rgba(15,23,42,0.25)',
+                pointerEvents: 'none',
+              }}
+            />
+            {imageUrl && previewImagePosition && (
+              <img
+                src={imageUrl}
+                alt=""
+                style={{
+                  position: 'absolute',
+                  left: `${previewImagePosition.left}px`,
+                  top: `${previewImagePosition.top}px`,
+                  width: `${previewImagePosition.width}px`,
+                  height: `${previewImagePosition.height}px`,
+                  objectFit: 'cover',
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                  zIndex: 1,
+                }}
+                draggable={false}
+              />
+            )}
+            <div
+              style={{
+                position: 'absolute',
                 top: 0,
                 left: 0,
                 right: 0,
                 bottom: 0,
                 border: '2px dashed #3b82f6',
-                borderRadius: '12px',
+                borderRadius: 0,
                 pointerEvents: 'none',
+                zIndex: 2,
               }}
             />
             {[
@@ -418,14 +474,15 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
                 onPointerDown={handleHandlePointerDown(handle.index)}
                 style={{
                   position: 'absolute',
-                  width: 16,
-                  height: 16,
-                  borderRadius: '50%',
-                  background: '#3b82f6',
-                  border: '2px solid #fff',
-                  boxShadow: '0 4px 10px rgba(0,0,0,0.15)',
+                  width: 14,
+                  height: 14,
+                  borderRadius: 2,
+                  background: '#2563eb',
+                  border: '1px solid #dbeafe',
+                  boxShadow: '0 3px 8px rgba(37, 99, 235, 0.18)',
                   cursor: handle.cursor as React.CSSProperties['cursor'],
                   pointerEvents: 'auto',
+                  zIndex: 3,
                   ...handle.style,
                 }}
               />
@@ -548,4 +605,3 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
 };
 
 export default ExpandImageSelector;
-

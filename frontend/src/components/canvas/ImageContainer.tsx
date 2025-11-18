@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import paper from 'paper';
-import { useAIChatStore } from '@/stores/aiChatStore';
+import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
 import { Sparkles, Eye, EyeOff, Wand2, Copy, Trash2, Box, Crop, ImageUp } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -13,12 +13,76 @@ import { convert2Dto3D } from '@/services/convert2Dto3DService';
 import { uploadToOSS } from '@/services/ossUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import type { Model3DData } from '@/services/model3DUploadService';
-import { expandImage } from '@/services/expandImageService';
 import { optimizeHdImage } from '@/services/hdUpscaleService';
 import ExpandImageSelector from './ExpandImageSelector';
 import { useToolStore } from '@/stores';
+import aiImageService from '@/services/aiImageService';
 
 const HD_UPSCALE_RESOLUTION: '4k' = '4k';
+const EXPAND_PRESET_PROMPT = '帮我在空白部分扩展这张图，补全内容';
+
+type Bounds = { x: number; y: number; width: number; height: number };
+const ensureDataUrlString = (imageData: string, mime: string = 'image/png'): string => {
+  if (!imageData) return '';
+  return imageData.startsWith('data:image') ? imageData : `data:${mime};base64,${imageData}`;
+};
+
+const loadImageElement = (src: string): Promise<HTMLImageElement> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('无法加载图像数据'));
+    img.src = src;
+  });
+};
+
+const composeExpandedImage = async (
+  sourceDataUrl: string,
+  originalBounds: Bounds,
+  targetBounds: Bounds
+): Promise<{ dataUrl: string; width: number; height: number }> => {
+  if (!targetBounds.width || !targetBounds.height) {
+    throw new Error('请选择有效的扩展区域');
+  }
+
+  const image = await loadImageElement(sourceDataUrl);
+  const safeOriginalWidth = Math.max(1, originalBounds.width);
+  const safeOriginalHeight = Math.max(1, originalBounds.height);
+
+  const scaleX = image.width / safeOriginalWidth;
+  const scaleY = image.height / safeOriginalHeight;
+  const scale = Number.isFinite(scaleX) && Number.isFinite(scaleY)
+    ? (scaleX + scaleY) / 2
+    : Number.isFinite(scaleX)
+    ? scaleX
+    : Number.isFinite(scaleY)
+    ? scaleY
+    : 1;
+
+  const canvasWidth = Math.max(1, Math.round(targetBounds.width * scale));
+  const canvasHeight = Math.max(1, Math.round(targetBounds.height * scale));
+  const offsetX = Math.round((originalBounds.x - targetBounds.x) * scale);
+  const offsetY = Math.round((originalBounds.y - targetBounds.y) * scale);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('无法创建扩展画布');
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
+
+  return {
+    dataUrl: canvas.toDataURL('image/png'),
+    width: canvasWidth,
+    height: canvasHeight,
+  };
+};
 
 interface ImageData {
   id: string;
@@ -614,6 +678,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [isExpandingImage]);
 
   // 处理扩图选择完成
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+
   const handleExpandSelect = useCallback(async (
     selectedBounds: { x: number; y: number; width: number; height: number },
     expandRatios: { left: number; top: number; right: number; bottom: number }
@@ -622,47 +688,73 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     setIsExpandingImage(true);
 
     try {
-      // 获取当前图片的URL
-      const imageUrl = await getProcessableImageUrl();
+      const hasExpandArea =
+        !!expandRatios &&
+        (expandRatios.left > 0 || expandRatios.top > 0 || expandRatios.right > 0 || expandRatios.bottom > 0);
 
-      // 显示提示：扩图可能需要较长时间
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '⏳ 开始扩图，模型加载中，预计需要8-10分钟，请耐心等待...', type: 'info' }
-      }));
-
-      // 调用扩图API
-      const expandResult = await expandImage({
-        imageUrl,
-        expandRatios,
-        prompt: '扩图',
-      });
-
-      if (!expandResult.success || !expandResult.imageUrl) {
-        throw new Error(expandResult.error || '扩图失败');
+      if (!hasExpandArea) {
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '请拖拽外框扩展空白区域后再尝试', type: 'error' }
+        }));
+        return;
       }
 
-      // 将扩图后的图片添加到画布
-            const originalCenter = {
-              x: realTimeBounds.x + realTimeBounds.width / 2,
-              y: realTimeBounds.y + realTimeBounds.height / 2,
-            };
-            const expandPlacementGap = Math.max(32, Math.min(120, realTimeBounds.width * 0.1));
-            const expandResultCenter = {
-              x: originalCenter.x - realTimeBounds.width - expandPlacementGap,
-              y: originalCenter.y,
-            };
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '⏳ 正在准备扩图，请稍候...', type: 'info' }
+      }));
+
+      const baseImageDataUrl = await resolveImageDataUrl();
+      if (!baseImageDataUrl) {
+        throw new Error('无法获取当前图片数据');
+      }
+
+      const composed = await composeExpandedImage(baseImageDataUrl, realTimeBounds, selectedBounds);
+      const normalizedSourceImage = composed.dataUrl.includes(',')
+        ? composed.dataUrl.split(',')[1]
+        : composed.dataUrl;
+
+      const modelToUse = getImageModelForProvider(aiProvider);
+      logger.info('🔁 调用AI扩图', {
+        imageId: imageData.id,
+        provider: aiProvider,
+        model: modelToUse,
+        targetSize: {
+          width: selectedBounds.width,
+          height: selectedBounds.height,
+        }
+      });
+      console.log('🟦 扩图提示词', EXPAND_PRESET_PROMPT);
+
+      const result = await aiImageService.editImage({
+        prompt: EXPAND_PRESET_PROMPT,
+        sourceImage: normalizedSourceImage,
+        outputFormat: 'png',
+        aiProvider,
+        model: modelToUse,
+        imageOnly: true,
+      });
+
+      if (!result.success || !result.data || !result.data.imageData) {
+        throw new Error(result.error?.message || '扩图失败');
+      }
+
+      const expandedImageData = ensureDataUrlString(result.data.imageData);
+      const originalCenter = {
+        x: realTimeBounds.x + realTimeBounds.width / 2,
+        y: realTimeBounds.y + realTimeBounds.height / 2,
+      };
+      const expandPlacementGap = Math.max(32, Math.min(120, realTimeBounds.width * 0.1));
+      const expandResultCenter = {
+        x: originalCenter.x - realTimeBounds.width - expandPlacementGap,
+        y: originalCenter.y,
+      };
 
       window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
         detail: {
-          imageData: expandResult.imageUrl,
+          imageData: expandedImageData,
           fileName: `expanded-${Date.now()}.png`,
-                selectedImageBounds: {
-                  x: realTimeBounds.x,
-                  y: realTimeBounds.y,
-                  width: realTimeBounds.width,
-                  height: realTimeBounds.height,
-                },
-                smartPosition: expandResultCenter,
+          selectedImageBounds: selectedBounds,
+          smartPosition: expandResultCenter,
           operationType: 'expand-image',
           sourceImageId: imageData.id,
         },
@@ -671,22 +763,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { message: '✨ 扩图完成，已生成新图', type: 'success' }
       }));
-
-      // 恢复画板的默认选择模式
-      setDrawMode('select');
     } catch (error) {
       const message = error instanceof Error ? error.message : '扩图失败';
       logger.error('扩图失败', error);
       window.dispatchEvent(new CustomEvent('toast', {
         detail: { message, type: 'error' }
       }));
-
-      // 恢复画板的默认选择模式
-      setDrawMode('select');
     } finally {
       setIsExpandingImage(false);
+      setDrawMode('select');
     }
-  }, [getProcessableImageUrl, realTimeBounds, imageData.id, setDrawMode]);
+  }, [aiProvider, imageData.id, realTimeBounds, resolveImageDataUrl, setDrawMode]);
 
   const handleOptimizeHdImage = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
