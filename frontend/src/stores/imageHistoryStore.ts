@@ -11,6 +11,9 @@ const normalizeValue = (value?: string | null): string | null => {
 const getCanonicalSrc = (item: { src?: string | null; remoteUrl?: string | null }):
   string | null => normalizeValue(item.remoteUrl?.startsWith('http') ? item.remoteUrl : item.src);
 
+const shouldSkipHistoryItem = (item: { nodeId: string; nodeType: ImageHistoryItem['nodeType'] }) =>
+  item.nodeId === 'canvas' && item.nodeType === 'image';
+
 export interface ImageHistoryItem {
   id: string;
   src: string;
@@ -39,11 +42,15 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
       (set, get) => ({
         history: [],
         
-        addImage: (item) => set((state) => {
-          const canonicalSrc = getCanonicalSrc(item);
-          if (!canonicalSrc) {
-            return state;
+        addImage: (item) => {
+          if (shouldSkipHistoryItem(item)) {
+            return;
           }
+          set((state) => {
+            const canonicalSrc = getCanonicalSrc(item);
+            if (!canonicalSrc) {
+              return state;
+            }
 
           const projectKey = item.projectId ?? null;
           const preferredSrc = (() => {
@@ -68,11 +75,11 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
             return getCanonicalSrc(existing) === canonicalSrc;
           });
 
-          if (existingIndex >= 0) {
-            const updated = [...state.history];
-            const existing = updated[existingIndex];
-            updated[existingIndex] = {
-              ...existing,
+            if (existingIndex >= 0) {
+              const updated = [...state.history];
+              const existing = updated[existingIndex];
+              updated[existingIndex] = {
+                ...existing,
               ...newItem,
               id: existing.id, // 保留原有id，避免 key 抖动
               projectId: projectKey,
@@ -82,11 +89,12 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
           }
           
           const updatedHistory = [newItem, ...state.history];
-          if (updatedHistory.length > 50) {
-            updatedHistory.length = 50;
-          }
-          return { history: updatedHistory };
-        }),
+              if (updatedHistory.length > 50) {
+                updatedHistory.length = 50;
+              }
+              return { history: updatedHistory };
+          });
+        },
 
         updateImage: (id, patch) => set((state) => {
           const updated = state.history.map((item) =>
