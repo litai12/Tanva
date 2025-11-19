@@ -299,6 +299,11 @@ const AIChatDialog: React.FC = () => {
       setIsPromptPanelOpen(false);
     }
   }, [isVisible]);
+  useEffect(() => {
+    if (!currentInput && textareaRef.current) {
+      textareaRef.current.scrollTop = 0;
+    }
+  }, [currentInput]);
 
   const setHistoryVisibility = useCallback((visible: boolean, manual = false) => {
     setShowHistory(visible);

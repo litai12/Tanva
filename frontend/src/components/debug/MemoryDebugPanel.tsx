@@ -56,6 +56,23 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
     return `${minutes}分${seconds % 60}秒`;
   };
 
+  const formatBytes = (bytes: number) => {
+    if (!bytes || Number.isNaN(bytes)) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let current = bytes;
+    let unitIndex = 0;
+    while (current >= 1024 && unitIndex < units.length - 1) {
+      current /= 1024;
+      unitIndex += 1;
+    }
+    return `${current.toFixed(unitIndex === 0 ? 0 : 1)}${units[unitIndex]}`;
+  };
+
+  const heapLimit = stats.browserMemory.jsHeapSizeLimit || 0;
+  const heapUsage = stats.browserMemory.usedJSHeapSize || 0;
+  const heapPercent =
+    heapLimit > 0 ? Math.min(100, Math.round((heapUsage / heapLimit) * 100)) : 0;
+
   if (!isVisible) return null;
 
   const status = getMemoryStatus();
@@ -137,6 +154,23 @@ const MemoryDebugPanel: React.FC<MemoryDebugPanelProps> = ({
                 <span className="font-mono">{totalPoolSize}/750</span>
               </div>
             </div>
+          </div>
+
+          {/* Browser Memory */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold text-muted-foreground">浏览器内存</h4>
+            {stats.browserMemory.supported ? (
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">JS Heap:</span>
+                  <span className="font-mono">
+                    {formatBytes(heapUsage)} / {formatBytes(heapLimit)} ({heapPercent}%)
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">当前环境不支持 heap 统计</p>
+            )}
           </div>
 
           {/* Memory Management */}

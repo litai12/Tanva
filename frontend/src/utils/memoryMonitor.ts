@@ -12,6 +12,12 @@ export interface MemoryStats {
   };
   memoryWarning: boolean;
   lastCleanup: number;
+  browserMemory: {
+    usedJSHeapSize: number;
+    totalJSHeapSize: number;
+    jsHeapSizeLimit: number;
+    supported: boolean;
+  };
 }
 
 export class MemoryMonitor {
@@ -26,7 +32,13 @@ export class MemoryMonitor {
       gridLines: 0
     },
     memoryWarning: false,
-    lastCleanup: Date.now()
+    lastCleanup: Date.now(),
+    browserMemory: {
+      usedJSHeapSize: 0,
+      totalJSHeapSize: 0,
+      jsHeapSizeLimit: 0,
+      supported: typeof performance !== 'undefined' && 'memory' in performance
+    }
   };
 
   // 内存警告阈值
@@ -36,6 +48,8 @@ export class MemoryMonitor {
     poolSize: 1000,        // 对象池总大小超过1000时警告
     timeSinceCleanup: 5 * 60 * 1000  // 5分钟未清理时警告
   };
+  private readonly BROWSER_HEAP_WARNING_RATIO = 0.85;
+  private readonly BROWSER_HEAP_ABSOLUTE = 900 * 1024 * 1024; // 约900MB
 
   static getInstance(): MemoryMonitor {
     if (!MemoryMonitor.instance) {
@@ -94,6 +108,32 @@ export class MemoryMonitor {
     };
   }
 
+  private updateBrowserMemoryStats(): void {
+    if (typeof performance === 'undefined' || !(performance as any)?.memory) {
+      this.stats.browserMemory.supported = false;
+      return;
+    }
+    const memory = (performance as any).memory;
+    this.stats.browserMemory = {
+      usedJSHeapSize: memory.usedJSHeapSize ?? 0,
+      totalJSHeapSize: memory.totalJSHeapSize ?? 0,
+      jsHeapSizeLimit: memory.jsHeapSizeLimit ?? 0,
+      supported: true
+    };
+  }
+
+  private emitMemoryEvent(isWarning: boolean): void {
+    if (typeof window === 'undefined') return;
+    const eventName = isWarning ? 'memory-pressure' : 'memory-relieved';
+    try {
+      window.dispatchEvent(
+        new CustomEvent(eventName, { detail: { stats: { ...this.stats } } })
+      );
+    } catch {
+      // 忽略自定义事件失败
+    }
+  }
+
   // 检查是否需要内存警告
   checkMemoryWarning(): boolean {
     const now = Date.now();
@@ -101,12 +141,35 @@ export class MemoryMonitor {
     const totalPoolSize = this.stats.activePoolSize.mainDots + 
                          this.stats.activePoolSize.minorDots + 
                          this.stats.activePoolSize.gridLines;
+    const heapUsageRatio =
+      this.stats.browserMemory.jsHeapSizeLimit > 0
+        ? this.stats.browserMemory.usedJSHeapSize /
+          this.stats.browserMemory.jsHeapSizeLimit
+        : 0;
+    const heapWarning =
+      this.stats.browserMemory.supported &&
+      (heapUsageRatio > this.BROWSER_HEAP_WARNING_RATIO ||
+        this.stats.browserMemory.usedJSHeapSize > this.BROWSER_HEAP_ABSOLUTE);
 
+    const previousWarning = this.stats.memoryWarning;
     this.stats.memoryWarning = 
       this.stats.totalItems > this.WARNING_THRESHOLDS.totalItems ||
       this.stats.gridItems > this.WARNING_THRESHOLDS.gridItems ||
       totalPoolSize > this.WARNING_THRESHOLDS.poolSize ||
-      timeSinceCleanup > this.WARNING_THRESHOLDS.timeSinceCleanup;
+      timeSinceCleanup > this.WARNING_THRESHOLDS.timeSinceCleanup ||
+      heapWarning;
+
+    if (previousWarning !== this.stats.memoryWarning) {
+      this.emitMemoryEvent(this.stats.memoryWarning);
+      if (this.stats.memoryWarning) {
+        console.warn(
+          '[memoryMonitor] 检测到内存压力. usedJSHeapSize:',
+          this.stats.browserMemory.usedJSHeapSize,
+          'limit:',
+          this.stats.browserMemory.jsHeapSizeLimit
+        );
+      }
+    }
 
     return this.stats.memoryWarning;
   }
@@ -120,6 +183,7 @@ export class MemoryMonitor {
   // 获取当前内存统计
   getStats(): MemoryStats {
     this.updatePaperStats();
+    this.updateBrowserMemoryStats();
     this.checkMemoryWarning();
     return { ...this.stats };
   }
@@ -136,6 +200,11 @@ export class MemoryMonitor {
 - 对象总数: ${stats.totalItems}
 - 网格对象: ${stats.gridItems}
 - 对象池大小: ${totalPoolSize} (主:${stats.activePoolSize.mainDots}, 副:${stats.activePoolSize.minorDots}, 线:${stats.activePoolSize.gridLines})
+- JS堆内存: ${
+      stats.browserMemory.supported
+        ? `${(stats.browserMemory.usedJSHeapSize / (1024 * 1024)).toFixed(1)}MB / ${(stats.browserMemory.jsHeapSizeLimit / (1024 * 1024)).toFixed(1)}MB`
+        : '不支持'
+    }
 - 警告状态: ${stats.memoryWarning ? '是' : '否'}
 - 上次清理: ${Math.round((Date.now() - stats.lastCleanup) / 1000)}秒前`;
   }

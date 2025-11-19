@@ -120,6 +120,7 @@ export interface ChatSessionSummary {
 let hasHydratedSessions = false;
 let isHydratingNow = false;
 let refreshSessionsTimeout: NodeJS.Timeout | null = null;
+let legacyMigrationInProgress = false;
 
 const toISOString = (value: Date | string | number | null | undefined): string => {
   if (value instanceof Date) return value.toISOString();
@@ -457,6 +458,162 @@ const cacheGeneratedImageResult = ({
   } catch (error) {
     console.warn('⚠️ 缓存最新生成图像失败:', error);
   }
+};
+
+const LEGACY_INLINE_IMAGE_THRESHOLD = 350_000;
+const isRemoteUrl = (value?: string | null): boolean =>
+  typeof value === 'string' && /^https?:\/\//i.test(value);
+const normalizeInlineImageData = (value?: string | null): string | null => {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^data:image\//i.test(trimmed)) return trimmed;
+  const compact = trimmed.replace(/\s+/g, '');
+  if (/^[A-Za-z0-9+/=]+$/.test(compact) && compact.length > 120) {
+    return `data:image/png;base64,${compact}`;
+  }
+  return null;
+};
+const shouldUploadLegacyInline = (inline: string | null, remote?: string | null) =>
+  Boolean(
+    inline &&
+      !isRemoteUrl(remote) &&
+      inline.length > LEGACY_INLINE_IMAGE_THRESHOLD
+  );
+
+const migrateMessageImagePayload = async (
+  message: ChatMessage,
+  projectId: string | null,
+): Promise<boolean> => {
+  const inlineCandidate =
+    normalizeInlineImageData(message.imageData) ??
+    normalizeInlineImageData(message.thumbnail);
+  if (!inlineCandidate) {
+    return false;
+  }
+  let mutated = false;
+  const preview = await buildImagePreviewSafely(inlineCandidate);
+  if (preview && message.thumbnail !== preview) {
+    message.thumbnail = preview;
+    mutated = true;
+  }
+  if (
+    preview &&
+    typeof message.imageData === 'string' &&
+    message.imageData.startsWith('data:image') &&
+    message.imageData !== preview
+  ) {
+    message.imageData = preview;
+    mutated = true;
+  }
+  if (shouldUploadLegacyInline(inlineCandidate, message.imageRemoteUrl)) {
+    const remoteUrl = await uploadImageToOSS(preview ?? inlineCandidate, projectId);
+    if (remoteUrl) {
+      message.imageRemoteUrl = remoteUrl;
+      message.imageData = preview ?? message.imageData;
+      mutated = true;
+    }
+  }
+  return mutated;
+};
+
+const migrateCachedImagePayload = async (
+  context: ConversationContext,
+  projectId: string | null,
+): Promise<boolean> => {
+  if (!context.cachedImages) {
+    return false;
+  }
+
+  const inlineCandidate = normalizeInlineImageData(context.cachedImages.latest ?? null);
+  if (!inlineCandidate) {
+    return false;
+  }
+  let mutated = false;
+  const preview = await buildImagePreviewSafely(inlineCandidate);
+  if (preview && context.cachedImages.latest !== preview) {
+    context.cachedImages.latest = preview;
+    mutated = true;
+  }
+  if (shouldUploadLegacyInline(inlineCandidate, context.cachedImages.latestRemoteUrl)) {
+    const remoteUrl = await uploadImageToOSS(preview ?? inlineCandidate, projectId);
+    if (remoteUrl) {
+      context.cachedImages.latestRemoteUrl = remoteUrl;
+      context.cachedImages.latest = preview ?? null;
+      mutated = true;
+    }
+  }
+  return mutated;
+};
+
+const migrateContextImageHistory = async (
+  context: ConversationContext,
+  projectId: string | null,
+): Promise<boolean> => {
+  const store = useImageHistoryStore.getState();
+  let mutated = false;
+  const history = context.contextInfo?.imageHistory ?? [];
+
+  for (const entry of history) {
+    const inlineCandidate =
+      normalizeInlineImageData(entry.imageData ?? null) ??
+      normalizeInlineImageData(entry.thumbnail ?? null);
+    let preview: string | null = null;
+
+    if (inlineCandidate) {
+      preview = await buildImagePreviewSafely(inlineCandidate);
+      if (preview && entry.imageData !== preview) {
+        entry.imageData = preview;
+        mutated = true;
+      }
+      if (preview && entry.thumbnail !== preview) {
+        entry.thumbnail = preview;
+        mutated = true;
+      }
+    }
+
+    if (inlineCandidate && shouldUploadLegacyInline(inlineCandidate, entry.imageRemoteUrl)) {
+      const remoteUrl = await uploadImageToOSS(preview ?? inlineCandidate, projectId);
+      if (remoteUrl) {
+        entry.imageRemoteUrl = remoteUrl;
+        entry.imageData = preview ?? entry.imageData;
+        mutated = true;
+      }
+    }
+
+    try {
+      store.updateImage(entry.id, {
+        remoteUrl: entry.imageRemoteUrl ?? undefined,
+        thumbnail: entry.thumbnail ?? undefined,
+        src: entry.imageRemoteUrl || entry.thumbnail || entry.imageData || undefined,
+      });
+    } catch {
+      // ignore history update failure
+    }
+  }
+
+  return mutated;
+};
+
+const migrateLegacySessions = async (
+  contexts: ConversationContext[],
+  projectId: string | null,
+): Promise<boolean> => {
+  let mutated = false;
+  for (const context of contexts) {
+    for (const message of context.messages) {
+      if (await migrateMessageImagePayload(message, projectId)) {
+        mutated = true;
+      }
+    }
+    if (await migrateCachedImagePayload(context, projectId)) {
+      mutated = true;
+    }
+    if (await migrateContextImageHistory(context, projectId)) {
+      mutated = true;
+    }
+  }
+  return mutated;
 };
 
 // ==================== Sora2 视频生成相关函数 ====================
@@ -1372,6 +1529,39 @@ export const useAIChatStore = create<AIChatState>()(
         return assets;
       };
 
+      const triggerLegacyMigration = (reason: string, markProjectDirty: boolean) => {
+        if (legacyMigrationInProgress) {
+          return;
+        }
+        legacyMigrationInProgress = true;
+        void (async () => {
+          try {
+            const contexts = contextManager.getAllSessions();
+            const projectId = useProjectContentStore.getState().projectId ?? null;
+            const migrated = await migrateLegacySessions(contexts, projectId);
+            if (!migrated) {
+              return;
+            }
+
+            const activeSessionId =
+              get().currentSessionId ?? contextManager.getCurrentSessionId();
+            if (activeSessionId) {
+              const updatedContext = contextManager.getSession(activeSessionId);
+              if (updatedContext) {
+                set({ messages: [...updatedContext.messages] });
+              }
+            }
+
+            await get().refreshSessions({ markProjectDirty });
+            console.log(`🧹 ${reason} 已触发旧版会话轻量化并同步`);
+          } catch (error) {
+            console.error(`❌ ${reason} 会话迁移失败:`, error);
+          } finally {
+            legacyMigrationInProgress = false;
+          }
+        })();
+      };
+
       return {
   // 初始状态
   isVisible: true,
@@ -1686,6 +1876,8 @@ export const useAIChatStore = create<AIChatState>()(
         currentSessionId: targetSessionId,
         messages: context ? [...context.messages] : []
       });
+
+      triggerLegacyMigration('hydratePersistedSessions', markProjectDirty);
 
       console.log('✅ 水合操作完成，现在允许refreshSessions调用');
     } finally {

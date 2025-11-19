@@ -786,6 +786,7 @@ function FlowInner() {
   }, [setAddTab]);
   const addPanelRef = React.useRef<HTMLDivElement | null>(null);
   const lastPaneClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
+  const lastGlobalClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
   // 模板相关状态
   const [tplIndex, setTplIndex] = React.useState<TemplateIndexEntry[] | null>(null);
   const [userTplList, setUserTplList] = React.useState<Array<{id:string;name:string;category?:string;tags?:string[];thumbnail?:string;createdAt:string;updatedAt:string}>>([]);
@@ -928,6 +929,7 @@ function FlowInner() {
     if (!isCanvas && !isPane && !isGridBg) return false;
     
     // 进一步：命中检测 Paper.js 物体（文本/图像/形状等）
+    let projectPoint: paper.Point | null = null;
     try {
       const canvas = paper?.view?.element as HTMLCanvasElement | undefined;
       if (canvas) {
@@ -936,6 +938,7 @@ function FlowInner() {
         const vx = (clientX - rect.left) * dpr;
         const vy = (clientY - rect.top) * dpr;
         const pt = paper.view.viewToProject(new paper.Point(vx, vy));
+        projectPoint = pt;
         const hit = paper.project.hitTest(pt, {
           segments: true,
           stroke: true,
@@ -946,6 +949,18 @@ function FlowInner() {
         } as any);
         if (hit && hit.item) {
           const item: any = hit.item;
+
+          // 向上查找真实内容（例如图片组），避免命中辅助框时被误判为空白
+          let current: any = item;
+          while (current) {
+            const data = current.data || {};
+            if ((data.type === 'image' && data.imageId) || (typeof data.type === 'string' && !data.isHelper && data.type !== 'grid')) {
+              return false; // 命中真实内容，视为非空白
+            }
+            current = current.parent;
+          }
+
+          // 原有的网格/辅助元素检测
           const layerName = item?.layer?.name || '';
           const isGridLayer = layerName === 'grid';
           const isHelper = !!item?.data?.isAxis || item?.data?.isHelper === true;
@@ -956,6 +971,23 @@ function FlowInner() {
             return false; // 命中真实内容，视为非空白
           }
         }
+      }
+    } catch {}
+
+    // 兜底：若未命中元素，基于保存的3D模型包围盒再次检查，避免3D区域被误判为空白
+    try {
+      if (projectPoint && paper?.project) {
+        const hitModel = paper.project.getItems({
+          match: (item: any) => item?.data?.type === '3d-model' && item?.data?.bounds
+        }).some((item: any) => {
+          try {
+            const b = item.data.bounds;
+            return projectPoint!.x >= b.x && projectPoint!.x <= b.x + b.width && projectPoint!.y >= b.y && projectPoint!.y <= b.y + b.height;
+          } catch {
+            return false;
+          }
+        });
+        if (hitModel) return false;
       }
     } catch {}
     return true;
@@ -1118,9 +1150,12 @@ function FlowInner() {
     return () => { cancelled = true; };
   }, [addPanel.visible, addTab, tplIndex]);
 
-  // 捕获原生双击，仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
+  // 捕获原生点击，通过自定义检测实现双击（200ms 间隔），仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
-    const onNativeDblClick = (e: MouseEvent) => {
+    const DOUBLE_CLICK_INTERVAL = 200; // 双击时间间隔（毫秒）
+    const DOUBLE_CLICK_DISTANCE = 10; // 允许的最大移动距离（像素）
+
+    const onNativeClick = (e: MouseEvent) => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const x = e.clientX, y = e.clientY;
@@ -1151,14 +1186,27 @@ function FlowInner() {
         }
       } catch {}
 
-      if (isBlankArea(x, y)) {
-        e.stopPropagation();
-        e.preventDefault();
-        openAddPanelAt(x, y);
+      // 自定义双击检测
+      const now = Date.now();
+      const last = lastGlobalClickRef.current;
+      
+      if (last && (now - last.t) < DOUBLE_CLICK_INTERVAL && Math.hypot(x - last.x, y - last.y) < DOUBLE_CLICK_DISTANCE) {
+        // 检测到双击
+        if (isBlankArea(x, y)) {
+          e.stopPropagation();
+          e.preventDefault();
+          openAddPanelAt(x, y);
+        }
+        // 重置记录，避免连续三次点击被识别为两次双击
+        lastGlobalClickRef.current = null;
+      } else {
+        // 更新点击记录
+        lastGlobalClickRef.current = { t: now, x, y };
       }
     };
-    window.addEventListener('dblclick', onNativeDblClick, true);
-    return () => window.removeEventListener('dblclick', onNativeDblClick, true);
+
+    window.addEventListener('click', onNativeClick, true);
+    return () => window.removeEventListener('click', onNativeClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
   const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video', world: { x: number; y: number }) => {
