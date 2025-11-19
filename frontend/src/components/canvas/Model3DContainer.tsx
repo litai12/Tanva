@@ -52,6 +52,16 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const [resizeDirection, setResizeDirection] = useState<string>('');
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [initialBounds, setInitialBounds] = useState(bounds);
+  const [realTimeBounds, setRealTimeBounds] = useState(bounds);
+  const realTimeBoundsRef = useRef(bounds);
+
+  useEffect(() => {
+    realTimeBoundsRef.current = realTimeBounds;
+  }, [realTimeBounds]);
+
+  useEffect(() => {
+    setRealTimeBounds(bounds);
+  }, [bounds]);
 
   // 获取画布状态
   const { zoom, panX, panY } = useCanvasStore();
@@ -111,7 +121,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     let attempts = 0;
 
     const updateBounds = () => {
-      const next = convertToScreenBounds(bounds);
+      const next = convertToScreenBounds(realTimeBounds);
       setScreenBounds(next);
 
       const valid = Number.isFinite(next.width) && next.width > 1 && Number.isFinite(next.height) && next.height > 1;
@@ -127,7 +137,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     return () => {
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [bounds, zoom, panX, panY, renderKey, convertToScreenBounds]);
+  }, [realTimeBounds, zoom, panX, panY, renderKey, convertToScreenBounds]);
 
   // 将屏幕坐标转换为Paper.js世界坐标
   const convertToPaperBounds = useCallback((screenBounds: { x: number; y: number; width: number; height: number }) => {
@@ -206,7 +216,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
       onSelect?.(additiveSelection);
 
       setIsResizing(true);
-      setInitialBounds(bounds);
+      setInitialBounds({ ...realTimeBoundsRef.current });
 
       // 直接从控制点的data属性获取方向，避免计算错误
       const direction = (target as HTMLElement).getAttribute('data-direction');
@@ -240,10 +250,20 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     if (isDragging && onMove) {
       const newScreenX = e.clientX - dragStart.x;
       const newScreenY = e.clientY - dragStart.y;
+      setScreenBounds(prev => ({
+        ...prev,
+        x: newScreenX,
+        y: newScreenY,
+      }));
 
       // 转换屏幕坐标为Paper.js坐标
       const dpr = window.devicePixelRatio || 1;
       const paperPosition = paper.view ? paper.view.viewToProject(new paper.Point(newScreenX * dpr, newScreenY * dpr)) : { x: newScreenX, y: newScreenY } as any;
+      setRealTimeBounds(prev => ({
+        ...prev,
+        x: paperPosition.x,
+        y: paperPosition.y,
+      }));
       onMove({ x: paperPosition.x, y: paperPosition.y });
     } else if (isResizing && onResize && resizeDirection) {
       const now = Date.now();
@@ -283,6 +303,8 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
 
       // 转换屏幕坐标为Paper.js坐标
       const newPaperBounds = convertToPaperBounds(newScreenBounds);
+      setScreenBounds(newScreenBounds);
+      setRealTimeBounds(newPaperBounds);
       onResize(newPaperBounds);
     }
   }, [isDragging, isResizing, dragStart, initialBounds, resizeDirection, onMove, onResize, convertToScreenBounds, convertToPaperBounds]);

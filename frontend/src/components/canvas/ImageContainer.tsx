@@ -18,6 +18,7 @@ import ExpandImageSelector from './ExpandImageSelector';
 import { useToolStore } from '@/stores';
 import aiImageService from '@/services/aiImageService';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
+import { loadImageElement, trimTransparentPng } from '@/utils/imageHelper';
 
 const HD_UPSCALE_RESOLUTION: '4k' = '4k';
 const EXPAND_PRESET_PROMPT = '帮我在空白部分扩展这张图，补全内容';
@@ -35,16 +36,6 @@ const normalizeImageSrc = (value?: string | null): string => {
     return trimmed;
   }
   return `data:image/png;base64,${trimmed}`;
-};
-
-const loadImageElement = (src: string): Promise<HTMLImageElement> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('无法加载图像数据'));
-    img.src = src;
-  });
 };
 
 const composeExpandedImage = async (
@@ -83,8 +74,7 @@ const composeExpandedImage = async (
     throw new Error('无法创建扩展画布');
   }
 
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
   return {
@@ -771,6 +761,51 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
 
       const expandedImageData = ensureDataUrlString(result.data.imageData);
+      let finalImageData = expandedImageData;
+      let placementBounds = selectedBounds;
+
+      try {
+        const trimResult = await trimTransparentPng(expandedImageData, {
+          alphaThreshold: 8,
+          padding: 1
+        });
+
+        if (trimResult?.changed && trimResult.originalSize.width > 0 && trimResult.originalSize.height > 0) {
+          finalImageData = trimResult.dataUrl;
+          const pixelToPaperX = selectedBounds.width / trimResult.originalSize.width;
+          const pixelToPaperY = selectedBounds.height / trimResult.originalSize.height;
+
+          let newX = selectedBounds.x + trimResult.cropBounds.left * pixelToPaperX;
+          let newY = selectedBounds.y + trimResult.cropBounds.top * pixelToPaperY;
+          let newWidth = trimResult.cropBounds.width * pixelToPaperX;
+          let newHeight = trimResult.cropBounds.height * pixelToPaperY;
+
+          const maxRight = selectedBounds.x + selectedBounds.width;
+          const maxBottom = selectedBounds.y + selectedBounds.height;
+          if (newX + newWidth > maxRight) {
+            newWidth = maxRight - newX;
+          }
+          if (newY + newHeight > maxBottom) {
+            newHeight = maxBottom - newY;
+          }
+
+          placementBounds = {
+            x: newX,
+            y: newY,
+            width: Math.max(1, newWidth),
+            height: Math.max(1, newHeight)
+          };
+
+          logger.info('🪄 自动裁剪PNG透明边界', {
+            originalPixels: trimResult.originalSize,
+            cropBounds: trimResult.cropBounds,
+            placementBounds
+          });
+        }
+      } catch (trimError) {
+        console.warn('PNG透明边界裁剪失败，使用原始边界', trimError);
+      }
+
       const originalCenter = {
         x: realTimeBounds.x + realTimeBounds.width / 2,
         y: realTimeBounds.y + realTimeBounds.height / 2,
@@ -783,9 +818,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
         detail: {
-          imageData: expandedImageData,
+          imageData: finalImageData,
           fileName: `expanded-${Date.now()}.png`,
-          selectedImageBounds: selectedBounds,
+          selectedImageBounds: placementBounds,
           smartPosition: expandResultCenter,
           operationType: 'expand-image',
           sourceImageId: imageData.id,

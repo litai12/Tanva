@@ -646,7 +646,7 @@ class ContextManager implements IContextManager {
    * 🖼️ 缓存最新生成的图像
    */
   cacheLatestImage(
-    imageData: string,
+    imageData: string | null | undefined,
     imageId: string,
     prompt: string,
     options?: { bounds?: { x: number; y: number; width: number; height: number }; layerId?: string; remoteUrl?: string | null }
@@ -675,7 +675,7 @@ class ContextManager implements IContextManager {
       ? options.remoteUrl ?? null
       : previous.latestRemoteUrl ?? null;
 
-    if (!normalizedImageData || !normalizedImageId || !normalizedPrompt) {
+    if ((!normalizedImageData && !normalizedRemoteUrl) || !normalizedImageId || !normalizedPrompt) {
       console.warn('⚠️ 缓存图像失败：缺少必要字段', {
         sessionId: context.sessionId,
         hasPreviousImage: !!previous.latest,
@@ -689,7 +689,7 @@ class ContextManager implements IContextManager {
     }
 
     context.cachedImages = {
-      latest: normalizedImageData,
+      latest: normalizedImageData ?? null,
       latestId: normalizedImageId,
       latestPrompt: normalizedPrompt,
       timestamp: new Date(),

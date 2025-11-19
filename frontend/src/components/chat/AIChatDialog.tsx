@@ -1029,7 +1029,7 @@ const AIChatDialog: React.FC = () => {
         ref={dialogRef}
         data-prevent-add-panel
         className={cn(
-          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out focus-within:border-blue-300 relative overflow-visible",
+          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out relative overflow-visible",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
         onClick={handleHistorySurfaceClick}

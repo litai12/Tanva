@@ -22,6 +22,7 @@ import { ossUploadService, dataURLToBlob } from '@/services/ossUploadService';
 import { createSafeStorage } from '@/stores/storageUtils';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
+import { createImagePreviewDataUrl } from '@/utils/imagePreview';
 import type {
   AIImageResult,
   RunningHubGenerateOptions,
@@ -410,6 +411,53 @@ const logProcessStep = (metrics: ProcessMetrics | undefined, label: string) => {
 
 const ensureDataUrl = (imageData: string): string =>
   imageData.startsWith('data:image') ? imageData : `data:image/png;base64,${imageData}`;
+
+const MAX_IMAGE_PREVIEW_SIZE = 512;
+const buildImagePreviewSafely = async (dataUrl: string): Promise<string | null> => {
+  if (!dataUrl) return null;
+  try {
+    return await createImagePreviewDataUrl(dataUrl, {
+      maxSize: MAX_IMAGE_PREVIEW_SIZE,
+      mimeType: 'image/webp',
+      quality: 0.82,
+    });
+  } catch (error) {
+    console.warn('⚠️ 生成图像缩略图失败:', error);
+    return null;
+  }
+};
+
+const cacheGeneratedImageResult = ({
+  messageId,
+  prompt,
+  result,
+  assets,
+  inlineImageData,
+}: {
+  messageId: string;
+  prompt: string;
+  result: AIImageResult;
+  assets?: { remoteUrl?: string; thumbnail?: string };
+  inlineImageData?: string | null;
+}) => {
+  const resolvedImageId = result.id || messageId;
+  const preview =
+    assets?.thumbnail ||
+    (inlineImageData ? ensureDataUrl(inlineImageData) : undefined);
+  const remoteUrl = assets?.remoteUrl ?? getResultImageRemoteUrl(result);
+
+  if (!preview && !remoteUrl) {
+    return;
+  }
+
+  try {
+    contextManager.cacheLatestImage(preview ?? null, resolvedImageId, prompt, {
+      remoteUrl: remoteUrl ?? null,
+    });
+  } catch (error) {
+    console.warn('⚠️ 缓存最新生成图像失败:', error);
+  }
+};
 
 // ==================== Sora2 视频生成相关函数 ====================
 
@@ -1243,9 +1291,13 @@ export const useAIChatStore = create<AIChatState>()(
         prompt: string;
         result: AIImageResult;
         operationType: 'generate' | 'edit' | 'blend';
-      }) => {
-        if (!result.imageData) return;
+      }): Promise<{ remoteUrl?: string; thumbnail?: string }> => {
+        if (!result.imageData) {
+          return {};
+        }
+
         const dataUrl = ensureDataUrl(result.imageData);
+        const previewDataUrl = await buildImagePreviewSafely(dataUrl);
         const projectId = useProjectContentStore.getState().projectId;
         let remoteUrl: string | undefined;
         try {
@@ -1256,7 +1308,8 @@ export const useAIChatStore = create<AIChatState>()(
             nodeType: 'generate',
             projectId,
             dir: 'ai-chat-history/',
-            keepThumbnail: true
+            keepThumbnail: Boolean(previewDataUrl),
+            thumbnailDataUrl: previewDataUrl ?? undefined
           });
           remoteUrl = historyRecord.remoteUrl;
         } catch (error) {
@@ -1266,9 +1319,9 @@ export const useAIChatStore = create<AIChatState>()(
         const historyEntry = {
           prompt,
           operationType,
-          imageData: remoteUrl || dataUrl,
+          imageData: previewDataUrl ?? (remoteUrl ? undefined : dataUrl),
           parentImageId: undefined,
-          thumbnail: dataUrl,
+          thumbnail: previewDataUrl ?? dataUrl,
           imageRemoteUrl: remoteUrl
         };
 
@@ -1279,7 +1332,7 @@ export const useAIChatStore = create<AIChatState>()(
             id: storedHistory.id,
             src: remoteUrl || dataUrl,
             remoteUrl: remoteUrl ?? undefined,
-            thumbnail: dataUrl,
+            thumbnail: previewDataUrl ?? dataUrl,
             title: prompt,
             nodeId: aiMessageId,
             nodeType: 'generate',
@@ -1290,20 +1343,33 @@ export const useAIChatStore = create<AIChatState>()(
           console.warn('⚠️ 更新图片历史Store失败:', error);
         }
 
-        get().updateMessage(aiMessageId, (msg) => ({
-          ...msg,
-          imageRemoteUrl: remoteUrl || msg.imageRemoteUrl,
-          thumbnail: dataUrl
-        }));
+        const assets = {
+          remoteUrl: remoteUrl ?? undefined,
+          thumbnail: previewDataUrl ?? dataUrl
+        };
 
-        const context = contextManager.getCurrentContext();
-        if (context) {
-          const target = context.messages.find(m => m.id === aiMessageId);
-          if (target) {
-            target.imageRemoteUrl = remoteUrl || target.imageRemoteUrl;
-            target.thumbnail = dataUrl;
+        if (assets.remoteUrl || assets.thumbnail) {
+          get().updateMessage(aiMessageId, (msg) => ({
+            ...msg,
+            imageRemoteUrl: assets.remoteUrl || msg.imageRemoteUrl,
+            thumbnail: assets.thumbnail ?? msg.thumbnail,
+            imageData: assets.remoteUrl ? undefined : msg.imageData
+          }));
+
+          const context = contextManager.getCurrentContext();
+          if (context) {
+            const target = context.messages.find((m) => m.id === aiMessageId);
+            if (target) {
+              target.imageRemoteUrl = assets.remoteUrl || target.imageRemoteUrl;
+              target.thumbnail = assets.thumbnail ?? target.thumbnail;
+              if (assets.remoteUrl) {
+                target.imageData = undefined;
+              }
+            }
           }
         }
+
+        return assets;
       };
 
       return {
@@ -1805,6 +1871,7 @@ export const useAIChatStore = create<AIChatState>()(
           (result.data.hasImage ? `已生成图像: ${prompt}` : `无法生成图像: ${prompt}`);
 
         const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+        const inlineImageData = result.data.imageData;
 
         // 🔥 更新消息内容和完成状态
         set((state) => ({
@@ -1813,8 +1880,8 @@ export const useAIChatStore = create<AIChatState>()(
               ? {
                   ...msg,
                   content: messageContent,
-                  imageData: result.data?.imageData,
-                  thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
+                  imageData: inlineImageData,
+                  thumbnail: inlineImageData ? ensureDataUrl(inlineImageData) : msg.thumbnail,
                   imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                   metadata: result.data?.metadata,
                   provider: state.aiProvider,
@@ -1836,9 +1903,9 @@ export const useAIChatStore = create<AIChatState>()(
           const message = context.messages.find(m => m.id === aiMessageId);
           if (message) {
             message.content = messageContent;
-            message.imageData = result.data?.imageData;
-            if (result.data?.imageData) {
-              message.thumbnail = ensureDataUrl(result.data.imageData);
+            message.imageData = inlineImageData;
+            if (inlineImageData) {
+              message.thumbnail = ensureDataUrl(inlineImageData);
             }
             message.imageRemoteUrl = imageRemoteUrl || message.imageRemoteUrl;
             message.metadata = result.data?.metadata;
@@ -1851,16 +1918,49 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }
 
-        set({ lastGeneratedImage: result.data });
-
-        if (result.data.imageData) {
-          await registerMessageImageHistory({
+        let uploadedAssets: { remoteUrl?: string; thumbnail?: string } | undefined;
+        if (inlineImageData) {
+          uploadedAssets = await registerMessageImageHistory({
             aiMessageId,
             prompt,
             result: result.data,
             operationType: 'generate'
           });
         }
+
+        if (uploadedAssets?.remoteUrl) {
+          result.data.metadata = {
+            ...result.data.metadata,
+            imageUrl: uploadedAssets.remoteUrl
+          };
+          result.data.imageData = undefined;
+        }
+
+        set({ lastGeneratedImage: result.data });
+
+        cacheGeneratedImageResult({
+          messageId: aiMessageId,
+          prompt,
+          result: result.data,
+          assets: uploadedAssets,
+          inlineImageData,
+        });
+
+        cacheGeneratedImageResult({
+          messageId: aiMessageId,
+          prompt,
+          result: result.data,
+          assets: uploadedAssets,
+          inlineImageData,
+        });
+
+        cacheGeneratedImageResult({
+          messageId: aiMessageId,
+          prompt,
+          result: result.data,
+          assets: uploadedAssets,
+          inlineImageData,
+        });
 
         await get().refreshSessions();
         logProcessStep(metrics, 'generateImage history recorded');
@@ -1869,8 +1969,8 @@ export const useAIChatStore = create<AIChatState>()(
         if (!result.data.hasImage) {
           console.warn('⚠️ API返回了文本回复但没有图像，详细信息:', {
             文本回复: result.data.textResponse,
-            图像数据存在: !!result.data.imageData,
-            图像数据长度: result.data.imageData?.length || 0,
+            图像数据存在: !!inlineImageData,
+            图像数据长度: inlineImageData?.length || 0,
             hasImage标志: result.data.hasImage,
             生成提示: result.data.prompt
           });
@@ -1910,20 +2010,20 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 根据配置决定是否自动下载（仅当有图像时）
         const currentState = get();
-        if (result.data.imageData) {
-          downloadImageData(result.data.imageData, prompt, currentState.autoDownload);
+        if (inlineImageData) {
+          downloadImageData(inlineImageData, prompt, currentState.autoDownload);
         }
 
         // 自动添加到画布中央 - 使用快速上传工具的逻辑（仅当有图像时）
-        const addImageToCanvas = (aiResult: AIImageResult) => {
-          if (!aiResult.imageData) {
+        const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
+          if (!inlineData) {
             console.log('⚠️ 跳过画布添加：没有图像数据');
             return;
           }
           
           // 构建图像数据URL
           const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
-          const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
+          const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
           const fileName = `ai_generated_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
           // 计算智能位置：基于缓存图片中心 → 向下（偏移量由 smartPlacementOffset 决定）
@@ -1961,12 +2061,12 @@ export const useAIChatStore = create<AIChatState>()(
         // 自动添加到画布
         setTimeout(() => {
           if (result.data) {
-            addImageToCanvas(result.data);
+            addImageToCanvas(result.data, inlineImageData);
           }
         }, 100); // 短暂延迟，确保UI更新
 
         console.log('✅ 图像生成成功，已自动添加到画布', {
-          imageDataLength: result.data.imageData?.length,
+          imageDataLength: inlineImageData?.length,
           prompt: result.data.prompt,
           model: result.data.model,
           id: result.data.id,
@@ -2178,6 +2278,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       if (result.success && result.data) {
         const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+        const inlineImageData = result.data.imageData;
         // 编辑成功 - 更新消息内容和状态
         const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已编辑图像: ${prompt}` : `无法编辑图像: ${prompt}`);
@@ -2189,8 +2290,8 @@ export const useAIChatStore = create<AIChatState>()(
               ? {
                   ...msg,
                   content: messageContent,
-                  imageData: result.data?.imageData,
-                  thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
+                  imageData: inlineImageData,
+                  thumbnail: inlineImageData ? ensureDataUrl(inlineImageData) : msg.thumbnail,
                   imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                   metadata: result.data?.metadata,
                   provider: state.aiProvider,
@@ -2210,9 +2311,9 @@ export const useAIChatStore = create<AIChatState>()(
           const message = context.messages.find(m => m.id === aiMessageId);
           if (message) {
             message.content = messageContent;
-            message.imageData = result.data?.imageData;
-            if (result.data?.imageData) {
-              message.thumbnail = ensureDataUrl(result.data.imageData);
+            message.imageData = inlineImageData;
+            if (inlineImageData) {
+              message.thumbnail = ensureDataUrl(inlineImageData);
             }
             message.imageRemoteUrl = imageRemoteUrl || message.imageRemoteUrl;
             message.metadata = result.data?.metadata;
@@ -2225,16 +2326,33 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }
 
-        set({ lastGeneratedImage: result.data });
-
-        if (result.data.imageData) {
-          await registerMessageImageHistory({
+        let uploadedAssets: { remoteUrl?: string; thumbnail?: string } | undefined;
+        if (inlineImageData) {
+          uploadedAssets = await registerMessageImageHistory({
             aiMessageId,
             prompt,
             result: result.data,
             operationType: 'edit'
           });
         }
+
+        if (uploadedAssets?.remoteUrl) {
+          result.data.metadata = {
+            ...result.data.metadata,
+            imageUrl: uploadedAssets.remoteUrl
+          };
+          result.data.imageData = undefined;
+        }
+
+        set({ lastGeneratedImage: result.data });
+
+        cacheGeneratedImageResult({
+          messageId: aiMessageId,
+          prompt,
+          result: result.data,
+          assets: uploadedAssets,
+          inlineImageData,
+        });
 
         await get().refreshSessions();
         logProcessStep(metrics, 'editImage history recorded');
@@ -2246,14 +2364,14 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         // 自动添加到画布
-        const addImageToCanvas = (aiResult: AIImageResult) => {
-          if (!aiResult.imageData) {
+        const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
+          if (!inlineData) {
             console.log('⚠️ 跳过编辑图像画布添加：没有图像数据');
             return;
           }
           
           const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
-          const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
+          const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
           const fileName = `ai_edited_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
           // 🎯 获取当前选中图片的ID和边界信息用于智能排版
@@ -2314,12 +2432,12 @@ export const useAIChatStore = create<AIChatState>()(
 
         setTimeout(() => {
           if (result.data) {
-            addImageToCanvas(result.data);
+            addImageToCanvas(result.data, inlineImageData);
           }
         }, 100);
 
         console.log('✅ 图像编辑成功，已自动添加到画布', {
-          imageDataLength: result.data.imageData?.length,
+          imageDataLength: inlineImageData?.length,
           prompt: result.data.prompt,
           model: result.data.model,
           id: result.data.id
@@ -2505,6 +2623,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       if (result.success && result.data) {
         const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+        const inlineImageData = result.data.imageData;
         const messageContent = result.data.textResponse ||
           (result.data.hasImage ? `已融合图像: ${prompt}` : `无法融合图像: ${prompt}`);
 
@@ -2515,8 +2634,8 @@ export const useAIChatStore = create<AIChatState>()(
               ? {
                   ...msg,
                   content: messageContent,
-                  imageData: result.data?.imageData,
-                  thumbnail: result.data?.imageData ? ensureDataUrl(result.data.imageData) : msg.thumbnail,
+                  imageData: inlineImageData,
+                  thumbnail: inlineImageData ? ensureDataUrl(inlineImageData) : msg.thumbnail,
                   imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                   metadata: result.data?.metadata,
                   provider: state.aiProvider,
@@ -2537,9 +2656,9 @@ export const useAIChatStore = create<AIChatState>()(
           const message = context.messages.find(m => m.id === aiMessageId);
           if (message) {
             message.content = messageContent;
-            message.imageData = result.data?.imageData;
-            if (result.data?.imageData) {
-              message.thumbnail = ensureDataUrl(result.data.imageData);
+            message.imageData = inlineImageData;
+            if (inlineImageData) {
+              message.thumbnail = ensureDataUrl(inlineImageData);
             }
             message.imageRemoteUrl = imageRemoteUrl || message.imageRemoteUrl;
             message.metadata = result.data?.metadata;
@@ -2552,16 +2671,25 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }
 
-        set({ lastGeneratedImage: result.data });
-
-        if (result.data.imageData) {
-          await registerMessageImageHistory({
+        let uploadedAssets: { remoteUrl?: string; thumbnail?: string } | undefined;
+        if (inlineImageData) {
+          uploadedAssets = await registerMessageImageHistory({
             aiMessageId,
             prompt,
             result: result.data,
             operationType: 'blend'
           });
         }
+
+        if (uploadedAssets?.remoteUrl) {
+          result.data.metadata = {
+            ...result.data.metadata,
+            imageUrl: uploadedAssets.remoteUrl
+          };
+          result.data.imageData = undefined;
+        }
+
+        set({ lastGeneratedImage: result.data });
 
         await get().refreshSessions();
         logProcessStep(metrics, 'blendImages history recorded');
@@ -2571,14 +2699,14 @@ export const useAIChatStore = create<AIChatState>()(
           return;
         }
 
-        const addImageToCanvas = (aiResult: AIImageResult) => {
-          if (!aiResult.imageData) {
+        const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
+          if (!inlineData) {
             console.log('⚠️ 跳过融合图像画布添加：没有图像数据');
             return;
           }
           
           const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
-          const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
+          const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
           const fileName = `ai_blended_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
           // 🎯 获取源图像ID列表用于智能排版
@@ -2625,7 +2753,7 @@ export const useAIChatStore = create<AIChatState>()(
 
         setTimeout(() => {
           if (result.data) {
-            addImageToCanvas(result.data);
+            addImageToCanvas(result.data, inlineImageData);
           }
         }, 100);
 
@@ -2727,6 +2855,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       if (result.success && result.data) {
         const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+        const inlineImageData = result.data.imageData;
         const messageContent =
           result.data.textResponse ||
           (result.data.hasImage ? `已生成图像: ${prompt}` : `无法生成图像: ${prompt}`);
@@ -2737,9 +2866,9 @@ export const useAIChatStore = create<AIChatState>()(
               ? {
                   ...msg,
                   content: messageContent,
-                  imageData: result.data?.imageData,
-                  thumbnail: result.data?.imageData
-                    ? ensureDataUrl(result.data.imageData)
+                  imageData: inlineImageData,
+                  thumbnail: inlineImageData
+                    ? ensureDataUrl(inlineImageData)
                     : msg.thumbnail,
                   imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                   metadata: result.data?.metadata,
@@ -2756,15 +2885,15 @@ export const useAIChatStore = create<AIChatState>()(
 
         const context = contextManager.getCurrentContext();
         if (context) {
-          const messageRef = context.messages.find((m) => m.id === aiMessage.id);
-          if (messageRef) {
-            messageRef.content = messageContent;
-            messageRef.imageData = result.data?.imageData;
-            if (result.data?.imageData) {
-              messageRef.thumbnail = ensureDataUrl(result.data.imageData);
-            }
-            messageRef.imageRemoteUrl = imageRemoteUrl || messageRef.imageRemoteUrl;
-            messageRef.metadata = result.data?.metadata;
+            const messageRef = context.messages.find((m) => m.id === aiMessage.id);
+            if (messageRef) {
+              messageRef.content = messageContent;
+              messageRef.imageData = inlineImageData;
+              if (inlineImageData) {
+                messageRef.thumbnail = ensureDataUrl(inlineImageData);
+              }
+              messageRef.imageRemoteUrl = imageRemoteUrl || messageRef.imageRemoteUrl;
+              messageRef.metadata = result.data?.metadata;
             messageRef.provider = 'midjourney';
             messageRef.generationStatus = {
               isGenerating: false,
@@ -2774,16 +2903,25 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }
 
-        set({ lastGeneratedImage: result.data });
-
-        if (result.data.imageData) {
-          await registerMessageImageHistory({
+        let uploadedAssets: { remoteUrl?: string; thumbnail?: string } | undefined;
+        if (inlineImageData) {
+          uploadedAssets = await registerMessageImageHistory({
             aiMessageId: aiMessage.id,
             prompt,
             result: result.data,
             operationType: 'generate',
           });
         }
+
+        if (uploadedAssets?.remoteUrl) {
+          result.data.metadata = {
+            ...result.data.metadata,
+            imageUrl: uploadedAssets.remoteUrl,
+          };
+          result.data.imageData = undefined;
+        }
+
+        set({ lastGeneratedImage: result.data });
 
         await get().refreshSessions();
       } else {

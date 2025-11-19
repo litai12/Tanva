@@ -37,6 +37,9 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   const [selectedSizeLabel, setSelectedSizeLabel] = useState('常用尺寸');
   const [frameBounds, setFrameBounds] = useState(imageBounds);
   const isDraggingRef = useRef(false);
+  const hasCustomFrameRef = useRef(false);
+  const prevImageIdRef = useRef(imageId);
+  const prevImageBoundsRef = useRef(imageBounds);
   const dragStateRef = useRef<{
     index: number;
     startBounds: { x: number; y: number; width: number; height: number };
@@ -44,10 +47,46 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   } | null>(null);
   // const { zoom, panX, panY } = useCanvasStore();
 
+  // Keep local frame synced with image movement while preserving user adjustments
   useEffect(() => {
-    if (isDraggingRef.current) return;
-    setFrameBounds(imageBounds);
+    const prev = prevImageBoundsRef.current;
+    const deltaX = imageBounds.x - prev.x;
+    const deltaY = imageBounds.y - prev.y;
+    const scaleX = prev.width ? imageBounds.width / prev.width : 1;
+    const scaleY = prev.height ? imageBounds.height / prev.height : 1;
+    const hasMeaningfulChange =
+      Math.abs(deltaX) > 0.5 ||
+      Math.abs(deltaY) > 0.5 ||
+      Math.abs(imageBounds.width - prev.width) > 0.5 ||
+      Math.abs(imageBounds.height - prev.height) > 0.5;
+
+    prevImageBoundsRef.current = imageBounds;
+
+    if (!hasMeaningfulChange || isDraggingRef.current) return;
+
+    setFrameBounds((current) => {
+      if (!current) return imageBounds;
+      if (!hasCustomFrameRef.current) {
+        return imageBounds;
+      }
+
+      return {
+        x: current.x + deltaX,
+        y: current.y + deltaY,
+        width: current.width * scaleX,
+        height: current.height * scaleY,
+      };
+    });
   }, [imageBounds]);
+
+  useEffect(() => {
+    if (prevImageIdRef.current === imageId) return;
+    prevImageIdRef.current = imageId;
+    prevImageBoundsRef.current = imageBounds;
+    hasCustomFrameRef.current = false;
+    setFrameBounds(imageBounds);
+    setSelectedSizeLabel('常用尺寸');
+  }, [imageId, imageBounds]);
 
   // 将Paper.js坐标转换为屏幕坐标
   const convertToScreen = useCallback((point: paper.Point) => {
@@ -115,6 +154,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     const startPaper = getPaperPointFromClient(clientX, clientY);
     if (!startPaper) return;
     isDraggingRef.current = true;
+    hasCustomFrameRef.current = true;
     dragStateRef.current = {
       index,
       startBounds: { ...frameBounds },
@@ -240,6 +280,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   // 应用比例
   const applyAspectRatio = useCallback((ratio: number, label?: string) => {
     if (ratio <= 0) return;
+    hasCustomFrameRef.current = true;
 
     const baseWidth = imageBounds.width;
     const baseHeight = imageBounds.height;

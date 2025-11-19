@@ -17,6 +17,7 @@ interface RecordImageHistoryOptions {
   skipInitialStoreUpdate?: boolean;
   keepThumbnail?: boolean;
   mimeType?: string;
+  thumbnailDataUrl?: string;
 }
 
 const ensureDataUrl = (value: string, mimeType: string = 'png'): string => {
@@ -32,6 +33,7 @@ const ensureDataUrl = (value: string, mimeType: string = 'png'): string => {
 export async function recordImageHistoryEntry(options: RecordImageHistoryOptions): Promise<{
   id: string;
   remoteUrl?: string;
+  thumbnail?: string;
 }> {
   const {
     nodeId,
@@ -54,6 +56,11 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   const dataUrl =
     options.dataUrl ??
     (options.base64 ? ensureDataUrl(options.base64, mimeType) : undefined);
+  const resolvedThumbnail =
+    options.thumbnailDataUrl ??
+    (options.keepThumbnail && dataUrl?.startsWith('data:')
+      ? dataUrl
+      : undefined);
 
   const initialSrc =
     options.remoteUrl && options.remoteUrl.startsWith('http')
@@ -65,8 +72,7 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
       id,
       src: initialSrc,
       remoteUrl: options.remoteUrl,
-      thumbnail:
-        dataUrl && dataUrl.startsWith('data:') ? dataUrl : options.remoteUrl,
+      thumbnail: resolvedThumbnail,
       title: options.title ?? '图片',
       nodeId,
       nodeType,
@@ -76,11 +82,12 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   }
 
   if (options.remoteUrl && options.remoteUrl.startsWith('http')) {
-    return { id, remoteUrl: options.remoteUrl };
+    return { id, remoteUrl: options.remoteUrl, thumbnail: resolvedThumbnail };
   }
 
   if (!dataUrl || dataUrl.startsWith('http')) {
-    return { id, remoteUrl: dataUrl?.startsWith('http') ? dataUrl : undefined };
+    const url = dataUrl?.startsWith('http') ? dataUrl : undefined;
+    return { id, remoteUrl: url, thumbnail: resolvedThumbnail };
   }
 
   try {
@@ -97,16 +104,20 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
       store.updateImage(id, {
         src: remoteUrl,
         remoteUrl,
-        thumbnail: keepThumbnail ? dataUrl : undefined,
+        thumbnail: keepThumbnail ? resolvedThumbnail ?? dataUrl : undefined,
         projectId,
       });
-      return { id, remoteUrl };
+      return {
+        id,
+        remoteUrl,
+        thumbnail: keepThumbnail ? resolvedThumbnail ?? dataUrl : resolvedThumbnail,
+      };
     }
   } catch (error) {
     console.warn('[ImageHistory] 上传图片至 OSS 失败:', error);
   }
 
-  return { id, remoteUrl: undefined };
+  return { id, remoteUrl: undefined, thumbnail: resolvedThumbnail };
 }
 
 /**

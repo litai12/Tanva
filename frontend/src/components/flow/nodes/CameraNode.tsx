@@ -49,7 +49,7 @@ export default function CameraNode({ id, data, selected }: Props) {
     try {
       const imgs = (window as any).tanvaImageInstances || [];
       const models = (window as any).tanvaModel3DInstances || [];
-      const res = await AutoScreenshotService.captureAutoScreenshot(imgs, models, { format: 'png', scale: 2, includeBackground: true, backgroundColor: '#ffffff', autoDownload: false });
+      const res = await AutoScreenshotService.captureAutoScreenshot(imgs, models, { format: 'png', scale: 2, includeBackground: false, backgroundColor: '#ffffff', autoDownload: false });
       if (res.success && res.dataUrl) {
         const base64 = res.dataUrl.split(',')[1];
         rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, imageData: base64 } } : n));

@@ -59,7 +59,7 @@ export interface OperationHistory {
 // 图像历史记录
 export interface ImageHistory {
   id: string;
-  imageData: string;
+  imageData?: string;
   imageRemoteUrl?: string;
   prompt: string;
   timestamp: Date;

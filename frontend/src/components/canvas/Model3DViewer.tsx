@@ -573,7 +573,6 @@ const CameraController: React.FC<CameraControllerProps> = ({ cameraState, onStat
 
     // 使用ref来避免依赖cameraState导致的无限循环
     const currentState = cameraStateRef.current;
-    pendingStateRef.current = next;
     if (!cameraStatesEqual(next, currentState)) {
       // 使用低优先级更新，避免阻塞主线程
       if (typeof React.startTransition === 'function') {

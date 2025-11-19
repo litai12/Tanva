@@ -7,6 +7,7 @@
 import paper from 'paper';
 import * as THREE from 'three';
 import { BoundsCalculator, type ContentBounds } from '@/utils/BoundsCalculator';
+import { trimTransparentPng } from '@/utils/imageHelper';
 import type { ImageInstance, Model3DInstance } from '@/types/canvas';
 import { logger } from '@/utils/logger';
 
@@ -69,7 +70,7 @@ export class AutoScreenshotService {
     quality: 0.92,
     scale: 2, // 2x分辨率，提高清晰度
     padding: 0, // 移除默认边距，使截图尺寸与内容完全匹配
-    includeBackground: true,
+    includeBackground: false, // PNG 默认不绘制背景，便于透明裁剪
     backgroundColor: '#ffffff',
     autoDownload: false, // 改为默认不自动下载，改为传入AI对话框
     filename: 'artboard-screenshot'
@@ -1471,14 +1472,15 @@ export class AutoScreenshotService {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `${options.filename}-${timestamp}.${options.format}`;
 
-    // 生成数据URL
     const mimeType = options.format === 'jpeg' ? 'image/jpeg' : 'image/png';
-    const dataUrl = options.format === 'jpeg' 
+
+    // 生成数据URL
+    let dataUrl = options.format === 'jpeg' 
       ? canvas.toDataURL(mimeType, options.quality)
       : canvas.toDataURL(mimeType);
 
     // 生成Blob
-    const blob = await new Promise<Blob>((resolve, reject) => {
+    let blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((blob) => {
         if (blob) {
           resolve(blob);
@@ -1487,6 +1489,37 @@ export class AutoScreenshotService {
         }
       }, mimeType, options.quality);
     });
+
+    // PNG 才需要透明背景裁剪
+    let resultBounds: ContentBounds = { ...bounds };
+    if (options.format === 'png') {
+      try {
+        const trimResult = await trimTransparentPng(dataUrl, { alphaThreshold: 4, padding: 0 });
+        if (trimResult?.changed && trimResult.cropBounds.width > 0 && trimResult.cropBounds.height > 0) {
+          dataUrl = trimResult.dataUrl;
+          const scale = Math.max(1e-6, options.scale);
+          resultBounds = {
+            x: bounds.x + trimResult.cropBounds.left / scale,
+            y: bounds.y + trimResult.cropBounds.top / scale,
+            width: trimResult.cropBounds.width / scale,
+            height: trimResult.cropBounds.height / scale,
+            isEmpty: bounds.isEmpty,
+            elementCount: bounds.elementCount
+          };
+
+          // 根据裁剪后的 dataURL 重建 Blob
+          blob = await (await fetch(dataUrl)).blob();
+
+          logger.debug('🪄 截图自动裁剪透明边框', {
+            cropBounds: trimResult.cropBounds,
+            originalSize: trimResult.originalSize,
+            resultBounds
+          });
+        }
+      } catch (error) {
+        logger.warn?.('截图透明边界裁剪失败，使用原始截图', error);
+      }
+    }
 
     // 自动下载
     if (options.autoDownload && blob) {
@@ -1502,7 +1535,7 @@ export class AutoScreenshotService {
       success: true,
       dataUrl,
       blob,
-      bounds,
+      bounds: resultBounds,
       filename
     };
   }

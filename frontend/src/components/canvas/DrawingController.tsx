@@ -1024,18 +1024,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         model3DTool.model3DInstances,
         {
           format: 'png',
-          includeBackground: true,
+          includeBackground: false,
           autoDownload: false,
           selection,
         }
       );
 
       if (result.success && result.dataUrl) {
+        const captureBounds = result.bounds ?? groupPaperBounds;
         const boundsPayload = {
-          x: groupPaperBounds.x,
-          y: groupPaperBounds.y,
-          width: groupPaperBounds.width,
-          height: groupPaperBounds.height,
+          x: captureBounds.x,
+          y: captureBounds.y,
+          width: captureBounds.width,
+          height: captureBounds.height,
         };
         const smartPosition = getCameraSmartPosition(boundsPayload);
 
@@ -1123,18 +1124,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         model3DTool.model3DInstances,
         {
           format: 'png',
-          includeBackground: true,
+          includeBackground: false,
           autoDownload: false,
           selection,
         }
       );
 
       if (result.success && result.dataUrl) {
+        const captureBounds = result.bounds ?? targetModel.bounds;
         const boundsPayload = {
-          x: targetModel.bounds.x,
-          y: targetModel.bounds.y,
-          width: targetModel.bounds.width,
-          height: targetModel.bounds.height,
+          x: captureBounds.x,
+          y: captureBounds.y,
+          width: captureBounds.width,
+          height: captureBounds.height,
         };
         const fileName = `model-${Date.now()}.png`;
         const smartPosition = getCameraSmartPosition(boundsPayload);
