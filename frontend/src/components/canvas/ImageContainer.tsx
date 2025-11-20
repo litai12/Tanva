@@ -153,6 +153,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isExpandingImage, setIsExpandingImage] = useState(false);
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
   const [showExpandSelector, setShowExpandSelector] = useState(false);
+  const [localPreviewTimestamp] = useState(() => Date.now());
   
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -174,6 +175,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         id: item.id,
         src: normalizeImageSrc(item.src),
         title: item.title,
+        timestamp: item.timestamp,
       }));
   }, [scopedHistory]);
 
@@ -917,22 +919,24 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   const previewCollection = useMemo<ImageItem[]>(() => {
     const map = new Map<string, ImageItem>();
-    if (basePreviewSrc) {
-      map.set(imageData.id, {
-        id: imageData.id,
-        src: basePreviewSrc,
-        title: imageData.fileName || `图片 ${imageData.id}`,
-      });
-    }
-
     relatedHistoryImages.forEach((item) => {
-      if (item.id && item.src && !map.has(item.id)) {
+      if (item.id && item.src) {
         map.set(item.id, item);
       }
     });
 
+    if (basePreviewSrc) {
+      const historyMatch = map.get(imageData.id);
+      map.set(imageData.id, {
+        id: imageData.id,
+        src: basePreviewSrc,
+        title: imageData.fileName || `图片 ${imageData.id}`,
+        timestamp: historyMatch?.timestamp ?? localPreviewTimestamp,
+      });
+    }
+
     return Array.from(map.values());
-  }, [basePreviewSrc, imageData.fileName, imageData.id, relatedHistoryImages]);
+  }, [basePreviewSrc, imageData.fileName, imageData.id, relatedHistoryImages, localPreviewTimestamp]);
 
   const activePreviewId = previewImageId ?? imageData.id;
   const activePreviewSrc = useMemo(() => {

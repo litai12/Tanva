@@ -20,7 +20,7 @@ import {
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
-import type { ManualAIMode } from '@/stores/aiChatStore';
+import type { ManualAIMode, ChatMessage } from '@/stores/aiChatStore';
 import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -152,6 +152,43 @@ const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({ butto
   );
 };
 
+type ResendInfo =
+  | { type: 'edit'; prompt: string; sourceImage: string }
+  | { type: 'blend'; prompt: string; sourceImages: string[] };
+
+const extractPromptFromContent = (content: string, keyword: string): string | null => {
+  if (!content) return null;
+  const normalized = content.trim();
+  if (!normalized.startsWith(keyword)) return null;
+  return normalized.slice(keyword.length).replace(/^\s*[:：]?\s*/, '');
+};
+
+const getResendInfoFromMessage = (message: ChatMessage): ResendInfo | null => {
+  if (message.type !== 'user') return null;
+
+  const editPrompt = extractPromptFromContent(message.content, '编辑图像');
+  if (editPrompt !== null && message.sourceImageData) {
+    return {
+      type: 'edit',
+      prompt: editPrompt,
+      sourceImage: message.sourceImageData
+    };
+  }
+
+  if (message.sourceImagesData && message.sourceImagesData.length >= 2) {
+    const blendPrompt = extractPromptFromContent(message.content, '融合图像');
+    if (blendPrompt !== null) {
+      return {
+        type: 'blend',
+        prompt: blendPrompt,
+        sourceImages: [...message.sourceImagesData]
+      };
+    }
+  }
+
+  return null;
+};
+
 const AIChatDialog: React.FC = () => {
   const {
     isVisible,
@@ -176,6 +213,7 @@ const AIChatDialog: React.FC = () => {
     setSourceImageForAnalysis,
     addImageForBlending,
     removeImageFromBlending,
+    clearImagesForBlending,
     getAIMode,
     initializeContext,
     getContextSummary,
@@ -242,6 +280,8 @@ const AIChatDialog: React.FC = () => {
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
   // 🔥 跟踪已处理过计数减少的消息 ID（避免重复减少）
   const processedMessageIdsRef = useRef<Set<string>>(new Set());
+  // 记录组件挂载时间，用来区分刷新前后的消息
+  const hydrationTimestampRef = useRef<number>(Date.now());
   // 彩雾渲染状态（避免初始就显示）
   const [showAura, setShowAura] = useState(false);
   const auraTimerRef = useRef<number | null>(null);
@@ -474,6 +514,7 @@ const AIChatDialog: React.FC = () => {
     const now = Date.now();
     const STALE_MS = 45_000; // 45s 视为超时
     const STALE_PROGRESS = 10; // 只处理早期阶段的卡住任务
+    const hydrationCutoff = hydrationTimestampRef.current;
 
     messages.forEach((msg) => {
       if (msg.type !== 'ai') return;
@@ -482,6 +523,8 @@ const AIChatDialog: React.FC = () => {
 
       const ts = msg.timestamp instanceof Date ? msg.timestamp.getTime() : new Date(msg.timestamp).getTime();
       if (!Number.isFinite(ts)) return;
+      // 刷新前的旧任务不再自动标记为“已停止”
+      if (ts <= hydrationCutoff) return;
 
       const isPreparing = (status.stage && status.stage.includes('准备')) || (status.progress ?? 0) <= STALE_PROGRESS;
       const isStale = now - ts > STALE_MS;
@@ -491,6 +534,29 @@ const AIChatDialog: React.FC = () => {
           isGenerating: false,
           stage: '已终止',
           error: status.error ?? '任务已停止'
+        });
+      }
+    });
+  }, [messages, updateMessageStatus]);
+
+  // 刷新后清理旧任务遗留的“任务已停止”提示
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const hydrationCutoff = hydrationTimestampRef.current;
+
+    messages.forEach((msg) => {
+      if (msg.type !== 'ai') return;
+      const status = msg.generationStatus;
+      if (!status?.error) return;
+
+      const ts = msg.timestamp instanceof Date ? msg.timestamp.getTime() : new Date(msg.timestamp).getTime();
+      if (!Number.isFinite(ts)) return;
+      if (ts > hydrationCutoff) return;
+
+      if (status.error === '任务已停止') {
+        updateMessageStatus(msg.id, {
+          error: null,
+          stage: undefined
         });
       }
     });
@@ -597,6 +663,35 @@ const AIChatDialog: React.FC = () => {
       fileInputRef.current.value = '';
     }
   };
+
+  const handleResendFromInfo = useCallback(
+    (info: ResendInfo) => {
+      console.log('🔁 重新填充历史消息', info);
+      setSourceImageForAnalysis(null);
+
+      if (info.type === 'edit') {
+        clearImagesForBlending();
+        setSourceImageForEditing(info.sourceImage);
+      } else if (info.type === 'blend') {
+        setSourceImageForEditing(null);
+        clearImagesForBlending();
+        info.sourceImages.forEach((imageData) => addImageForBlending(imageData));
+      }
+
+      setCurrentInput(info.prompt);
+
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+    },
+    [
+      addImageForBlending,
+      clearImagesForBlending,
+      setCurrentInput,
+      setSourceImageForAnalysis,
+      setSourceImageForEditing
+    ]
+  );
 
   const startPromptButtonLongPress = () => {
     if (longPressTimerRef.current) {
@@ -1108,12 +1203,13 @@ const AIChatDialog: React.FC = () => {
                       alt={`融合图片 ${index + 1}`}
                       className="w-16 h-16 object-cover rounded border shadow-sm"
                     />
-                    {/* 主场景标签 - 显示在第一张图片上 */}
-                    {index === 0 && sourceImagesForBlending.length > 1 && (
-                      <div className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white px-1 py-0.5 rounded-full font-medium shadow-sm" style={{ fontSize: '0.6rem' }}>
-                        主场景
-                      </div>
-                    )}
+                    {/* 图像序号角标 */}
+                    <div
+                      className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center"
+                      style={{ fontSize: '0.6rem' }}
+                    >
+                      {index + 1}
+                    </div>
                     <button
                       onClick={() => removeImageFromBlending(index)}
                       className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1667,6 +1763,27 @@ const AIChatDialog: React.FC = () => {
                       )}
                     </div>
                   ) : null;
+                  const resendInfo = getResendInfoFromMessage(message);
+                  const renderResendActionButton = (extraClassName?: string) => {
+                    if (!resendInfo) return null;
+                    return (
+                      <button
+                        type="button"
+                        className={cn(
+                          "absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white/95 px-3 py-1 text-xs font-medium text-blue-600 shadow-sm transition-colors hover:bg-blue-50 hover:text-blue-700",
+                          extraClassName
+                        )}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleResendFromInfo(resendInfo);
+                        }}
+                        title="重新将这条提示和图片填入输入框"
+                      >
+                        <History className="h-3 w-3" />
+                        <span>重新发送</span>
+                      </button>
+                    );
+                  };
                   return (
                     <div
                       key={message.id}
@@ -1922,11 +2039,12 @@ const AIChatDialog: React.FC = () => {
                                                 }}
                                                 title={`点击全屏预览融合图像 ${index + 1}`}
                                               />
-                                              {index === 0 && message.sourceImagesData && message.sourceImagesData.length > 1 && (
-                                                <div className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs px-1 py-0.5 rounded-full font-medium shadow-sm" style={{ fontSize: '0.6rem' }}>
-                                                  主
-                                                </div>
-                                              )}
+                                              <div
+                                                className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center"
+                                                style={{ fontSize: '0.6rem' }}
+                                              >
+                                                {index + 1}
+                                              </div>
                                             </div>
                                           ))}
                                         </div>
@@ -1941,9 +2059,10 @@ const AIChatDialog: React.FC = () => {
                       ) : (
                         <div
                           className={cn(
-                            "inline-block rounded-lg p-3",
+                            "relative inline-block rounded-lg p-3",
                             message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                            message.type !== 'user' && "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
+                            message.type !== 'user' && "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass",
+                            resendInfo && "pr-16 pb-8"
                           )}
                         >
                           <div className="flex gap-3 items-start">
@@ -1978,11 +2097,12 @@ const AIChatDialog: React.FC = () => {
                                           }}
                                           title={`点击全屏预览融合图像 ${index + 1}`}
                                         />
-                                        {index === 0 && message.sourceImagesData && message.sourceImagesData.length > 1 && (
-                                          <div className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs px-1 py-0.5 rounded-full font-medium shadow-sm" style={{ fontSize: '0.6rem' }}>
-                                            主
-                                          </div>
-                                        )}
+                                        <div
+                                          className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center"
+                                          style={{ fontSize: '0.6rem' }}
+                                        >
+                                          {index + 1}
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -2018,6 +2138,7 @@ const AIChatDialog: React.FC = () => {
                                   {message.content}
                                 </ReactMarkdown>
                               </div>
+                              {renderResendActionButton()}
                             </div>
                           </div>
                         </div>
@@ -2030,8 +2151,9 @@ const AIChatDialog: React.FC = () => {
                         </>
                       ) : (
                         <div className={cn(
-                          "text-sm text-black markdown-content leading-relaxed",
-                          message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
+                          "relative text-sm text-black markdown-content leading-relaxed",
+                          message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block",
+                          resendInfo && "pr-16 pb-8"
                         )}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
@@ -2057,6 +2179,7 @@ const AIChatDialog: React.FC = () => {
                           >
                             {message.content}
                           </ReactMarkdown>
+                          {renderResendActionButton()}
                         </div>
                       )
                     )}

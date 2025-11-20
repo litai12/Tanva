@@ -57,6 +57,7 @@ export default function ImageNode({ id, data, selected }: Props) {
             id: item.id,
             src: item.src,
             title: item.title,
+            timestamp: item.timestamp,
           }) as ImageItem,
       ),
     [projectHistory],

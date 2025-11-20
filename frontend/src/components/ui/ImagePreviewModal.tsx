@@ -2,7 +2,7 @@
  * 图片全屏预览模态框组件
  */
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from './button';
@@ -12,6 +12,7 @@ export interface ImageItem {
   id: string;
   src: string;
   title?: string;
+  timestamp?: number;
 }
 
 interface ImagePreviewModalProps {
@@ -35,8 +36,20 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   onImageChange,
   collectionTitle = '历史记录'
 }) => {
+  const sortedCollection = useMemo(() => {
+    return imageCollection
+      .map((item, index) => ({ ...item, _originalIndex: index }))
+      .sort((a, b) => {
+        const timeDiff = (b.timestamp ?? 0) - (a.timestamp ?? 0);
+        if (timeDiff !== 0) return timeDiff;
+        return a._originalIndex - b._originalIndex;
+      })
+      .map(({ _originalIndex, ...rest }) => rest as ImageItem);
+  }, [imageCollection]);
+
   const [thumbnailScrollPosition, setThumbnailScrollPosition] = useState(0);
-  const hasCollection = imageCollection.length > 0;
+  const hasCollection = sortedCollection.length > 0;
+  const showOrderBadges = hasCollection && sortedCollection.some((item) => typeof item.timestamp === 'number');
   // 处理缩略图点击
   const handleThumbnailClick = useCallback((imageId: string) => {
     if (onImageChange) {
@@ -47,8 +60,8 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
   // 获取当前图片索引
   const getCurrentImageIndex = useCallback(() => {
     if (!currentImageId || !hasCollection) return -1;
-    return imageCollection.findIndex(item => item.id === currentImageId);
-  }, [currentImageId, imageCollection, hasCollection]);
+    return sortedCollection.findIndex(item => item.id === currentImageId);
+  }, [currentImageId, sortedCollection, hasCollection]);
 
   // 切换到下一张/上一张图片
   const navigateImage = useCallback((direction: 'prev' | 'next') => {
@@ -59,13 +72,13 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
 
     let newIndex;
     if (direction === 'next') {
-      newIndex = (currentIndex + 1) % imageCollection.length;
+      newIndex = (currentIndex + 1) % sortedCollection.length;
     } else {
-      newIndex = currentIndex === 0 ? imageCollection.length - 1 : currentIndex - 1;
+      newIndex = currentIndex === 0 ? sortedCollection.length - 1 : currentIndex - 1;
     }
     
-    onImageChange(imageCollection[newIndex].id);
-  }, [hasCollection, onImageChange, getCurrentImageIndex, imageCollection]);
+    onImageChange(sortedCollection[newIndex].id);
+  }, [hasCollection, onImageChange, getCurrentImageIndex, sortedCollection]);
 
   // 键盘事件处理
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -173,8 +186,12 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
             {/* 缩略图滚动容器 */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
               <div className="p-2 space-y-2">
-                {imageCollection.map((item, index) => {
+                {sortedCollection.map((item, index) => {
                   const isActive = item.id === currentImageId;
+                  const chronologicalNumber = sortedCollection.length - index;
+                  const formattedTimestamp = item.timestamp
+                    ? new Date(item.timestamp).toLocaleString()
+                    : undefined;
                   return (
                     <div
                       key={item.id}
@@ -184,7 +201,13 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                           : 'hover:ring-1 hover:ring-white/30'
                       }`}
                       onClick={() => handleThumbnailClick(item.id)}
+                      title={formattedTimestamp ? `生成时间：${formattedTimestamp}` : undefined}
                     >
+                      {showOrderBadges && (
+                        <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-semibold flex items-center justify-center shadow">
+                          {chronologicalNumber}
+                        </div>
+                      )}
                       <div className="aspect-video bg-gray-800">
                         <img
                           src={item.src}
