@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, Eye, EyeOff, Wand2, Copy, Trash2, Box, Crop, ImageUp } from 'lucide-react';
+import { Sparkles, EyeOff, Wand2, Copy, Trash2, Box, Crop, ImageUp } from 'lucide-react';
 import { Button } from '../ui/button';
 import ImagePreviewModal, { type ImageItem } from '../ui/ImagePreviewModal';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
@@ -464,15 +464,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       console.error('获取图像数据失败:', error);
     });
   }, [resolveImageDataUrl, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
-
-  // 处理预览按钮点击
-  const handlePreview = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowPreview(true);
-    setPreviewImageId(imageData.id);
-    console.log('👁️ 打开图片预览:', imageData.id);
-  }, [imageData.id]);
 
   // 处理切换可见性按钮点击
   const handleToggleVisibility = useCallback((e: React.MouseEvent) => {
@@ -958,6 +949,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       setPreviewImageId(previewCollection[0].id);
     }
   }, [activePreviewId, previewCollection, showPreview]);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ imageId?: string }>).detail;
+      if (detail?.imageId === imageData.id) {
+        setShowPreview(true);
+        setPreviewImageId(imageData.id);
+      }
+    };
+    window.addEventListener('canvas:image-open-preview', handler as EventListener);
+    return () => window.removeEventListener('canvas:image-open-preview', handler as EventListener);
+  }, [imageData.id]);
 
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
 
@@ -1092,17 +1094,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               style={sharedButtonStyle}
             >
               <Sparkles className={sharedIconClass} />
-            </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              className={sharedButtonClass}
-              onClick={handlePreview}
-              title="全屏预览图片"
-              style={sharedButtonStyle}
-            >
-              <Eye className={sharedIconClass} />
             </Button>
 
             {enableVisibilityToggle && (

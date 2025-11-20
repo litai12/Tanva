@@ -907,6 +907,41 @@ export const useInteractionController = ({
       const currentDrawMode = drawModeRef.current;
       const latestSimpleTextTool = simpleTextToolRef.current;
 
+      const tryOpenImagePreview = () => {
+        try {
+          const hit = paper.project.hitTest(point, {
+            segments: true,
+            stroke: true,
+            fill: true,
+            bounds: true,
+            center: true,
+            tolerance: 6,
+          } as any);
+          if (hit?.item) {
+            let current: any = hit.item;
+            while (current) {
+              const data = current.data || {};
+              if (data?.imageId) {
+                event.preventDefault();
+                event.stopPropagation();
+                try {
+                  window.dispatchEvent(new CustomEvent('canvas:image-open-preview', { detail: { imageId: data.imageId } }));
+                } catch (err) {
+                  console.warn('dispatch image preview failed', err);
+                }
+                return true;
+              }
+              current = current.parent;
+            }
+          }
+        } catch (err) {
+          console.warn('hitTest image on dblclick failed', err);
+        }
+        return false;
+      };
+
+      if (tryOpenImagePreview()) return;
+
       console.log('🎯 检测到原生双击事件，当前模式:', currentDrawMode);
       
       // 允许在任何模式下双击文本进行编辑
