@@ -918,24 +918,37 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src, imageData.localDataUrl]);
 
   const previewCollection = useMemo<ImageItem[]>(() => {
-    const map = new Map<string, ImageItem>();
+    const mapBySrc = new Map<string, ImageItem>();
     relatedHistoryImages.forEach((item) => {
-      if (item.id && item.src) {
-        map.set(item.id, item);
-      }
+      if (!item.src) return;
+      const normalizedSrc = normalizeImageSrc(item.src);
+      if (!normalizedSrc || mapBySrc.has(normalizedSrc)) return;
+      mapBySrc.set(normalizedSrc, {
+        ...item,
+        src: normalizedSrc,
+      });
     });
 
     if (basePreviewSrc) {
-      const historyMatch = map.get(imageData.id);
-      map.set(imageData.id, {
-        id: imageData.id,
-        src: basePreviewSrc,
-        title: imageData.fileName || `图片 ${imageData.id}`,
-        timestamp: historyMatch?.timestamp ?? localPreviewTimestamp,
-      });
+      const existing = mapBySrc.get(basePreviewSrc);
+      if (existing) {
+        mapBySrc.set(basePreviewSrc, {
+          ...existing,
+          id: imageData.id,
+          title: imageData.fileName || existing.title || `图片 ${imageData.id}`,
+          timestamp: existing.timestamp ?? localPreviewTimestamp,
+        });
+      } else {
+        mapBySrc.set(basePreviewSrc, {
+          id: imageData.id,
+          src: basePreviewSrc,
+          title: imageData.fileName || `图片 ${imageData.id}`,
+          timestamp: localPreviewTimestamp,
+        });
+      }
     }
 
-    return Array.from(map.values());
+    return Array.from(mapBySrc.values());
   }, [basePreviewSrc, imageData.fileName, imageData.id, relatedHistoryImages, localPreviewTimestamp]);
 
   const activePreviewId = previewImageId ?? imageData.id;

@@ -1077,6 +1077,7 @@ const AIChatDialog: React.FC = () => {
 
   // 🔥 修改发送按钮的禁用条件：允许在生成中继续发送（并行模式）
   const canSend = currentInput.trim().length > 0 && !autoOptimizing;
+  const shouldShowHistoryPanel = (showHistory || isMaximized) && (messages.length > 0 || isStreaming);
 
   // 🔥 计算正在进行的生成任务数量
   const generatingTaskCount = messages.filter(msg =>
@@ -1150,6 +1151,7 @@ const AIChatDialog: React.FC = () => {
 
         {/* 内容区域 */}
         <div ref={contentRef} data-chat-content className={cn(
+          "flex flex-col",
           isMaximized ? "p-4 h-full overflow-visible" : ""
         )}>
 
@@ -1239,6 +1241,12 @@ const AIChatDialog: React.FC = () => {
 
           {/* 输入区域 */}
           <div
+            className={cn(
+              "order-2",
+              shouldShowHistoryPanel && !isMaximized && "mt-4",
+              shouldShowHistoryPanel && isMaximized && "mt-auto",
+              shouldShowHistoryPanel && "pt-2"
+            )}
             onMouseDownCapture={(e) => {
               // 捕获阶段拦截，避免文本选中/聚焦导致的蓝色高亮
               try {
@@ -1590,7 +1598,7 @@ const AIChatDialog: React.FC = () => {
 
           {/* 错误提示 */}
           {generationStatus.error && (
-            <div className="mt-4">
+            <div className="mt-4 order-3">
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <AlertCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
                 <span className="text-sm text-red-800">{generationStatus.error}</span>
@@ -1599,12 +1607,12 @@ const AIChatDialog: React.FC = () => {
           )}
 
           {/* 消息历史（点击对话框时显示，最大化时始终显示） */}
-          {(showHistory || isMaximized) && (messages.length > 0 || isStreaming) && (
+          {shouldShowHistoryPanel && (
             <div
               ref={historyRef}
               data-history-ignore-toggle
               className={cn(
-                "mt-4 overflow-y-auto custom-scrollbar",
+                "mt-4 mb-2 overflow-y-auto custom-scrollbar order-1",
                 isMaximized ? "max-h-screen" : "max-h-80"
               )}
               style={{
