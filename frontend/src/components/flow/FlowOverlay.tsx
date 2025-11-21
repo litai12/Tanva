@@ -41,6 +41,7 @@ import { useAIChatStore, getImageModelForProvider, uploadImageToOSS, requestSora
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
+import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI } from '@/services/aiBackendAPI';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -1635,7 +1636,7 @@ function FlowInner() {
         try {
           let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
           if (imageDatas.length === 0) {
-            result = await aiImageService.generateImage({
+            result = await generateImageViaAPI({
               prompt,
               outputFormat: 'png',
               aiProvider,
@@ -1643,7 +1644,7 @@ function FlowInner() {
               aspectRatio: aspectRatioValue,
             });
           } else if (imageDatas.length === 1) {
-            result = await aiImageService.editImage({
+            result = await editImageViaAPI({
               prompt,
               sourceImage: imageDatas[0],
               outputFormat: 'png',
@@ -1652,7 +1653,7 @@ function FlowInner() {
               aspectRatio: aspectRatioValue,
             });
           } else {
-            result = await aiImageService.blendImages({
+            result = await blendImagesViaAPI({
               prompt,
               sourceImages: imageDatas.slice(0, 6),
               outputFormat: 'png',
@@ -1717,7 +1718,7 @@ function FlowInner() {
       let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
 
       if (imageDatas.length === 0) {
-        result = await aiImageService.generateImage({
+        result = await generateImageViaAPI({
           prompt,
           outputFormat: 'png',
           aiProvider,
@@ -1725,7 +1726,7 @@ function FlowInner() {
           aspectRatio: aspectRatioValue,
         });
       } else if (imageDatas.length === 1) {
-        result = await aiImageService.editImage({
+        result = await editImageViaAPI({
           prompt,
           sourceImage: imageDatas[0],
           outputFormat: 'png',
@@ -1734,7 +1735,7 @@ function FlowInner() {
           aspectRatio: aspectRatioValue,
         });
       } else {
-        result = await aiImageService.blendImages({
+        result = await blendImagesViaAPI({
           prompt,
           sourceImages: imageDatas.slice(0, 6),
           outputFormat: 'png',
