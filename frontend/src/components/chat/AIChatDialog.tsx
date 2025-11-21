@@ -1078,6 +1078,11 @@ const AIChatDialog: React.FC = () => {
   // 🔥 修改发送按钮的禁用条件：允许在生成中继续发送（并行模式）
   const canSend = currentInput.trim().length > 0 && !autoOptimizing;
   const shouldShowHistoryPanel = (showHistory || isMaximized) && (messages.length > 0 || isStreaming);
+  const hasImagePreview = Boolean(
+    sourceImageForEditing ||
+    sourceImagesForBlending.length > 0 ||
+    sourceImageForAnalysis
+  );
 
   // 🔥 计算正在进行的生成任务数量
   const generatingTaskCount = messages.filter(msg =>
@@ -1158,7 +1163,7 @@ const AIChatDialog: React.FC = () => {
 
 
           {/* 统一的图像预览区域 */}
-          {(sourceImageForEditing || sourceImagesForBlending.length > 0 || sourceImageForAnalysis) && (
+          {hasImagePreview && (
             <div className="mb-3">
               <div className="flex flex-wrap gap-2">
                 {/* 单图编辑显示 */}
@@ -1612,7 +1617,8 @@ const AIChatDialog: React.FC = () => {
               ref={historyRef}
               data-history-ignore-toggle
               className={cn(
-                "mt-4 mb-2 overflow-y-auto custom-scrollbar order-1",
+                "mb-2 overflow-y-auto custom-scrollbar order-1",
+                hasImagePreview ? "mt-2" : "-mt-1",
                 isMaximized ? "max-h-screen" : "max-h-80"
               )}
               style={{
@@ -1626,7 +1632,7 @@ const AIChatDialog: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="space-y-1.5 mr-1 pb-6">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-gray-500 font-medium">聊天历史记录</span>
                     <div className="flex items-center gap-2">
