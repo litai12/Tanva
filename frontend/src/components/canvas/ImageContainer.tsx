@@ -2,8 +2,9 @@ import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react'
 import paper from 'paper';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
-import { Sparkles, EyeOff, Wand2, Copy, Trash2, Box, Crop, ImageUp } from 'lucide-react';
+import { Sparkles, EyeOff, Wand2, Copy, Box, Crop, ImageUp } from 'lucide-react';
 import { Button } from '../ui/button';
+import { Separator } from '../ui/separator';
 import ImagePreviewModal, { type ImageItem } from '../ui/ImagePreviewModal';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { LoadingSpinner } from '../ui/loading-spinner';
@@ -919,32 +920,78 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   const previewCollection = useMemo<ImageItem[]>(() => {
     const mapBySrc = new Map<string, ImageItem>();
+    
+    // 判断文件名是否以.png结尾
+    const isPngFileName = (title?: string): boolean => {
+      if (!title) return false;
+      return title.toLowerCase().endsWith('.png');
+    };
+    
+    // 处理历史图片，优先保留非.png命名的图片
+    // 只按URL去重，避免误判不同内容的图片为重复
     relatedHistoryImages.forEach((item) => {
       if (!item.src) return;
       const normalizedSrc = normalizeImageSrc(item.src);
-      if (!normalizedSrc || mapBySrc.has(normalizedSrc)) return;
-      mapBySrc.set(normalizedSrc, {
-        ...item,
-        src: normalizedSrc,
-      });
+      if (!normalizedSrc) return;
+      
+      const existing = mapBySrc.get(normalizedSrc);
+      const currentIsPng = isPngFileName(item.title);
+      
+      // 如果URL相同，按URL去重
+      if (existing) {
+        const existingIsPng = isPngFileName(existing.title);
+        
+        // 优先保留非.png命名的图片
+        if (currentIsPng && !existingIsPng) {
+          // 当前是.png，已存在的是非.png，保留已存在的
+          return;
+        } else if (!currentIsPng && existingIsPng) {
+          // 当前是非.png，已存在的是.png，替换为当前的
+          mapBySrc.set(normalizedSrc, {
+            ...item,
+            src: normalizedSrc,
+          });
+        } else {
+          // 两者都是.png或都不是.png，保留已存在的（避免重复）
+          return;
+        }
+      } else {
+        // 如果URL不同，认为是不同的图片，直接添加
+        mapBySrc.set(normalizedSrc, {
+          ...item,
+          src: normalizedSrc,
+        });
+      }
     });
 
+    // 处理当前选中的图片
     if (basePreviewSrc) {
+      const currentItem: ImageItem = {
+        id: imageData.id,
+        src: basePreviewSrc,
+        title: imageData.fileName || `图片 ${imageData.id}`,
+        timestamp: localPreviewTimestamp,
+      };
       const existing = mapBySrc.get(basePreviewSrc);
+      const currentIsPng = isPngFileName(imageData.fileName);
+      
+      // 如果URL相同
       if (existing) {
-        mapBySrc.set(basePreviewSrc, {
-          ...existing,
-          id: imageData.id,
-          title: imageData.fileName || existing.title || `图片 ${imageData.id}`,
-          timestamp: existing.timestamp ?? localPreviewTimestamp,
-        });
+        const existingIsPng = isPngFileName(existing.title);
+        
+        // 如果当前选中的是.png，且已存在非.png的，则隐藏当前选中的（不添加到集合）
+        if (currentIsPng && !existingIsPng) {
+          // 不添加，保留已存在的非.png版本，继续执行返回结果
+        } else if (!currentIsPng && existingIsPng) {
+          // 当前是非.png，已存在的是.png，替换为当前的
+          mapBySrc.set(basePreviewSrc, currentItem);
+        } else {
+          // 两者都是.png或都不是.png，更新为当前选中的
+          mapBySrc.set(basePreviewSrc, currentItem);
+        }
       } else {
-        mapBySrc.set(basePreviewSrc, {
-          id: imageData.id,
-          src: basePreviewSrc,
-          title: imageData.fileName || `图片 ${imageData.id}`,
-          timestamp: localPreviewTimestamp,
-        });
+        // 如果URL不同，认为是不同的图片，直接添加
+        mapBySrc.set(basePreviewSrc, currentItem);
       }
     }
 
@@ -1037,6 +1084,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             <Button
               variant="outline"
               size="sm"
+              className={sharedButtonClass}
+              onClick={handleAIEdit}
+              title="添加到AI对话框进行编辑"
+              style={sharedButtonStyle}
+            >
+              <Sparkles className={sharedIconClass} />
+            </Button>
+
+            <Separator orientation="vertical" className="h-8 bg-white/40" />
+
+            <Button
+              variant="outline"
+              size="sm"
               disabled={isRemovingBackground}
               className={sharedButtonClass}
               onClick={handleBackgroundRemoval}
@@ -1102,17 +1162,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               )}
             </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              className={sharedButtonClass}
-              onClick={handleAIEdit}
-              title="添加到AI对话框进行编辑"
-              style={sharedButtonStyle}
-            >
-              <Sparkles className={sharedIconClass} />
-            </Button>
-
             {enableVisibilityToggle && (
               <Button
                 variant="outline"
@@ -1137,20 +1186,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               <Copy className={sharedIconClass} />
             </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn(sharedButtonClass, 'text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300')}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onDelete?.(imageData.id);
-              }}
-              title="删除图片"
-              style={sharedButtonStyle}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
           </div>
         </div>
       )}

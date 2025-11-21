@@ -192,6 +192,10 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                   const formattedTimestamp = item.timestamp
                     ? new Date(item.timestamp).toLocaleString()
                     : undefined;
+                  // 判断文件名是否以.png结尾
+                  const isPngFileName = item.title?.toLowerCase().endsWith('.png') ?? false;
+                  // .png命名的图片永远不显示数字序号
+                  const shouldShowBadge = showOrderBadges && !isPngFileName;
                   return (
                     <div
                       key={item.id}
@@ -203,9 +207,15 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                       onClick={() => handleThumbnailClick(item.id)}
                       title={formattedTimestamp ? `生成时间：${formattedTimestamp}` : undefined}
                     >
-                      {showOrderBadges && (
+                      {shouldShowBadge && (
                         <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-semibold flex items-center justify-center shadow">
                           {chronologicalNumber}
+                        </div>
+                      )}
+                      {/* .png命名的图片显示"Current"标记 */}
+                      {isPngFileName && isActive && (
+                        <div className="absolute top-1 left-1 px-2 py-0.5 rounded-md bg-blue-600 text-white text-[9px] font-semibold flex items-center justify-center shadow-lg whitespace-nowrap z-10">
+                          Current
                         </div>
                       )}
                       <div className="aspect-video bg-gray-800">
