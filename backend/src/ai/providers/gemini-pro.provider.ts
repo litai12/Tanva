@@ -23,6 +23,7 @@ export class GeminiProProvider implements IAIProvider {
   private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
   private readonly MAX_RETRIES = 3;
+
   private readonly DEFAULT_AVAILABLE_TOOLS = [
     'generateImage',
     'editImage',
@@ -30,13 +31,13 @@ export class GeminiProProvider implements IAIProvider {
     'analyzeImage',
     'chatResponse',
   ];
+
   private readonly TOOL_DESCRIPTION_MAP: Record<string, string> = {
     generateImage: '生成新的图像',
-    editImage: '编辑或扩展已有图像',
-    blendImages: '融合多张素材图像',
-    analyzeImage: '分析图像内容并输出描述',
-    chatResponse: '进行纯文本对话或回答问题',
-    generateVideo: '生成视频内容',
+    editImage: '编辑现有图像',
+    blendImages: '融合多张图像',
+    analyzeImage: '分析图像内容',
+    chatResponse: '文本对话或聊天',
   };
 
   constructor(private readonly config: ConfigService) {}
@@ -281,18 +282,18 @@ export class GeminiProProvider implements IAIProvider {
                 }
               }
 
-              // 配置 thinkingLevel（Gemini 3 特性）
+              // 配置 thinking_level（Gemini 3 特性，参考官方文档）
               if (request.thinkingLevel) {
-                config.generationConfig.thinkingLevel = request.thinkingLevel;
+                config.generationConfig.thinking_level = request.thinkingLevel;
               }
 
-              const stream = await client.models.generateContentStream({
+              const response = await client.models.generateContent({
                 model,
                 contents: request.prompt,
                 config,
               });
 
-              return this.parseStreamResponse(stream, 'Image generation');
+              return this.parseNonStreamResponse(response, 'Image generation');
             })(),
             this.DEFAULT_TIMEOUT,
             'Image generation'
@@ -360,9 +361,9 @@ export class GeminiProProvider implements IAIProvider {
                 }
               }
 
-              // 配置 thinkingLevel（Gemini 3 特性）
+              // 配置 thinking_level（Gemini 3 特性，参考官方文档）
               if (request.thinkingLevel) {
-                config.generationConfig.thinkingLevel = request.thinkingLevel;
+                config.generationConfig.thinking_level = request.thinkingLevel;
               }
 
               const contents = [
@@ -376,42 +377,56 @@ export class GeminiProProvider implements IAIProvider {
               ];
 
               try {
-                // 优先使用流式 API（更快）
-                const stream = await client.models.generateContentStream({
+                // 默认使用非流式 API（更稳定）
+                this.logger.debug('Calling non-stream generateContent for image edit...');
+                const response = await client.models.generateContent({
                   model,
                   contents,
                   config,
                 });
-
-                return await this.parseStreamResponse(stream, 'Image edit');
-              } catch (streamError) {
-                // 如果流式 API 失败，降级到非流式 API（更稳定）
+                
+                this.logger.debug('Non-stream response received:', {
+                  hasCandidates: !!response.candidates,
+                  candidatesLength: response.candidates?.length,
+                  hasContent: !!response.candidates?.[0]?.content,
+                  hasParts: !!response.candidates?.[0]?.content?.parts,
+                });
+                
+                if (!response.candidates?.[0]?.content?.parts) {
+                  this.logger.error('Non-stream API returned empty response:', {
+                    response: JSON.stringify(response, null, 2).substring(0, 500),
+                  });
+                  throw new Error('Non-stream API returned empty response');
+                }
+                
+                const result = this.parseNonStreamResponse(response, 'Image edit');
+                this.logger.log('Image edit non-stream API succeeded');
+                return result;
+              } catch (nonStreamError) {
+                // 如果非流式 API 失败，降级到流式 API
                 const isNetworkError = this.isRetryableError(
-                  streamError instanceof Error ? streamError : new Error(String(streamError))
+                  nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
                 );
                 
                 if (isNetworkError) {
-                  this.logger.warn('Image edit stream API failed, falling back to non-stream API...');
+                  this.logger.warn('Image edit non-stream API failed, falling back to stream API...');
                   try {
-                    const response = await client.models.generateContent({
+                    const stream = await client.models.generateContentStream({
                       model,
                       contents,
                       config,
                     });
-                    
-                    if (!response.candidates?.[0]?.content?.parts) {
-                      throw new Error('Non-stream API returned empty response');
-                    }
-                    
-                    this.logger.log('Image edit non-stream API fallback succeeded');
-                    return this.parseNonStreamResponse(response, 'Image edit');
+
+                    const streamResult = await this.parseStreamResponse(stream, 'Image edit');
+                    this.logger.log('Image edit stream API fallback succeeded');
+                    return streamResult;
                   } catch (fallbackError) {
-                    // 如果降级也失败，抛出原始流式错误
-                    throw streamError;
+                    // 如果降级也失败，抛出原始非流式错误
+                    throw nonStreamError;
                   }
                 } else {
                   // 非网络错误直接抛出
-                  throw streamError;
+                  throw nonStreamError;
                 }
               }
             })(),
@@ -494,18 +509,18 @@ export class GeminiProProvider implements IAIProvider {
                 }
               }
 
-              // 配置 thinkingLevel（Gemini 3 特性）
+              // 配置 thinking_level（Gemini 3 特性，参考官方文档）
               if (request.thinkingLevel) {
-                config.generationConfig.thinkingLevel = request.thinkingLevel;
+                config.generationConfig.thinking_level = request.thinkingLevel;
               }
 
-              const stream = await client.models.generateContentStream({
+              const response = await client.models.generateContent({
                 model,
                 contents: [{ text: request.prompt }, ...imageParts],
                 config,
               });
 
-              return this.parseStreamResponse(stream, 'Image blend');
+              return this.parseNonStreamResponse(response, 'Image blend');
             })(),
             this.DEFAULT_TIMEOUT,
             'Image blend'
@@ -552,7 +567,7 @@ export class GeminiProProvider implements IAIProvider {
         () =>
           this.withTimeout(
             (async () => {
-              const stream = await client.models.generateContentStream({
+              const response = await client.models.generateContent({
                 model: 'gemini-3-pro-preview',
                 contents: [
                   { text: analysisPrompt },
@@ -574,8 +589,11 @@ export class GeminiProProvider implements IAIProvider {
                 },
               });
 
-              const streamResult = await this.parseStreamResponse(stream, 'Image analysis');
-              return { text: streamResult.textResponse };
+              if (!response.text) {
+                throw new Error('Image analysis API returned empty response');
+              }
+
+              return { text: response.text };
             })(),
             this.DEFAULT_TIMEOUT,
             'Image analysis'
@@ -613,7 +631,7 @@ export class GeminiProProvider implements IAIProvider {
       const client = this.ensureClient();
       const finalPrompt = request.prompt;
 
-      // 先尝试流式 API（更快），失败后降级到非流式 API（更稳定）
+      // 默认使用非流式 API（更稳定），失败后降级到流式 API
       const result = await this.withRetry(
         async () => {
           return await this.withTimeout(
@@ -629,9 +647,9 @@ export class GeminiProProvider implements IAIProvider {
                 generationConfig: {},
               };
 
-              // 配置 thinkingLevel（Gemini 3 特性）
+              // 配置 thinking_level（Gemini 3 特性，参考官方文档）
               if (request.thinkingLevel) {
-                apiConfig.generationConfig.thinkingLevel = request.thinkingLevel;
+                apiConfig.generationConfig.thinking_level = request.thinkingLevel;
               }
 
               if (request.enableWebSearch) {
@@ -639,43 +657,43 @@ export class GeminiProProvider implements IAIProvider {
               }
 
               try {
-                // 优先使用流式 API（更快）
-                const stream = await client.models.generateContentStream({
+                // 默认使用非流式 API（更稳定）
+                const response = await client.models.generateContent({
                   model: 'gemini-3-pro-preview',
                   contents: [{ text: finalPrompt }],
                   config: apiConfig,
                 });
-
-                const streamResult = await this.parseStreamResponse(stream, 'Text generation');
-                return { text: streamResult.textResponse };
-              } catch (streamError) {
-                // 如果流式 API 失败，降级到非流式 API（更稳定）
+                
+                if (!response.text) {
+                  throw new Error('Non-stream API returned empty response');
+                }
+                
+                return { text: response.text };
+              } catch (nonStreamError) {
+                // 如果非流式 API 失败，降级到流式 API
                 const isNetworkError = this.isRetryableError(
-                  streamError instanceof Error ? streamError : new Error(String(streamError))
+                  nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
                 );
                 
                 if (isNetworkError) {
-                  this.logger.warn('Stream API failed, falling back to non-stream API...');
+                  this.logger.warn('Non-stream API failed, falling back to stream API...');
                   try {
-                    const response = await client.models.generateContent({
+                    const stream = await client.models.generateContentStream({
                       model: 'gemini-3-pro-preview',
                       contents: [{ text: finalPrompt }],
                       config: apiConfig,
                     });
-                    
-                    if (!response.text) {
-                      throw new Error('Non-stream API returned empty response');
-                    }
-                    
-                    this.logger.log('Non-stream API fallback succeeded');
-                    return { text: response.text };
+
+                    const streamResult = await this.parseStreamResponse(stream, 'Text generation');
+                    this.logger.log('Stream API fallback succeeded');
+                    return { text: streamResult.textResponse };
                   } catch (fallbackError) {
-                    // 如果降级也失败，抛出原始流式错误
-                    throw streamError;
+                    // 如果降级也失败，抛出原始非流式错误
+                    throw nonStreamError;
                   }
                 } else {
                   // 非网络错误直接抛出
-                  throw streamError;
+                  throw nonStreamError;
                 }
               }
             })(),
@@ -709,55 +727,153 @@ export class GeminiProProvider implements IAIProvider {
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log('Selecting tool with Gemini Pro auto mode...');
+    this.logger.log('Selecting tool...');
 
     try {
       const client = this.ensureClient();
-      const availableTools = this.getAvailableTools(request.availableTools);
-      const systemPrompt = this.buildToolSelectionSystemPrompt(availableTools);
-      const userPrompt = this.buildToolSelectionUserPrompt(request, availableTools);
+      const maxAttempts = 3;
+      const delayMs = 1000;
+      let lastError: unknown;
 
-      const selection = await this.withRetry(
-        async () => {
-          return await this.withTimeout(
-            (async () => {
-              const response = await client.models.generateContent({
-                model: 'gemini-3-pro-preview',
-                contents: [
-                  { text: systemPrompt },
-                  { text: userPrompt },
-                ],
-                config: {
-                  safetySettings: [
-                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
-                  ],
-                },
-              });
+      // 获取可用工具列表
+      const availableTools = request.availableTools && request.availableTools.length > 0
+        ? request.availableTools
+        : this.DEFAULT_AVAILABLE_TOOLS;
 
-              if (!response.text) {
-                throw new Error('Gemini Pro returned an empty tool selection response');
-              }
+      // 构建工具列表描述
+      const toolList = availableTools
+        .map((tool) => {
+          const description = this.TOOL_DESCRIPTION_MAP[tool] || '自定义工具';
+          return `- ${tool}: ${description}`;
+        })
+        .join('\n');
 
-              return this.parseToolSelectionResponse(response.text, availableTools);
-            })(),
-            this.DEFAULT_TIMEOUT,
-            'Tool selection'
-          );
-        },
-        'Tool selection'
-      );
+      // 构建上下文信息（参考 ai.service.ts 的简洁方式）
+      const contextInfo: string[] = [];
+      contextInfo.push(`用户输入: ${request.prompt}`);
+      
+      if (request.hasImages !== undefined) {
+        contextInfo.push(`用户是否提供了图像: ${request.hasImages ? '是' : '否'}`);
+      }
+      if (request.imageCount !== undefined) {
+        contextInfo.push(`显式提供的图像数量: ${request.imageCount}`);
+      }
+      if (request.hasCachedImage !== undefined) {
+        contextInfo.push(`是否存在缓存图像: ${request.hasCachedImage ? '是' : '否'}`);
+      }
+      if (request.context?.trim()) {
+        contextInfo.push(`额外上下文: ${request.context.trim()}`);
+      }
 
-      this.logger.log(
-        `✅ Gemini Pro tool selection result: ${selection.selectedTool} (confidence: ${selection.confidence})`
-      );
+      // 工具选择的系统提示（参考 ai.service.ts 的简洁实现）
+      const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
 
+可用工具:
+${toolList}
+
+请以以下JSON格式回复（仅返回JSON，不要其他文字）:
+{
+  "selectedTool": "工具名称",
+  "reasoning": "选择理由"
+}`;
+
+      const userPrompt = contextInfo.join('\n');
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          const response = await client.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [
+              { text: systemPrompt },
+              { text: userPrompt },
+            ],
+            config: {
+              safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+              ],
+            },
+          });
+
+          if (!response.text) {
+            this.logger.warn('Tool selection response did not contain text.');
+            throw new Error('Empty Gemini response');
+          }
+
+          // 解析AI的JSON响应（参考 ai.service.ts 的实现）
+          try {
+            // 提取 JSON 内容（可能被 markdown 代码块包装）
+            let jsonText = response.text.trim();
+
+            // 移除 markdown 代码块标记
+            if (jsonText.startsWith('```json')) {
+              jsonText = jsonText.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+            } else if (jsonText.startsWith('```')) {
+              jsonText = jsonText.replace(/^```\s*/i, '').replace(/\s*```$/, '');
+            }
+
+            const parsed = JSON.parse(jsonText.trim());
+            const rawTool = typeof parsed.selectedTool === 'string' ? parsed.selectedTool.trim() : '';
+            
+            // 验证工具是否在可用工具列表中
+            const normalizedTool = availableTools.find(
+              (tool) => tool.toLowerCase() === rawTool.toLowerCase()
+            ) || this.selectFallbackTool(availableTools);
+            
+            const reasoning =
+              typeof parsed.reasoning === 'string' && parsed.reasoning.trim().length
+                ? parsed.reasoning.trim()
+                : `AI 建议使用 ${normalizedTool}`;
+
+            this.logger.log(`Tool selected: ${normalizedTool}`);
+
+            return {
+              success: true,
+              data: {
+                selectedTool: normalizedTool,
+                reasoning,
+                confidence: 0.85,
+              },
+            };
+          } catch (parseError) {
+            this.logger.warn(`Failed to parse tool selection JSON: ${response.text}`);
+            // 降级：如果解析失败，使用回退工具
+            const fallbackTool = this.selectFallbackTool(availableTools);
+            return {
+              success: true,
+              data: {
+                selectedTool: fallbackTool,
+                reasoning: 'Fallback due to invalid JSON response',
+                confidence: 0.5,
+              },
+            };
+          }
+        } catch (error) {
+          lastError = error;
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Tool selection attempt ${attempt}/${maxAttempts} failed: ${message}`);
+          if (attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+      }
+
+      const message =
+        lastError instanceof Error ? lastError.message : 'Unknown error occurred during tool selection.';
+      this.logger.error(`All tool selection attempts failed: ${message}`);
+
+      // 最后的降级方案：返回回退工具
+      const fallbackTool = this.selectFallbackTool(availableTools);
       return {
         success: true,
-        data: selection,
+        data: {
+          selectedTool: fallbackTool,
+          reasoning: 'Fallback due to repeated failures',
+          confidence: 0.4,
+        },
       };
     } catch (error) {
       this.logger.error('Tool selection failed:', error);
@@ -769,121 +885,6 @@ export class GeminiProProvider implements IAIProvider {
           details: error,
         },
       };
-    }
-  }
-
-  private getAvailableTools(availableTools?: string[]): string[] {
-    if (Array.isArray(availableTools) && availableTools.length > 0) {
-      const sanitized = availableTools
-        .map((tool) => (typeof tool === 'string' ? tool.trim() : ''))
-        .filter((tool): tool is string => !!tool);
-      if (sanitized.length > 0) {
-        return Array.from(new Set(sanitized));
-      }
-    }
-    return [...this.DEFAULT_AVAILABLE_TOOLS];
-  }
-
-  private buildToolSelectionSystemPrompt(availableTools: string[]): string {
-    const toolList = availableTools
-      .map((tool) => {
-        const description = this.TOOL_DESCRIPTION_MAP[tool] || '自定义工具';
-        return `- ${tool}: ${description}`;
-      })
-      .join('\n');
-
-    return `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
-
-可用工具:
-${toolList}
-
-请以以下JSON格式回复（仅返回JSON，不要其他文字）:
-{
-  "selectedTool": "工具名称",
-  "reasoning": "选择理由",
-  "confidence": 0-1之间的小数
-}`;
-  }
-
-  private buildToolSelectionUserPrompt(
-    request: ToolSelectionRequest,
-    availableTools: string[]
-  ): string {
-    const lines: string[] = [
-      `用户输入: ${request.prompt}`,
-      `可用工具: ${availableTools.join(', ')}`,
-      `包含图像: ${request.hasImages ? '是' : '否'}`,
-    ];
-
-    if (request.hasImages) {
-      lines.push(`图像数量: ${typeof request.imageCount === 'number' ? request.imageCount : '未知'}`);
-    }
-
-    if (typeof request.hasCachedImage === 'boolean') {
-      lines.push(`包含缓存图像: ${request.hasCachedImage ? '是' : '否'}`);
-    }
-
-    if (request.context?.trim()) {
-      lines.push(`额外上下文: ${request.context.trim()}`);
-    }
-
-    lines.push('如果没有合适的工具，请返回 chatResponse。');
-
-    return lines.join('\n');
-  }
-
-  private parseToolSelectionResponse(
-    responseText: string,
-    availableTools: string[]
-  ): ToolSelectionResult {
-    const fallbackTool = this.selectFallbackTool(availableTools);
-    const defaultResult: ToolSelectionResult = {
-      selectedTool: fallbackTool,
-      reasoning: 'Gemini Pro 未返回有效的JSON，已回退到默认工具。',
-      confidence: 0.5,
-    };
-
-    if (!responseText || !responseText.trim()) {
-      return defaultResult;
-    }
-
-    let jsonText = responseText.trim();
-    if (jsonText.startsWith('```json')) {
-      jsonText = jsonText.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
-    } else if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/^```\s*/i, '').replace(/\s*```$/, '');
-    }
-
-    try {
-      const parsed = JSON.parse(jsonText);
-      const rawTool = typeof parsed.selectedTool === 'string' ? parsed.selectedTool.trim() : '';
-      const normalizedTool =
-        availableTools.find((tool) => tool.toLowerCase() === rawTool.toLowerCase()) || fallbackTool;
-
-      let confidence =
-        typeof parsed.confidence === 'number'
-          ? parsed.confidence
-          : typeof parsed.confidence === 'string'
-          ? parseFloat(parsed.confidence)
-          : 0.75;
-      if (!Number.isFinite(confidence)) {
-        confidence = 0.75;
-      }
-      confidence = Math.min(1, Math.max(0, confidence));
-
-      const reasoning =
-        typeof parsed.reasoning === 'string' && parsed.reasoning.trim().length
-          ? parsed.reasoning.trim()
-          : `Gemini Pro 建议使用 ${normalizedTool}`;
-
-      return {
-        selectedTool: normalizedTool,
-        reasoning,
-        confidence,
-      };
-    } catch (error) {
-      this.logger.warn(`Failed to parse Gemini Pro tool selection JSON: ${responseText}`);
-      return defaultResult;
     }
   }
 

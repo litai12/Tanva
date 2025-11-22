@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IAIProvider } from './providers/ai-provider.interface';
-import { GeminiProvider } from './providers/gemini.provider';
+import { GeminiProProvider } from './providers/gemini-pro.provider';
 import { BananaProvider } from './providers/banana.provider';
 import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
@@ -13,7 +13,7 @@ export class AIProviderFactory implements OnModuleInit {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly geminiProvider: GeminiProvider,
+    private readonly geminiProProvider: GeminiProProvider,
     private readonly bananaProvider: BananaProvider,
     private readonly runningHubProvider: RunningHubProvider,
     private readonly midjourneyProvider: MidjourneyProvider
@@ -26,9 +26,10 @@ export class AIProviderFactory implements OnModuleInit {
   private async initializeProviders(): Promise<void> {
     this.logger.log('Initializing AI providers...');
 
-    // 注册 Gemini 提供商
-    this.providers.set('gemini', this.geminiProvider);
-    await this.geminiProvider.initialize();
+    // 注册 Gemini Pro 提供商（同时注册为 gemini 和 gemini-pro 以保持兼容性）
+    this.providers.set('gemini', this.geminiProProvider);
+    this.providers.set('gemini-pro', this.geminiProProvider);
+    await this.geminiProProvider.initialize();
 
     // 注册 Banana API 提供商
     this.providers.set('banana', this.bananaProvider);
@@ -64,7 +65,8 @@ export class AIProviderFactory implements OnModuleInit {
     // 如果指定了模型，根据模型名称推断提供商
     if (model) {
       if (model.includes('gemini') || model.includes('google')) {
-        return this.providers.get('gemini')!;
+        // 优先使用 gemini-pro，如果没有则使用 gemini
+        return this.providers.get('gemini-pro') || this.providers.get('gemini')!;
       } else if (model.includes('banana') || model.includes('147') || model.includes('147ai')) {
         return this.providers.get('banana') || this.providers.get('gemini')!;
       } else if (model.includes('runninghub') || model.includes('su-effect')) {

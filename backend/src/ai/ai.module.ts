@@ -4,7 +4,7 @@ import { AiService } from './ai.service';
 import { ImageGenerationService } from './image-generation.service';
 import { BackgroundRemovalService } from './services/background-removal.service';
 import { AiController } from './ai.controller';
-import { GeminiProvider } from './providers/gemini.provider';
+import { GeminiProProvider } from './providers/gemini-pro.provider';
 import { BananaProvider } from './providers/banana.provider';
 import { RunningHubProvider } from './providers/runninghub.provider';
 import { MidjourneyProvider } from './providers/midjourney.provider';
@@ -20,7 +20,7 @@ import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
     AiService,
     ImageGenerationService,
     BackgroundRemovalService,
-    GeminiProvider,
+    GeminiProProvider,
     BananaProvider,
     RunningHubProvider,
     MidjourneyProvider,
