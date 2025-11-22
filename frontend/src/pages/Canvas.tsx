@@ -9,6 +9,7 @@ import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
+import CodeSandboxPanel from '@/components/sandbox/CodeSandboxPanel';
 import { useLayerStore } from '@/stores';
 // import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
@@ -96,6 +97,9 @@ const Canvas: React.FC = () => {
 
             {/* AI对话框 - 专注模式时由组件自行隐藏 */}
             <AIChatDialog />
+
+            {/* Paper.js 沙盒代码面板 */}
+            <CodeSandboxPanel />
 
             {/* 调试面板：显示缓存图像信息 */}
             {/* <CachedImageDebug /> */}

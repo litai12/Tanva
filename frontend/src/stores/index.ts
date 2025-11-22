@@ -17,6 +17,7 @@ export {
 } from './toolStore';
 export { useLayerStore } from './layerStore';
 export { useAIChatStore } from './aiChatStore';
+export { useSandboxStore } from './sandboxStore';
 export { 
   useFlowStore, 
   useFlowBackground, 

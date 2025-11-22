@@ -184,10 +184,26 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   const isPointOnPath = useCallback((point: paper.Point, path: paper.Path): boolean => {
     const hitResult = paper.project.hitTest(point, {
       stroke: true,
-      tolerance: 5 / zoom
+      fill: true,
+      bounds: true,
+      tolerance: 6 / zoom
     });
 
-    return !!(hitResult && hitResult.item === path);
+    if (!hitResult || !hitResult.item) {
+      return false;
+    }
+
+    // 直接命中当前路径
+    if (hitResult.item === path) {
+      return true;
+    }
+
+    // 某些命中可能返回子项（例如布尔运算后的 CompoundPath 部分）
+    if (hitResult.item.parent === path) {
+      return true;
+    }
+
+    return false;
   }, [zoom]);
 
   // 处理路径编辑模式下的鼠标交互

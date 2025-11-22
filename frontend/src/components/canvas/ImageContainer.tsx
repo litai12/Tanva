@@ -4,7 +4,6 @@ import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { useCanvasStore } from '@/stores';
 import { Sparkles, EyeOff, Wand2, Copy, Box, Crop, ImageUp } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Separator } from '../ui/separator';
 import ImagePreviewModal, { type ImageItem } from '../ui/ImagePreviewModal';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { LoadingSpinner } from '../ui/loading-spinner';
@@ -1091,8 +1090,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             >
               <Sparkles className={sharedIconClass} />
             </Button>
-
-            <Separator orientation="vertical" className="h-8 bg-white/40" />
 
             <Button
               variant="outline"

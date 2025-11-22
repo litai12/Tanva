@@ -16,10 +16,10 @@ export class ToolSelectionRequestDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['gemini', 'banana', 'runninghub', 'midjourney'], {
-    message: 'aiProvider must be either gemini, banana, runninghub or midjourney',
+  @IsIn(['gemini', 'gemini-pro', 'banana', 'runninghub', 'midjourney'], {
+    message: 'aiProvider must be either gemini, gemini-pro, banana, runninghub or midjourney',
   })
-  aiProvider?: 'gemini' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsString()

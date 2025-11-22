@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2, Minimize2, MousePointer2 } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2, Minimize2, MousePointer2, Code } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -156,7 +156,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     toggleFill,
   } = useToolStore();
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, toggleFocusMode } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, toggleFocusMode, showSandboxPanel, toggleSandboxPanel } = useUIStore();
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
@@ -723,6 +723,20 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <Trash2 className="w-4 h-4" />
           </Button>
         )}
+
+        {/* Paper.js 沙盒开关 */}
+        <Button
+          onClick={toggleSandboxPanel}
+          variant={showSandboxPanel ? "default" : "outline"}
+          size="sm"
+          className={cn(
+            "p-0 h-8 w-8 rounded-full",
+            getActiveButtonStyle(showSandboxPanel)
+          )}
+          title={showSandboxPanel ? "关闭 Paper.js 沙盒" : "打开 Paper.js 沙盒"}
+        >
+          <Code className="w-4 h-4" />
+        </Button>
 
         {/* 专注模式切换按钮 */}
         <Button

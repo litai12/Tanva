@@ -251,6 +251,8 @@ const AIChatDialog: React.FC = () => {
   const historyRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  const isMaximizedRef = useRef(isMaximized);
+  const prevIsMaximizedRef = useRef(isMaximized);
   const [manuallyClosedHistory, setManuallyClosedHistory] = useState(() => {
     // 刷新页面时默认关闭历史记录
     return true;
@@ -310,6 +312,11 @@ const AIChatDialog: React.FC = () => {
   }, [aiProvider]);
   const currentManualMode =
     availableManualModeOptions.find((option) => option.value === manualAIMode) ?? availableManualModeOptions[0];
+
+  // 记录最新的最大化状态，供原生事件监听使用
+  useEffect(() => {
+    isMaximizedRef.current = isMaximized;
+  }, [isMaximized]);
 
   // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
@@ -374,6 +381,15 @@ const AIChatDialog: React.FC = () => {
       setManuallyClosedHistory(false);
     }
   }, [setShowHistory, setManuallyClosedHistory]);
+
+  // 退出最大化时自动收起历史面板，确保还原为紧凑视图
+  useEffect(() => {
+    const wasMaximized = prevIsMaximizedRef.current;
+    prevIsMaximizedRef.current = isMaximized;
+    if (wasMaximized && !isMaximized) {
+      setHistoryVisibility(false, false);
+    }
+  }, [isMaximized, setHistoryVisibility]);
 
   const handleSessionChange = useCallback(async (event: React.ChangeEvent<HTMLSelectElement>) => {
     const nextSessionId = event.target.value;
@@ -1092,6 +1108,7 @@ const AIChatDialog: React.FC = () => {
     const onDbl = (ev: MouseEvent) => {
       const card = dialogRef.current;
       if (!card) return;
+      const isCurrentlyMaximized = isMaximizedRef.current;
       const x = ev.clientX, y = ev.clientY;
       const r = card.getBoundingClientRect();
       const content = contentRef.current;
@@ -1112,7 +1129,7 @@ const AIChatDialog: React.FC = () => {
       const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
       const inTopBand = cr ? y <= cr.top + 24 : false;
       const inInnerEdgeBand = distToCardEdge <= 24;
-      const allowInsideContent = ((isMaximized || inTopBand || inInnerEdgeBand) && !interactive);
+      const allowInsideContent = ((isCurrentlyMaximized || inTopBand || inInnerEdgeBand) && !interactive);
       if (insideCard && (!insideContent || allowInsideContent)) {
         ev.stopPropagation();
         ev.preventDefault();
