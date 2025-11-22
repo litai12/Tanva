@@ -390,6 +390,7 @@ function FlowInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const imageSize = useAIChatStore((state) => state.imageSize);
   const imageModel = React.useMemo(
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
@@ -1642,6 +1643,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
+              imageSize: imageSize || undefined,
             });
           } else if (imageDatas.length === 1) {
             result = await editImageViaAPI({
@@ -1651,6 +1653,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
+              imageSize: imageSize || undefined,
             });
           } else {
             result = await blendImagesViaAPI({
@@ -1660,6 +1663,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
+              imageSize: imageSize || undefined,
             });
           }
 
@@ -1724,6 +1728,7 @@ function FlowInner() {
           aiProvider,
           model: imageModel,
           aspectRatio: aspectRatioValue,
+          imageSize: imageSize || undefined,
         });
       } else if (imageDatas.length === 1) {
         result = await editImageViaAPI({
@@ -1733,6 +1738,7 @@ function FlowInner() {
           aiProvider,
           model: imageModel,
           aspectRatio: aspectRatioValue,
+          imageSize: imageSize || undefined,
         });
       } else {
         result = await blendImagesViaAPI({
@@ -1742,6 +1748,7 @@ function FlowInner() {
           aiProvider,
           model: imageModel,
           aspectRatio: aspectRatioValue,
+          imageSize: imageSize || undefined,
         });
       }
 

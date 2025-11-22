@@ -250,10 +250,9 @@ export async function generateImageViaAPI(
   };
 }
 
-/**
- * 编辑图像 - 通过后端 API
- */
-export async function editImageViaAPI(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
+async function performEditImageRequest(
+  request: AIImageEditRequest
+): Promise<AIServiceResponse<AIImageResult>> {
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/edit-image`, {
       method: 'POST',
@@ -314,9 +313,47 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
 }
 
 /**
- * 融合图像 - 通过后端 API
+ * 编辑图像 - 通过后端 API（在缺少图像数据时自动补偿重试）
  */
-export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
+export async function editImageViaAPI(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
+  let lastResponse: AIServiceResponse<AIImageResult> | undefined;
+
+  for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
+    lastResponse = await performEditImageRequest(request);
+
+    if (!lastResponse.success || !lastResponse.data) {
+      return lastResponse;
+    }
+
+    if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+      return lastResponse;
+    }
+
+    if (attempt < MAX_IMAGE_GENERATION_ATTEMPTS) {
+      console.warn('⚠️ Edit image success but no image returned, auto retrying', {
+        nextAttempt: attempt + 1,
+        maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+        provider: request.aiProvider,
+        model: request.model,
+        textResponse: lastResponse.data.textResponse,
+      });
+      await sleep(NO_IMAGE_RETRY_DELAY_MS);
+    }
+  }
+
+  return lastResponse ?? {
+    success: false,
+    error: {
+      code: 'UNKNOWN_ERROR',
+      message: 'Image edit failed without a response',
+      timestamp: new Date(),
+    },
+  };
+}
+
+async function performBlendImagesRequest(
+  request: AIImageBlendRequest
+): Promise<AIServiceResponse<AIImageResult>> {
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/blend-images`, {
       method: 'POST',
@@ -374,6 +411,45 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
       },
     };
   }
+}
+
+/**
+ * 融合图像 - 通过后端 API（在缺少图像数据时自动补偿重试）
+ */
+export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
+  let lastResponse: AIServiceResponse<AIImageResult> | undefined;
+
+  for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
+    lastResponse = await performBlendImagesRequest(request);
+
+    if (!lastResponse.success || !lastResponse.data) {
+      return lastResponse;
+    }
+
+    if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+      return lastResponse;
+    }
+
+    if (attempt < MAX_IMAGE_GENERATION_ATTEMPTS) {
+      console.warn('⚠️ Blend images success but no image returned, auto retrying', {
+        nextAttempt: attempt + 1,
+        maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+        provider: request.aiProvider,
+        model: request.model,
+        textResponse: lastResponse.data.textResponse,
+      });
+      await sleep(NO_IMAGE_RETRY_DELAY_MS);
+    }
+  }
+
+  return lastResponse ?? {
+    success: false,
+    error: {
+      code: 'UNKNOWN_ERROR',
+      message: 'Image blend failed without a response',
+      timestamp: new Date(),
+    },
+  };
 }
 
 type MidjourneyActionParams = MidjourneyActionRequest & {
