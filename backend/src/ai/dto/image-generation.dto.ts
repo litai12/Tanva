@@ -19,6 +19,17 @@ enum OutputFormat {
   WEBP = 'webp',
 }
 
+enum ImageSize {
+  '1K' = '1K',
+  '2K' = '2K',
+  '4K' = '4K',
+}
+
+enum ThinkingLevel {
+  HIGH = 'high',
+  LOW = 'low',
+}
+
 export class GenerateImageDto {
   @IsString()
   @IsNotEmpty()
@@ -30,7 +41,7 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -43,6 +54,14 @@ export class GenerateImageDto {
   @IsOptional()
   @IsEnum(AspectRatio)
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+
+  @IsOptional()
+  @IsEnum(ImageSize)
+  imageSize?: '1K' | '2K' | '4K';
+
+  @IsOptional()
+  @IsEnum(ThinkingLevel)
+  thinkingLevel?: 'high' | 'low';
 
   @IsOptional()
   @IsBoolean()
@@ -64,7 +83,7 @@ export class EditImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -77,6 +96,14 @@ export class EditImageDto {
   @IsOptional()
   @IsEnum(AspectRatio)
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+
+  @IsOptional()
+  @IsEnum(ImageSize)
+  imageSize?: '1K' | '2K' | '4K';
+
+  @IsOptional()
+  @IsEnum(ThinkingLevel)
+  thinkingLevel?: 'high' | 'low';
 
   @IsOptional()
   @IsBoolean()
@@ -99,7 +126,7 @@ export class BlendImagesDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -112,6 +139,14 @@ export class BlendImagesDto {
   @IsOptional()
   @IsEnum(AspectRatio)
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+
+  @IsOptional()
+  @IsEnum(ImageSize)
+  imageSize?: '1K' | '2K' | '4K';
+
+  @IsOptional()
+  @IsEnum(ThinkingLevel)
+  thinkingLevel?: 'high' | 'low';
 
   @IsOptional()
   @IsBoolean()
@@ -133,7 +168,7 @@ export class AnalyzeImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -151,7 +186,7 @@ export class TextChatDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -160,6 +195,10 @@ export class TextChatDto {
   @IsOptional()
   @IsBoolean()
   enableWebSearch?: boolean;
+
+  @IsOptional()
+  @IsEnum(ThinkingLevel)
+  thinkingLevel?: 'high' | 'low';
 }
 
 export class MidjourneyActionDto {

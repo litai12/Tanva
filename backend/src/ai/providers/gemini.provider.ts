@@ -191,13 +191,25 @@ export class GeminiProvider implements IAIProvider {
                   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
                   { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
                 ],
+                generationConfig: {
+                  responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+                },
               };
 
-              const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
-              config.responseModalities = responseModalities;
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                config.generationConfig.imageConfig = {};
+                if (request.aspectRatio) {
+                  config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+                }
+                if (request.imageSize) {
+                  config.generationConfig.imageConfig.imageSize = request.imageSize;
+                }
+              }
 
-              if (request.aspectRatio) {
-                config.imageConfig = { aspectRatio: request.aspectRatio };
+              // 配置 thinkingLevel（Gemini 3 特性，但保持兼容性）
+              if (request.thinkingLevel) {
+                config.generationConfig.thinkingLevel = request.thinkingLevel;
               }
 
               const stream = await client.models.generateContentStream({
@@ -256,13 +268,25 @@ export class GeminiProvider implements IAIProvider {
               { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
               { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
             ],
+            generationConfig: {
+              responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+            },
           };
 
-          const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
-          config.responseModalities = responseModalities;
+          // 配置 imageConfig（aspectRatio 和 imageSize）
+          if (request.aspectRatio || request.imageSize) {
+            config.generationConfig.imageConfig = {};
+            if (request.aspectRatio) {
+              config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+            }
+            if (request.imageSize) {
+              config.generationConfig.imageConfig.imageSize = request.imageSize;
+            }
+          }
 
-          if (request.aspectRatio) {
-            config.imageConfig = { aspectRatio: request.aspectRatio };
+          // 配置 thinkingLevel（Gemini 3 特性，但保持兼容性）
+          if (request.thinkingLevel) {
+            config.generationConfig.thinkingLevel = request.thinkingLevel;
           }
 
           const stream = await client.models.generateContentStream({
@@ -339,13 +363,25 @@ export class GeminiProvider implements IAIProvider {
               { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
               { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
             ],
+            generationConfig: {
+              responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+            },
           };
 
-          const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
-          config.responseModalities = responseModalities;
+          // 配置 imageConfig（aspectRatio 和 imageSize）
+          if (request.aspectRatio || request.imageSize) {
+            config.generationConfig.imageConfig = {};
+            if (request.aspectRatio) {
+              config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+            }
+            if (request.imageSize) {
+              config.generationConfig.imageConfig.imageSize = request.imageSize;
+            }
+          }
 
-          if (request.aspectRatio) {
-            config.imageConfig = { aspectRatio: request.aspectRatio };
+          // 配置 thinkingLevel（Gemini 3 特性，但保持兼容性）
+          if (request.thinkingLevel) {
+            config.generationConfig.thinkingLevel = request.thinkingLevel;
           }
 
           const stream = await client.models.generateContentStream({

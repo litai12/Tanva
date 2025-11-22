@@ -13,6 +13,8 @@ interface GenerateImageRequest {
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+  imageSize?: '1K' | '2K' | '4K';
+  thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
 }
 
@@ -22,6 +24,8 @@ interface EditImageRequest {
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+  imageSize?: '1K' | '2K' | '4K';
+  thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
 }
 
@@ -31,6 +35,8 @@ interface BlendImagesRequest {
   model?: string;
   outputFormat?: 'jpeg' | 'png' | 'webp';
   aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+  imageSize?: '1K' | '2K' | '4K';
+  thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
 }
 
@@ -291,15 +297,25 @@ export class ImageGenerationService {
                     },
                     { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
                   ],
+                  generationConfig: {
+                    responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+                  },
                 };
 
-                const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
-                config.responseModalities = responseModalities;
+                // 配置 imageConfig（aspectRatio 和 imageSize）
+                if (request.aspectRatio || request.imageSize) {
+                  config.generationConfig.imageConfig = {};
+                  if (request.aspectRatio) {
+                    config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+                  }
+                  if (request.imageSize) {
+                    config.generationConfig.imageConfig.imageSize = request.imageSize;
+                  }
+                }
 
-                if (request.aspectRatio) {
-                  config.imageConfig = {
-                    aspectRatio: request.aspectRatio,
-                  };
+                // 配置 thinkingLevel（Gemini 3 特性）
+                if (request.thinkingLevel) {
+                  config.generationConfig.thinkingLevel = request.thinkingLevel;
                 }
 
                 const stream = await client.models.generateContentStream({
@@ -393,15 +409,25 @@ export class ImageGenerationService {
                 },
                 { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
               ],
+              generationConfig: {
+                responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+              },
             };
 
-            const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
-            config.responseModalities = responseModalities;
+            // 配置 imageConfig（aspectRatio 和 imageSize）
+            if (request.aspectRatio || request.imageSize) {
+              config.generationConfig.imageConfig = {};
+              if (request.aspectRatio) {
+                config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+              }
+              if (request.imageSize) {
+                config.generationConfig.imageConfig.imageSize = request.imageSize;
+              }
+            }
 
-            if (request.aspectRatio) {
-              config.imageConfig = {
-                aspectRatio: request.aspectRatio,
-              };
+            // 配置 thinkingLevel（Gemini 3 特性）
+            if (request.thinkingLevel) {
+              config.generationConfig.thinkingLevel = request.thinkingLevel;
             }
 
             const stream = await client.models.generateContentStream({
@@ -510,15 +536,25 @@ export class ImageGenerationService {
                 },
                 { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
               ],
+              generationConfig: {
+                responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+              },
             };
 
-            const responseModalities = request.imageOnly ? ['Image'] : ['Text', 'Image'];
-            config.responseModalities = responseModalities;
+            // 配置 imageConfig（aspectRatio 和 imageSize）
+            if (request.aspectRatio || request.imageSize) {
+              config.generationConfig.imageConfig = {};
+              if (request.aspectRatio) {
+                config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+              }
+              if (request.imageSize) {
+                config.generationConfig.imageConfig.imageSize = request.imageSize;
+              }
+            }
 
-            if (request.aspectRatio) {
-              config.imageConfig = {
-                aspectRatio: request.aspectRatio,
-              };
+            // 配置 thinkingLevel（Gemini 3 特性）
+            if (request.thinkingLevel) {
+              config.generationConfig.thinkingLevel = request.thinkingLevel;
             }
 
             const stream = await client.models.generateContentStream({

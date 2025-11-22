@@ -36,6 +36,20 @@ import { MidjourneyProvider } from './providers/midjourney.provider';
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);
+  private readonly providerDefaultImageModels: Record<string, string> = {
+    gemini: 'gemini-2.5-flash-image',
+    'gemini-pro': 'gemini-3-pro-image-preview',
+    banana: 'gemini-2.5-flash-image',
+    runninghub: 'runninghub-su-effect',
+    midjourney: 'midjourney-fast',
+  };
+  private readonly providerDefaultTextModels: Record<string, string> = {
+    gemini: 'gemini-2.5-flash',
+    'gemini-pro': 'gemini-3-pro-preview',
+    banana: 'banana-gemini-2.5-flash',
+    runninghub: 'gemini-2.5-flash',
+    midjourney: 'gemini-2.5-flash',
+  };
 
   constructor(
     private readonly ai: AiService,
@@ -52,7 +66,22 @@ export class AiController {
       this.logger.debug(`[${providerName || 'default'}] Using requested model: ${model}`);
       return model;
     }
-    return 'gemini-2.5-flash-image';
+    if (providerName) {
+      return this.providerDefaultImageModels[providerName] || 'gemini-2.5-flash-image';
+    }
+    return this.providerDefaultImageModels.gemini;
+  }
+
+  private resolveTextModel(providerName: string | null, requestedModel?: string): string {
+    const model = requestedModel?.trim();
+    if (model?.length) {
+      this.logger.debug(`[${providerName || 'default'}] Using requested text model: ${model}`);
+      return model;
+    }
+    if (providerName) {
+      return this.providerDefaultTextModels[providerName] || 'gemini-2.5-flash';
+    }
+    return this.providerDefaultTextModels.gemini;
   }
 
   @Post('tool-selection')
@@ -137,6 +166,8 @@ export class AiController {
         model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
+        imageSize: dto.imageSize,
+        thinkingLevel: dto.thinkingLevel,
         outputFormat: dto.outputFormat,
         providerOptions: dto.providerOptions,
       });
@@ -170,6 +201,8 @@ export class AiController {
         model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
+        imageSize: dto.imageSize,
+        thinkingLevel: dto.thinkingLevel,
         outputFormat: dto.outputFormat,
         providerOptions: dto.providerOptions,
       });
@@ -203,6 +236,8 @@ export class AiController {
         model,
         imageOnly: dto.imageOnly,
         aspectRatio: dto.aspectRatio,
+        imageSize: dto.imageSize,
+        thinkingLevel: dto.thinkingLevel,
         outputFormat: dto.outputFormat,
         providerOptions: dto.providerOptions,
       });
@@ -284,10 +319,11 @@ export class AiController {
 
     if (providerName) {
       const provider = this.factory.getProvider(dto.model, providerName);
+      const model = this.resolveImageModel(providerName, dto.model);
       const result = await provider.analyzeImage({
         prompt: dto.prompt,
         sourceImage: dto.sourceImage,
-        model: dto.model || 'gemini-2.5-flash-image',
+        model,
         providerOptions: dto.providerOptions,
       });
       if (result.success && result.data) {
@@ -311,9 +347,10 @@ export class AiController {
 
     if (providerName) {
       const provider = this.factory.getProvider(dto.model, providerName);
+      const model = this.resolveTextModel(providerName, dto.model);
       const result = await provider.generateText({
         prompt: dto.prompt,
-        model: dto.model || 'gemini-2.5-flash',
+        model,
         enableWebSearch: dto.enableWebSearch,
         providerOptions: dto.providerOptions,
       });

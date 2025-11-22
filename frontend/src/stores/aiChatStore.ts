@@ -137,7 +137,9 @@ type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeIma
 type AIProviderType = SupportedAIProvider;
 
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const GEMINI_PRO_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
+const GEMINI_PRO_TEXT_MODEL = 'gemini-3-pro-preview';
 const BANANA_TEXT_MODEL = 'banana-gemini-2.5-flash';
 const SORA2_VIDEO_MODEL = 'sora-2-reverse';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
@@ -337,6 +339,9 @@ const resolveSora2Response = async (rawContent: string): Promise<Sora2ResolvedMe
 };
 
 export const getImageModelForProvider = (provider: AIProviderType): string => {
+  if (provider === 'gemini-pro') {
+    return GEMINI_PRO_IMAGE_MODEL;
+  }
   if (provider === 'runninghub') {
     return RUNNINGHUB_IMAGE_MODEL;
   }
@@ -348,6 +353,7 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
 
 const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   gemini: DEFAULT_TEXT_MODEL,
+  'gemini-pro': GEMINI_PRO_TEXT_MODEL,
   banana: BANANA_TEXT_MODEL,
   runninghub: DEFAULT_TEXT_MODEL,
   midjourney: DEFAULT_TEXT_MODEL,
@@ -1228,12 +1234,35 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
   };
 };
 
+const hydrateMessageGenerationState = (message: ChatMessage): ChatMessage => {
+  if (message.type !== 'ai') return message;
+  const status = message.generationStatus;
+  if (!status?.isGenerating) return message;
+
+  const normalizeContent =
+    (message.content?.trim() || '') === '正在准备处理您的请求...'
+      ? '上次请求在刷新后已终止，请重新发送。'
+      : message.content;
+
+  return {
+    ...message,
+    content: normalizeContent,
+    generationStatus: {
+      ...status,
+      isGenerating: false,
+      progress: status.progress ?? 0,
+      error: status.error ?? '任务已停止',
+      stage: '已终止'
+    }
+  };
+};
+
 const deserializeConversation = (data: SerializedConversationContext): ConversationContext => {
   const messages: ChatMessage[] = data.messages.map((message) => {
     const remoteUrl = (message as any).imageRemoteUrl || (message as any).imageUrl;
     const baseImage = message.imageData;
     const thumbnail = message.thumbnail;
-    return {
+    return hydrateMessageGenerationState({
       id: message.id,
       type: message.type,
       content: message.content,
@@ -1261,8 +1290,8 @@ const deserializeConversation = (data: SerializedConversationContext): Conversat
       videoDuration: message.videoDuration,
       videoReferencedUrls: message.videoReferencedUrls,
       videoTaskId: message.videoTaskId ?? null,
-      videoStatus: message.videoStatus ?? null,
-    };
+      videoStatus: message.videoStatus ?? null
+    });
   });
 
   const operations: OperationHistory[] = data.operations.map((operation) => ({
@@ -1351,6 +1380,8 @@ interface AIChatState {
   enableWebSearch: boolean;  // 是否启用联网搜索
   imageOnly: boolean;  // 仅返回图像，不返回文本（适用于图像生成/编辑/融合）
   aspectRatio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null;  // 图像长宽比
+  imageSize: '1K' | '2K' | '4K' | null;  // 图像尺寸（高清设置，仅 Gemini 3）
+  thinkingLevel: 'high' | 'low' | null;  // 思考级别（仅 Gemini 3）
   manualAIMode: ManualAIMode;
   aiProvider: AIProviderType;  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
 
@@ -1421,6 +1452,8 @@ interface AIChatState {
   toggleImageOnly: () => void;  // 切换仅图像模式
   setImageOnly: (value: boolean) => void;
   setAspectRatio: (ratio: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9' | null) => void;  // 设置长宽比
+  setImageSize: (size: '1K' | '2K' | '4K' | null) => void;  // 设置图像尺寸
+  setThinkingLevel: (level: 'high' | 'low' | null) => void;  // 设置思考级别
   setManualAIMode: (mode: ManualAIMode) => void;
   setAIProvider: (provider: AIProviderType) => void;  // 设置AI提供商
 
@@ -1582,6 +1615,8 @@ export const useAIChatStore = create<AIChatState>()(
   enableWebSearch: false,  // 默认关闭联网搜索
   imageOnly: false,  // 默认允许返回文本
   aspectRatio: null,  // 默认不指定长宽比
+  imageSize: '1K',  // 默认图像尺寸为 1K
+  thinkingLevel: null,  // 默认不指定思考级别
   manualAIMode: 'auto',
   aiProvider: 'gemini',  // 默认使用 Google Gemini
 
@@ -2051,6 +2086,8 @@ export const useAIChatStore = create<AIChatState>()(
         providerOptions,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
+        imageSize: state.imageSize || undefined,
+        thinkingLevel: state.thinkingLevel || undefined,
         imageOnly: state.imageOnly
       });
       logProcessStep(metrics, 'generateImage API response received');
@@ -2461,6 +2498,8 @@ export const useAIChatStore = create<AIChatState>()(
         providerOptions,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
+        imageSize: state.imageSize || undefined,
+        thinkingLevel: state.thinkingLevel || undefined,
         imageOnly: state.imageOnly
       });
 
@@ -2807,6 +2846,8 @@ export const useAIChatStore = create<AIChatState>()(
         aiProvider: state.aiProvider,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
+        imageSize: state.imageSize || undefined,
+        thinkingLevel: state.thinkingLevel || undefined,
         imageOnly: state.imageOnly
       });
       logProcessStep(metrics, 'blendImages API response received');
@@ -3409,7 +3450,8 @@ export const useAIChatStore = create<AIChatState>()(
         prompt: contextPrompt,
         model: modelToUse,
         aiProvider: state.aiProvider,
-        enableWebSearch: state.enableWebSearch
+        enableWebSearch: state.enableWebSearch,
+        thinkingLevel: state.thinkingLevel || undefined
       });
       logProcessStep(metrics, 'generateTextResponse API response received');
 
@@ -4034,6 +4076,8 @@ export const useAIChatStore = create<AIChatState>()(
   toggleImageOnly: () => set((state) => ({ imageOnly: !state.imageOnly })),
   setImageOnly: (value: boolean) => set({ imageOnly: value }),
   setAspectRatio: (ratio) => set({ aspectRatio: ratio }),
+  setImageSize: (size) => set({ imageSize: size }),
+  setThinkingLevel: (level) => set({ thinkingLevel: level }),
   setManualAIMode: (mode) => set({ manualAIMode: mode }),
   setAIProvider: (provider) => set({ aiProvider: provider }),
 
@@ -4117,6 +4161,8 @@ export const useAIChatStore = create<AIChatState>()(
         enableWebSearch: state.enableWebSearch,
         imageOnly: state.imageOnly,
         aspectRatio: state.aspectRatio,
+        imageSize: state.imageSize,
+        thinkingLevel: state.thinkingLevel,
       })
     }
   )

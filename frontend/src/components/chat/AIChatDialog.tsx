@@ -21,7 +21,7 @@ import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode, ChatMessage } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -49,6 +49,7 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
 
 const PROVIDER_MODE_OPTIONS: Partial<Record<SupportedAIProvider, ManualModeOption[]>> = {
   gemini: BASE_MANUAL_MODE_OPTIONS,
+  'gemini-pro': BASE_MANUAL_MODE_OPTIONS,
   banana: BASE_MANUAL_MODE_OPTIONS,
   runninghub: BASE_MANUAL_MODE_OPTIONS,
   midjourney: BASE_MANUAL_MODE_OPTIONS
@@ -200,6 +201,8 @@ const AIChatDialog: React.FC = () => {
     sourceImageForAnalysis,
     enableWebSearch,
     aspectRatio,
+    imageSize,
+    thinkingLevel,
     sessions,
     currentSessionId,
     createSession,
@@ -221,6 +224,8 @@ const AIChatDialog: React.FC = () => {
     updateMessageStatus,
     toggleWebSearch,
     setAspectRatio,
+    setImageSize,
+    setThinkingLevel,
     manualAIMode,
     setManualAIMode,
     aiProvider,
@@ -269,6 +274,20 @@ const AIChatDialog: React.FC = () => {
   const aspectPanelRef = useRef<HTMLDivElement | null>(null);
   const aspectButtonRef = useRef<HTMLButtonElement | null>(null);
   const [aspectPos, setAspectPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  // 图像尺寸状态
+  const [isImageSizeOpen, setIsImageSizeOpen] = useState(false);
+  const imageSizePanelRef = useRef<HTMLDivElement | null>(null);
+  const imageSizeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [imageSizePos, setImageSizePos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [imageSizeReady, setImageSizeReady] = useState(false);
+
+  // 思考级别状态
+  const [isThinkingLevelOpen, setIsThinkingLevelOpen] = useState(false);
+  const thinkingLevelPanelRef = useRef<HTMLDivElement | null>(null);
+  const thinkingLevelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [thinkingLevelPos, setThinkingLevelPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [thinkingLevelReady, setThinkingLevelReady] = useState(false);
   const [aspectReady, setAspectReady] = useState(false);
   const [promptSettings, setPromptSettings] = useState<PromptOptimizationSettings>({
     language: '中文',
@@ -295,6 +314,7 @@ const AIChatDialog: React.FC = () => {
   // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
     { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
+    { value: 'gemini-pro', label: 'Gemini Pro', description: '使用 Gemini 3 Pro 模型' },
     { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' },
     { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
   ];
@@ -780,6 +800,66 @@ const AIChatDialog: React.FC = () => {
     };
   }, [isAspectOpen]);
 
+  // 计算图像尺寸面板定位：位于对话框容器上方，居中
+  useLayoutEffect(() => {
+    if (!isImageSizeOpen || aiProvider !== 'gemini-pro') return;
+    const update = () => {
+      const panelEl = imageSizePanelRef.current;
+      const containerEl = dialogRef.current;
+      if (!panelEl || !containerEl) return;
+      const containerRect = containerEl.getBoundingClientRect();
+      const w = panelEl.offsetWidth;
+      const h = panelEl.offsetHeight;
+      const offset = 8; // 再贴近一点
+      let top = containerRect.top - h - offset;
+      let left = containerRect.left + containerRect.width / 2 - w / 2;
+      // 如果上方放不下，则贴在容器顶部内侧
+      if (top < 8) top = 8;
+      // 防止越界
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+      setImageSizePos({ top, left });
+      setImageSizeReady(true);
+    };
+    const r = requestAnimationFrame(update);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      cancelAnimationFrame(r);
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [isImageSizeOpen, aiProvider]);
+
+  // 计算思考级别面板定位：位于对话框容器上方，居中
+  useLayoutEffect(() => {
+    if (!isThinkingLevelOpen || aiProvider !== 'gemini-pro') return;
+    const update = () => {
+      const panelEl = thinkingLevelPanelRef.current;
+      const containerEl = dialogRef.current;
+      if (!panelEl || !containerEl) return;
+      const containerRect = containerEl.getBoundingClientRect();
+      const w = panelEl.offsetWidth;
+      const h = panelEl.offsetHeight;
+      const offset = 8; // 再贴近一点
+      let top = containerRect.top - h - offset;
+      let left = containerRect.left + containerRect.width / 2 - w / 2;
+      // 如果上方放不下，则贴在容器顶部内侧
+      if (top < 8) top = 8;
+      // 防止越界
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+      setThinkingLevelPos({ top, left });
+      setThinkingLevelReady(true);
+    };
+    const r = requestAnimationFrame(update);
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      cancelAnimationFrame(r);
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [isThinkingLevelOpen, aiProvider]);
+
   // 点击外部关闭比例面板
   useEffect(() => {
     if (!isAspectOpen) return;
@@ -792,6 +872,32 @@ const AIChatDialog: React.FC = () => {
     document.addEventListener('mousedown', onDown, true);
     return () => document.removeEventListener('mousedown', onDown, true);
   }, [isAspectOpen]);
+
+  // 点击外部关闭图像尺寸面板
+  useEffect(() => {
+    if (!isImageSizeOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (imageSizePanelRef.current?.contains(t)) return;
+      if (imageSizeButtonRef.current?.contains(t as Node)) return;
+      setIsImageSizeOpen(false);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [isImageSizeOpen]);
+
+  // 点击外部关闭思考级别面板
+  useEffect(() => {
+    if (!isThinkingLevelOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (thinkingLevelPanelRef.current?.contains(t)) return;
+      if (thinkingLevelButtonRef.current?.contains(t as Node)) return;
+      setIsThinkingLevelOpen(false);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [isThinkingLevelOpen]);
 
   const handlePromptSettingsChange = (next: PromptOptimizationSettings) => {
     setPromptSettings(next);
@@ -1311,13 +1417,11 @@ const AIChatDialog: React.FC = () => {
                       variant="outline"
                       disabled={false}
                       className={cn(
-                        "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
+                        "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200 text-gray-700",
                         "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                        defaultAIProviderValue && aiProvider !== defaultAIProviderValue
-                          ? "bg-purple-50 border-purple-300 text-purple-700"
-                          : !generationStatus.isGenerating
-                            ? "hover:bg-liquid-glass-hover text-gray-700"
-                            : "opacity-50 cursor-not-allowed text-gray-400"
+                        generationStatus.isGenerating
+                          ? "opacity-50 cursor-not-allowed text-gray-400"
+                          : "hover:bg-liquid-glass-hover"
                       )}
                     >
                       <MinimalGlobeIcon className="h-3.5 w-3.5" />
@@ -1418,7 +1522,53 @@ const AIChatDialog: React.FC = () => {
                 </DropdownMenu>
               </div>
 
-              {/* 长宽比选择按钮 - 最左边 */}
+              {/* 高清图片设置按钮 - 仅 Gemini Pro，位于右侧按钮组最左边 */}
+              {aiProvider === 'gemini-pro' && (
+                <Button
+                  ref={imageSizeButtonRef}
+                  onClick={() => setIsImageSizeOpen(v => !v)}
+                  disabled={false}
+                  size="sm"
+                  variant="outline"
+                  className={cn(
+                    "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    imageSize
+                      ? "bg-blue-50 border-blue-300 text-blue-600"
+                      : !generationStatus.isGenerating
+                        ? "hover:bg-liquid-glass-hover text-gray-700"
+                        : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={imageSize ? `图像尺寸: ${imageSize}` : "选择图像尺寸"}
+                >
+                  <span className="font-medium text-[10px] leading-none">{imageSize || 'HD'}</span>
+                </Button>
+              )}
+
+              {/* 思考级别按钮 - 仅 Gemini Pro */}
+              {aiProvider === 'gemini-pro' && (
+                <Button
+                  ref={thinkingLevelButtonRef}
+                  onClick={() => setIsThinkingLevelOpen(v => !v)}
+                  disabled={false}
+                  size="sm"
+                  variant="outline"
+                  className={cn(
+                    "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    thinkingLevel
+                      ? "bg-blue-50 border-blue-300 text-blue-600"
+                      : !generationStatus.isGenerating
+                        ? "hover:bg-liquid-glass-hover text-gray-700"
+                        : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={thinkingLevel ? `思考级别: ${thinkingLevel === 'high' ? '高' : '低'}` : "选择思考级别"}
+                >
+                  <Brain className="h-3.5 w-3.5" />
+                </Button>
+              )}
+
+              {/* 长宽比选择按钮 */}
               <Button
                 ref={aspectButtonRef}
                 onClick={() => setIsAspectOpen(v => !v)}
@@ -1474,6 +1624,93 @@ const AIChatDialog: React.FC = () => {
                             console.log('🎚️ 选择长宽比:', opt.value || '自动');
                             setAspectRatio(opt.value as any);
                             setIsAspectOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>,
+                  document.body
+                )
+              )}
+
+              {/* 图像尺寸下拉菜单 - 仅 Gemini Pro */}
+              {aiProvider === 'gemini-pro' && isImageSizeOpen && typeof document !== 'undefined' && (
+                createPortal(
+                  <div
+                    ref={imageSizePanelRef}
+                    className="rounded-xl bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200"
+                    style={{ 
+                      position: 'fixed', 
+                      top: imageSizePos.top, 
+                      left: imageSizePos.left, 
+                      zIndex: 9999, 
+                      visibility: imageSizeReady ? 'visible' : 'hidden' 
+                    }}
+                  >
+                    <div className="flex items-center gap-1 p-2">
+                      {[
+                        { label: '自动', value: null },
+                        { label: '1K', value: '1K' },
+                        { label: '2K', value: '2K' },
+                        { label: '4K', value: '4K' }
+                      ].map((opt) => (
+                        <button
+                          key={opt.label}
+                          className={cn(
+                            'px-2 py-1 text-xs rounded-md',
+                            (imageSize === opt.value || (!imageSize && opt.value === null))
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'hover:bg-gray-100 text-gray-700 border border-transparent'
+                          )}
+                          onClick={() => {
+                            console.log('🖼️ 选择图像尺寸:', opt.value || '自动');
+                            setImageSize(opt.value as any);
+                            setIsImageSizeOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>,
+                  document.body
+                )
+              )}
+
+              {/* 思考级别下拉菜单 - 仅 Gemini Pro */}
+              {aiProvider === 'gemini-pro' && isThinkingLevelOpen && typeof document !== 'undefined' && (
+                createPortal(
+                  <div
+                    ref={thinkingLevelPanelRef}
+                    className="rounded-xl bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200"
+                    style={{ 
+                      position: 'fixed', 
+                      top: thinkingLevelPos.top, 
+                      left: thinkingLevelPos.left, 
+                      zIndex: 9999,
+                      visibility: thinkingLevelReady ? 'visible' : 'hidden'
+                    }}
+                  >
+                    <div className="flex items-center gap-1 p-2">
+                      {[
+                        { label: '自动', value: null },
+                        { label: '高', value: 'high' },
+                        { label: '低', value: 'low' }
+                      ].map((opt) => (
+                        <button
+                          key={opt.label}
+                          className={cn(
+                            'px-2 py-1 text-xs rounded-md',
+                            (thinkingLevel === opt.value || (!thinkingLevel && opt.value === null))
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'hover:bg-gray-100 text-gray-700 border border-transparent'
+                          )}
+                          onClick={() => {
+                            console.log('🧠 选择思考级别:', opt.value || '自动');
+                            setThinkingLevel(opt.value as any);
+                            setIsThinkingLevelOpen(false);
                           }}
                         >
                           {opt.label}

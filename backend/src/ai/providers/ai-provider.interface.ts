@@ -80,6 +80,8 @@ export interface ImageGenerationRequest {
   prompt: string;
   model?: string;
   aspectRatio?: string;
+  imageSize?: '1K' | '2K' | '4K';
+  thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
   providerOptions?: ProviderOptionsPayload;
@@ -90,6 +92,8 @@ export interface ImageEditRequest {
   sourceImage: string; // base64
   model?: string;
   aspectRatio?: string;
+  imageSize?: '1K' | '2K' | '4K';
+  thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
   providerOptions?: ProviderOptionsPayload;
@@ -100,6 +104,8 @@ export interface ImageBlendRequest {
   sourceImages: string[]; // base64 array
   model?: string;
   aspectRatio?: string;
+  imageSize?: '1K' | '2K' | '4K';
+  thinkingLevel?: 'high' | 'low';
   outputFormat?: 'jpeg' | 'png' | 'webp';
   imageOnly?: boolean;
   providerOptions?: ProviderOptionsPayload;
@@ -117,6 +123,7 @@ export interface TextChatRequest {
   model?: string;
   enableWebSearch?: boolean;
   language?: string;
+  thinkingLevel?: 'high' | 'low';
   providerOptions?: ProviderOptionsPayload;
 }
 
