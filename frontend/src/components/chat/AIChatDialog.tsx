@@ -316,7 +316,8 @@ const AIChatDialog: React.FC = () => {
     { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
     { value: 'gemini-pro', label: 'Gemini Pro', description: '使用 Gemini 3 Pro 模型' },
     { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' },
-    { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
+    // 暂时隐藏 Midjourney 选项
+    // { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
   ];
   const currentAIProvider = aiProviderOptions.find((option) => option.value === aiProvider) ?? aiProviderOptions[0];
   const defaultAIProviderValue = aiProviderOptions[0]?.value;
