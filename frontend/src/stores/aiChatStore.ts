@@ -136,7 +136,7 @@ type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeIma
 
 type AIProviderType = SupportedAIProvider;
 
-const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const GEMINI_PRO_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_PRO_TEXT_MODEL = 'gemini-3-pro-preview';

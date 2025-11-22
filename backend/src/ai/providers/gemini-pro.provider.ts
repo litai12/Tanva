@@ -22,6 +22,7 @@ export class GeminiProProvider implements IAIProvider {
   private genAI: GoogleGenAI | null = null;
   private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
+  private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
   private readonly MAX_RETRIES = 3;
 
   private readonly DEFAULT_AVAILABLE_TOOLS = [
@@ -93,34 +94,48 @@ export class GeminiProProvider implements IAIProvider {
 
     const trimmed = imageInput.trim();
 
+    let sanitized: string;
+    let mimeType: string;
+
     if (trimmed.startsWith('data:image/')) {
       const match = trimmed.match(/^data:(image\/[\w.+-]+);base64,(.+)$/i);
       if (!match) {
         throw new Error(`Invalid data URL format for ${context} image`);
       }
 
-      const [, mimeType, base64Data] = match;
-      const sanitized = base64Data.replace(/\s+/g, '');
+      [, mimeType, sanitized] = match;
+      sanitized = sanitized.replace(/\s+/g, '');
+      mimeType = mimeType || 'image/png';
+    } else {
+      const withoutQuotes = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
+      sanitized = withoutQuotes.replace(/\s+/g, '');
+      const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
 
-      return {
-        data: sanitized,
-        mimeType: mimeType || 'image/png',
-      };
+      if (!base64Regex.test(sanitized)) {
+        throw new Error(
+          `Unsupported ${context} image format. Expected a base64 string or data URL.`
+        );
+      }
+
+      mimeType = this.inferMimeTypeFromBase64(sanitized);
     }
 
-    const withoutQuotes = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
-    const sanitized = withoutQuotes.replace(/\s+/g, '');
-    const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
-
-    if (!base64Regex.test(sanitized)) {
+    // 验证图像大小（base64编码后的数据，实际图像大小约为 base64 长度的 3/4）
+    // 限制 base64 数据最大为 20MB，对应实际图像约 15MB
+    const MAX_BASE64_SIZE = 20 * 1024 * 1024; // 20MB
+    if (sanitized.length > MAX_BASE64_SIZE) {
+      const actualSizeMB = (sanitized.length * 3 / 4 / 1024 / 1024).toFixed(2);
+      this.logger.warn(
+        `${context} image is too large. Base64 length: ${sanitized.length}, estimated size: ${actualSizeMB}MB`,
+      );
       throw new Error(
-        `Unsupported ${context} image format. Expected a base64 string or data URL.`
+        `${context} image is too large. Maximum size is 15MB (base64: ~20MB). Current size: ~${actualSizeMB}MB`,
       );
     }
 
     return {
       data: sanitized,
-      mimeType: this.inferMimeTypeFromBase64(sanitized),
+      mimeType,
     };
   }
 
@@ -376,61 +391,26 @@ export class GeminiProProvider implements IAIProvider {
                 },
               ];
 
-              try {
-                // 默认使用非流式 API（更稳定）
-                this.logger.debug('Calling non-stream generateContent for image edit...');
-                const response = await client.models.generateContent({
-                  model,
-                  contents,
-                  config,
-                });
-                
-                this.logger.debug('Non-stream response received:', {
-                  hasCandidates: !!response.candidates,
-                  candidatesLength: response.candidates?.length,
-                  hasContent: !!response.candidates?.[0]?.content,
-                  hasParts: !!response.candidates?.[0]?.content?.parts,
-                });
-                
-                if (!response.candidates?.[0]?.content?.parts) {
-                  this.logger.error('Non-stream API returned empty response:', {
-                    response: JSON.stringify(response, null, 2).substring(0, 500),
-                  });
-                  throw new Error('Non-stream API returned empty response');
-                }
-                
-                const result = this.parseNonStreamResponse(response, 'Image edit');
-                this.logger.log('Image edit non-stream API succeeded');
-                return result;
-              } catch (nonStreamError) {
-                // 如果非流式 API 失败，降级到流式 API
-                const isNetworkError = this.isRetryableError(
-                  nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
-                );
-                
-                if (isNetworkError) {
-                  this.logger.warn('Image edit non-stream API failed, falling back to stream API...');
-                  try {
-                    const stream = await client.models.generateContentStream({
-                      model,
-                      contents,
-                      config,
-                    });
+              // 直接使用流式 API（相比非流式更稳定，避免超时问题）
+              this.logger.debug('Calling generateContentStream for image edit...');
+              const stream = await client.models.generateContentStream({
+                model,
+                contents,
+                config,
+              });
 
-                    const streamResult = await this.parseStreamResponse(stream, 'Image edit');
-                    this.logger.log('Image edit stream API fallback succeeded');
-                    return streamResult;
-                  } catch (fallbackError) {
-                    // 如果降级也失败，抛出原始非流式错误
-                    throw nonStreamError;
-                  }
-                } else {
-                  // 非网络错误直接抛出
-                  throw nonStreamError;
-                }
+              const streamResult = await this.parseStreamResponse(stream, 'Image edit');
+
+              // 验证是否成功获取图像数据
+              if (!streamResult.imageBytes || streamResult.imageBytes.length === 0) {
+                this.logger.error('Stream API returned no image data');
+                throw new Error('Image edit returned no image data');
               }
+
+              this.logger.log('Image edit stream API succeeded');
+              return streamResult;
             })(),
-            this.DEFAULT_TIMEOUT,
+            this.EDIT_TIMEOUT,
             'Image edit'
           );
         },

@@ -37,9 +37,9 @@ import { MidjourneyProvider } from './providers/midjourney.provider';
 export class AiController {
   private readonly logger = new Logger(AiController.name);
   private readonly providerDefaultImageModels: Record<string, string> = {
-    gemini: 'gemini-2.5-flash-image',
+    gemini: 'gemini-3-pro-image-preview',
     'gemini-pro': 'gemini-3-pro-image-preview',
-    banana: 'gemini-2.5-flash-image',
+    banana: 'gemini-3-pro-image-preview',
     runninghub: 'runninghub-su-effect',
     midjourney: 'midjourney-fast',
   };
@@ -67,7 +67,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultImageModels[providerName] || 'gemini-2.5-flash-image';
+      return this.providerDefaultImageModels[providerName] || 'gemini-3-pro-image-preview';
     }
     return this.providerDefaultImageModels.gemini;
   }

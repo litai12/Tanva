@@ -1,6 +1,6 @@
 /**
- * Google Gemini 2.5 Flash Image API 相关类型定义
- * 支持 gemini-2.5-flash-image 模型
+ * Google Gemini 3 Pro Image API 相关类型定义
+ * 支持 gemini-3-pro-image-preview 模型
  */
 
 // AI图像生成请求参数

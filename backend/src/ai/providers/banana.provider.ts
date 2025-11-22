@@ -25,7 +25,7 @@ export class BananaProvider implements IAIProvider {
   private readonly logger = new Logger(BananaProvider.name);
   private apiKey: string | null = null;
   private readonly apiBaseUrl = 'https://api1.147ai.com/v1beta/models';
-  private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image';
+  private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
   private readonly MAX_RETRIES = 3;
 
@@ -53,7 +53,7 @@ export class BananaProvider implements IAIProvider {
 
   private normalizeModelName(model: string): string {
     // 移除banana-前缀，确保API能识别模型名称
-    // banana-gemini-2.5-flash-image -> gemini-2.5-flash-image
+    // banana-gemini-3-pro-image-preview -> gemini-3-pro-image-preview
     return model.startsWith('banana-') ? model.substring(7) : model;
   }
 
@@ -577,8 +577,8 @@ export class BananaProvider implements IAIProvider {
 
     try {
       const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'analysis');
-      // 🔥 使用 gemini-2.5-flash-image 进行图像分析
-      const model = this.normalizeModelName(request.model || 'gemini-2.5-flash-image');
+      // 🔥 使用 gemini-3-pro-image-preview 进行图像分析
+      const model = this.normalizeModelName(request.model || 'gemini-3-pro-image-preview');
       this.logger.log(`📊 Using model: ${model}`);
 
       const analysisPrompt = request.prompt
@@ -839,7 +839,7 @@ export class BananaProvider implements IAIProvider {
     return {
       name: 'Banana API',
       version: '1.0',
-      supportedModels: ['gemini-2.5-flash-image', 'gemini-2.0-flash'],
+      supportedModels: ['gemini-3-pro-image-preview', 'gemini-2.0-flash'],
     };
   }
 }

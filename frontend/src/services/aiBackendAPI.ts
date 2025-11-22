@@ -21,7 +21,7 @@ import type {
 import { fetchWithAuth } from './authFetch';
 
 const API_BASE_URL = '/api';
-const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 

@@ -61,8 +61,9 @@ interface ParsedStreamResponse {
 export class ImageGenerationService {
   private readonly logger = new Logger(ImageGenerationService.name);
   private readonly genAI: GoogleGenAI | null;
-  private readonly DEFAULT_MODEL = 'gemini-2.5-flash-image';
+  private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
+  private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
   private readonly MAX_IMAGE_RETRIES = 5;
   private readonly IMAGE_RETRY_DELAY_BASE = 500;
 
@@ -114,6 +115,9 @@ export class ImageGenerationService {
 
     const trimmed = imageInput.trim();
 
+    let sanitized: string;
+    let mimeType: string;
+
     if (trimmed.startsWith('data:image/')) {
       const match = trimmed.match(/^data:(image\/[\w.+-]+);base64,(.+)$/i);
       if (!match) {
@@ -121,35 +125,46 @@ export class ImageGenerationService {
         throw new BadRequestException(`Invalid data URL format for ${context} image`);
       }
 
-      const [, mimeType, base64Data] = match;
-      const sanitized = base64Data.replace(/\s+/g, '');
+      [, mimeType, sanitized] = match;
+      sanitized = sanitized.replace(/\s+/g, '');
+      mimeType = mimeType || 'image/png';
+    } else {
+      // 某些前端环境可能在字符串两端添加引号
+      const withoutQuotes = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
+      sanitized = withoutQuotes.replace(/\s+/g, '');
+      const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
 
-      return {
-        data: sanitized,
-        mimeType: mimeType || 'image/png',
-      };
+      if (!base64Regex.test(sanitized)) {
+        this.logger.warn(
+          `Unsupported ${context} image payload received. Length=${sanitized.length}, preview="${sanitized.substring(
+            0,
+            30,
+          )}"`,
+        );
+        throw new BadRequestException(
+          `Unsupported ${context} image format. Expected a base64 string or data URL.`,
+        );
+      }
+
+      mimeType = this.inferMimeTypeFromBase64(sanitized);
     }
 
-    // 某些前端环境可能在字符串两端添加引号
-    const withoutQuotes = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
-    const sanitized = withoutQuotes.replace(/\s+/g, '');
-    const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
-
-    if (!base64Regex.test(sanitized)) {
+    // 验证图像大小（base64编码后的数据，实际图像大小约为 base64 长度的 3/4）
+    // 限制 base64 数据最大为 20MB，对应实际图像约 15MB
+    const MAX_BASE64_SIZE = 20 * 1024 * 1024; // 20MB
+    if (sanitized.length > MAX_BASE64_SIZE) {
+      const actualSizeMB = (sanitized.length * 3 / 4 / 1024 / 1024).toFixed(2);
       this.logger.warn(
-        `Unsupported ${context} image payload received. Length=${sanitized.length}, preview="${sanitized.substring(
-          0,
-          30,
-        )}"`,
+        `${context} image is too large. Base64 length: ${sanitized.length}, estimated size: ${actualSizeMB}MB`,
       );
       throw new BadRequestException(
-        `Unsupported ${context} image format. Expected a base64 string or data URL.`,
+        `${context} image is too large. Maximum size is 15MB (base64: ~20MB). Current size: ~${actualSizeMB}MB`,
       );
     }
 
     return {
       data: sanitized,
-      mimeType: this.inferMimeTypeFromBase64(sanitized),
+      mimeType,
     };
   }
 
@@ -262,6 +277,36 @@ export class ImageGenerationService {
       this.logger.error(
         `${operationType} stream parsing failed: ${message} (processed ${chunkCount} chunks, text: ${textResponse.length} chars)`
       );
+      throw error;
+    }
+  }
+
+  private parseNonStreamResponse(response: any, operationType: string): ParsedStreamResponse {
+    this.logger.debug(`Parsing ${operationType} non-stream response...`);
+
+    let textResponse = '';
+    let imageBytes: string | null = null;
+
+    try {
+      if (response?.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.text && typeof part.text === 'string') {
+            textResponse += part.text;
+          }
+
+          if (part.inlineData?.data && typeof part.inlineData.data === 'string') {
+            imageBytes = part.inlineData.data.replace(/\s+/g, '');
+          }
+        }
+      }
+
+      this.logger.log(
+        `${operationType} non-stream parsing completed: text: ${textResponse.length} chars, has image: ${!!imageBytes}`
+      );
+
+      return { imageBytes, textResponse };
+    } catch (error) {
+      this.logger.error(`${operationType} non-stream parsing failed:`, error);
       throw error;
     }
   }
@@ -393,61 +438,131 @@ export class ImageGenerationService {
       this.logger.debug(`Image edit attempt ${attempt}/${this.MAX_IMAGE_RETRIES}`);
 
       try {
-        const result = await this.withTimeout(
-          (async () => {
-            const config: any = {
-              safetySettings: [
-                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                {
-                  category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                  threshold: HarmBlockThreshold.BLOCK_NONE,
-                },
-                {
-                  category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                  threshold: HarmBlockThreshold.BLOCK_NONE,
-                },
-                { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
-              ],
-              generationConfig: {
-                responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
-              },
-            };
-
-            // 配置 imageConfig（aspectRatio 和 imageSize）
-            if (request.aspectRatio || request.imageSize) {
-              config.generationConfig.imageConfig = {};
-              if (request.aspectRatio) {
-                config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
-              }
-              if (request.imageSize) {
-                config.generationConfig.imageConfig.imageSize = request.imageSize;
-              }
-            }
-
-            // 配置 thinkingLevel（Gemini 3 特性）
-            if (request.thinkingLevel) {
-              config.generationConfig.thinkingLevel = request.thinkingLevel;
-            }
-
-            const stream = await client.models.generateContentStream({
-              model,
-              contents: [
-                { text: request.prompt },
-                {
-                  inlineData: {
-                    mimeType: sourceMimeType,
-                    data: sourceImageData,
+        const result = await this.withRetry(
+          async () => {
+            return await this.withTimeout(
+              (async () => {
+                const config: any = {
+                  safetySettings: [
+                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                    {
+                      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                      threshold: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                    {
+                      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                      threshold: HarmBlockThreshold.BLOCK_NONE,
+                    },
+                    { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  ],
+                  generationConfig: {
+                    responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
                   },
-                },
-              ],
-              config,
-            });
+                };
 
-            return this.parseStreamResponse(stream, 'Image edit');
-          })(),
-          this.DEFAULT_TIMEOUT,
-          'Image edit request'
+                // 配置 imageConfig（aspectRatio 和 imageSize）
+                if (request.aspectRatio || request.imageSize) {
+                  config.generationConfig.imageConfig = {};
+                  if (request.aspectRatio) {
+                    config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+                  }
+                  if (request.imageSize) {
+                    config.generationConfig.imageConfig.imageSize = request.imageSize;
+                  }
+                }
+
+                // 配置 thinkingLevel（Gemini 3 特性）
+                if (request.thinkingLevel) {
+                  config.generationConfig.thinkingLevel = request.thinkingLevel;
+                }
+
+                const contents = [
+                  { text: request.prompt },
+                  {
+                    inlineData: {
+                      mimeType: sourceMimeType,
+                      data: sourceImageData,
+                    },
+                  },
+                ];
+
+                try {
+                  this.logger.debug('Calling non-stream generateContent for image edit...');
+                  const response = await client.models.generateContent({
+                    model,
+                    contents,
+                    config,
+                  });
+
+                  const nonStreamResult = this.parseNonStreamResponse(response, 'Image edit');
+
+                  if (!nonStreamResult.imageBytes || nonStreamResult.imageBytes.length === 0) {
+                    this.logger.warn('Non-stream API returned no image data, falling back to stream API...');
+                    throw new Error('No image data in non-stream response');
+                  }
+
+                  this.logger.log('Image edit non-stream API succeeded');
+                  return nonStreamResult;
+                } catch (nonStreamError) {
+                  const errorMessage =
+                    nonStreamError instanceof Error ? nonStreamError.message : String(nonStreamError);
+                  const normalizedMessage = errorMessage.toLowerCase();
+                  const fallbackTriggers = [
+                    'fetch',
+                    'network',
+                    'timeout',
+                    'socket',
+                    'connection',
+                    'econn',
+                    'enotfound',
+                    'refused',
+                    'empty response',
+                    'no image data',
+                  ];
+                  const shouldFallback = fallbackTriggers.some((keyword) =>
+                    normalizedMessage.includes(keyword)
+                  );
+
+                  if (!shouldFallback) {
+                    throw nonStreamError;
+                  }
+
+                  this.logger.warn(`Image edit non-stream API failed (${errorMessage}), falling back to stream API...`);
+
+                  try {
+                    const stream = await client.models.generateContentStream({
+                      model,
+                      contents,
+                      config,
+                    });
+
+                    const streamResult = await this.parseStreamResponse(stream, 'Image edit');
+
+                    if (!streamResult.imageBytes || streamResult.imageBytes.length === 0) {
+                      this.logger.error('Stream API also returned no image data');
+                      throw new Error('Stream API returned no image data');
+                    }
+
+                    this.logger.log('Image edit stream API fallback succeeded');
+                    return streamResult;
+                  } catch (fallbackError) {
+                    const fallbackMessage =
+                      fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+                    this.logger.error(
+                      `Both non-stream and stream API failed. Non-stream: ${errorMessage}, Stream: ${fallbackMessage}`
+                    );
+                    throw new Error(`Image edit failed: ${errorMessage}. Fallback also failed: ${fallbackMessage}`);
+                  }
+                }
+              })(),
+              this.EDIT_TIMEOUT,
+              'Image edit request'
+            );
+          },
+          'Image edit',
+          3,
+          1000
         );
 
         lastResult = result;
