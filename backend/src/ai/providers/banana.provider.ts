@@ -339,6 +339,9 @@ export class BananaProvider implements IAIProvider {
       if (config.imageConfig) {
         body.generationConfig.imageConfig = config.imageConfig;
       }
+      if (config.thinking_level) {
+        body.generationConfig.thinking_level = config.thinking_level;
+      }
       if (config.tools) {
         body.tools = config.tools;
       }
@@ -415,8 +418,20 @@ export class BananaProvider implements IAIProvider {
                 responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
               };
 
-              if (request.aspectRatio) {
-                config.imageConfig = { aspectRatio: request.aspectRatio };
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                config.imageConfig = {};
+                if (request.aspectRatio) {
+                  config.imageConfig.aspectRatio = request.aspectRatio;
+                }
+                if (request.imageSize) {
+                  config.imageConfig.imageSize = request.imageSize;
+                }
+              }
+
+              // 配置 thinking_level（Gemini 3 特性）
+              if (request.thinkingLevel) {
+                config.thinking_level = request.thinkingLevel;
               }
 
               return await this.makeRequest(model, request.prompt, config);
@@ -464,8 +479,20 @@ export class BananaProvider implements IAIProvider {
             responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
           };
 
-          if (request.aspectRatio) {
-            config.imageConfig = { aspectRatio: request.aspectRatio };
+          // 配置 imageConfig（aspectRatio 和 imageSize）
+          if (request.aspectRatio || request.imageSize) {
+            config.imageConfig = {};
+            if (request.aspectRatio) {
+              config.imageConfig.aspectRatio = request.aspectRatio;
+            }
+            if (request.imageSize) {
+              config.imageConfig.imageSize = request.imageSize;
+            }
+          }
+
+          // 配置 thinking_level（Gemini 3 特性）
+          if (request.thinkingLevel) {
+            config.thinking_level = request.thinkingLevel;
           }
 
           return await this.makeRequest(
@@ -535,8 +562,20 @@ export class BananaProvider implements IAIProvider {
             responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
           };
 
-          if (request.aspectRatio) {
-            config.imageConfig = { aspectRatio: request.aspectRatio };
+          // 配置 imageConfig（aspectRatio 和 imageSize）
+          if (request.aspectRatio || request.imageSize) {
+            config.imageConfig = {};
+            if (request.aspectRatio) {
+              config.imageConfig.aspectRatio = request.aspectRatio;
+            }
+            if (request.imageSize) {
+              config.imageConfig.imageSize = request.imageSize;
+            }
+          }
+
+          // 配置 thinking_level（Gemini 3 特性）
+          if (request.thinkingLevel) {
+            config.thinking_level = request.thinkingLevel;
           }
 
           return await this.makeRequest(
@@ -736,16 +775,15 @@ export class BananaProvider implements IAIProvider {
           return await this.withTimeout(
             (async () => {
               // 🔥 使用 gemini-2.5-flash 进行工具选择
+              // 注意：147 API 只支持 'user' 和 'model' 作为 role，不支持 'system'
+              // 将 system prompt 合并到 user prompt 中
+              const combinedPrompt = `${systemPrompt}\n\n${userPrompt}`;
               return await this.makeRequest(
                 'gemini-2.5-flash',
                 [
                   {
-                    role: 'system',
-                    parts: [{ text: systemPrompt }],
-                  },
-                  {
                     role: 'user',
-                    parts: [{ text: userPrompt }],
+                    parts: [{ text: combinedPrompt }],
                   },
                 ],
                 { responseModalities: ['TEXT'] }

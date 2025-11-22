@@ -1615,7 +1615,7 @@ export const useAIChatStore = create<AIChatState>()(
   enableWebSearch: false,  // 默认关闭联网搜索
   imageOnly: false,  // 默认允许返回文本
   aspectRatio: null,  // 默认不指定长宽比
-  imageSize: '1K',  // 默认图像尺寸为 1K
+  imageSize: null,  // 默认图像尺寸为自动（自动模式下优先使用1K）
   thinkingLevel: null,  // 默认不指定思考级别
   manualAIMode: 'auto',
   aiProvider: 'gemini',  // 默认使用 Google Gemini
@@ -2086,7 +2086,7 @@ export const useAIChatStore = create<AIChatState>()(
         providerOptions,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
-        imageSize: state.imageSize || undefined,
+        imageSize: state.imageSize ?? '1K',  // 自动模式下优先使用1K
         thinkingLevel: state.thinkingLevel || undefined,
         imageOnly: state.imageOnly
       });
@@ -2498,7 +2498,7 @@ export const useAIChatStore = create<AIChatState>()(
         providerOptions,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
-        imageSize: state.imageSize || undefined,
+        imageSize: state.imageSize ?? '1K',  // 自动模式下优先使用1K
         thinkingLevel: state.thinkingLevel || undefined,
         imageOnly: state.imageOnly
       });
@@ -2846,7 +2846,7 @@ export const useAIChatStore = create<AIChatState>()(
         aiProvider: state.aiProvider,
         outputFormat: 'png',
         aspectRatio: state.aspectRatio || undefined,
-        imageSize: state.imageSize || undefined,
+        imageSize: state.imageSize ?? '1K',  // 自动模式下优先使用1K
         thinkingLevel: state.thinkingLevel || undefined,
         imageOnly: state.imageOnly
       });

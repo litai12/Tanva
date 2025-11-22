@@ -819,7 +819,7 @@ const AIChatDialog: React.FC = () => {
 
   // 计算图像尺寸面板定位：位于对话框容器上方，居中
   useLayoutEffect(() => {
-    if (!isImageSizeOpen || aiProvider !== 'gemini-pro') return;
+    if (!isImageSizeOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana')) return;
     const update = () => {
       const panelEl = imageSizePanelRef.current;
       const containerEl = dialogRef.current;
@@ -849,7 +849,7 @@ const AIChatDialog: React.FC = () => {
 
   // 计算思考级别面板定位：位于对话框容器上方，居中
   useLayoutEffect(() => {
-    if (!isThinkingLevelOpen || aiProvider !== 'gemini-pro') return;
+    if (!isThinkingLevelOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana')) return;
     const update = () => {
       const panelEl = thinkingLevelPanelRef.current;
       const containerEl = dialogRef.current;
@@ -1540,8 +1540,8 @@ const AIChatDialog: React.FC = () => {
                 </DropdownMenu>
               </div>
 
-              {/* 高清图片设置按钮 - 仅 Gemini Pro，位于右侧按钮组最左边 */}
-              {aiProvider === 'gemini-pro' && (
+              {/* 高清图片设置按钮 - Gemini Pro 和 Banana API，位于右侧按钮组最左边 */}
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen(v => !v)}
@@ -1563,8 +1563,8 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {/* 思考级别按钮 - 仅 Gemini Pro */}
-              {aiProvider === 'gemini-pro' && (
+              {/* 思考级别按钮 - Gemini Pro 和 Banana API */}
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && (
                 <Button
                   ref={thinkingLevelButtonRef}
                   onClick={() => setIsThinkingLevelOpen(v => !v)}
@@ -1653,8 +1653,8 @@ const AIChatDialog: React.FC = () => {
                 )
               )}
 
-              {/* 图像尺寸下拉菜单 - 仅 Gemini Pro */}
-              {aiProvider === 'gemini-pro' && isImageSizeOpen && typeof document !== 'undefined' && (
+              {/* 图像尺寸下拉菜单 - Gemini Pro 和 Banana API */}
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && isImageSizeOpen && typeof document !== 'undefined' && (
                 createPortal(
                   <div
                     ref={imageSizePanelRef}
@@ -1697,8 +1697,8 @@ const AIChatDialog: React.FC = () => {
                 )
               )}
 
-              {/* 思考级别下拉菜单 - 仅 Gemini Pro */}
-              {aiProvider === 'gemini-pro' && isThinkingLevelOpen && typeof document !== 'undefined' && (
+              {/* 思考级别下拉菜单 - Gemini Pro 和 Banana API */}
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && isThinkingLevelOpen && typeof document !== 'undefined' && (
                 createPortal(
                   <div
                     ref={thinkingLevelPanelRef}
