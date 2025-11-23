@@ -3793,7 +3793,8 @@ export const useAIChatStore = create<AIChatState>()(
       const result = await aiImageService.generatePaperJSCode({
         prompt,
         aiProvider: state.aiProvider,
-        model: state.aiProvider === 'gemini-pro' ? 'gemini-3-pro-preview' : 'gemini-2.0-flash',
+        // Paper.js 生成始终使用 gemini-3-pro-preview，确保与手动 Gemini Pro 对话一致
+        model: GEMINI_PRO_TEXT_MODEL,
         thinkingLevel: state.thinkingLevel ?? undefined,
         canvasWidth: 1920,
         canvasHeight: 1080
