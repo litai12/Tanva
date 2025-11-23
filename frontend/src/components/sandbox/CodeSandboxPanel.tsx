@@ -208,7 +208,7 @@ const CodeSandboxPanel: React.FC = () => {
               <span>自动运行</span>
               <Switch checked={autoRun} onCheckedChange={(checked) => setAutoRun(Boolean(checked))} />
             </div>
-            <Button variant="ghost" size="icon" onClick={toggleSandboxPanel} className="text-slate-200 hover:text-white">
+            <Button variant="ghost" size="sm" onClick={toggleSandboxPanel} className="text-slate-200 hover:text-white">
               <X className="h-4 w-4" />
             </Button>
           </div>

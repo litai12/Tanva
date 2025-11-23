@@ -427,8 +427,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               powerPreference: 'high-performance',
               toneMapping: THREE.ACESFilmicToneMapping,
               toneMappingExposure: 1.15,
-              outputColorSpace: THREE.SRGBColorSpace,
-              physicallyCorrectLights: true
+              outputColorSpace: THREE.SRGBColorSpace
             }}
             style={{
               background: 'transparent',

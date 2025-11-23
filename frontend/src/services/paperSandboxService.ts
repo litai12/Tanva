@@ -84,7 +84,8 @@ const removeItems = (items: paper.Item[]) => {
   items.forEach((item) => {
     if (!item) return;
     try {
-      if (!item.removed) {
+      // Check if item is still valid and not yet removed
+      if (item.parent !== null) {
         item.remove();
       }
     } catch {
@@ -158,8 +159,8 @@ export const paperSandboxService = {
       Layer: paper.Layer,
       Style: paper.Style,
       Color: paper.Color,
-      Gradient: paper.Gradient as paper.Gradient,
-      GradientStop: paper.GradientStop as paper.GradientStop,
+      Gradient: paper.Gradient as any,
+      GradientStop: paper.GradientStop as any,
       Matrix: paper.Matrix,
       sandboxLayer,
       activeLayer: sandboxLayer,
@@ -260,6 +261,27 @@ export const paperSandboxService = {
       try {
         const clone = item.copyTo(targetLayer);
         if (clone) {
+          // 🎨 标记为可编辑的用户创建对象
+          (clone.data as any).isUserCreated = true;
+          (clone.data as any).isEditable = true;
+          (clone.data as any).generatedBy = 'paperjs-ai';
+          (clone.data as any).createdAt = new Date().toISOString();
+
+          // 确保图形可以被选中
+          clone.selected = false; // 不自动选中，但可以被选中
+
+          // 递归标记所有子项
+          const markChildren = (item: paper.Item) => {
+            if ((item as any).children) {
+              ((item as any).children as paper.Item[]).forEach((child) => {
+                (child.data as any).isUserCreated = true;
+                (child.data as any).isEditable = true;
+                markChildren(child);
+              });
+            }
+          };
+          markChildren(clone);
+
           clones.push(clone);
         }
       } catch (error) {
@@ -276,7 +298,7 @@ export const paperSandboxService = {
 
     return {
       success: true,
-      message: `已将 ${clones.length} 个图形应用到当前图层`,
+      message: `已将 ${clones.length} 个图形应用到当前图层，可直接编辑和移动`,
       count: clones.length,
     };
   },

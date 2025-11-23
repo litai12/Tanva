@@ -924,14 +924,16 @@ export class ImageGenerationService {
                 apiConfig.thinkingLevel = 'high';
               }
 
-              const stream = await client.models.generateContentStream({
+              // 🔄 改为非流式调用
+              const response = await client.models.generateContent({
                 model,
                 contents: [{ text: finalPrompt }],
                 config: apiConfig,
               });
 
-              const streamResult = await this.parseStreamResponse(stream, 'Paper.js code generation');
-              return { text: streamResult.textResponse };
+              // 解析非流式响应
+              const result = this.parseNonStreamResponse(response, 'Paper.js code generation');
+              return { text: result.textResponse };
             })(),
             this.DEFAULT_TIMEOUT,
             'Paper.js code generation request'

@@ -1450,6 +1450,9 @@ interface AIChatState {
   // 视频生成功能
   generateVideo: (prompt: string, referenceImage?: string | null, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
 
+  // Paper.js 向量图形生成功能
+  generatePaperJSCode: (prompt: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
+
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
   
@@ -1457,7 +1460,7 @@ interface AIChatState {
   executeProcessFlow: (input: string, isRetry?: boolean) => Promise<void>;
 
   // 智能模式检测
-  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'text' | 'video';
+  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'text' | 'video' | 'vector';
 
   // 配置管理
   toggleAutoDownload: () => void;
@@ -3791,7 +3794,7 @@ export const useAIChatStore = create<AIChatState>()(
         prompt,
         aiProvider: state.aiProvider,
         model: state.aiProvider === 'gemini-pro' ? 'gemini-3-pro-preview' : 'gemini-2.0-flash',
-        thinkingLevel: state.thinkingLevel,
+        thinkingLevel: state.thinkingLevel ?? undefined,
         canvasWidth: 1920,
         canvasHeight: 1080
       });
