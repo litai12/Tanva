@@ -79,13 +79,14 @@ interface SimpleTextTool {
   handleKeyDown: (event: KeyboardEvent) => boolean;
 }
 
-type GroupPathDragMode = 'image';
+type GroupPathDragMode = 'image' | 'path';
 
 interface GroupPathDragState {
   active: boolean;
   mode: GroupPathDragMode | null;
   startPoint: paper.Point | null;
   paths: Array<{ path: paper.Path; startPosition: paper.Point }>;
+  hasMoved: boolean;
 }
 
 const isPaperItemRemoved = (item: paper.Item | null | undefined): boolean => {
@@ -133,7 +134,8 @@ export const useInteractionController = ({
     active: false,
     mode: null,
     startPoint: null,
-    paths: []
+    paths: [],
+    hasMoved: false
   });
 
   // Refs to always read the latest tool states inside global event handlers
@@ -215,7 +217,8 @@ export const useInteractionController = ({
       active: false,
       mode: null,
       startPoint: null,
-      paths: []
+      paths: [],
+      hasMoved: false
     };
   }, []);
 
@@ -251,7 +254,8 @@ export const useInteractionController = ({
       active: true,
       mode,
       startPoint: start,
-      paths: entries
+      paths: entries,
+      hasMoved: false
     };
     return true;
   }, [collectSelectedPaths, resetGroupPathDrag]);
@@ -264,6 +268,9 @@ export const useInteractionController = ({
     const deltaX = point.x - state.startPoint.x;
     const deltaY = point.y - state.startPoint.y;
     if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
+    if (Math.abs(deltaX) > 0.01 || Math.abs(deltaY) > 0.01) {
+      state.hasMoved = true;
+    }
 
     state.paths.forEach(({ path, startPosition }) => {
       if (!path || isPaperItemRemoved(path) || !startPosition) return;
@@ -302,6 +309,16 @@ export const useInteractionController = ({
         logger.debug('🧹 橡皮擦模式下，跳过选择框激活');
         return;
       }
+      const previouslySelectedPaths = new Set<paper.Path>();
+      if (latestSelectionTool.selectedPath) {
+        previouslySelectedPaths.add(latestSelectionTool.selectedPath);
+      }
+      (latestSelectionTool.selectedPaths ?? []).forEach((path) => {
+        if (path) {
+          previouslySelectedPaths.add(path);
+        }
+      });
+      const hasMultiplePathSelection = previouslySelectedPaths.size > 1;
       
       // 先检查是否点击了图片占位框（Paper 组 data.type === 'image-placeholder'）
       try {
@@ -388,9 +405,11 @@ export const useInteractionController = ({
 
       // 处理路径编辑交互
       const shiftPressed = event.shiftKey;
-      const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousedown', shiftPressed);
-      if (pathEditResult) {
-        return; // 路径编辑处理了这个事件
+      if (!hasMultiplePathSelection) {
+        const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousedown', shiftPressed);
+        if (pathEditResult) {
+          return; // 路径编辑处理了这个事件
+        }
       }
 
       // 处理选择相关的点击（传递Ctrl键状态）
@@ -424,6 +443,13 @@ export const useInteractionController = ({
             groupStartBounds: boundsMap,
           });
           beginGroupPathDrag(point, 'image');
+        }
+      }
+
+      if (selectionResult?.type === 'path') {
+        const pathWasSelected = previouslySelectedPaths.has(selectionResult.path);
+        if (pathWasSelected && hasMultiplePathSelection && !ctrlPressed) {
+          beginGroupPathDrag(point, 'path');
         }
       }
 
@@ -632,6 +658,12 @@ export const useInteractionController = ({
 
     // ========== 选择模式处理 ==========
     if (currentDrawMode === 'select') {
+      const pathGroupDragState = groupPathDragRef.current;
+      if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
+        applyGroupPathDrag(point, 'path');
+        try { paper.view.update(); } catch {}
+        return;
+      }
       // 处理路径编辑移动
       const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousemove');
       if (pathEditResult) {
@@ -754,6 +786,17 @@ export const useInteractionController = ({
         'mouseup'
       );
       if (pathEditResult) {
+        return;
+      }
+
+      const pathGroupDragState = groupPathDragRef.current;
+      if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
+        const moved = pathGroupDragState.hasMoved;
+        resetGroupPathDrag();
+        if (moved) {
+          try { paper.view.update(); } catch {}
+          historyService.commit('move-paths').catch(() => {});
+        }
         return;
       }
 
