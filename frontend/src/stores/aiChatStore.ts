@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { aiImageService } from '@/services/aiImageService';
 import sora2Service from '@/services/sora2Service';
+import { paperSandboxService } from '@/services/paperSandboxService';
 import {
   generateImageViaAPI,
   editImageViaAPI,
@@ -131,8 +132,8 @@ const toISOString = (value: Date | string | number | null | undefined): string =
 
 const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) ?? (value as T);
 
-export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze' | 'video';
-type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse' | 'generateVideo';
+export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze' | 'video' | 'vector';
+type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse' | 'generateVideo' | 'generatePaperJS';
 
 type AIProviderType = SupportedAIProvider;
 
@@ -785,6 +786,20 @@ export async function requestSora2VideoGeneration(
 function detectVideoIntent(input: string): boolean {
   const videoKeywords = ['视频', 'video', '动画', 'animation', '动态', '运动', 'motion', '生成视频', '制作视频'];
   return videoKeywords.some(kw =>
+    input.toLowerCase().includes(kw.toLowerCase())
+  );
+}
+
+/**
+ * 检测 Paper.js 矢量图生成意图
+ */
+function detectPaperJSIntent(input: string): boolean {
+  const paperJSKeywords = [
+    'svg', '矢量', '矢量图', 'vector', '图形', '几何',
+    'paperjs', 'paper.js', 'paper', '代码绘图', '线条',
+    '路径', '圆形', '矩形', '多边形', '简单图形', '几何图形', '数学图形'
+  ];
+  return paperJSKeywords.some(kw =>
     input.toLowerCase().includes(kw.toLowerCase())
   );
 }
@@ -3702,6 +3717,182 @@ export const useAIChatStore = create<AIChatState>()(
     }
   },
 
+  /**
+   * 生成 Paper.js 代码并执行
+   */
+  generatePaperJSCode: async (
+    prompt: string,
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
+    const state = get();
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'generatePaperJSCode entered');
+
+    const override = options?.override;
+    let aiMessageId: string | undefined;
+
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在生成 Paper.js 代码...',
+        expectsImageOutput: false,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备代码生成'
+        }
+      }));
+    } else {
+      // 添加用户消息
+      get().addMessage({
+        type: 'user',
+        content: prompt
+      });
+
+      // 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在生成 Paper.js 代码...',
+        expectsImageOutput: false,
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备代码生成'
+        },
+        provider: state.aiProvider
+      };
+
+      const storedPlaceholder = get().addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('📐 开始生成 Paper.js 代码，消息ID:', aiMessageId);
+    logProcessStep(metrics, 'generatePaperJSCode message prepared');
+
+    try {
+      // 更新进度
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 20,
+        error: null,
+        stage: '生成代码中'
+      });
+
+      // 调用 AI 生成 Paper.js 代码
+      const result = await aiImageService.generatePaperJSCode({
+        prompt,
+        aiProvider: state.aiProvider,
+        model: state.aiProvider === 'gemini-pro' ? 'gemini-3-pro-preview' : 'gemini-2.0-flash',
+        thinkingLevel: state.thinkingLevel,
+        canvasWidth: 1920,
+        canvasHeight: 1080
+      });
+
+      logProcessStep(metrics, 'generatePaperJSCode API call completed');
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error?.message || 'Paper.js 代码生成失败');
+      }
+
+      const { code, explanation } = result.data;
+      console.log('✅ Paper.js 代码生成成功:', code.substring(0, 100) + '...');
+
+      // 更新进度
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 60,
+        error: null,
+        stage: '执行代码中'
+      });
+
+      // 检查 Paper.js 是否就绪
+      if (!paperSandboxService.isReady()) {
+        throw new Error('Paper.js 画布尚未就绪，请稍后再试');
+      }
+
+      // 执行 Paper.js 代码
+      const executionResult = paperSandboxService.executeCode(code);
+
+      if (!executionResult.success) {
+        throw new Error(executionResult.error || '代码执行失败');
+      }
+
+      console.log('✅ Paper.js 代码执行成功');
+
+      // 更新进度
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 85,
+        error: null,
+        stage: '应用到画布'
+      });
+
+      // 自动应用到当前图层
+      const applyResult = paperSandboxService.applyOutputToActiveLayer();
+
+      if (!applyResult.success) {
+        console.warn('⚠️ 应用到画布失败:', applyResult.error);
+        // 不抛出错误，因为代码已经执行成功
+      }
+
+      // 更新消息为成功
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: `✅ Paper.js 矢量图形已生成到画布中央！\n\n${explanation || '代码已成功执行并应用到画布。'}`,
+        generationStatus: {
+          isGenerating: false,
+          progress: 100,
+          error: null,
+          stage: '完成'
+        }
+      }));
+
+      // 记录操作历史（已注释，contextManager 不支持此方法）
+      // contextManager.addOperation({
+      //   type: 'generatePaperJS',
+      //   input: prompt,
+      //   output: { code, explanation },
+      //   success: true
+      // });
+
+      logProcessStep(metrics, 'generatePaperJSCode completed successfully');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Paper.js 代码生成失败';
+      console.error('❌ Paper.js 代码生成失败:', errorMessage);
+
+      // 更新消息为错误状态
+      get().updateMessage(aiMessageId!, (msg) => ({
+        ...msg,
+        content: `❌ Paper.js 代码生成失败: ${errorMessage}`,
+        generationStatus: {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage,
+          stage: '已终止'
+        }
+      }));
+
+      // 记录操作历史（已注释，contextManager 不支持此方法）
+      // contextManager.addOperation({
+      //   type: 'generatePaperJS',
+      //   input: prompt,
+      //   output: undefined,
+      //   success: false
+      // });
+
+      logProcessStep(metrics, 'generatePaperJSCode failed');
+      throw error;
+    }
+  },
+
   // 🔄 核心处理流程 - 可重试的执行逻辑
   executeProcessFlow: async (input: string, isRetry: boolean = false) => {
     const state = get();
@@ -3799,7 +3990,8 @@ export const useAIChatStore = create<AIChatState>()(
       edit: 'editImage',
       blend: 'blendImages',
       analyze: 'analyzeImage',
-      video: 'generateVideo'
+      video: 'generateVideo',
+      vector: 'generatePaperJS'
     };
 
     let selectedTool: AvailableTool | null = null;
@@ -3813,7 +4005,13 @@ export const useAIChatStore = create<AIChatState>()(
       if (state.aiProvider === 'banana' && detectVideoIntent(input)) {
         selectedTool = 'generateVideo';
         console.log('🧠 智能检测到视频生成意图，自动选择 generateVideo 工具');
-      } else {
+      }
+      // 📐 在 Auto 模式下智能检测 Paper.js 矢量图意图
+      else if (detectPaperJSIntent(input)) {
+        selectedTool = 'generatePaperJS';
+        console.log('🧠 智能检测到矢量图生成意图，自动选择 generatePaperJS 工具');
+      }
+      else {
         logProcessStep(metrics, 'tool selection start');
         const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
         logProcessStep(metrics, 'tool selection completed');
@@ -3961,6 +4159,22 @@ export const useAIChatStore = create<AIChatState>()(
             }
           } catch (error) {
             console.error('❌ generateVideo 执行失败:', error);
+            if (error instanceof Error) {
+              console.error('❌ 错误堆栈:', error.stack);
+            }
+            throw error;
+          }
+          break;
+
+        case 'generatePaperJS':
+          console.log('📐 执行 Paper.js 代码生成，参数:', parameters.prompt);
+          try {
+            logProcessStep(metrics, 'invoking generatePaperJS');
+            await store.generatePaperJSCode(parameters.prompt, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'generatePaperJS finished');
+            console.log('✅ Paper.js 代码生成并执行完成');
+          } catch (error) {
+            console.error('❌ Paper.js 代码生成失败:', error);
             if (error instanceof Error) {
               console.error('❌ 错误堆栈:', error.stack);
             }

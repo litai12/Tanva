@@ -48,6 +48,12 @@ export class AiService {
 - blendImages: 融合多张图像
 - analyzeImage: 分析图像内容
 - chatResponse: 文本对话或聊天
+- generatePaperJS: 生成 Paper.js 矢量图形代码
+
+**工具选择规则**:
+- 如果用户提到 "svg"、"矢量"、"矢量图"、"vector"、"图形"、"几何"、"Paper.js"、"paperjs"、"代码绘图"、"线条"、"路径"、"圆形"、"矩形"、"多边形" 等关键词，选择 generatePaperJS
+- 如果用户要求 "简单图形"、"几何图形"、"数学图形" 等，选择 generatePaperJS
+- 否则按照原有逻辑选择其他工具
 
 请以以下JSON格式回复（仅返回JSON，不要其他文字）:
 {

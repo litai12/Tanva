@@ -865,4 +865,124 @@ export class ImageGenerationService {
       throw error;
     }
   }
+
+  /**
+   * 生成 Paper.js 代码
+   */
+  async generatePaperJSCode(request: {
+    prompt: string;
+    model?: string;
+    thinkingLevel?: 'high' | 'low';
+    canvasWidth?: number;
+    canvasHeight?: number;
+  }): Promise<{ code: string; explanation?: string; model: string }> {
+    this.logger.log(`Starting Paper.js code generation: ${request.prompt.substring(0, 50)}...`);
+    const startTime = Date.now();
+
+    try {
+      const client = this.ensureClient();
+      const model = request.model || 'gemini-2.0-flash';
+      const canvasWidth = request.canvasWidth || 1920;
+      const canvasHeight = request.canvasHeight || 1080;
+
+      // 系统提示词 - 使用用户提供的简洁版本
+      const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
+
+      // 用户提示词
+      const userPrompt = `画布尺寸: ${canvasWidth}x${canvasHeight}
+用户需求: ${request.prompt}
+
+请生成符合要求的 Paper.js 代码。`;
+
+      const finalPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
+      this.logger.debug(`Paper.js generation prompt: ${finalPrompt.substring(0, 100)}...`);
+
+      // 🔄 使用重试机制
+      const result = await this.withRetry(
+        async () => {
+          return await this.withTimeout(
+            (async () => {
+              const apiConfig: any = {
+                safetySettings: [
+                  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                  },
+                  { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+                ],
+              };
+
+              // 如果设置了高级思考模式
+              if (request.thinkingLevel === 'high') {
+                apiConfig.thinkingLevel = 'high';
+              }
+
+              const stream = await client.models.generateContentStream({
+                model,
+                contents: [{ text: finalPrompt }],
+                config: apiConfig,
+              });
+
+              const streamResult = await this.parseStreamResponse(stream, 'Paper.js code generation');
+              return { text: streamResult.textResponse };
+            })(),
+            this.DEFAULT_TIMEOUT,
+            'Paper.js code generation request'
+          );
+        },
+        'Paper.js code generation',
+        2, // maxRetries: 2次重试
+        1000 // baseDelay: 1秒延迟
+      );
+
+      const processingTime = Date.now() - startTime;
+      this.logger.log(`Paper.js code generation completed in ${processingTime}ms`);
+
+      if (!result.text) {
+        throw new Error('No code response from API');
+      }
+
+      // 清理响应，移除 markdown 代码块包装
+      const cleanedCode = this.cleanCodeResponse(result.text);
+
+      return {
+        code: cleanedCode,
+        model,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Paper.js code generation failed: ${message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 清理代码响应，移除 markdown 代码块包装
+   */
+  private cleanCodeResponse(text: string): string {
+    let cleaned = text.trim();
+
+    // 移除 markdown 代码块
+    if (cleaned.startsWith('```')) {
+      // 匹配 ```javascript, ```js, ```paperjs 等
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
+      cleaned = cleaned.replace(/\s*```$/i, '');
+    }
+
+    // 再次清理，以防多层包装
+    cleaned = cleaned.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
+      cleaned = cleaned.replace(/\s*```$/i, '');
+    }
+
+    return cleaned.trim();
+  }
 }

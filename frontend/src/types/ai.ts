@@ -230,6 +230,30 @@ export interface AITextChatResult {
   webSearchResult?: WebSearchResult; // 联网搜索结果
 }
 
+// Paper.js 代码生成请求
+export interface AIPaperJSGenerateRequest {
+  prompt: string;
+  model?: string;
+  aiProvider?: SupportedAIProvider;
+  thinkingLevel?: 'high' | 'low';
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
+// Paper.js 代码生成结果
+export interface AIPaperJSResult {
+  code: string;
+  explanation?: string;
+  model: string;
+  provider: string;
+  createdAt: string;
+  metadata?: {
+    canvasSize?: { width: number; height: number };
+    processingTime?: number;
+    [key: string]: unknown;
+  };
+}
+
 // Function Calling 工具定义
 export interface AITool {
   name: string;

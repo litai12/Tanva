@@ -27,6 +27,7 @@ import {
   Convert2Dto3DDto,
   ExpandImageDto,
 } from './dto/image-generation.dto';
+import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { MidjourneyProvider } from './providers/midjourney.provider';
@@ -471,14 +472,14 @@ export class AiController {
   @Post('expand-image')
   async expandImage(@Body() dto: ExpandImageDto) {
     this.logger.log('🖼️ Expand image request received');
-    
+
     try {
       const result = await this.expandImageService.expandImage(
         dto.imageUrl,
         dto.expandRatios,
         dto.prompt || '扩图'
       );
-      
+
       return {
         success: true,
         imageUrl: result.imageUrl,
@@ -487,6 +488,48 @@ export class AiController {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`❌ Expand image failed: ${message}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 生成 Paper.js 代码
+   */
+  @Post('generate-paperjs')
+  async generatePaperJS(@Body() dto: PaperJSGenerateRequestDto): Promise<PaperJSGenerateResponseDto> {
+    this.logger.log(`📐 Paper.js code generation request: ${dto.prompt.substring(0, 50)}...`);
+    const startTime = Date.now();
+
+    try {
+      // 使用 ImageGenerationService 的 Paper.js 代码生成方法
+      const result = await this.imageGeneration.generatePaperJSCode({
+        prompt: dto.prompt,
+        model: dto.model,
+        thinkingLevel: dto.thinkingLevel,
+        canvasWidth: dto.canvasWidth,
+        canvasHeight: dto.canvasHeight,
+      });
+
+      const processingTime = Date.now() - startTime;
+      this.logger.log(`✅ Paper.js code generated successfully in ${processingTime}ms`);
+
+      return {
+        code: result.code,
+        explanation: result.explanation,
+        model: result.model,
+        provider: dto.aiProvider || 'gemini',
+        createdAt: new Date().toISOString(),
+        metadata: {
+          canvasSize: {
+            width: dto.canvasWidth || 1920,
+            height: dto.canvasHeight || 1080,
+          },
+          processingTime,
+        },
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`❌ Paper.js code generation failed: ${message}`, error);
       throw error;
     }
   }

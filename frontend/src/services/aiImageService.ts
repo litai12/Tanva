@@ -15,9 +15,11 @@ import type {
   AIImageBlendRequest,
   AIImageAnalyzeRequest,
   AITextChatRequest,
+  AIPaperJSGenerateRequest,
   AIImageResult,
   AIImageAnalysisResult,
   AITextChatResult,
+  AIPaperJSResult,
   AIServiceResponse,
   AIError,
   ToolSelectionRequest,
@@ -430,6 +432,24 @@ class AIImageService {
       console.error('Failed to get providers:', error);
       return [];
     }
+  }
+
+  /**
+   * 生成 Paper.js 代码
+   */
+  async generatePaperJSCode(request: AIPaperJSGenerateRequest): Promise<AIServiceResponse<AIPaperJSResult>> {
+    console.log('[AIImageService] Generating Paper.js code:', request.prompt.substring(0, 50));
+    const response = await this.callAPI<AIPaperJSResult>(
+      `${this.API_BASE}/ai/generate-paperjs`,
+      request,
+      'Paper.js code generation'
+    );
+
+    if (response.success && response.data) {
+      console.log('[AIImageService] Paper.js code generated successfully');
+    }
+
+    return response;
   }
 }
 

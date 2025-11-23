@@ -44,7 +44,8 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
   { value: 'edit', label: 'Edit', description: '使用图生图编辑功能' },
   { value: 'blend', label: 'Blend', description: '多图融合生成新画面' },
   { value: 'analyze', label: 'Analysis', description: '进行图像理解与分析' },
-  { value: 'video', label: 'Video', description: '生成动态视频内容' }
+  { value: 'video', label: 'Video', description: '生成动态视频内容' },
+  { value: 'vector', label: 'Vector', description: '生成 Paper.js 矢量图形' }
 ];
 
 const PROVIDER_MODE_OPTIONS: Partial<Record<SupportedAIProvider, ManualModeOption[]>> = {
@@ -1034,6 +1035,8 @@ const AIChatDialog: React.FC = () => {
         return "询问关于这张图片的问题，或留空进行全面分析...";
       case 'video':
         return sourceImageForEditing ? "描述要生成的视频效果，AI将基于上传的图像生成视频..." : "描述要生成的视频场景、风格和动作...";
+      case 'vector':
+        return "描述你想生成的矢量图形，如：'一个蓝色的五角星' 或 '同心圆图案'...";
       default:
         if (manualAIMode === 'generate') {
           return "描述你想生成的图像场景、风格或细节...";
