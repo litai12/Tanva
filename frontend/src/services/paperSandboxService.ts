@@ -145,11 +145,115 @@ export const paperSandboxService = {
       paper.view.onFrame = null;
     }
 
+    // 创建 Path.Capsule 辅助函数（胶囊形状：两端是半圆的矩形）
+    const createCapsule = (options: {
+      from: paper.Point | [number, number];
+      to: paper.Point | [number, number];
+      radius: number;
+      fillColor?: paper.Color | string;
+      strokeColor?: paper.Color | string;
+      strokeWidth?: number;
+    }): paper.Path => {
+      const from = Array.isArray(options.from) ? new paper.Point(options.from[0], options.from[1]) : options.from;
+      const to = Array.isArray(options.to) ? new paper.Point(options.to[0], options.to[1]) : options.to;
+      const radius = options.radius;
+
+      // 计算方向向量和长度
+      const direction = to.subtract(from);
+      const length = direction.length;
+      const angle = direction.angle;
+      const normalized = length > 0 ? direction.normalize() : new paper.Point(1, 0);
+      const perpendicular = new paper.Point(-normalized.y, normalized.x);
+
+      // 如果长度小于等于半径的两倍，创建一个圆
+      if (length <= radius * 2) {
+        const center = from.add(to).divide(2);
+        const circle = new paper.Path.Circle({
+          center,
+          radius: Math.max(radius, length / 2),
+        });
+        if (options.fillColor) {
+          circle.fillColor = typeof options.fillColor === 'string' 
+            ? new paper.Color(options.fillColor) 
+            : options.fillColor;
+        }
+        if (options.strokeColor) {
+          circle.strokeColor = typeof options.strokeColor === 'string' 
+            ? new paper.Color(options.strokeColor) 
+            : options.strokeColor;
+        }
+        if (options.strokeWidth !== undefined) {
+          circle.strokeWidth = options.strokeWidth;
+        }
+        return circle;
+      }
+
+      // 创建胶囊路径：先创建水平胶囊，然后旋转
+      const center = from.add(to).divide(2);
+      const halfLength = length / 2;
+      
+      // 创建水平胶囊（从左到右）
+      const capsule = new paper.Path();
+      
+      // 左端半圆（从底部到顶部，顺时针）
+      const leftArcPoints = 16;
+      for (let i = 0; i <= leftArcPoints; i++) {
+        const arcAngle = Math.PI / 2 + (Math.PI / leftArcPoints) * i;
+        const x = -halfLength + Math.cos(arcAngle) * radius;
+        const y = Math.sin(arcAngle) * radius;
+        capsule.add(new paper.Point(x, y));
+      }
+      
+      // 顶部直线
+      capsule.add(new paper.Point(halfLength, radius));
+      
+      // 右端半圆（从顶部到底部，顺时针）
+      const rightArcPoints = 16;
+      for (let i = 0; i <= rightArcPoints; i++) {
+        const arcAngle = -Math.PI / 2 + (Math.PI / rightArcPoints) * i;
+        const x = halfLength + Math.cos(arcAngle) * radius;
+        const y = Math.sin(arcAngle) * radius;
+        capsule.add(new paper.Point(x, y));
+      }
+      
+      // 底部直线（闭合路径）
+      capsule.closed = true;
+      
+      // 移动到中心并旋转到正确角度
+      capsule.translate(center);
+      if (angle !== 0) {
+        capsule.rotate(angle, center);
+      }
+      
+      // 应用样式
+      if (options.fillColor) {
+        capsule.fillColor = typeof options.fillColor === 'string' 
+          ? new paper.Color(options.fillColor) 
+          : options.fillColor;
+      }
+      if (options.strokeColor) {
+        capsule.strokeColor = typeof options.strokeColor === 'string' 
+          ? new paper.Color(options.strokeColor) 
+          : options.strokeColor;
+      }
+      if (options.strokeWidth !== undefined) {
+        capsule.strokeWidth = options.strokeWidth;
+      }
+      
+      return capsule;
+    };
+
+    // 扩展 Path 对象，添加 Capsule 静态方法
+    const PathWithCapsule = {
+      ...paper.Path,
+      Capsule: createCapsule,
+    };
+
     const sandboxContext = {
       paper,
       project: paper.project,
       view: paper.view,
-      Path: paper.Path,
+      Path: PathWithCapsule as any,
       Point: paper.Point,
       Size: paper.Size,
       Rectangle: paper.Rectangle,
