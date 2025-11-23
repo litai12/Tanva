@@ -8,11 +8,13 @@ import {
   ImageAnalysisRequest,
   TextChatRequest,
   ToolSelectionRequest,
+  PaperJSGenerateRequest,
   AIProviderResponse,
   ImageResult,
   AnalysisResult,
   TextResult,
   ToolSelectionResult,
+  PaperJSResult,
 } from './ai-provider.interface';
 
 /**
@@ -879,5 +881,93 @@ export class BananaProvider implements IAIProvider {
       version: '1.0',
       supportedModels: ['gemini-3-pro-image-preview', 'gemini-2.0-flash'],
     };
+  }
+
+  /**
+   * 清理代码响应，移除 markdown 代码块包装
+   */
+  private cleanCodeResponse(text: string): string {
+    let cleaned = text.trim();
+
+    // 移除 markdown 代码块
+    if (cleaned.startsWith('```')) {
+      // 匹配 ```javascript, ```js, ```paperjs 等
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
+      cleaned = cleaned.replace(/\s*```$/i, '');
+    }
+
+    // 再次清理，以防多层包装
+    cleaned = cleaned.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
+      cleaned = cleaned.replace(/\s*```$/i, '');
+    }
+
+    return cleaned.trim();
+  }
+
+  async generatePaperJS(
+    request: PaperJSGenerateRequest
+  ): Promise<AIProviderResponse<PaperJSResult>> {
+    this.logger.log(`📐 Generating Paper.js code using Banana (147) API...`);
+
+    try {
+      // 使用 gemini-3-pro-preview 作为 Paper.js 代码生成的默认模型
+      const model = this.normalizeModelName(request.model || 'gemini-3-pro-preview');
+      this.logger.log(`📝 Using model: ${model}`);
+
+      // 系统提示词
+      const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
+      
+      // 将系统提示词和用户输入拼接
+      const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
+
+      const apiConfig: any = {
+        responseModalities: ['TEXT']
+      };
+
+      // 配置 thinking_level（Gemini 3 特性）
+      if (request.thinkingLevel) {
+        apiConfig.thinking_level = request.thinkingLevel;
+      }
+
+      const result = await this.withTimeout(
+        (async () => {
+          return await this.makeRequest(
+            model,
+            finalPrompt,
+            apiConfig
+          );
+        })(),
+        this.DEFAULT_TIMEOUT,
+        'Paper.js code generation'
+      );
+
+      if (!result.textResponse) {
+        throw new Error('No code response from API');
+      }
+
+      // 清理响应，移除 markdown 代码块包装
+      const cleanedCode = this.cleanCodeResponse(result.textResponse);
+
+      this.logger.log(`✅ Paper.js code generation succeeded with ${cleanedCode.length} characters`);
+
+      return {
+        success: true,
+        data: {
+          code: cleanedCode,
+        },
+      };
+    } catch (error) {
+      this.logger.error('❌ Paper.js code generation failed:', error);
+      return {
+        success: false,
+        error: {
+          code: 'PAPERJS_GENERATION_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to generate Paper.js code',
+          details: error,
+        },
+      };
+    }
   }
 }

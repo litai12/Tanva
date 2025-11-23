@@ -9,11 +9,13 @@ import {
   ImageAnalysisRequest,
   TextChatRequest,
   ToolSelectionRequest,
+  PaperJSGenerateRequest,
   AIProviderResponse,
   ImageResult,
   AnalysisResult,
   TextResult,
   ToolSelectionResult,
+  PaperJSResult,
 } from './ai-provider.interface';
 
 @Injectable()
@@ -936,6 +938,149 @@ ${toolList}
       this.logger.error(`${operationType} stream parsing failed:`, error);
       throw error;
     }
+  }
+
+  async generatePaperJS(
+    request: PaperJSGenerateRequest
+  ): Promise<AIProviderResponse<PaperJSResult>> {
+    this.logger.log(`📐 Generating Paper.js code...`);
+
+    try {
+      const client = this.ensureClient();
+      // 使用 gemini-3-pro-preview，与文本对话保持一致
+      const model = request.model || 'gemini-3-pro-preview';
+
+      // 系统提示词
+      const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
+      
+      // 将系统提示词和用户输入拼接
+      const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
+
+      // 默认使用非流式 API（更稳定），失败后降级到流式 API
+      const result = await this.withRetry(
+        async () => {
+          return await this.withTimeout(
+            (async () => {
+              const apiConfig: any = {
+                safetySettings: [
+                  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                  },
+                  { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+                ],
+                generationConfig: {},
+              };
+
+              // 配置 thinking_level（Gemini 3 特性）
+              if (request.thinkingLevel) {
+                apiConfig.generationConfig.thinking_level = request.thinkingLevel;
+              }
+
+              try {
+                // 默认使用非流式 API（更稳定）
+                const response = await client.models.generateContent({
+                  model,
+                  contents: [{ text: finalPrompt }],
+                  config: apiConfig,
+                });
+                
+                if (!response.text) {
+                  throw new Error('Non-stream API returned empty response');
+                }
+                
+                return { text: response.text };
+              } catch (nonStreamError) {
+                // 如果非流式 API 失败，降级到流式 API
+                const isNetworkError = this.isRetryableError(
+                  nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
+                );
+                
+                if (isNetworkError) {
+                  this.logger.warn('Non-stream API failed, falling back to stream API...');
+                  try {
+                    const stream = await client.models.generateContentStream({
+                      model,
+                      contents: [{ text: finalPrompt }],
+                      config: apiConfig,
+                    });
+
+                    const streamResult = await this.parseStreamResponse(stream, 'Paper.js code generation');
+                    this.logger.log('Stream API fallback succeeded');
+                    return { text: streamResult.textResponse };
+                  } catch (fallbackError) {
+                    // 如果降级也失败，抛出原始非流式错误
+                    throw nonStreamError;
+                  }
+                } else {
+                  // 非网络错误直接抛出
+                  throw nonStreamError;
+                }
+              }
+            })(),
+            this.DEFAULT_TIMEOUT,
+            'Paper.js code generation request'
+          );
+        },
+        'Paper.js code generation',
+        5 // 增加重试次数到 5 次（总共 6 次尝试）
+      );
+
+      if (!result.text) {
+        throw new Error('No code response from API');
+      }
+
+      // 清理响应，移除 markdown 代码块包装
+      const cleanedCode = this.cleanCodeResponse(result.text);
+
+      this.logger.log(`✅ Paper.js code generation succeeded with ${cleanedCode.length} characters`);
+
+      return {
+        success: true,
+        data: {
+          code: cleanedCode,
+        },
+      };
+    } catch (error) {
+      this.logger.error('❌ Paper.js code generation failed:', error);
+      return {
+        success: false,
+        error: {
+          code: 'PAPERJS_GENERATION_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to generate Paper.js code',
+          details: error,
+        },
+      };
+    }
+  }
+
+  /**
+   * 清理代码响应，移除 markdown 代码块包装
+   */
+  private cleanCodeResponse(text: string): string {
+    let cleaned = text.trim();
+
+    // 移除 markdown 代码块
+    if (cleaned.startsWith('```')) {
+      // 匹配 ```javascript, ```js, ```paperjs 等
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
+      cleaned = cleaned.replace(/\s*```$/i, '');
+    }
+
+    // 再次清理，以防多层包装
+    cleaned = cleaned.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
+      cleaned = cleaned.replace(/\s*```$/i, '');
+    }
+
+    return cleaned.trim();
   }
 
   isAvailable(): boolean {

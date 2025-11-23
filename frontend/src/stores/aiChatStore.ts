@@ -141,7 +141,7 @@ const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const GEMINI_PRO_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_PRO_TEXT_MODEL = 'gemini-3-pro-preview';
-const BANANA_TEXT_MODEL = 'banana-gemini-2.5-flash';
+const BANANA_TEXT_MODEL = 'banana-gemini-3-pro-preview';
 const SORA2_VIDEO_MODEL = 'sora-2-reverse';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
@@ -3793,8 +3793,8 @@ export const useAIChatStore = create<AIChatState>()(
       const result = await aiImageService.generatePaperJSCode({
         prompt,
         aiProvider: state.aiProvider,
-        // Paper.js 生成始终使用 gemini-3-pro-preview，确保与手动 Gemini Pro 对话一致
-        model: GEMINI_PRO_TEXT_MODEL,
+        // 根据 provider 选择正确的模型
+        model: getTextModelForProvider(state.aiProvider),
         thinkingLevel: state.thinkingLevel ?? undefined,
         canvasWidth: 1920,
         canvasHeight: 1080

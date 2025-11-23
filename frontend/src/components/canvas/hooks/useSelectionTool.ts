@@ -39,6 +39,55 @@ export const useSelectionTool = ({
   const [selectionStartPoint, setSelectionStartPoint] = useState<paper.Point | null>(null);
   const selectionBoxRef = useRef<paper.Path | null>(null);
 
+  const isHelperOrSelectionItem = useCallback((item: paper.Item | null | undefined): boolean => {
+    if (!item) return true;
+    const data = item.data || {};
+    if (data.isHelper || data.isSelectionHelper || data.isResizeHandle) {
+      return true;
+    }
+    const type = data.type;
+    if (type === 'image-selection-area' || type === '3d-model-selection-area' || type === 'selection-box') {
+      return true;
+    }
+    return false;
+  }, []);
+
+  const isPlaceholderItem = useCallback((item: paper.Item | null | undefined): boolean => {
+    let current: paper.Item | null | undefined = item;
+    while (current) {
+      const type = current.data?.type;
+      if (type === 'image-placeholder' || type === '3d-model-placeholder') {
+        return true;
+      }
+      current = current.parent as paper.Item | null | undefined;
+    }
+    return false;
+  }, []);
+
+  const collectPathsFromItem = useCallback((item: paper.Item | null | undefined, accumulator: paper.Path[]) => {
+    if (!item || !item.bounds) return;
+    if (isHelperOrSelectionItem(item)) return;
+    if (isPlaceholderItem(item)) return;
+
+    if (item instanceof paper.Path) {
+      if (!accumulator.includes(item)) {
+        accumulator.push(item);
+      }
+      return;
+    }
+
+    if (item instanceof paper.CompoundPath) {
+      const children = (item as any).children as paper.Path[] | undefined;
+      children?.forEach((child) => collectPathsFromItem(child, accumulator));
+      return;
+    }
+
+    if (item instanceof paper.Group) {
+      const children = (item as any).children as paper.Item[] | undefined;
+      children?.forEach((child) => collectPathsFromItem(child, accumulator));
+    }
+  }, [isHelperOrSelectionItem, isPlaceholderItem]);
+
   // ========== 路径选择功能 ==========
 
   // 选择路径并启用编辑模式
@@ -185,37 +234,9 @@ export const useSelectionTool = ({
       if (layer.name === 'grid' || layer.name === 'background') return;
       
       layer.children.forEach((item) => {
-        if (item instanceof paper.Path) {
-          // 检查路径是否在选择框内
-          if (selectionRect.contains(item.bounds)) {
-            // 跳过选择区域对象，只处理实际绘制的路径
-            if (item.data && (item.data.type === 'image-selection-area' || item.data.type === '3d-model-selection-area')) {
-              return; // 跳过选择区域对象
-            }
-
-            // 检查是否属于占位符组（2D图片或3D模型占位符）
-            let isPlaceholder = false;
-            let currentItem: paper.Item = item;
-
-            // 向上遍历父级查找占位符组
-            while (currentItem && currentItem.parent) {
-              const parent = currentItem.parent;
-              if (parent instanceof paper.Group && parent.data) {
-                const parentData = parent.data;
-                if (parentData.type === 'image-placeholder' || parentData.type === '3d-model-placeholder') {
-                  isPlaceholder = true;
-                  break;
-                }
-              }
-              currentItem = parent as paper.Item;
-            }
-
-            // 只选择非占位符的路径
-            if (!isPlaceholder) {
-              selectedPathsInBox.push(item);
-            }
-          }
-        }
+        if (!item || !item.bounds) return;
+        if (!selectionRect.contains(item.bounds)) return;
+        collectPathsFromItem(item, selectedPathsInBox);
       });
     });
 

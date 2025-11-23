@@ -13,11 +13,13 @@ import {
   MidjourneyButtonInfo,
   MidjourneyModalRequest,
   MidjourneyProviderOptions,
+  PaperJSGenerateRequest,
   ProviderOptionsPayload,
   TextChatRequest,
   TextResult,
   ToolSelectionRequest,
   ToolSelectionResult,
+  PaperJSResult,
 } from './ai-provider.interface';
 
 type MidjourneyTaskStatus = 'NOT_START' | 'IN_PROGRESS' | 'FAILURE' | 'FINISHED' | 'SUCCESS' | 'CANCEL';
@@ -573,6 +575,19 @@ export class MidjourneyProvider implements IAIProvider {
         selectedTool: finalTool,
         reasoning,
         confidence,
+      },
+    };
+  }
+
+  async generatePaperJS(
+    request: PaperJSGenerateRequest
+  ): Promise<AIProviderResponse<PaperJSResult>> {
+    this.logger.warn('Paper.js code generation is not supported by Midjourney provider');
+    return {
+      success: false,
+      error: {
+        code: 'PAPERJS_NOT_SUPPORTED',
+        message: 'Midjourney provider does not support Paper.js code generation',
       },
     };
   }

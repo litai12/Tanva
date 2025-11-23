@@ -47,7 +47,7 @@ export class AiController {
   private readonly providerDefaultTextModels: Record<string, string> = {
     gemini: 'gemini-2.5-flash',
     'gemini-pro': 'gemini-3-pro-preview',
-    banana: 'banana-gemini-2.5-flash',
+    banana: 'banana-gemini-3-pro-preview',
     runninghub: 'gemini-2.5-flash',
     midjourney: 'gemini-2.5-flash',
   };
@@ -501,7 +501,45 @@ export class AiController {
     const startTime = Date.now();
 
     try {
-      // 使用 ImageGenerationService 的 Paper.js 代码生成方法
+      // 如果指定了aiProvider，使用工厂路由到相应提供商
+      const providerName =
+        dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+
+      if (providerName) {
+        const provider = this.factory.getProvider(dto.model, providerName);
+        const model = this.resolveTextModel(providerName, dto.model);
+        
+        const result = await provider.generatePaperJS({
+          prompt: dto.prompt,
+          model,
+          thinkingLevel: dto.thinkingLevel,
+          canvasWidth: dto.canvasWidth,
+          canvasHeight: dto.canvasHeight,
+        });
+        
+        if (result.success && result.data) {
+          const processingTime = Date.now() - startTime;
+          this.logger.log(`✅ Paper.js code generated successfully in ${processingTime}ms`);
+          
+          return {
+            code: result.data.code,
+            explanation: result.data.explanation,
+            model,
+            provider: providerName,
+            createdAt: new Date().toISOString(),
+            metadata: {
+              canvasSize: {
+                width: dto.canvasWidth || 1920,
+                height: dto.canvasHeight || 1080,
+              },
+              processingTime,
+            },
+          };
+        }
+        throw new Error(result.error?.message || 'Failed to generate Paper.js code');
+      }
+
+      // 否则使用默认的 ImageGenerationService（Gemini SDK）
       const result = await this.imageGeneration.generatePaperJSCode({
         prompt: dto.prompt,
         model: dto.model,

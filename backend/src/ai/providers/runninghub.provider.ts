@@ -13,11 +13,13 @@ import type {
   ImageAnalysisRequest,
   TextChatRequest,
   ToolSelectionRequest,
+  PaperJSGenerateRequest,
   AIProviderResponse,
   ImageResult,
   AnalysisResult,
   TextResult,
   ToolSelectionResult,
+  PaperJSResult,
   RunningHubGenerateOptions,
 } from './ai-provider.interface';
 
@@ -385,6 +387,19 @@ export class RunningHubProvider implements IAIProvider {
         selectedTool: finalTool,
         reasoning,
         confidence,
+      },
+    };
+  }
+
+  async generatePaperJS(
+    request: PaperJSGenerateRequest
+  ): Promise<AIProviderResponse<PaperJSResult>> {
+    this.logger.warn('Paper.js code generation is not supported by RunningHub provider');
+    return {
+      success: false,
+      error: {
+        code: 'PAPERJS_NOT_SUPPORTED',
+        message: 'RunningHub provider does not support Paper.js code generation',
       },
     };
   }

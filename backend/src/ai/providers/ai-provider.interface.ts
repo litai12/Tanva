@@ -170,6 +170,19 @@ export interface ToolSelectionResult {
   confidence: number;
 }
 
+export interface PaperJSGenerateRequest {
+  prompt: string;
+  model?: string;
+  thinkingLevel?: 'high' | 'low';
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
+export interface PaperJSResult {
+  code: string;
+  explanation?: string;
+}
+
 /**
  * AI 提供商接口 - 所有提供商必须实现
  */
@@ -220,6 +233,13 @@ export interface IAIProvider {
   selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>>;
+
+  /**
+   * 生成 Paper.js 代码
+   */
+  generatePaperJS(
+    request: PaperJSGenerateRequest
+  ): Promise<AIProviderResponse<PaperJSResult>>;
 
   /**
    * 检查提供商是否可用
