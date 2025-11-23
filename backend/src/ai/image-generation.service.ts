@@ -281,6 +281,56 @@ export class ImageGenerationService {
     }
   }
 
+  private isRetryableError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    const errorName = error.name.toLowerCase();
+    
+    // 网络相关错误 - 可以重试
+    const retryablePatterns = [
+      'fetch failed',
+      'network',
+      'timeout',
+      'econnreset',
+      'etimedout',
+      'enotfound',
+      'econnrefused',
+      'socket',
+      'connection',
+      'eai_again', // DNS lookup failed
+    ];
+    
+    // 不可重试的错误 - 认证、参数错误等
+    const nonRetryablePatterns = [
+      'unauthorized',
+      'forbidden',
+      'invalid',
+      'bad request',
+      '400',
+      '401',
+      '403',
+      'malformed',
+    ];
+    
+    // 先检查不可重试的错误
+    for (const pattern of nonRetryablePatterns) {
+      if (message.includes(pattern) || errorName.includes(pattern)) {
+        this.logger.debug(`Non-retryable error detected: ${pattern}`);
+        return false;
+      }
+    }
+    
+    // 检查可重试的错误
+    for (const pattern of retryablePatterns) {
+      if (message.includes(pattern) || errorName.includes(pattern)) {
+        this.logger.debug(`Retryable error detected: ${pattern}`);
+        return true;
+      }
+    }
+    
+    // 默认情况下，如果是未知错误，允许重试
+    return true;
+  }
+
   private parseNonStreamResponse(response: any, operationType: string): ParsedStreamResponse {
     this.logger.debug(`Parsing ${operationType} non-stream response...`);
 
@@ -881,24 +931,18 @@ export class ImageGenerationService {
 
     try {
       const client = this.ensureClient();
-      const model = request.model || 'gemini-2.0-flash';
-      const canvasWidth = request.canvasWidth || 1920;
-      const canvasHeight = request.canvasHeight || 1080;
+      // 使用 gemini-3-pro-preview，与 gemini-pro 文本对话保持一致
+      const model = request.model || 'gemini-3-pro-preview';
 
-      // 系统提示词 - 使用用户提供的简洁版本
+      // 系统提示词 - 直接拼接到用户提示词中
       const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
 
-      // 用户提示词
-      const userPrompt = `画布尺寸: ${canvasWidth}x${canvasHeight}
-用户需求: ${request.prompt}
+      // 用户提示词 - 将系统提示词和用户输入拼接
+      const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
-请生成符合要求的 Paper.js 代码。`;
+      this.logger.debug(`Paper.js generation - Final prompt: ${finalPrompt.substring(0, 100)}...`);
 
-      const finalPrompt = `${systemPrompt}\n\n${userPrompt}`;
-
-      this.logger.debug(`Paper.js generation prompt: ${finalPrompt.substring(0, 100)}...`);
-
-      // 🔄 使用重试机制
+      // 默认使用非流式 API（更稳定），失败后降级到流式 API
       const result = await this.withRetry(
         async () => {
           return await this.withTimeout(
@@ -917,31 +961,61 @@ export class ImageGenerationService {
                   },
                   { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
                 ],
+                generationConfig: {},
               };
 
-              // 如果设置了高级思考模式
-              if (request.thinkingLevel === 'high') {
-                apiConfig.thinkingLevel = 'high';
+              // 配置 thinking_level（Gemini 3 特性，参考官方文档）
+              if (request.thinkingLevel) {
+                apiConfig.generationConfig.thinking_level = request.thinkingLevel;
               }
 
-              // 🔄 改为非流式调用
-              const response = await client.models.generateContent({
-                model,
-                contents: [{ text: finalPrompt }],
-                config: apiConfig,
-              });
+              try {
+                // 默认使用非流式 API（更稳定）
+                const response = await client.models.generateContent({
+                  model,
+                  contents: [{ text: finalPrompt }],
+                  config: apiConfig,
+                });
+                
+                if (!response.text) {
+                  throw new Error('Non-stream API returned empty response');
+                }
+                
+                return { text: response.text };
+              } catch (nonStreamError) {
+                // 如果非流式 API 失败，降级到流式 API
+                const isNetworkError = this.isRetryableError(
+                  nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
+                );
+                
+                if (isNetworkError) {
+                  this.logger.warn('Non-stream API failed, falling back to stream API...');
+                  try {
+                    const stream = await client.models.generateContentStream({
+                      model,
+                      contents: [{ text: finalPrompt }],
+                      config: apiConfig,
+                    });
 
-              // 解析非流式响应
-              const result = this.parseNonStreamResponse(response, 'Paper.js code generation');
-              return { text: result.textResponse };
+                    const streamResult = await this.parseStreamResponse(stream, 'Paper.js code generation');
+                    this.logger.log('Stream API fallback succeeded');
+                    return { text: streamResult.textResponse };
+                  } catch (fallbackError) {
+                    // 如果降级也失败，抛出原始非流式错误
+                    throw nonStreamError;
+                  }
+                } else {
+                  // 非网络错误直接抛出
+                  throw nonStreamError;
+                }
+              }
             })(),
             this.DEFAULT_TIMEOUT,
             'Paper.js code generation request'
           );
         },
         'Paper.js code generation',
-        2, // maxRetries: 2次重试
-        1000 // baseDelay: 1秒延迟
+        5 // 增加重试次数到 5 次（总共 6 次尝试）
       );
 
       const processingTime = Date.now() - startTime;
