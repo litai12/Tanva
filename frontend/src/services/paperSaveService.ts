@@ -25,54 +25,42 @@ class PaperSaveService {
     return trimmed.startsWith('data:image/') || trimmed.startsWith('blob:');
   }
 
-  private async convertBlobUrlToDataUrl(blobUrl: string): Promise<string | null> {
+  private async convertBlobUrlToBlob(blobUrl: string): Promise<Blob | null> {
     try {
       const response = await fetch(blobUrl);
-      const blob = await response.blob();
-      return await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            resolve(reader.result);
-          } else {
-            reject(new Error('无法解析blob数据'));
-          }
-        };
-        reader.onerror = () => reject(new Error('读取blob数据失败'));
-        reader.readAsDataURL(blob);
-      });
+      return await response.blob();
     } catch (error) {
       console.warn('解析 blob URL 失败:', error);
       return null;
     }
   }
 
-  private async normalizeInlineSource(value?: string | null): Promise<string | null> {
-    if (!value || typeof value !== 'string') return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    if (trimmed.startsWith('data:image/')) {
-      return trimmed;
-    }
-    if (trimmed.startsWith('blob:')) {
-      return this.convertBlobUrlToDataUrl(trimmed);
-    }
-    if (!this.isRemoteUrl(trimmed) && trimmed.length > 128) {
-      const compact = trimmed.replace(/\s+/g, '');
-      const base64Pattern = /^[A-Za-z0-9+/=]+$/;
-      if (base64Pattern.test(compact)) {
-        return `data:image/png;base64,${compact}`;
-      }
-    }
-    return null;
-  }
-
-  private async resolveInlineImageData(asset: ImageAssetSnapshot): Promise<string | null> {
+  private async resolveInlineAssetSource(asset: ImageAssetSnapshot): Promise<
+    | { kind: 'dataUrl'; value: string }
+    | { kind: 'blob'; value: Blob }
+    | null
+  > {
     const candidates = [asset.localDataUrl, asset.src, asset.url];
     for (const candidate of candidates) {
-      const normalized = await this.normalizeInlineSource(candidate);
-      if (normalized) {
-        return normalized;
+      if (!candidate || typeof candidate !== 'string') continue;
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith('data:image/')) {
+        return { kind: 'dataUrl', value: trimmed };
+      }
+      if (trimmed.startsWith('blob:')) {
+        const blob = await this.convertBlobUrlToBlob(trimmed);
+        if (blob) {
+          return { kind: 'blob', value: blob };
+        }
+        continue;
+      }
+      if (!this.isRemoteUrl(trimmed) && trimmed.length > 128) {
+        const compact = trimmed.replace(/\s+/g, '');
+        const base64Pattern = /^[A-Za-z0-9+/=]+$/;
+        if (base64Pattern.test(compact)) {
+          return { kind: 'dataUrl', value: `data:image/png;base64,${compact}` };
+        }
       }
     }
     return null;
@@ -142,17 +130,30 @@ class PaperSaveService {
         continue;
       }
 
-      const inlineData = await this.resolveInlineImageData(image);
-      if (!inlineData) {
+      const inlineSource = await this.resolveInlineAssetSource(image);
+      if (!inlineSource) {
         continue;
       }
 
       try {
-        const uploadResult = await imageUploadService.uploadImageDataUrl(inlineData, {
+        const uploadOptions = {
           projectId,
           dir: projectId ? `projects/${projectId}/images/` : undefined,
           fileName: image.fileName || `autosave_${image.id || Date.now()}.png`,
-        });
+        };
+
+        let uploadResult;
+        if (inlineSource.kind === 'blob') {
+          const blob = inlineSource.value;
+          const file = new File(
+            [blob],
+            uploadOptions.fileName,
+            { type: blob.type || image.contentType || 'image/png' }
+          );
+          uploadResult = await imageUploadService.uploadImageFile(file, uploadOptions);
+        } else {
+          uploadResult = await imageUploadService.uploadImageDataUrl(inlineSource.value, uploadOptions);
+        }
 
         if (uploadResult.success && uploadResult.asset?.url) {
           const uploadedAsset = uploadResult.asset;

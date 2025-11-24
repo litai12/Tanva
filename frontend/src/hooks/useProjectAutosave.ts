@@ -7,6 +7,7 @@ import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 const AUTOSAVE_DELAY = 5 * 60 * 1000; // 5 分钟
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 2000;
+const MAX_LOCAL_SNAPSHOT_LENGTH = 2 * 1024 * 1024; // ~2MB，防止占用过多内存
 
 export function useProjectAutosave(projectId: string | null) {
   const content = useProjectContentStore((state) => state.content);
@@ -53,8 +54,15 @@ export function useProjectAutosave(projectId: string | null) {
         });
         const paperJson = (currentContent as any)?.paperJson as string | undefined;
         if (paperJson && paperJson.length > 0) {
-          const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
-          localStorage.setItem(`tanva_last_good_snapshot_${currentProjectId}`, JSON.stringify(backup));
+          if (paperJson.length <= MAX_LOCAL_SNAPSHOT_LENGTH) {
+            const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
+            localStorage.setItem(`tanva_last_good_snapshot_${currentProjectId}`, JSON.stringify(backup));
+          } else {
+            console.warn('跳过本地快照：paperJson 过大，避免内存占用', {
+              length: paperJson.length,
+              projectId: currentProjectId,
+            });
+          }
         }
       } catch {}
 
