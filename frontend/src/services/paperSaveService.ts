@@ -2,6 +2,7 @@ import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
 import type { Model3DData } from '@/services/model3DUploadService';
+import { imageUploadService } from '@/services/imageUploadService';
 import { saveMonitor } from '@/utils/saveMonitor';
 
 class PaperSaveService {
@@ -12,6 +13,187 @@ class PaperSaveService {
   private scheduledForProjectId: string | null = null;
   private lastSaveTimestamp = 0;
   private pendingSaveReason: string | null = null;
+
+  private isRemoteUrl(value?: string | null): boolean {
+    if (typeof value !== 'string') return false;
+    return /^https?:\/\//i.test(value.trim());
+  }
+
+  private isInlineImageSource(value: unknown): value is string {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    return trimmed.startsWith('data:image/') || trimmed.startsWith('blob:');
+  }
+
+  private async convertBlobUrlToDataUrl(blobUrl: string): Promise<string | null> {
+    try {
+      const response = await fetch(blobUrl);
+      const blob = await response.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            resolve(reader.result);
+          } else {
+            reject(new Error('无法解析blob数据'));
+          }
+        };
+        reader.onerror = () => reject(new Error('读取blob数据失败'));
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.warn('解析 blob URL 失败:', error);
+      return null;
+    }
+  }
+
+  private async normalizeInlineSource(value?: string | null): Promise<string | null> {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith('data:image/')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('blob:')) {
+      return this.convertBlobUrlToDataUrl(trimmed);
+    }
+    if (!this.isRemoteUrl(trimmed) && trimmed.length > 128) {
+      const compact = trimmed.replace(/\s+/g, '');
+      const base64Pattern = /^[A-Za-z0-9+/=]+$/;
+      if (base64Pattern.test(compact)) {
+        return `data:image/png;base64,${compact}`;
+      }
+    }
+    return null;
+  }
+
+  private async resolveInlineImageData(asset: ImageAssetSnapshot): Promise<string | null> {
+    const candidates = [asset.localDataUrl, asset.src, asset.url];
+    for (const candidate of candidates) {
+      const normalized = await this.normalizeInlineSource(candidate);
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  private buildRuntimeImageInstanceMap(): Map<string, any> {
+    const map = new Map<string, any>();
+    try {
+      const instances = (window as any)?.tanvaImageInstances;
+      if (Array.isArray(instances)) {
+        instances.forEach((instance: any) => {
+          if (instance?.id) {
+            map.set(instance.id, instance);
+          }
+        });
+      }
+    } catch {}
+    return map;
+  }
+
+  private syncRuntimeImageAsset(
+    assetId: string,
+    updates: Partial<ImageAssetSnapshot>,
+    instanceMap: Map<string, any>
+  ) {
+    if (!assetId) return;
+    const instance = instanceMap.get(assetId);
+    if (!instance || !instance.imageData || typeof instance.imageData !== 'object') {
+      return;
+    }
+    try {
+      Object.assign(instance.imageData, updates);
+      if (updates.pendingUpload === false) {
+        delete instance.imageData.pendingUpload;
+      }
+      if ('localDataUrl' in updates && updates.localDataUrl === undefined) {
+        delete instance.imageData.localDataUrl;
+      }
+    } catch (error) {
+      console.warn('同步运行时图片状态失败:', error);
+    }
+  }
+
+  private async ensureRemoteAssets(assets: {
+    images: ImageAssetSnapshot[];
+    models: ModelAssetSnapshot[];
+    texts: TextAssetSnapshot[];
+  }) {
+    if (!assets.images.length) {
+      return assets;
+    }
+
+    const projectStore = useProjectContentStore.getState();
+    const projectId = projectStore.projectId;
+    const runtimeMap = this.buildRuntimeImageInstanceMap();
+    let uploaded = 0;
+    let failed = 0;
+
+    for (const image of assets.images) {
+      const hasRemote = this.isRemoteUrl(image.url) || this.isRemoteUrl(image.src);
+      if (hasRemote) {
+        if (image.pendingUpload) {
+          image.pendingUpload = false;
+          delete image.localDataUrl;
+          this.syncRuntimeImageAsset(image.id, { pendingUpload: false, localDataUrl: undefined }, runtimeMap);
+        }
+        continue;
+      }
+
+      const inlineData = await this.resolveInlineImageData(image);
+      if (!inlineData) {
+        continue;
+      }
+
+      try {
+        const uploadResult = await imageUploadService.uploadImageDataUrl(inlineData, {
+          projectId,
+          dir: projectId ? `projects/${projectId}/images/` : undefined,
+          fileName: image.fileName || `autosave_${image.id || Date.now()}.png`,
+        });
+
+        if (uploadResult.success && uploadResult.asset?.url) {
+          const uploadedAsset = uploadResult.asset;
+          image.url = uploadedAsset.url;
+          image.src = uploadedAsset.url;
+          image.key = uploadedAsset.key || image.key;
+          image.fileName = image.fileName || uploadedAsset.fileName;
+          image.width = image.width || uploadedAsset.width;
+          image.height = image.height || uploadedAsset.height;
+          image.pendingUpload = false;
+          delete image.localDataUrl;
+          this.syncRuntimeImageAsset(
+            image.id,
+            {
+              url: image.url,
+              src: image.src,
+              key: image.key,
+              pendingUpload: false,
+              localDataUrl: undefined,
+            },
+            runtimeMap,
+          );
+          uploaded += 1;
+        } else {
+          failed += 1;
+        }
+      } catch (error) {
+        failed += 1;
+        console.warn('自动上传本地图片失败:', error);
+      }
+    }
+
+    if (uploaded > 0) {
+      console.log(`📤 自动补全了 ${uploaded} 张本地图片的远程URL`);
+    }
+    if (failed > 0) {
+      console.warn(`⚠️ 仍有 ${failed} 张图片缺少远程URL，将以内联数据保存`);
+    }
+
+    return assets;
+  }
 
   private normalizeLayerId(name?: string | undefined | null): string | null {
     if (!name) return null;
@@ -129,15 +311,11 @@ class PaperSaveService {
     return { images, models, texts };
   }
 
-  private isInlineDataUrl(value: unknown): value is string {
-    return typeof value === 'string' && /^data:image\//i.test(value);
-  }
-
   private sanitizeAssets(assets: { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[] }) {
     const sanitizedImages = assets.images.map((asset) => {
       const next: ImageAssetSnapshot = { ...asset };
-      const hasRemoteUrl = typeof next.url === 'string' && !this.isInlineDataUrl(next.url);
-      const hasRemoteSrc = typeof next.src === 'string' && !this.isInlineDataUrl(next.src || '');
+      const hasRemoteUrl = this.isRemoteUrl(next.url);
+      const hasRemoteSrc = this.isRemoteUrl(next.src || '');
 
       if (hasRemoteUrl) {
         next.src = next.url;
@@ -184,14 +362,14 @@ class PaperSaveService {
           const asset = assetMap.get(imageId);
           if (!asset) return;
 
-          const remoteUrl = (asset.url && !this.isInlineDataUrl(asset.url))
+          const remoteUrl = (asset.url && this.isRemoteUrl(asset.url))
             ? asset.url
-            : asset.src && !this.isInlineDataUrl(asset.src)
+            : asset.src && this.isRemoteUrl(asset.src)
               ? asset.src
               : undefined;
 
           if (remoteUrl) {
-            if (typeof child.source === 'string' && this.isInlineDataUrl(child.source)) {
+            if (typeof child.source === 'string' && this.isInlineImageSource(child.source)) {
               child.source = remoteUrl;
             }
             if (!child.data) child.data = {};
@@ -474,7 +652,8 @@ class PaperSaveService {
 
       const gatheredAssets = this.gatherAssets();
       const sanitizedAssets = this.sanitizeAssets(gatheredAssets);
-      const hasPendingImages = sanitizedAssets.images.some((img) => img.pendingUpload);
+      const normalizedAssets = await this.ensureRemoteAssets(sanitizedAssets);
+      const hasPendingImages = normalizedAssets.images.some((img) => img.pendingUpload);
 
       if (hasPendingImages) {
         try {
@@ -497,7 +676,7 @@ class PaperSaveService {
       let paperJson: string | null = null;
 
       if (this.isPaperProjectReady()) {
-        this.prepareRasterSources(sanitizedAssets.images);
+        this.prepareRasterSources(normalizedAssets.images);
         paperJson = this.serializePaperProject();
         // 统计层/元素数量
         let layerCount = 0; let itemCount = 0;
@@ -528,7 +707,7 @@ class PaperSaveService {
       contentStore.updatePartial({
         paperJson: paperJson || undefined,
         meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
-        assets: sanitizedAssets,
+        assets: normalizedAssets,
         updatedAt: new Date().toISOString()
       }, { markDirty: true });
 
