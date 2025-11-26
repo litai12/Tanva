@@ -1,16 +1,126 @@
 // @ts-nocheck
 import React from 'react';
-import { Handle, Position, NodeResizer, useReactFlow } from 'reactflow';
+import { Handle, Position, useReactFlow } from 'reactflow';
+import { NodeResizeControl } from '@reactflow/node-resizer';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+
+const lineControlConfigs = [
+  {
+    position: 'top',
+    icon: '↕',
+    style: {
+      top: 0,
+      bottom: 'auto',
+      left: 0,
+      right: 'auto',
+      width: '100%',
+      height: 18,
+      transform: 'none',
+      cursor: 'ns-resize',
+      pointerEvents: 'auto'
+    }
+  },
+  {
+    position: 'bottom',
+    icon: '↕',
+    style: {
+      top: 'auto',
+      bottom: 0,
+      left: 0,
+      right: 'auto',
+      width: '100%',
+      height: 18,
+      transform: 'none',
+      cursor: 'ns-resize',
+      pointerEvents: 'auto'
+    }
+  },
+  {
+    position: 'left',
+    icon: '↔',
+    style: {
+      top: 0,
+      bottom: 'auto',
+      left: 0,
+      right: 'auto',
+      width: 18,
+      height: '100%',
+      transform: 'none',
+      cursor: 'ew-resize',
+      pointerEvents: 'auto'
+    }
+  },
+  {
+    position: 'right',
+    icon: '↔',
+    style: {
+      top: 0,
+      bottom: 'auto',
+      left: 'auto',
+      right: 0,
+      width: 18,
+      height: '100%',
+      transform: 'none',
+      cursor: 'ew-resize',
+      pointerEvents: 'auto'
+    }
+  }
+];
+
+const handleControlConfigs = [
+  {
+    position: 'top-left',
+    icon: '⤡',
+    style: {
+      width: 20,
+      height: 20,
+      pointerEvents: 'auto',
+      cursor: 'nwse-resize'
+    }
+  },
+  {
+    position: 'top-right',
+    icon: '⤢',
+    style: {
+      width: 20,
+      height: 20,
+      pointerEvents: 'auto',
+      cursor: 'nesw-resize'
+    }
+  },
+  {
+    position: 'bottom-left',
+    icon: '⤢',
+    style: {
+      width: 20,
+      height: 20,
+      pointerEvents: 'auto',
+      cursor: 'nesw-resize'
+    }
+  },
+  {
+    position: 'bottom-right',
+    icon: '⤡',
+    style: {
+      width: 20,
+      height: 20,
+      pointerEvents: 'auto',
+      cursor: 'nwse-resize'
+    }
+  }
+];
 
 type Props = {
   id: string;
   data: { imageData?: string; label?: string; boxW?: number; boxH?: number };
   selected?: boolean;
 };
+
+const MIN_WIDTH = 320;
+const MIN_HEIGHT = 200;
 
 export default function ImageNode({ id, data, selected }: Props) {
   const rf = useReactFlow();
@@ -21,6 +131,27 @@ export default function ImageNode({ id, data, selected }: Props) {
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const [hasInputConnection, setHasInputConnection] = React.useState(false);
+  const [isResizing, setIsResizing] = React.useState(false);
+  const updateNodeSize = React.useCallback((width: number, height: number) => {
+    const nextWidth = Math.max(width, MIN_WIDTH);
+    const nextHeight = Math.max(height, MIN_HEIGHT);
+    rf.setNodes(ns => ns.map(n => n.id === id ? {
+      ...n,
+      data: { ...n.data, boxW: nextWidth, boxH: nextHeight }
+    } : n));
+  }, [rf, id]);
+  const handleResizeStart = React.useCallback(() => {
+    setIsResizing(true);
+  }, []);
+  const handleResize = React.useCallback((evt: any, params: any) => {
+    if (!params) return;
+    updateNodeSize(params.width, params.height);
+  }, [updateNodeSize]);
+  const handleResizeEnd = React.useCallback((evt: any, params: any) => {
+    setIsResizing(false);
+    if (!params) return;
+    updateNodeSize(params.width, params.height);
+  }, [updateNodeSize]);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   
@@ -127,10 +258,9 @@ export default function ImageNode({ id, data, selected }: Props) {
     }
   };
 
-  const headerHeight = 34; // 顶部标题+按钮区域高度
-
   return (
     <div
+      className={`flow-image-node${isResizing ? ' flow-image-node--resizing' : ''}`}
       onPaste={onPaste}
       tabIndex={0}
       style={{
@@ -147,53 +277,33 @@ export default function ImageNode({ id, data, selected }: Props) {
         position: 'relative',
         outline: 'none'
       }}>
-      <NodeResizer
-        isVisible
-        minWidth={200}
-        minHeight={160}
-        color="transparent"
-        lineStyle={{ display: 'none' }}
-        handlePositions={['top-left','top','top-right','right','bottom-right','bottom','bottom-left','left'] as any}
-        handleComponent={(props: any) => {
-          const { position, ...rest } = props || {};
-          const common: React.CSSProperties = { background: 'transparent', opacity: 0, position: 'absolute', pointerEvents: 'auto' };
-          const edgeThickness = 12; // 可抓取厚度
-          // 边角小区
-          if (position === 'top-left' || position === 'top-right' || position === 'bottom-left' || position === 'bottom-right') {
-            const style: React.CSSProperties = { ...common, ...((rest as any).style || {}), width: edgeThickness, height: edgeThickness };
-            if (position === 'top-left') style.cursor = 'nwse-resize';
-            if (position === 'top-right') style.cursor = 'nesw-resize';
-            if (position === 'bottom-left') style.cursor = 'nesw-resize';
-            if (position === 'bottom-right') style.cursor = 'nwse-resize';
-            return <div {...rest} style={style} />;
-          }
-          // 四条边
-          if (position === 'top' || position === 'bottom') {
-            const style: React.CSSProperties = { ...common, ...((rest as any).style || {}), width: '100%', height: edgeThickness, left: 0, cursor: 'ns-resize' };
-            if (position === 'top') style.top = 0; else style.bottom = 0;
-            return <div {...rest} style={style} />;
-          }
-          if (position === 'left' || position === 'right') {
-            const style: React.CSSProperties = { ...common, ...((rest as any).style || {}), height: '100%', width: edgeThickness, top: 0, cursor: 'ew-resize' };
-            if (position === 'left') style.left = 0; else style.right = 0;
-            return <div {...rest} style={style} />;
-          }
-          return null;
-        }}
-        onResize={(evt, params) => {
-          rf.setNodes(ns => ns.map(n => n.id === id ? {
-            ...n,
-            data: { ...n.data, boxW: params.width, boxH: params.height }
-          } : n));
-        }}
-        onResizeEnd={(evt, params) => {
-          // 将节点尺寸持久到 data，保证重渲染后保持
-          rf.setNodes(ns => ns.map(n => n.id === id ? {
-            ...n,
-            data: { ...n.data, boxW: params.width, boxH: params.height }
-          } : n));
-        }}
-      />
+      {lineControlConfigs.map((config) => (
+        <NodeResizeControl
+          key={`line-${config.position}`}
+          position={config.position}
+          variant="line"
+          className="image-node-resize-line"
+          style={config.style}
+          minWidth={MIN_WIDTH}
+          minHeight={MIN_HEIGHT}
+          onResizeStart={handleResizeStart}
+          onResize={handleResize}
+          onResizeEnd={handleResizeEnd}
+        />
+      ))}
+      {handleControlConfigs.map((config) => (
+        <NodeResizeControl
+          key={`handle-${config.position}`}
+          position={config.position}
+          className="image-node-resize-handle"
+          style={config.style}
+          minWidth={MIN_WIDTH}
+          minHeight={MIN_HEIGHT}
+          onResizeStart={handleResizeStart}
+          onResize={handleResize}
+          onResizeEnd={handleResizeEnd}
+        />
+      ))}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ fontWeight: 600 }}>{data.label || 'Image'}</div>
         <div style={{ display: 'flex', gap: 6 }}>

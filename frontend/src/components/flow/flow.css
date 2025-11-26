@@ -17,6 +17,22 @@
   pointer-events: auto;
 }
 
+/* ==================== Image 节点缩放体验 ==================== */
+.flow-image-node {
+  position: relative;
+}
+
+.flow-image-node .image-node-resize-line,
+.flow-image-node .image-node-resize-handle {
+  pointer-events: auto;
+  z-index: 5;
+  background: transparent;
+  border: none;
+  opacity: 0;
+  box-shadow: none;
+  transition: none;
+}
+
 /* 禁用Pane捕获，避免空白区域吞事件 */
 .tanva-flow-overlay .react-flow__pane {
   pointer-events: none !important;
