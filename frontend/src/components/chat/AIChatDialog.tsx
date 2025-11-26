@@ -517,7 +517,6 @@ const AIChatDialog: React.FC = () => {
 
   const handleHistorySurfaceClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (isMaximized) return;
-    if (messages.length === 0) return;
     const target = event.target as HTMLElement | null;
     if (!target) return;
 
@@ -1205,15 +1204,19 @@ const AIChatDialog: React.FC = () => {
 
   // 🔥 修改发送按钮的禁用条件：允许在生成中继续发送（并行模式）
   const canSend = currentInput.trim().length > 0 && !autoOptimizing;
-  const shouldShowHistoryPanel = (showHistory || isMaximized) && (messages.length > 0 || isStreaming);
+  const hasHistoryContent = messages.length > 0 || isStreaming;
+  const shouldShowHistoryPanel = (showHistory || isMaximized) && (hasHistoryContent || showHistory);
   const hasImagePreview = Boolean(
     sourceImageForEditing ||
     sourceImagesForBlending.length > 0 ||
     sourceImageForAnalysis
   );
-  const showHistoryHoverIndicator = !isMaximized && (messages.length > 0 || isStreaming);
+  const showHistoryHoverIndicator = !isMaximized || showHistory;
   const historyHoverIndicatorExpanded = showHistoryHoverIndicator && showHistory;
   const historyHoverIndicatorOffset = historyHoverIndicatorExpanded ? 2 : 4; // px offset relative to card top
+  const historyPanelMinHeight = showHistory && !hasHistoryContent
+    ? (isMaximized ? 'calc(100vh - 300px)' : '320px')
+    : undefined;
 
   // 🔥 计算正在进行的生成任务数量
   const generatingTaskCount = messages.filter(msg =>
@@ -1898,14 +1901,15 @@ const AIChatDialog: React.FC = () => {
                 hasImagePreview ? "mt-2" : "-mt-1",
                 isMaximized ? "max-h-screen" : "max-h-80"
               )}
-              style={{
-                overflowY: 'auto',
-                height: 'auto',
-                maxHeight: isMaximized ? 'calc(100vh - 300px)' : '320px',
-                // 强制细滚动条
-                scrollbarWidth: 'thin',
-                scrollbarColor: 'rgba(156, 163, 175, 0.4) transparent'
-              }}
+            style={{
+              overflowY: 'auto',
+              height: 'auto',
+              maxHeight: isMaximized ? 'calc(100vh - 300px)' : '320px',
+              minHeight: historyPanelMinHeight,
+              // 强制细滚动条
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(156, 163, 175, 0.4) transparent'
+            }}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="space-y-1.5 mr-1 pb-6">
