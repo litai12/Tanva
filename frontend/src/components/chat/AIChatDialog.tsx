@@ -1213,7 +1213,7 @@ const AIChatDialog: React.FC = () => {
   );
   const showHistoryHoverIndicator = !isMaximized || showHistory;
   const historyHoverIndicatorExpanded = showHistoryHoverIndicator && showHistory;
-  const historyHoverIndicatorOffset = historyHoverIndicatorExpanded ? 2 : 4; // px offset relative to card top
+  const historyHoverIndicatorOffset = historyHoverIndicatorExpanded ? 3 : 5; // px offset relative to card top
   const historyPanelMinHeight = showHistory && !hasHistoryContent
     ? (isMaximized ? 'calc(100vh - 300px)' : '320px')
     : undefined;
@@ -1285,7 +1285,7 @@ const AIChatDialog: React.FC = () => {
           >
             <div
               className={cn(
-                "w-12 h-1.5 rounded-full bg-white/95 shadow-md border border-white/80 transition-all duration-200",
+                "w-8 h-1.5 rounded-full bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass transition-all duration-200",
                 historyHoverIndicatorExpanded ? "opacity-90" : "opacity-80"
               )}
             />
