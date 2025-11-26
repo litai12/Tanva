@@ -30,6 +30,7 @@ import type {
   AIProviderOptions,
   SupportedAIProvider,
   MidjourneyMetadata,
+  AIError,
 } from '@/types/ai';
 import type {
   ConversationContext,
@@ -98,6 +99,31 @@ export interface ChatMessage {
   };
 }
 
+const formatMessageContentForLog = (content: string): string => {
+  if (!content) return '';
+  const trimmed = content.trim();
+  const maxLength = 200;
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}...` : trimmed;
+};
+
+const logChatConversationSnapshot = (messages: ChatMessage[]): void => {
+  try {
+    const tail = messages.slice(-8).map((msg) => ({
+      id: msg.id,
+      type: msg.type,
+      provider: msg.provider,
+      content: formatMessageContentForLog(msg.content),
+      expectsImageOutput: msg.expectsImageOutput,
+      stage: msg.generationStatus?.stage,
+      hasImage: Boolean(msg.imageData || msg.imageRemoteUrl || msg.thumbnail),
+      timestamp: toISOString(msg.timestamp),
+    }));
+    console.log(`💬 [AI Chat] 对话内容快照（最近 ${tail.length} 条）`, tail);
+  } catch (error) {
+    console.warn('⚠️ 无法打印AI对话内容:', error);
+  }
+};
+
 type MessageOverride = {
   userMessageId: string;
   aiMessageId: string;
@@ -139,6 +165,7 @@ type AIProviderType = SupportedAIProvider;
 
 const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const GEMINI_PRO_IMAGE_MODEL = 'gemini-3-pro-image-preview';
+const GEMINI_FLASH_IMAGE_MODEL = 'gemini-2.5-flash-image-preview';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_PRO_TEXT_MODEL = 'gemini-3-pro-preview';
 const BANANA_TEXT_MODEL = 'banana-gemini-3-pro-preview';
@@ -196,6 +223,33 @@ const normalizeUrlCandidate = (value: string): string => {
     .trim()
     .replace(/^["'`]+|["'`]+$/g, '')
     .replace(/[,.;)\]\s]+$/g, '');
+};
+
+const GEMINI_FALLBACK_PROVIDERS: AIProviderType[] = ['gemini', 'gemini-pro'];
+
+const isQuotaOrRateLimitError = (error?: AIError | null): boolean => {
+  if (!error) return false;
+  const code = (error.code || '').toLowerCase();
+  const message = (error.message || '').toLowerCase();
+  if (code.includes('429') || code.includes('rate') || code.includes('quota')) {
+    return true;
+  }
+  return (
+    message.includes('quota') ||
+    message.includes('rate limit') ||
+    message.includes('resource_exhausted') ||
+    message.includes('429')
+  );
+};
+
+const shouldFallbackToGeminiFlash = (
+  provider: AIProviderType,
+  model: string,
+  error?: AIError | null
+): boolean => {
+  if (!GEMINI_FALLBACK_PROVIDERS.includes(provider)) return false;
+  if (model !== GEMINI_PRO_IMAGE_MODEL) return false;
+  return isQuotaOrRateLimitError(error);
 };
 
 const isLikelyVideoUrl = (url: string): boolean => {
@@ -2508,10 +2562,10 @@ export const useAIChatStore = create<AIChatState>()(
         });
       }
 
-      const result = await editImageViaAPI({
+      const buildEditRequest = (model: string) => ({
         prompt,
         sourceImage: normalizedSourceImage,
-        model: modelToUse,
+        model,
         aiProvider: state.aiProvider,
         providerOptions,
         outputFormat: 'png',
@@ -2521,9 +2575,37 @@ export const useAIChatStore = create<AIChatState>()(
         imageOnly: state.imageOnly
       });
 
+      let result = await editImageViaAPI(buildEditRequest(modelToUse));
+
       clearInterval(progressInterval);
 
       logProcessStep(metrics, 'editImage API response received');
+
+      if (!result.success && shouldFallbackToGeminiFlash(state.aiProvider, modelToUse, result.error)) {
+        console.warn('⚠️ Gemini Pro 编辑失败，准备自动降级到 Gemini 2.5 Flash 模型', {
+          errorCode: result.error?.code,
+          errorMessage: result.error?.message
+        });
+        logProcessStep(metrics, 'editImage fallback triggered');
+
+        const currentMessage = get().messages.find((m) => m.id === aiMessageId);
+        const currentProgress = currentMessage?.generationStatus?.progress ?? 35;
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: true,
+          progress: Math.max(currentProgress, 35),
+          error: null,
+          stage: '降级 Gemini 2.5 Flash'
+        });
+
+        result = await editImageViaAPI(buildEditRequest(GEMINI_FLASH_IMAGE_MODEL));
+        logProcessStep(metrics, 'editImage fallback response received');
+
+        if (result.success) {
+          console.log('✅ 已切换到 Gemini 2.5 Flash 图像模型并重新执行编辑');
+        } else {
+          console.error('❌ Gemini 2.5 Flash 降级编辑仍然失败:', result.error);
+        }
+      }
 
       if (result.success && result.data) {
         const imageRemoteUrl = getResultImageRemoteUrl(result.data);
@@ -4385,3 +4467,23 @@ export const useAIChatStore = create<AIChatState>()(
     }
   )
 );
+
+if (typeof window !== 'undefined') {
+  try {
+    useAIChatStore.subscribe(
+      (state) => state.messages,
+      (messages, previous) => {
+        if (messages === previous) return;
+        logChatConversationSnapshot(messages);
+      }
+    );
+
+    (window as any).tanvaDebugConversation = () => {
+      const messages = useAIChatStore.getState().messages;
+      logChatConversationSnapshot(messages);
+      return messages;
+    };
+  } catch (error) {
+    console.warn('⚠️ 初始化AI对话调试订阅失败:', error);
+  }
+}

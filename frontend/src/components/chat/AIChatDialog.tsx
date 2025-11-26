@@ -1211,6 +1211,9 @@ const AIChatDialog: React.FC = () => {
     sourceImagesForBlending.length > 0 ||
     sourceImageForAnalysis
   );
+  const showHistoryHoverIndicator = !isMaximized && (messages.length > 0 || isStreaming);
+  const historyHoverIndicatorExpanded = showHistoryHoverIndicator && showHistory;
+  const historyHoverIndicatorOffset = historyHoverIndicatorExpanded ? 2 : 4; // px offset relative to card top
 
   // 🔥 计算正在进行的生成任务数量
   const generatingTaskCount = messages.filter(msg =>
@@ -1263,13 +1266,28 @@ const AIChatDialog: React.FC = () => {
         ref={dialogRef}
         data-prevent-add-panel
         className={cn(
-          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out relative overflow-visible",
+          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 ease-out relative overflow-visible group",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl"
         )}
         onClick={handleHistorySurfaceClick}
         onDoubleClick={handleOuterDoubleClick}
         onDoubleClickCapture={handleDoubleClickCapture}
       >
+        {showHistoryHoverIndicator && (
+          <div
+            className={cn(
+              "pointer-events-none absolute left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-150"
+            )}
+            style={{ top: historyHoverIndicatorOffset }}
+          >
+            <div
+              className={cn(
+                "w-12 h-1.5 rounded-full bg-white/95 shadow-md border border-white/80 transition-all duration-200",
+                historyHoverIndicatorExpanded ? "opacity-90" : "opacity-80"
+              )}
+            />
+          </div>
+        )}
         {showAura && (
           <div
             aria-hidden="true"

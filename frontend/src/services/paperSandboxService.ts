@@ -243,11 +243,13 @@ export const paperSandboxService = {
       return capsule;
     };
 
-    // 扩展 Path 对象，添加 Capsule 静态方法
-    const PathWithCapsule = {
-      ...paper.Path,
-      Capsule: createCapsule,
+    // 扩展 Path 对象，添加 Capsule 静态方法，同时保持原始构造函数行为
+    const PathWithCapsule = paper.Path as typeof paper.Path & {
+      Capsule?: typeof createCapsule;
     };
+
+    // 覆盖一次即可，重复赋值也不会有副作用
+    PathWithCapsule.Capsule = createCapsule;
 
     const sandboxContext = {
       paper,

@@ -14,7 +14,16 @@
     "category": "摄影",
     "description": "文本提示生成狗狗（仅生成节点示例）",
     "tags": ["basic", "generate", "dog"],
-    "thumbnail": "/templates/thumbs/basic-dog.svg",
+    "thumbnail": "/templates/thumbs/basic-dog.png",
     "path": "/templates/core/basic-dog.json"
+  },
+  {
+    "id": "video-hotel",
+    "name": "Hotel Video: Storyboard → Sora2",
+    "category": "其他",
+    "description": "酒店场景视频生成流程：文本提示 → AI聊天生成分镜脚本 → 图像生成 → 分析优化 → Sora2视频生成",
+    "tags": ["video", "sora2", "storyboard", "hotel", "ai-chat"],
+    "thumbnail": "/templates/thumbs/video-hotel.png",
+    "path": "/templates/core/video-hotel.json"
   }
 ]
