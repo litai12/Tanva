@@ -265,6 +265,12 @@ const AIChatDialog: React.FC = () => {
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [autoOptimizeEnabled, setAutoOptimizeEnabled] = useState(false);
+  // 拖拽状态
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; elemX: number; elemY: number } | null>(null);
+  // 标记是否发生过实际拖拽移动，用于阻止拖拽结束后触发点击事件
+  const hasDraggedRef = useRef(false);
   const [autoOptimizing, setAutoOptimizing] = useState(false);
   const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
   const [isPromptPanelOpen, setIsPromptPanelOpen] = useState(false);
@@ -361,14 +367,125 @@ const AIChatDialog: React.FC = () => {
     };
   }, []);
 
-  // 对话框关闭时重置手动关闭标志
+  // 对话框关闭时重置手动关闭标志和拖拽位置
   useEffect(() => {
     if (!isVisible) {
       setManuallyClosedHistory(false);
       setShowHistory(false);
       setIsPromptPanelOpen(false);
+      setDragPosition(null); // 关闭时重置拖拽位置
     }
   }, [isVisible]);
+
+  // 历史面板关闭时重置拖拽位置
+  useEffect(() => {
+    if (!showHistory && !isMaximized) {
+      setDragPosition(null);
+    }
+  }, [showHistory, isMaximized]);
+
+  // 拖拽处理函数 - 在历史面板的空白区域都可以拖拽
+  const handleDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // 只有在历史面板打开且非最大化时才允许拖拽
+    if (!showHistory || isMaximized) return;
+
+    // 检查是否点击在交互元素上（不允许从这些元素开始拖拽）
+    const target = e.target as HTMLElement;
+    const isInteractive = target.closest(
+      'textarea, input, button, a, label, select, [role="button"], img, video, [data-history-ignore-toggle]'
+    );
+    if (isInteractive) return;
+
+    // 检查是否在历史面板区域内（包括顶部边缘和空白区域）
+    const historyPanel = historyRef.current;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const dialogRect = dialog.getBoundingClientRect();
+    const clickY = e.clientY;
+    const clickX = e.clientX;
+
+    // 允许拖拽的区域：
+    // 1. 对话框顶部边缘区域（24px）
+    // 2. 历史面板内的空白区域
+    const isInTopEdge = clickY <= dialogRect.top + 24;
+    const isInHistoryPanel = historyPanel && historyPanel.contains(target);
+
+    if (!isInTopEdge && !isInHistoryPanel) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+
+    // 如果已有拖拽位置，使用它；否则使用当前元素位置
+    const currentX = dragPosition?.x ?? rect.left;
+    const currentY = dragPosition?.y ?? rect.top;
+
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      elemX: currentX,
+      elemY: currentY
+    };
+    hasDraggedRef.current = false;
+    setIsDragging(true);
+  }, [showHistory, isMaximized, dragPosition]);
+
+  // 拖拽移动和结束处理
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return;
+
+      const deltaX = e.clientX - dragStartRef.current.mouseX;
+      const deltaY = e.clientY - dragStartRef.current.mouseY;
+
+      // 只有移动超过 3px 才算真正拖拽
+      if (!hasDraggedRef.current && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
+        hasDraggedRef.current = true;
+      }
+
+      if (!hasDraggedRef.current) return;
+
+      let newX = dragStartRef.current.elemX + deltaX;
+      let newY = dragStartRef.current.elemY + deltaY;
+
+      // 边界检查
+      const container = containerRef.current;
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        const maxX = window.innerWidth - rect.width;
+        const maxY = window.innerHeight - rect.height;
+
+        newX = Math.max(0, Math.min(newX, maxX));
+        newY = Math.max(0, Math.min(newY, maxY));
+      }
+
+      setDragPosition({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragStartRef.current = null;
+      // 拖拽后短暂延迟重置标记，阻止后续点击事件
+      setTimeout(() => {
+        hasDraggedRef.current = false;
+      }, 100);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
   useEffect(() => {
     if (!currentInput && textareaRef.current) {
       textareaRef.current.scrollTop = 0;
@@ -516,6 +633,8 @@ const AIChatDialog: React.FC = () => {
   };
 
   const handleHistorySurfaceClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    // 如果刚刚拖拽过，不触发点击事件
+    if (hasDraggedRef.current) return;
     if (isMaximized) return;
     const target = event.target as HTMLElement | null;
     if (!target) return;
@@ -1047,6 +1166,8 @@ const AIChatDialog: React.FC = () => {
 
   // 外圈双击放大/缩小：只有点击非内容区域（padding、外框）时生效
   const handleOuterDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // 如果刚刚拖拽过，不触发双击事件
+    if (hasDraggedRef.current) return;
     const x = e.clientX, y = e.clientY;
     const card = dialogRef.current;
     const content = contentRef.current;
@@ -1083,6 +1204,12 @@ const AIChatDialog: React.FC = () => {
 
   // 捕获阶段拦截双击：只执行对话框放大/缩小，并阻止事件继续到画布
   const handleDoubleClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    // 如果刚刚拖拽过，不触发双击事件
+    if (hasDraggedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (historySingleClickTimerRef.current) {
       window.clearTimeout(historySingleClickTimerRef.current);
       historySingleClickTimerRef.current = null;
@@ -1105,10 +1232,12 @@ const AIChatDialog: React.FC = () => {
     suppressHistoryClickRef.current = false;
   };
 
-  // 全局兜底：允许在卡片外侧“环形区域”双击触发（更灵敏）
+  // 全局兜底：允许在卡片外侧"环形区域"双击触发（更灵敏）
   // 注意：Hook 需在任何 early return 之前声明，避免 Hook 次序不一致
   useEffect(() => {
     const onDbl = (ev: MouseEvent) => {
+      // 如果刚刚拖拽过，不触发双击事件
+      if (hasDraggedRef.current) return;
       const card = dialogRef.current;
       if (!card) return;
       const isCurrentlyMaximized = isMaximizedRef.current;
@@ -1150,7 +1279,7 @@ const AIChatDialog: React.FC = () => {
     return () => window.removeEventListener('dblclick', onDbl, true);
   }, []);
 
-  // 根据鼠标位置动态设置光标（zoom-in / zoom-out），明确可触发切换的区域
+  // 根据鼠标位置动态设置光标（zoom-in / zoom-out / move），明确可触发切换或拖拽的区域
   // 放在 early return 之前，避免 Hook 顺序问题
   useEffect(() => {
     const onMove = (ev: MouseEvent) => {
@@ -1167,22 +1296,40 @@ const AIChatDialog: React.FC = () => {
       const target = ev.target as HTMLElement;
       const interactive = !!target?.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
 
+      // 检查是否在历史面板区域（可拖拽区域）
+      const historyPanel = historyRef.current;
+      const isInHistoryPanel = historyPanel && historyPanel.contains(target);
+      const isInDragZone = showHistory && !isMaximized && !interactive && (inTopBand || isInHistoryPanel);
+
       let should = false;
       if (insideCard) {
         if (!insideContent) should = true; // 卡片padding/边框
         else if (!interactive && (isMaximized || inTopBand || inInnerEdgeBand)) should = true;
       }
       setHoverToggleZone(should);
-      cont.style.cursor = should ? (isMaximized ? 'zoom-out' : 'zoom-in') : '';
+
+      // 拖拽优先级高于缩放
+      if (isInDragZone) {
+        cont.style.cursor = 'move';
+      } else if (should) {
+        cont.style.cursor = isMaximized ? 'zoom-out' : 'zoom-in';
+      } else {
+        cont.style.cursor = '';
+      }
     };
     window.addEventListener('mousemove', onMove, true);
     return () => window.removeEventListener('mousemove', onMove, true);
-  }, [isMaximized]);
+  }, [isMaximized, showHistory]);
 
   // 捕获阶段拦截双击，避免触发 Flow 节点面板；并在非交互控件下切换大小
   // 放在 early return 之前，避免 Hook 顺序问题
   useEffect(() => {
     const handler = (ev: MouseEvent) => {
+      // 如果刚刚拖拽过，不触发双击事件
+      if (hasDraggedRef.current) {
+        ev.stopPropagation();
+        return;
+      }
       const target = ev.target as HTMLElement;
       const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
       if (interactive) {
@@ -1250,18 +1397,31 @@ const AIChatDialog: React.FC = () => {
     };
   }, [hasActiveAura]);
 
+  // 计算拖拽时是否使用自定义位置
+  const useDragPosition = showHistory && !isMaximized && dragPosition !== null;
+
   return (
     <div
       ref={containerRef}
       data-prevent-add-panel
       aria-hidden={focusMode}
       className={cn(
-        "fixed z-50 transition-all duration-300 ease-out",
+        "fixed z-50 transition-all ease-out",
         isMaximized
           ? "top-32 left-16 right-16 bottom-4"
-          : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",
+          : useDragPosition
+            ? "w-full max-w-2xl px-4"
+            : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",
+        !isDragging && "duration-300",
+        isDragging && "duration-0",
         focusMode && "hidden"
       )}
+      style={useDragPosition ? {
+        left: dragPosition.x,
+        top: dragPosition.y,
+        transform: 'none'
+      } : undefined}
+      onMouseDown={handleDragStart}
       onDoubleClick={handleOuterDoubleClick}
       onDoubleClickCapture={handleDoubleClickCapture}
     >
