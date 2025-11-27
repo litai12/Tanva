@@ -21,7 +21,7 @@ import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode, ChatMessage } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -945,6 +945,133 @@ const AIChatDialog: React.FC = () => {
       setSourceImageForEditing
     ]
   );
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    if (typeof window === 'undefined') {
+      if (type === 'error') {
+        console.error(message);
+      } else {
+        console.log(message);
+      }
+      return;
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message, type } }));
+    } catch (error) {
+      if (type === 'error') {
+        alert(message);
+      } else {
+        console.log(message);
+      }
+    }
+  }, []);
+
+  const handleCopyMessage = useCallback(async (message: ChatMessage) => {
+    const text = message.content?.trim();
+    if (!text) {
+      showToast('没有可复制的内容', 'error');
+      return;
+    }
+    try {
+      const canUseClipboardAPI = typeof navigator !== 'undefined' && Boolean(navigator?.clipboard?.writeText);
+      if (canUseClipboardAPI) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      showToast('已复制消息内容');
+    } catch (error) {
+      console.error('复制消息失败', error);
+      showToast('复制失败，请手动复制', 'error');
+    }
+  }, [showToast]);
+
+  const handleResendMessage = useCallback((message: ChatMessage, resendInfo: ResendInfo | null) => {
+    if (resendInfo) {
+      handleResendFromInfo(resendInfo);
+      showToast('已将内容填回输入框，请手动发送');
+      return;
+    }
+
+    const content = (message.content || '').trim();
+    clearImagesForBlending();
+    setSourceImageForEditing(null);
+    setSourceImageForAnalysis(null);
+
+    if (message.sourceImagesData && message.sourceImagesData.length > 0) {
+      message.sourceImagesData.forEach((imageData) => {
+        if (imageData) addImageForBlending(imageData);
+      });
+    } else if (message.sourceImageData) {
+      if (content.startsWith('分析图片')) {
+        setSourceImageForAnalysis(message.sourceImageData);
+      } else {
+        setSourceImageForEditing(message.sourceImageData);
+      }
+    }
+
+    setCurrentInput(message.content || '');
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+    showToast('已将内容填回输入框，请手动发送');
+  }, [
+    addImageForBlending,
+    clearImagesForBlending,
+    handleResendFromInfo,
+    setCurrentInput,
+    setSourceImageForAnalysis,
+    setSourceImageForEditing,
+    showToast
+  ]);
+
+  const renderUserMessageActions = (message: ChatMessage, resendInfo: ResendInfo | null) => {
+    if (message.type !== 'user') return null;
+    const hasText = Boolean(message.content && message.content.trim().length > 0);
+    return (
+      <div className="mt-2 flex items-center justify-end gap-2 text-[11px] text-gray-500">
+        <button
+          type="button"
+          disabled={!hasText}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white/90 px-2.5 py-1 font-medium transition-colors hover:bg-gray-50 hover:text-gray-700",
+            !hasText && "opacity-60 cursor-not-allowed hover:bg-white/90"
+          )}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hasText) {
+              void handleCopyMessage(message);
+            }
+          }}
+          title={hasText ? '复制这条消息内容' : '暂无可复制的文本'}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          <span>复制</span>
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white/95 px-2.5 py-1 font-medium text-blue-600 shadow-sm transition-colors hover:bg-blue-50 hover:text-blue-700"
+          onClick={(event) => {
+            event.stopPropagation();
+            handleResendMessage(message, resendInfo);
+          }}
+          title="将内容重新填入输入框"
+        >
+          <History className="h-3.5 w-3.5" />
+          <span>重新发送</span>
+        </button>
+      </div>
+    );
+  };
 
   const startPromptButtonLongPress = () => {
     if (longPressTimerRef.current) {
@@ -2349,26 +2476,7 @@ const AIChatDialog: React.FC = () => {
                     </div>
                   ) : null;
                   const resendInfo = getResendInfoFromMessage(message);
-                  const renderResendActionButton = (extraClassName?: string) => {
-                    if (!resendInfo) return null;
-                    return (
-                      <button
-                        type="button"
-                        className={cn(
-                          "absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white/95 px-3 py-1 text-xs font-medium text-blue-600 shadow-sm transition-colors hover:bg-blue-50 hover:text-blue-700",
-                          extraClassName
-                        )}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleResendFromInfo(resendInfo);
-                        }}
-                        title="重新将这条提示和图片填入输入框"
-                      >
-                        <History className="h-3 w-3" />
-                        <span>重新发送</span>
-                      </button>
-                    );
-                  };
+                  const userActionButtons = renderUserMessageActions(message, resendInfo);
                   return (
                     <div
                       key={message.id}
@@ -2646,8 +2754,7 @@ const AIChatDialog: React.FC = () => {
                           className={cn(
                             "relative inline-block rounded-lg p-3",
                             message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                            message.type !== 'user' && "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass",
-                            resendInfo && "pr-16 pb-8"
+                            message.type !== 'user' && "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
                           )}
                         >
                           <div className="flex gap-3 items-start">
@@ -2723,7 +2830,7 @@ const AIChatDialog: React.FC = () => {
                                   {message.content}
                                 </ReactMarkdown>
                               </div>
-                              {renderResendActionButton()}
+                              {userActionButtons}
                             </div>
                           </div>
                         </div>
@@ -2737,8 +2844,7 @@ const AIChatDialog: React.FC = () => {
                       ) : (
                         <div className={cn(
                           "relative text-sm text-black markdown-content leading-relaxed",
-                          message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block",
-                          resendInfo && "pr-16 pb-8"
+                          message.type === 'user' && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
                         )}>
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
@@ -2764,7 +2870,7 @@ const AIChatDialog: React.FC = () => {
                           >
                             {message.content}
                           </ReactMarkdown>
-                          {renderResendActionButton()}
+                          {userActionButtons}
                         </div>
                       )
                     )}
