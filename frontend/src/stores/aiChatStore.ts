@@ -184,7 +184,7 @@ const SORA2_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
 const SORA2_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
 const SORA2_ASYNC_HOST_HINTS = ['asyncdata.', 'asyncndata.'];
 const SORA2_MAX_FOLLOW_DEPTH = 2;
-const SORA2_FETCH_TIMEOUT_MS = 8000;
+const SORA2_FETCH_TIMEOUT_MS = 60000; // 60秒，延长超时时间以支持Sora 2 pro视频生成
 const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
 const SORA2_MAX_RETRY = 3;
 const SORA2_RETRY_BASE_DELAY_MS = 1200;
@@ -776,6 +776,22 @@ async function generateVideoResponse(
       const videoUrl = resolved.videoUrl;
 
       if (!videoUrl) {
+        // 如果返回了任务信息但没有视频 URL，可能是任务还在处理中
+        const hasTaskInfo = resolved.taskInfo && Object.keys(resolved.taskInfo).length > 0;
+        const hasTaskId = !!resolved.taskId;
+        const hasDuration = resolved.taskInfo?.duration;
+        
+        if (hasTaskInfo || hasTaskId) {
+          const statusMsg = resolved.status ? `状态: ${resolved.status}` : '状态未知';
+          const durationMsg = hasDuration ? `，视频时长: ${hasDuration}秒` : '';
+          throw new Error(
+            `视频生成任务已创建，但视频还在处理中\n\n` +
+            `任务 ID: ${resolved.taskId || 'unknown'}\n` +
+            `${statusMsg}${durationMsg}\n\n` +
+            `请稍后重试或查看任务状态`
+          );
+        }
+
         console.error('❌ 未找到视频 URL，原始响应:', rawContent);
         const urlPreview = resolved.referencedUrls.slice(0, 5).map((url) => `- ${url}`).join('\n') || '无';
         throw new Error(
