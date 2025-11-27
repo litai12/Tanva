@@ -56,12 +56,19 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const [manualInput, setManualInput] = React.useState<string>(data.manualInput || '');
   const [isInvoking, setIsInvoking] = React.useState(false);
   const [hover, setHover] = React.useState<string | null>(null);
+  const isComposingRef = React.useRef(false);
 
   React.useEffect(() => {
-    if ((data.manualInput || '') !== manualInput) {
-      setManualInput(data.manualInput || '');
-    }
-  }, [data.manualInput, manualInput]);
+    if (isComposingRef.current) return;
+    const next = data.manualInput || '';
+    setManualInput((prev) => (prev === next ? prev : next));
+  }, [data.manualInput]);
+
+  const commitManualInput = React.useCallback((value: string) => {
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { manualInput: value } }
+    }));
+  }, [id]);
 
   const status: TextChatStatus = data.status || 'idle';
   const responseText = data.responseText || '';
@@ -131,10 +138,21 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   const onManualInputChange = React.useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;
     setManualInput(value);
-    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-      detail: { id, patch: { manualInput: value } }
-    }));
-  }, [id]);
+    if (!isComposingRef.current) {
+      commitManualInput(value);
+    }
+  }, [commitManualInput]);
+
+  const handleCompositionStart = React.useCallback(() => {
+    isComposingRef.current = true;
+  }, []);
+
+  const handleCompositionEnd = React.useCallback((event: React.CompositionEvent<HTMLTextAreaElement>) => {
+    isComposingRef.current = false;
+    const value = event.currentTarget.value;
+    setManualInput(value);
+    commitManualInput(value);
+  }, [commitManualInput]);
 
   const toggleWebSearch = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -263,6 +281,8 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           <textarea
             value={manualInput}
             onChange={onManualInputChange}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             placeholder="输入附加提示信息"
             style={{
               width: '100%',
