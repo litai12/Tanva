@@ -20,6 +20,7 @@ import {
 import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 import type { ManualAIMode, ChatMessage } from '@/stores/aiChatStore';
 import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -156,6 +157,67 @@ const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({ butto
 
 const HISTORY_DEFAULT_MIN_HEIGHT = 320;
 
+type ChatDialogLayout = {
+  dragOffsetX: number | null;
+  customHeight: number | null;
+};
+
+const CHAT_DIALOG_LAYOUT_KEY = 'ai-chat-dialog-layout-v1';
+
+const sanitizeLayoutNumber = (value: unknown, options?: { min?: number; max?: number }) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  let next = Math.round(value);
+  if (typeof options?.min === 'number') next = Math.max(options.min, next);
+  if (typeof options?.max === 'number') next = Math.min(options.max, next);
+  return next;
+};
+
+const readChatLayoutMap = (): Record<string, ChatDialogLayout> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage?.getItem(CHAT_DIALOG_LAYOUT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    try { console.warn('[AIChatDialog] Failed to parse layout cache:', error); } catch {}
+    return {};
+  }
+};
+
+const getStoredChatLayout = (projectId: string): ChatDialogLayout => {
+  const map = readChatLayoutMap();
+  const entry = map?.[projectId];
+  return {
+    dragOffsetX: sanitizeLayoutNumber(entry?.dragOffsetX, { min: 0 }),
+    customHeight: sanitizeLayoutNumber(entry?.customHeight, { min: HISTORY_DEFAULT_MIN_HEIGHT })
+  };
+};
+
+const saveChatLayoutMap = (map: Record<string, ChatDialogLayout>) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage?.setItem(CHAT_DIALOG_LAYOUT_KEY, JSON.stringify(map));
+  } catch (error) {
+    try { console.warn('[AIChatDialog] Failed to persist layout cache:', error); } catch {}
+  }
+};
+
+const persistChatLayoutForProject = (projectId: string, layout: ChatDialogLayout) => {
+  if (!projectId) return;
+  const map = readChatLayoutMap();
+  const normalized: ChatDialogLayout = {
+    dragOffsetX: sanitizeLayoutNumber(layout.dragOffsetX, { min: 0 }),
+    customHeight: sanitizeLayoutNumber(layout.customHeight, { min: HISTORY_DEFAULT_MIN_HEIGHT })
+  };
+  if (normalized.dragOffsetX === null && normalized.customHeight === null) {
+    if (map[projectId]) delete map[projectId];
+  } else {
+    map[projectId] = normalized;
+  }
+  saveChatLayoutMap(map);
+};
+
 type ResendInfo =
   | { type: 'edit'; prompt: string; sourceImage: string }
   | { type: 'blend'; prompt: string; sourceImages: string[] };
@@ -236,6 +298,7 @@ const AIChatDialog: React.FC = () => {
     executeMidjourneyAction
   } = useAIChatStore();
   const focusMode = useUIStore(state => state.focusMode);
+  const projectId = useProjectContentStore((state) => state.projectId);
 
   // 监听aiProvider变化并打印日志
   React.useEffect(() => {
@@ -280,6 +343,28 @@ const AIChatDialog: React.FC = () => {
   const [customHeight, setCustomHeight] = useState<number | null>(null);
   const resizeStartRef = useRef<{ mouseY: number; startHeight: number } | null>(null);
   const resizeBottomGapRef = useRef(0);
+  const latestDragOffsetRef = useRef<number | null>(null);
+  const latestCustomHeightRef = useRef<number | null>(null);
+  const setDialogDragOffset = useCallback((value: number | null) => {
+    latestDragOffsetRef.current = value;
+    setDragOffsetX(value);
+  }, [setDragOffsetX]);
+  const setDialogCustomHeight = useCallback((value: number | null) => {
+    latestCustomHeightRef.current = value;
+    setCustomHeight(value);
+  }, [setCustomHeight]);
+  const persistLayout = useCallback((override?: Partial<ChatDialogLayout>) => {
+    if (!projectId) return;
+    const snapshot: ChatDialogLayout = {
+      dragOffsetX: override && Object.prototype.hasOwnProperty.call(override, 'dragOffsetX')
+        ? override.dragOffsetX ?? null
+        : (latestDragOffsetRef.current ?? null),
+      customHeight: override && Object.prototype.hasOwnProperty.call(override, 'customHeight')
+        ? override.customHeight ?? null
+        : (latestCustomHeightRef.current ?? null)
+    };
+    persistChatLayoutForProject(projectId, snapshot);
+  }, [projectId]);
   const [autoOptimizing, setAutoOptimizing] = useState(false);
   const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
   const [isPromptPanelOpen, setIsPromptPanelOpen] = useState(false);
@@ -387,20 +472,30 @@ const AIChatDialog: React.FC = () => {
       setManuallyClosedHistory(false);
       setShowHistory(false);
       setIsPromptPanelOpen(false);
-      setDragOffsetX(null); // 关闭时重置拖拽位置
-      setCustomHeight(null); // 关闭时重置自定义高度
       historyInitialHeightRef.current = null;
     }
   }, [isVisible]);
 
-  // 历史面板关闭或最大化时重置拖拽位置和自定义高度
+  // 历史面板关闭或最大化时只重置高度基准测量
   useEffect(() => {
     if (!showHistory || isMaximized) {
-      setDragOffsetX(null);
-      setCustomHeight(null);
       historyInitialHeightRef.current = null;
     }
   }, [showHistory, isMaximized]);
+
+  // 项目切换时恢复该项目下的对话框布局
+  useEffect(() => {
+    if (!projectId) {
+      setDialogDragOffset(null);
+      setDialogCustomHeight(null);
+      historyInitialHeightRef.current = null;
+      return;
+    }
+    const storedLayout = getStoredChatLayout(projectId);
+    setDialogDragOffset(storedLayout.dragOffsetX ?? null);
+    setDialogCustomHeight(storedLayout.customHeight ?? null);
+    historyInitialHeightRef.current = null;
+  }, [projectId, setDialogDragOffset, setDialogCustomHeight]);
 
   useEffect(() => {
     if (!showHistory || isMaximized) return;
@@ -483,16 +578,20 @@ const AIChatDialog: React.FC = () => {
         newX = Math.max(0, Math.min(newX, maxX));
       }
 
-      setDragOffsetX(newX);
+      setDialogDragOffset(newX);
     };
 
     const handleMouseUp = () => {
+      const dragged = hasDraggedRef.current;
       setIsDragging(false);
       dragStartRef.current = null;
       // 拖拽后短暂延迟重置标记，阻止后续点击事件
       setTimeout(() => {
         hasDraggedRef.current = false;
       }, 100);
+      if (dragged) {
+        persistLayout();
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -502,7 +601,7 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging]);
+  }, [isDragging, persistLayout, setDialogDragOffset]);
 
   // 调整高度处理函数 - 在顶部边缘拖拽调整高度
   const handleResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -571,16 +670,20 @@ const AIChatDialog: React.FC = () => {
       const maxHeight = Math.max(minHeight, viewportLimit);
       newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
 
-      setCustomHeight(newHeight);
+      setDialogCustomHeight(newHeight);
     };
 
     const handleMouseUp = () => {
+      const resized = hasDraggedRef.current;
       setIsResizing(false);
       resizeStartRef.current = null;
       // 调整后短暂延迟重置标记，阻止后续点击事件
       setTimeout(() => {
         hasDraggedRef.current = false;
       }, 100);
+      if (resized) {
+        persistLayout();
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -590,7 +693,7 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isResizing]);
+  }, [isResizing, persistLayout, setDialogCustomHeight]);
 
   useEffect(() => {
     if (!currentInput && textareaRef.current) {
@@ -1663,6 +1766,22 @@ const AIChatDialog: React.FC = () => {
 
   // 计算拖拽时是否使用自定义位置
   const useDragPosition = showHistory && !isMaximized && dragOffsetX !== null;
+
+  // 防止窗口尺寸变化导致保存的位置超出视口
+  useLayoutEffect(() => {
+    if (!useDragPosition) return;
+    if (typeof window === 'undefined') return;
+    const container = containerRef.current;
+    if (!container) return;
+    if (dragOffsetX === null) return;
+    const rect = container.getBoundingClientRect();
+    const maxX = Math.max(0, window.innerWidth - rect.width);
+    if (dragOffsetX < 0 || dragOffsetX > maxX) {
+      const clamped = Math.max(0, Math.min(dragOffsetX, maxX));
+      setDialogDragOffset(clamped);
+      persistLayout({ dragOffsetX: clamped });
+    }
+  }, [useDragPosition, dragOffsetX, persistLayout, setDialogDragOffset]);
 
   return (
     <div
