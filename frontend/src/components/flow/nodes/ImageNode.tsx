@@ -115,12 +115,13 @@ const handleControlConfigs = [
 
 type Props = {
   id: string;
-  data: { imageData?: string; label?: string; boxW?: number; boxH?: number };
+  data: { imageData?: string; label?: string; boxW?: number; boxH?: number; imageName?: string };
   selected?: boolean;
 };
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
+const MAX_IMAGE_NAME_LENGTH = 28;
 
 export default function ImageNode({ id, data, selected }: Props) {
   const rf = useReactFlow();
@@ -193,6 +194,27 @@ export default function ImageNode({ id, data, selected }: Props) {
       ),
     [projectHistory],
   );
+  const nodeHistoryEntry = React.useMemo(() => (
+    projectHistory.find((item) => item.nodeId === id)
+  ), [projectHistory, id]);
+  const resolvedImageName = React.useMemo(() => {
+    const direct = typeof data.imageName === 'string' ? data.imageName.trim() : '';
+    if (direct) return direct;
+    const fromCurrent = currentImageId
+      ? allImages.find((item) => item.id === currentImageId)?.title?.trim()
+      : '';
+    if (fromCurrent) return fromCurrent;
+    return nodeHistoryEntry?.title?.trim() || '';
+  }, [data.imageName, currentImageId, allImages, nodeHistoryEntry]);
+  const truncatedImageName = React.useMemo(() => {
+    if (!resolvedImageName) return '';
+    if (resolvedImageName.length > MAX_IMAGE_NAME_LENGTH) {
+      const safeLength = Math.max(0, MAX_IMAGE_NAME_LENGTH - 3);
+      return `${resolvedImageName.slice(0, safeLength)}...`;
+    }
+    return resolvedImageName;
+  }, [resolvedImageName]);
+  const shouldShowImageName = Boolean(data.imageData && truncatedImageName);
   React.useEffect(() => {
     if (!preview) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(false); };
@@ -204,11 +226,13 @@ export default function ImageNode({ id, data, selected }: Props) {
     if (!files || files.length === 0) return;
     const file = files[0];
     if (!file.type.startsWith('image/')) return;
+    const normalizedFileName = (file.name || '').trim();
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
       const base64 = result.includes(',') ? result.split(',')[1] : result;
-      const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: base64 } } });
+      const displayName = normalizedFileName || '未命名图片';
+      const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: base64, imageName: displayName } } });
       window.dispatchEvent(ev);
       
       const newImageId = `${id}-${Date.now()}`;
@@ -216,7 +240,7 @@ export default function ImageNode({ id, data, selected }: Props) {
       void recordImageHistoryEntry({
         id: newImageId,
         base64,
-        title: `Image节点上传 ${new Date().toLocaleTimeString()}`,
+        title: displayName,
         nodeId: id,
         nodeType: 'image',
         fileName: file.name || `flow_image_${newImageId}.png`,
@@ -323,7 +347,7 @@ export default function ImageNode({ id, data, selected }: Props) {
           {data.imageData && (
           <button
             onClick={() => {
-              const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: undefined } } });
+              const ev = new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: undefined, imageName: undefined } } });
               window.dispatchEvent(ev);
               // 同步断开输入连线
               try {
@@ -345,6 +369,22 @@ export default function ImageNode({ id, data, selected }: Props) {
         style={{ display: 'none' }}
         onChange={(e) => handleFiles(e.target.files)}
       />
+
+      {shouldShowImageName && (
+        <div
+          style={{
+            fontSize: 12,
+            color: '#6b7280',
+            marginBottom: 4,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+          title={resolvedImageName}
+        >
+          {truncatedImageName}
+        </div>
+      )}
 
       <div
         onDrop={onDrop}

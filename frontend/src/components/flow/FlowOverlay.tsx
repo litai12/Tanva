@@ -34,6 +34,7 @@ import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import AnalysisNode from './nodes/AnalyzeNode';
 import Sora2VideoNode from './nodes/Sora2VideoNode';
 import TextNoteNode from './nodes/TextNoteNode';
+import StoryboardSplitNode from './nodes/StoryboardSplitNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
@@ -80,6 +81,7 @@ const nodeTypes = {
   camera: CameraNode,
   analysis: AnalysisNode,
   sora2Video: Sora2VideoNode,
+  storyboardSplit: StoryboardSplitNode,
 };
 
 const DEFAULT_REFERENCE_PROMPT = '请参考第二张图的内容';
@@ -1282,7 +1284,7 @@ function FlowInner() {
     return () => window.removeEventListener('click', onNativeClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
@@ -1297,6 +1299,7 @@ function FlowInner() {
       camera: { w: 260, h: 220 },
       analysis: { w: 260, h: 280 },
       sora2Video: { w: 280, h: 260 },
+      storyboardSplit: { w: 320, h: 400 },
     }[type];
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -1310,6 +1313,7 @@ function FlowInner() {
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, videoQuality: DEFAULT_SORA2_VIDEO_QUALITY, videoVersion: 0, history: [], boxW: size.w, boxH: size.h }
+      : type === 'storyboardSplit' ? { status: 'idle' as const, inputText: '', segments: [], outputCount: 9, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
     try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
@@ -1317,7 +1321,7 @@ function FlowInner() {
     return id;
   }, [setNodes]);
 
-  const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote'], []);
+  const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote','storyboardSplit'], []);
   const isTextHandle = React.useCallback((handle?: string | null) => typeof handle === 'string' && handle.startsWith('text'), []);
 
   const appendSora2History = React.useCallback((
@@ -1385,6 +1389,10 @@ function FlowInner() {
       if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
       return false;
     }
+    if (targetNode.type === 'storyboardSplit') {
+      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
+      return false;
+    }
     return false;
   }, [rf, isTextHandle, textSourceTypes]);
 
@@ -1426,6 +1434,9 @@ function FlowInner() {
     if (targetNode?.type === 'textChat') {
       if (isTextHandle(params.targetHandle)) return true;
     }
+    if (targetNode?.type === 'storyboardSplit') {
+      if (isTextHandle(params.targetHandle)) return true;
+    }
     return false;
   }, [rf, isTextHandle]);
 
@@ -1443,7 +1454,7 @@ function FlowInner() {
       }
       
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video')) && isTextHandle(params.targetHandle)) {
+      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video') || (tgt?.type === 'storyboardSplit')) && isTextHandle(params.targetHandle)) {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       if ((tgt?.type === 'sora2Video') && params.targetHandle === 'image') {
@@ -1469,25 +1480,43 @@ function FlowInner() {
       if ((target?.type === 'image' || target?.type === 'analysis') && params.targetHandle === 'img' && params.source) {
         const src = rf.getNode(params.source);
         let img: string | undefined;
+        let incomingImageName: string | undefined;
         if (src?.type === 'generate4') {
           const handle = (params as any).sourceHandle as string | undefined;
           const idx = handle && handle.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
           const imgs = (src.data as any)?.images as string[] | undefined;
           img = imgs?.[idx];
+          const imageNames = (src.data as any)?.imageNames as string[] | undefined;
+          if (Array.isArray(imageNames)) {
+            incomingImageName = imageNames[idx];
+          }
           if (!img) {
             // 回退到 imageData（若实现了镜像）
             img = (src.data as any)?.imageData;
+            incomingImageName = incomingImageName ?? (src.data as any)?.imageName;
           }
         } else {
           img = (src?.data as any)?.imageData;
+          incomingImageName = (src?.data as any)?.imageName;
         }
+        const normalizedIncomingName = typeof incomingImageName === 'string'
+          ? incomingImageName.trim()
+          : '';
         if (img) {
           setNodes(ns => ns.map(n => {
             if (n.id !== target.id) return n;
             const resetStatus = target.type === 'analysis'
               ? { status: 'idle', error: undefined, prompt: '', text: '' }
               : {};
-            return { ...n, data: { ...n.data, imageData: img, ...resetStatus } };
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                imageData: img,
+                imageName: normalizedIncomingName || undefined,
+                ...resetStatus
+              }
+            };
           }));
         }
       }
@@ -1499,7 +1528,15 @@ function FlowInner() {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { id: string; patch: Record<string, any> };
       if (!detail?.id) return;
-      setNodes((ns) => ns.map((n) => n.id === detail.id ? { ...n, data: { ...n.data, ...detail.patch } } : n));
+      setNodes((ns) => ns.map((n) => {
+        if (n.id !== detail.id) return n;
+        const patch = { ...(detail.patch || {}) };
+        if (Object.prototype.hasOwnProperty.call(patch, 'imageData') &&
+            !Object.prototype.hasOwnProperty.call(patch, 'imageName')) {
+          patch.imageName = undefined;
+        }
+        return { ...n, data: { ...n.data, ...patch } };
+      }));
       // 若目标是 Image 且设置了 imageData 为空，自动断开输入连线
       if (Object.prototype.hasOwnProperty.call(detail.patch, 'imageData') && !detail.patch.imageData) {
         setEdges(eds => eds.filter(e => !(e.target === detail.id && e.targetHandle === 'img')));
@@ -1511,9 +1548,9 @@ function FlowInner() {
 
   React.useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent).detail as { imageData?: string; label?: string };
+      const detail = (event as CustomEvent).detail as { imageData?: string; label?: string; imageName?: string };
       if (!detail?.imageData) return;
-
+      const normalizedImageName = detail.imageName?.trim();
       const rect = containerRef.current?.getBoundingClientRect();
       const screenPosition = {
         x: (rect?.width || window.innerWidth) / 2 + (Math.random() * 120 - 60),
@@ -1528,6 +1565,7 @@ function FlowInner() {
         data: {
           imageData: detail.imageData,
           label: detail.label || 'Image',
+          imageName: normalizedImageName || undefined,
           boxW: 260,
           boxH: 240,
         },
@@ -2843,6 +2881,39 @@ function FlowInner() {
                 >
                   <span>Shot Node</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>截图</span>
+                </button>
+                <button
+                  onClick={() => createNodeAtWorldCenter('storyboardSplit', addPanel.world)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    padding: '12px 16px',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Storyboard Split</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>分镜拆分</span>
                 </button>
                 </div>
               </div>

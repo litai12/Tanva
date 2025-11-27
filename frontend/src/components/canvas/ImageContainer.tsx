@@ -492,7 +492,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       window.dispatchEvent(new CustomEvent('flow:createImageNode', {
         detail: {
           imageData: base64,
-          label: 'Image'
+          label: 'Image',
+          imageName: imageData.fileName || `图片 ${imageData.id}`
         }
       }));
       console.log('🧩 已请求创建Flow Image节点');
