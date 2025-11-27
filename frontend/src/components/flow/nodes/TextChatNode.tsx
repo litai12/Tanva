@@ -16,9 +16,15 @@ type Props = {
     lastPrompt?: string;
     boxW?: number;
     boxH?: number;
+    sizeVersion?: number;
   };
   selected?: boolean;
 };
+
+const TEXT_CHAT_NODE_SIZE_VERSION = 2;
+const DEFAULT_NODE_HEIGHT = 300;
+const MIN_NODE_HEIGHT = 260;
+const LEGACY_NODE_HEIGHT = 540;
 
 const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow>): string | undefined => {
   const source = rfInstance.getNode(edge.source);
@@ -64,6 +70,17 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     setManualInput((prev) => (prev === next ? prev : next));
   }, [data.manualInput]);
 
+  React.useEffect(() => {
+    if (data.sizeVersion === TEXT_CHAT_NODE_SIZE_VERSION) return;
+    const patch: Record<string, unknown> = { sizeVersion: TEXT_CHAT_NODE_SIZE_VERSION };
+    if (typeof data.boxH !== 'number' || data.boxH === LEGACY_NODE_HEIGHT) {
+      patch.boxH = DEFAULT_NODE_HEIGHT;
+    }
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch }
+    }));
+  }, [data.boxH, data.sizeVersion, id]);
+
   const commitManualInput = React.useCallback((value: string) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
       detail: { id, patch: { manualInput: value } }
@@ -71,9 +88,12 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   }, [id]);
 
   const status: TextChatStatus = data.status || 'idle';
-  const responseText = data.responseText || '';
   const errorText = data.error || '';
   const enableWebSearch = Boolean(data.enableWebSearch);
+  const normalizedHeight = typeof data.boxH === 'number'
+    ? (data.boxH === LEGACY_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : data.boxH)
+    : DEFAULT_NODE_HEIGHT;
+  const nodeHeight = Math.max(MIN_NODE_HEIGHT, normalizedHeight);
 
   const incomingTexts = React.useMemo(() => {
     return edges
@@ -164,7 +184,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: 14,
+    gap: 12,
     paddingTop: 4,
     paddingBottom: 4,
   };
@@ -181,15 +201,8 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
 
   const connectionStyle: React.CSSProperties = {
     ...panelStyle,
-    minHeight: 60,
+    minHeight: 48,
     maxHeight: 140,
-    overflowY: 'auto',
-  };
-
-  const responseStyle: React.CSSProperties = {
-    ...panelStyle,
-    flex: 1,
-    minHeight: 120,
     overflowY: 'auto',
   };
 
@@ -211,7 +224,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     <div
       style={{
         width: data.boxW || 320,
-        height: data.boxH || 540,
+        height: nodeHeight,
         padding: 12,
         background: '#fff',
         border: `1px solid ${borderColor}`,
@@ -228,7 +241,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
       <NodeResizer
         isVisible
         minWidth={260}
-        minHeight={400}
+        minHeight={MIN_NODE_HEIGHT}
         color="transparent"
         lineStyle={{ display: 'none' }}
         handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0, cursor: 'nwse-resize' }}
@@ -286,7 +299,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
             placeholder="输入附加提示信息"
             style={{
               width: '100%',
-              minHeight: 96,
+              minHeight: 80,
               resize: 'vertical',
               fontSize: 12,
               lineHeight: 1.4,
@@ -307,13 +320,6 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
           <input type="checkbox" checked={enableWebSearch} onChange={toggleWebSearch} />
           启用联网搜索
         </label>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minHeight: 0 }}>
-          <div style={labelStyle}>回复</div>
-          <div style={{ ...responseStyle, color: responseText ? '#1f2937' : '#94a3b8' }}>
-            {responseText || '执行后将显示模型的纯文本回复'}
-          </div>
-        </div>
 
         <div style={statusStyle}>
           状态：{status}

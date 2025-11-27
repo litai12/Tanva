@@ -154,6 +154,8 @@ const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({ butto
   );
 };
 
+const HISTORY_DEFAULT_MIN_HEIGHT = 320;
+
 type ResendInfo =
   | { type: 'edit'; prompt: string; sourceImage: string }
   | { type: 'blend'; prompt: string; sourceImages: string[] };
@@ -250,6 +252,7 @@ const AIChatDialog: React.FC = () => {
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const historyInitialHeightRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const showHistoryRef = useRef(showHistory);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -385,6 +388,7 @@ const AIChatDialog: React.FC = () => {
       setIsPromptPanelOpen(false);
       setDragPosition(null); // 关闭时重置拖拽位置
       setCustomHeight(null); // 关闭时重置自定义高度
+      historyInitialHeightRef.current = null;
     }
   }, [isVisible]);
 
@@ -393,8 +397,20 @@ const AIChatDialog: React.FC = () => {
     if (!showHistory || isMaximized) {
       setDragPosition(null);
       setCustomHeight(null);
+      historyInitialHeightRef.current = null;
     }
   }, [showHistory, isMaximized]);
+
+  useEffect(() => {
+    if (!showHistory || isMaximized) return;
+    if (customHeight !== null) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    if (rect.height > 0) {
+      historyInitialHeightRef.current = rect.height;
+    }
+  }, [showHistory, isMaximized, customHeight]);
 
   // 拖拽处理函数 - 只在顶部横线标识周边区域可以拖拽
   const handleDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -521,6 +537,9 @@ const AIChatDialog: React.FC = () => {
     e.stopPropagation();
 
     const currentHeight = customHeight ?? dialogRect.height;
+    if (!historyInitialHeightRef.current || historyInitialHeightRef.current < HISTORY_DEFAULT_MIN_HEIGHT) {
+      historyInitialHeightRef.current = currentHeight;
+    }
 
     resizeStartRef.current = {
       mouseY: e.clientY,
@@ -548,8 +567,9 @@ const AIChatDialog: React.FC = () => {
 
       let newHeight = resizeStartRef.current.startHeight + deltaY;
 
-      // 限制高度范围：最小 200px，最大为视口高度的 80%
-      const minHeight = 200;
+      // 限制高度范围：最小为初始展开高度，最大为视口高度的 80%
+      const measuredMin = historyInitialHeightRef.current ?? resizeStartRef.current.startHeight ?? HISTORY_DEFAULT_MIN_HEIGHT;
+      const minHeight = Math.max(measuredMin, HISTORY_DEFAULT_MIN_HEIGHT);
       const maxHeight = window.innerHeight * 0.8;
       newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
 
