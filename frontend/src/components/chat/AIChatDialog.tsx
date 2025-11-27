@@ -251,6 +251,7 @@ const AIChatDialog: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const showHistoryRef = useRef(showHistory);
   const [isMaximized, setIsMaximized] = useState(false);
   const isMaximizedRef = useRef(isMaximized);
   const prevIsMaximizedRef = useRef(isMaximized);
@@ -325,6 +326,11 @@ const AIChatDialog: React.FC = () => {
     isMaximizedRef.current = isMaximized;
   }, [isMaximized]);
 
+  // 记录最新的历史面板状态，供原生事件监听使用
+  useEffect(() => {
+    showHistoryRef.current = showHistory;
+  }, [showHistory]);
+
   // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
     { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
@@ -384,7 +390,7 @@ const AIChatDialog: React.FC = () => {
     }
   }, [showHistory, isMaximized]);
 
-  // 拖拽处理函数 - 在历史面板的空白区域都可以拖拽
+  // 拖拽处理函数 - 只在顶部横线标识周边区域可以拖拽
   const handleDragStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     // 只有在历史面板打开且非最大化时才允许拖拽
     if (!showHistory || isMaximized) return;
@@ -396,22 +402,17 @@ const AIChatDialog: React.FC = () => {
     );
     if (isInteractive) return;
 
-    // 检查是否在历史面板区域内（包括顶部边缘和空白区域）
-    const historyPanel = historyRef.current;
+    // 只允许在对话框顶部边缘区域拖拽（横线标识周边，约 20px 高度）
     const dialog = dialogRef.current;
     if (!dialog) return;
 
     const dialogRect = dialog.getBoundingClientRect();
     const clickY = e.clientY;
-    const clickX = e.clientX;
 
-    // 允许拖拽的区域：
-    // 1. 对话框顶部边缘区域（24px）
-    // 2. 历史面板内的空白区域
-    const isInTopEdge = clickY <= dialogRect.top + 24;
-    const isInHistoryPanel = historyPanel && historyPanel.contains(target);
+    // 只在顶部 20px 区域内允许拖拽
+    const isInTopEdge = clickY >= dialogRect.top && clickY <= dialogRect.top + 20;
 
-    if (!isInTopEdge && !isInHistoryPanel) return;
+    if (!isInTopEdge) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -643,6 +644,14 @@ const AIChatDialog: React.FC = () => {
       'textarea, input, button, a, label, select, [role="button"], [data-history-ignore-toggle]'
     );
     if (interactive) return;
+
+    // 只在顶部横线区域（20px）触发历史面板展开/收起
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const dialogRect = dialog.getBoundingClientRect();
+    const clickY = event.clientY;
+    const isInTopEdge = clickY >= dialogRect.top && clickY <= dialogRect.top + 20;
+    if (!isInTopEdge) return;
 
     if (historySingleClickTimerRef.current) {
       window.clearTimeout(historySingleClickTimerRef.current);
@@ -1164,45 +1173,32 @@ const AIChatDialog: React.FC = () => {
     }
   };
 
-  // 外圈双击放大/缩小：只有点击非内容区域（padding、外框）时生效
+  // 外圈双击放大/缩小
+  // - 历史面板关闭时：只在顶部 20px 区域触发
+  // - 历史面板展开时：空白区域都可以触发最大化
+  // - 最大化时：空白区域都可以触发缩小
   const handleOuterDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // 如果刚刚拖拽过，不触发双击事件
     if (hasDraggedRef.current) return;
-    const x = e.clientX, y = e.clientY;
+    const y = e.clientY;
     const card = dialogRef.current;
-    const content = contentRef.current;
-    if (!card) { setIsMaximized(v => !v); return; }
+    if (!card) return;
     const cardRect = card.getBoundingClientRect();
-    const insideCard = x >= cardRect.left && x <= cardRect.right && y >= cardRect.top && y <= cardRect.bottom;
-    const distToCardEdge = Math.min(
-      x - cardRect.left,
-      cardRect.right - x,
-      y - cardRect.top,
-      cardRect.bottom - y
-    );
-    if (!insideCard) {
-      // 外部区域不再触发（只接受向内偏移的区域）
-      return;
-    }
-    if (content) {
-      const cr = content.getBoundingClientRect();
-      const insideContent = x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom;
-      if (insideContent) {
-        // 在最大化时，允许在内容区内双击也能缩小，但避免输入框/按钮等交互控件
-        const tgt = e.target as HTMLElement;
-        const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
-        const inTopBand = y <= cr.top + 24; // 内容顶部带
-        // 允许靠近卡片内边缘的带状区域（24px）无论是否最大化
-        const inInnerEdgeBand = distToCardEdge <= 24;
-        if (isMaximized) { /* 最大化时，任何卡片内部双击均允许（除交互控件） */ }
-        else if (!inTopBand && !inInnerEdgeBand) return; // 非最大化仅允许顶部带或内边缘带
-        if (interactive) return;
-      }
-    }
+
+    // 检查是否在交互元素上
+    const tgt = e.target as HTMLElement;
+    const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
+    if (interactive) return;
+
+    const isInTopEdge = y >= cardRect.top && y <= cardRect.top + 20;
+
+    // 历史面板关闭时，只在顶部区域触发
+    if (!showHistory && !isMaximized && !isInTopEdge) return;
+
     setIsMaximized(v => !v);
   };
 
-  // 捕获阶段拦截双击：只执行对话框放大/缩小，并阻止事件继续到画布
+  // 捕获阶段拦截双击：阻止事件继续到画布，并根据状态触发缩放
   const handleDoubleClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
     // 如果刚刚拖拽过，不触发双击事件
     if (hasDraggedRef.current) {
@@ -1210,6 +1206,14 @@ const AIChatDialog: React.FC = () => {
       e.stopPropagation();
       return;
     }
+
+    const card = dialogRef.current;
+    if (!card) return;
+    const cardRect = card.getBoundingClientRect();
+    const y = e.clientY;
+
+    const isInTopEdge = y >= cardRect.top && y <= cardRect.top + 20;
+
     if (historySingleClickTimerRef.current) {
       window.clearTimeout(historySingleClickTimerRef.current);
       historySingleClickTimerRef.current = null;
@@ -1217,7 +1221,7 @@ const AIChatDialog: React.FC = () => {
     suppressHistoryClickRef.current = true;
     const target = e.target as HTMLElement;
     // 忽略在交互控件上的双击（但仍阻止冒泡，防误触画布）
-    const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+    const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
     e.preventDefault();
     e.stopPropagation();
     // 尽力阻断同层监听
@@ -1227,42 +1231,45 @@ const AIChatDialog: React.FC = () => {
       suppressHistoryClickRef.current = false;
       return;
     }
-    // 与外层逻辑保持一致：双击即切换大小
+    // 历史面板关闭时，只在顶部区域触发
+    // 历史面板展开或最大化时，空白区域都可触发
+    if (!showHistory && !isMaximized && !isInTopEdge) {
+      suppressHistoryClickRef.current = false;
+      return;
+    }
+    // 双击切换大小
     setIsMaximized(v => !v);
     suppressHistoryClickRef.current = false;
   };
 
-  // 全局兜底：允许在卡片外侧"环形区域"双击触发（更灵敏）
+  // 全局兜底：根据状态决定双击触发区域
   // 注意：Hook 需在任何 early return 之前声明，避免 Hook 次序不一致
   useEffect(() => {
+    const showHistoryNow = showHistoryRef.current;
+    const isMaximizedNow = isMaximizedRef.current;
+
     const onDbl = (ev: MouseEvent) => {
       // 如果刚刚拖拽过，不触发双击事件
       if (hasDraggedRef.current) return;
       const card = dialogRef.current;
       if (!card) return;
-      const isCurrentlyMaximized = isMaximizedRef.current;
       const x = ev.clientX, y = ev.clientY;
       const r = card.getBoundingClientRect();
-      const content = contentRef.current;
-      const cr = content ? content.getBoundingClientRect() : null;
 
       const insideCard = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-      const insideContent = cr ? (x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom) : false;
-      const distToCardEdge = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
+      const isInTopEdge = y >= r.top && y <= r.top + 20;
 
-      // 定义外侧环形区域（卡片外扩24px以内，但不包含卡片外太远区域）
-      // 外环禁用，只允许卡片内触发
-
-      // 触发条件：
-      // 1) 卡片padding/边框区域
-      // 2) 外侧环形区域
-      // 3) 在最大化时，即使在内容区内，只要不是交互控件也允许
       const tgt = ev.target as HTMLElement;
-      const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
-      const inTopBand = cr ? y <= cr.top + 24 : false;
-      const inInnerEdgeBand = distToCardEdge <= 24;
-      const allowInsideContent = ((isCurrentlyMaximized || inTopBand || inInnerEdgeBand) && !interactive);
-      if (insideCard && (!insideContent || allowInsideContent)) {
+      const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
+
+      if (insideCard && !interactive) {
+        // 历史面板关闭时，只在顶部区域触发
+        // 历史面板展开或最大化时，空白区域都可触发
+        const showHistoryCurrent = showHistoryRef.current;
+        const isMaximizedCurrent = isMaximizedRef.current;
+        if (!showHistoryCurrent && !isMaximizedCurrent && !isInTopEdge) {
+          return;
+        }
         ev.stopPropagation();
         ev.preventDefault();
         setIsMaximized(v => !v);
@@ -1279,49 +1286,47 @@ const AIChatDialog: React.FC = () => {
     return () => window.removeEventListener('dblclick', onDbl, true);
   }, []);
 
-  // 根据鼠标位置动态设置光标（zoom-in / zoom-out / move），明确可触发切换或拖拽的区域
+  // 根据鼠标位置动态设置光标，只在顶部横线区域（20px）显示特殊光标
   // 放在 early return 之前，避免 Hook 顺序问题
   useEffect(() => {
     const onMove = (ev: MouseEvent) => {
-      const card = dialogRef.current; const content = contentRef.current; const cont = containerRef.current;
+      const card = dialogRef.current; const cont = containerRef.current;
       if (!card || !cont) return;
       const x = ev.clientX, y = ev.clientY;
       const r = card.getBoundingClientRect();
       const insideCard = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-      const cr = content ? content.getBoundingClientRect() : null;
-      const insideContent = cr ? (x >= cr.left && x <= cr.right && y >= cr.top && y <= cr.bottom) : false;
-      const distToCardEdge = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
-      const inTopBand = cr ? y <= cr.top + 28 : false;
-      const inInnerEdgeBand = distToCardEdge <= 28;
       const target = ev.target as HTMLElement;
-      const interactive = !!target?.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+      const interactive = !!target?.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
 
-      // 检查是否在历史面板区域（可拖拽区域）
-      const historyPanel = historyRef.current;
-      const isInHistoryPanel = historyPanel && historyPanel.contains(target);
-      const isInDragZone = showHistory && !isMaximized && !interactive && (inTopBand || isInHistoryPanel);
+      const isInTopEdge = y >= r.top && y <= r.top + 20 && x >= r.left && x <= r.right;
 
-      let should = false;
-      if (insideCard) {
-        if (!insideContent) should = true; // 卡片padding/边框
-        else if (!interactive && (isMaximized || inTopBand || inInnerEdgeBand)) should = true;
-      }
-      setHoverToggleZone(should);
-
-      // 拖拽优先级高于缩放
-      if (isInDragZone) {
-        cont.style.cursor = 'move';
-      } else if (should) {
-        cont.style.cursor = isMaximized ? 'zoom-out' : 'zoom-in';
+      if (insideCard && !interactive) {
+        if (isInTopEdge) {
+          // 顶部区域：历史面板打开且非最大化时显示 move 光标（可拖拽）
+          if (showHistory && !isMaximized) {
+            cont.style.cursor = 'move';
+          } else {
+            cont.style.cursor = isMaximized ? 'zoom-out' : 'zoom-in';
+          }
+          setHoverToggleZone(true);
+        } else if (showHistory || isMaximized) {
+          // 非顶部区域：历史面板展开或最大化时显示缩放光标
+          cont.style.cursor = isMaximized ? 'zoom-out' : 'zoom-in';
+          setHoverToggleZone(true);
+        } else {
+          cont.style.cursor = '';
+          setHoverToggleZone(false);
+        }
       } else {
         cont.style.cursor = '';
+        setHoverToggleZone(false);
       }
     };
     window.addEventListener('mousemove', onMove, true);
     return () => window.removeEventListener('mousemove', onMove, true);
   }, [isMaximized, showHistory]);
 
-  // 捕获阶段拦截双击，避免触发 Flow 节点面板；并在非交互控件下切换大小
+  // 捕获阶段拦截双击，避免触发 Flow 节点面板；根据状态决定触发区域
   // 放在 early return 之前，避免 Hook 顺序问题
   useEffect(() => {
     const handler = (ev: MouseEvent) => {
@@ -1330,15 +1335,32 @@ const AIChatDialog: React.FC = () => {
         ev.stopPropagation();
         return;
       }
+
+      const card = dialogRef.current;
+      if (!card) return;
+      const y = ev.clientY;
+      const r = card.getBoundingClientRect();
+
+      const isInTopEdge = y >= r.top && y <= r.top + 20;
+
       const target = ev.target as HTMLElement;
-      const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+      const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
       if (interactive) {
         // 在交互控件上双击：只阻止冒泡，不切换
         ev.stopPropagation();
         return;
       }
+
       ev.stopPropagation();
       ev.preventDefault();
+
+      // 历史面板关闭时，只在顶部区域触发
+      // 历史面板展开或最大化时，空白区域都可触发
+      const showHistoryCurrent = showHistoryRef.current;
+      const isMaximizedCurrent = isMaximizedRef.current;
+      if (!showHistoryCurrent && !isMaximizedCurrent && !isInTopEdge) {
+        return;
+      }
       setIsMaximized(v => !v);
     };
     const el = containerRef.current;
@@ -1358,7 +1380,8 @@ const AIChatDialog: React.FC = () => {
     sourceImagesForBlending.length > 0 ||
     sourceImageForAnalysis
   );
-  const showHistoryHoverIndicator = !isMaximized || showHistory;
+  // 最大化时不显示顶部横条指示器
+  const showHistoryHoverIndicator = !isMaximized;
   const historyHoverIndicatorExpanded = showHistoryHoverIndicator && showHistory;
   const historyHoverIndicatorOffset = historyHoverIndicatorExpanded ? 3 : 5; // px offset relative to card top
   const historyPanelMinHeight = showHistory && !hasHistoryContent

@@ -72,7 +72,7 @@ export interface Sora2CompletionResponse {
 
 class Sora2Service {
   private readonly API_BASE = import.meta.env.VITE_SORA2_API_ENDPOINT || 'https://api1.147ai.com';
-  private readonly MODEL = import.meta.env.VITE_SORA2_MODEL || 'sora-2-reverse';
+  private readonly MODEL = import.meta.env.VITE_SORA2_MODEL || 'sora-2-pro-reverse';
   private apiKey: string = '';
 
   /**
