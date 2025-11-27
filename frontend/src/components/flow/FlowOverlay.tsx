@@ -37,7 +37,7 @@ import TextNoteNode from './nodes/TextNoteNode';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
-import { useAIChatStore, getImageModelForProvider, uploadImageToOSS, requestSora2VideoGeneration } from '@/stores/aiChatStore';
+import { useAIChatStore, getImageModelForProvider, uploadImageToOSS, requestSora2VideoGeneration, DEFAULT_SORA2_VIDEO_QUALITY } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
@@ -1018,6 +1018,65 @@ function FlowInner() {
     return false;
   }, []);
 
+  // 中键拖拽以平移 Flow 视口，阻止浏览器的自动滚动
+  const middleDragRef = React.useRef<{ dragging: boolean; lastX: number; lastY: number }>({
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+  });
+  React.useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const stopDrag = () => {
+      if (!middleDragRef.current.dragging) return;
+      middleDragRef.current.dragging = false;
+      container.classList.remove('tanva-flow-middle-panning');
+      container.style.cursor = '';
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (event.button !== 1) return;
+      if (allowNativeScroll(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      middleDragRef.current.dragging = true;
+      middleDragRef.current.lastX = event.clientX;
+      middleDragRef.current.lastY = event.clientY;
+      container.classList.add('tanva-flow-middle-panning');
+      container.style.cursor = 'grabbing';
+    };
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!middleDragRef.current.dragging) return;
+      event.preventDefault();
+      const store = useCanvasStore.getState();
+      const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      const zoom = store.zoom || 1;
+      const dx = event.clientX - middleDragRef.current.lastX;
+      const dy = event.clientY - middleDragRef.current.lastY;
+      if (dx === 0 && dy === 0) return;
+      middleDragRef.current.lastX = event.clientX;
+      middleDragRef.current.lastY = event.clientY;
+      store.setPan(store.panX + (dx * dpr) / zoom, store.panY + (dy * dpr) / zoom);
+    };
+
+    const handleMouseUp = () => stopDrag();
+    const handleWindowBlur = () => stopDrag();
+
+    container.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove, true);
+    window.addEventListener('mouseup', handleMouseUp, true);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove, true);
+      window.removeEventListener('mouseup', handleMouseUp, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      stopDrag();
+    };
+  }, [allowNativeScroll]);
+
   const handleWheelCapture = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
     if (allowNativeScroll(event.target)) return;
@@ -1238,7 +1297,7 @@ function FlowInner() {
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
-      : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, boxW: size.w, boxH: size.h }
+      : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, videoQuality: DEFAULT_SORA2_VIDEO_QUALITY, videoVersion: 0, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
     try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
@@ -1544,9 +1603,14 @@ function FlowInner() {
       }
 
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
+      const videoQuality = (node.data as any)?.videoQuality === 'sd' ? 'sd' : DEFAULT_SORA2_VIDEO_QUALITY;
 
       try {
-        const videoResult = await requestSora2VideoGeneration(promptText, referenceImageUrl);
+        const videoResult = await requestSora2VideoGeneration(
+          promptText,
+          referenceImageUrl,
+          { quality: videoQuality }
+        );
         setNodes(ns => ns.map(n => n.id === nodeId ? {
           ...n,
           data: {
@@ -1555,6 +1619,7 @@ function FlowInner() {
             videoUrl: videoResult.videoUrl,
             thumbnail: videoResult.thumbnailUrl || (n.data as any)?.thumbnail,
             error: undefined,
+            videoVersion: Number((n.data as any)?.videoVersion || 0) + 1,
           }
         } : n));
       } catch (error) {

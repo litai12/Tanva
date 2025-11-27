@@ -169,7 +169,14 @@ const GEMINI_FLASH_IMAGE_MODEL = 'gemini-2.5-flash-image-preview';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_PRO_TEXT_MODEL = 'gemini-3-pro-preview';
 const BANANA_TEXT_MODEL = 'banana-gemini-3-pro-preview';
-const SORA2_VIDEO_MODEL = 'sora-2-pro-reverse';
+export const SORA2_VIDEO_MODELS = {
+  hd: 'sora-2-pro-reverse',
+  sd: 'sora-2-reverse'
+} as const;
+export type Sora2VideoQuality = keyof typeof SORA2_VIDEO_MODELS;
+export const DEFAULT_SORA2_VIDEO_QUALITY: Sora2VideoQuality = 'hd';
+const getSora2ModelByQuality = (quality?: Sora2VideoQuality) =>
+  SORA2_VIDEO_MODELS[quality || DEFAULT_SORA2_VIDEO_QUALITY] || SORA2_VIDEO_MODELS.hd;
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 const RUNNINGHUB_PRIMARY_NODE_ID =
@@ -700,7 +707,8 @@ function initializeSora2Service() {
 async function generateVideoResponse(
   prompt: string,
   referenceImageUrl?: string | null,
-  onProgress?: (stage: string, progress: number) => void
+  onProgress?: (stage: string, progress: number) => void,
+  options?: { model?: string }
 ): Promise<{
   videoUrl: string;
   content: string;
@@ -720,6 +728,7 @@ async function generateVideoResponse(
 
   let attempt = 0;
   let lastError: unknown = null;
+  const generationStartTime = Date.now();
 
   while (attempt < SORA2_MAX_RETRY) {
     attempt += 1;
@@ -736,7 +745,8 @@ async function generateVideoResponse(
         referenceImageUrl || undefined,
         (chunk) => {
           console.log('📹 视频生成进度:', chunk.substring(0, 50) + '...');
-        }
+        },
+        options?.model
       );
 
       if (!result.success || !result.data?.fullContent) {
@@ -809,6 +819,9 @@ async function generateVideoResponse(
         thumbnailUrl: resolved.thumbnailUrl,
         referencedUrls: resolved.referencedUrls
       });
+      const totalDurationMs = Date.now() - generationStartTime;
+      const totalSeconds = (totalDurationMs / 1000).toFixed(2);
+      console.log(`⏱️ Sora2 视频生成耗时 ${totalSeconds}s（尝试 ${attempt} 次）`);
 
       return {
         videoUrl,
@@ -839,15 +852,24 @@ async function generateVideoResponse(
   }
 
   const fallbackMessage = lastError instanceof Error ? lastError.message : '未知错误';
+  const totalDurationMs = Date.now() - generationStartTime;
+  const totalSeconds = (totalDurationMs / 1000).toFixed(2);
+  console.error(`⏱️ Sora2 视频生成失败，总耗时 ${totalSeconds}s`);
   throw new Error(`视频生成失败: ${fallbackMessage}`);
 }
+
+export type Sora2VideoGenerationOptions = {
+  onProgress?: (stage: string, progress: number) => void;
+  quality?: Sora2VideoQuality;
+};
 
 export async function requestSora2VideoGeneration(
   prompt: string,
   referenceImageUrl?: string | null,
-  onProgress?: (stage: string, progress: number) => void
+  options?: Sora2VideoGenerationOptions
 ) {
-  return generateVideoResponse(prompt, referenceImageUrl, onProgress);
+  const targetModel = getSora2ModelByQuality(options?.quality);
+  return generateVideoResponse(prompt, referenceImageUrl, options?.onProgress, { model: targetModel });
 }
 
 /**

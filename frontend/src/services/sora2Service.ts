@@ -28,7 +28,7 @@ export interface Sora2ImageContent {
 }
 
 export interface Sora2Request {
-  model: 'sora-2';
+  model: string;
   stream: boolean;
   messages: Sora2Message[];
 }
@@ -72,7 +72,7 @@ export interface Sora2CompletionResponse {
 
 class Sora2Service {
   private readonly API_BASE = import.meta.env.VITE_SORA2_API_ENDPOINT || 'https://api1.147ai.com';
-  private readonly MODEL = import.meta.env.VITE_SORA2_MODEL || 'sora-2-pro-reverse';
+  private readonly DEFAULT_MODEL = import.meta.env.VITE_SORA2_MODEL || 'sora-2-pro-reverse';
   private apiKey: string = '';
 
   /**
@@ -96,7 +96,8 @@ class Sora2Service {
   async generateVideoStream(
     prompt: string,
     imageUrl?: string,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    modelOverride?: string
   ): Promise<AIServiceResponse<{ fullContent: string }>> {
     if (!this.apiKey) {
       return {
@@ -117,11 +118,14 @@ class Sora2Service {
       }
 
       const messages = this.buildMessages(prompt, imageUrl);
+      const model = modelOverride || this.DEFAULT_MODEL;
       const request: Sora2Request = {
-        model: this.MODEL,
+        model,
         stream: true,
         messages,
       };
+
+      console.log('🎯 Sora2Service: Using model', model);
 
       const response = await fetch(`${this.API_BASE}/v1/chat/completions`, {
         method: 'POST',
@@ -173,7 +177,8 @@ class Sora2Service {
    */
   async generateVideo(
     prompt: string,
-    imageUrl?: string
+    imageUrl?: string,
+    modelOverride?: string
   ): Promise<AIServiceResponse<string>> {
     if (!this.apiKey) {
       return {
@@ -190,11 +195,14 @@ class Sora2Service {
       console.log('🎬 Sora2Service: Starting video generation...');
 
       const messages = this.buildMessages(prompt, imageUrl);
+      const model = modelOverride || this.DEFAULT_MODEL;
       const request: Sora2Request = {
-        model: this.MODEL,
+        model,
         stream: false,
         messages,
       };
+
+      console.log('🎯 Sora2Service: Using model', model);
 
       const response = await fetch(`${this.API_BASE}/v1/chat/completions`, {
         method: 'POST',

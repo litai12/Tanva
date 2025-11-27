@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import sora2Service from '@/services/sora2Service';
+import { SORA2_VIDEO_MODELS, DEFAULT_SORA2_VIDEO_QUALITY, type Sora2VideoQuality } from '@/stores/aiChatStore';
 
 interface VideoGenerationState {
   isLoading: boolean;
@@ -23,6 +24,8 @@ const Sora2TestPage: React.FC = () => {
     streamContent: '',
   });
   const [useStream, setUseStream] = useState<boolean>(true);
+  const [videoQuality, setVideoQuality] = useState<Sora2VideoQuality>(DEFAULT_SORA2_VIDEO_QUALITY);
+  const modelName = SORA2_VIDEO_MODELS[videoQuality];
   const streamContentRef = useRef<HTMLDivElement>(null);
 
   // 初始化 API Key
@@ -75,7 +78,8 @@ const Sora2TestPage: React.FC = () => {
               ...prev,
               streamContent: prev.streamContent + chunk,
             }));
-          }
+          },
+          modelName
         );
 
         if (!result.success) {
@@ -98,7 +102,8 @@ const Sora2TestPage: React.FC = () => {
         // 非流式生成
         const result = await sora2Service.generateVideo(
           prompt,
-          imageUrl || undefined
+          imageUrl || undefined,
+          modelName
         );
 
         if (!result.success) {
@@ -187,6 +192,31 @@ const Sora2TestPage: React.FC = () => {
                       ? 'Streaming: Real-time response chunks'
                       : 'Non-streaming: Wait for complete response'}
                   </p>
+                </div>
+
+                {/* Video Quality Toggle */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Video Quality</label>
+                  <div className="flex gap-2">
+                    {(['hd', 'sd'] as Sora2VideoQuality[]).map((quality) => {
+                      const isActive = videoQuality === quality;
+                      return (
+                        <button
+                          key={quality}
+                          type="button"
+                          onClick={() => setVideoQuality(quality)}
+                          className={`flex-1 py-2 rounded-md border text-sm font-medium transition ${
+                            isActive
+                              ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
+                          }`}
+                        >
+                          {quality === 'hd' ? 'HD' : 'SD'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500">Model: {modelName}</p>
                 </div>
               </CardContent>
             </Card>
