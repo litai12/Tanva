@@ -271,14 +271,15 @@ const AIChatDialog: React.FC = () => {
   const [autoOptimizeEnabled, setAutoOptimizeEnabled] = useState(false);
   // 拖拽移动状态
   const [isDragging, setIsDragging] = useState(false);
-  const [dragPosition, setDragPosition] = useState<{ x: number; y: number } | null>(null);
-  const dragStartRef = useRef<{ mouseX: number; mouseY: number; elemX: number; elemY: number } | null>(null);
+  const [dragOffsetX, setDragOffsetX] = useState<number | null>(null);
+  const dragStartRef = useRef<{ mouseX: number; elemX: number } | null>(null);
   // 标记是否发生过实际拖拽移动，用于阻止拖拽结束后触发点击事件
   const hasDraggedRef = useRef(false);
   // 拖拽调整高度状态
   const [isResizing, setIsResizing] = useState(false);
   const [customHeight, setCustomHeight] = useState<number | null>(null);
   const resizeStartRef = useRef<{ mouseY: number; startHeight: number } | null>(null);
+  const resizeBottomGapRef = useRef(0);
   const [autoOptimizing, setAutoOptimizing] = useState(false);
   const textModel = useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
   const [isPromptPanelOpen, setIsPromptPanelOpen] = useState(false);
@@ -386,7 +387,7 @@ const AIChatDialog: React.FC = () => {
       setManuallyClosedHistory(false);
       setShowHistory(false);
       setIsPromptPanelOpen(false);
-      setDragPosition(null); // 关闭时重置拖拽位置
+      setDragOffsetX(null); // 关闭时重置拖拽位置
       setCustomHeight(null); // 关闭时重置自定义高度
       historyInitialHeightRef.current = null;
     }
@@ -395,7 +396,7 @@ const AIChatDialog: React.FC = () => {
   // 历史面板关闭或最大化时重置拖拽位置和自定义高度
   useEffect(() => {
     if (!showHistory || isMaximized) {
-      setDragPosition(null);
+      setDragOffsetX(null);
       setCustomHeight(null);
       historyInitialHeightRef.current = null;
     }
@@ -445,51 +446,44 @@ const AIChatDialog: React.FC = () => {
     const rect = container.getBoundingClientRect();
 
     // 如果已有拖拽位置，使用它；否则使用当前元素位置
-    const currentX = dragPosition?.x ?? rect.left;
-    const currentY = dragPosition?.y ?? rect.top;
+    const currentX = dragOffsetX ?? rect.left;
 
     dragStartRef.current = {
       mouseX: e.clientX,
-      mouseY: e.clientY,
-      elemX: currentX,
-      elemY: currentY
+      elemX: currentX
     };
     hasDraggedRef.current = false;
     setIsDragging(true);
-  }, [showHistory, isMaximized, dragPosition]);
+  }, [showHistory, isMaximized, dragOffsetX]);
 
   // 拖拽移动和结束处理
   useEffect(() => {
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!dragStartRef.current) return;
+      const start = dragStartRef.current;
+      if (!start) return;
 
-      const deltaX = e.clientX - dragStartRef.current.mouseX;
-      const deltaY = e.clientY - dragStartRef.current.mouseY;
+      const deltaX = e.clientX - start.mouseX;
 
-      // 只有移动超过 3px 才算真正拖拽
-      if (!hasDraggedRef.current && (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3)) {
+      // 只有横向移动超过 3px 才算真正拖拽
+      if (!hasDraggedRef.current && Math.abs(deltaX) > 3) {
         hasDraggedRef.current = true;
       }
 
       if (!hasDraggedRef.current) return;
 
-      let newX = dragStartRef.current.elemX + deltaX;
-      let newY = dragStartRef.current.elemY + deltaY;
+      let newX = start.elemX + deltaX;
 
       // 边界检查
       const container = containerRef.current;
       if (container) {
         const rect = container.getBoundingClientRect();
         const maxX = window.innerWidth - rect.width;
-        const maxY = window.innerHeight - rect.height;
-
         newX = Math.max(0, Math.min(newX, maxX));
-        newY = Math.max(0, Math.min(newY, maxY));
       }
 
-      setDragPosition({ x: newX, y: newY });
+      setDragOffsetX(newX);
     };
 
     const handleMouseUp = () => {
@@ -533,6 +527,8 @@ const AIChatDialog: React.FC = () => {
     );
     if (isInteractive) return;
 
+    resizeBottomGapRef.current = Math.max(window.innerHeight - dialogRect.bottom, 0);
+
     e.preventDefault();
     e.stopPropagation();
 
@@ -567,10 +563,12 @@ const AIChatDialog: React.FC = () => {
 
       let newHeight = resizeStartRef.current.startHeight + deltaY;
 
-      // 限制高度范围：最小为初始展开高度，最大为视口高度的 80%
+      // 限制高度范围：最小为初始展开高度，最大为“顶部与底部间距一致”的高度
       const measuredMin = historyInitialHeightRef.current ?? resizeStartRef.current.startHeight ?? HISTORY_DEFAULT_MIN_HEIGHT;
       const minHeight = Math.max(measuredMin, HISTORY_DEFAULT_MIN_HEIGHT);
-      const maxHeight = window.innerHeight * 0.8;
+      const bottomGap = resizeBottomGapRef.current ?? 0;
+      const viewportLimit = Math.max(window.innerHeight - bottomGap * 2, HISTORY_DEFAULT_MIN_HEIGHT);
+      const maxHeight = Math.max(minHeight, viewportLimit);
       newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
 
       setCustomHeight(newHeight);
@@ -1664,7 +1662,7 @@ const AIChatDialog: React.FC = () => {
   }, [hasActiveAura]);
 
   // 计算拖拽时是否使用自定义位置
-  const useDragPosition = showHistory && !isMaximized && dragPosition !== null;
+  const useDragPosition = showHistory && !isMaximized && dragOffsetX !== null;
 
   return (
     <div
@@ -1675,16 +1673,13 @@ const AIChatDialog: React.FC = () => {
         "fixed z-50 transition-all ease-out select-none",
         isMaximized
           ? "top-32 left-16 right-16 bottom-4"
-          : useDragPosition
-            ? "w-full max-w-2xl px-4"
-            : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",
+          : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",
         !isDragging && "duration-300",
         isDragging && "duration-0",
         focusMode && "hidden"
       )}
       style={useDragPosition ? {
-        left: dragPosition.x,
-        top: dragPosition.y,
+        left: dragOffsetX,
         transform: 'none'
       } : undefined}
       onMouseDown={(e) => {
