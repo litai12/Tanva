@@ -15,8 +15,18 @@ type Props = {
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     videoQuality?: Sora2VideoQuality;
+    history?: Sora2VideoHistoryItem[];
   };
   selected?: boolean;
+};
+
+type Sora2VideoHistoryItem = {
+  id: string;
+  videoUrl: string;
+  thumbnail?: string;
+  prompt: string;
+  quality: Sora2VideoQuality;
+  createdAt: string;
 };
 
 type DownloadFeedback = {
@@ -98,6 +108,87 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
     return { color: '#1d4ed8', background: '#eff6ff', borderColor: '#bfdbfe' };
   }, [downloadFeedback]);
   const isDownloadDisabled = !data.videoUrl || isDownloading;
+  const historyItems = React.useMemo<Sora2VideoHistoryItem[]>(
+    () => (Array.isArray(data.history) ? data.history : []),
+    [data.history]
+  );
+  const copyVideoLink = React.useCallback(async (url?: string) => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      alert('已复制视频链接');
+    } catch (error) {
+      console.error('复制失败:', error);
+      alert('复制失败，请手动复制链接');
+    }
+  }, []);
+  const triggerDownload = React.useCallback(async (url?: string) => {
+    if (!url || isDownloading) return;
+    if (downloadFeedbackTimer.current) {
+      window.clearTimeout(downloadFeedbackTimer.current);
+      downloadFeedbackTimer.current = undefined;
+    }
+    setIsDownloading(true);
+    setDownloadFeedback({ type: 'progress', message: '视频下载中，请稍等...' });
+    try {
+      const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      if (response.ok) {
+        const blob = await response.blob();
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `video-${new Date().toISOString().split('T')[0]}.mp4`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
+        setDownloadFeedback({ type: 'success', message: '下载完成，稍后可再次下载' });
+        scheduleFeedbackClear(2000);
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setDownloadFeedback({ type: 'success', message: '已在新标签页打开视频链接' });
+        scheduleFeedbackClear(3000);
+      }
+    } catch (error) {
+      console.error('下载失败:', error);
+      alert('下载失败，请尝试在浏览器中打开链接');
+      setDownloadFeedback({ type: 'error', message: '下载失败，请稍后重试' });
+      scheduleFeedbackClear(4000);
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [isDownloading, scheduleFeedbackClear]);
+  const handleApplyHistory = React.useCallback((item: Sora2VideoHistoryItem) => {
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: {
+        id,
+        patch: {
+          videoUrl: item.videoUrl,
+          thumbnail: item.thumbnail,
+          videoVersion: Number(data.videoVersion || 0) + 1,
+          status: 'succeeded',
+          error: undefined,
+        }
+      }
+    }));
+  }, [id, data.videoVersion]);
+  const formatHistoryTime = React.useCallback((iso: string) => {
+    if (!iso) return '-';
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  }, []);
+  const truncatePrompt = React.useCallback((text: string) => {
+    if (!text) return '（无提示词）';
+    return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }, []);
 
   const handleMediaPointerDown = (event: React.PointerEvent | React.MouseEvent) => {
     event.stopPropagation();
@@ -240,16 +331,7 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
             Run
           </button>
           <button
-            onClick={async () => {
-              if (!data.videoUrl) return;
-              try {
-                await navigator.clipboard.writeText(data.videoUrl);
-                alert('已复制视频链接');
-              } catch (error) {
-                console.error('复制失败:', error);
-                alert('复制失败，请手动复制链接');
-              }
-            }}
+            onClick={() => copyVideoLink(data.videoUrl)}
             title="复制链接"
             style={{
               width: 36,
@@ -269,47 +351,7 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
             <Share2 size={14} />
           </button>
           <button
-            onClick={async () => {
-              if (!data.videoUrl || isDownloading) return;
-              if (downloadFeedbackTimer.current) {
-                window.clearTimeout(downloadFeedbackTimer.current);
-                downloadFeedbackTimer.current = undefined;
-              }
-              setIsDownloading(true);
-              setDownloadFeedback({ type: 'progress', message: '视频下载中，请稍等...' });
-              try {
-                const response = await fetch(data.videoUrl, { mode: 'cors', credentials: 'omit' });
-                if (response.ok) {
-                  const blob = await response.blob();
-                  const downloadUrl = URL.createObjectURL(blob);
-                  const link = document.createElement('a');
-                  link.href = downloadUrl;
-                  link.download = `video-${new Date().toISOString().split('T')[0]}.mp4`;
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  setTimeout(() => URL.revokeObjectURL(downloadUrl), 200);
-                  setDownloadFeedback({ type: 'success', message: '下载完成，稍后可再次下载' });
-                  scheduleFeedbackClear(2000);
-                } else {
-                  const link = document.createElement('a');
-                  link.href = data.videoUrl;
-                  link.target = '_blank';
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
-                  setDownloadFeedback({ type: 'success', message: '已在新标签页打开视频链接' });
-                  scheduleFeedbackClear(3000);
-                }
-              } catch (error) {
-                console.error('下载失败:', error);
-                alert('下载失败，请尝试在浏览器中打开链接');
-                setDownloadFeedback({ type: 'error', message: '下载失败，请稍后重试' });
-                scheduleFeedbackClear(4000);
-              } finally {
-                setIsDownloading(false);
-              }
-            }}
+            onClick={() => triggerDownload(data.videoUrl)}
             title="下载视频"
             style={{
               width: 36,
@@ -405,6 +447,97 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
         status={data.status || 'idle'}
         progress={data.status === 'running' ? 30 : data.status === 'succeeded' ? 100 : 0}
       />
+
+      {historyItems.length > 0 && (
+        <div style={{
+          marginTop: 8,
+          padding: '8px 10px',
+          borderRadius: 8,
+          border: '1px solid #e2e8f0',
+          background: '#f8fafc',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#0f172a' }}>历史记录</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>{historyItems.length} 条</span>
+          </div>
+          {historyItems.map((item, index) => {
+            const isActive = item.videoUrl === data.videoUrl;
+            return (
+              <div
+                key={item.id}
+                style={{
+                  borderRadius: 6,
+                  border: '1px solid ' + (isActive ? '#c7d2fe' : '#e2e8f0'),
+                  background: isActive ? '#eef2ff' : '#fff',
+                  padding: '6px 8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: '#475569' }}>
+                  <span>#{index + 1} · {item.quality.toUpperCase()} · {formatHistoryTime(item.createdAt)}</span>
+                  {isActive && (
+                    <span style={{ fontSize: 10, color: '#1d4ed8', fontWeight: 600 }}>当前</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: '#0f172a' }}>
+                  {truncatePrompt(item.prompt)}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {!isActive && (
+                    <button
+                      type="button"
+                      onClick={() => handleApplyHistory(item)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        border: '1px solid #94a3b8',
+                        background: '#fff',
+                        fontSize: 11,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      设为当前
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => copyVideoLink(item.videoUrl)}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      border: '1px solid #94a3b8',
+                      background: '#fff',
+                      fontSize: 11,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    复制链接
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerDownload(item.videoUrl)}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      border: '1px solid #94a3b8',
+                      background: '#fff',
+                      fontSize: 11,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    下载
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {data.error && (
         <div style={{

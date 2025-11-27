@@ -38,6 +38,7 @@ import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
 import { useAIChatStore, getImageModelForProvider, uploadImageToOSS, requestSora2VideoGeneration, DEFAULT_SORA2_VIDEO_QUALITY } from '@/stores/aiChatStore';
+import type { Sora2VideoQuality } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
@@ -99,6 +100,17 @@ function normalizeBuiltinCategory(category?: string): string {
 }
 
 const ADD_PANEL_TAB_STORAGE_KEY = 'tanva-add-panel-tab';
+
+const SORA2_HISTORY_LIMIT = 5;
+
+type Sora2VideoHistoryItem = {
+  id: string;
+  videoUrl: string;
+  thumbnail?: string;
+  prompt: string;
+  quality: Sora2VideoQuality;
+  createdAt: string;
+};
 
 const getStoredAddPanelTab = (): 'nodes' | 'templates' | 'personal' => {
   if (typeof window === 'undefined') {
@@ -1297,7 +1309,7 @@ function FlowInner() {
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
-      : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, videoQuality: DEFAULT_SORA2_VIDEO_QUALITY, videoVersion: 0, boxW: size.w, boxH: size.h }
+      : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, videoQuality: DEFAULT_SORA2_VIDEO_QUALITY, videoVersion: 0, history: [], boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
     try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
@@ -1307,6 +1319,15 @@ function FlowInner() {
 
   const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote'], []);
   const isTextHandle = React.useCallback((handle?: string | null) => typeof handle === 'string' && handle.startsWith('text'), []);
+
+  const appendSora2History = React.useCallback((
+    history: Sora2VideoHistoryItem[] | undefined,
+    entry: Sora2VideoHistoryItem
+  ): Sora2VideoHistoryItem[] => {
+    const base = Array.isArray(history) ? history : [];
+    const deduped = base.filter(item => item.videoUrl !== entry.videoUrl);
+    return [entry, ...deduped].slice(0, SORA2_HISTORY_LIMIT);
+  }, []);
 
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback((connection: Connection) => {
@@ -1611,17 +1632,31 @@ function FlowInner() {
           referenceImageUrl,
           { quality: videoQuality }
         );
-        setNodes(ns => ns.map(n => n.id === nodeId ? {
-          ...n,
-          data: {
-            ...n.data,
-            status: 'succeeded',
+        setNodes(ns => ns.map(n => {
+          if (n.id !== nodeId) return n;
+          const previousData = (n.data as any) || {};
+          const nextThumbnail = videoResult.thumbnailUrl || previousData.thumbnail;
+          const historyEntry: Sora2VideoHistoryItem = {
+            id: `sora2-history-${Date.now()}`,
             videoUrl: videoResult.videoUrl,
-            thumbnail: videoResult.thumbnailUrl || (n.data as any)?.thumbnail,
-            error: undefined,
-            videoVersion: Number((n.data as any)?.videoVersion || 0) + 1,
-          }
-        } : n));
+            thumbnail: nextThumbnail,
+            prompt: promptText,
+            quality: videoQuality,
+            createdAt: new Date().toISOString(),
+          };
+          return {
+            ...n,
+            data: {
+              ...previousData,
+              status: 'succeeded',
+              videoUrl: videoResult.videoUrl,
+              thumbnail: nextThumbnail,
+              error: undefined,
+              videoVersion: Number(previousData.videoVersion || 0) + 1,
+              history: appendSora2History(previousData.history as Sora2VideoHistoryItem[] | undefined, historyEntry),
+            }
+          };
+        }));
       } catch (error) {
         const msg = error instanceof Error ? error.message : '视频生成失败';
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
@@ -1852,7 +1887,7 @@ function FlowInner() {
       const msg = err?.message || String(err);
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
     }
-  }, [aiProvider, imageModel, rf, setNodes]);
+  }, [aiProvider, imageModel, rf, setNodes, appendSora2History]);
 
   // 定义稳定的onSend回调
   const onSendHandler = React.useCallback((id: string) => {
