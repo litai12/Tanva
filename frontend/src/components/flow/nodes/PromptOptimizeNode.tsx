@@ -5,6 +5,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import usePromptOptimization from '@/hooks/usePromptOptimization';
 import type { PromptOptimizationRequest } from '@/services/promptOptimizationService';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { resolveTextFromSourceNode } from '../utils/textSource';
 
 // 已去除可视化设置面板，采用内部默认参数
 
@@ -31,18 +32,23 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const textModel = React.useMemo(() => getTextModelForProvider(aiProvider), [aiProvider]);
 
-  // 初始化时尝试读取上游文本
-  React.useEffect(() => {
+  const readUpstreamText = React.useCallback(() => {
     try {
       const edges = rf.getEdges();
       const incoming = edges.find(e => e.target === id && e.targetHandle === 'text');
       if (incoming?.source) {
         const src = rf.getNode(incoming.source);
-        const up = (src?.data as any)?.text as string | undefined;
-        if (typeof up === 'string') setUpstreamText(up);
+        const value = resolveTextFromSourceNode(src, incoming.sourceHandle);
+        return value?.trim() || '';
       }
     } catch {}
+    return '';
   }, [id, rf]);
+
+  // 初始化时尝试读取上游文本
+  React.useEffect(() => {
+    setUpstreamText(readUpstreamText());
+  }, [readUpstreamText]);
 
   React.useEffect(() => {
     if ((data.expandedText || '') !== expandedText) setExpandedText(data.expandedText || '');
@@ -69,15 +75,12 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
         const edges = rf.getEdges();
         const incoming = edges.find(ed => ed.target === id && ed.targetHandle === 'text');
         if (!incoming || incoming.source !== detail.id) return;
-        if (Object.prototype.hasOwnProperty.call(detail.patch, 'text')) {
-          const newText = detail.patch.text ?? '';
-          setUpstreamText(typeof newText === 'string' ? newText : '');
-        }
+        setUpstreamText(readUpstreamText());
       } catch {}
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
-  }, [rf, id]);
+  }, [rf, id, readUpstreamText]);
 
   // 已移除设置面板，无需处理设置变更
 
@@ -85,15 +88,7 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
     let text = inputText || upstreamText.trim();
     // 若本地输入为空，尝试读取上游 text 输入
     if (!text) {
-      try {
-        const edges = rf.getEdges();
-        const incoming = edges.find(e => e.target === id && e.targetHandle === 'text');
-        if (incoming?.source) {
-          const src = rf.getNode(incoming.source);
-          const up = (src?.data as any)?.text as string | undefined;
-          if (up && up.trim()) text = up.trim();
-        }
-      } catch {}
+      text = readUpstreamText();
     }
     // 再次兜底：使用当前预览/编辑内容
     if (!text && expandedText?.trim()) text = expandedText.trim();

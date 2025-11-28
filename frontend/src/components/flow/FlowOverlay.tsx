@@ -48,6 +48,7 @@ import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
 import PersonalLibraryPanel from './PersonalLibraryPanel';
+import { resolveTextFromSourceNode } from './utils/textSource';
 
 type RFNode = Node<any>;
 
@@ -1617,14 +1618,8 @@ function FlowInner() {
       if (!textEdge) return { text: '', hasEdge: false };
       const promptNode = rf.getNode(textEdge.source);
       if (!promptNode) return { text: '', hasEdge: true };
-      const promptData = (promptNode.data || {}) as any;
-      const candidates = [
-        typeof promptData.text === 'string' ? promptData.text : '',
-        typeof promptData.prompt === 'string' ? promptData.prompt : '',
-        typeof promptData.manualInput === 'string' ? promptData.manualInput : '',
-      ];
-      const text = candidates.find((value) => value.trim().length > 0) || '';
-      return { text: text.trim(), hasEdge: true };
+      const resolved = resolveTextFromSourceNode(promptNode, textEdge.sourceHandle);
+      return { text: resolved?.trim() || '', hasEdge: true };
     };
 
     if (node.type === 'sora2Video') {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
+import { resolveTextFromSourceNode } from '../utils/textSource';
 
 type Props = {
   id: string;
@@ -26,13 +27,9 @@ export default function TextPromptNode({ id, data, selected }: Props) {
     }
   }, [data.text, id]);
 
-  const syncFromSource = React.useCallback((sourceId: string) => {
+  const syncFromSource = React.useCallback((sourceId: string, sourceHandle?: string | null) => {
     const srcNode = rf.getNode(sourceId);
-    if (!srcNode) return;
-    const srcData = (srcNode.data as any) || {};
-    const candidateText = typeof srcData.text === 'string' ? srcData.text : undefined;
-    const fallbackPrompt = typeof srcData.prompt === 'string' ? srcData.prompt : '';
-    const upstream = typeof candidateText === 'string' ? candidateText : fallbackPrompt;
+    const upstream = resolveTextFromSourceNode(srcNode, sourceHandle) || '';
     applyIncomingText(upstream);
   }, [rf, applyIncomingText]);
 
@@ -46,7 +43,7 @@ export default function TextPromptNode({ id, data, selected }: Props) {
     edgesRef.current = edges;
     const incoming = edges.find((e) => e.target === id && e.targetHandle === 'text');
     if (incoming?.source) {
-      syncFromSource(incoming.source);
+      syncFromSource(incoming.source, incoming.sourceHandle);
     }
   }, [edges, id, syncFromSource]);
 
@@ -62,7 +59,7 @@ export default function TextPromptNode({ id, data, selected }: Props) {
       if (typeof textPatch === 'string') return applyIncomingText(textPatch);
       const promptPatch = typeof patch.prompt === 'string' ? patch.prompt : undefined;
       if (typeof promptPatch === 'string') return applyIncomingText(promptPatch);
-      syncFromSource(detail.id);
+      syncFromSource(detail.id, incoming.sourceHandle);
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);

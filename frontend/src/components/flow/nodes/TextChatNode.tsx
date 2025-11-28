@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
 import { aiImageService } from '@/services/aiImageService';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
+import { resolveTextFromSourceNode } from '../utils/textSource';
 
 type TextChatStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 
@@ -29,16 +30,7 @@ const NODE_VERTICAL_PADDING = 24;
 
 const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow>): string | undefined => {
   const source = rfInstance.getNode(edge.source);
-  if (!source) return undefined;
-  const sourceData = (source.data || {}) as Record<string, unknown>;
-  const candidates = [
-    typeof sourceData.text === 'string' ? sourceData.text : undefined,
-    typeof sourceData.prompt === 'string' ? sourceData.prompt : undefined,
-    typeof sourceData.expandedText === 'string' ? sourceData.expandedText : undefined,
-    typeof sourceData.responseText === 'string' ? sourceData.responseText : undefined,
-  ];
-  const value = candidates.find((text) => typeof text === 'string' && text.trim().length);
-  return value ? value.trim() : undefined;
+  return resolveTextFromSourceNode(source, edge.sourceHandle);
 };
 
 const stopFlowPan = (event: React.SyntheticEvent<Element, Event>) => {
