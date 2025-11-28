@@ -13,9 +13,12 @@ export default function TextPromptNode({ id, data, selected }: Props) {
   const edges = useStore((state: ReactFlowState) => state.edges);
   const [value, setValue] = React.useState<string>(data.text || '');
   const [hover, setHover] = React.useState<string | null>(null);
+  const [incomingTexts, setIncomingTexts] = React.useState<string[]>([]);
   const edgesRef = React.useRef<Edge[]>(edges);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const incomingCount = incomingTexts.length;
+  const hasIncoming = incomingCount > 0;
 
   const applyIncomingText = React.useCallback((incoming: string) => {
     setValue((prev) => (prev === incoming ? prev : incoming));
@@ -33,6 +36,49 @@ export default function TextPromptNode({ id, data, selected }: Props) {
     applyIncomingText(upstream);
   }, [rf, applyIncomingText]);
 
+  const handleDisconnectInputs = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    event.preventDefault();
+    const currentEdges = rf.getEdges();
+    const remain = currentEdges.filter(edge => !(edge.target === id && edge.targetHandle === 'text'));
+    if (remain.length === currentEdges.length) return;
+    setIncomingTexts([]);
+    rf.setEdges(remain);
+  }, [rf, id]);
+
+  const collectIncomingTexts = React.useCallback((edgeList: Edge[]) => {
+    const incomingEdges = edgeList
+      .filter((edge) => edge.target === id && edge.targetHandle === 'text');
+    if (!incomingEdges.length) return [];
+
+    const decorated = incomingEdges.map((edge, index) => {
+      const handle = (edge as any).sourceHandle as string | undefined;
+      let order = 1000 + index;
+      if (typeof handle === 'string') {
+        const promptMatch = handle.match(/^prompt(\d+)$/);
+        if (promptMatch) {
+          order = Number(promptMatch[1]);
+        } else {
+          const numericMatch = handle.match(/(\d+)/);
+          if (numericMatch) {
+            order = Number(numericMatch[1]);
+          }
+        }
+      }
+      return { edge, order, index };
+    });
+
+    decorated.sort((a, b) => (a.order - b.order) || (a.index - b.index));
+
+    return decorated
+      .map(({ edge }) => {
+        const node = rf.getNode(edge.source);
+        const resolved = resolveTextFromSourceNode(node, (edge as any).sourceHandle);
+        return typeof resolved === 'string' && resolved.trim().length ? resolved.trim() : '';
+      })
+      .filter((text) => text.length > 0);
+  }, [id, rf]);
+
   React.useEffect(() => {
     // keep internal state in sync if external changes happen
     if ((data.text || '') !== value) setValue(data.text || '');
@@ -41,29 +87,42 @@ export default function TextPromptNode({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     edgesRef.current = edges;
-    const incoming = edges.find((e) => e.target === id && e.targetHandle === 'text');
-    if (incoming?.source) {
-      syncFromSource(incoming.source, incoming.sourceHandle);
+    const texts = collectIncomingTexts(edges);
+    setIncomingTexts(texts);
+    if (texts.length) {
+      applyIncomingText(texts.join('\n\n'));
     }
-  }, [edges, id, syncFromSource]);
+  }, [edges, collectIncomingTexts, applyIncomingText]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string; patch: Record<string, unknown> }>).detail;
       if (!detail?.id || detail.id === id) return;
-      const incoming = edgesRef.current.find((e) => e.target === id && e.targetHandle === 'text');
-      if (!incoming || incoming.source !== detail.id) return;
+      const isSourceLinked = edgesRef.current.some(
+        (edge) => edge.target === id && edge.targetHandle === 'text' && edge.source === detail.id
+      );
+      if (!isSourceLinked) return;
 
+      const texts = collectIncomingTexts(edgesRef.current);
+      setIncomingTexts(texts);
+      if (texts.length) {
+        applyIncomingText(texts.join('\n\n'));
+        return;
+      }
+
+      const incoming = edgesRef.current.find((edge) => edge.target === id && edge.targetHandle === 'text' && edge.source === detail.id);
       const patch = detail.patch || {};
       const textPatch = typeof patch.text === 'string' ? patch.text : undefined;
       if (typeof textPatch === 'string') return applyIncomingText(textPatch);
       const promptPatch = typeof patch.prompt === 'string' ? patch.prompt : undefined;
       if (typeof promptPatch === 'string') return applyIncomingText(promptPatch);
-      syncFromSource(detail.id, incoming.sourceHandle);
+      if (incoming) {
+        syncFromSource(detail.id, incoming.sourceHandle);
+      }
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
-  }, [id, applyIncomingText, syncFromSource]);
+  }, [id, applyIncomingText, syncFromSource, collectIncomingTexts]);
 
   return (
     <div style={{
@@ -93,7 +152,28 @@ export default function TextPromptNode({ id, data, selected }: Props) {
           rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: params.width, boxH: params.height } } : n));
         }}
       />
-      <div style={{ fontWeight: 600, marginBottom: 6 }}>Prompt</div>
+      <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span>Prompt</span>
+        {hasIncoming && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>已拼接 {incomingCount} 条输入</span>
+            <button
+              onClick={handleDisconnectInputs}
+              style={{
+                fontSize: 11,
+                padding: '2px 8px',
+                borderRadius: 999,
+                border: '1px solid #e5e7eb',
+                background: '#fff',
+                color: '#374151',
+                cursor: 'pointer'
+              }}
+            >
+              内置
+            </button>
+          </div>
+        )}
+      </div>
       <textarea
         value={value}
         onChange={(e) => {

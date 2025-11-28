@@ -1323,6 +1323,7 @@ function FlowInner() {
   }, [setNodes]);
 
   const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote','storyboardSplit'], []);
+  const TEXT_PROMPT_MAX_CONNECTIONS = 20;
   const isTextHandle = React.useCallback((handle?: string | null) => typeof handle === 'string' && handle.startsWith('text'), []);
 
   const appendSora2History = React.useCallback((
@@ -1420,7 +1421,7 @@ function FlowInner() {
       if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
     }
     if (targetNode?.type === 'textPrompt') {
-      if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
+      if (isTextHandle(params.targetHandle)) return incoming.length < TEXT_PROMPT_MAX_CONNECTIONS;
     }
     if (targetNode?.type === 'textNote') {
       if (isTextHandle(params.targetHandle)) return true;
@@ -1455,7 +1456,7 @@ function FlowInner() {
       }
       
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textPrompt') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video') || (tgt?.type === 'storyboardSplit')) && isTextHandle(params.targetHandle)) {
+      if (((tgt?.type === 'generate') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video') || (tgt?.type === 'storyboardSplit')) && isTextHandle(params.targetHandle)) {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       if ((tgt?.type === 'sora2Video') && params.targetHandle === 'image') {
