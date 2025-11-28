@@ -341,9 +341,9 @@ const AIChatDialog: React.FC = () => {
 
   // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
-    { value: 'gemini', label: 'Google Gemini', description: '使用Google Gemini AI' },
-    { value: 'gemini-pro', label: 'Gemini Pro', description: '使用 Gemini 3 Pro 模型' },
-    { value: 'banana', label: 'Banana API', description: '使用Banana API (147)' },
+    { value: 'gemini', label: '基础官方版', description: 'Gemini2.5 + Banana 1.0' },
+    { value: 'gemini-pro', label: '进阶官方版', description: 'Gemini 3.0 + Banana 2.0' },
+    { value: 'banana', label: '进阶国内版', description: 'Gemini 3.0 + Banana 2.0' },
     // 暂时隐藏 Midjourney 选项
     // { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
   ];
