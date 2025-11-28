@@ -234,79 +234,6 @@ export class BananaProvider implements IAIProvider {
     return apiKey.replace(/^Bearer\s+/i, '').trim();
   }
 
-  private sanitizeToolSelectionResponse(response: string): string {
-    if (!response) {
-      return response;
-    }
-
-    let text = response.trim();
-
-    if (text.startsWith('```json')) {
-      text = text.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
-    } else if (text.startsWith('```')) {
-      text = text.replace(/^```\s*/i, '').replace(/\s*```$/, '');
-    }
-
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      return jsonMatch[0];
-    }
-
-    return text;
-  }
-
-  private pickAvailableTool(desired: string, available?: string[]): string {
-    if (!available || available.length === 0) {
-      return desired;
-    }
-
-    if (available.includes(desired)) {
-      return desired;
-    }
-
-    if (available.includes('chatResponse')) {
-      return 'chatResponse';
-    }
-
-    return available[0];
-  }
-
-  private fallbackToolSelection(
-    request: ToolSelectionRequest,
-    reason: string
-  ): { tool: string; reasoning: string; confidence: number } {
-    const available = request.availableTools;
-    const prompt = (request.prompt || '').toLowerCase();
-    const hasImages = Boolean(request.hasImages || request.imageCount || request.hasCachedImage);
-    const imageCount = request.imageCount ?? 0;
-
-    const pick = (tool: string, fallbackReason: string, confidence = 0.6) => ({
-      tool: this.pickAvailableTool(tool, available),
-      reasoning: fallbackReason,
-      confidence,
-    });
-
-    if (!hasImages) {
-      return pick('generateImage', reason || 'No input images detected, defaulting to image generation.', 0.7);
-    }
-
-    if (imageCount > 1) {
-      return pick('blendImages', reason || 'Multiple images supplied, using blend operation.', 0.75);
-    }
-
-    const analyzeKeywords = ['分析', '解释', '分析下', 'describe', 'analysis', '分析一下'];
-    if (analyzeKeywords.some((keyword) => prompt.includes(keyword))) {
-      return pick('analyzeImage', reason || 'Prompt indicates image analysis is required.', 0.7);
-    }
-
-    const editKeywords = ['修改', '编辑', '调整', '重绘', '修复', 'edit', 'modify', 'refine'];
-    if (editKeywords.some((keyword) => prompt.includes(keyword))) {
-      return pick('editImage', reason || 'Prompt suggests editing an existing image.', 0.7);
-    }
-
-    return pick('editImage', reason || 'Single input image provided; defaulting to edit mode.', 0.65);
-  }
-
   private async makeRequest(
     model: string,
     contents: any,
@@ -728,10 +655,15 @@ export class BananaProvider implements IAIProvider {
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log('🎯 Selecting tool with Banana (147) API using gemini-2.5-flash...');
+    this.logger.log('🎯 Selecting tool with Banana (147) API using gemini-2.0-flash...');
 
     try {
-      const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入和上下文，选择最合适的工具执行。
+      const maxAttempts = 3;
+      const delayMs = 1000;
+      let lastError: unknown;
+
+      // 工具选择的系统提示 - 与基础版 ai.service.ts 完全一致
+      const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
 
 可用工具:
 - generateImage: 生成新的图像
@@ -739,6 +671,12 @@ export class BananaProvider implements IAIProvider {
 - blendImages: 融合多张图像
 - analyzeImage: 分析图像内容
 - chatResponse: 文本对话或聊天
+- generatePaperJS: 生成 Paper.js 矢量图形代码
+
+**工具选择规则**:
+- 如果用户提到 "svg"、"矢量"、"矢量图"、"vector"、"图形"、"几何"、"Paper.js"、"paperjs"、"代码绘图"、"线条"、"路径"、"圆形"、"矩形"、"多边形" 等关键词，选择 generatePaperJS
+- 如果用户要求 "简单图形"、"几何图形"、"数学图形" 等，选择 generatePaperJS
+- 否则按照原有逻辑选择其他工具
 
 请以以下JSON格式回复（仅返回JSON，不要其他文字）:
 {
@@ -746,126 +684,90 @@ export class BananaProvider implements IAIProvider {
   "reasoning": "选择理由"
 }`;
 
-      const contextDetails: string[] = [];
-      if (typeof request.hasImages === 'boolean') {
-        contextDetails.push(`用户是否提供了图像: ${request.hasImages ? '是' : '否'}`);
-      }
-      if (typeof request.imageCount === 'number') {
-        contextDetails.push(`显式提供的图像数量: ${request.imageCount}`);
-      }
-      if (typeof request.hasCachedImage === 'boolean') {
-        contextDetails.push(`是否存在缓存图像: ${request.hasCachedImage ? '是' : '否'}`);
-      }
-      if (request.availableTools?.length) {
-        contextDetails.push(`可用工具列表: ${request.availableTools.join(', ')}`);
-      }
-      if (request.context) {
-        contextDetails.push(`额外上下文: ${request.context}`);
-      }
-
-      const userPrompt = [
-        `用户输入: ${request.prompt}`,
-        contextDetails.length ? `上下文信息:\n- ${contextDetails.join('\n- ')}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n\n');
-
-      this.logger.debug('🤖 Tool selection prompt:', { prompt: userPrompt.substring(0, 100) });
-
-      const result = await this.withRetry(
-        async () => {
-          return await this.withTimeout(
-            (async () => {
-              // 🔥 使用 gemini-2.5-flash 进行工具选择
-              // 注意：147 API 只支持 'user' 和 'model' 作为 role，不支持 'system'
-              // 将 system prompt 合并到 user prompt 中
-              const combinedPrompt = `${systemPrompt}\n\n${userPrompt}`;
-              return await this.makeRequest(
-                'gemini-2.5-flash',
-                [
-                  {
-                    role: 'user',
-                    parts: [{ text: combinedPrompt }],
-                  },
-                ],
-                { responseModalities: ['TEXT'] }
-              );
-            })(),
-            this.DEFAULT_TIMEOUT,
-            'Tool selection'
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          // 使用与基础版完全相同的调用方式：两条独立的 contents
+          const result = await this.makeRequest(
+            'gemini-2.0-flash',
+            [
+              { text: systemPrompt },
+              { text: `用户输入: ${request.prompt}` },
+            ],
+            { responseModalities: ['TEXT'] }
           );
-        },
-        'Tool selection'
-      );
 
-      const responseText = result.textResponse?.trim();
+          if (!result.textResponse) {
+            this.logger.warn('Tool selection response did not contain text.');
+            throw new Error('Empty response');
+          }
 
-      if (!responseText) {
-        this.logger.warn('⚠️ Tool selection response was empty, falling back to heuristic.');
-        const fallback = this.fallbackToolSelection(request, 'Empty response from model.');
-        return {
-          success: true,
-          data: {
-            selectedTool: fallback.tool,
-            reasoning: fallback.reasoning,
-            confidence: fallback.confidence,
-          },
-        };
+          // 解析AI的JSON响应 - 与基础版逻辑一致
+          try {
+            let jsonText = result.textResponse.trim();
+
+            // 移除 markdown 代码块标记
+            if (jsonText.startsWith('```json')) {
+              jsonText = jsonText.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+            } else if (jsonText.startsWith('```')) {
+              jsonText = jsonText.replace(/^```\s*/i, '').replace(/\s*```$/, '');
+            }
+
+            const parsed = JSON.parse(jsonText.trim());
+            const selectedTool = parsed.selectedTool || 'chatResponse';
+
+            this.logger.log(`✅ Tool selected: ${selectedTool}`);
+
+            return {
+              success: true,
+              data: {
+                selectedTool,
+                reasoning: parsed.reasoning || '',
+                confidence: 0.85,
+              },
+            };
+          } catch (parseError) {
+            this.logger.warn(`Failed to parse tool selection JSON: ${result.textResponse}`);
+            // 降级：如果解析失败，默认返回文本对话
+            return {
+              success: true,
+              data: {
+                selectedTool: 'chatResponse',
+                reasoning: 'Fallback due to invalid JSON response',
+                confidence: 0.5,
+              },
+            };
+          }
+        } catch (error) {
+          lastError = error;
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`Tool selection attempt ${attempt}/${maxAttempts} failed: ${message}`);
+          if (attempt < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
       }
 
-      const sanitized = this.sanitizeToolSelectionResponse(responseText);
+      const message =
+        lastError instanceof Error ? lastError.message : 'Unknown error occurred during tool selection.';
+      this.logger.error(`All tool selection attempts failed: ${message}`);
 
-      try {
-        const parsed = JSON.parse(sanitized);
-        const selectedToolRaw = typeof parsed.selectedTool === 'string' ? parsed.selectedTool : 'chatResponse';
-        const selectedTool = this.pickAvailableTool(selectedToolRaw, request.availableTools);
-        const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : '';
-        const confidence =
-          typeof parsed.confidence === 'number'
-            ? parsed.confidence
-            : parsed.selectedTool === selectedTool
-            ? 0.8
-            : 0.7;
-
-        this.logger.log(`✅ Tool selected: ${selectedTool} (confidence: ${confidence})`);
-
-        return {
-          success: true,
-          data: {
-            selectedTool,
-            reasoning,
-            confidence,
-          },
-        };
-      } catch (parseError) {
-        this.logger.warn(
-          `⚠️ Failed to parse tool selection response "${responseText}", using heuristic fallback.`,
-        );
-        const fallback = this.fallbackToolSelection(
-          request,
-          parseError instanceof Error ? parseError.message : 'JSON parse error'
-        );
-        return {
-          success: true,
-          data: {
-            selectedTool: fallback.tool,
-            reasoning: fallback.reasoning,
-            confidence: fallback.confidence,
-          },
-        };
-      }
-    } catch (error) {
-      this.logger.error('❌ Tool selection failed:', error);
-      const fallback = this.fallbackToolSelection(
-        request,
-        error instanceof Error ? error.message : 'Failed to select tool'
-      );
+      // 最后的降级方案：返回文本对话
       return {
         success: true,
         data: {
-          selectedTool: fallback.tool,
-          reasoning: fallback.reasoning,
-          confidence: fallback.confidence,
+          selectedTool: 'chatResponse',
+          reasoning: 'Fallback due to repeated failures',
+          confidence: 0.4,
+        },
+      };
+    } catch (error) {
+      this.logger.error('❌ Tool selection failed:', error);
+      return {
+        success: false,
+        error: {
+          code: 'TOOL_SELECTION_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to select tool',
+          details: error,
         },
       };
     }

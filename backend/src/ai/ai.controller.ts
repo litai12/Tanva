@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
   Get,
   Optional,
+  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
@@ -31,6 +32,7 @@ import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/pap
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { MidjourneyProvider } from './providers/midjourney.provider';
+import { UsersService } from '../users/users.service';
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -59,7 +61,41 @@ export class AiController {
     private readonly factory: AIProviderFactory,
     private readonly convert2Dto3DService: Convert2Dto3DService,
     private readonly expandImageService: ExpandImageService,
+    private readonly usersService: UsersService,
   ) {}
+
+  /**
+   * 从请求中获取用户的自定义 Google API Key
+   * 如果用户设置了自定义 Key 且 mode 为 'custom'，则返回该 Key
+   * 否则返回 null（使用系统默认 Key）
+   */
+  private async getUserCustomApiKey(req: any): Promise<string | null> {
+    try {
+      // 如果是 API Key 认证（外部调用），不使用用户自定义 Key
+      if (req.apiClient) {
+        return null;
+      }
+
+      // 获取 JWT 中的用户 ID
+      const userId = req.user?.sub;
+      if (!userId) {
+        return null;
+      }
+
+      const { apiKey, mode } = await this.usersService.getGoogleApiKey(userId);
+
+      // 只有当 mode 为 'custom' 且有 apiKey 时才使用
+      if (mode === 'custom' && apiKey) {
+        this.logger.debug(`Using custom Google API Key for user ${userId.slice(0, 8)}...`);
+        return apiKey;
+      }
+
+      return null;
+    } catch (error) {
+      this.logger.warn('Failed to get user custom API key:', error);
+      return null;
+    }
+  }
 
   private resolveImageModel(providerName: string | null, requestedModel?: string): string {
     const model = requestedModel?.trim();
@@ -154,7 +190,7 @@ export class AiController {
   }
 
   @Post('generate-image')
-  async generateImage(@Body() dto: GenerateImageDto): Promise<ImageGenerationResult> {
+  async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<ImageGenerationResult> {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
     const providerName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
@@ -182,13 +218,14 @@ export class AiController {
       throw new Error(result.error?.message || 'Failed to generate image');
     }
 
-    // 否则使用默认的Gemini服务
-    const result = await this.imageGeneration.generateImage(dto);
+    // 否则使用默认的Gemini服务，获取用户自定义 API Key
+    const customApiKey = await this.getUserCustomApiKey(req);
+    const result = await this.imageGeneration.generateImage({ ...dto, customApiKey });
     return result;
   }
 
   @Post('edit-image')
-  async editImage(@Body() dto: EditImageDto): Promise<ImageGenerationResult> {
+  async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
     const providerName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
@@ -217,13 +254,14 @@ export class AiController {
       throw new Error(result.error?.message || 'Failed to edit image');
     }
 
-    // 否则使用默认的Gemini服务
-    const result = await this.imageGeneration.editImage(dto);
+    // 否则使用默认的Gemini服务，获取用户自定义 API Key
+    const customApiKey = await this.getUserCustomApiKey(req);
+    const result = await this.imageGeneration.editImage({ ...dto, customApiKey });
     return result;
   }
 
   @Post('blend-images')
-  async blendImages(@Body() dto: BlendImagesDto): Promise<ImageGenerationResult> {
+  async blendImages(@Body() dto: BlendImagesDto, @Req() req: any): Promise<ImageGenerationResult> {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
     const providerName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
@@ -252,8 +290,9 @@ export class AiController {
       throw new Error(result.error?.message || 'Failed to blend images');
     }
 
-    // 否则使用默认的Gemini服务
-    const result = await this.imageGeneration.blendImages(dto);
+    // 否则使用默认的Gemini服务，获取用户自定义 API Key
+    const customApiKey = await this.getUserCustomApiKey(req);
+    const result = await this.imageGeneration.blendImages({ ...dto, customApiKey });
     return result;
   }
 
@@ -313,7 +352,7 @@ export class AiController {
   }
 
   @Post('analyze-image')
-  async analyzeImage(@Body() dto: AnalyzeImageDto) {
+  async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
     const providerName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
@@ -335,13 +374,14 @@ export class AiController {
       throw new Error(result.error?.message || 'Failed to analyze image');
     }
 
-    // 否则使用默认的Gemini服务
-    const result = await this.imageGeneration.analyzeImage(dto);
+    // 否则使用默认的Gemini服务，获取用户自定义 API Key
+    const customApiKey = await this.getUserCustomApiKey(req);
+    const result = await this.imageGeneration.analyzeImage({ ...dto, customApiKey });
     return result;
   }
 
   @Post('text-chat')
-  async textChat(@Body() dto: TextChatDto) {
+  async textChat(@Body() dto: TextChatDto, @Req() req: any) {
     // 如果指定了aiProvider，使用工厂路由到相应提供商
     const providerName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
@@ -363,8 +403,9 @@ export class AiController {
       throw new Error(result.error?.message || 'Failed to generate text');
     }
 
-    // 否则使用默认的Gemini服务
-    const result = await this.imageGeneration.generateTextResponse(dto);
+    // 否则使用默认的Gemini服务，获取用户自定义 API Key
+    const customApiKey = await this.getUserCustomApiKey(req);
+    const result = await this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
     return result;
   }
 
@@ -496,7 +537,7 @@ export class AiController {
    * 生成 Paper.js 代码
    */
   @Post('generate-paperjs')
-  async generatePaperJS(@Body() dto: PaperJSGenerateRequestDto): Promise<PaperJSGenerateResponseDto> {
+  async generatePaperJS(@Body() dto: PaperJSGenerateRequestDto, @Req() req: any): Promise<PaperJSGenerateResponseDto> {
     this.logger.log(`📐 Paper.js code generation request: ${dto.prompt.substring(0, 50)}...`);
     const startTime = Date.now();
 
@@ -508,7 +549,7 @@ export class AiController {
       if (providerName) {
         const provider = this.factory.getProvider(dto.model, providerName);
         const model = this.resolveTextModel(providerName, dto.model);
-        
+
         const result = await provider.generatePaperJS({
           prompt: dto.prompt,
           model,
@@ -516,11 +557,11 @@ export class AiController {
           canvasWidth: dto.canvasWidth,
           canvasHeight: dto.canvasHeight,
         });
-        
+
         if (result.success && result.data) {
           const processingTime = Date.now() - startTime;
           this.logger.log(`✅ Paper.js code generated successfully in ${processingTime}ms`);
-          
+
           return {
             code: result.data.code,
             explanation: result.data.explanation,
@@ -539,13 +580,15 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate Paper.js code');
       }
 
-      // 否则使用默认的 ImageGenerationService（Gemini SDK）
+      // 否则使用默认的 ImageGenerationService（Gemini SDK），获取用户自定义 API Key
+      const customApiKey = await this.getUserCustomApiKey(req);
       const result = await this.imageGeneration.generatePaperJSCode({
         prompt: dto.prompt,
         model: dto.model,
         thinkingLevel: dto.thinkingLevel,
         canvasWidth: dto.canvasWidth,
         canvasHeight: dto.canvasHeight,
+        customApiKey,
       });
 
       const processingTime = Date.now() - startTime;

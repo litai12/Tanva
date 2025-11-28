@@ -27,22 +27,6 @@ export class GeminiProProvider implements IAIProvider {
   private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
   private readonly MAX_RETRIES = 3;
 
-  private readonly DEFAULT_AVAILABLE_TOOLS = [
-    'generateImage',
-    'editImage',
-    'blendImages',
-    'analyzeImage',
-    'chatResponse',
-  ];
-
-  private readonly TOOL_DESCRIPTION_MAP: Record<string, string> = {
-    generateImage: '生成新的图像',
-    editImage: '编辑现有图像',
-    blendImages: '融合多张图像',
-    analyzeImage: '分析图像内容',
-    chatResponse: '文本对话或聊天',
-  };
-
   constructor(private readonly config: ConfigService) {}
 
   async initialize(): Promise<void> {
@@ -711,41 +695,21 @@ export class GeminiProProvider implements IAIProvider {
       const delayMs = 1000;
       let lastError: unknown;
 
-      // 获取可用工具列表
-      const availableTools = request.availableTools && request.availableTools.length > 0
-        ? request.availableTools
-        : this.DEFAULT_AVAILABLE_TOOLS;
-
-      // 构建工具列表描述
-      const toolList = availableTools
-        .map((tool) => {
-          const description = this.TOOL_DESCRIPTION_MAP[tool] || '自定义工具';
-          return `- ${tool}: ${description}`;
-        })
-        .join('\n');
-
-      // 构建上下文信息（参考 ai.service.ts 的简洁方式）
-      const contextInfo: string[] = [];
-      contextInfo.push(`用户输入: ${request.prompt}`);
-      
-      if (request.hasImages !== undefined) {
-        contextInfo.push(`用户是否提供了图像: ${request.hasImages ? '是' : '否'}`);
-      }
-      if (request.imageCount !== undefined) {
-        contextInfo.push(`显式提供的图像数量: ${request.imageCount}`);
-      }
-      if (request.hasCachedImage !== undefined) {
-        contextInfo.push(`是否存在缓存图像: ${request.hasCachedImage ? '是' : '否'}`);
-      }
-      if (request.context?.trim()) {
-        contextInfo.push(`额外上下文: ${request.context.trim()}`);
-      }
-
-      // 工具选择的系统提示（参考 ai.service.ts 的简洁实现）
+      // 工具选择的系统提示 - 与基础版 ai.service.ts 完全一致
       const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
 
 可用工具:
-${toolList}
+- generateImage: 生成新的图像
+- editImage: 编辑现有图像
+- blendImages: 融合多张图像
+- analyzeImage: 分析图像内容
+- chatResponse: 文本对话或聊天
+- generatePaperJS: 生成 Paper.js 矢量图形代码
+
+**工具选择规则**:
+- 如果用户提到 "svg"、"矢量"、"矢量图"、"vector"、"图形"、"几何"、"Paper.js"、"paperjs"、"代码绘图"、"线条"、"路径"、"圆形"、"矩形"、"多边形" 等关键词，选择 generatePaperJS
+- 如果用户要求 "简单图形"、"几何图形"、"数学图形" 等，选择 generatePaperJS
+- 否则按照原有逻辑选择其他工具
 
 请以以下JSON格式回复（仅返回JSON，不要其他文字）:
 {
@@ -753,15 +717,13 @@ ${toolList}
   "reasoning": "选择理由"
 }`;
 
-      const userPrompt = contextInfo.join('\n');
-
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
           const response = await client.models.generateContent({
             model: 'gemini-2.0-flash',
             contents: [
               { text: systemPrompt },
-              { text: userPrompt },
+              { text: `用户输入: ${request.prompt}` }
             ],
             config: {
               safetySettings: [
@@ -779,9 +741,8 @@ ${toolList}
             throw new Error('Empty Gemini response');
           }
 
-          // 解析AI的JSON响应（参考 ai.service.ts 的实现）
+          // 解析AI的JSON响应 - 与基础版逻辑一致
           try {
-            // 提取 JSON 内容（可能被 markdown 代码块包装）
             let jsonText = response.text.trim();
 
             // 移除 markdown 代码块标记
@@ -792,36 +753,25 @@ ${toolList}
             }
 
             const parsed = JSON.parse(jsonText.trim());
-            const rawTool = typeof parsed.selectedTool === 'string' ? parsed.selectedTool.trim() : '';
-            
-            // 验证工具是否在可用工具列表中
-            const normalizedTool = availableTools.find(
-              (tool) => tool.toLowerCase() === rawTool.toLowerCase()
-            ) || this.selectFallbackTool(availableTools);
-            
-            const reasoning =
-              typeof parsed.reasoning === 'string' && parsed.reasoning.trim().length
-                ? parsed.reasoning.trim()
-                : `AI 建议使用 ${normalizedTool}`;
+            const selectedTool = parsed.selectedTool || 'chatResponse';
 
-            this.logger.log(`Tool selected: ${normalizedTool}`);
+            this.logger.log(`Tool selected: ${selectedTool}`);
 
             return {
               success: true,
               data: {
-                selectedTool: normalizedTool,
-                reasoning,
+                selectedTool,
+                reasoning: parsed.reasoning || '',
                 confidence: 0.85,
               },
             };
           } catch (parseError) {
             this.logger.warn(`Failed to parse tool selection JSON: ${response.text}`);
-            // 降级：如果解析失败，使用回退工具
-            const fallbackTool = this.selectFallbackTool(availableTools);
+            // 降级：如果解析失败，默认返回文本对话
             return {
               success: true,
               data: {
-                selectedTool: fallbackTool,
+                selectedTool: 'chatResponse',
                 reasoning: 'Fallback due to invalid JSON response',
                 confidence: 0.5,
               },
@@ -841,12 +791,11 @@ ${toolList}
         lastError instanceof Error ? lastError.message : 'Unknown error occurred during tool selection.';
       this.logger.error(`All tool selection attempts failed: ${message}`);
 
-      // 最后的降级方案：返回回退工具
-      const fallbackTool = this.selectFallbackTool(availableTools);
+      // 最后的降级方案：返回文本对话
       return {
         success: true,
         data: {
-          selectedTool: fallbackTool,
+          selectedTool: 'chatResponse',
           reasoning: 'Fallback due to repeated failures',
           confidence: 0.4,
         },
@@ -862,13 +811,6 @@ ${toolList}
         },
       };
     }
-  }
-
-  private selectFallbackTool(availableTools: string[]): string {
-    if (availableTools.includes('chatResponse')) {
-      return 'chatResponse';
-    }
-    return availableTools[0] || 'chatResponse';
   }
 
   private parseNonStreamResponse(

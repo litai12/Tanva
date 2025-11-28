@@ -16,6 +16,7 @@ interface GenerateImageRequest {
   imageSize?: '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
+  customApiKey?: string | null; // 用户自定义 API Key
 }
 
 interface EditImageRequest {
@@ -27,6 +28,7 @@ interface EditImageRequest {
   imageSize?: '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
+  customApiKey?: string | null; // 用户自定义 API Key
 }
 
 interface BlendImagesRequest {
@@ -38,18 +40,21 @@ interface BlendImagesRequest {
   imageSize?: '1K' | '2K' | '4K';
   thinkingLevel?: 'high' | 'low';
   imageOnly?: boolean;
+  customApiKey?: string | null; // 用户自定义 API Key
 }
 
 interface AnalyzeImageRequest {
   prompt?: string;
   sourceImage: string; // base64
   model?: string;
+  customApiKey?: string | null; // 用户自定义 API Key
 }
 
 interface TextChatRequest {
   prompt: string;
   model?: string;
   enableWebSearch?: boolean;
+  customApiKey?: string | null; // 用户自定义 API Key
 }
 
 interface ParsedStreamResponse {
@@ -382,7 +387,7 @@ export class ImageGenerationService {
   async generateImage(request: GenerateImageRequest): Promise<ImageGenerationResult> {
     this.logger.log(`Generating image with prompt: ${request.prompt.substring(0, 50)}...`);
 
-    const client = this.ensureClient();
+    const client = this.getClient(request.customApiKey);
     const model = request.model || this.DEFAULT_MODEL;
     const startTime = Date.now();
 
@@ -496,7 +501,7 @@ export class ImageGenerationService {
       `Normalized edit source image: mimeType=${sourceMimeType}, length=${sourceImageData.length}`,
     );
 
-    const client = this.ensureClient();
+    const client = this.getClient(request.customApiKey);
     const model = request.model || this.DEFAULT_MODEL;
     const startTime = Date.now();
 
@@ -673,7 +678,7 @@ export class ImageGenerationService {
   async blendImages(request: BlendImagesRequest): Promise<ImageGenerationResult> {
     this.logger.log(`Blending ${request.sourceImages.length} images with prompt: ${request.prompt.substring(0, 50)}...`);
 
-    const client = this.ensureClient();
+    const client = this.getClient(request.customApiKey);
     const model = request.model || this.DEFAULT_MODEL;
     const startTime = Date.now();
 
@@ -800,7 +805,7 @@ export class ImageGenerationService {
       `Normalized analysis source image: mimeType=${sourceMimeType}, length=${sourceImageData.length}`,
     );
 
-    const client = this.ensureClient();
+    const client = this.getClient(request.customApiKey);
     const model = request.model || 'gemini-2.0-flash';
 
     const analysisPrompt = request.prompt
@@ -876,7 +881,7 @@ export class ImageGenerationService {
   async generateTextResponse(request: TextChatRequest): Promise<{ text: string }> {
     this.logger.log(`Generating text response for prompt: ${request.prompt.substring(0, 50)}...`);
 
-    const client = this.ensureClient();
+    const client = this.getClient(request.customApiKey);
     const model = request.model || 'gemini-2.0-flash';
     const finalPrompt = `Please respond in Chinese:\n\n${request.prompt}`;
 
@@ -943,12 +948,13 @@ export class ImageGenerationService {
     thinkingLevel?: 'high' | 'low';
     canvasWidth?: number;
     canvasHeight?: number;
+    customApiKey?: string | null; // 用户自定义 API Key
   }): Promise<{ code: string; explanation?: string; model: string }> {
     this.logger.log(`Starting Paper.js code generation: ${request.prompt.substring(0, 50)}...`);
     const startTime = Date.now();
 
     try {
-      const client = this.ensureClient();
+      const client = this.getClient(request.customApiKey);
       // 使用 gemini-3-pro-preview，与 gemini-pro 文本对话保持一致
       const model = request.model || 'gemini-3-pro-preview';
 
