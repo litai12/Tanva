@@ -30,7 +30,10 @@ import {
     Trash2,
     X,
     Cloud,
-    Zap
+    Zap,
+    Key,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
@@ -45,6 +48,7 @@ import ManualSaveButton from '@/components/autosave/ManualSaveButton';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { authApi, type GoogleApiKeyInfo } from '@/services/authApi';
 
 const SETTINGS_SECTIONS = [
     { id: 'workspace', label: '工作区', icon: Square },
@@ -126,6 +130,82 @@ const FloatingHeader: React.FC = () => {
     const [saveFeedback, setSaveFeedback] = useState<'idle' | 'success' | 'error'>('idle');
     const saveFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasAppliedSavedAppearanceRef = useRef(false);
+
+    // Google API Key 管理状态
+    const [googleApiKeyInfo, setGoogleApiKeyInfo] = useState<GoogleApiKeyInfo>({ hasCustomKey: false, maskedKey: null, mode: 'official' });
+    const [googleApiKeyInput, setGoogleApiKeyInput] = useState('');
+    const [showGoogleApiKey, setShowGoogleApiKey] = useState(false);
+    const [googleApiKeySaving, setGoogleApiKeySaving] = useState(false);
+    const [googleApiKeyFeedback, setGoogleApiKeyFeedback] = useState<'idle' | 'success' | 'error'>('idle');
+    const googleApiKeyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // 清理 Google API Key 反馈计时器
+    useEffect(() => () => {
+        if (googleApiKeyFeedbackTimerRef.current) {
+            clearTimeout(googleApiKeyFeedbackTimerRef.current);
+            googleApiKeyFeedbackTimerRef.current = null;
+        }
+    }, []);
+
+    const handleSaveGoogleApiKey = useCallback(async () => {
+        if (googleApiKeySaving) return;
+        setGoogleApiKeySaving(true);
+        try {
+            const trimmedKey = googleApiKeyInput.trim();
+            const result = await authApi.updateGoogleApiKey({
+                googleCustomApiKey: trimmedKey || null,
+                googleKeyMode: trimmedKey ? 'custom' : 'official',
+            });
+            if (result.success) {
+                setGoogleApiKeyFeedback('success');
+                // 重新加载状态
+                const info = await authApi.getGoogleApiKey();
+                setGoogleApiKeyInfo(info);
+                setGoogleApiKeyInput(''); // 清空输入框
+            } else {
+                setGoogleApiKeyFeedback('error');
+            }
+        } catch (e) {
+            console.error('Failed to save Google API Key:', e);
+            setGoogleApiKeyFeedback('error');
+        } finally {
+            setGoogleApiKeySaving(false);
+            if (googleApiKeyFeedbackTimerRef.current) {
+                clearTimeout(googleApiKeyFeedbackTimerRef.current);
+            }
+            googleApiKeyFeedbackTimerRef.current = setTimeout(() => setGoogleApiKeyFeedback('idle'), 2500);
+        }
+    }, [googleApiKeyInput, googleApiKeySaving]);
+
+    const handleClearGoogleApiKey = useCallback(async () => {
+        if (googleApiKeySaving) return;
+        const confirmed = window.confirm('确定要清除自定义 API Key 吗？系统将恢复使用官方 Key。');
+        if (!confirmed) return;
+
+        setGoogleApiKeySaving(true);
+        try {
+            const result = await authApi.updateGoogleApiKey({
+                googleCustomApiKey: null,
+                googleKeyMode: 'official',
+            });
+            if (result.success) {
+                setGoogleApiKeyFeedback('success');
+                setGoogleApiKeyInfo({ hasCustomKey: false, maskedKey: null, mode: 'official' });
+                setGoogleApiKeyInput('');
+            } else {
+                setGoogleApiKeyFeedback('error');
+            }
+        } catch (e) {
+            console.error('Failed to clear Google API Key:', e);
+            setGoogleApiKeyFeedback('error');
+        } finally {
+            setGoogleApiKeySaving(false);
+            if (googleApiKeyFeedbackTimerRef.current) {
+                clearTimeout(googleApiKeyFeedbackTimerRef.current);
+            }
+            googleApiKeyFeedbackTimerRef.current = setTimeout(() => setGoogleApiKeyFeedback('idle'), 2500);
+        }
+    }, [googleApiKeySaving]);
 
     // 一次性加载保存的视图外观设置
     useEffect(() => {
@@ -329,6 +409,13 @@ const FloatingHeader: React.FC = () => {
     };
 
     const { user, logout, loading, connection } = useAuthStore();
+
+    // 加载用户的 Google API Key 设置
+    useEffect(() => {
+        if (!user) return;
+        authApi.getGoogleApiKey().then(setGoogleApiKeyInfo).catch(console.warn);
+    }, [user]);
+
     const displayName = user?.name || user?.phone?.slice(-4) || user?.email || user?.id?.slice(-4) || '用户';
     const secondaryId = user?.email || (user?.phone ? `${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : '') || '';
     const status = (() => {
@@ -665,6 +752,101 @@ const FloatingHeader: React.FC = () => {
                                     </div>
                                 </button>
 
+                            </div>
+                        </div>
+
+                        {/* Google API Key 设置 */}
+                        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
+                            <div className="flex items-center gap-2 mb-4">
+                                <Key className="h-4 w-4 text-green-600" />
+                                <div className="text-sm font-medium text-slate-700">Google Gemini API Key</div>
+                            </div>
+                            <div className="text-xs text-slate-500 mb-4">
+                                输入自己的 Google API Key 进行生图，可获得更稳定的服务。不输入则使用系统默认 Key。
+                            </div>
+
+                            {/* 当前状态显示 */}
+                            <div className="mb-4 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                                <div className="flex items-center justify-between">
+                                    <div className="text-xs text-slate-600">
+                                        当前模式：
+                                        <span className={cn(
+                                            "ml-1 font-medium",
+                                            googleApiKeyInfo.mode === 'custom' ? "text-green-600" : "text-blue-600"
+                                        )}>
+                                            {googleApiKeyInfo.mode === 'custom' ? '使用自定义 Key' : '使用系统默认 Key'}
+                                        </span>
+                                    </div>
+                                    {googleApiKeyInfo.hasCustomKey && googleApiKeyInfo.maskedKey && (
+                                        <div className="text-xs text-slate-500 font-mono">
+                                            {googleApiKeyInfo.maskedKey}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 输入框 */}
+                            <div className="flex flex-col gap-3">
+                                <div className="relative">
+                                    <input
+                                        type={showGoogleApiKey ? 'text' : 'password'}
+                                        value={googleApiKeyInput}
+                                        onChange={(e) => setGoogleApiKeyInput(e.target.value)}
+                                        placeholder={googleApiKeyInfo.hasCustomKey ? '输入新的 Key 以更新...' : '输入 Google Gemini API Key...'}
+                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 pr-10 text-sm font-mono focus:border-green-500 focus:outline-none"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && googleApiKeyInput.trim()) {
+                                                handleSaveGoogleApiKey();
+                                            }
+                                            e.stopPropagation();
+                                        }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowGoogleApiKey(!showGoogleApiKey)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                                        title={showGoogleApiKey ? '隐藏' : '显示'}
+                                    >
+                                        {showGoogleApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                    </button>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={cn(
+                                            "flex-1 rounded-xl text-sm border-green-200 text-green-600 hover:bg-green-50",
+                                            googleApiKeySaving && "opacity-70"
+                                        )}
+                                        disabled={googleApiKeySaving || !googleApiKeyInput.trim()}
+                                        onClick={handleSaveGoogleApiKey}
+                                    >
+                                        {googleApiKeySaving ? '保存中...' : '保存 Key'}
+                                    </Button>
+                                    {googleApiKeyInfo.hasCustomKey && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={cn(
+                                                "rounded-xl text-sm border-red-200 text-red-600 hover:bg-red-50",
+                                                googleApiKeySaving && "opacity-70"
+                                            )}
+                                            disabled={googleApiKeySaving}
+                                            onClick={handleClearGoogleApiKey}
+                                        >
+                                            清除
+                                        </Button>
+                                    )}
+                                </div>
+
+                                {/* 反馈信息 */}
+                                {googleApiKeyFeedback === 'success' && (
+                                    <div className="text-xs text-green-600">已保存</div>
+                                )}
+                                {googleApiKeyFeedback === 'error' && (
+                                    <div className="text-xs text-red-600">保存失败，请重试</div>
+                                )}
                             </div>
                         </div>
                     </div>

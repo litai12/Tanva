@@ -61,6 +61,7 @@ interface ParsedStreamResponse {
 export class ImageGenerationService {
   private readonly logger = new Logger(ImageGenerationService.name);
   private readonly genAI: GoogleGenAI | null;
+  private readonly defaultApiKey: string | null;
   private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
   private readonly DEFAULT_TIMEOUT = 120000;
   private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
@@ -68,18 +69,35 @@ export class ImageGenerationService {
   private readonly IMAGE_RETRY_DELAY_BASE = 500;
 
   constructor(private readonly config: ConfigService) {
-    const apiKey =
+    this.defaultApiKey =
       this.config.get<string>('GOOGLE_GEMINI_API_KEY') ??
-      this.config.get<string>('VITE_GOOGLE_GEMINI_API_KEY');
+      this.config.get<string>('VITE_GOOGLE_GEMINI_API_KEY') ??
+      null;
 
-    if (!apiKey) {
+    if (!this.defaultApiKey) {
       this.logger.warn('Google Gemini API key not configured. Image generation will be unavailable.');
       this.genAI = null;
       return;
     }
 
-    this.genAI = new GoogleGenAI({ apiKey });
+    this.genAI = new GoogleGenAI({ apiKey: this.defaultApiKey });
     this.logger.log('Google GenAI client initialized for image generation.');
+  }
+
+  /**
+   * 获取 GoogleGenAI 客户端实例
+   * @param customApiKey 用户自定义的 API Key（可选）
+   * @returns GoogleGenAI 客户端实例
+   */
+  getClient(customApiKey?: string | null): GoogleGenAI {
+    // 如果提供了自定义 Key，创建新的客户端实例
+    if (customApiKey && customApiKey.trim().length > 0) {
+      this.logger.debug('Using custom API key for request');
+      return new GoogleGenAI({ apiKey: customApiKey.trim() });
+    }
+
+    // 否则使用默认客户端
+    return this.ensureClient();
   }
 
   private ensureClient(): GoogleGenAI {

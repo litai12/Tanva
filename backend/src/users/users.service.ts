@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+export interface UpdateGoogleApiKeyDto {
+  googleCustomApiKey?: string | null;
+  googleKeyMode?: 'official' | 'custom';
+}
+
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -27,6 +32,35 @@ export class UsersService {
       },
       select: { id: true, email: true, phone: true, name: true, avatarUrl: true, role: true, status: true, createdAt: true },
     });
+  }
+
+  async updateGoogleApiKey(userId: string, dto: UpdateGoogleApiKeyDto) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        googleCustomApiKey: dto.googleCustomApiKey,
+        googleKeyMode: dto.googleKeyMode ?? 'custom',
+      },
+      select: {
+        id: true,
+        googleCustomApiKey: true,
+        googleKeyMode: true,
+      },
+    });
+  }
+
+  async getGoogleApiKey(userId: string): Promise<{ apiKey: string | null; mode: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        googleCustomApiKey: true,
+        googleKeyMode: true,
+      },
+    });
+    return {
+      apiKey: user?.googleCustomApiKey ?? null,
+      mode: user?.googleKeyMode ?? 'official',
+    };
   }
 
   sanitize(user: any) {

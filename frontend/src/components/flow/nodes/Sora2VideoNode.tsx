@@ -15,6 +15,8 @@ type Props = {
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
     videoQuality?: Sora2VideoQuality;
+    clipDuration?: number;
+    aspectRatio?: string;
     history?: Sora2VideoHistoryItem[];
   };
   selected?: boolean;
@@ -39,6 +41,7 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>('16/9');
+  const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [downloadFeedback, setDownloadFeedback] = React.useState<DownloadFeedback | null>(null);
@@ -61,7 +64,15 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
     }
   }, [cacheBustedVideoUrl, data.videoUrl]);
   React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest?.('.sora2-dropdown')) {
+        setAspectMenuOpen(false);
+      }
+    };
+    window.addEventListener('click', handleClickOutside);
     return () => {
+      window.removeEventListener('click', handleClickOutside);
       if (downloadFeedbackTimer.current) {
         window.clearTimeout(downloadFeedbackTimer.current);
         downloadFeedbackTimer.current = undefined;
@@ -97,6 +108,41 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
     { label: 'SD', value: 'sd' as Sora2VideoQuality }
   ]), []);
   const activeModel = SORA2_VIDEO_MODELS[videoQuality];
+  const clipDuration = typeof data.clipDuration === 'number' ? data.clipDuration : undefined;
+  const aspectRatioValue = typeof data.aspectRatio === 'string' ? data.aspectRatio : '';
+  const aspectOptions = React.useMemo(() => ([
+    { label: '自动', value: '' },
+    { label: '横屏（16:9）', value: '16:9', suffix: '横屏 16:9' },
+    { label: '竖屏（9:16）', value: '9:16', suffix: '竖屏 9:16' },
+  ]), []);
+  const handleAspectChange = React.useCallback((value: string) => {
+    if (value === aspectRatioValue) return;
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { aspectRatio: value || undefined } }
+    }));
+  }, [aspectRatioValue, id]);
+  const promptSuffixPreview = React.useMemo(() => {
+    const pieces: string[] = [];
+    if (clipDuration) pieces.push(`${clipDuration}s`);
+    const aspectSuffix = aspectOptions.find(opt => opt.value === aspectRatioValue)?.suffix;
+    if (aspectSuffix) pieces.push(aspectSuffix);
+    return pieces.join(' ');
+  }, [clipDuration, aspectRatioValue, aspectOptions]);
+  const aspectLabel = React.useMemo(() => {
+    const match = aspectOptions.find(opt => opt.value === aspectRatioValue);
+    return match ? match.label : '自动';
+  }, [aspectOptions, aspectRatioValue]);
+
+  React.useEffect(() => {
+    if (!aspectRatioValue) {
+      setPreviewAspect('16/9');
+      return;
+    }
+    const [w, h] = aspectRatioValue.split(':');
+    if (w && h) {
+      setPreviewAspect(`${w}/${h}`);
+    }
+  }, [aspectRatioValue]);
   const feedbackColors = React.useMemo(() => {
     if (!downloadFeedback) return null;
     if (downloadFeedback.type === 'error') {
@@ -425,6 +471,82 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
       <div style={{ fontSize: 10, color: '#94a3b8', textAlign: 'right', marginTop: -2, marginBottom: 8 }}>
         Model: {activeModel}
       </div>
+      <div className="sora2-dropdown" style={{ marginBottom: 8, position: 'relative' }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>尺寸</div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setAspectMenuOpen((open) => !open);
+          }}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 10px',
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            background: '#fff',
+            fontSize: 12,
+            cursor: 'pointer'
+          }}
+        >
+          <span>{aspectLabel}</span>
+          <span style={{ fontSize: 16, lineHeight: 1 }}>{aspectMenuOpen ? '▴' : '▾'}</span>
+        </button>
+        {aspectMenuOpen && (
+          <div
+            className="sora2-dropdown-menu"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              position: 'absolute',
+              zIndex: 20,
+              top: 'calc(100% + 4px)',
+              left: 0,
+              right: 0,
+              background: '#fff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              padding: 8,
+              boxShadow: '0 8px 16px rgba(15,23,42,0.08)'
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {aspectOptions.map((option) => {
+                const isActive = option.value === aspectRatioValue;
+                return (
+                  <button
+                    key={option.value || 'auto'}
+                    type="button"
+                    onClick={() => {
+                      handleAspectChange(option.value);
+                      setAspectMenuOpen(false);
+                    }}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      border: `1px solid ${isActive ? '#2563eb' : '#e5e7eb'}`,
+                      background: isActive ? '#2563eb' : '#fff',
+                      color: isActive ? '#fff' : '#111827',
+                      fontSize: 12,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {promptSuffixPreview && (
+        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
+          将附加到提示词末尾：{promptSuffixPreview}
+        </div>
+      )}
 
       <div
         style={{

@@ -1313,7 +1313,7 @@ function FlowInner() {
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
-      : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, videoQuality: DEFAULT_SORA2_VIDEO_QUALITY, videoVersion: 0, history: [], boxW: size.w, boxH: size.h }
+      : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, videoQuality: DEFAULT_SORA2_VIDEO_QUALITY, videoVersion: 0, history: [], clipDuration: undefined, aspectRatio: undefined, boxW: size.w, boxH: size.h }
       : type === 'storyboardSplit' ? { status: 'idle' as const, inputText: '', segments: [], outputCount: 9, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
@@ -1635,6 +1635,21 @@ function FlowInner() {
         return;
       }
 
+      const clipDuration = typeof (node.data as any)?.clipDuration === 'number'
+        ? (node.data as any).clipDuration
+        : undefined;
+      const aspectSetting = typeof (node.data as any)?.aspectRatio === 'string'
+        ? (node.data as any).aspectRatio
+        : '';
+      const suffixPieces: string[] = [];
+      if (clipDuration) suffixPieces.push(`${clipDuration}s`);
+      if (aspectSetting) {
+        suffixPieces.push(aspectSetting === '9:16' ? '竖屏 9:16' : '横屏 16:9');
+      }
+      const finalPromptText = suffixPieces.length
+        ? `${promptText} ${suffixPieces.join(' ')}`
+        : promptText;
+
       const imageEdges = currentEdges
         .filter(e => e.target === nodeId && e.targetHandle === 'image')
         .slice(0, 1);
@@ -1662,7 +1677,7 @@ function FlowInner() {
 
       try {
         const videoResult = await requestSora2VideoGeneration(
-          promptText,
+          finalPromptText,
           referenceImageUrl,
           { quality: videoQuality }
         );
@@ -1674,7 +1689,7 @@ function FlowInner() {
             id: `sora2-history-${Date.now()}`,
             videoUrl: videoResult.videoUrl,
             thumbnail: nextThumbnail,
-            prompt: promptText,
+            prompt: finalPromptText,
             quality: videoQuality,
             createdAt: new Date().toISOString(),
           };

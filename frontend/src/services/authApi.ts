@@ -6,6 +6,12 @@ export type UserInfo = {
   phone?: string;
 };
 
+export type GoogleApiKeyInfo = {
+  hasCustomKey: boolean;
+  maskedKey: string | null;
+  mode: 'official' | 'custom';
+};
+
 const base = '';
 
 // Mock mode toggle (front-end only auth flow)
@@ -248,5 +254,45 @@ export const authApi = {
     }
 
     return { ok } as { ok: boolean };
+  },
+
+  // Google API Key 管理相关
+  async getGoogleApiKey(): Promise<GoogleApiKeyInfo> {
+    if (isMock) {
+      await delay(200);
+      // Mock 模式下返回空状态
+      return { hasCustomKey: false, maskedKey: null, mode: 'official' };
+    }
+
+    try {
+      const res = await fetch(`${base}/api/users/google-api-key`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (e) {
+      console.warn('authApi.getGoogleApiKey failed:', e);
+      return { hasCustomKey: false, maskedKey: null, mode: 'official' };
+    }
+  },
+
+  async updateGoogleApiKey(dto: {
+    googleCustomApiKey?: string | null;
+    googleKeyMode?: 'official' | 'custom';
+  }): Promise<{ success: boolean; hasCustomKey: boolean; mode: string }> {
+    if (isMock) {
+      await delay(200);
+      return { success: true, hasCustomKey: !!dto.googleCustomApiKey, mode: dto.googleKeyMode || 'custom' };
+    }
+
+    const res = await fetch(`${base}/api/users/google-api-key`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+      credentials: 'include',
+    });
+    return json<{ success: boolean; hasCustomKey: boolean; mode: string }>(res);
   },
 };
