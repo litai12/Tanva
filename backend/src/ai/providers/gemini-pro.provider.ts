@@ -350,58 +350,65 @@ export class GeminiProProvider implements IAIProvider {
       const client = this.ensureClient();
       const model = request.model || this.DEFAULT_MODEL;
 
-      const result = await this.withTimeout(
-        (async () => {
-          const config: any = {
-            safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
-            ],
-            generationConfig: {
-              responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
-            },
-          };
+      // ✅ 关键修改：使用 withRetry 包装编辑请求，增加容错能力
+      const result = await this.withRetry(
+        async () => {
+          return await this.withTimeout(
+            (async () => {
+              const config: any = {
+                safetySettings: [
+                  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+                ],
+                generationConfig: {
+                  responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+                },
+              };
 
-          // 配置 imageConfig（aspectRatio 和 imageSize）
-          if (request.aspectRatio || request.imageSize) {
-            config.generationConfig.imageConfig = {};
-            if (request.aspectRatio) {
-              config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
-            }
-            if (request.imageSize) {
-              config.generationConfig.imageConfig.imageSize = request.imageSize;
-            }
-          }
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                config.generationConfig.imageConfig = {};
+                if (request.aspectRatio) {
+                  config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+                }
+                if (request.imageSize) {
+                  config.generationConfig.imageConfig.imageSize = request.imageSize;
+                }
+              }
 
-          // 配置 thinking_level（Gemini 3 特性，参考官方文档）
-          if (request.thinkingLevel) {
-            config.generationConfig.thinking_level = request.thinkingLevel;
-          }
+              // 配置 thinking_level（Gemini 3 特性，参考官方文档）
+              if (request.thinkingLevel) {
+                config.generationConfig.thinking_level = request.thinkingLevel;
+              }
 
-          const contents = [
-            { text: request.prompt },
-            {
-              inlineData: {
-                mimeType: mimeType || 'image/png',
-                data: imageData,
-              },
-            },
-          ];
+              const contents = [
+                { text: request.prompt },
+                {
+                  inlineData: {
+                    mimeType: mimeType || 'image/png',
+                    data: imageData,
+                  },
+                },
+              ];
 
-          // 直接使用非流式 API（和 banana provider 一样简单直接）
-          const response = await client.models.generateContent({
-            model,
-            contents,
-            config,
-          });
+              // 直接使用非流式 API（和 banana provider 一样简单直接）
+              const response = await client.models.generateContent({
+                model,
+                contents,
+                config,
+              });
 
-          return this.parseNonStreamResponse(response, 'Image edit');
-        })(),
-        this.DEFAULT_TIMEOUT,
-        'Image edit'
+              return this.parseNonStreamResponse(response, 'Image edit');
+            })(),
+            this.EDIT_TIMEOUT,  // ✅ 使用更长的超时时间 (180秒)
+            'Image edit'
+          );
+        },
+        'Image edit',
+        this.MAX_RETRIES  // ✅ 启用重试机制 (3次)
       );
 
       return {
@@ -448,47 +455,54 @@ export class GeminiProProvider implements IAIProvider {
         },
       }));
 
-      const result = await this.withTimeout(
-        (async () => {
-          const config: any = {
-            safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-              { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
-            ],
-            generationConfig: {
-              responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
-            },
-          };
+      // ✅ 关键修改：使用 withRetry 包装融合请求，增加容错能力
+      const result = await this.withRetry(
+        async () => {
+          return await this.withTimeout(
+            (async () => {
+              const config: any = {
+                safetySettings: [
+                  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+                ],
+                generationConfig: {
+                  responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+                },
+              };
 
-          // 配置 imageConfig（aspectRatio 和 imageSize）
-          if (request.aspectRatio || request.imageSize) {
-            config.generationConfig.imageConfig = {};
-            if (request.aspectRatio) {
-              config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
-            }
-            if (request.imageSize) {
-              config.generationConfig.imageConfig.imageSize = request.imageSize;
-            }
-          }
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                config.generationConfig.imageConfig = {};
+                if (request.aspectRatio) {
+                  config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
+                }
+                if (request.imageSize) {
+                  config.generationConfig.imageConfig.imageSize = request.imageSize;
+                }
+              }
 
-          // 配置 thinking_level（Gemini 3 特性，参考官方文档）
-          if (request.thinkingLevel) {
-            config.generationConfig.thinking_level = request.thinkingLevel;
-          }
+              // 配置 thinking_level（Gemini 3 特性，参考官方文档）
+              if (request.thinkingLevel) {
+                config.generationConfig.thinking_level = request.thinkingLevel;
+              }
 
-          const response = await client.models.generateContent({
-            model,
-            contents: [{ text: request.prompt }, ...imageParts],
-            config,
-          });
+              const response = await client.models.generateContent({
+                model,
+                contents: [{ text: request.prompt }, ...imageParts],
+                config,
+              });
 
-          return this.parseNonStreamResponse(response, 'Image blend');
-        })(),
-        this.DEFAULT_TIMEOUT,
-        'Image blend'
+              return this.parseNonStreamResponse(response, 'Image blend');
+            })(),
+            this.EDIT_TIMEOUT,  // ✅ 使用更长的超时时间 (180秒)
+            'Image blend'
+          );
+        },
+        'Image blend',
+        this.MAX_RETRIES  // ✅ 启用重试机制 (3次)
       );
 
       return {
