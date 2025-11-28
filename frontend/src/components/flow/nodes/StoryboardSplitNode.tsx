@@ -20,58 +20,21 @@ const MAX_OUTPUT_COUNT = 20;
 const DEFAULT_OUTPUT_COUNT = 9;
 
 /**
- * 智能分镜脚本解析器
- * 支持多种格式：
- * - Markdown 表格格式：|**01**|, |**02**|
- * - 数字编号：1. 或 1、或 1) 或 1）
- * - 中文格式：第1场、1镜
- * - 英文格式：Scene 1, Shot 1
+ * 分镜脚本解析器 - 只识别 |**XX**| 和 | **XX** | 格式
+ * 例如：|**1**|, |**01**|, | **1** |, | **01** |
  */
 function parseStoryboardScript(text: string): string[] {
   if (!text || !text.trim()) return [];
 
-  // 模式1: Markdown 表格格式 |**01**|
-  const mdPattern = /\|\*\*(\d{1,2})\*\*\|/g;
+  // 匹配 Markdown 表格格式 |**XX**| 或 | **XX** |（支持1-99，含或不含空格）
+  const mdPattern = /\|\s?\*\*(\d{1,2})\*\*\s?\|/g;
   const mdMatches = [...text.matchAll(mdPattern)];
-  if (mdMatches.length >= 2) {
-    return extractSegmentsByMatches(text, mdMatches);
+
+  if (mdMatches.length === 0) {
+    return []; // 没找到任何分镜格式，返回空
   }
 
-  // 模式2: 带换行的数字编号 (行首)
-  const numPattern = /^[\s]*(\d{1,2})[\s]*[\.、\)）:：]/gm;
-  const numMatches = [...text.matchAll(numPattern)];
-  if (numMatches.length >= 2) {
-    return extractSegmentsByMatches(text, numMatches);
-  }
-
-  // 模式3: 中文场景格式
-  const cnPattern = /[第]?(\d{1,2})[场景镜号]/g;
-  const cnMatches = [...text.matchAll(cnPattern)];
-  if (cnMatches.length >= 2) {
-    return extractSegmentsByMatches(text, cnMatches);
-  }
-
-  // 模式4: Scene X 或 Shot X
-  const enPattern = /(?:Scene|Shot)[\s]*(\d{1,2})/gi;
-  const enMatches = [...text.matchAll(enPattern)];
-  if (enMatches.length >= 2) {
-    return extractSegmentsByMatches(text, enMatches);
-  }
-
-  // 回退：按双换行分段
-  const paragraphs = text.split(/\n\s*\n/).filter(s => s.trim());
-  if (paragraphs.length >= 2) {
-    return paragraphs;
-  }
-
-  // 最后回退：按单换行分割有内容的行
-  const lines = text.split('\n').filter(line => {
-    const trimmed = line.trim();
-    // 过滤掉表头行和分隔行
-    return trimmed && !trimmed.startsWith('|:') && !trimmed.match(/^\|[-:]+\|/);
-  });
-
-  return lines.length > 0 ? lines : [text];
+  return extractSegmentsByMatches(text, mdMatches);
 }
 
 function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): string[] {
@@ -248,6 +211,11 @@ export default function StoryboardSplitNode({ id, data, selected }: Props) {
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
+  const getHandleTopPercent = React.useCallback((index: number) => {
+    if (outputCount <= 1) return 50;
+    return 10 + (index / (outputCount - 1)) * 80;
+  }, [outputCount]);
+
   const boxW = data.boxW || 320;
   const boxH = data.boxH || 400;
 
@@ -391,7 +359,7 @@ export default function StoryboardSplitNode({ id, data, selected }: Props) {
         type="target"
         position={Position.Left}
         id="text"
-        style={{ top: '50%' }}
+        style={{ top: '50%', transform: 'translateY(-50%)' }}
         onMouseEnter={() => setHover('text-in')}
         onMouseLeave={() => setHover(null)}
       />
@@ -399,14 +367,14 @@ export default function StoryboardSplitNode({ id, data, selected }: Props) {
       {/* 动态输出端口 */}
       {Array.from({ length: outputCount }).map((_, i) => {
         const portId = `prompt${i + 1}`;
-        const topPercent = ((i + 1) / (outputCount + 1)) * 100;
+        const topPercent = getHandleTopPercent(i);
         return (
           <Handle
             key={portId}
             type="source"
             position={Position.Right}
             id={portId}
-            style={{ top: `${topPercent}%` }}
+            style={{ top: `${topPercent}%`, transform: 'translateY(-50%)' }}
             onMouseEnter={() => setHover(`${portId}-out`)}
             onMouseLeave={() => setHover(null)}
           />
@@ -422,7 +390,7 @@ export default function StoryboardSplitNode({ id, data, selected }: Props) {
       {hover?.endsWith('-out') && (
         <div className="flow-tooltip" style={{
           right: -8,
-          top: `${((parseInt(hover.replace('prompt', '').replace('-out', '')) / (outputCount + 1)) * 100)}%`,
+          top: `${getHandleTopPercent(parseInt(hover.replace('prompt', '').replace('-out', '')) - 1)}%`,
           transform: 'translate(100%, -50%)'
         }}>
           分镜 #{hover.replace('prompt', '').replace('-out', '')}

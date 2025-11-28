@@ -25,6 +25,7 @@ const TEXT_CHAT_NODE_SIZE_VERSION = 2;
 const DEFAULT_NODE_HEIGHT = 300;
 const MIN_NODE_HEIGHT = 260;
 const LEGACY_NODE_HEIGHT = 540;
+const NODE_VERTICAL_PADDING = 24;
 
 const pickTextFromNode = (edge: Edge, rfInstance: ReturnType<typeof useReactFlow>): string | undefined => {
   const source = rfInstance.getNode(edge.source);
@@ -94,6 +95,40 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     ? (data.boxH === LEGACY_NODE_HEIGHT ? DEFAULT_NODE_HEIGHT : data.boxH)
     : DEFAULT_NODE_HEIGHT;
   const nodeHeight = Math.max(MIN_NODE_HEIGHT, normalizedHeight);
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const [contentHeight, setContentHeight] = React.useState(nodeHeight);
+
+  const updateAutoHeight = React.useCallback(() => {
+    const element = contentRef.current;
+    if (!element) return;
+    const measured = element.scrollHeight + NODE_VERTICAL_PADDING;
+    const nextHeight = Math.max(MIN_NODE_HEIGHT, Math.ceil(measured));
+    setContentHeight((prev) => (prev === nextHeight ? prev : nextHeight));
+  }, []);
+
+  React.useLayoutEffect(() => {
+    updateAutoHeight();
+    const element = contentRef.current;
+    if (!element) return;
+
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(() => updateAutoHeight());
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    const handler = () => updateAutoHeight();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', handler);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', handler);
+      }
+    };
+  }, [updateAutoHeight]);
+
+  const computedHeight = Math.max(nodeHeight, contentHeight);
 
   const incomingTexts = React.useMemo(() => {
     return edges
@@ -224,7 +259,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
     <div
       style={{
         width: data.boxW || 320,
-        height: nodeHeight,
+        height: computedHeight,
         padding: 12,
         background: '#fff',
         border: `1px solid ${borderColor}`,
@@ -256,7 +291,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
             : node));
         }}
       />
-      <div style={contentStyle}>
+      <div style={contentStyle} ref={contentRef}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>Text Chat</div>
           <button
