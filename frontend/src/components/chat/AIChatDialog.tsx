@@ -341,9 +341,10 @@ const AIChatDialog: React.FC = () => {
 
   // AI供应商选项
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
-    { value: 'gemini', label: '基础官方版', description: 'Gemini2.5 + Banana 1.0' },
-    { value: 'gemini-pro', label: '进阶官方版', description: 'Gemini 3.0 + Banana 2.0' },
-    { value: 'banana', label: '进阶国内版', description: 'Gemini 3.0 + Banana 2.0' },
+    // 暂时隐藏基础官方版
+    // { value: 'gemini', label: '基础官方版', description: 'Gemini2.5 + Banana 1.0' },
+    { value: 'gemini-pro', label: '国际版', description: 'Gemini 3.0 + Banana 2.0' },
+    { value: 'banana', label: '国内版', description: 'Gemini 3.0 + Banana 2.0' },
     // 暂时隐藏 Midjourney 选项
     // { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
   ];
@@ -353,6 +354,14 @@ const AIChatDialog: React.FC = () => {
   const manualButtonLabel = currentManualMode?.label ?? availableManualModeOptions[0]?.label ?? '选择模式';
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: 'top' | 'bottom' = 'top';
+  
+  // 如果当前选择的是隐藏的 gemini，自动切换到 gemini-pro
+  useEffect(() => {
+    if (aiProvider === 'gemini' && !aiProviderOptions.some((option) => option.value === 'gemini')) {
+      setAIProvider('gemini-pro');
+    }
+  }, [aiProvider, aiProviderOptions, setAIProvider]);
+  
   useEffect(() => {
     if (!availableManualModeOptions.some((option) => option.value === manualAIMode)) {
       const fallback = availableManualModeOptions[0];

@@ -49,6 +49,7 @@ import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { authApi, type GoogleApiKeyInfo } from '@/services/authApi';
+import { getMyCredits, type UserCreditsInfo } from '@/services/adminApi';
 
 const SETTINGS_SECTIONS = [
     { id: 'workspace', label: '工作区', icon: Square },
@@ -138,6 +139,10 @@ const FloatingHeader: React.FC = () => {
     const [googleApiKeySaving, setGoogleApiKeySaving] = useState(false);
     const [googleApiKeyFeedback, setGoogleApiKeyFeedback] = useState<'idle' | 'success' | 'error'>('idle');
     const googleApiKeyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // 用户积分状态
+    const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
+    const [creditsLoading, setCreditsLoading] = useState(false);
 
     // 清理 Google API Key 反馈计时器
     useEffect(() => () => {
@@ -416,6 +421,16 @@ const FloatingHeader: React.FC = () => {
         authApi.getGoogleApiKey().then(setGoogleApiKeyInfo).catch(console.warn);
     }, [user]);
 
+    // 加载用户积分信息
+    useEffect(() => {
+        if (!user) return;
+        setCreditsLoading(true);
+        getMyCredits()
+            .then(setCreditsInfo)
+            .catch(console.warn)
+            .finally(() => setCreditsLoading(false));
+    }, [user]);
+
     const displayName = user?.name || user?.phone?.slice(-4) || user?.email || user?.id?.slice(-4) || '用户';
     const secondaryId = user?.email || (user?.phone ? `${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : '') || '';
     const status = (() => {
@@ -477,6 +492,36 @@ const FloatingHeader: React.FC = () => {
                                     <AutosaveStatus />
                                 </span>
                             </div>
+                        </div>
+
+                        {/* 积分信息卡片 */}
+                        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-5 shadow-sm">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Sparkles className="h-4 w-4 text-blue-600" />
+                                <span className="text-sm font-medium text-slate-700">我的积分</span>
+                            </div>
+                            {creditsLoading ? (
+                                <div className="text-xs text-slate-500">加载中...</div>
+                            ) : creditsInfo ? (
+                                <div className="space-y-3">
+                                    <div className="flex items-baseline gap-2">
+                                        <span className="text-3xl font-bold text-blue-600">{creditsInfo.balance}</span>
+                                        <span className="text-xs text-slate-500">可用积分</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200/60">
+                                        <div>
+                                            <div className="text-xs text-slate-500">累计获得</div>
+                                            <div className="text-sm font-medium text-green-600">+{creditsInfo.totalEarned}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-xs text-slate-500">累计消耗</div>
+                                            <div className="text-sm font-medium text-orange-600">-{creditsInfo.totalSpent}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-xs text-slate-500">暂无积分信息</div>
+                            )}
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2">
@@ -682,8 +727,9 @@ const FloatingHeader: React.FC = () => {
 
                         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
                             <div className="mb-4 text-sm font-medium text-slate-700">AI 提供商</div>
-                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
-                                <button
+                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                                {/* 暂时隐藏基础官方版 */}
+                                {/* <button
                                     onClick={() => setAIProvider('gemini')}
                                     className={cn(
                                         "relative rounded-xl border-2 p-4 text-left transition-all",
@@ -704,6 +750,29 @@ const FloatingHeader: React.FC = () => {
                                             <Check className="h-5 w-5 text-blue-600 flex-shrink-0" />
                                         )}
                                     </div>
+                                </button> */}
+
+                                <button
+                                    onClick={() => setAIProvider('gemini-pro')}
+                                    className={cn(
+                                        "relative rounded-xl border-2 p-4 text-left transition-all",
+                                        aiProvider === 'gemini-pro'
+                                            ? "border-green-500 bg-green-50"
+                                            : "border-slate-200 bg-white hover:border-green-300 hover:bg-green-50/30"
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Sparkles className="h-4 w-4 text-green-600" />
+                                                <span className="font-medium text-sm text-slate-700">国际版</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">Gemini 3.0 + Banana 2.0</div>
+                                        </div>
+                                        {aiProvider === 'gemini-pro' && (
+                                            <Check className="h-5 w-5 text-green-600 flex-shrink-0" />
+                                        )}
+                                    </div>
                                 </button>
 
                                 <button
@@ -719,35 +788,12 @@ const FloatingHeader: React.FC = () => {
                                         <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <Zap className="h-4 w-4 text-amber-600" />
-                                                <span className="font-medium text-sm text-slate-700">进阶国内版</span>
+                                                <span className="font-medium text-sm text-slate-700">国内版</span>
                                             </div>
                                             <div className="text-xs text-slate-500">Gemini 3.0 + Banana 2.0</div>
                                         </div>
                                         {aiProvider === 'banana' && (
                                             <Check className="h-5 w-5 text-amber-600 flex-shrink-0" />
-                                        )}
-                                    </div>
-                                </button>
-
-                                <button
-                                    onClick={() => setAIProvider('midjourney')}
-                                    className={cn(
-                                        "relative rounded-xl border-2 p-4 text-left transition-all",
-                                        aiProvider === 'midjourney'
-                                            ? "border-purple-500 bg-purple-50"
-                                            : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/40"
-                                    )}
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <Sparkles className="h-4 w-4 text-purple-600" />
-                                                <span className="font-medium text-sm text-slate-700">Midjourney</span>
-                                            </div>
-                                            <div className="text-xs text-slate-500">使用 Midjourney 快速通道 (147)</div>
-                                        </div>
-                                        {aiProvider === 'midjourney' && (
-                                            <Check className="h-5 w-5 text-purple-600 flex-shrink-0" />
                                         )}
                                     </div>
                                 </button>
@@ -762,7 +808,7 @@ const FloatingHeader: React.FC = () => {
                                 <div className="text-sm font-medium text-slate-700">Google Gemini API Key</div>
                             </div>
                             <div className="text-xs text-slate-500 mb-4">
-                                输入自己的 Google API Key 进行生图，可获得更稳定的服务。不输入则使用系统默认 Key。
+                                在「国际版」下输入自己的 Google API Key 进行生图，不消耗积分。不输入则使用系统默认 Key（消耗积分）。
                             </div>
 
                             {/* 当前状态显示 */}
