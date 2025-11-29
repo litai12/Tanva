@@ -35,6 +35,14 @@ export interface ApiUsageStats {
   successfulCalls: number;
   failedCalls: number;
   totalCreditsUsed: number;
+  userCount: number;
+  topUsers: Array<{
+    userId: string;
+    userName: string | null;
+    userPhone: string;
+    userEmail: string | null;
+    callCount: number;
+  }>;
 }
 
 @Injectable()
@@ -222,6 +230,8 @@ export class AdminService {
           successfulCalls: 0,
           failedCalls: 0,
           totalCreditsUsed: 0,
+          userCount: 0,
+          topUsers: [],
         });
       }
 
@@ -236,7 +246,73 @@ export class AdminService {
       }
     });
 
-    return Array.from(aggregated.values());
+    // 一次性获取所有服务类型的用户统计信息
+    const result = Array.from(aggregated.values());
+    const serviceTypes = result.map(s => s.serviceType);
+    
+    if (serviceTypes.length > 0) {
+      // 获取所有服务类型的用户统计
+      const allUserStats = await this.prisma.apiUsageRecord.groupBy({
+        by: ['userId', 'serviceType'],
+        where: {
+          ...where,
+          serviceType: { in: serviceTypes },
+        },
+        _count: true,
+      });
+
+      // 获取所有相关用户信息
+      const allUserIds = [...new Set(allUserStats.map(s => s.userId))];
+      const allUsers = await this.prisma.user.findMany({
+        where: { id: { in: allUserIds } },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+        },
+      });
+
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      
+      // 按服务类型分组用户统计
+      const userStatsByService = new Map<string, Array<{ userId: string; callCount: number }>>();
+      
+      allUserStats.forEach(stat => {
+        if (!userStatsByService.has(stat.serviceType)) {
+          userStatsByService.set(stat.serviceType, []);
+        }
+        userStatsByService.get(stat.serviceType)!.push({
+          userId: stat.userId,
+          callCount: stat._count,
+        });
+      });
+
+      // 为每个服务类型填充用户信息
+      result.forEach(stat => {
+        const userStats = userStatsByService.get(stat.serviceType) || [];
+        const uniqueUserIds = [...new Set(userStats.map(s => s.userId))];
+        
+        // 按调用次数排序，取前5个
+        const topUserStats = userStats
+          .sort((a, b) => b.callCount - a.callCount)
+          .slice(0, 5);
+
+        stat.userCount = uniqueUserIds.length;
+        stat.topUsers = topUserStats.map(uc => {
+          const user = userMap.get(uc.userId);
+          return {
+            userId: uc.userId,
+            userName: user?.name || null,
+            userPhone: user?.phone || '',
+            userEmail: user?.email || null,
+            callCount: uc.callCount,
+          };
+        });
+      });
+    }
+
+    return result;
   }
 
   /**

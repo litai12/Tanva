@@ -285,6 +285,7 @@ function ApiStatsTab() {
             <th className="px-4 py-3 text-left">服务名称</th>
             <th className="px-4 py-3 text-left">服务类型</th>
             <th className="px-4 py-3 text-left">提供商</th>
+            <th className="px-4 py-3 text-left">用户</th>
             <th className="px-4 py-3 text-right">总调用</th>
             <th className="px-4 py-3 text-right">成功</th>
             <th className="px-4 py-3 text-right">失败</th>
@@ -295,11 +296,11 @@ function ApiStatsTab() {
         <tbody>
           {loading ? (
             <tr>
-              <td colSpan={8} className="px-4 py-8 text-center text-gray-500">加载中...</td>
+              <td colSpan={9} className="px-4 py-8 text-center text-gray-500">加载中...</td>
             </tr>
           ) : stats.length === 0 ? (
             <tr>
-              <td colSpan={8} className="px-4 py-8 text-center text-gray-500">暂无数据</td>
+              <td colSpan={9} className="px-4 py-8 text-center text-gray-500">暂无数据</td>
             </tr>
           ) : (
             stats.map((stat) => (
@@ -310,6 +311,27 @@ function ApiStatsTab() {
                   <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
                     {stat.provider}
                   </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="space-y-1">
+                    <div className="text-xs text-gray-500">
+                      共 {stat.userCount} 个用户
+                    </div>
+                    {stat.topUsers.length > 0 && (
+                      <div className="space-y-0.5">
+                        {stat.topUsers.map((user, idx) => (
+                          <div key={user.userId} className="text-xs">
+                            <span className="font-medium">
+                              {user.userName || user.userPhone}
+                            </span>
+                            <span className="text-gray-400 ml-1">
+                              ({user.callCount}次)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-right">{stat.totalCalls}</td>
                 <td className="px-4 py-3 text-right text-green-600">{stat.successfulCalls}</td>

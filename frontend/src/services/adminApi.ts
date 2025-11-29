@@ -35,6 +35,14 @@ export interface ApiUsageStats {
   successfulCalls: number;
   failedCalls: number;
   totalCreditsUsed: number;
+  userCount: number;
+  topUsers: Array<{
+    userId: string;
+    userName: string | null;
+    userPhone: string;
+    userEmail: string | null;
+    callCount: number;
+  }>;
 }
 
 export interface ApiUsageRecord {
@@ -66,6 +74,12 @@ export interface Pagination {
   pageSize: number;
   total: number;
   totalPages: number;
+}
+
+export interface UserCreditsInfo {
+  balance: number;
+  totalEarned: number;
+  totalSpent: number;
 }
 
 export interface PaginatedResponse<T> {
@@ -221,7 +235,7 @@ export async function getPricing() {
 }
 
 // 获取用户积分信息（用户自己）
-export async function getMyCredits() {
+export async function getMyCredits(): Promise<UserCreditsInfo> {
   const response = await fetchWithAuth(`${API_BASE}/credits/balance`);
   if (!response.ok) {
     throw new Error('获取积分信息失败');
