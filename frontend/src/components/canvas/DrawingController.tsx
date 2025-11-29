@@ -1009,10 +1009,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, []);
 
-  const handleGroupCapture = useCallback(async () => {
+  const executeGroupCapture = useCallback(async (options?: { sendToDialog?: boolean }) => {
     if (!isGroupSelection || !groupPaperBounds) return;
     if (isGroupCapturePending) return;
     setIsGroupCapturePending(true);
+    const sendToDialog = options?.sendToDialog ?? false;
     try {
       const selection = {
         paperItems: selectedPaperItems,
@@ -1039,29 +1040,38 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           height: captureBounds.height,
         };
         const smartPosition = getCameraSmartPosition(boundsPayload);
+        const shouldAddToCanvas = !sendToDialog;
 
-        if (quickImageUpload.handleQuickImageUploaded) {
-          await quickImageUpload.handleQuickImageUploaded(
-            result.dataUrl,
-            `group-${Date.now()}.png`,
-            boundsPayload,
-            smartPosition,
-            'camera'
-          );
-        } else {
-          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-            detail: {
-              imageData: result.dataUrl,
-              fileName: `group-${Date.now()}.png`,
-              selectedImageBounds: boundsPayload,
+        if (shouldAddToCanvas) {
+          if (quickImageUpload.handleQuickImageUploaded) {
+            await quickImageUpload.handleQuickImageUploaded(
+              result.dataUrl,
+              `group-${Date.now()}.png`,
+              boundsPayload,
               smartPosition,
-              operationType: 'camera',
-            }
-          }));
+              'camera'
+            );
+          } else {
+            window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
+              detail: {
+                imageData: result.dataUrl,
+                fileName: `group-${Date.now()}.png`,
+                selectedImageBounds: boundsPayload,
+                smartPosition,
+                operationType: 'camera',
+              }
+            }));
+          }
         }
 
+        if (sendToDialog) {
+          setSourceImageForEditing(result.dataUrl);
+          showAIDialog();
+        }
+
+        const successMessage = sendToDialog ? '组合图层已发送到对话框' : '已生成组合图层';
         window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '已生成组合图层', type: 'success' }
+          detail: { message: successMessage, type: 'success' }
         }));
       } else {
         window.dispatchEvent(new CustomEvent('toast', {
@@ -1087,7 +1097,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     selectedPaperItems,
     quickImageUpload.handleQuickImageUploaded,
     getCameraSmartPosition,
+    setSourceImageForEditing,
+    showAIDialog,
   ]);
+
+  const handleGroupCapture = useCallback(() => {
+    void executeGroupCapture({ sendToDialog: false });
+  }, [executeGroupCapture]);
+
+  const handleGroupCaptureAndSendToDialog = useCallback(() => {
+    void executeGroupCapture({ sendToDialog: true });
+  }, [executeGroupCapture]);
 
   const handleModelCapture = useCallback(async (modelId: string) => {
     let abort = false;
@@ -2670,6 +2690,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           bounds={groupScreenBounds}
           selectedCount={groupSelectionCount}
           onCapture={handleGroupCapture}
+          onSendToDialog={handleGroupCaptureAndSendToDialog}
           isCapturing={isGroupCapturePending}
         />
       )}

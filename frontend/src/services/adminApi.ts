@@ -1,0 +1,274 @@
+import { fetchWithAuth } from './authFetch';
+
+const API_BASE = '/api';
+
+export interface DashboardStats {
+  totalUsers: number;
+  activeUsers: number;
+  totalCreditsInCirculation: number;
+  totalCreditsSpent: number;
+  totalApiCalls: number;
+  successfulApiCalls: number;
+  failedApiCalls: number;
+}
+
+export interface UserWithCredits {
+  id: string;
+  email: string | null;
+  phone: string;
+  name: string | null;
+  role: string;
+  status: string;
+  createdAt: string;
+  lastLoginAt: string | null;
+  creditBalance: number;
+  totalSpent: number;
+  totalEarned: number;
+  apiCallCount: number;
+}
+
+export interface ApiUsageStats {
+  serviceType: string;
+  serviceName: string;
+  provider: string;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  totalCreditsUsed: number;
+}
+
+export interface ApiUsageRecord {
+  id: string;
+  userId: string;
+  serviceType: string;
+  serviceName: string;
+  provider: string;
+  model: string | null;
+  creditsUsed: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  inputImageCount: number | null;
+  outputImageCount: number | null;
+  responseStatus: string;
+  errorMessage: string | null;
+  processingTime: number | null;
+  createdAt: string;
+  user?: {
+    id: string;
+    phone: string;
+    name: string | null;
+    email: string | null;
+  };
+}
+
+export interface Pagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: Pagination;
+}
+
+// 获取管理后台统计数据
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const response = await fetchWithAuth(`${API_BASE}/admin/dashboard`);
+  if (!response.ok) {
+    throw new Error('获取统计数据失败');
+  }
+  return response.json();
+}
+
+// 获取用户列表
+export async function getUsers(params: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}): Promise<{ users: UserWithCredits[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set('page', String(params.page));
+  if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params.search) searchParams.set('search', params.search);
+  if (params.sortBy) searchParams.set('sortBy', params.sortBy);
+  if (params.sortOrder) searchParams.set('sortOrder', params.sortOrder);
+
+  const response = await fetchWithAuth(`${API_BASE}/admin/users?${searchParams}`);
+  if (!response.ok) {
+    throw new Error('获取用户列表失败');
+  }
+  return response.json();
+}
+
+// 获取用户详情
+export async function getUserDetail(userId: string) {
+  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}`);
+  if (!response.ok) {
+    throw new Error('获取用户详情失败');
+  }
+  return response.json();
+}
+
+// 更新用户状态
+export async function updateUserStatus(userId: string, status: string) {
+  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) {
+    throw new Error('更新用户状态失败');
+  }
+  return response.json();
+}
+
+// 更新用户角色
+export async function updateUserRole(userId: string, role: string) {
+  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+  if (!response.ok) {
+    throw new Error('更新用户角色失败');
+  }
+  return response.json();
+}
+
+// 为用户添加积分
+export async function addCredits(userId: string, amount: number, description: string) {
+  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/credits/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, description }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || '添加积分失败');
+  }
+  return response.json();
+}
+
+// 扣除用户积分
+export async function deductCredits(userId: string, amount: number, description: string) {
+  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/credits/deduct`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, description }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || '扣除积分失败');
+  }
+  return response.json();
+}
+
+// 获取 API 使用统计
+export async function getApiUsageStats(params?: {
+  startDate?: string;
+  endDate?: string;
+}): Promise<ApiUsageStats[]> {
+  const searchParams = new URLSearchParams();
+  if (params?.startDate) searchParams.set('startDate', params.startDate);
+  if (params?.endDate) searchParams.set('endDate', params.endDate);
+
+  const response = await fetchWithAuth(`${API_BASE}/admin/api-usage/stats?${searchParams}`);
+  if (!response.ok) {
+    throw new Error('获取API使用统计失败');
+  }
+  return response.json();
+}
+
+// 获取 API 使用记录
+export async function getApiUsageRecords(params: {
+  page?: number;
+  pageSize?: number;
+  userId?: string;
+  serviceType?: string;
+  provider?: string;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ records: ApiUsageRecord[]; pagination: Pagination }> {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set('page', String(params.page));
+  if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params.userId) searchParams.set('userId', params.userId);
+  if (params.serviceType) searchParams.set('serviceType', params.serviceType);
+  if (params.provider) searchParams.set('provider', params.provider);
+  if (params.status) searchParams.set('status', params.status);
+  if (params.startDate) searchParams.set('startDate', params.startDate);
+  if (params.endDate) searchParams.set('endDate', params.endDate);
+
+  const response = await fetchWithAuth(`${API_BASE}/admin/api-usage/records?${searchParams}`);
+  if (!response.ok) {
+    throw new Error('获取API使用记录失败');
+  }
+  return response.json();
+}
+
+// 获取服务定价
+export async function getPricing() {
+  const response = await fetchWithAuth(`${API_BASE}/admin/pricing`);
+  if (!response.ok) {
+    throw new Error('获取定价配置失败');
+  }
+  return response.json();
+}
+
+// 获取用户积分信息（用户自己）
+export async function getMyCredits() {
+  const response = await fetchWithAuth(`${API_BASE}/credits/balance`);
+  if (!response.ok) {
+    throw new Error('获取积分信息失败');
+  }
+  return response.json();
+}
+
+// 获取用户交易记录（用户自己）
+export async function getMyTransactions(params?: {
+  page?: number;
+  pageSize?: number;
+  type?: string;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params?.type) searchParams.set('type', params.type);
+
+  const response = await fetchWithAuth(`${API_BASE}/credits/transactions?${searchParams}`);
+  if (!response.ok) {
+    throw new Error('获取交易记录失败');
+  }
+  return response.json();
+}
+
+// 获取用户 API 使用记录（用户自己）
+export async function getMyApiUsage(params?: {
+  page?: number;
+  pageSize?: number;
+  serviceType?: string;
+  provider?: string;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.page) searchParams.set('page', String(params.page));
+  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
+  if (params?.serviceType) searchParams.set('serviceType', params.serviceType);
+  if (params?.provider) searchParams.set('provider', params.provider);
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.startDate) searchParams.set('startDate', params.startDate);
+  if (params?.endDate) searchParams.set('endDate', params.endDate);
+
+  const response = await fetchWithAuth(`${API_BASE}/credits/usage?${searchParams}`);
+  if (!response.ok) {
+    throw new Error('获取API使用记录失败');
+  }
+  return response.json();
+}

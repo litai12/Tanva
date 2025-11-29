@@ -26,6 +26,8 @@ model User {
   updatedAt                DateTime     @updatedAt
   refreshTokens            RefreshToken[]
   projects                 Project[]
+  creditAccount            CreditAccount?
+  apiUsageRecords          ApiUsageRecord[]
 }
 
 model RefreshToken {
@@ -54,4 +56,95 @@ model Project {
   contentJson  Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+// ==================== 积分系统 ====================
+
+// 用户积分账户
+model CreditAccount {
+  id              String   @id @default(uuid())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String   @unique
+  balance         Int      @default(0)        // 当前积分余额
+  totalEarned     Int      @default(0)        // 历史总获得积分
+  totalSpent      Int      @default(0)        // 历史总消费积分
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  transactions    CreditTransaction[]
+}
+
+// 积分交易记录
+model CreditTransaction {
+  id              String   @id @default(uuid())
+  account         CreditAccount @relation(fields: [accountId], references: [id])
+  accountId       String
+  type            String               // "earn" | "spend" | "refund" | "admin_adjust"
+  amount          Int                  // 正数为增加，负数为扣除
+  balanceBefore   Int                  // 交易前余额
+  balanceAfter    Int                  // 交易后余额
+  description     String               // 交易描述
+  apiUsageId      String?              // 关联的API使用记录ID（可选）
+  metadata        Json?                // 额外元数据
+  createdAt       DateTime @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([type])
+}
+
+// API 使用记录
+model ApiUsageRecord {
+  id              String   @id @default(uuid())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  serviceType     String               // 服务类型: "gemini-3-pro-image", "gemini-2.5-image", "sora-sd", "sora-hd", "gemini-text"
+  serviceName     String               // 服务名称（显示用）
+  provider        String               // AI提供商: "gemini", "sora", "midjourney" 等
+  model           String?              // 使用的模型
+  creditsUsed     Int                  // 消耗的积分
+  inputTokens     Int?                 // 输入token数（文字服务）
+  outputTokens    Int?                 // 输出token数（文字服务）
+  inputImageCount Int?                 // 输入图片数
+  outputImageCount Int?                // 输出图片数
+  requestParams   Json?                // 请求参数快照
+  responseStatus  String               // "success" | "failed" | "pending"
+  errorMessage    String?              // 错误信息（如果失败）
+  processingTime  Int?                 // 处理时间（毫秒）
+  ipAddress       String?              // 请求IP
+  userAgent       String?              // 用户代理
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([serviceType])
+  @@index([provider])
+  @@index([responseStatus])
+}
+
+// 积分定价配置
+model CreditPricing {
+  id              String   @id @default(uuid())
+  serviceType     String   @unique      // 服务类型标识
+  serviceName     String               // 服务显示名称
+  provider        String               // AI提供商
+  creditsPerCall  Int                  // 每次调用消耗积分
+  description     String?              // 服务描述
+  isActive        Boolean  @default(true)
+  maxInputTokens  Int?                 // 最大输入token（文字服务限制）
+  maxContextLength Int?                // 最大上下文长度
+  metadata        Json?                // 额外配置
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// 积分充值套餐
+model CreditPackage {
+  id              String   @id @default(uuid())
+  name            String               // 套餐名称
+  credits         Int                  // 积分数量
+  price           Decimal  @db.Decimal(10, 2)  // 价格（元）
+  bonusCredits    Int      @default(0) // 赠送积分
+  description     String?              // 套餐描述
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0) // 排序
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

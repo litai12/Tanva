@@ -872,6 +872,97 @@ const AIChatDialog: React.FC = () => {
     });
   }, [messages]);
 
+  // 处理粘贴事件 - 支持从剪贴板粘贴图片
+  const handlePaste = useCallback((event: React.ClipboardEvent) => {
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) return;
+
+    // 检查剪贴板中是否有图片
+    const items = clipboardData.items;
+    const imageItems: DataTransferItem[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        imageItems.push(item);
+      }
+    }
+
+    // 如果没有图片，让默认行为处理（粘贴文本）
+    if (imageItems.length === 0) return;
+
+    // 阻止默认粘贴行为
+    event.preventDefault();
+
+    // 如果当前已有图片，则添加到融合模式
+    const hasExistingImages = sourceImageForEditing || sourceImagesForBlending.length > 0 || sourceImageForAnalysis;
+
+    if (hasExistingImages) {
+      // 已有图片：转换为融合模式或添加到融合模式
+      if (sourceImageForEditing) {
+        addImageForBlending(sourceImageForEditing);
+        setSourceImageForEditing(null);
+      }
+      if (sourceImageForAnalysis) {
+        addImageForBlending(sourceImageForAnalysis);
+        setSourceImageForAnalysis(null);
+      }
+
+      // 添加粘贴的图片到融合数组
+      imageItems.forEach(item => {
+        const file = item.getAsFile();
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const imageData = e.target?.result as string;
+          if (imageData) {
+            addImageForBlending(imageData);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    } else {
+      // 没有现有图片：根据粘贴数量决定模式
+      if (imageItems.length === 1) {
+        // 单图：设置为编辑模式
+        const file = imageItems[0].getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const imageData = e.target?.result as string;
+            if (imageData) {
+              setSourceImageForEditing(imageData);
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      } else {
+        // 多图：设置为融合模式
+        imageItems.forEach(item => {
+          const file = item.getAsFile();
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const imageData = e.target?.result as string;
+            if (imageData) {
+              addImageForBlending(imageData);
+            }
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+    }
+
+    console.log('📋 从剪贴板粘贴了', imageItems.length, '张图片');
+  }, [
+    sourceImageForEditing,
+    sourceImagesForBlending,
+    sourceImageForAnalysis,
+    addImageForBlending,
+    setSourceImageForEditing,
+    setSourceImageForAnalysis
+  ]);
+
   // 统一的图片上传处理
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -1872,6 +1963,7 @@ const AIChatDialog: React.FC = () => {
                 value={currentInput}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 placeholder={getSmartPlaceholder()}
                 disabled={false}
                 className={cn(

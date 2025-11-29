@@ -8,6 +8,8 @@ import { OssModule } from './oss/oss.module';
 import { ProjectsModule } from './projects/projects.module';
 import { AiModule } from './ai/ai.module';
 import { AiPublicModule } from './ai-public/ai-public.module';
+import { CreditsModule } from './credits/credits.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { AiPublicModule } from './ai-public/ai-public.module';
     ProjectsModule,
     AiModule,
     AiPublicModule, // 添加公开 AI API 模块
+    CreditsModule,  // 积分系统模块
+    AdminModule,    // 管理后台模块
   ],
 })
 export class AppModule {}

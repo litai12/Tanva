@@ -34,6 +34,33 @@ const PUBLIC_ENDPOINT_MAP: Record<string, string> = {
   '/ai/text-chat': '/chat',
 };
 
+// 网络错误重试配置
+const MAX_NETWORK_RETRIES = 3;
+const INITIAL_RETRY_DELAY_MS = 1000;
+
+// 判断是否为可重试的网络错误
+function isRetryableError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  const retryablePatterns = [
+    'fetch',
+    'network',
+    'timeout',
+    'econnreset',
+    'etimedout',
+    'enotfound',
+    'econnrefused',
+    'socket',
+    'connection',
+    'aborted',
+  ];
+  return retryablePatterns.some(pattern => message.includes(pattern));
+}
+
+// 延迟函数
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 class AIImageService {
   private readonly API_BASE = '/api';
   private readonly PUBLIC_API_BASE = '/api/public/ai';
@@ -204,15 +231,16 @@ class AIImageService {
   }
 
   /**
-   * 通用 API 调用方法
+   * 通用 API 调用方法（带网络错误重试）
    */
   private async callAPI<T>(
     url: string,
     request: any,
-    operationType: string
+    operationType: string,
+    retryCount: number = 0
   ): Promise<AIServiceResponse<T>> {
     try {
-      console.log(`🌐 ${operationType}: Calling ${url}`);
+      console.log(`🌐 ${operationType}: Calling ${url}${retryCount > 0 ? ` (retry ${retryCount}/${MAX_NETWORK_RETRIES})` : ''}`);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -227,7 +255,7 @@ class AIImageService {
         console.warn(`⚠️ ${operationType}: token expired? attempting refresh...`);
         const refreshed = await this.refreshSession();
         if (refreshed) {
-          return this.callAPI<T>(url, request, `${operationType} (retry)`);
+          return this.callAPI<T>(url, request, `${operationType} (retry)`, 0);
         }
 
         const fallback = await this.callPublicAPI<T>(url, request, operationType);
@@ -257,7 +285,17 @@ class AIImageService {
         data: data.data || data,
       };
     } catch (error) {
-      console.error(`❌ ${operationType} error:`, error);
+      const err = error instanceof Error ? error : new Error(String(error));
+
+      // 检查是否可以重试
+      if (retryCount < MAX_NETWORK_RETRIES && isRetryableError(err)) {
+        const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, retryCount); // 指数退避
+        console.warn(`⚠️ ${operationType} failed: ${err.message}, retrying in ${delay}ms... (${retryCount + 1}/${MAX_NETWORK_RETRIES})`);
+        await sleep(delay);
+        return this.callAPI<T>(url, request, operationType, retryCount + 1);
+      }
+
+      console.error(`❌ ${operationType} error after ${retryCount} retries:`, error);
       return {
         success: false,
         error: {

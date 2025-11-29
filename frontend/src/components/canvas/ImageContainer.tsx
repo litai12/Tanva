@@ -524,7 +524,41 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       setIsRemovingBackground(true);
       try {
         logger.info('🎯 开始背景移除', { imageId: imageData.id });
-        const result = await backgroundRemovalService.removeBackground(baseImage, 'image/png', true);
+
+        // Step 1: 使用 Gemini editImage 预处理，将背景换成纯色
+        logger.info('📷 Step 1: Gemini 预处理 - 背景换成纯色');
+        window.dispatchEvent(new CustomEvent('toast', {
+          detail: { message: '🔄 正在预处理图片...', type: 'info' }
+        }));
+
+        const editResult = await aiImageService.editImage({
+          prompt: '只保留完整的主体，背景换成纯色',
+          sourceImage: baseImage,
+          model: 'gemini-3-pro-image-preview',
+          aiProvider: 'gemini-pro',
+          outputFormat: 'png',
+          imageOnly: true,
+        });
+
+        if (!editResult.success || !editResult.data?.imageData) {
+          logger.warn('⚠️ Gemini 预处理失败，使用原图继续抠图', editResult.error);
+          // 预处理失败时，继续使用原图进行抠图
+        }
+
+        const imageForRemoval = (editResult.success && editResult.data?.imageData)
+          ? ensureDataUrlString(editResult.data.imageData, 'image/png')
+          : baseImage;
+
+        if (editResult.success && editResult.data?.imageData) {
+          logger.info('✅ Gemini 预处理完成，开始抠图算法');
+          window.dispatchEvent(new CustomEvent('toast', {
+            detail: { message: '🔄 正在精细抠图...', type: 'info' }
+          }));
+        }
+
+        // Step 2: 将预处理后的图片传给抠图算法
+        logger.info('📷 Step 2: 抠图算法处理');
+        const result = await backgroundRemovalService.removeBackground(imageForRemoval, 'image/png', true);
         if (!result.success || !result.imageData) {
           throw new Error(result.error || '背景移除失败');
         }

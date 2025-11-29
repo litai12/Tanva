@@ -8,6 +8,7 @@ import {
   Get,
   Optional,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
@@ -33,6 +34,9 @@ import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { MidjourneyProvider } from './providers/midjourney.provider';
 import { UsersService } from '../users/users.service';
+import { CreditsService } from '../credits/credits.service';
+import { ServiceType } from '../credits/credits.config';
+import { ApiResponseStatus } from '../credits/dto/credits.dto';
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -62,6 +66,7 @@ export class AiController {
     private readonly convert2Dto3DService: Convert2Dto3DService,
     private readonly expandImageService: ExpandImageService,
     private readonly usersService: UsersService,
+    private readonly creditsService: CreditsService,
   ) {}
 
   /**
@@ -94,6 +99,114 @@ export class AiController {
     } catch (error) {
       this.logger.warn('Failed to get user custom API key:', error);
       return null;
+    }
+  }
+
+  /**
+   * 获取用户ID（从JWT或API Key认证）
+   * API Key 认证不扣积分
+   */
+  private getUserId(req: any): string | null {
+    // API Key 认证不扣积分
+    if (req.apiClient) {
+      return null;
+    }
+    return req.user?.sub || req.user?.id || null;
+  }
+
+  /**
+   * 确定图像生成服务类型
+   */
+  private getImageGenerationServiceType(model?: string, provider?: string): ServiceType {
+    // 根据 provider 和 model 确定服务类型
+    if (provider === 'midjourney') {
+      return 'midjourney-imagine';
+    }
+
+    // Gemini 模型
+    if (model?.includes('gemini-3') || model?.includes('imagen-3')) {
+      return 'gemini-3-pro-image';
+    }
+
+    return 'gemini-2.5-image';
+  }
+
+  /**
+   * 预扣积分并执行操作
+   */
+  private async withCredits<T>(
+    req: any,
+    serviceType: ServiceType,
+    model: string | undefined,
+    operation: () => Promise<T>,
+    inputImageCount?: number,
+    outputImageCount?: number,
+  ): Promise<T> {
+    const userId = this.getUserId(req);
+
+    // 如果没有用户ID（API Key认证），直接执行操作
+    if (!userId) {
+      this.logger.debug('API Key authentication - skipping credits deduction');
+      return operation();
+    }
+
+    // 确保用户有积分账户
+    await this.creditsService.getOrCreateAccount(userId);
+
+    const startTime = Date.now();
+    let apiUsageId: string | null = null;
+
+    try {
+      // 预扣积分
+      const deductResult = await this.creditsService.preDeductCredits({
+        userId,
+        serviceType,
+        model,
+        inputImageCount,
+        outputImageCount,
+        ipAddress: req.ip,
+        userAgent: req.headers?.['user-agent'],
+      });
+
+      apiUsageId = deductResult.apiUsageId;
+      this.logger.debug(`Credits pre-deducted: ${serviceType}, apiUsageId: ${apiUsageId}`);
+
+      // 执行实际操作
+      const result = await operation();
+
+      // 更新状态为成功
+      const processingTime = Date.now() - startTime;
+      await this.creditsService.updateApiUsageStatus(
+        apiUsageId,
+        ApiResponseStatus.SUCCESS,
+        undefined,
+        processingTime,
+      );
+
+      return result;
+    } catch (error) {
+      // 更新状态为失败并退还积分
+      const processingTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (apiUsageId) {
+        await this.creditsService.updateApiUsageStatus(
+          apiUsageId,
+          ApiResponseStatus.FAILED,
+          errorMessage,
+          processingTime,
+        );
+
+        // 退还积分
+        try {
+          await this.creditsService.refundCredits(userId, apiUsageId);
+          this.logger.debug(`Credits refunded for failed operation: ${apiUsageId}`);
+        } catch (refundError) {
+          this.logger.error('Failed to refund credits:', refundError);
+        }
+      }
+
+      throw error;
     }
   }
 
@@ -191,95 +304,124 @@ export class AiController {
 
   @Post('generate-image')
   async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<ImageGenerationResult> {
-    // 如果指定了aiProvider，使用工厂路由到相应提供商
-    const providerName =
-      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model);
+    const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
 
-    if (providerName) {
-      const provider = this.factory.getProvider(dto.model, providerName);
-      const model = this.resolveImageModel(providerName, dto.model);
-      const result = await provider.generateImage({
-        prompt: dto.prompt,
-        model,
-        imageOnly: dto.imageOnly,
-        aspectRatio: dto.aspectRatio,
-        imageSize: dto.imageSize,
-        thinkingLevel: dto.thinkingLevel,
-        outputFormat: dto.outputFormat,
-        providerOptions: dto.providerOptions,
-      });
-      if (result.success && result.data) {
-        return {
-          imageData: result.data.imageData,
-          textResponse: result.data.textResponse || '',
-          metadata: result.data.metadata,
-        };
+    return this.withCredits(req, serviceType, model, async () => {
+      if (providerName) {
+        const provider = this.factory.getProvider(dto.model, providerName);
+        const result = await provider.generateImage({
+          prompt: dto.prompt,
+          model,
+          imageOnly: dto.imageOnly,
+          aspectRatio: dto.aspectRatio,
+          imageSize: dto.imageSize,
+          thinkingLevel: dto.thinkingLevel,
+          outputFormat: dto.outputFormat,
+          providerOptions: dto.providerOptions,
+        });
+        if (result.success && result.data) {
+          return {
+            imageData: result.data.imageData,
+            textResponse: result.data.textResponse || '',
+            metadata: result.data.metadata,
+          };
+        }
+        throw new Error(result.error?.message || 'Failed to generate image');
       }
-      throw new Error(result.error?.message || 'Failed to generate image');
-    }
 
-    // 否则使用默认的Gemini服务，获取用户自定义 API Key
-    const customApiKey = await this.getUserCustomApiKey(req);
-    const result = await this.imageGeneration.generateImage({ ...dto, customApiKey });
-    return result;
+      // 否则使用默认的Gemini服务
+      const customApiKey = await this.getUserCustomApiKey(req);
+      return this.imageGeneration.generateImage({ ...dto, customApiKey });
+    }, 0, 1);
   }
 
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
-    // 如果指定了aiProvider，使用工厂路由到相应提供商
-    const providerName =
-      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model);
 
-    if (providerName) {
-      const provider = this.factory.getProvider(dto.model, providerName);
-      const model = this.resolveImageModel(providerName, dto.model);
-      const result = await provider.editImage({
-        prompt: dto.prompt,
-        sourceImage: dto.sourceImage,
-        model,
-        imageOnly: dto.imageOnly,
-        aspectRatio: dto.aspectRatio,
-        imageSize: dto.imageSize,
-        thinkingLevel: dto.thinkingLevel,
-        outputFormat: dto.outputFormat,
-        providerOptions: dto.providerOptions,
-      });
-      if (result.success && result.data) {
-        return {
-          imageData: result.data.imageData,
-          textResponse: result.data.textResponse || '',
-          metadata: result.data.metadata,
-        };
+    return this.withCredits(req, 'gemini-image-edit', model, async () => {
+      if (providerName) {
+        const provider = this.factory.getProvider(dto.model, providerName);
+        const result = await provider.editImage({
+          prompt: dto.prompt,
+          sourceImage: dto.sourceImage,
+          model,
+          imageOnly: dto.imageOnly,
+          aspectRatio: dto.aspectRatio,
+          imageSize: dto.imageSize,
+          thinkingLevel: dto.thinkingLevel,
+          outputFormat: dto.outputFormat,
+          providerOptions: dto.providerOptions,
+        });
+        if (result.success && result.data) {
+          return {
+            imageData: result.data.imageData,
+            textResponse: result.data.textResponse || '',
+            metadata: result.data.metadata,
+          };
+        }
+        throw new Error(result.error?.message || 'Failed to edit image');
       }
-      throw new Error(result.error?.message || 'Failed to edit image');
-    }
 
-    // 否则使用默认的Gemini服务，获取用户自定义 API Key
-    const customApiKey = await this.getUserCustomApiKey(req);
-    const result = await this.imageGeneration.editImage({ ...dto, customApiKey });
-    return result;
+      const customApiKey = await this.getUserCustomApiKey(req);
+      return this.imageGeneration.editImage({ ...dto, customApiKey });
+    }, 1, 1);
   }
 
   @Post('blend-images')
   async blendImages(@Body() dto: BlendImagesDto, @Req() req: any): Promise<ImageGenerationResult> {
-    // 如果指定了aiProvider，使用工厂路由到相应提供商
-    const providerName =
-      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model);
 
-    if (providerName) {
-      const provider = this.factory.getProvider(dto.model, providerName);
-      const model = this.resolveImageModel(providerName, dto.model);
-      const result = await provider.blendImages({
-        prompt: dto.prompt,
-        sourceImages: dto.sourceImages,
-        model,
-        imageOnly: dto.imageOnly,
-        aspectRatio: dto.aspectRatio,
-        imageSize: dto.imageSize,
-        thinkingLevel: dto.thinkingLevel,
-        outputFormat: dto.outputFormat,
-        providerOptions: dto.providerOptions,
+    return this.withCredits(req, 'gemini-image-blend', model, async () => {
+      if (providerName) {
+        const provider = this.factory.getProvider(dto.model, providerName);
+        const result = await provider.blendImages({
+          prompt: dto.prompt,
+          sourceImages: dto.sourceImages,
+          model,
+          imageOnly: dto.imageOnly,
+          aspectRatio: dto.aspectRatio,
+          imageSize: dto.imageSize,
+          thinkingLevel: dto.thinkingLevel,
+          outputFormat: dto.outputFormat,
+          providerOptions: dto.providerOptions,
+        });
+        if (result.success && result.data) {
+          return {
+            imageData: result.data.imageData,
+            textResponse: result.data.textResponse || '',
+            metadata: result.data.metadata,
+          };
+        }
+        throw new Error(result.error?.message || 'Failed to blend images');
+      }
+
+      const customApiKey = await this.getUserCustomApiKey(req);
+      return this.imageGeneration.blendImages({ ...dto, customApiKey });
+    }, dto.sourceImages?.length || 0, 1);
+  }
+
+  @Post('midjourney/action')
+  async midjourneyAction(@Body() dto: MidjourneyActionDto, @Req() req: any): Promise<ImageGenerationResult> {
+    return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
+      const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
+      if (!(provider instanceof MidjourneyProvider)) {
+        throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+      }
+
+      const result = await provider.triggerAction({
+        taskId: dto.taskId,
+        customId: dto.customId,
+        state: dto.state,
+        notifyHook: dto.notifyHook,
+        chooseSameChannel: dto.chooseSameChannel,
+        accountFilter: dto.accountFilter,
       });
+
       if (result.success && result.data) {
         return {
           imageData: result.data.imageData,
@@ -287,133 +429,100 @@ export class AiController {
           metadata: result.data.metadata,
         };
       }
-      throw new Error(result.error?.message || 'Failed to blend images');
-    }
 
-    // 否则使用默认的Gemini服务，获取用户自定义 API Key
-    const customApiKey = await this.getUserCustomApiKey(req);
-    const result = await this.imageGeneration.blendImages({ ...dto, customApiKey });
-    return result;
-  }
-
-  @Post('midjourney/action')
-  async midjourneyAction(@Body() dto: MidjourneyActionDto): Promise<ImageGenerationResult> {
-    const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
-    if (!(provider instanceof MidjourneyProvider)) {
-      throw new ServiceUnavailableException('Midjourney provider is unavailable.');
-    }
-
-    const result = await provider.triggerAction({
-      taskId: dto.taskId,
-      customId: dto.customId,
-      state: dto.state,
-      notifyHook: dto.notifyHook,
-      chooseSameChannel: dto.chooseSameChannel,
-      accountFilter: dto.accountFilter,
+      throw new ServiceUnavailableException(
+        result.error?.message || 'Failed to execute Midjourney action.'
+      );
     });
-
-    if (result.success && result.data) {
-      return {
-        imageData: result.data.imageData,
-        textResponse: result.data.textResponse || '',
-        metadata: result.data.metadata,
-      };
-    }
-
-    throw new ServiceUnavailableException(
-      result.error?.message || 'Failed to execute Midjourney action.'
-    );
   }
 
   @Post('midjourney/modal')
-  async midjourneyModal(@Body() dto: MidjourneyModalDto): Promise<ImageGenerationResult> {
-    const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
-    if (!(provider instanceof MidjourneyProvider)) {
-      throw new ServiceUnavailableException('Midjourney provider is unavailable.');
-    }
+  async midjourneyModal(@Body() dto: MidjourneyModalDto, @Req() req: any): Promise<ImageGenerationResult> {
+    return this.withCredits(req, 'midjourney-variation', 'midjourney-fast', async () => {
+      const provider = this.factory.getProvider('midjourney-fast', 'midjourney');
+      if (!(provider instanceof MidjourneyProvider)) {
+        throw new ServiceUnavailableException('Midjourney provider is unavailable.');
+      }
 
-    const result = await provider.executeModal({
-      taskId: dto.taskId,
-      prompt: dto.prompt,
-      maskBase64: dto.maskBase64,
+      const result = await provider.executeModal({
+        taskId: dto.taskId,
+        prompt: dto.prompt,
+        maskBase64: dto.maskBase64,
+      });
+
+      if (result.success && result.data) {
+        return {
+          imageData: result.data.imageData,
+          textResponse: result.data.textResponse || '',
+          metadata: result.data.metadata,
+        };
+      }
+
+      throw new ServiceUnavailableException(
+        result.error?.message || 'Failed to execute Midjourney modal action.'
+      );
     });
-
-    if (result.success && result.data) {
-      return {
-        imageData: result.data.imageData,
-        textResponse: result.data.textResponse || '',
-        metadata: result.data.metadata,
-      };
-    }
-
-    throw new ServiceUnavailableException(
-      result.error?.message || 'Failed to execute Midjourney modal action.'
-    );
   }
 
   @Post('analyze-image')
   async analyzeImage(@Body() dto: AnalyzeImageDto, @Req() req: any) {
-    // 如果指定了aiProvider，使用工厂路由到相应提供商
-    const providerName =
-      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveImageModel(providerName, dto.model);
 
-    if (providerName) {
-      const provider = this.factory.getProvider(dto.model, providerName);
-      const model = this.resolveImageModel(providerName, dto.model);
-      const result = await provider.analyzeImage({
-        prompt: dto.prompt,
-        sourceImage: dto.sourceImage,
-        model,
-        providerOptions: dto.providerOptions,
-      });
-      if (result.success && result.data) {
-        return {
-          text: result.data.text,
-        };
+    return this.withCredits(req, 'gemini-image-analyze', model, async () => {
+      if (providerName) {
+        const provider = this.factory.getProvider(dto.model, providerName);
+        const result = await provider.analyzeImage({
+          prompt: dto.prompt,
+          sourceImage: dto.sourceImage,
+          model,
+          providerOptions: dto.providerOptions,
+        });
+        if (result.success && result.data) {
+          return {
+            text: result.data.text,
+          };
+        }
+        throw new Error(result.error?.message || 'Failed to analyze image');
       }
-      throw new Error(result.error?.message || 'Failed to analyze image');
-    }
 
-    // 否则使用默认的Gemini服务，获取用户自定义 API Key
-    const customApiKey = await this.getUserCustomApiKey(req);
-    const result = await this.imageGeneration.analyzeImage({ ...dto, customApiKey });
-    return result;
+      const customApiKey = await this.getUserCustomApiKey(req);
+      return this.imageGeneration.analyzeImage({ ...dto, customApiKey });
+    }, 1, 0);
   }
 
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
-    // 如果指定了aiProvider，使用工厂路由到相应提供商
-    const providerName =
-      dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveTextModel(providerName, dto.model);
 
-    if (providerName) {
-      const provider = this.factory.getProvider(dto.model, providerName);
-      const model = this.resolveTextModel(providerName, dto.model);
-      const result = await provider.generateText({
-        prompt: dto.prompt,
-        model,
-        enableWebSearch: dto.enableWebSearch,
-        providerOptions: dto.providerOptions,
-      });
-      if (result.success && result.data) {
-        return {
-          text: result.data.text,
-        };
+    return this.withCredits(req, 'gemini-text', model, async () => {
+      if (providerName) {
+        const provider = this.factory.getProvider(dto.model, providerName);
+        const result = await provider.generateText({
+          prompt: dto.prompt,
+          model,
+          enableWebSearch: dto.enableWebSearch,
+          providerOptions: dto.providerOptions,
+        });
+        if (result.success && result.data) {
+          return {
+            text: result.data.text,
+          };
+        }
+        throw new Error(result.error?.message || 'Failed to generate text');
       }
-      throw new Error(result.error?.message || 'Failed to generate text');
-    }
 
-    // 否则使用默认的Gemini服务，获取用户自定义 API Key
-    const customApiKey = await this.getUserCustomApiKey(req);
-    const result = await this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
-    return result;
+      const customApiKey = await this.getUserCustomApiKey(req);
+      return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
+    });
   }
 
   @Post('remove-background')
-  async removeBackground(@Body() dto: RemoveBackgroundDto) {
+  async removeBackground(@Body() dto: RemoveBackgroundDto, @Req() req: any) {
     this.logger.log('🎯 Background removal request received');
 
-    try {
+    return this.withCredits(req, 'background-removal', undefined, async () => {
       const source = dto.source || 'base64';
       let imageData: string;
 
@@ -422,7 +531,6 @@ export class AiController {
       } else if (source === 'file') {
         imageData = await this.backgroundRemoval.removeBackgroundFromFile(dto.imageData);
       } else {
-        // 默认为base64
         imageData = await this.backgroundRemoval.removeBackgroundFromBase64(
           dto.imageData,
           dto.mimeType
@@ -436,14 +544,7 @@ export class AiController {
         imageData,
         format: 'png',
       };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error('❌ Background removal failed:', message);
-      throw new ServiceUnavailableException({
-        success: false,
-        error: message,
-      });
-    }
+    }, 1, 1);
   }
 
   // 开发模式：无需认证的抠图接口
@@ -492,29 +593,25 @@ export class AiController {
   }
 
   @Post('convert-2d-to-3d')
-  async convert2Dto3D(@Body() dto: Convert2Dto3DDto) {
+  async convert2Dto3D(@Body() dto: Convert2Dto3DDto, @Req() req: any) {
     this.logger.log('🎨 2D to 3D conversion request received');
-    
-    try {
+
+    return this.withCredits(req, 'convert-2d-to-3d', undefined, async () => {
       const result = await this.convert2Dto3DService.convert2Dto3D(dto.imageUrl);
-      
+
       return {
         success: true,
         modelUrl: result.modelUrl,
         promptId: result.promptId,
       };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ 2D to 3D conversion failed: ${message}`, error);
-      throw error;
-    }
+    }, 1, 1);
   }
 
   @Post('expand-image')
-  async expandImage(@Body() dto: ExpandImageDto) {
+  async expandImage(@Body() dto: ExpandImageDto, @Req() req: any) {
     this.logger.log('🖼️ Expand image request received');
 
-    try {
+    return this.withCredits(req, 'expand-image', undefined, async () => {
       const result = await this.expandImageService.expandImage(
         dto.imageUrl,
         dto.expandRatios,
@@ -526,11 +623,7 @@ export class AiController {
         imageUrl: result.imageUrl,
         promptId: result.promptId,
       };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ Expand image failed: ${message}`, error);
-      throw error;
-    }
+    }, 1, 1);
   }
 
   /**
@@ -539,16 +632,15 @@ export class AiController {
   @Post('generate-paperjs')
   async generatePaperJS(@Body() dto: PaperJSGenerateRequestDto, @Req() req: any): Promise<PaperJSGenerateResponseDto> {
     this.logger.log(`📐 Paper.js code generation request: ${dto.prompt.substring(0, 50)}...`);
-    const startTime = Date.now();
 
-    try {
-      // 如果指定了aiProvider，使用工厂路由到相应提供商
-      const providerName =
-        dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveTextModel(providerName, dto.model);
+
+    return this.withCredits(req, 'gemini-paperjs', model, async () => {
+      const startTime = Date.now();
 
       if (providerName) {
         const provider = this.factory.getProvider(dto.model, providerName);
-        const model = this.resolveTextModel(providerName, dto.model);
 
         const result = await provider.generatePaperJS({
           prompt: dto.prompt,
@@ -580,7 +672,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate Paper.js code');
       }
 
-      // 否则使用默认的 ImageGenerationService（Gemini SDK），获取用户自定义 API Key
+      // 使用默认的 ImageGenerationService（Gemini SDK）
       const customApiKey = await this.getUserCustomApiKey(req);
       const result = await this.imageGeneration.generatePaperJSCode({
         prompt: dto.prompt,
@@ -608,10 +700,6 @@ export class AiController {
           processingTime,
         },
       };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ Paper.js code generation failed: ${message}`, error);
-      throw error;
-    }
+    });
   }
 }

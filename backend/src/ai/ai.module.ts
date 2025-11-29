@@ -14,9 +14,10 @@ import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
+import { CreditsModule } from '../credits/credits.module';
 
 @Module({
-  imports: [ConfigModule, UsersModule],
+  imports: [ConfigModule, UsersModule, CreditsModule],
   providers: [
     AiService,
     ImageGenerationService,

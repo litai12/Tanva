@@ -1,11 +1,12 @@
 import React from 'react';
-import { Camera } from 'lucide-react';
+import { Camera, Send } from 'lucide-react';
 import { Button } from '../ui/button';
 
 interface SelectionGroupToolbarProps {
   bounds: { x: number; y: number; width: number; height: number };
   selectedCount: number;
   onCapture?: () => void;
+  onSendToDialog?: () => void;
   isCapturing?: boolean;
 }
 
@@ -13,6 +14,7 @@ const SelectionGroupToolbar: React.FC<SelectionGroupToolbarProps> = ({
   bounds,
   selectedCount,
   onCapture,
+  onSendToDialog,
   isCapturing = false,
 }) => {
   const top = (bounds?.y ?? 0) + (bounds?.height ?? 0) + 12;
@@ -45,6 +47,16 @@ const SelectionGroupToolbar: React.FC<SelectionGroupToolbarProps> = ({
         >
           <Camera className="w-4 h-4" />
           {isCapturing ? '处理中...' : '照相机'}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1"
+          onClick={onSendToDialog}
+          disabled={isCapturing}
+        >
+          <Send className="w-4 h-4" />
+          {isCapturing ? '处理中...' : '发送到对话框'}
         </Button>
       </div>
     </div>
