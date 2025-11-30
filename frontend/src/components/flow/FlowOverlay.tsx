@@ -1304,12 +1304,12 @@ function FlowInner() {
     }[type];
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
-    const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h }
+    const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h, title: 'Prompt' }
       : type === 'textNote' ? { text: '', boxW: size.w, boxH: size.h }
       : type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false, boxW: size.w, boxH: size.h }
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
-      : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h }
+      : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h, presetPrompt: '' }
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
@@ -1746,6 +1746,16 @@ function FlowInner() {
       }
     }
 
+    if (node.type === 'generate') {
+      const preset = (() => {
+        const raw = (node.data as any)?.presetPrompt;
+        return typeof raw === 'string' ? raw.trim() : '';
+      })();
+      if (preset) {
+        prompt = `${preset} ${prompt}`.trim();
+      }
+    }
+
     let imageDatas: string[] = [];
 
     if (node.type === 'generateRef') {
@@ -1998,7 +2008,7 @@ function FlowInner() {
     (window as any).tanvaFlow = {
       addTextPrompt: (x = 0, y = 0, text = '') => {
         const id = `tp_${Date.now()}`;
-        setNodes(ns => ns.concat([{ id, type: 'textPrompt', position: { x, y }, data: { text } }] as any));
+        setNodes(ns => ns.concat([{ id, type: 'textPrompt', position: { x, y }, data: { text, title: 'Prompt' } }] as any));
         return id;
       },
       addTextNote: (x = 0, y = 0, text = '') => {
@@ -2023,7 +2033,7 @@ function FlowInner() {
       },
       addGenerate: (x = 0, y = 0) => {
         const id = `gen_${Date.now()}`;
-        setNodes(ns => ns.concat([{ id, type: 'generate', position: { x, y }, data: { status: 'idle' } }] as any));
+        setNodes(ns => ns.concat([{ id, type: 'generate', position: { x, y }, data: { status: 'idle', presetPrompt: '' } }] as any));
         return id;
       },
       addGenerate4: (x = 0, y = 0) => {
@@ -2056,11 +2066,11 @@ function FlowInner() {
       type,
       position: center,
       data:
-        type === 'textPrompt' ? { text: '' } :
+        type === 'textPrompt' ? { text: '', title: 'Prompt' } :
         type === 'textNote' ? { text: '' } :
         type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false } :
         type === 'promptOptimize' ? { text: '', expandedText: '' } :
-        type === 'generate' ? { status: 'idle' } :
+        type === 'generate' ? { status: 'idle', presetPrompt: '' } :
         type === 'generate4' ? { status: 'idle', images: [], count: 4 } :
         type === 'generateRef' ? { status: 'idle', referencePrompt: undefined } :
         type === 'analysis' ? { status: 'idle', prompt: '', analysisPrompt: undefined } :

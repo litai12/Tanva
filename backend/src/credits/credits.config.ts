@@ -106,4 +106,4 @@ export const CREDIT_PRICING_CONFIG = {
 export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;
 
 // 默认新用户赠送积分
-export const DEFAULT_NEW_USER_CREDITS = 100;
+export const DEFAULT_NEW_USER_CREDITS = 1000;

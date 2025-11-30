@@ -6,7 +6,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { aiImageService } from '@/services/aiImageService';
-import sora2Service from '@/services/sora2Service';
 import { paperSandboxService } from '@/services/paperSandboxService';
 import {
   generateImageViaAPI,
@@ -15,6 +14,7 @@ import {
   analyzeImageViaAPI,
   generateTextResponseViaAPI,
   midjourneyActionViaAPI,
+  generateVideoViaAPI,
 } from '@/services/aiBackendAPI';
 import { useUIStore } from '@/stores/uiStore';
 import { contextManager } from '@/services/contextManager';
@@ -175,8 +175,6 @@ export const SORA2_VIDEO_MODELS = {
 } as const;
 export type Sora2VideoQuality = keyof typeof SORA2_VIDEO_MODELS;
 export const DEFAULT_SORA2_VIDEO_QUALITY: Sora2VideoQuality = 'hd';
-const getSora2ModelByQuality = (quality?: Sora2VideoQuality) =>
-  SORA2_VIDEO_MODELS[quality || DEFAULT_SORA2_VIDEO_QUALITY] || SORA2_VIDEO_MODELS.hd;
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 const RUNNINGHUB_PRIMARY_NODE_ID =
@@ -185,51 +183,13 @@ const RUNNINGHUB_REFERENCE_NODE_ID =
   import.meta.env?.VITE_RUNNINGHUB_REFERENCE_NODE_ID ?? '158';
 const RUNNINGHUB_WEBAPP_ID = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID;
 const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
-const SORA2_API_KEY = import.meta.env?.VITE_SORA2_API_KEY ?? '';
-
-const SORA2_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
-const SORA2_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-const SORA2_ASYNC_HOST_HINTS = ['asyncdata.', 'asyncndata.'];
-const SORA2_MAX_FOLLOW_DEPTH = 2;
-const SORA2_FETCH_TIMEOUT_MS = 60000; // 60秒，延长超时时间以支持Sora 2 pro视频生成
 const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
-const SORA2_MAX_RETRY = 3;
-const SORA2_RETRY_BASE_DELAY_MS = 1200;
-
-type Sora2ResolvedMedia = {
-  videoUrl?: string;
-  thumbnailUrl?: string;
-  referencedUrls: string[];
-  taskInfo?: Record<string, any> | null;
-  taskId?: string;
-  status?: string;
-  errorMessage?: string;
-};
+const VIDEO_FETCH_TIMEOUT_MS = 60000;
 
 type VideoPosterBuildResult = {
   dataUrl: string;
   origin: 'thumbnail' | 'videoFrame' | 'placeholder';
   sourceImageUrl?: string;
-};
-
-const tryParseJson = (raw: string): any | null => {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
-    return null;
-  }
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-};
-
-const normalizeUrlCandidate = (value: string): string => {
-  return value
-    .trim()
-    .replace(/^["'`]+|["'`]+$/g, '')
-    .replace(/[,.;)\]\s]+$/g, '');
 };
 
 const GEMINI_FALLBACK_PROVIDERS: AIProviderType[] = ['gemini', 'gemini-pro'];
@@ -259,146 +219,6 @@ const shouldFallbackToGeminiFlash = (
   return isQuotaOrRateLimitError(error);
 };
 
-const isLikelyVideoUrl = (url: string): boolean => {
-  const lower = url.toLowerCase();
-  return SORA2_VIDEO_EXTENSIONS.some((ext) => lower.includes(ext));
-};
-
-const isLikelyImageUrl = (url: string): boolean => {
-  const lower = url.toLowerCase();
-  return SORA2_IMAGE_EXTENSIONS.some((ext) => lower.includes(ext));
-};
-
-const isAsyncTaskUrl = (url: string): boolean =>
-  SORA2_ASYNC_HOST_HINTS.some((mark) => url.includes(mark));
-
-const extractUrlsFromText = (text: string): string[] => {
-  const matches = text.match(/https?:\/\/[^\s"'<>]+/gi) || [];
-  return matches.map(normalizeUrlCandidate);
-};
-
-const collectUrlsFromObject = (value: unknown, bucket: Set<string>) => {
-  if (!value) return;
-  if (typeof value === 'string') {
-    if (value.startsWith('http')) {
-      bucket.add(normalizeUrlCandidate(value));
-    }
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectUrlsFromObject(item, bucket));
-    return;
-  }
-  if (typeof value === 'object') {
-    Object.values(value as Record<string, unknown>).forEach((item) => collectUrlsFromObject(item, bucket));
-  }
-};
-
-const pickFirstMatchingUrl = (urls: Iterable<string>, matcher: (url: string) => boolean): string | undefined => {
-  for (const url of urls) {
-    if (matcher(url)) {
-      return url;
-    }
-  }
-  return undefined;
-};
-
-const safeFetchTextWithTimeout = async (url: string, timeoutMs: number = SORA2_FETCH_TIMEOUT_MS): Promise<string | null> => {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!response.ok) {
-      console.warn('⚠️ Sora2 任务跟进请求失败:', { url, status: response.status });
-      return null;
-    }
-    const text = await response.text();
-    return text;
-  } catch (error) {
-    console.warn('⚠️ 无法访问 Sora2 任务地址:', url, error);
-    return null;
-  }
-};
-
-const resolveSora2Response = async (rawContent: string): Promise<Sora2ResolvedMedia> => {
-  const referencedUrls = new Set<string>();
-  const visitedTaskUrls = new Set<string>();
-  let videoUrl: string | undefined;
-  let thumbnailUrl: string | undefined;
-  let taskInfo: Record<string, any> | null = null;
-  let status: string | undefined;
-  let taskId: string | undefined;
-  let errorMessage: string | undefined;
-
-  type QueueEntry = { type: 'text' | 'url'; payload: string; depth: number };
-  const queue: QueueEntry[] = [{ type: 'text', payload: rawContent, depth: 0 }];
-
-  while (queue.length) {
-    const current = queue.shift()!;
-    if (current.depth > SORA2_MAX_FOLLOW_DEPTH) {
-      continue;
-    }
-
-    if (current.type === 'url') {
-      if (visitedTaskUrls.has(current.payload)) continue;
-      visitedTaskUrls.add(current.payload);
-      const payload = await safeFetchTextWithTimeout(current.payload);
-      if (payload) {
-        queue.push({ type: 'text', payload, depth: current.depth + 1 });
-      }
-      continue;
-    }
-
-    const parsed = tryParseJson(current.payload);
-    if (parsed) {
-      taskInfo = { ...(taskInfo || {}), ...parsed };
-      if (!status && typeof parsed.status === 'string') {
-        status = parsed.status;
-      }
-      if (!taskId && typeof parsed.id === 'string') {
-        taskId = parsed.id;
-      }
-      if (!errorMessage) {
-        errorMessage =
-          typeof parsed.error?.message === 'string'
-            ? parsed.error.message
-            : typeof parsed.message === 'string'
-              ? parsed.message
-              : undefined;
-      }
-      collectUrlsFromObject(parsed, referencedUrls);
-    } else {
-      extractUrlsFromText(current.payload).forEach((url) => referencedUrls.add(url));
-    }
-
-    if (!videoUrl) {
-      videoUrl = pickFirstMatchingUrl(referencedUrls, isLikelyVideoUrl);
-    }
-    if (!thumbnailUrl) {
-      thumbnailUrl = pickFirstMatchingUrl(referencedUrls, isLikelyImageUrl);
-    }
-
-    if (!videoUrl) {
-      const taskCandidates = Array.from(referencedUrls).filter(
-        (url) => isAsyncTaskUrl(url) && !visitedTaskUrls.has(url)
-      );
-      taskCandidates.slice(0, 2).forEach((url) => {
-        queue.push({ type: 'url', payload: url, depth: current.depth + 1 });
-      });
-    }
-  }
-
-  return {
-    videoUrl,
-    thumbnailUrl,
-    referencedUrls: Array.from(referencedUrls),
-    taskInfo,
-    status,
-    taskId,
-    errorMessage,
-  };
-};
 
 export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === 'gemini-pro') {
@@ -686,178 +506,6 @@ const migrateLegacySessions = async (
 
 // ==================== Sora2 视频生成相关函数 ====================
 
-/**
- * 初始化 Sora2 服务（只执行一次）
- */
-let sora2Initialized = false;
-function initializeSora2Service() {
-  if (!sora2Initialized && SORA2_API_KEY) {
-    sora2Service.setApiKey(SORA2_API_KEY);
-    sora2Initialized = true;
-    console.log('✅ Sora2 服务已初始化');
-  }
-}
-
-/**
- * 生成视频 - 支持文本提示词和参考图像
- * @param prompt 视频描述提示词
- * @param referenceImageUrl 可选的参考图像 URL（来自 OSS 上传）
- * @param onProgress 进度回调函数
- */
-async function generateVideoResponse(
-  prompt: string,
-  referenceImageUrl?: string | null,
-  onProgress?: (stage: string, progress: number) => void,
-  options?: { model?: string }
-): Promise<{
-  videoUrl: string;
-  content: string;
-  thumbnailUrl?: string;
-  referencedUrls: string[];
-  status?: string;
-  taskId?: string;
-  taskInfo?: Record<string, any> | null;
-}> {
-  initializeSora2Service();
-
-  if (!SORA2_API_KEY) {
-    throw new Error('Sora2 API Key 未配置，无法生成视频');
-  }
-
-  onProgress?.('初始化 Sora2 视频生成', 10);
-
-  let attempt = 0;
-  let lastError: unknown = null;
-  const generationStartTime = Date.now();
-
-  while (attempt < SORA2_MAX_RETRY) {
-    attempt += 1;
-    try {
-      onProgress?.(attempt === 1 ? '发送视频生成请求' : `网络波动，重试第 ${attempt} 次`, Math.min(30 + (attempt - 1) * 10, 80));
-      console.log('🎬 开始 Sora2 视频生成', {
-        prompt: prompt.substring(0, 50) + '...',
-        hasReference: !!referenceImageUrl,
-        attempt,
-      });
-
-      const result = await sora2Service.generateVideoStream(
-        prompt,
-        referenceImageUrl || undefined,
-        (chunk) => {
-          console.log('📹 视频生成进度:', chunk.substring(0, 50) + '...');
-        },
-        options?.model
-      );
-
-      if (!result.success || !result.data?.fullContent) {
-        const errMessage = result.error?.message || '视频生成失败';
-        const errCode = result.error?.code;
-        const retryable = isRetryableVideoError({ message: errMessage, code: errCode });
-        if (retryable) {
-          throw new Error(errMessage);
-        }
-        throw new Error(errMessage);
-      }
-
-      onProgress?.('解析视频响应', 80);
-
-      const rawContent = result.data.fullContent.trim();
-      console.log('📄 Sora2 原始响应:', rawContent);
-
-      const resolved = await resolveSora2Response(rawContent);
-
-      if (resolved.status && ['failed', 'error', 'blocked'].includes(resolved.status)) {
-        const errorType = resolved.taskInfo?.error?.type || resolved.status;
-        const message =
-          resolved.taskInfo?.error?.message ||
-          resolved.errorMessage ||
-          'Sora2 返回失败状态';
-        throw new Error(`Sora2 生成失败 [${errorType}]: ${message}`);
-      }
-
-      if (resolved.status && ['queued', 'processing'].includes(resolved.status)) {
-        throw new Error(
-          `任务正在处理中（ID: ${resolved.taskId || 'unknown'}）\n` +
-          `当前状态: ${resolved.status}\n` +
-          `请稍后查看数据预览链接或重试`
-        );
-      }
-
-      const videoUrl = resolved.videoUrl;
-
-      if (!videoUrl) {
-        // 如果返回了任务信息但没有视频 URL，可能是任务还在处理中
-        const hasTaskInfo = resolved.taskInfo && Object.keys(resolved.taskInfo).length > 0;
-        const hasTaskId = !!resolved.taskId;
-        const hasDuration = resolved.taskInfo?.duration;
-        
-        if (hasTaskInfo || hasTaskId) {
-          const statusMsg = resolved.status ? `状态: ${resolved.status}` : '状态未知';
-          const durationMsg = hasDuration ? `，视频时长: ${hasDuration}秒` : '';
-          throw new Error(
-            `视频生成任务已创建，但视频还在处理中\n\n` +
-            `任务 ID: ${resolved.taskId || 'unknown'}\n` +
-            `${statusMsg}${durationMsg}\n\n` +
-            `请稍后重试或查看任务状态`
-          );
-        }
-
-        console.error('❌ 未找到视频 URL，原始响应:', rawContent);
-        const urlPreview = resolved.referencedUrls.slice(0, 5).map((url) => `- ${url}`).join('\n') || '无';
-        throw new Error(
-          `API 未返回有效的视频 URL\n\n` +
-          `响应内容：\n${rawContent.substring(0, 500)}${rawContent.length > 500 ? '\n...(截断)' : ''}\n\n` +
-          `已解析链接：\n${urlPreview}`
-        );
-      }
-
-      onProgress?.('视频生成完成', 100);
-
-      console.log('✅ Sora2 视频生成成功', {
-        videoUrl,
-        isHttpUrl: videoUrl.startsWith('http'),
-        thumbnailUrl: resolved.thumbnailUrl,
-        referencedUrls: resolved.referencedUrls
-      });
-      const totalDurationMs = Date.now() - generationStartTime;
-      const totalSeconds = (totalDurationMs / 1000).toFixed(2);
-      console.log(`⏱️ Sora2 视频生成耗时 ${totalSeconds}s（尝试 ${attempt} 次）`);
-
-      return {
-        videoUrl,
-        content: resolved.taskInfo
-          ? `视频已生成（任务 ID: ${resolved.taskId || resolved.taskInfo?.id || 'unknown'}）`
-          : `视频已生成，可在下方预览。`,
-        thumbnailUrl: resolved.thumbnailUrl,
-        referencedUrls: resolved.referencedUrls,
-        status: resolved.status,
-        taskId: resolved.taskId,
-        taskInfo: resolved.taskInfo
-      };
-    } catch (error) {
-      lastError = error;
-      const retryable = isRetryableVideoError(error);
-      if (retryable && attempt < SORA2_MAX_RETRY) {
-        const wait = SORA2_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        console.warn(`⚠️ Sora2 调用失败，准备重试第 ${attempt + 1} 次，等待 ${wait}ms`, error);
-        onProgress?.(`网络波动，重试第 ${attempt + 1} 次`, Math.min(60 + attempt * 10, 90));
-        await delay(wait);
-        continue;
-      }
-
-      const errorMsg = error instanceof Error ? error.message : '未知错误';
-      console.error('❌ Sora2 视频生成失败:', errorMsg);
-      throw new Error(`视频生成失败: ${errorMsg}`);
-    }
-  }
-
-  const fallbackMessage = lastError instanceof Error ? lastError.message : '未知错误';
-  const totalDurationMs = Date.now() - generationStartTime;
-  const totalSeconds = (totalDurationMs / 1000).toFixed(2);
-  console.error(`⏱️ Sora2 视频生成失败，总耗时 ${totalSeconds}s`);
-  throw new Error(`视频生成失败: ${fallbackMessage}`);
-}
-
 export type Sora2VideoGenerationOptions = {
   onProgress?: (stage: string, progress: number) => void;
   quality?: Sora2VideoQuality;
@@ -866,10 +514,22 @@ export type Sora2VideoGenerationOptions = {
 export async function requestSora2VideoGeneration(
   prompt: string,
   referenceImageUrl?: string | null,
-  options?: Sora2VideoGenerationOptions
+  options?: Sora2VideoGenerationOptions,
 ) {
-  const targetModel = getSora2ModelByQuality(options?.quality);
-  return generateVideoResponse(prompt, referenceImageUrl, options?.onProgress, { model: targetModel });
+  options?.onProgress?.('提交视频生成请求', 35);
+
+  const response = await generateVideoViaAPI({
+    prompt,
+    referenceImageUrl: referenceImageUrl || undefined,
+    quality: options?.quality,
+  });
+
+  if (!response.success || !response.data) {
+    throw new Error(response.error?.message || '视频生成失败');
+  }
+
+  options?.onProgress?.('解析视频响应', 85);
+  return response.data;
 }
 
 /**
@@ -907,7 +567,7 @@ const blobToDataUrl = (blob: Blob): Promise<string> =>
 const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), SORA2_FETCH_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), VIDEO_FETCH_TIMEOUT_MS);
     const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
     clearTimeout(timer);
     if (!response.ok) {
@@ -925,7 +585,7 @@ const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
 const fetchVideoBlob = async (url: string): Promise<Blob | null> => {
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), Math.max(SORA2_FETCH_TIMEOUT_MS, 12000));
+    const timer = setTimeout(() => controller.abort(), Math.max(VIDEO_FETCH_TIMEOUT_MS, 12000));
     const response = await fetch(url, { signal: controller.signal, mode: 'cors' });
     clearTimeout(timer);
     if (!response.ok) {
@@ -1063,20 +723,6 @@ const buildVideoPoster = async (params: { prompt: string; videoUrl: string; thum
   const placeholder = buildPlaceholderPoster(params.prompt, params.videoUrl);
   if (!placeholder) return null;
   return { dataUrl: placeholder, origin: 'placeholder' };
-};
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const isRetryableVideoError = (error: unknown): boolean => {
-  const msg = error instanceof Error ? error.message : String(error || '');
-  const code = (error as any)?.code as string | undefined;
-  if (code?.startsWith('HTTP_5')) return true;
-  if (code === 'NETWORK_ERROR') return true;
-  if (/load failed/i.test(msg)) return true;
-  if (/failed to fetch/i.test(msg)) return true;
-  if (/network.*error/i.test(msg)) return true;
-  if (/timeout/i.test(msg)) return true;
-  return false;
 };
 
 const computeVideoSmartPosition = (): { x: number; y: number } | undefined => {
@@ -3733,21 +3379,24 @@ export const useAIChatStore = create<AIChatState>()(
         isGenerating: true,
         progress: 30,
         error: null,
-        stage: '发送请求到 Sora2'
+        stage: '发送请求到视频服务'
       });
 
       // 调用视频生成函数
-      logProcessStep(metrics, 'generateVideo calling Sora2');
-      const videoResult = await generateVideoResponse(
+      logProcessStep(metrics, 'generateVideo calling backend video API');
+      const videoResult = await requestSora2VideoGeneration(
         prompt,
         referenceImageUrl,
-        (stage, progress) => {
-          get().updateMessageStatus(aiMessageId!, {
-            isGenerating: true,
-            progress: Math.min(95, progress),
-            error: null,
-            stage
-          });
+        {
+          quality: DEFAULT_SORA2_VIDEO_QUALITY,
+          onProgress: (stage, progress) => {
+            get().updateMessageStatus(aiMessageId!, {
+              isGenerating: true,
+              progress: Math.min(95, progress),
+              error: null,
+              stage
+            });
+          }
         }
       );
 

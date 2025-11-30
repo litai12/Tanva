@@ -9,6 +9,7 @@ import LoginPage from '@/pages/auth/Login';
 import RegisterPage from '@/pages/auth/Register';
 import OSSDemo from '@/pages/OSSDemo';
 import Admin from '@/pages/Admin';
+import MyCredits from '@/pages/MyCredits';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
@@ -33,6 +34,7 @@ function RootRoutes() {
         <Route path="/workspace" element={<Workspace />} />
         <Route path="/app" element={<App />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/my-credits" element={<MyCredits />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

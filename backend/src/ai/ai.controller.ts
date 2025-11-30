@@ -37,6 +37,8 @@ import { UsersService } from '../users/users.service';
 import { CreditsService } from '../credits/credits.service';
 import { ServiceType } from '../credits/credits.config';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
+import { GenerateVideoDto } from './dto/video-generation.dto';
+import { Sora2VideoService } from './services/sora2-video.service';
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -67,6 +69,7 @@ export class AiController {
     private readonly expandImageService: ExpandImageService,
     private readonly usersService: UsersService,
     private readonly creditsService: CreditsService,
+    private readonly sora2VideoService: Sora2VideoService,
   ) {}
 
   /**
@@ -133,6 +136,7 @@ export class AiController {
 
   /**
    * 预扣积分并执行操作
+   * @param skipCredits 如果为 true，则跳过积分扣除（例如使用自定义 API Key 时）
    */
   private async withCredits<T>(
     req: any,
@@ -141,12 +145,18 @@ export class AiController {
     operation: () => Promise<T>,
     inputImageCount?: number,
     outputImageCount?: number,
+    skipCredits?: boolean,
   ): Promise<T> {
     const userId = this.getUserId(req);
 
-    // 如果没有用户ID（API Key认证），直接执行操作
+    // 如果没有用户ID（API Key认证）或明确跳过积分，直接执行操作
     if (!userId) {
       this.logger.debug('API Key authentication - skipping credits deduction');
+      return operation();
+    }
+
+    if (skipCredits) {
+      this.logger.debug('Using custom API key - skipping credits deduction');
       return operation();
     }
 
@@ -308,6 +318,10 @@ export class AiController {
     const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
 
+    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
+    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    const skipCredits = !!customApiKey;
+
     return this.withCredits(req, serviceType, model, async () => {
       if (providerName) {
         const provider = this.factory.getProvider(dto.model, providerName);
@@ -332,15 +346,18 @@ export class AiController {
       }
 
       // 否则使用默认的Gemini服务
-      const customApiKey = await this.getUserCustomApiKey(req);
       return this.imageGeneration.generateImage({ ...dto, customApiKey });
-    }, 0, 1);
+    }, 0, 1, skipCredits);
   }
 
   @Post('edit-image')
   async editImage(@Body() dto: EditImageDto, @Req() req: any): Promise<ImageGenerationResult> {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+
+    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
+    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-image-edit', model, async () => {
       if (providerName) {
@@ -366,15 +383,18 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to edit image');
       }
 
-      const customApiKey = await this.getUserCustomApiKey(req);
       return this.imageGeneration.editImage({ ...dto, customApiKey });
-    }, 1, 1);
+    }, 1, 1, skipCredits);
   }
 
   @Post('blend-images')
   async blendImages(@Body() dto: BlendImagesDto, @Req() req: any): Promise<ImageGenerationResult> {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
+
+    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
+    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-image-blend', model, async () => {
       if (providerName) {
@@ -400,9 +420,8 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to blend images');
       }
 
-      const customApiKey = await this.getUserCustomApiKey(req);
       return this.imageGeneration.blendImages({ ...dto, customApiKey });
-    }, dto.sourceImages?.length || 0, 1);
+    }, dto.sourceImages?.length || 0, 1, skipCredits);
   }
 
   @Post('midjourney/action')
@@ -469,6 +488,10 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
+    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
+    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    const skipCredits = !!customApiKey;
+
     return this.withCredits(req, 'gemini-image-analyze', model, async () => {
       if (providerName) {
         const provider = this.factory.getProvider(dto.model, providerName);
@@ -486,15 +509,18 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to analyze image');
       }
 
-      const customApiKey = await this.getUserCustomApiKey(req);
       return this.imageGeneration.analyzeImage({ ...dto, customApiKey });
-    }, 1, 0);
+    }, 1, 0, skipCredits);
   }
 
   @Post('text-chat')
   async textChat(@Body() dto: TextChatDto, @Req() req: any) {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
+
+    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
+    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-text', model, async () => {
       if (providerName) {
@@ -513,9 +539,8 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate text');
       }
 
-      const customApiKey = await this.getUserCustomApiKey(req);
       return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
-    });
+    }, undefined, undefined, skipCredits);
   }
 
   @Post('remove-background')
@@ -626,6 +651,32 @@ export class AiController {
     }, 1, 1);
   }
 
+  @Post('generate-video')
+  async generateVideo(@Body() dto: GenerateVideoDto, @Req() req: any) {
+    const quality = dto.quality === 'sd' ? 'sd' : 'hd';
+    const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
+    const model = this.sora2VideoService.getModelForQuality(quality);
+    const inputImageCount = dto.referenceImageUrl ? 1 : undefined;
+
+    this.logger.log(
+      `🎬 Video generation request received (quality=${quality}, hasReference=${Boolean(dto.referenceImageUrl)})`,
+    );
+
+    return this.withCredits(
+      req,
+      serviceType,
+      model,
+      async () =>
+        this.sora2VideoService.generateVideo({
+          prompt: dto.prompt,
+          referenceImageUrl: dto.referenceImageUrl,
+          quality,
+        }),
+      inputImageCount,
+      0,
+    );
+  }
+
   /**
    * 生成 Paper.js 代码
    */
@@ -635,6 +686,10 @@ export class AiController {
 
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
+
+    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
+    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-paperjs', model, async () => {
       const startTime = Date.now();
@@ -673,7 +728,6 @@ export class AiController {
       }
 
       // 使用默认的 ImageGenerationService（Gemini SDK）
-      const customApiKey = await this.getUserCustomApiKey(req);
       const result = await this.imageGeneration.generatePaperJSCode({
         prompt: dto.prompt,
         model: dto.model,
@@ -700,6 +754,6 @@ export class AiController {
           processingTime,
         },
       };
-    });
+    }, undefined, undefined, skipCredits);
   }
 }

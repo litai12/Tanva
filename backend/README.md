@@ -6,6 +6,10 @@ NestJS backend with Fastify adapter. Provides authentication (cookie-based JWT),
 
 - Copy `server/.env.example` to `server/.env` and fill values.
 - Ensure PostgreSQL is available and `DATABASE_URL` is correct.
+- 配置 Sora 视频服务相关环境变量：
+  - `SORA2_API_KEY`：Sora 提供的 API Key（必填）
+  - `SORA2_API_ENDPOINT`：可选，默认 `https://api1.147ai.com`
+  - `SORA2_HD_MODEL` / `SORA2_SD_MODEL`：可选，覆盖默认模型名称
 
 ## Install & Run
 

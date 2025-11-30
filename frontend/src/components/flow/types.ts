@@ -3,7 +3,10 @@ import type { Node, Edge } from 'reactflow';
 export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'storyboardSplit';
 
 export type TextPromptData = {
-  text: string;
+  text?: string;
+  boxW?: number;
+  boxH?: number;
+  title?: string;
 };
 
 export type ImageData = {
@@ -18,6 +21,8 @@ export type GenerateData = {
   status?: GenerateStatus;
   imageData?: string; // base64 string
   error?: string;
+  aspectRatio?: string;
+  presetPrompt?: string;
 };
 
 export type Generate4Data = {

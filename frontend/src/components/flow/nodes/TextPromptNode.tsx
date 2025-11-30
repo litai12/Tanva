@@ -4,9 +4,11 @@ import { resolveTextFromSourceNode } from '../utils/textSource';
 
 type Props = {
   id: string;
-  data: { text?: string; boxW?: number; boxH?: number };
+  data: { text?: string; boxW?: number; boxH?: number; title?: string };
   selected?: boolean;
 };
+
+const DEFAULT_TITLE = 'Prompt';
 
 export default function TextPromptNode({ id, data, selected }: Props) {
   const rf = useReactFlow();
@@ -17,6 +19,13 @@ export default function TextPromptNode({ id, data, selected }: Props) {
   const edgesRef = React.useRef<Edge[]>(edges);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const normalizedTitle = typeof data.title === 'string' && data.title.trim().length
+    ? data.title.trim()
+    : DEFAULT_TITLE;
+  const [title, setTitle] = React.useState<string>(normalizedTitle);
+  const [titleDraft, setTitleDraft] = React.useState<string>(normalizedTitle);
+  const [isEditingTitle, setIsEditingTitle] = React.useState(false);
+  const titleInputRef = React.useRef<HTMLInputElement>(null);
   const incomingCount = incomingTexts.length;
   const hasIncoming = incomingCount > 0;
 
@@ -86,6 +95,21 @@ export default function TextPromptNode({ id, data, selected }: Props) {
   }, [data.text]);
 
   React.useEffect(() => {
+    setTitle(normalizedTitle);
+    if (!isEditingTitle) {
+      setTitleDraft(normalizedTitle);
+    }
+  }, [normalizedTitle, isEditingTitle]);
+
+  React.useEffect(() => {
+    if (!isEditingTitle) return;
+    requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [isEditingTitle]);
+
+  React.useEffect(() => {
     edgesRef.current = edges;
     const texts = collectIncomingTexts(edges);
     setIncomingTexts(texts);
@@ -124,6 +148,29 @@ export default function TextPromptNode({ id, data, selected }: Props) {
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
   }, [id, applyIncomingText, syncFromSource, collectIncomingTexts]);
 
+  const startTitleEditing = React.useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    setTitleDraft(title);
+    setIsEditingTitle(true);
+  }, [title]);
+
+  const commitTitle = React.useCallback((raw: string) => {
+    const trimmed = raw.trim();
+    const nextTitle = trimmed.length ? trimmed : DEFAULT_TITLE;
+    setTitle(nextTitle);
+    setTitleDraft(nextTitle);
+    setIsEditingTitle(false);
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { title: nextTitle } }
+    }));
+  }, [id]);
+
+  const cancelTitleEditing = React.useCallback(() => {
+    setIsEditingTitle(false);
+    setTitleDraft(title);
+  }, [title]);
+
   return (
     <div style={{
       width: data.boxW || 240,
@@ -153,7 +200,40 @@ export default function TextPromptNode({ id, data, selected }: Props) {
         }}
       />
       <div style={{ fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span>Prompt</span>
+        {isEditingTitle ? (
+          <input
+            ref={titleInputRef}
+            value={titleDraft}
+            onChange={(event) => setTitleDraft(event.target.value)}
+            onBlur={() => commitTitle(titleDraft)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitTitle(titleDraft);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelTitleEditing();
+              }
+            }}
+            style={{
+              fontWeight: 600,
+              fontSize: 13,
+              border: '1px solid #d1d5db',
+              borderRadius: 4,
+              padding: '2px 4px',
+              outline: 'none',
+              width: '100%'
+            }}
+          />
+        ) : (
+          <span
+            onDoubleClick={startTitleEditing}
+            title="双击编辑标题"
+            style={{ cursor: 'text', userSelect: 'none' }}
+          >
+            {title}
+          </span>
+        )}
         {hasIncoming && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 11, color: '#6b7280' }}>已拼接 {incomingCount} 条输入</span>

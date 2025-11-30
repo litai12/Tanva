@@ -14,6 +14,7 @@ type Props = {
     imageData?: string;
     error?: string;
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
+    presetPrompt?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -86,6 +87,15 @@ export default function GenerateNode({ id, data, selected }: Props) {
     const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
+
+  const presetPromptValue = data.presetPrompt ?? '';
+  const updatePresetPrompt = React.useCallback((value: string) => {
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { presetPrompt: value } }
+      })
+    );
+  }, [id]);
 
   const onRun = React.useCallback(() => {
     data.onRun?.(id);
@@ -174,6 +184,39 @@ export default function GenerateNode({ id, data, selected }: Props) {
           >
             <SendIcon size={14} strokeWidth={2} />
           </button>
+        </div>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <label
+          style={{
+            display: 'block',
+            fontSize: 12,
+            color: '#6b7280',
+            marginBottom: 2
+          }}
+        >
+          预设提示词
+        </label>
+        <input
+          value={presetPromptValue}
+          onChange={(event) => updatePresetPrompt(event.target.value)}
+          placeholder="生成时自动拼接在提示词前"
+          style={{
+            width: '100%',
+            fontSize: 12,
+            padding: '4px 6px',
+            borderRadius: 6,
+            border: '1px solid #e5e7eb',
+            outline: 'none',
+            background: '#fff'
+          }}
+          onPointerDownCapture={stopNodeDrag}
+          onPointerDown={stopNodeDrag}
+          onMouseDownCapture={stopNodeDrag}
+          onMouseDown={stopNodeDrag}
+        />
+        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+          会在 TextPrompt 输入前自动添加
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>

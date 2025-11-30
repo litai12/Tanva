@@ -657,3 +657,60 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
     };
   }
 }
+
+export interface VideoGenerationRequest {
+  prompt: string;
+  referenceImageUrl?: string;
+  quality?: 'hd' | 'sd';
+}
+
+export interface VideoGenerationResult {
+  videoUrl: string;
+  content: string;
+  referencedUrls: string[];
+  thumbnailUrl?: string;
+  status?: string;
+  taskId?: string;
+  taskInfo?: Record<string, any> | null;
+}
+
+export async function generateVideoViaAPI(
+  request: VideoGenerationRequest
+): Promise<AIServiceResponse<VideoGenerationResult>> {
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-video`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    return {
+      success: true,
+      data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: error instanceof Error ? error.message : 'Network error',
+        timestamp: new Date(),
+      },
+    };
+  }
+}

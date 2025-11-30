@@ -250,7 +250,7 @@ export default function StoryboardSplitNode({ id, data, selected }: Props) {
 
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ fontWeight: 600 }}>Storyboard Split</div>
+        <div style={{ fontWeight: 600 }}>Split</div>
         <button
           onClick={handleSplit}
           style={{

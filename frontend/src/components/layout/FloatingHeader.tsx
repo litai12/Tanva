@@ -496,9 +496,22 @@ const FloatingHeader: React.FC = () => {
 
                         {/* 积分信息卡片 */}
                         <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-blue-50 to-indigo-50 p-5 shadow-sm">
-                            <div className="flex items-center gap-2 mb-3">
-                                <Sparkles className="h-4 w-4 text-blue-600" />
-                                <span className="text-sm font-medium text-slate-700">我的积分</span>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <Sparkles className="h-4 w-4 text-blue-600" />
+                                    <span className="text-sm font-medium text-slate-700">我的积分</span>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                                    onClick={() => {
+                                        setIsSettingsOpen(false);
+                                        navigate('/my-credits');
+                                    }}
+                                >
+                                    详情
+                                </Button>
                             </div>
                             {creditsLoading ? (
                                 <div className="text-xs text-slate-500">加载中...</div>

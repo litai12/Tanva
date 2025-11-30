@@ -12,6 +12,7 @@ import { AIProviderFactory } from './ai-provider.factory';
 import { CostCalculatorService } from './services/cost-calculator.service';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { ExpandImageService } from './services/expand-image.service';
+import { Sora2VideoService } from './services/sora2-video.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
@@ -30,6 +31,7 @@ import { CreditsModule } from '../credits/credits.module';
     CostCalculatorService, // 添加成本计算器
     Convert2Dto3DService, // 添加2D转3D服务
     ExpandImageService, // 添加扩图服务
+    Sora2VideoService,
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],

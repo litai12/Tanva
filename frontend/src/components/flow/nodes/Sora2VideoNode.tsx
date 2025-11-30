@@ -42,6 +42,7 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [previewAspect, setPreviewAspect] = React.useState<string>('16/9');
   const [aspectMenuOpen, setAspectMenuOpen] = React.useState(false);
+  const [durationMenuOpen, setDurationMenuOpen] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [downloadFeedback, setDownloadFeedback] = React.useState<DownloadFeedback | null>(null);
@@ -68,6 +69,7 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
       const target = event.target as HTMLElement;
       if (!target.closest?.('.sora2-dropdown')) {
         setAspectMenuOpen(false);
+        setDurationMenuOpen(false);
       }
     };
     window.addEventListener('click', handleClickOutside);
@@ -121,6 +123,18 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
       detail: { id, patch: { aspectRatio: value || undefined } }
     }));
   }, [aspectRatioValue, id]);
+  const durationOptions = React.useMemo(() => ([
+    { label: '10秒', value: 10 },
+    { label: '15秒', value: 15 },
+    { label: '20秒', value: 20 },
+    { label: '25秒', value: 25 }
+  ]), []);
+  const handleDurationChange = React.useCallback((value: number) => {
+    if (value === clipDuration) return;
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { clipDuration: value } }
+    }));
+  }, [clipDuration, id]);
   const promptSuffixPreview = React.useMemo(() => {
     const pieces: string[] = [];
     if (clipDuration) pieces.push(`${clipDuration}s`);
@@ -132,6 +146,10 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
     const match = aspectOptions.find(opt => opt.value === aspectRatioValue);
     return match ? match.label : '自动';
   }, [aspectOptions, aspectRatioValue]);
+  const durationLabel = React.useMemo(() => {
+    const match = durationOptions.find(opt => opt.value === clipDuration);
+    return match ? match.label : '未设置';
+  }, [clipDuration, durationOptions]);
 
   React.useEffect(() => {
     if (!aspectRatioValue) {
@@ -477,6 +495,7 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
           type="button"
           onClick={(event) => {
             event.stopPropagation();
+            setDurationMenuOpen(false);
             setAspectMenuOpen((open) => !open);
           }}
           style={{
@@ -522,6 +541,77 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
                     onClick={() => {
                       handleAspectChange(option.value);
                       setAspectMenuOpen(false);
+                    }}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 999,
+                      border: `1px solid ${isActive ? '#2563eb' : '#e5e7eb'}`,
+                      background: isActive ? '#2563eb' : '#fff',
+                      color: isActive ? '#fff' : '#111827',
+                      fontSize: 12,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="sora2-dropdown" style={{ marginBottom: 8, position: 'relative' }}>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>时间长度</div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setAspectMenuOpen(false);
+            setDurationMenuOpen((open) => !open);
+          }}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 10px',
+            borderRadius: 8,
+            border: '1px solid #e5e7eb',
+            background: '#fff',
+            fontSize: 12,
+            cursor: 'pointer'
+          }}
+        >
+          <span>{durationLabel}</span>
+          <span style={{ fontSize: 16, lineHeight: 1 }}>{durationMenuOpen ? '▴' : '▾'}</span>
+        </button>
+        {durationMenuOpen && (
+          <div
+            className="sora2-dropdown-menu"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              position: 'absolute',
+              zIndex: 20,
+              top: 'calc(100% + 4px)',
+              left: 0,
+              right: 0,
+              background: '#fff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              padding: 8,
+              boxShadow: '0 8px 16px rgba(15,23,42,0.08)'
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {durationOptions.map((option) => {
+                const isActive = option.value === clipDuration;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      handleDurationChange(option.value);
+                      setDurationMenuOpen(false);
                     }}
                     style={{
                       padding: '4px 10px',
