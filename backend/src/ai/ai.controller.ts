@@ -106,6 +106,14 @@ export class AiController {
   }
 
   /**
+   * 判断是否是支持自定义 API Key 的 provider
+   * gemini 和 gemini-pro 都支持使用用户自定义的 Google API Key
+   */
+  private isGeminiProvider(providerName: string | null): boolean {
+    return !providerName || providerName === 'gemini' || providerName === 'gemini-pro';
+  }
+
+  /**
    * 获取用户ID（从JWT或API Key认证）
    * API Key 认证不扣积分
    */
@@ -318,12 +326,12 @@ export class AiController {
     const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
 
-    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
-    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, serviceType, model, async () => {
-      if (providerName) {
+      if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.generateImage({
           prompt: dto.prompt,
@@ -345,7 +353,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate image');
       }
 
-      // 否则使用默认的Gemini服务
+      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.generateImage({ ...dto, customApiKey });
     }, 0, 1, skipCredits);
   }
@@ -355,12 +363,12 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
-    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-image-edit', model, async () => {
-      if (providerName) {
+      if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.editImage({
           prompt: dto.prompt,
@@ -383,6 +391,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to edit image');
       }
 
+      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.editImage({ ...dto, customApiKey });
     }, 1, 1, skipCredits);
   }
@@ -392,12 +401,12 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
-    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-image-blend', model, async () => {
-      if (providerName) {
+      if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.blendImages({
           prompt: dto.prompt,
@@ -420,6 +429,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to blend images');
       }
 
+      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.blendImages({ ...dto, customApiKey });
     }, dto.sourceImages?.length || 0, 1, skipCredits);
   }
@@ -488,12 +498,12 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
-    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-image-analyze', model, async () => {
-      if (providerName) {
+      if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.analyzeImage({
           prompt: dto.prompt,
@@ -509,6 +519,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to analyze image');
       }
 
+      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.analyzeImage({ ...dto, customApiKey });
     }, 1, 0, skipCredits);
   }
@@ -518,12 +529,12 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
-    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-text', model, async () => {
-      if (providerName) {
+      if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.generateText({
           prompt: dto.prompt,
@@ -539,6 +550,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate text');
       }
 
+      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       return this.imageGeneration.generateTextResponse({ ...dto, customApiKey });
     }, undefined, undefined, skipCredits);
   }
@@ -687,14 +699,14 @@ export class AiController {
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveTextModel(providerName, dto.model);
 
-    // 检查是否使用自定义 API Key（仅对默认 Gemini 服务有效）
-    const customApiKey = !providerName ? await this.getUserCustomApiKey(req) : null;
+    // 检查是否使用自定义 API Key（gemini 和 gemini-pro 都支持）
+    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
     return this.withCredits(req, 'gemini-paperjs', model, async () => {
       const startTime = Date.now();
 
-      if (providerName) {
+      if (providerName && providerName !== 'gemini-pro') {
         const provider = this.factory.getProvider(dto.model, providerName);
 
         const result = await provider.generatePaperJS({
@@ -727,7 +739,7 @@ export class AiController {
         throw new Error(result.error?.message || 'Failed to generate Paper.js code');
       }
 
-      // 使用默认的 ImageGenerationService（Gemini SDK）
+      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
       const result = await this.imageGeneration.generatePaperJSCode({
         prompt: dto.prompt,
         model: dto.model,

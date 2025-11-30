@@ -756,26 +756,48 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     modelPlaceholderRef
   ]);
 
+  // 记录上一次处理的 projectId，避免重复清空
+  const lastProcessedProjectIdRef = useRef<string | null>(null);
+  const clearingInProgressRef = useRef(false);
+
   // 🔄 当 projectId 变化时，清空所有实例状态，防止旧项目数据残留
   useEffect(() => {
     if (!projectId) return; // 避免初始化时清空
 
+    // 避免对同一个 projectId 重复执行清空操作
+    if (lastProcessedProjectIdRef.current === projectId) {
+      return;
+    }
+
+    // 避免并发执行
+    if (clearingInProgressRef.current) {
+      return;
+    }
+
+    lastProcessedProjectIdRef.current = projectId;
+    clearingInProgressRef.current = true;
+
     console.log('🔄 项目ID变化，清空所有实例:', projectId);
 
-    // 清空图片实例
-    imageTool.setImageInstances([]);
-    imageTool.setSelectedImageIds([]);
+    // 直接同步执行，但使用稳定的函数引用
+    try {
+      // 清空图片实例
+      imageTool.setImageInstances([]);
+      imageTool.setSelectedImageIds([]);
 
-    // 清空3D模型实例
-    model3DTool.setModel3DInstances([]);
-    model3DTool.setSelectedModel3DIds([]);
+      // 清空3D模型实例
+      model3DTool.setModel3DInstances([]);
+      model3DTool.setSelectedModel3DIds([]);
 
-    // 清空文本实例
-    simpleTextTool.clearAllTextItems();
+      // 清空文本实例
+      simpleTextTool.clearAllTextItems();
 
-    // 清空选择工具状态
-    selectionTool.clearAllSelections();
-  }, [projectId]); // 只监听 projectId，避免无限循环
+      // 清空选择工具状态
+      selectionTool.clearAllSelections();
+    } finally {
+      clearingInProgressRef.current = false;
+    }
+  }, [projectId, imageTool, model3DTool, simpleTextTool, selectionTool]);
 
   useEffect(() => {
     if (!projectAssets) return;
@@ -2099,12 +2121,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     window.addEventListener('layerOrderChanged', handleLayerOrderChanged);
 
-    // 也定期检查以确保同步
-    const intervalId = setInterval(updateImageLayerIds, 1000);
+    // 移除定期检查 - 使用事件驱动替代轮询，避免内存泄漏和性能问题
+    // 原因：setInterval 会持续消耗资源，且 layerOrderChanged 事件已经能覆盖大部分场景
 
     return () => {
       window.removeEventListener('layerOrderChanged', handleLayerOrderChanged);
-      clearInterval(intervalId);
     };
   }, [imageTool]);
 

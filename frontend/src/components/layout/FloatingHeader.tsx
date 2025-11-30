@@ -780,7 +780,7 @@ const FloatingHeader: React.FC = () => {
                                                 <Sparkles className="h-4 w-4 text-green-600" />
                                                 <span className="font-medium text-sm text-slate-700">国际版</span>
                                             </div>
-                                            <div className="text-xs text-slate-500">Gemini 3.0 + Banana 2.0</div>
+                                            <div className="text-xs text-slate-500">（推荐）可使用个人KEY不消耗积分</div>
                                         </div>
                                         {aiProvider === 'gemini-pro' && (
                                             <Check className="h-5 w-5 text-green-600 flex-shrink-0" />
@@ -803,7 +803,7 @@ const FloatingHeader: React.FC = () => {
                                                 <Zap className="h-4 w-4 text-amber-600" />
                                                 <span className="font-medium text-sm text-slate-700">国内版</span>
                                             </div>
-                                            <div className="text-xs text-slate-500">Gemini 3.0 + Banana 2.0</div>
+                                            <div className="text-xs text-slate-500">需要后台兑换积分，有积分上限</div>
                                         </div>
                                         {aiProvider === 'banana' && (
                                             <Check className="h-5 w-5 text-amber-600 flex-shrink-0" />

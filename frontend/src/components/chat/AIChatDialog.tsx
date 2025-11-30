@@ -343,8 +343,8 @@ const AIChatDialog: React.FC = () => {
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
     // 暂时隐藏基础官方版
     // { value: 'gemini', label: '基础官方版', description: 'Gemini2.5 + Banana 1.0' },
-    { value: 'gemini-pro', label: '国际版', description: 'Gemini 3.0 + Banana 2.0' },
-    { value: 'banana', label: '国内版', description: 'Gemini 3.0 + Banana 2.0' },
+    { value: 'gemini-pro', label: '国际版', description: '（推荐）可使用个人KEY不消耗积分' },
+    { value: 'banana', label: '国内版', description: '需要后台兑换积分，有积分上限' },
     // 暂时隐藏 Midjourney 选项
     // { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
   ];

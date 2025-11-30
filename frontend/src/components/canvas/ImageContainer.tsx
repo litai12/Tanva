@@ -19,6 +19,7 @@ import { useToolStore } from '@/stores';
 import aiImageService from '@/services/aiImageService';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { loadImageElement, trimTransparentPng } from '@/utils/imageHelper';
+import { imageUrlCache } from '@/services/imageUrlCache';
 
 const HD_UPSCALE_RESOLUTION: '4k' = '4k';
 const EXPAND_PRESET_PROMPT = '帮我在空白部分扩展这张图，补全内容';
@@ -323,12 +324,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [realTimeBounds, convertToScreenBounds, zoom, panX, panY]); // 添加画布状态依赖，确保完全响应画布变化
 
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
+    // 首先检查缓存的 dataUrl
+    const cachedDataUrl = imageUrlCache.getCachedDataUrl(imageData.id, projectId);
+    if (cachedDataUrl) {
+      return cachedDataUrl;
+    }
+
     const ensureDataUrl = async (input: string | null): Promise<string | null> => {
       if (!input) return null;
       if (input.startsWith('data:image/')) {
         return input;
       }
 
+      // 对于远程URL，只在必要时才转换为Base64
+      // 优化：如果调用者只需要URL用于API调用，应该使用 getProcessableImageUrl 代替
       if (/^https?:\/\//i.test(input) || input.startsWith('blob:')) {
         try {
           const response = await fetch(input);
@@ -354,14 +363,24 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return input;
     };
 
+    let result: string | null = null;
+
     if (getImageDataForEditing) {
-      const direct = await ensureDataUrl(getImageDataForEditing(imageData.id));
-      if (direct) return direct;
+      result = await ensureDataUrl(getImageDataForEditing(imageData.id));
+      if (result) {
+        // 缓存结果
+        imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+        return result;
+      }
     }
 
     const urlSource = imageData.url || imageData.src || null;
-    const ensuredUrl = await ensureDataUrl(urlSource);
-    if (ensuredUrl) return ensuredUrl;
+    result = await ensureDataUrl(urlSource);
+    if (result) {
+      // 缓存结果
+      imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+      return result;
+    }
 
     console.warn('⚠️ 未找到原始图像数据，尝试从Canvas抓取');
     const imageGroup = paper.project?.layers?.flatMap(layer =>
@@ -374,15 +393,26 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
       if (raster && raster.canvas) {
         const canvasData = raster.canvas.toDataURL('image/png');
-        const ensuredCanvas = await ensureDataUrl(canvasData);
-        if (ensuredCanvas) return ensuredCanvas;
+        result = await ensureDataUrl(canvasData);
+        if (result) {
+          // 缓存结果
+          imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+          return result;
+        }
       }
     }
 
     return null;
-  }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src]);
+  }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src, projectId]);
 
   const getProcessableImageUrl = useCallback(async (): Promise<string> => {
+    // 1. 首先检查缓存
+    const cachedUrl = imageUrlCache.getCachedUrl(imageData.id, projectId);
+    if (cachedUrl) {
+      return cachedUrl;
+    }
+
+    // 2. 尝试从 Paper.js 的 raster 获取源URL
     const imageGroup = paper.project?.layers
       ?.flatMap(layer =>
         layer.children.filter(child => child.data?.type === 'image' && child.data?.imageId === imageData.id)
@@ -396,11 +426,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
     }
 
+    // 3. 优先使用已有的远程URL，避免重复上传
     const currentUrl = rasterSource || imageData.url || imageData.src;
     if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
+      // 缓存这个URL以便后续使用
+      imageUrlCache.setCachedUrl(imageData.id, currentUrl, projectId);
       return currentUrl;
     }
 
+    // 4. 只有在没有远程URL时才进行转换和上传
     const imageDataUrl = await resolveImageDataUrl();
     if (!imageDataUrl) {
       throw new Error('无法获取当前图片的图像数据');
@@ -423,6 +457,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     if (!/^https?:\/\//i.test(uploadResult.url)) {
       throw new Error(`无效的图片URL: ${uploadResult.url}`);
     }
+
+    // 缓存上传后的URL
+    imageUrlCache.setCachedUrl(imageData.id, uploadResult.url, projectId, imageDataUrl);
 
     return uploadResult.url;
   }, [imageData.id, imageData.url, imageData.src, projectId, resolveImageDataUrl]);

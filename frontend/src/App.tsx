@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Canvas from '@/pages/Canvas';
 import PromptOptimizerDemo from '@/pages/PromptOptimizerDemo';
@@ -63,16 +63,33 @@ const App: React.FC = () => {
   const paramProjectId = searchParams.get('projectId');
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
 
+  // 记录上一次打开的项目ID，避免重复打开
+  const lastOpenedProjectIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!paramProjectId) {
       return;
     }
+    // 避免重复打开同一个项目
+    if (lastOpenedProjectIdRef.current === paramProjectId) {
+      return;
+    }
+    lastOpenedProjectIdRef.current = paramProjectId;
+
     // Get the openProject method directly in the effect to avoid dependency issues
     const openProjectFn = useProjectStore.getState().open;
     openProjectFn(paramProjectId);
   }, [paramProjectId]);
 
-  const projectId = useMemo(() => currentProjectId || paramProjectId, [paramProjectId, currentProjectId]);
+  // 使用稳定的 projectId，优先使用 currentProjectId
+  const projectId = useMemo(() => {
+    // 如果 currentProjectId 存在，优先使用它（因为它是"权威"来源）
+    if (currentProjectId) {
+      return currentProjectId;
+    }
+    // 否则使用 URL 参数
+    return paramProjectId;
+  }, [paramProjectId, currentProjectId]);
 
   useEffect(() => {
     if (!currentProjectId) {
