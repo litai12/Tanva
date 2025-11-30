@@ -174,7 +174,7 @@ export const SORA2_VIDEO_MODELS = {
   sd: 'sora-2-reverse'
 } as const;
 export type Sora2VideoQuality = keyof typeof SORA2_VIDEO_MODELS;
-export const DEFAULT_SORA2_VIDEO_QUALITY: Sora2VideoQuality = 'hd';
+export const DEFAULT_SORA2_VIDEO_QUALITY: Sora2VideoQuality = 'sd';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
 const RUNNINGHUB_PRIMARY_NODE_ID =

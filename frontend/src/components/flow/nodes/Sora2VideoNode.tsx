@@ -1,8 +1,9 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
-import { AlertTriangle, Video, Share2, Download } from 'lucide-react';
+import { AlertTriangle, Video, Share2, Download, Lock } from 'lucide-react';
 import GenerationProgressBar from './GenerationProgressBar';
 import { SORA2_VIDEO_MODELS, type Sora2VideoQuality } from '@/stores/aiChatStore';
+import { useAuthStore } from '@/stores/authStore';
 
 type Props = {
   id: string;
@@ -47,6 +48,8 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [downloadFeedback, setDownloadFeedback] = React.useState<DownloadFeedback | null>(null);
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.role === 'admin';
   const cacheBustedVideoUrl = React.useMemo(() => {
     if (!data.videoUrl) return undefined;
     const version = Number(data.videoVersion || 0);
@@ -93,9 +96,11 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
   }, [setDownloadFeedback]);
   const onRun = React.useCallback(() => data.onRun?.(id), [data, id]);
   const onSend = React.useCallback(() => data.onSend?.(id), [data, id]);
-  const videoQuality: Sora2VideoQuality = data.videoQuality === 'sd' ? 'sd' : 'hd';
+  const videoQuality: Sora2VideoQuality = data.videoQuality === 'hd' ? 'hd' : 'sd';
   const handleQualityChange = React.useCallback((quality: Sora2VideoQuality) => {
     if (quality === videoQuality) return;
+    // HD 需要管理员权限
+    if (quality === 'hd' && !isAdmin) return;
     window.dispatchEvent(
       new CustomEvent('flow:updateNodeData', {
         detail: {
@@ -104,7 +109,7 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
         }
       })
     );
-  }, [id, videoQuality]);
+  }, [id, videoQuality, isAdmin]);
   const qualityOptions = React.useMemo(() => ([
     { label: 'HD', value: 'hd' as Sora2VideoQuality },
     { label: 'SD', value: 'sd' as Sora2VideoQuality }
@@ -463,24 +468,31 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
           {qualityOptions.map((option) => {
             const isActive = option.value === videoQuality;
             const modelLabel = SORA2_VIDEO_MODELS[option.value];
+            const isHdLocked = option.value === 'hd' && !isAdmin;
             return (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => handleQualityChange(option.value)}
-                title={`${option.label} → ${modelLabel}`}
+                title={isHdLocked ? 'HD 需要管理员权限' : `${option.label} → ${modelLabel}`}
+                disabled={isHdLocked}
                 style={{
                   padding: '4px 12px',
                   borderRadius: 999,
                   border: `1px solid ${isActive ? '#111827' : '#e5e7eb'}`,
                   background: isActive ? '#111827' : '#fff',
-                  color: isActive ? '#fff' : '#111827',
+                  color: isActive ? '#fff' : (isHdLocked ? '#9ca3af' : '#111827'),
                   fontSize: 12,
                   fontWeight: 600,
-                  cursor: 'pointer'
+                  cursor: isHdLocked ? 'not-allowed' : 'pointer',
+                  opacity: isHdLocked ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
                 }}
               >
                 {option.label}
+                {isHdLocked && <Lock size={10} />}
               </button>
             );
           })}

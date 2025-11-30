@@ -2083,6 +2083,7 @@ function FlowInner() {
 
   const showFlowPanel = useUIStore(s => s.showFlowPanel);
   const flowUIEnabled = useUIStore(s => s.flowUIEnabled);
+  const focusMode = useUIStore(s => s.focusMode);
 
   const FlowToolbar = flowUIEnabled && showFlowPanel ? (
     <div className="tanva-flow-toolbar"
@@ -2394,10 +2395,10 @@ function FlowInner() {
             style={{ opacity: backgroundOpacity }}
           />
         )}
-        {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 */}
-        <MiniMap pannable={false} zoomable={false} />
-        {/* 将画布上的图片以绿色块显示在 MiniMap 内 */}
-        <MiniMapImageOverlay />
+        {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 - 专注模式下隐藏 */}
+        {!focusMode && <MiniMap pannable={false} zoomable={false} />}
+        {/* 将画布上的图片以绿色块显示在 MiniMap 内 - 专注模式下隐藏 */}
+        {!focusMode && <MiniMapImageOverlay />}
       </ReactFlow>
 
       {edgeLabelEditor.visible && (

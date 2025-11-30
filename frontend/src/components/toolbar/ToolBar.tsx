@@ -156,13 +156,73 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     toggleFill,
   } = useToolStore();
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, showSandboxPanel, toggleSandboxPanel } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, showSandboxPanel, toggleSandboxPanel } = useUIStore();
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
+
+  const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
+
+  // 原始尺寸模式状态
+  const [useOriginalSize, setUseOriginalSize] = React.useState(() => {
+    return localStorage.getItem('tanva-use-original-size') === 'true';
+  });
+
+  // 监听文本样式变化以刷新UI
+  const [, forceUpdate] = React.useState(0);
+  React.useEffect(() => {
+    const tick = () => forceUpdate((x) => x + 1);
+    window.addEventListener('tanvaTextStyleChanged', tick);
+    return () => window.removeEventListener('tanvaTextStyleChanged', tick);
+  }, []);
+
+  // 自动关闭选择菜单：当不在选择模式时
+  React.useEffect(() => {
+    if (drawMode !== 'select' && drawMode !== 'pointer') {
+      setSelectionMenuOpen(false);
+    }
+  }, [drawMode]);
+
+  // 自动关闭绘制菜单：当离开绘制相关模式或启用橡皮擦时
+  React.useEffect(() => {
+    if (!drawingModes.includes(drawMode as typeof drawingModes[number]) || isEraser) {
+      setDrawingMenuOpen(false);
+    }
+  }, [drawMode, isEraser]);
+
+  // 点击画布空白处自动收起次级菜单
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
+      if (
+        isSelectionMenuOpen &&
+        selectionGroupRef.current &&
+        !selectionGroupRef.current.contains(target)
+      ) {
+        setSelectionMenuOpen(false);
+      }
+
+      if (
+        isDrawingMenuOpen &&
+        drawingGroupRef.current &&
+        !drawingGroupRef.current.contains(target)
+      ) {
+        setDrawingMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSelectionMenuOpen, isDrawingMenuOpen]);
+
+  // 专注模式下隐藏工具栏（必须在所有 hooks 之后）
+  if (focusMode) {
+    return null;
+  }
 
   // 判断当前工具是否支持填充
   const supportsFill = (mode: any): boolean => {
@@ -184,12 +244,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     }
     return "bg-blue-600 text-white";
   };
-  const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
-
-  // 原始尺寸模式状态
-  const [useOriginalSize, setUseOriginalSize] = React.useState(() => {
-    return localStorage.getItem('tanva-use-original-size') === 'true';
-  });
 
   // 切换原始尺寸模式
   const toggleOriginalSizeMode = () => {
@@ -243,54 +297,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       console.log('🎨 打开AI对话框，用户可上传图像进行编辑');
     }
   };
-
-  // 监听文本样式变化以刷新UI
-  const [, forceUpdate] = React.useState(0);
-  React.useEffect(() => {
-    const tick = () => forceUpdate((x) => x + 1);
-    window.addEventListener('tanvaTextStyleChanged', tick);
-    return () => window.removeEventListener('tanvaTextStyleChanged', tick);
-  }, []);
-
-  // 自动关闭选择菜单：当不在选择模式时
-  React.useEffect(() => {
-    if (drawMode !== 'select' && drawMode !== 'pointer') {
-      setSelectionMenuOpen(false);
-    }
-  }, [drawMode]);
-
-  // 自动关闭绘制菜单：当离开绘制相关模式或启用橡皮擦时
-  React.useEffect(() => {
-    if (!drawingModes.includes(drawMode as typeof drawingModes[number]) || isEraser) {
-      setDrawingMenuOpen(false);
-    }
-  }, [drawMode, isEraser]);
-
-  // 点击画布空白处自动收起次级菜单
-  React.useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-
-      if (
-        isSelectionMenuOpen &&
-        selectionGroupRef.current &&
-        !selectionGroupRef.current.contains(target)
-      ) {
-        setSelectionMenuOpen(false);
-      }
-
-      if (
-        isDrawingMenuOpen &&
-        drawingGroupRef.current &&
-        !drawingGroupRef.current.contains(target)
-      ) {
-        setDrawingMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isSelectionMenuOpen, isDrawingMenuOpen]);
 
   // 监听文本样式变化以刷新UI
   //（保留原有逻辑，放到增量effect前已处理）

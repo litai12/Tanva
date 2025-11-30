@@ -1,9 +1,15 @@
 import React from 'react';
-import { useCanvasStore } from '@/stores';
+import { useCanvasStore, useUIStore } from '@/stores';
 import { Button } from '@/components/ui/button';
 
 const ZoomIndicator: React.FC = () => {
     const { zoom, setZoom } = useCanvasStore();
+    const { focusMode } = useUIStore();
+
+    // 专注模式下隐藏缩放控件
+    if (focusMode) {
+        return null;
+    }
 
     // 格式化缩放百分比
     const formatZoom = (zoomValue: number): string => {

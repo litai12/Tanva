@@ -20,7 +20,7 @@ interface LayerItemData {
 }
 
 const LayerPanel: React.FC = () => {
-    const { showLayerPanel, setShowLayerPanel } = useUIStore();
+    const { showLayerPanel, setShowLayerPanel, focusMode } = useUIStore();
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
     const { setSourceImageForEditing, showDialog } = useAIChatStore();
 
@@ -45,6 +45,16 @@ const LayerPanel: React.FC = () => {
         y: 0,
         item: null
     });
+
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set());
+    const [layerItems, setLayerItems] = useState<Record<string, LayerItemData[]>>({});
+    const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-blue-500 rounded-full pointer-events-none', []);
+    // 缓存缩略图
+    const thumbCache = useRef<Record<string, { dataUrl: string; timestamp: number }>>({});
 
     // 预测图元重排序后的实际位置，用于指示线显示
     const predictItemInsertPosition = (sourceItemId: string, targetItemId: string, placeAbove: boolean) => {
@@ -97,13 +107,6 @@ const LayerPanel: React.FC = () => {
 
         return insertIndex;
     };
-    const [refreshTrigger, setRefreshTrigger] = useState(0);
-    const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set());
-    const [layerItems, setLayerItems] = useState<Record<string, LayerItemData[]>>({});
-    const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-
-    const containerRef = useRef<HTMLDivElement | null>(null);
-    const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-blue-500 rounded-full pointer-events-none', []);
 
     // 扫描图层中的所有图元
     const scanLayerItems = (layerId: string): LayerItemData[] => {
@@ -426,9 +429,6 @@ const LayerPanel: React.FC = () => {
             return null;
         }
     };
-
-    // 缓存缩略图
-    const thumbCache = useRef<Record<string, { dataUrl: string; timestamp: number }>>({});
 
     // 生成图片缩略图
     const generateImageThumb = (imageItem: LayerItemData): string | null => {
@@ -957,7 +957,8 @@ const LayerPanel: React.FC = () => {
         setShowLayerPanel(false);
     };
 
-    if (!showLayerPanel) return null;
+    // 专注模式或面板关闭时隐藏
+    if (focusMode || !showLayerPanel) return null;
 
     return (
         <>
