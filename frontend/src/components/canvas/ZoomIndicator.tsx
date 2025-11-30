@@ -33,55 +33,53 @@ const ZoomIndicator: React.FC = () => {
     const canZoomOut = currentPercent > 10;
 
     return (
-        <div className="fixed left-4 bottom-4 z-10">
-            <div className="bg-white backdrop-blur-md border border-glass rounded-2xl shadow-glass-xl w-10">
-                <div className="flex flex-col items-center">
-                    {/* 放大按钮 */}
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`h-6 w-9 p-0 rounded-t-lg rounded-b-none border-b transition-all duration-200 flex items-center justify-center ${
-                            !canZoomIn
-                                ? 'opacity-40 cursor-not-allowed'
-                                : 'hover:bg-blue-50 hover:text-blue-600'
-                        }`}
-                        onClick={zoomIn}
-                        disabled={!canZoomIn}
-                        title={canZoomIn ? "放大 10%" : "已达最大缩放 (300%)"}
-                    >
-                        <span className="text-sm font-bold">+</span>
-                    </Button>
+        <div className="fixed left-[12px] bottom-2 z-10">
+            <div className="flex flex-col items-center gap-1 px-1 py-1 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass">
+                {/* 放大按钮 */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className={`h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
+                        !canZoomIn
+                            ? 'opacity-40 cursor-not-allowed'
+                            : 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'
+                    }`}
+                    onClick={zoomIn}
+                    disabled={!canZoomIn}
+                    title={canZoomIn ? "放大 10%" : "已达最大缩放 (300%)"}
+                >
+                    <span className="text-sm font-bold">+</span>
+                </Button>
 
-                    {/* 缩放百分比 - 点击重置 */}
-                    <button
-                        className={`px-1 py-3 text-xs font-mono font-medium transition-all duration-200 border-t border-b w-full text-center ${
-                            currentPercent === 100
-                                ? 'text-gray-700 cursor-default'
-                                : 'text-blue-600 hover:bg-blue-50'
-                        }`}
-                        onClick={resetZoom}
-                        title={currentPercent === 100 ? "当前为100%" : "点击重置为100%"}
-                        disabled={currentPercent === 100}
-                    >
-                        {formatZoom(zoom)}
-                    </button>
+                {/* 缩放百分比 - 点击重置 */}
+                <button
+                    className={`h-8 w-8 text-xs font-mono font-medium transition-all duration-200 rounded-full flex items-center justify-center ${
+                        currentPercent === 100
+                            ? 'text-gray-700 cursor-default'
+                            : 'text-blue-600 hover:bg-blue-50'
+                    }`}
+                    onClick={resetZoom}
+                    title={currentPercent === 100 ? "当前为100%" : "点击重置为100%"}
+                    disabled={currentPercent === 100}
+                >
+                    {formatZoom(zoom)}
+                </button>
 
-                    {/* 缩小按钮 */}
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`h-6 w-9 p-0 rounded-b-lg rounded-t-none border-t transition-all duration-200 flex items-center justify-center ${
-                            !canZoomOut
-                                ? 'opacity-40 cursor-not-allowed'
-                                : 'hover:bg-blue-50 hover:text-blue-600'
-                        }`}
-                        onClick={zoomOut}
-                        disabled={!canZoomOut}
-                        title={canZoomOut ? "缩小 10%" : "已达最小缩放 (10%)"}
-                    >
-                        <span className="text-sm font-bold">−</span>
-                    </Button>
-                </div>
+                {/* 缩小按钮 */}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className={`h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
+                        !canZoomOut
+                            ? 'opacity-40 cursor-not-allowed'
+                            : 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'
+                    }`}
+                    onClick={zoomOut}
+                    disabled={!canZoomOut}
+                    title={canZoomOut ? "缩小 10%" : "已达最小缩放 (10%)"}
+                >
+                    <span className="text-sm font-bold">−</span>
+                </Button>
             </div>
         </div>
     );

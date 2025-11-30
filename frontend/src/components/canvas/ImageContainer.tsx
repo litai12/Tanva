@@ -205,7 +205,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
   }, [zoom, panX, panY]); // 添加画布状态依赖，确保画布变化时函数重新创建
 
-  // 从Paper.js获取实时坐标
+  // 使用 ref 存储最新的 bounds，避免 getRealTimePaperBounds 依赖变化
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
+
+  // 使用 ref 存储最新的 realTimeBounds，避免闭包过期问题
+  const realTimeBoundsRef = useRef(realTimeBounds);
+  realTimeBoundsRef.current = realTimeBounds;
+
+  // 从Paper.js获取实时坐标 - 使用 ref 避免依赖变化
   const getRealTimePaperBounds = useCallback(() => {
     try {
       // 首先尝试从所有图层中查找图片对象
@@ -235,9 +243,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     } catch (error) {
       console.warn('获取Paper.js实时坐标失败:', error);
     }
-    
-    return bounds; // 回退到props中的bounds
-  }, [imageData.id, bounds]);
+
+    return boundsRef.current; // 使用 ref 回退到props中的bounds
+  }, [imageData.id]); // 只依赖 imageData.id，函数引用更稳定
 
   // 监听画布状态变化，强制重新计算坐标
   useEffect(() => {
@@ -256,26 +264,34 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     };
   }, [zoom, panX, panY, getRealTimePaperBounds]); // 直接监听画布状态变化
 
-  // 实时同步Paper.js状态 - 只在选中时启用
+  // 实时同步Paper.js状态 - 只在选中且正在拖拽时启用，减少不必要的 RAF
   useEffect(() => {
+    // 只在选中时才需要实时同步
     if (!isSelected) return;
 
-    let animationFrame: number;
+    let animationFrame: number | null = null;
     let isUpdating = false;
-    let stableTimer: NodeJS.Timeout;
+    let stableTimer: NodeJS.Timeout | null = null;
+    let isRunning = true;
 
     const updateRealTimeBounds = () => {
-      if (isUpdating) return;
+      if (!isRunning) return;
+      if (isUpdating) {
+        // 如果正在更新，延迟重试
+        animationFrame = requestAnimationFrame(updateRealTimeBounds);
+        return;
+      }
       isUpdating = true;
 
       const paperBounds = getRealTimePaperBounds();
+      const currentBounds = realTimeBoundsRef.current;
 
-      // 检查坐标是否发生变化 - 降低阈值以获得更高精度
+      // 检查坐标是否发生变化 - 使用 ref 获取最新值
       const hasChanged =
-        Math.abs(paperBounds.x - realTimeBounds.x) > 0.1 ||
-        Math.abs(paperBounds.y - realTimeBounds.y) > 0.1 ||
-        Math.abs(paperBounds.width - realTimeBounds.width) > 0.1 ||
-        Math.abs(paperBounds.height - realTimeBounds.height) > 0.1;
+        Math.abs(paperBounds.x - currentBounds.x) > 0.1 ||
+        Math.abs(paperBounds.y - currentBounds.y) > 0.1 ||
+        Math.abs(paperBounds.width - currentBounds.width) > 0.1 ||
+        Math.abs(paperBounds.height - currentBounds.height) > 0.1;
 
       if (hasChanged) {
         setIsPositionStable(false);
@@ -289,11 +305,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         // 设置新的稳定定时器
         stableTimer = setTimeout(() => {
           setIsPositionStable(true);
-        }, 150); // 增加延迟时间，确保位置真正稳定
+        }, 150);
       }
 
       isUpdating = false;
-      animationFrame = requestAnimationFrame(updateRealTimeBounds);
+
+      // 继续下一帧
+      if (isRunning) {
+        animationFrame = requestAnimationFrame(updateRealTimeBounds);
+      }
     };
 
     // 立即更新一次，然后开始循环
@@ -302,14 +322,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     animationFrame = requestAnimationFrame(updateRealTimeBounds);
 
     return () => {
-      if (animationFrame) {
+      isRunning = false;
+      if (animationFrame !== null) {
         cancelAnimationFrame(animationFrame);
+        animationFrame = null;
       }
-      if (stableTimer) {
+      if (stableTimer !== null) {
         clearTimeout(stableTimer);
+        stableTimer = null;
       }
     };
-  }, [isSelected, getRealTimePaperBounds]);
+  }, [isSelected, getRealTimePaperBounds]); // getRealTimePaperBounds 现在更稳定
 
   // 同步Props bounds变化
   useEffect(() => {

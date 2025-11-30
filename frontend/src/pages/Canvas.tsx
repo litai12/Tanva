@@ -5,6 +5,7 @@ import InteractionController from '@/components/canvas/InteractionController';
 import PaperCanvasManager from '@/components/canvas/PaperCanvasManager';
 import ImageSizeIndicator from '@/components/canvas/ImageSizeIndicator';
 import ToolBar from '@/components/toolbar/ToolBar';
+import FocusModeButton from '@/components/canvas/FocusModeButton';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
@@ -85,6 +86,9 @@ const Canvas: React.FC = () => {
 
             {/* 工具列 */}
             <ToolBar />
+
+            {/* 专注模式按钮 - 在缩放栏和工具栏之间 */}
+            <FocusModeButton />
 
             {/* 缩放指示器 */}
             <ZoomIndicator />

@@ -14,11 +14,35 @@ const getCanonicalSrc = (item: { src?: string | null; remoteUrl?: string | null 
 const shouldSkipHistoryItem = (item: { nodeId: string; nodeType: ImageHistoryItem['nodeType'] }) =>
   item.nodeId === 'canvas' && item.nodeType === 'image';
 
+// 判断是否为 base64 数据（内存优化：不存储大的 base64）
+const isBase64Data = (src?: string | null): boolean => {
+  if (!src) return false;
+  return src.startsWith('data:image/') || (src.length > 1000 && !src.startsWith('http'));
+};
+
+// 获取存储友好的 src（优先使用 URL，避免存储 base64）
+const getStorageFriendlySrc = (item: { src?: string | null; remoteUrl?: string | null }): string | null => {
+  // 优先使用远程 URL
+  if (item.remoteUrl && item.remoteUrl.startsWith('http')) {
+    return item.remoteUrl;
+  }
+  // 如果 src 是 URL，使用它
+  if (item.src && item.src.startsWith('http')) {
+    return item.src;
+  }
+  // 如果 src 是 base64 且没有远程 URL，返回 null（不存储）
+  if (isBase64Data(item.src)) {
+    console.log('⚠️ [ImageHistory] 跳过 base64 数据存储，等待远程 URL');
+    return null;
+  }
+  return item.src || null;
+};
+
 export interface ImageHistoryItem {
   id: string;
   src: string;
   remoteUrl?: string;
-  thumbnail?: string;
+  thumbnail?: string; // 已弃用，不再存储，保留字段兼容性
   title: string;
   nodeId: string;
   nodeType: 'generate' | 'image' | '3d' | 'camera';
@@ -34,14 +58,19 @@ interface ImageHistoryStore {
   clearHistory: () => void;
   getImagesByNode: (nodeId: string) => ImageHistoryItem[];
   getCurrentImage: (nodeId: string) => ImageHistoryItem | undefined;
+  // 新增：清理无效的历史记录（没有有效 URL 的记录）
+  cleanupInvalidEntries: () => void;
 }
+
+// 最大历史记录数量
+const MAX_HISTORY_SIZE = 50;
 
 export const useImageHistoryStore = create<ImageHistoryStore>()(
   subscribeWithSelector(
     persist(
       (set, get) => ({
         history: [],
-        
+
         addImage: (item) => {
           if (shouldSkipHistoryItem(item)) {
             return;
@@ -53,21 +82,24 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
             }
 
           const projectKey = item.projectId ?? null;
-          const preferredSrc = (() => {
-            if (item.remoteUrl && item.remoteUrl.startsWith('http')) return item.remoteUrl;
-            if (item.src?.startsWith('http')) return item.src;
-            return item.src;
-          })();
+
+          // 内存优化：优先使用远程 URL，避免存储 base64
+          const storageSrc = getStorageFriendlySrc(item);
+
+          // 如果没有可存储的 src，跳过添加
+          if (!storageSrc) {
+            return state;
+          }
 
           const newItem: ImageHistoryItem = {
             ...item,
-            src: preferredSrc,
-            remoteUrl: item.remoteUrl || (preferredSrc?.startsWith('http') ? preferredSrc : undefined),
-            thumbnail: item.thumbnail,
+            src: storageSrc,
+            remoteUrl: item.remoteUrl || (storageSrc.startsWith('http') ? storageSrc : undefined),
+            thumbnail: undefined, // 不再存储 thumbnail，节省内存
             projectId: projectKey,
             timestamp: item.timestamp ?? Date.now()
           };
-          
+
           // 先按同 projectId + 同源链接去重，避免同一张图出现多条
           const existingIndex = state.history.findIndex(existing => {
             const existingProject = existing.projectId ?? null;
@@ -78,55 +110,104 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
             if (existingIndex >= 0) {
               const updated = [...state.history];
               const existing = updated[existingIndex];
+
+              // 如果现有记录有 URL 而新记录是 base64，保留现有 URL
+              const shouldKeepExistingSrc =
+                existing.src?.startsWith('http') && !storageSrc.startsWith('http');
+
               updated[existingIndex] = {
                 ...existing,
               ...newItem,
+              src: shouldKeepExistingSrc ? existing.src : storageSrc,
+              remoteUrl: existing.remoteUrl || newItem.remoteUrl,
               id: existing.id, // 保留原有id，避免 key 抖动
               projectId: projectKey,
               timestamp: newItem.timestamp ?? existing.timestamp
             };
             return { history: updated };
           }
-          
+
           const updatedHistory = [newItem, ...state.history];
-              if (updatedHistory.length > 50) {
-                updatedHistory.length = 50;
+              if (updatedHistory.length > MAX_HISTORY_SIZE) {
+                updatedHistory.length = MAX_HISTORY_SIZE;
               }
               return { history: updatedHistory };
           });
         },
 
         updateImage: (id, patch) => set((state) => {
-          const updated = state.history.map((item) =>
-            item.id === id
-              ? { ...item, ...patch, timestamp: patch.timestamp ?? item.timestamp }
-              : item
-          );
+          const updated = state.history.map((item) => {
+            if (item.id !== id) return item;
+
+            // 内存优化：更新时也确保使用 URL 而非 base64
+            const newSrc = patch.src ? getStorageFriendlySrc({ src: patch.src, remoteUrl: patch.remoteUrl }) : item.src;
+
+            return {
+              ...item,
+              ...patch,
+              src: newSrc || item.src,
+              thumbnail: undefined, // 不存储 thumbnail
+              timestamp: patch.timestamp ?? item.timestamp
+            };
+          });
           return { history: updated };
         }),
-        
+
         removeImage: (id) => set((state) => ({
           history: state.history.filter(item => item.id !== id)
         })),
-        
+
         clearHistory: () => set({ history: [] }),
-        
+
         getImagesByNode: (nodeId) => {
           const { history } = get();
           return history.filter(item => item.nodeId === nodeId);
         },
-        
+
         getCurrentImage: (nodeId) => {
           const { history } = get();
           return history.find(item => item.nodeId === nodeId);
-        }
+        },
+
+        // 清理无效条目（没有有效 URL 的记录）
+        cleanupInvalidEntries: () => set((state) => {
+          const validHistory = state.history.filter(item => {
+            // 只保留有有效 URL 的记录
+            const hasValidUrl = item.src?.startsWith('http') || item.remoteUrl?.startsWith('http');
+            if (!hasValidUrl) {
+              console.log('🗑️ [ImageHistory] 清理无效条目:', item.id, item.title);
+            }
+            return hasValidUrl;
+          });
+
+          if (validHistory.length !== state.history.length) {
+            console.log(`🧹 [ImageHistory] 清理了 ${state.history.length - validHistory.length} 条无效记录`);
+          }
+
+          return { history: validHistory };
+        })
       }),
       {
         name: 'image-history',
         storage: createJSONStorage<Partial<ImageHistoryStore>>(() => createSafeStorage({ storageName: 'image-history' })),
         partialize: (state) => ({
-          history: state.history
-        }) as Partial<ImageHistoryStore>
+          // 只持久化有有效 URL 的记录，避免存储 base64
+          history: state.history.filter(item =>
+            item.src?.startsWith('http') || item.remoteUrl?.startsWith('http')
+          ).map(item => ({
+            ...item,
+            thumbnail: undefined // 确保不存储 thumbnail
+          }))
+        }) as Partial<ImageHistoryStore>,
+        // 加载时清理无效数据
+        onRehydrateStorage: () => (state) => {
+          if (state) {
+            // 延迟清理，确保 store 已初始化
+            setTimeout(() => {
+              state.cleanupInvalidEntries();
+            }, 1000);
+          }
+        }
       }
     )
   )

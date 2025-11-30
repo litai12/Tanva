@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, Maximize2, Minimize2, MousePointer2, Code } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -156,7 +156,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     toggleFill,
   } = useToolStore();
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, toggleFocusMode, showSandboxPanel, toggleSandboxPanel } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, showSandboxPanel, toggleSandboxPanel } = useUIStore();
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
@@ -738,19 +738,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           <Code className="w-4 h-4" />
         </Button>
 
-        {/* 专注模式切换按钮 */}
-        <Button
-          onClick={toggleFocusMode}
-          variant={focusMode ? "default" : "outline"}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(focusMode)
-          )}
-          title={focusMode ? "退出专注模式" : "进入专注模式（仅隐藏顶部导航和AI对话框）"}
-        >
-          {focusMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </Button>
+        {/* 专注模式按钮已移至独立组件 FocusModeButton */}
       </div>
     </div>
   );

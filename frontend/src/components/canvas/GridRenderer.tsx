@@ -28,6 +28,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     yAxis: null
   });
 
+  // 使用 ref 存储最新的 gridSize，避免事件监听器依赖变化
+  const gridSizeRef = useRef(gridSize);
+  gridSizeRef.current = gridSize;
+
   // 专业版网格系统 - 支持视口裁剪的无限网格，固定间距
   const createGrid = useCallback((baseGridSize: number = 20) => {
     // 强化 Paper.js 状态检查
@@ -451,10 +455,15 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   }, [isPaperInitialized, showGrid, gridSize, createGrid]);
 
   // 监听项目变更（如 importJSON 后）强制重绘网格
+  // 使用 ref 来获取最新的 createGrid 和 gridSize，避免依赖变化导致事件监听器频繁重建
+  const createGridRef = useRef(createGrid);
+  createGridRef.current = createGrid;
+
   useEffect(() => {
     const handler = () => {
       isInitializedRef.current = false;
-      setTimeout(() => createGrid(gridSize), 0);
+      // 使用 ref 获取最新值，避免闭包过期
+      setTimeout(() => createGridRef.current(gridSizeRef.current), 0);
     };
     window.addEventListener('paper-project-changed', handler as any);
     window.addEventListener('paper-ready', handler as any);
@@ -464,7 +473,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       window.removeEventListener('paper-ready', handler as any);
       window.removeEventListener('paper-project-cleared', handler as any);
     };
-  }, [createGrid, gridSize]);
+  }, []); // 空依赖数组，事件监听器只绑定一次
 
   // 强制垃圾回收函数 - 用于内存压力过大时
   const forceMemoryCleanup = useCallback(() => {
