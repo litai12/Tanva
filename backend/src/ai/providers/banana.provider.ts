@@ -66,6 +66,7 @@ export class BananaProvider implements IAIProvider {
       { prefix: 'R0lGOD', mime: 'image/gif' },
       { prefix: 'UklGR', mime: 'image/webp' },
       { prefix: 'Qk', mime: 'image/bmp' },
+      { prefix: 'JVBERi', mime: 'application/pdf' }, // PDF 文件 (%PDF-)
     ];
 
     const head = data.substring(0, 20);
@@ -78,17 +79,18 @@ export class BananaProvider implements IAIProvider {
     return 'image/png';
   }
 
-  private normalizeImageInput(imageInput: string, context: string): { data: string; mimeType: string } {
-    if (!imageInput || imageInput.trim().length === 0) {
-      throw new Error(`${context} image payload is empty`);
+  private normalizeFileInput(fileInput: string, context: string): { data: string; mimeType: string } {
+    if (!fileInput || fileInput.trim().length === 0) {
+      throw new Error(`${context} file payload is empty`);
     }
 
-    const trimmed = imageInput.trim();
+    const trimmed = fileInput.trim();
 
-    if (trimmed.startsWith('data:image/')) {
-      const match = trimmed.match(/^data:(image\/[\w.+-]+);base64,(.+)$/i);
+    // 支持 data:image/* 和 data:application/pdf 格式
+    if (trimmed.startsWith('data:image/') || trimmed.startsWith('data:application/pdf')) {
+      const match = trimmed.match(/^data:((?:image\/[\w.+-]+)|(?:application\/pdf));base64,(.+)$/i);
       if (!match) {
-        throw new Error(`Invalid data URL format for ${context} image`);
+        throw new Error(`Invalid data URL format for ${context} file`);
       }
 
       const [, mimeType, base64Data] = match;
@@ -106,7 +108,7 @@ export class BananaProvider implements IAIProvider {
 
     if (!base64Regex.test(sanitized)) {
       throw new Error(
-        `Unsupported ${context} image format. Expected a base64 string or data URL.`
+        `Unsupported ${context} file format. Expected a base64 string or data URL.`
       );
     }
 
@@ -114,6 +116,11 @@ export class BananaProvider implements IAIProvider {
       data: sanitized,
       mimeType: this.inferMimeTypeFromBase64(sanitized),
     };
+  }
+
+  // 保持向后兼容的别名方法
+  private normalizeImageInput(imageInput: string, context: string): { data: string; mimeType: string } {
+    return this.normalizeFileInput(imageInput, context);
   }
 
   private async withRetry<T>(
@@ -541,17 +548,21 @@ export class BananaProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    this.logger.log(`🔍 Analyzing image with Banana (147) API...`);
+    this.logger.log(`🔍 Analyzing file with Banana (147) API...`);
 
     try {
-      const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'analysis');
-      // 🔥 使用 gemini-3-pro-image-preview 进行图像分析
+      const { data: fileData, mimeType } = this.normalizeFileInput(request.sourceImage, 'analysis');
+      // 🔥 使用 gemini-3-pro-image-preview 进行文件分析
       const model = this.normalizeModelName(request.model || 'gemini-3-pro-image-preview');
-      this.logger.log(`📊 Using model: ${model}`);
+      this.logger.log(`📊 Using model: ${model}, mimeType: ${mimeType}`);
+
+      // 根据文件类型生成不同的提示词
+      const isPdf = mimeType === 'application/pdf';
+      const fileTypeDesc = isPdf ? 'PDF document' : 'image';
 
       const analysisPrompt = request.prompt
-        ? `Please analyze the following image (respond in ${request.prompt})`
-        : `Please analyze this image in detail`;
+        ? `Please analyze the following ${fileTypeDesc} (respond in ${request.prompt})`
+        : `Please analyze this ${fileTypeDesc} in detail`;
 
       const result = await this.withRetry(
         () =>
@@ -564,7 +575,7 @@ export class BananaProvider implements IAIProvider {
                   {
                     inlineData: {
                       mimeType,
-                      data: imageData,
+                      data: fileData,
                     },
                   },
                 ],
@@ -572,13 +583,13 @@ export class BananaProvider implements IAIProvider {
               );
             })(),
             this.DEFAULT_TIMEOUT,
-            'Image analysis'
+            'File analysis'
           ),
-        'Image analysis',
+        'File analysis',
         2
       );
 
-      this.logger.log(`✅ Image analysis succeeded: ${result.textResponse.length} characters`);
+      this.logger.log(`✅ File analysis succeeded: ${result.textResponse.length} characters`);
 
       return {
         success: true,
@@ -588,12 +599,12 @@ export class BananaProvider implements IAIProvider {
         },
       };
     } catch (error) {
-      this.logger.error('❌ Image analysis failed:', error);
+      this.logger.error('❌ File analysis failed:', error);
       return {
         success: false,
         error: {
           code: 'ANALYSIS_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to analyze image',
+          message: error instanceof Error ? error.message : 'Failed to analyze file',
           details: error,
         },
       };

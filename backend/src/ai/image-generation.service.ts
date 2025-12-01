@@ -119,6 +119,7 @@ export class ImageGenerationService {
       { prefix: 'R0lGOD', mime: 'image/gif' },
       { prefix: 'UklGR', mime: 'image/webp' },
       { prefix: 'Qk', mime: 'image/bmp' },
+      { prefix: 'JVBERi', mime: 'application/pdf' }, // PDF 文件 (%PDF-)
     ];
 
     const head = data.substring(0, 20);
@@ -131,21 +132,22 @@ export class ImageGenerationService {
     return 'image/png';
   }
 
-  private normalizeImageInput(imageInput: string, context: string): { data: string; mimeType: string } {
-    if (!imageInput || imageInput.trim().length === 0) {
-      throw new BadRequestException(`${context} image payload is empty`);
+  private normalizeFileInput(fileInput: string, context: string): { data: string; mimeType: string } {
+    if (!fileInput || fileInput.trim().length === 0) {
+      throw new BadRequestException(`${context} file payload is empty`);
     }
 
-    const trimmed = imageInput.trim();
+    const trimmed = fileInput.trim();
 
     let sanitized: string;
     let mimeType: string;
 
-    if (trimmed.startsWith('data:image/')) {
-      const match = trimmed.match(/^data:(image\/[\w.+-]+);base64,(.+)$/i);
+    // 支持 data:image/* 和 data:application/pdf 格式
+    if (trimmed.startsWith('data:image/') || trimmed.startsWith('data:application/pdf')) {
+      const match = trimmed.match(/^data:((?:image\/[\w.+-]+)|(?:application\/pdf));base64,(.+)$/i);
       if (!match) {
-        this.logger.warn(`Invalid data URL detected for ${context} image: ${trimmed.substring(0, 30)}...`);
-        throw new BadRequestException(`Invalid data URL format for ${context} image`);
+        this.logger.warn(`Invalid data URL detected for ${context} file: ${trimmed.substring(0, 30)}...`);
+        throw new BadRequestException(`Invalid data URL format for ${context} file`);
       }
 
       [, mimeType, sanitized] = match;
@@ -159,29 +161,29 @@ export class ImageGenerationService {
 
       if (!base64Regex.test(sanitized)) {
         this.logger.warn(
-          `Unsupported ${context} image payload received. Length=${sanitized.length}, preview="${sanitized.substring(
+          `Unsupported ${context} file payload received. Length=${sanitized.length}, preview="${sanitized.substring(
             0,
             30,
           )}"`,
         );
         throw new BadRequestException(
-          `Unsupported ${context} image format. Expected a base64 string or data URL.`,
+          `Unsupported ${context} file format. Expected a base64 string or data URL.`,
         );
       }
 
       mimeType = this.inferMimeTypeFromBase64(sanitized);
     }
 
-    // 验证图像大小（base64编码后的数据，实际图像大小约为 base64 长度的 3/4）
-    // 限制 base64 数据最大为 20MB，对应实际图像约 15MB
+    // 验证文件大小（base64编码后的数据，实际文件大小约为 base64 长度的 3/4）
+    // 限制 base64 数据最大为 20MB，对应实际文件约 15MB
     const MAX_BASE64_SIZE = 20 * 1024 * 1024; // 20MB
     if (sanitized.length > MAX_BASE64_SIZE) {
       const actualSizeMB = (sanitized.length * 3 / 4 / 1024 / 1024).toFixed(2);
       this.logger.warn(
-        `${context} image is too large. Base64 length: ${sanitized.length}, estimated size: ${actualSizeMB}MB`,
+        `${context} file is too large. Base64 length: ${sanitized.length}, estimated size: ${actualSizeMB}MB`,
       );
       throw new BadRequestException(
-        `${context} image is too large. Maximum size is 15MB (base64: ~20MB). Current size: ~${actualSizeMB}MB`,
+        `${context} file is too large. Maximum size is 15MB (base64: ~20MB). Current size: ~${actualSizeMB}MB`,
       );
     }
 
@@ -189,6 +191,11 @@ export class ImageGenerationService {
       data: sanitized,
       mimeType,
     };
+  }
+
+  // 保持向后兼容的别名方法
+  private normalizeImageInput(imageInput: string, context: string): { data: string; mimeType: string } {
+    return this.normalizeFileInput(imageInput, context);
   }
 
   private async withRetry<T>(
@@ -795,22 +802,33 @@ export class ImageGenerationService {
   }
 
   async analyzeImage(request: AnalyzeImageRequest): Promise<{ text: string }> {
-    this.logger.log(`Analyzing image with prompt: ${request.prompt?.substring(0, 50) || 'full analysis'}...`);
+    this.logger.log(`Analyzing file with prompt: ${request.prompt?.substring(0, 50) || 'full analysis'}...`);
 
-    const { data: sourceImageData, mimeType: sourceMimeType } = this.normalizeImageInput(
+    const { data: sourceFileData, mimeType: sourceMimeType } = this.normalizeFileInput(
       request.sourceImage,
       'analysis',
     );
     this.logger.debug(
-      `Normalized analysis source image: mimeType=${sourceMimeType}, length=${sourceImageData.length}`,
+      `Normalized analysis source file: mimeType=${sourceMimeType}, length=${sourceFileData.length}`,
     );
 
     const client = this.getClient(request.customApiKey);
     const model = request.model || 'gemini-2.0-flash';
 
+    // 根据文件类型生成不同的提示词
+    const isPdf = sourceMimeType === 'application/pdf';
+    const fileTypeDesc = isPdf ? 'PDF document' : 'image';
+
     const analysisPrompt = request.prompt
-      ? `Please analyze the following image (respond in Chinese):\n\n${request.prompt}`
-      : `Please analyze this image in detail (respond in Chinese):
+      ? `Please analyze the following ${fileTypeDesc} (respond in Chinese):\n\n${request.prompt}`
+      : isPdf
+        ? `Please analyze this PDF document in detail (respond in Chinese):
+1. Document type and purpose
+2. Main content summary
+3. Key information and data
+4. Structure and organization
+5. Notable details`
+        : `Please analyze this image in detail (respond in Chinese):
 1. Main content and theme
 2. Objects, people, scenes
 3. Color and composition
@@ -831,7 +849,7 @@ export class ImageGenerationService {
                   {
                     inlineData: {
                       mimeType: sourceMimeType,
-                      data: sourceImageData,
+                      data: sourceFileData,
                     },
                   },
                 ],
@@ -852,19 +870,19 @@ export class ImageGenerationService {
                 },
               });
 
-              const streamResult = await this.parseStreamResponse(stream, 'Image analysis');
+              const streamResult = await this.parseStreamResponse(stream, 'File analysis');
               return { text: streamResult.textResponse };
             })(),
             this.DEFAULT_TIMEOUT,
-            'Image analysis request'
+            'File analysis request'
           ),
-        'Image analysis',
+        'File analysis',
         2,
         1200
       );
 
       const processingTime = Date.now() - startTime;
-      this.logger.log(`Image analysis completed in ${processingTime}ms`);
+      this.logger.log(`File analysis completed in ${processingTime}ms`);
 
       if (!result.text) {
         throw new Error('No analysis text returned from API');

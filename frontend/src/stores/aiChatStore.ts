@@ -159,7 +159,7 @@ const toISOString = (value: Date | string | number | null | undefined): string =
 const cloneSafely = <T>(value: T): T => JSON.parse(JSON.stringify(value ?? null)) ?? (value as T);
 
 export type ManualAIMode = 'auto' | 'text' | 'generate' | 'edit' | 'blend' | 'analyze' | 'video' | 'vector';
-type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'chatResponse' | 'generateVideo' | 'generatePaperJS';
+type AvailableTool = 'generateImage' | 'editImage' | 'blendImages' | 'analyzeImage' | 'analyzePdf' | 'chatResponse' | 'generateVideo' | 'generatePaperJS';
 
 type AIProviderType = SupportedAIProvider;
 
@@ -1129,6 +1129,10 @@ interface AIChatState {
   // 图像分析状态
   sourceImageForAnalysis: string | null; // 当前用于分析的源图像
 
+  // PDF 分析状态
+  sourcePdfForAnalysis: string | null; // 当前用于分析的 PDF 文件 (base64)
+  sourcePdfFileName: string | null; // 当前上传的 PDF 文件名（用于 UI 提示）
+
   // 配置选项
   autoDownload: boolean;  // 是否自动下载生成的图片
   enableWebSearch: boolean;  // 是否启用联网搜索
@@ -1184,6 +1188,10 @@ interface AIChatState {
   analyzeImage: (prompt: string, sourceImage: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
   setSourceImageForAnalysis: (imageData: string | null) => void;
 
+  // PDF 分析功能
+  analyzePdf: (prompt: string, sourcePdf: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
+  setSourcePdfForAnalysis: (pdfData: string | null, fileName?: string | null) => void;
+
   // 文本对话功能
   generateTextResponse: (prompt: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
 
@@ -1200,7 +1208,7 @@ interface AIChatState {
   executeProcessFlow: (input: string, isRetry?: boolean) => Promise<void>;
 
   // 智能模式检测
-  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'text' | 'video' | 'vector';
+  getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'analyzePdf' | 'text' | 'video' | 'vector';
 
   // 配置管理
   toggleAutoDownload: () => void;
@@ -1370,6 +1378,8 @@ export const useAIChatStore = create<AIChatState>()(
   sourceImageForEditing: null,  // 图生图源图像
   sourceImagesForBlending: [],  // 多图融合源图像数组
   sourceImageForAnalysis: null, // 图像分析源图像
+  sourcePdfForAnalysis: null, // PDF 分析源文件
+  sourcePdfFileName: null,
   autoDownload: false,  // 默认不自动下载
   enableWebSearch: false,  // 默认关闭联网搜索
   imageOnly: false,  // 默认允许返回文本
@@ -3146,12 +3156,198 @@ export const useAIChatStore = create<AIChatState>()(
 
   setSourceImageForAnalysis: (imageData: string | null) => {
     set({ sourceImageForAnalysis: imageData });
-    
+
     // 🔥 立即缓存用户上传的分析图片
     if (imageData) {
       const imageId = `user_analysis_upload_${Date.now()}`;
       contextManager.cacheLatestImage(imageData, imageId, '用户上传的分析图片');
       console.log('📸 用户分析图片已缓存:', imageId);
+    }
+  },
+
+  // PDF 分析状态设置
+  setSourcePdfForAnalysis: (pdfData: string | null, fileName?: string | null) => {
+    set({
+      sourcePdfForAnalysis: pdfData,
+      sourcePdfFileName: pdfData ? (fileName ?? null) : null
+    });
+    if (pdfData) {
+      console.log('📄 用户 PDF 文件已设置，数据长度:', pdfData.length, '文件名:', fileName || '未提供');
+    }
+  },
+
+  // PDF 分析功能
+  analyzePdf: async (
+    prompt: string,
+    sourcePdf: string,
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
+    const state = get();
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'analyzePdf entered');
+
+    const override = options?.override;
+    let aiMessageId: string | undefined;
+
+    // 格式化 PDF 数据
+    const formattedPdfData = sourcePdf.startsWith('data:application/pdf')
+      ? sourcePdf
+      : `data:application/pdf;base64,${sourcePdf}`;
+
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(override.userMessageId, (msg) => ({
+        ...msg,
+        content: prompt ? `分析 PDF: ${prompt}` : '分析这个 PDF 文件',
+      }));
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在分析 PDF 文件...',
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '准备中'
+        }
+      }));
+    } else {
+      state.addMessage({
+        type: 'user',
+        content: prompt ? `分析 PDF: ${prompt}` : '分析这个 PDF 文件',
+      });
+
+      // 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在分析 PDF 文件...',
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '准备中'
+        },
+        provider: state.aiProvider
+      };
+
+      const storedPlaceholder = state.addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+
+    console.log('📄 开始分析 PDF，消息ID:', aiMessageId);
+    logProcessStep(metrics, 'analyzePdf message prepared');
+
+    try {
+      // 使用消息级别的进度更新
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 15,
+        error: null,
+        stage: '正在分析'
+      });
+
+      logProcessStep(metrics, 'analyzePdf progress interval start');
+      const progressInterval = setInterval(() => {
+        const currentMessage = get().messages.find(m => m.id === aiMessageId);
+        const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
+
+        if (currentProgress >= 92) {
+          clearInterval(progressInterval);
+          return;
+        }
+
+        let increment = 3;
+        if (currentProgress < 30) {
+          increment = 8;
+        } else if (currentProgress < 60) {
+          increment = 6;
+        } else if (currentProgress < 80) {
+          increment = 4;
+        }
+
+        const nextProgress = Math.min(92, currentProgress + increment);
+
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: true,
+          progress: nextProgress,
+          error: null
+        });
+      }, 500);
+
+      // 调用后端API分析 PDF（复用 analyzeImage 接口）
+      const modelToUse = getImageModelForProvider(state.aiProvider);
+      console.log('🤖 [AI Provider] analyzePdf', {
+        aiProvider: state.aiProvider,
+        model: modelToUse,
+        prompt: prompt || '默认分析'
+      });
+
+      const result = await analyzeImageViaAPI({
+        prompt: prompt || '请详细分析这个 PDF 文件的内容',
+        sourceImage: formattedPdfData,
+        model: modelToUse,
+        aiProvider: state.aiProvider,
+      });
+
+      clearInterval(progressInterval);
+      logProcessStep(metrics, 'analyzePdf API response received');
+
+      if (result.success && result.data) {
+        // 更新消息内容和完成状态
+        set((curState) => ({
+          messages: curState.messages.map((msg) =>
+            msg.id === aiMessageId
+              ? {
+                  ...msg,
+                  content: result.data!.analysis,
+                  generationStatus: {
+                    isGenerating: false,
+                    progress: 100,
+                    error: null
+                  }
+                }
+              : msg
+          )
+        }));
+
+        // 同步到 contextManager
+        const context = contextManager.getCurrentContext();
+        if (context) {
+          const message = context.messages.find(m => m.id === aiMessageId);
+          if (message) {
+            message.content = result.data!.analysis;
+            message.generationStatus = {
+              isGenerating: false,
+              progress: 100,
+              error: null
+            };
+          }
+        }
+
+        // 清除 PDF 状态
+        set({ sourcePdfForAnalysis: null, sourcePdfFileName: null });
+
+        console.log('✅ PDF 分析成功');
+        logProcessStep(metrics, 'analyzePdf completed');
+
+      } else {
+        throw new Error(result.error?.message || 'PDF 分析失败');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: false,
+        progress: 0,
+        error: errorMessage
+      });
+
+      console.error('❌ PDF 分析异常:', error);
+      logProcessStep(metrics, 'analyzePdf failed');
     }
   },
 
@@ -3778,8 +3974,13 @@ export const useAIChatStore = create<AIChatState>()(
       selectedTool = manualToolMap[manualMode];
       console.log('🎛️ 手动模式直接选择工具:', manualMode, '→', selectedTool);
     } else {
+      // 📄 检测是否有 PDF 文件需要分析
+      if (state.sourcePdfForAnalysis) {
+        selectedTool = 'analyzePdf';
+        console.log('🧠 检测到 PDF 文件，自动选择 analyzePdf 工具');
+      }
       // 🎬 在 Auto 模式下智能检测视频意图
-      if (state.aiProvider === 'banana' && detectVideoIntent(input)) {
+      else if (state.aiProvider === 'banana' && detectVideoIntent(input)) {
         selectedTool = 'generateVideo';
         console.log('🧠 智能检测到视频生成意图，自动选择 generateVideo 工具');
       }
@@ -3901,6 +4102,18 @@ export const useAIChatStore = create<AIChatState>()(
             } else {
               throw new Error('没有可分析的图像');
             }
+          }
+          break;
+
+        case 'analyzePdf':
+          if (state.sourcePdfForAnalysis) {
+            console.log('📄 执行 PDF 分析，参数:', parameters.prompt || input);
+            logProcessStep(metrics, 'invoking analyzePdf');
+            await store.analyzePdf(parameters.prompt || input, state.sourcePdfForAnalysis, { override: messageOverride, metrics });
+            logProcessStep(metrics, 'analyzePdf finished');
+            // analyzePdf 方法内部会清除 sourcePdfForAnalysis
+          } else {
+            throw new Error('没有可分析的 PDF 文件');
           }
           break;
 
@@ -4055,6 +4268,7 @@ export const useAIChatStore = create<AIChatState>()(
     }
     if (state.sourceImagesForBlending.length >= 2) return 'blend';
     if (state.sourceImageForEditing) return 'edit';
+    if (state.sourcePdfForAnalysis) return 'analyzePdf';
     if (state.sourceImageForAnalysis) return 'analyze';
     return 'generate';
   },
@@ -4087,7 +4301,9 @@ export const useAIChatStore = create<AIChatState>()(
       lastGeneratedImage: null,
       sourceImageForEditing: null,
       sourceImagesForBlending: [],
-      sourceImageForAnalysis: null
+      sourceImageForAnalysis: null,
+      sourcePdfForAnalysis: null,
+      sourcePdfFileName: null
     });
   },
 

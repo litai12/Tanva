@@ -3,10 +3,25 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 // 简化版本的DropdownMenu组件
-export interface DropdownMenuProps extends React.HTMLAttributes<HTMLDivElement> {}
+export interface DropdownMenuProps extends React.HTMLAttributes<HTMLDivElement> {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
 
-export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, ...props }) => {
-  const [isOpen, setIsOpen] = React.useState(false);
+export const DropdownMenu: React.FC<DropdownMenuProps> = ({ children, open: controlledOpen, onOpenChange, ...props }) => {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  
+  // 支持受控和非受控模式
+  const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  const setIsOpen = React.useCallback((value: boolean) => {
+    if (controlledOpen !== undefined) {
+      // 受控模式：调用外部回调
+      onOpenChange?.(value);
+    } else {
+      // 非受控模式：使用内部状态
+      setInternalOpen(value);
+    }
+  }, [controlledOpen, onOpenChange]);
   
   const handleToggle = () => setIsOpen(!isOpen);
   const handleClose = () => setIsOpen(false);
@@ -161,30 +176,48 @@ export const DropdownMenuContent: React.FC<DropdownMenuContentProps> = ({
   })();
 
   return (
-    <div 
-      className={cn(
-        'absolute z-[1100] w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
-        sideClass,
-        alignClass,
-        className
-      )} 
-      style={offsetStyle}
-      {...props}
-    >
-      {children}
-    </div>
+    <DropdownMenuContext.Provider value={{ onClose }}>
+      <div 
+        className={cn(
+          'absolute z-[1100] w-48 bg-glass-light backdrop-blur-md rounded-md shadow-glass border border-glass',
+          sideClass,
+          alignClass,
+          className
+        )} 
+        style={offsetStyle}
+        {...props}
+      >
+        {children}
+      </div>
+    </DropdownMenuContext.Provider>
   );
 };
 
+// Context 用于传递 onClose 函数
+const DropdownMenuContext = React.createContext<{ onClose?: () => void }>({});
+
 export interface DropdownMenuItemProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {}
 
-export const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({ children, className, ...props }) => {
+export const DropdownMenuItem: React.FC<DropdownMenuItemProps> = ({ children, className, onClick, ...props }) => {
+  const { onClose } = React.useContext(DropdownMenuContext);
+  
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (onClick) {
+      onClick(e);
+    }
+    // 点击后关闭菜单
+    if (onClose && !e.defaultPrevented) {
+      onClose();
+    }
+  };
+
   return (
     <button
       className={cn(
         "w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center first:rounded-t-md last:rounded-b-md",
         className
       )}
+      onClick={handleClick}
       {...props}
     >
       {children}

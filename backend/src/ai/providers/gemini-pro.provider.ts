@@ -61,6 +61,7 @@ export class GeminiProProvider implements IAIProvider {
       { prefix: 'R0lGOD', mime: 'image/gif' },
       { prefix: 'UklGR', mime: 'image/webp' },
       { prefix: 'Qk', mime: 'image/bmp' },
+      { prefix: 'JVBERi', mime: 'application/pdf' }, // PDF 文件 (%PDF-)
     ];
 
     const head = data.substring(0, 20);
@@ -73,20 +74,21 @@ export class GeminiProProvider implements IAIProvider {
     return 'image/png';
   }
 
-  private normalizeImageInput(imageInput: string, context: string): { data: string; mimeType: string } {
-    if (!imageInput || imageInput.trim().length === 0) {
-      throw new Error(`${context} image payload is empty`);
+  private normalizeFileInput(fileInput: string, context: string): { data: string; mimeType: string } {
+    if (!fileInput || fileInput.trim().length === 0) {
+      throw new Error(`${context} file payload is empty`);
     }
 
-    const trimmed = imageInput.trim();
+    const trimmed = fileInput.trim();
 
     let sanitized: string;
     let mimeType: string;
 
-    if (trimmed.startsWith('data:image/')) {
-      const match = trimmed.match(/^data:(image\/[\w.+-]+);base64,(.+)$/i);
+    // 支持 data:image/* 和 data:application/pdf 格式
+    if (trimmed.startsWith('data:image/') || trimmed.startsWith('data:application/pdf')) {
+      const match = trimmed.match(/^data:((?:image\/[\w.+-]+)|(?:application\/pdf));base64,(.+)$/i);
       if (!match) {
-        throw new Error(`Invalid data URL format for ${context} image`);
+        throw new Error(`Invalid data URL format for ${context} file`);
       }
 
       [, mimeType, sanitized] = match;
@@ -99,23 +101,23 @@ export class GeminiProProvider implements IAIProvider {
 
       if (!base64Regex.test(sanitized)) {
         throw new Error(
-          `Unsupported ${context} image format. Expected a base64 string or data URL.`
+          `Unsupported ${context} file format. Expected a base64 string or data URL.`
         );
       }
 
       mimeType = this.inferMimeTypeFromBase64(sanitized);
     }
 
-    // 验证图像大小（base64编码后的数据，实际图像大小约为 base64 长度的 3/4）
-    // 限制 base64 数据最大为 20MB，对应实际图像约 15MB
+    // 验证文件大小（base64编码后的数据，实际文件大小约为 base64 长度的 3/4）
+    // 限制 base64 数据最大为 20MB，对应实际文件约 15MB
     const MAX_BASE64_SIZE = 20 * 1024 * 1024; // 20MB
     if (sanitized.length > MAX_BASE64_SIZE) {
       const actualSizeMB = (sanitized.length * 3 / 4 / 1024 / 1024).toFixed(2);
       this.logger.warn(
-        `${context} image is too large. Base64 length: ${sanitized.length}, estimated size: ${actualSizeMB}MB`,
+        `${context} file is too large. Base64 length: ${sanitized.length}, estimated size: ${actualSizeMB}MB`,
       );
       throw new Error(
-        `${context} image is too large. Maximum size is 15MB (base64: ~20MB). Current size: ~${actualSizeMB}MB`,
+        `${context} file is too large. Maximum size is 15MB (base64: ~20MB). Current size: ~${actualSizeMB}MB`,
       );
     }
 
@@ -123,6 +125,11 @@ export class GeminiProProvider implements IAIProvider {
       data: sanitized,
       mimeType,
     };
+  }
+
+  // 保持向后兼容的别名方法
+  private normalizeImageInput(imageInput: string, context: string): { data: string; mimeType: string } {
+    return this.normalizeFileInput(imageInput, context);
   }
 
   private isRetryableError(error: Error): boolean {
@@ -513,15 +520,19 @@ export class GeminiProProvider implements IAIProvider {
   async analyzeImage(
     request: ImageAnalysisRequest
   ): Promise<AIProviderResponse<AnalysisResult>> {
-    this.logger.log(`Analyzing image...`);
+    this.logger.log(`Analyzing file...`);
 
     try {
-      const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'analysis');
+      const { data: fileData, mimeType } = this.normalizeFileInput(request.sourceImage, 'analysis');
       const client = this.ensureClient();
 
+      // 根据文件类型生成不同的提示词
+      const isPdf = mimeType === 'application/pdf';
+      const fileTypeDesc = isPdf ? 'PDF document' : 'image';
+
       const analysisPrompt = request.prompt
-        ? `Please analyze the following image (respond in ${request.prompt})`
-        : `Please analyze this image in detail`;
+        ? `Please analyze the following ${fileTypeDesc} (respond in ${request.prompt})`
+        : `Please analyze this ${fileTypeDesc} in detail`;
 
       const result = await this.withRetry(
         () =>
@@ -534,7 +545,7 @@ export class GeminiProProvider implements IAIProvider {
                   {
                     inlineData: {
                       mimeType: mimeType || 'image/png',
-                      data: imageData,
+                      data: fileData,
                     },
                   },
                 ],
@@ -550,15 +561,15 @@ export class GeminiProProvider implements IAIProvider {
               });
 
               if (!response.text) {
-                throw new Error('Image analysis API returned empty response');
+                throw new Error('File analysis API returned empty response');
               }
 
               return { text: response.text };
             })(),
             this.DEFAULT_TIMEOUT,
-            'Image analysis'
+            'File analysis'
           ),
-        'Image analysis',
+        'File analysis',
         2
       );
 

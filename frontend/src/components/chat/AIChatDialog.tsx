@@ -219,6 +219,9 @@ const AIChatDialog: React.FC = () => {
     processUserInput,
     setSourceImageForEditing,
     setSourceImageForAnalysis,
+    setSourcePdfForAnalysis,
+    sourcePdfForAnalysis,
+    sourcePdfFileName,
     addImageForBlending,
     removeImageFromBlending,
     clearImagesForBlending,
@@ -306,6 +309,9 @@ const AIChatDialog: React.FC = () => {
 
   // 思考级别状态
   const [isThinkingLevelOpen, setIsThinkingLevelOpen] = useState(false);
+
+  // 上传菜单状态
+  const [isUploadMenuOpen, setIsUploadMenuOpen] = useState(false);
   const thinkingLevelPanelRef = useRef<HTMLDivElement | null>(null);
   const thinkingLevelButtonRef = useRef<HTMLButtonElement | null>(null);
   const [thinkingLevelPos, setThinkingLevelPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -1752,7 +1758,8 @@ const AIChatDialog: React.FC = () => {
   const hasImagePreview = Boolean(
     sourceImageForEditing ||
     sourceImagesForBlending.length > 0 ||
-    sourceImageForAnalysis
+    sourceImageForAnalysis ||
+    sourcePdfForAnalysis
   );
   // 最大化时不显示顶部横条指示器
   const showHistoryHoverIndicator = !isMaximized;
@@ -1808,6 +1815,10 @@ const AIChatDialog: React.FC = () => {
       style.left = dragOffsetX;
       style.right = 'auto';
       style.transform = 'none';
+    } else {
+      // 默认右对齐：需要显式设置 left: auto，并留出与上下相同的 16px 间距
+      style.left = 'auto';
+      style.right = 16;
     }
 
     // 如果用户手动调整过高度，计算对应的 top 值
@@ -1817,7 +1828,7 @@ const AIChatDialog: React.FC = () => {
       style.top = Math.max(16, calculatedTop); // 最小 top 为 16px
     }
 
-    return Object.keys(style).length > 0 ? style : undefined;
+    return style;
   };
 
   return (
@@ -1831,7 +1842,7 @@ const AIChatDialog: React.FC = () => {
           ? "top-2 left-2 right-2 bottom-2 z-[9999]"  // 最大化：接近全屏，最高 z-index 确保在所有元素之上
           : "z-50",
         !isMaximized && showHistory
-          ? "top-4 bottom-4 right-4 w-full max-w-2xl px-4"  // 展开模式：右侧全高，宽度不变
+          ? "top-4 bottom-4 max-w-2xl w-[672px] px-4"  // 展开模式：右侧全高，固定宽度
           : !isMaximized
             ? "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4"  // 紧凑模式：底部居中
             : "",
@@ -1856,7 +1867,7 @@ const AIChatDialog: React.FC = () => {
         className={cn(
           "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all ease-out relative overflow-visible group",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl",
-          showHistory && !isMaximized && "h-full flex flex-col",  // 展开模式：填满容器高度
+          showHistory && !isMaximized && "h-full flex flex-col -mr-4",  // 展开模式：填满容器高度并贴合屏幕右侧
           (isDragging || isResizing) ? "duration-0" : "duration-300"
         )}
         style={showHistory && !isMaximized && customHeight ? { height: customHeight } : undefined}
@@ -1892,12 +1903,17 @@ const AIChatDialog: React.FC = () => {
         {/* 🔥 任务计数器徽章 - 右上角（更小尺寸）已关闭 */}
 
         {/* 内容区域 */}
-        <div ref={contentRef} data-chat-content className={cn(
-          "flex flex-col",
-          isMaximized ? "p-4 h-full overflow-visible" : "",
-          // 自定义高度时使用 flex 布局让输入框固定在底部
-          showHistory && !isMaximized && customHeight && "h-full"
-        )}>
+        <div
+          ref={contentRef}
+          data-chat-content
+          className={cn(
+            "flex flex-col",
+            (showHistory || isMaximized) && "flex-1 min-h-0",
+            isMaximized ? "p-4 h-full overflow-visible" : "",
+            // 展开模式始终填满纵向空间，方便输入框贴底
+            showHistory && !isMaximized && "h-full"
+          )}
+        >
 
 
 
@@ -1988,9 +2004,8 @@ const AIChatDialog: React.FC = () => {
             ref={inputAreaRef}
             className={cn(
               "order-2 flex-shrink-0",
-              shouldShowHistoryPanel && !isMaximized && !customHeight && "mt-4",
-              shouldShowHistoryPanel && !isMaximized && customHeight && "mt-2",
-              shouldShowHistoryPanel && isMaximized && "mt-auto",
+              showHistory && !isMaximized && "mt-auto",
+              isMaximized && "mt-auto",
               shouldShowHistoryPanel && "pt-2"
             )}
             onMouseDownCapture={(e) => {
@@ -2030,6 +2045,35 @@ const AIChatDialog: React.FC = () => {
             }}
           >
             <div className="relative">
+              {/* PDF 文件 @ 标签提示 - 位于输入框上方 */}
+              {sourcePdfForAnalysis && (
+                <div className="mb-2 flex items-center justify-start">
+                  <div className="relative group">
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-full text-xs text-gray-700 max-w-[220px] transition-all duration-200",
+                        "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass"
+                      )}
+                      title={sourcePdfFileName || '已添加的 PDF'}
+                    >
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gray-100/50 text-gray-500 text-[11px] font-semibold">
+                        @
+                      </span>
+                      <FileText className="w-4 h-4 text-red-500" />
+                      <span className="truncate">
+                        {sourcePdfFileName || 'PDF 文件'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setSourcePdfForAnalysis(null)}
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="删除 PDF"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <Textarea
                 ref={textareaRef}
@@ -2410,7 +2454,7 @@ const AIChatDialog: React.FC = () => {
               </Button>
 
               {/* +号上传按钮 - 替换原来的上传图片按钮位置 */}
-              <DropdownMenu>
+              <DropdownMenu open={isUploadMenuOpen} onOpenChange={setIsUploadMenuOpen}>
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
@@ -2507,11 +2551,38 @@ const AIChatDialog: React.FC = () => {
               accept="application/pdf"
               style={{ display: 'none' }}
               onChange={(e) => {
-                // TODO: 处理PDF上传
                 const file = e.target.files?.[0];
                 if (file) {
-                  console.log('PDF文件:', file.name);
-                  // 后续实现PDF处理逻辑
+                  console.log('📄 PDF文件:', file.name, '大小:', file.size);
+
+                  // 检查文件大小（限制 15MB）
+                  const MAX_SIZE = 15 * 1024 * 1024;
+                  if (file.size > MAX_SIZE) {
+                    alert(`PDF 文件过大，最大支持 15MB，当前文件 ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+                    if (pdfInputRef.current) {
+                      pdfInputRef.current.value = '';
+                    }
+                    return;
+                  }
+
+                  // 读取文件为 base64
+                  const reader = new FileReader();
+                  reader.onload = (event) => {
+                    const base64Data = event.target?.result as string;
+                    if (base64Data) {
+                      console.log('📄 PDF 已读取，数据长度:', base64Data.length);
+                      setSourcePdfForAnalysis(base64Data, file.name);
+                      // 设置默认提示词
+                      if (!currentInput.trim()) {
+                        setCurrentInput('请分析这个 PDF 文件的内容');
+                      }
+                    }
+                  };
+                  reader.onerror = () => {
+                    console.error('❌ 读取 PDF 文件失败');
+                    alert('读取 PDF 文件失败，请重试');
+                  };
+                  reader.readAsDataURL(file);
                 }
                 if (pdfInputRef.current) {
                   pdfInputRef.current.value = '';
