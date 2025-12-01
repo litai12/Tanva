@@ -569,12 +569,9 @@ const AIChatDialog: React.FC = () => {
 
       let newHeight = resizeStartRef.current.startHeight + deltaY;
 
-      // 限制高度范围：最小为初始展开高度，最大为“顶部与底部间距一致”的高度
-      const measuredMin = historyInitialHeightRef.current ?? resizeStartRef.current.startHeight ?? HISTORY_DEFAULT_MIN_HEIGHT;
-      const minHeight = Math.max(measuredMin, HISTORY_DEFAULT_MIN_HEIGHT);
-      const bottomGap = resizeBottomGapRef.current ?? 0;
-      const viewportLimit = Math.max(window.innerHeight - bottomGap * 2, HISTORY_DEFAULT_MIN_HEIGHT);
-      const maxHeight = Math.max(minHeight, viewportLimit);
+      // 限制高度范围
+      const minHeight = HISTORY_DEFAULT_MIN_HEIGHT; // 最小高度 320px
+      const maxHeight = window.innerHeight - 32; // 最大高度：视口高度减去上下边距
       newHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
 
       setCustomHeight(newHeight);
@@ -1761,6 +1758,29 @@ const AIChatDialog: React.FC = () => {
   // 计算拖拽时是否使用自定义位置
   const useDragPosition = showHistory && !isMaximized && dragOffsetX !== null;
 
+  // 计算展开模式的动态样式
+  const getExpandedModeStyle = () => {
+    if (!showHistory || isMaximized) return undefined;
+
+    const style: React.CSSProperties = {};
+
+    // 如果用户手动拖拽过位置
+    if (dragOffsetX !== null) {
+      style.left = dragOffsetX;
+      style.right = 'auto';
+      style.transform = 'none';
+    }
+
+    // 如果用户手动调整过高度，计算对应的 top 值
+    if (customHeight !== null) {
+      // bottom 固定为 16px，根据 customHeight 计算 top
+      const calculatedTop = window.innerHeight - 16 - customHeight;
+      style.top = Math.max(16, calculatedTop); // 最小 top 为 16px
+    }
+
+    return Object.keys(style).length > 0 ? style : undefined;
+  };
+
   return (
     <div
       ref={containerRef}
@@ -1770,15 +1790,14 @@ const AIChatDialog: React.FC = () => {
         "fixed z-50 transition-all ease-out select-none",
         isMaximized
           ? "top-32 left-16 right-16 bottom-4"
-          : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",
-        !isDragging && "duration-300",
-        isDragging && "duration-0",
+          : showHistory
+            ? "top-4 bottom-4 right-4 w-full max-w-2xl px-4"  // 展开模式：右侧全高，宽度不变
+            : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",  // 紧凑模式：底部居中
+        !isDragging && !isResizing && "duration-300",
+        (isDragging || isResizing) && "duration-0",
         focusMode && "hidden"
       )}
-      style={useDragPosition ? {
-        left: dragOffsetX,
-        transform: 'none'
-      } : undefined}
+      style={showHistory && !isMaximized ? getExpandedModeStyle() : undefined}
       onMouseDown={(e) => {
         // 先尝试调整高度，如果不是调整高度区域则尝试拖拽移动
         handleResizeStart(e);
@@ -1795,6 +1814,7 @@ const AIChatDialog: React.FC = () => {
         className={cn(
           "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all ease-out relative overflow-visible group",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl",
+          showHistory && !isMaximized && "h-full flex flex-col",  // 展开模式：填满容器高度
           (isDragging || isResizing) ? "duration-0" : "duration-300"
         )}
         style={showHistory && !isMaximized && customHeight ? { height: customHeight } : undefined}
@@ -2477,12 +2497,12 @@ const AIChatDialog: React.FC = () => {
               className={cn(
                 "mb-2 overflow-y-auto custom-scrollbar order-1",
                 hasImagePreview ? "mt-2" : "-mt-1",
-                isMaximized ? "max-h-screen" : customHeight ? "flex-1 min-h-0" : "max-h-80"
+                isMaximized ? "max-h-screen" : showHistory ? "flex-1 min-h-0" : customHeight ? "flex-1 min-h-0" : "max-h-80"
               )}
             style={{
               overflowY: 'auto',
-              height: customHeight ? 'auto' : 'auto',
-              maxHeight: isMaximized ? 'calc(100vh - 300px)' : customHeight ? undefined : '320px',
+              // 展开模式下不限制最大高度，让 flex-1 生效
+              maxHeight: isMaximized ? 'calc(100vh - 300px)' : showHistory && !customHeight ? undefined : customHeight ? undefined : '320px',
               minHeight: customHeight ? '100px' : historyPanelMinHeight,
               // 强制细滚动条
               scrollbarWidth: 'thin',
