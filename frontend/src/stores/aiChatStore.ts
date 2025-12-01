@@ -1102,6 +1102,7 @@ const sessionsEqual = (
 interface AIChatState {
   // 对话框状态
   isVisible: boolean;
+  isMaximized: boolean;  // 对话框是否最大化
 
   // 输入状态
   currentInput: string;
@@ -1142,6 +1143,7 @@ interface AIChatState {
   showDialog: () => void;
   hideDialog: () => void;
   toggleDialog: () => void;
+  setIsMaximized: (value: boolean) => void;  // 设置最大化状态
 
   // 输入管理
   setCurrentInput: (input: string) => void;
@@ -1354,6 +1356,7 @@ export const useAIChatStore = create<AIChatState>()(
       return {
   // 初始状态
   isVisible: true,
+  isMaximized: false,  // 默认不最大化
   currentInput: '',
   currentSessionId: null,
   sessions: [],
@@ -1380,6 +1383,7 @@ export const useAIChatStore = create<AIChatState>()(
   showDialog: () => set({ isVisible: true }),
   hideDialog: () => set({ isVisible: false }),
   toggleDialog: () => set((state) => ({ isVisible: !state.isVisible })),
+  setIsMaximized: (value) => set({ isMaximized: value }),
 
   // 输入管理
   setCurrentInput: (input) => set({ currentInput: input }),
@@ -4072,6 +4076,7 @@ export const useAIChatStore = create<AIChatState>()(
   resetState: () => {
     set({
       isVisible: false,
+      isMaximized: false,
       currentInput: '',
       generationStatus: {
         isGenerating: false,

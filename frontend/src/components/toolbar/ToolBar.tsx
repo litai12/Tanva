@@ -164,7 +164,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
 
-  const { toggleDialog, isVisible: isAIDialogVisible, setSourceImageForEditing, showDialog } = useAIChatStore();
+  const { toggleDialog, isVisible: isAIDialogVisible, isMaximized: isAIChatMaximized, setSourceImageForEditing, showDialog } = useAIChatStore();
 
   // 原始尺寸模式状态
   const [useOriginalSize, setUseOriginalSize] = React.useState(() => {
@@ -219,8 +219,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isSelectionMenuOpen, isDrawingMenuOpen]);
 
-  // 专注模式下隐藏工具栏（必须在所有 hooks 之后）
-  if (focusMode) {
+  // 专注模式或 AI 对话框最大化时隐藏工具栏
+  if (focusMode || isAIChatMaximized) {
     return null;
   }
 

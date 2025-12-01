@@ -1,5 +1,6 @@
 import React from 'react';
 import { useUIStore } from '@/stores';
+import { useAIChatStore } from '@/stores/aiChatStore';
 
 // 眼睛图标（专注模式关闭状态）
 const EyeIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -39,6 +40,12 @@ const EyeOffIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const FocusModeButton: React.FC = () => {
   const { focusMode, toggleFocusMode, showLayerPanel } = useUIStore();
+  const isAIChatMaximized = useAIChatStore(state => state.isMaximized);
+
+  // AI 对话框最大化时隐藏眼睛按钮
+  if (isAIChatMaximized) {
+    return null;
+  }
 
   return (
     <div

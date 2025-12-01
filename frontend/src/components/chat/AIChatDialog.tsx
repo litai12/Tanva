@@ -196,6 +196,8 @@ const getResendInfoFromMessage = (message: ChatMessage): ResendInfo | null => {
 const AIChatDialog: React.FC = () => {
   const {
     isVisible,
+    isMaximized,
+    setIsMaximized,
     currentInput,
     generationStatus,
     messages,
@@ -246,6 +248,7 @@ const AIChatDialog: React.FC = () => {
   }, [aiProvider]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);  // 输入区域容器 ref
   const dialogRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -256,7 +259,7 @@ const AIChatDialog: React.FC = () => {
   const historyInitialHeightRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const showHistoryRef = useRef(showHistory);
-  const [isMaximized, setIsMaximized] = useState(false);
+  // isMaximized 现在从 store 获取
   const isMaximizedRef = useRef(isMaximized);
   const prevIsMaximizedRef = useRef(isMaximized);
   const [manuallyClosedHistory, setManuallyClosedHistory] = useState(() => {
@@ -1242,24 +1245,35 @@ const AIChatDialog: React.FC = () => {
     longPressTriggeredRef.current = false;
   };
 
-  // 计算比例面板定位：位于对话框容器上方，居中
+  // 计算比例面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
   useLayoutEffect(() => {
     if (!isAspectOpen) return;
     const update = () => {
       const panelEl = aspectPanelRef.current;
       const containerEl = dialogRef.current;
+      const inputEl = inputAreaRef.current;
       if (!panelEl || !containerEl) return;
-      const containerRect = containerEl.getBoundingClientRect();
+
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 8; // 再贴近一点
-      let top = containerRect.top - h - offset;
-      let left = containerRect.left + containerRect.width / 2 - w / 2;
-      // 如果上方放不下，则贴在容器顶部内侧
-      if (top < 8) top = 8;
-      // 防止越界
-      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-      setAspectPos({ top, left });
+      const offset = 8;
+
+      // 全屏模式下定位到输入框上方
+      if (isMaximized && inputEl) {
+        const inputRect = inputEl.getBoundingClientRect();
+        let top = inputRect.top - h - offset;
+        let left = inputRect.left + inputRect.width / 2 - w / 2;
+        if (top < 8) top = 8;
+        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+        setAspectPos({ top, left });
+      } else {
+        const containerRect = containerEl.getBoundingClientRect();
+        let top = containerRect.top - h - offset;
+        let left = containerRect.left + containerRect.width / 2 - w / 2;
+        if (top < 8) top = 8;
+        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+        setAspectPos({ top, left });
+      }
       setAspectReady(true);
     };
     const r = requestAnimationFrame(update);
@@ -1270,26 +1284,37 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [isAspectOpen]);
+  }, [isAspectOpen, isMaximized]);
 
-  // 计算图像尺寸面板定位：位于对话框容器上方，居中
+  // 计算图像尺寸面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
   useLayoutEffect(() => {
     if (!isImageSizeOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana')) return;
     const update = () => {
       const panelEl = imageSizePanelRef.current;
       const containerEl = dialogRef.current;
+      const inputEl = inputAreaRef.current;
       if (!panelEl || !containerEl) return;
-      const containerRect = containerEl.getBoundingClientRect();
+
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 8; // 再贴近一点
-      let top = containerRect.top - h - offset;
-      let left = containerRect.left + containerRect.width / 2 - w / 2;
-      // 如果上方放不下，则贴在容器顶部内侧
-      if (top < 8) top = 8;
-      // 防止越界
-      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-      setImageSizePos({ top, left });
+      const offset = 8;
+
+      // 全屏模式下定位到输入框上方
+      if (isMaximized && inputEl) {
+        const inputRect = inputEl.getBoundingClientRect();
+        let top = inputRect.top - h - offset;
+        let left = inputRect.left + inputRect.width / 2 - w / 2;
+        if (top < 8) top = 8;
+        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+        setImageSizePos({ top, left });
+      } else {
+        const containerRect = containerEl.getBoundingClientRect();
+        let top = containerRect.top - h - offset;
+        let left = containerRect.left + containerRect.width / 2 - w / 2;
+        if (top < 8) top = 8;
+        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+        setImageSizePos({ top, left });
+      }
       setImageSizeReady(true);
     };
     const r = requestAnimationFrame(update);
@@ -1300,26 +1325,37 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [isImageSizeOpen, aiProvider]);
+  }, [isImageSizeOpen, aiProvider, isMaximized]);
 
-  // 计算思考级别面板定位：位于对话框容器上方，居中
+  // 计算思考级别面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
   useLayoutEffect(() => {
     if (!isThinkingLevelOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana')) return;
     const update = () => {
       const panelEl = thinkingLevelPanelRef.current;
       const containerEl = dialogRef.current;
+      const inputEl = inputAreaRef.current;
       if (!panelEl || !containerEl) return;
-      const containerRect = containerEl.getBoundingClientRect();
+
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 8; // 再贴近一点
-      let top = containerRect.top - h - offset;
-      let left = containerRect.left + containerRect.width / 2 - w / 2;
-      // 如果上方放不下，则贴在容器顶部内侧
-      if (top < 8) top = 8;
-      // 防止越界
-      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-      setThinkingLevelPos({ top, left });
+      const offset = 8;
+
+      // 全屏模式下定位到输入框上方
+      if (isMaximized && inputEl) {
+        const inputRect = inputEl.getBoundingClientRect();
+        let top = inputRect.top - h - offset;
+        let left = inputRect.left + inputRect.width / 2 - w / 2;
+        if (top < 8) top = 8;
+        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+        setThinkingLevelPos({ top, left });
+      } else {
+        const containerRect = containerEl.getBoundingClientRect();
+        let top = containerRect.top - h - offset;
+        let left = containerRect.left + containerRect.width / 2 - w / 2;
+        if (top < 8) top = 8;
+        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+        setThinkingLevelPos({ top, left });
+      }
       setThinkingLevelReady(true);
     };
     const r = requestAnimationFrame(update);
@@ -1330,7 +1366,7 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener('resize', update);
       window.removeEventListener('scroll', update, true);
     };
-  }, [isThinkingLevelOpen, aiProvider]);
+  }, [isThinkingLevelOpen, aiProvider, isMaximized]);
 
   // 点击外部关闭比例面板
   useEffect(() => {
@@ -1511,9 +1547,9 @@ const AIChatDialog: React.FC = () => {
     if (!card) return;
     const cardRect = card.getBoundingClientRect();
 
-    // 检查是否在交互元素上
+    // 检查是否在交互元素上（不包含 data-history-ignore-toggle，允许在历史面板空白处双击）
     const tgt = e.target as HTMLElement;
-    const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
+    const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
     if (interactive) return;
 
     const isInTopEdge = y >= cardRect.top && y <= cardRect.top + 20;
@@ -1521,7 +1557,7 @@ const AIChatDialog: React.FC = () => {
     // 历史面板关闭时，只在顶部区域触发
     if (!showHistory && !isMaximized && !isInTopEdge) return;
 
-    setIsMaximized(v => !v);
+    setIsMaximized(!isMaximized);
   };
 
   // 捕获阶段拦截双击：阻止事件继续到画布，并根据状态触发缩放
@@ -1547,7 +1583,8 @@ const AIChatDialog: React.FC = () => {
     suppressHistoryClickRef.current = true;
     const target = e.target as HTMLElement;
     // 忽略在交互控件上的双击（但仍阻止冒泡，防误触画布）
-    const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
+    // 不包含 data-history-ignore-toggle，允许在历史面板空白处双击
+    const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
     e.preventDefault();
     e.stopPropagation();
     // 尽力阻断同层监听
@@ -1564,7 +1601,7 @@ const AIChatDialog: React.FC = () => {
       return;
     }
     // 双击切换大小
-    setIsMaximized(v => !v);
+    setIsMaximized(!isMaximized);
     suppressHistoryClickRef.current = false;
   };
 
@@ -1586,7 +1623,8 @@ const AIChatDialog: React.FC = () => {
       const isInTopEdge = y >= r.top && y <= r.top + 20;
 
       const tgt = ev.target as HTMLElement;
-      const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
+      // 不包含 data-history-ignore-toggle，允许在历史面板空白处双击
+      const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
 
       if (insideCard && !interactive) {
         // 历史面板关闭时，只在顶部区域触发
@@ -1598,7 +1636,7 @@ const AIChatDialog: React.FC = () => {
         }
         ev.stopPropagation();
         ev.preventDefault();
-        setIsMaximized(v => !v);
+        setIsMaximized(!isMaximizedRef.current);
       }
 
       // 外部屏蔽：卡片外侧一定范围内，阻止冒泡，防止 Flow 弹出节点面板
@@ -1679,7 +1717,8 @@ const AIChatDialog: React.FC = () => {
       const isInTopEdge = y >= r.top && y <= r.top + 20;
 
       const target = ev.target as HTMLElement;
-      const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]');
+      // 不包含 data-history-ignore-toggle，允许在历史面板空白处双击
+      const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
       if (interactive) {
         // 在交互控件上双击：只阻止冒泡，不切换
         ev.stopPropagation();
@@ -1696,7 +1735,7 @@ const AIChatDialog: React.FC = () => {
       if (!showHistoryCurrent && !isMaximizedCurrent && !isInTopEdge) {
         return;
       }
-      setIsMaximized(v => !v);
+      setIsMaximized(!isMaximizedRef.current);
     };
     const el = containerRef.current;
     if (el) el.addEventListener('dblclick', handler, true);
@@ -1730,8 +1769,8 @@ const AIChatDialog: React.FC = () => {
 
   // 🔥 显示计数 = pendingTaskCount（包括未开始和生成中的任务）
   const displayTaskCount = pendingTaskCount;
-  // 🔥 回复状态背景：仅在任务进行中（生成阶段）时显示
-  const hasActiveAura = generatingTaskCount > 0;
+  // 🔥 回复状态背景：仅在任务进行中（生成阶段）时显示，最大化时暂停彩雾
+  const hasActiveAura = generatingTaskCount > 0 && !isMaximized;
 
   // 控制彩雾挂载/卸载，避免静止状态出现
   useEffect(() => {
@@ -1787,12 +1826,15 @@ const AIChatDialog: React.FC = () => {
       data-prevent-add-panel
       aria-hidden={focusMode}
       className={cn(
-        "fixed z-50 transition-all ease-out select-none",
+        "fixed transition-all ease-out select-none",
         isMaximized
-          ? "top-32 left-16 right-16 bottom-4"
-          : showHistory
-            ? "top-4 bottom-4 right-4 w-full max-w-2xl px-4"  // 展开模式：右侧全高，宽度不变
-            : "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4",  // 紧凑模式：底部居中
+          ? "top-2 left-2 right-2 bottom-2 z-[9999]"  // 最大化：接近全屏，最高 z-index 确保在所有元素之上
+          : "z-50",
+        !isMaximized && showHistory
+          ? "top-4 bottom-4 right-4 w-full max-w-2xl px-4"  // 展开模式：右侧全高，宽度不变
+          : !isMaximized
+            ? "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-2xl px-4"  // 紧凑模式：底部居中
+            : "",
         !isDragging && !isResizing && "duration-300",
         (isDragging || isResizing) && "duration-0",
         focusMode && "hidden"
@@ -1943,6 +1985,7 @@ const AIChatDialog: React.FC = () => {
 
           {/* 输入区域 */}
           <div
+            ref={inputAreaRef}
             className={cn(
               "order-2 flex-shrink-0",
               shouldShowHistoryPanel && !isMaximized && !customHeight && "mt-4",
@@ -1971,17 +2014,17 @@ const AIChatDialog: React.FC = () => {
             onDoubleClick={(e) => {
               try {
                 const t = textareaRef.current;
-                if (!t) { e.preventDefault(); e.stopPropagation(); setIsMaximized(v => !v); return; }
+                if (!t) { e.preventDefault(); e.stopPropagation(); setIsMaximized(!isMaximized); return; }
                 const r = t.getBoundingClientRect();
                 const x = e.clientX, y = e.clientY;
                 const insideText = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-                if (!insideText) { e.preventDefault(); e.stopPropagation(); setIsMaximized(v => !v); return; }
-                // 判断是否在“外圈框”区域：靠近边缘的环（阈值 24px）
+                if (!insideText) { e.preventDefault(); e.stopPropagation(); setIsMaximized(!isMaximized); return; }
+                // 判断是否在"外圈框"区域：靠近边缘的环（阈值 24px）
                 const edgeDist = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
                 if (edgeDist <= 24) {
                   e.preventDefault();
                   e.stopPropagation();
-                  setIsMaximized(v => !v);
+                  setIsMaximized(!isMaximized);
                 }
               } catch {}
             }}
@@ -2389,7 +2432,7 @@ const AIChatDialog: React.FC = () => {
                   <DropdownMenuContent
                     align="end"
                     side="top"
-                    sideOffset={8}
+                    sideOffset={40}
                     className="w-auto min-w-[120px] rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-md"
                   >
                     <DropdownMenuItem
@@ -2502,7 +2545,8 @@ const AIChatDialog: React.FC = () => {
             style={{
               overflowY: 'auto',
               // 展开模式下不限制最大高度，让 flex-1 生效
-              maxHeight: isMaximized ? 'calc(100vh - 300px)' : showHistory && !customHeight ? undefined : customHeight ? undefined : '320px',
+              // 最大化模式下留出输入框空间
+              maxHeight: isMaximized ? 'calc(100vh - 200px)' : showHistory && !customHeight ? undefined : customHeight ? undefined : '320px',
               minHeight: customHeight ? '100px' : historyPanelMinHeight,
               // 强制细滚动条
               scrollbarWidth: 'thin',
