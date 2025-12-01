@@ -21,7 +21,7 @@ import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode, ChatMessage } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain, Copy } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain, Copy, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -125,8 +125,8 @@ const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({ butto
               className={cn(
                 "px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1",
                 button.disabled
-                  ? "bg-slate-50 text-slate-400 border-slate-100 cursor-not-allowed"
-                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50",
+                  ? "bg-transparent text-slate-400 border-slate-200 cursor-not-allowed opacity-60"
+                  : "bg-transparent text-gray-700 border-gray-200 hover:bg-gray-50/50",
                 isLoading && "cursor-wait"
               )}
               disabled={button.disabled || isLoading}
@@ -251,6 +251,7 @@ const AIChatDialog: React.FC = () => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const historyInitialHeightRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -1157,8 +1158,8 @@ const AIChatDialog: React.FC = () => {
           type="button"
           disabled={!hasText}
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white/90 px-2.5 py-1 font-medium transition-colors hover:bg-gray-50 hover:text-gray-700",
-            !hasText && "opacity-60 cursor-not-allowed hover:bg-white/90"
+            "inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-transparent px-2.5 py-1 font-medium text-gray-700 transition-colors hover:bg-gray-50/50",
+            !hasText && "opacity-60 cursor-not-allowed hover:bg-transparent"
           )}
           onClick={(event) => {
             event.stopPropagation();
@@ -1173,7 +1174,7 @@ const AIChatDialog: React.FC = () => {
         </button>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-white/95 px-2.5 py-1 font-medium text-blue-600 shadow-sm transition-colors hover:bg-blue-50 hover:text-blue-700"
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-transparent px-2.5 py-1 font-medium text-gray-700 transition-colors hover:bg-gray-50/50"
           onClick={(event) => {
             event.stopPropagation();
             handleResendMessage(message, resendInfo);
@@ -1981,6 +1982,7 @@ const AIChatDialog: React.FC = () => {
                 rows={showHistory ? 3 : 1}
               />
 
+              {/* 左侧按钮组 */}
               <div className="absolute left-2 bottom-2 flex items-center gap-2">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -2094,7 +2096,28 @@ const AIChatDialog: React.FC = () => {
                 </DropdownMenu>
               </div>
 
-              {/* 高清图片设置按钮 - Gemini Pro 和 Banana API，位于右侧按钮组最左边 */}
+              {/* 长宽比选择按钮 */}
+              <Button
+                ref={aspectButtonRef}
+                onClick={() => setIsAspectOpen(v => !v)}
+                disabled={false}
+                size="sm"
+                variant="outline"
+                className={cn(
+                  "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                  aspectRatio
+                    ? "bg-blue-50 border-blue-300 text-blue-600"
+                    : !generationStatus.isGenerating
+                      ? "hover:bg-liquid-glass-hover text-gray-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                )}
+                title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
+              >
+                <AspectRatioIcon className="h-3.5 w-3.5" />
+              </Button>
+
+              {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
               {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && (
                 <Button
                   ref={imageSizeButtonRef}
@@ -2103,7 +2126,7 @@ const AIChatDialog: React.FC = () => {
                   size="sm"
                   variant="outline"
                   className={cn(
-                    "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
+                    "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     imageSize
                       ? "bg-blue-50 border-blue-300 text-blue-600"
@@ -2111,7 +2134,7 @@ const AIChatDialog: React.FC = () => {
                         ? "hover:bg-liquid-glass-hover text-gray-700"
                         : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
-                  title={imageSize ? `图像尺寸: ${imageSize}` : "选择图像尺寸"}
+                  title={imageSize ? `分辨率: ${imageSize}` : "选择分辨率"}
                 >
                   <span className="font-medium text-[10px] leading-none">{imageSize || 'HD'}</span>
                 </Button>
@@ -2126,7 +2149,7 @@ const AIChatDialog: React.FC = () => {
                   size="sm"
                   variant="outline"
                   className={cn(
-                    "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     thinkingLevel
                       ? "bg-blue-50 border-blue-300 text-blue-600"
@@ -2139,27 +2162,6 @@ const AIChatDialog: React.FC = () => {
                   <Brain className="h-3.5 w-3.5" />
                 </Button>
               )}
-
-              {/* 长宽比选择按钮 */}
-              <Button
-                ref={aspectButtonRef}
-                onClick={() => setIsAspectOpen(v => !v)}
-                disabled={false}
-                size="sm"
-                variant="outline"
-                className={cn(
-                  "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  aspectRatio
-                    ? "bg-blue-50 border-blue-300 text-blue-600"
-                    : !generationStatus.isGenerating
-                      ? "hover:bg-liquid-glass-hover text-gray-700"
-                      : "opacity-50 cursor-not-allowed text-gray-400"
-                )}
-                title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
-              >
-                <AspectRatioIcon className="h-3.5 w-3.5" />
-              </Button>
 
               {isAspectOpen && typeof document !== 'undefined' && (
                 createPortal(
@@ -2344,23 +2346,52 @@ const AIChatDialog: React.FC = () => {
                 )}
               </Button>
 
-              {/* 统一的图片上传按钮 */}
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={false}
-                size="sm"
-                variant="outline"
-                className={cn(
-                  "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  !generationStatus.isGenerating
-                    ? "hover:bg-liquid-glass-hover text-gray-700"
-                    : "opacity-50 cursor-not-allowed text-gray-400"
-                )}
-                title="上传图片 - 单张编辑，多张融合"
-              >
-                <Image className="h-3.5 w-3.5" />
-              </Button>
+              {/* +号上传按钮 - 替换原来的上传图片按钮位置 */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={generationStatus.isGenerating}
+                    className={cn(
+                      "absolute right-12 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                      "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                      !generationStatus.isGenerating
+                        ? "hover:bg-liquid-glass-hover text-gray-700"
+                        : "opacity-50 cursor-not-allowed text-gray-400"
+                    )}
+                    title="上传文件"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    side="top"
+                    sideOffset={8}
+                    className="w-auto min-w-[120px] rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-md"
+                  >
+                    <DropdownMenuItem
+                      onClick={() => {
+                        fileInputRef.current?.click();
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer text-gray-700 hover:bg-gray-50"
+                    >
+                      <Image className="h-4 w-4" />
+                      <span>上传图片</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => {
+                        pdfInputRef.current?.click();
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer text-gray-700 hover:bg-gray-50"
+                    >
+                      <FileText className="h-4 w-4" />
+                      <span>上传PDF</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* 发送按钮 */}
               <Button
@@ -2405,6 +2436,24 @@ const AIChatDialog: React.FC = () => {
               multiple
               style={{ display: 'none' }}
               onChange={handleImageUpload}
+            />
+            {/* PDF文件输入 */}
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept="application/pdf"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                // TODO: 处理PDF上传
+                const file = e.target.files?.[0];
+                if (file) {
+                  console.log('PDF文件:', file.name);
+                  // 后续实现PDF处理逻辑
+                }
+                if (pdfInputRef.current) {
+                  pdfInputRef.current.value = '';
+                }
+              }}
             />
           </div>
 
