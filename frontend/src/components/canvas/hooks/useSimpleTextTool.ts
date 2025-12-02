@@ -378,7 +378,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   // 调整文本大小（通过改变字体大小）
   const resizeText = useCallback((textId: string, newFontSize: number) => {
     // 限制字体大小在合理范围内
-    const clampedSize = Math.max(12, Math.min(72, newFontSize));
+    const clampedSize = Math.max(12, Math.min(128, newFontSize));
     
     setTextItems(prev => prev.map(item => {
       if (item.id === textId) {
@@ -450,9 +450,9 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     // 计算缩放因子 = 当前距离 / 原始距离
     const scaleFactor = currentDistance / originalDistance;
     
-    // 限制缩放因子在合理范围内（基于12-72字体范围）
+    // 限制缩放因子在合理范围内（基于12-128字体范围）
     const minScale = 12 / originalFontSize; // 最小字体12的缩放因子
-    const maxScale = 72 / originalFontSize; // 最大字体72的缩放因子
+    const maxScale = 128 / originalFontSize; // 最大字体128的缩放因子
     const clampedScaleFactor = Math.max(minScale, Math.min(maxScale, scaleFactor));
     
     // 计算新字体大小

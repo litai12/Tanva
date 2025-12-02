@@ -598,7 +598,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 currentStyle={(window as any).tanvaTextTool?.getSelectedTextStyle?.() || {
                   fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
                   fontWeight: 'bold',
-                  fontSize: 24,
+                  fontSize: 32,
                   color: currentColor,
                   align: 'left',
                   italic: false

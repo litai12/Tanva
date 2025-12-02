@@ -3,9 +3,10 @@
  * 显示选中文本的边框和操作手柄
  */
 
-import React, { useCallback, useMemo, useRef, useEffect } from 'react';
+import React, { useCallback, useMemo, useRef, useEffect, useState } from 'react';
 import paper from 'paper';
 import { projectRectToClient, clientToProject } from '@/utils/paperCoords';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 interface TextSelectionOverlayProps {
   textItems: Array<{
@@ -24,6 +25,7 @@ interface TextSelectionOverlayProps {
   onTextResizeStart?: (textId: string, startPoint: paper.Point, direction: string) => void;
   onTextResize?: (currentPoint: paper.Point, direction: string) => void;
   onTextResizeEnd?: () => void;
+  onTextDoubleClick?: (textId: string) => void;
 }
 
 const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
@@ -37,14 +39,63 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
   onTextDragEnd,
   onTextResizeStart,
   onTextResize,
-  onTextResizeEnd
+  onTextResizeEnd,
+  onTextDoubleClick
 }) => {
   const selectedText = textItems.find(item => item.id === selectedTextId);
-  
+
+  // 监听画布状态变化
+  const zoom = useCanvasStore(state => state.zoom);
+  const panX = useCanvasStore(state => state.panX);
+  const panY = useCanvasStore(state => state.panY);
+
+  // 强制更新状态
+  const [updateKey, setUpdateKey] = useState(0);
+
   // 拖拽状态
   const isDraggingRef = useRef(false);
   const dragTypeRef = useRef<'move' | 'resize' | null>(null);
   const resizeDirectionRef = useRef<'nw' | 'ne' | 'sw' | 'se' | null>(null);
+
+  // 监听画布变化，强制更新选择框位置
+  useEffect(() => {
+    const handleUpdate = () => {
+      setUpdateKey(k => k + 1);
+    };
+
+    // 监听 paper.view 的帧更新
+    let frameId: number | null = null;
+    const onFrame = () => {
+      handleUpdate();
+    };
+
+    // 使用 requestAnimationFrame 来节流更新
+    const scheduleUpdate = () => {
+      if (frameId === null) {
+        frameId = requestAnimationFrame(() => {
+          frameId = null;
+          onFrame();
+        });
+      }
+    };
+
+    // 监听各种可能导致位置变化的事件
+    window.addEventListener('wheel', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', handleUpdate);
+
+    return () => {
+      window.removeEventListener('wheel', scheduleUpdate);
+      window.removeEventListener('resize', handleUpdate);
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, []);
+
+  // 额外监听 zoom/pan 变化
+  useEffect(() => {
+    setUpdateKey(k => k + 1);
+  }, [zoom, panX, panY]);
 
   // 计算选择框位置
   const getSelectionBounds = useCallback(() => {
@@ -68,7 +119,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
       console.warn('计算文本选择框位置失败:', error);
       return null;
     }
-  }, [selectedText]);
+  }, [selectedText, updateKey]); // 添加 updateKey 依赖
 
   const selectionBounds = useMemo(() => getSelectionBounds(), [getSelectionBounds]);
 
@@ -77,7 +128,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
     if (!paper.view || !paper.view.element) {
       return new paper.Point(clientX, clientY);
     }
-    
+
     const canvasEl = paper.view.element as HTMLCanvasElement;
     return clientToProject(canvasEl, clientX, clientY);
   }, []);
@@ -85,77 +136,88 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
   // 处理选择框边框拖拽（移动）
   const handleBorderMouseDown = useCallback((e: React.MouseEvent) => {
     if (!selectedTextId || !onTextDragStart) return;
-    
+
     e.preventDefault();
     e.stopPropagation();
-    
+
     const paperPoint = screenToPaperPoint(e.clientX, e.clientY);
     isDraggingRef.current = true;
     dragTypeRef.current = 'move';
-    
+
     onTextDragStart(selectedTextId, paperPoint);
-    console.log('🤏 开始拖拽文本边框');
   }, [selectedTextId, onTextDragStart, screenToPaperPoint]);
 
   // 处理角点拖拽（调整大小）
-  const handleCornerMouseDown = useCallback((direction: 'nw' | 'ne' | 'sw' | 'se') => 
+  const handleCornerMouseDown = useCallback((direction: 'nw' | 'ne' | 'sw' | 'se') =>
     (e: React.MouseEvent) => {
       if (!selectedTextId || !onTextResizeStart) return;
-      
+
       e.preventDefault();
       e.stopPropagation();
-      
+
       const paperPoint = screenToPaperPoint(e.clientX, e.clientY);
       isDraggingRef.current = true;
       dragTypeRef.current = 'resize';
       resizeDirectionRef.current = direction;
-      
+
       onTextResizeStart(selectedTextId, paperPoint, direction);
-      console.log('🔄 开始调整文本大小，方向:', direction);
     }, [selectedTextId, onTextResizeStart, screenToPaperPoint]);
 
-  // 全局鼠标移动事件
+  // 全局鼠标移动和释放事件
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current) return;
-      
+
       const paperPoint = screenToPaperPoint(e.clientX, e.clientY);
-      
+
       if (dragTypeRef.current === 'move' && onTextDrag) {
         onTextDrag(paperPoint);
+        // 拖拽时更新选择框位置
+        setUpdateKey(k => k + 1);
       } else if (dragTypeRef.current === 'resize' && onTextResize && resizeDirectionRef.current) {
         onTextResize(paperPoint, resizeDirectionRef.current);
+        // 调整大小时更新选择框位置
+        setUpdateKey(k => k + 1);
       }
     };
 
     const handleMouseUp = () => {
       if (isDraggingRef.current) {
         const wasResizing = dragTypeRef.current === 'resize';
-        
+
         isDraggingRef.current = false;
         dragTypeRef.current = null;
         resizeDirectionRef.current = null;
-        
+
         if (wasResizing && onTextResizeEnd) {
           onTextResizeEnd();
         } else if (onTextDragEnd) {
           onTextDragEnd();
         }
-        
-        console.log('✋ 结束文本操作');
+
+        // 操作结束后更新选择框位置
+        setUpdateKey(k => k + 1);
       }
     };
 
-    if (isDraggingRef.current) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
+    // 始终监听这些事件
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
   }, [onTextDrag, onTextDragEnd, onTextResize, onTextResizeEnd, screenToPaperPoint]);
+
+  // 处理双击进入编辑
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (selectedTextId && onTextDoubleClick) {
+      onTextDoubleClick(selectedTextId);
+    }
+  }, [selectedTextId, onTextDoubleClick]);
 
   // 如果没有选中文本或正在编辑，不显示选择框
   if (!selectedTextId || !selectedText || editingTextId === selectedTextId || !selectionBounds) {
@@ -176,32 +238,18 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         boxSizing: 'border-box'
       }}
     >
-      {/* 可视边框（不拦截事件） */}
+      {/* 整个选择框区域可拖拽，双击进入编辑 */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
+          cursor: 'move',
+          pointerEvents: 'auto',
           border: '1px solid #3b82f6',
-          pointerEvents: 'none'
+          boxSizing: 'border-box'
         }}
-      />
-
-      {/* 四条边的命中区域：仅在边框上显示移动光标并响应拖拽 */}
-      <div
-        style={{ position: 'absolute', left: -3, top: -3, width: `calc(100% + 6px)`, height: 6, cursor: 'move', pointerEvents: 'auto' }}
         onMouseDown={handleBorderMouseDown}
-      />
-      <div
-        style={{ position: 'absolute', left: -3, bottom: -3, width: `calc(100% + 6px)`, height: 6, cursor: 'move', pointerEvents: 'auto' }}
-        onMouseDown={handleBorderMouseDown}
-      />
-      <div
-        style={{ position: 'absolute', left: -3, top: 0, width: 6, height: '100%', cursor: 'move', pointerEvents: 'auto' }}
-        onMouseDown={handleBorderMouseDown}
-      />
-      <div
-        style={{ position: 'absolute', right: -3, top: 0, width: 6, height: '100%', cursor: 'move', pointerEvents: 'auto' }}
-        onMouseDown={handleBorderMouseDown}
+        onDoubleClick={handleDoubleClick}
       />
       {/* 四个角的方块手柄 - 白色填充，蓝色边框 */}
       {(() => { const handleSize = 6; const offset = -(handleSize / 2); return (

@@ -3,20 +3,36 @@
  * 负责管理AI对话的上下文和历史记录
  */
 
-import type { 
-  ConversationContext, 
-  OperationHistory, 
-  ImageHistory, 
-  IContextManager, 
-  ContextConfig 
+import type {
+  ConversationContext,
+  OperationHistory,
+  ImageHistory,
+  IContextManager,
+  ContextConfig
 } from '@/types/context';
 import type { ChatMessage } from '@/stores/aiChatStore';
 import { DEFAULT_CONTEXT_CONFIG } from '@/types/context';
+
+// 内存优化配置
+const MEMORY_OPTIMIZATION = {
+  maxSessions: 20,                    // 最多保留20个会话
+  maxMessagesPerSession: 100,         // 每个会话最多100条消息
+  maxImageCacheSize: 5 * 1024 * 1024, // 图片缓存最大5MB
+  cleanupIntervalMs: 5 * 60 * 1000,   // 每5分钟清理一次
+  sessionTimeoutMs: 24 * 60 * 60 * 1000, // 24小时超时
+};
+
+// 检查是否为 base64 数据
+const isBase64Data = (data?: string | null): boolean => {
+  if (!data) return false;
+  return data.startsWith('data:image/') || (data.length > 10000 && !data.startsWith('http'));
+};
 
 class ContextManager implements IContextManager {
   private contexts: Map<string, ConversationContext> = new Map();
   private currentSessionId: string | null = null;
   private config: ContextConfig;
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
 
   private generateDefaultSessionName(): string {
     const count = this.contexts.size + 1;
@@ -136,12 +152,113 @@ class ContextManager implements IContextManager {
   constructor(config: ContextConfig = DEFAULT_CONTEXT_CONFIG) {
     this.config = config;
     console.log('🧠 上下文管理器初始化完成');
+
+    // 启动定期清理任务
+    this.startCleanupInterval();
+  }
+
+  /**
+   * 启动定期清理任务
+   */
+  private startCleanupInterval(): void {
+    if (typeof window === 'undefined') return;
+
+    // 清除之前的定时器
+    if (this.cleanupIntervalId) {
+      clearInterval(this.cleanupIntervalId);
+    }
+
+    // 每5分钟执行一次清理
+    this.cleanupIntervalId = setInterval(() => {
+      this.performMemoryCleanup();
+    }, MEMORY_OPTIMIZATION.cleanupIntervalMs);
+
+    console.log('🧹 [ContextManager] 启动定期内存清理任务');
+  }
+
+  /**
+   * 执行内存清理
+   */
+  private performMemoryCleanup(): void {
+    const before = this.contexts.size;
+    this.cleanupOldContexts();
+    this.trimLargeContexts();
+    this.enforceSessionLimit();
+
+    const after = this.contexts.size;
+    if (before !== after) {
+      console.log(`🧹 [ContextManager] 清理完成: ${before} -> ${after} 个会话`);
+    }
+  }
+
+  /**
+   * 裁剪大型上下文中的消息
+   */
+  private trimLargeContexts(): void {
+    for (const [sessionId, context] of this.contexts.entries()) {
+      // 清理消息中的大型 base64 数据
+      let trimmedCount = 0;
+      context.messages = context.messages.map(msg => {
+        // 如果消息有 imageData 是 base64 且很大，移除它
+        if (msg.imageData && isBase64Data(msg.imageData) && msg.imageData.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+          trimmedCount++;
+          return { ...msg, imageData: undefined };
+        }
+        return msg;
+      });
+
+      // 限制消息数量
+      if (context.messages.length > MEMORY_OPTIMIZATION.maxMessagesPerSession) {
+        const excess = context.messages.length - MEMORY_OPTIMIZATION.maxMessagesPerSession;
+        context.messages = context.messages.slice(excess);
+        console.log(`🧹 [ContextManager] 会话 ${sessionId} 裁剪了 ${excess} 条旧消息`);
+      }
+
+      // 清理缓存的大型图片数据
+      if (context.cachedImages?.latest && isBase64Data(context.cachedImages.latest)) {
+        if (context.cachedImages.latest.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+          // 如果有 remoteUrl，清除 base64 数据
+          if (context.cachedImages.latestRemoteUrl) {
+            context.cachedImages.latest = null;
+            console.log(`🧹 [ContextManager] 会话 ${sessionId} 清理了大型图片缓存（有远程URL）`);
+          }
+        }
+      }
+
+      if (trimmedCount > 0) {
+        console.log(`🧹 [ContextManager] 会话 ${sessionId} 清理了 ${trimmedCount} 条消息的大型图片数据`);
+      }
+    }
+  }
+
+  /**
+   * 强制执行会话数量限制
+   */
+  private enforceSessionLimit(): void {
+    if (this.contexts.size <= MEMORY_OPTIMIZATION.maxSessions) return;
+
+    // 按最后活动时间排序，删除最旧的会话
+    const sorted = Array.from(this.contexts.entries())
+      .sort((a, b) => a[1].lastActivity.getTime() - b[1].lastActivity.getTime());
+
+    const toDelete = sorted.slice(0, this.contexts.size - MEMORY_OPTIMIZATION.maxSessions);
+
+    toDelete.forEach(([sessionId, context]) => {
+      // 不删除当前活跃的会话
+      if (sessionId !== this.currentSessionId) {
+        this.contexts.delete(sessionId);
+        console.log(`🧹 [ContextManager] 删除超出限制的会话: ${sessionId}`);
+      }
+    });
   }
 
   /**
    * 创建新会话
    */
   createSession(name?: string): string {
+    // 先执行清理，确保不超出限制
+    this.enforceSessionLimit();
+
     // 检查是否已有活跃的会话
     if (this.currentSessionId && this.contexts.has(this.currentSessionId)) {
       const existingContext = this.contexts.get(this.currentSessionId);
@@ -154,7 +271,7 @@ class ContextManager implements IContextManager {
         }
       }
     }
-    
+
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const context: ConversationContext = {
       sessionId,
@@ -180,11 +297,11 @@ class ContextManager implements IContextManager {
         iterationCount: 0
       }
     };
-    
+
     this.contexts.set(sessionId, context);
     this.currentSessionId = sessionId;
-    
-    console.log('🧠 创建新会话上下文:', sessionId);
+
+    console.log('🧠 创建新会话上下文:', sessionId, `(总数: ${this.contexts.size})`);
     return sessionId;
   }
 
@@ -644,6 +761,7 @@ class ContextManager implements IContextManager {
 
   /**
    * 🖼️ 缓存最新生成的图像
+   * 内存优化：优先使用 remoteUrl，避免存储大的 base64 数据
    */
   cacheLatestImage(
     imageData: string | null | undefined,
@@ -659,9 +777,34 @@ class ContextManager implements IContextManager {
 
     const previous = this.ensureCachedImages(context);
 
-    const normalizedImageData = typeof imageData === 'string' && imageData.length > 0
-      ? imageData
-      : previous.latest;
+    // 内存优化：如果有 remoteUrl，优先使用它，不存储 base64
+    const hasRemoteUrl = options?.remoteUrl && options.remoteUrl.startsWith('http');
+    const normalizedRemoteUrl = options?.remoteUrl ?? previous.latestRemoteUrl ?? null;
+
+    // 只在没有 remoteUrl 的情况下才考虑存储 imageData
+    // 并且限制大小（超过 5MB 的 base64 不存储）
+    let normalizedImageData: string | null = null;
+    if (!hasRemoteUrl) {
+      const candidateData = typeof imageData === 'string' && imageData.length > 0
+        ? imageData
+        : previous.latest;
+
+      // 内存优化：如果数据是 base64 且超过阈值，不存储
+      if (candidateData && isBase64Data(candidateData)) {
+        if (candidateData.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+          console.log('⚠️ [ContextManager] 跳过大型 base64 缓存，等待远程 URL', {
+            size: (candidateData.length / 1024 / 1024).toFixed(2) + 'MB'
+          });
+          // 保留之前的 remoteUrl（如果有的话）
+          normalizedImageData = null;
+        } else {
+          normalizedImageData = candidateData;
+        }
+      } else {
+        normalizedImageData = candidateData;
+      }
+    }
+
     const normalizedImageId = typeof imageId === 'string' && imageId.length > 0
       ? imageId
       : previous.latestId;
@@ -671,10 +814,8 @@ class ContextManager implements IContextManager {
 
     const normalizedBounds = options?.bounds ?? previous.latestBounds ?? null;
     const normalizedLayerId = options?.layerId ?? previous.latestLayerId ?? null;
-    const normalizedRemoteUrl = options && 'remoteUrl' in options
-      ? options.remoteUrl ?? null
-      : previous.latestRemoteUrl ?? null;
 
+    // 必须有 URL 或者 imageData，以及 ID 和 prompt
     if ((!normalizedImageData && !normalizedRemoteUrl) || !normalizedImageId || !normalizedPrompt) {
       console.warn('⚠️ 缓存图像失败：缺少必要字段', {
         sessionId: context.sessionId,
@@ -682,14 +823,15 @@ class ContextManager implements IContextManager {
         provided: {
           hasImageData: typeof imageData === 'string' && imageData.length > 0,
           hasImageId: typeof imageId === 'string' && imageId.length > 0,
-          hasPrompt: typeof prompt === 'string' && prompt.length > 0
+          hasPrompt: typeof prompt === 'string' && prompt.length > 0,
+          hasRemoteUrl: !!normalizedRemoteUrl
         }
       });
       return;
     }
 
     context.cachedImages = {
-      latest: normalizedImageData ?? null,
+      latest: normalizedImageData,
       latestId: normalizedImageId,
       latestPrompt: normalizedPrompt,
       timestamp: new Date(),
@@ -706,7 +848,8 @@ class ContextManager implements IContextManager {
       sessionId: context.sessionId,
       bounds: normalizedBounds,
       layerId: normalizedLayerId,
-      hasRemoteUrl: !!normalizedRemoteUrl
+      hasRemoteUrl: !!normalizedRemoteUrl,
+      usingRemoteUrlOnly: hasRemoteUrl && !normalizedImageData
     });
 
     // 通知: 缓存更新

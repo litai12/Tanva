@@ -296,7 +296,7 @@ class PaperSaveService {
             style: {
               fontFamily: style?.fontFamily || 'sans-serif',
               fontWeight: style?.fontWeight === 'bold' ? 'bold' : 'normal',
-              fontSize: style?.fontSize ?? 24,
+              fontSize: style?.fontSize ?? 32,
               color,
               align: style?.align || 'left',
               italic: !!style?.italic,

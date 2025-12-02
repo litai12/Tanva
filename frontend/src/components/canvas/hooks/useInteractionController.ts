@@ -888,12 +888,19 @@ export const useInteractionController = ({
       const active = document.activeElement as Element | null;
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
 
-      // 文本工具优先处理
-      if (currentDrawMode === 'text' && latestSimpleTextTool) {
-        const handled = latestSimpleTextTool.handleKeyDown(event);
-        if (handled) {
-          event.preventDefault();
-          return;
+      // 文本工具优先处理（无论当前是什么模式，只要有选中的文本）
+      if (latestSimpleTextTool) {
+        // 检查是否有选中或正在编辑的文本
+        const hasSelectedText = !!latestSimpleTextTool.selectedTextId;
+        const isEditingText = !!latestSimpleTextTool.editingTextId;
+
+        // 如果在文本模式下，或者有选中的文本，让文本工具处理键盘事件
+        if (currentDrawMode === 'text' || hasSelectedText || isEditingText) {
+          const handled = latestSimpleTextTool.handleKeyDown(event);
+          if (handled) {
+            event.preventDefault();
+            return;
+          }
         }
       }
 

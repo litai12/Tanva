@@ -123,21 +123,22 @@ export const useCanvasStore = create<CanvasState>()(
       {
         name: 'canvas-settings', // localStorage 键名
         storage: createJSONStorage<Partial<CanvasState>>(() => createSafeStorage({ storageName: 'canvas-settings' })),
-        // 持久化关键的画布偏好（视口平移改为仅会话级，不进入持久化，避免频繁写入）
+        // 内存优化：只持久化用户偏好设置，不持久化频繁变化的视口状态
+        // zoom, panX, panY 会频繁变化（缩放、拖拽时），不应该每次都写入 localStorage
         partialize: (state) => ({
+          // 网格偏好（不常变化）
           gridSize: state.gridSize,
           gridStyle: state.gridStyle,
           gridDotSize: state.gridDotSize,
           gridColor: state.gridColor,
           gridBgColor: state.gridBgColor,
           gridBgEnabled: state.gridBgEnabled,
-          zoom: state.zoom,
-          panX: state.panX,
-          panY: state.panY,
+          // 单位偏好（不常变化）
           units: state.units,
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,
-          hasInitialCenterApplied: state.hasInitialCenterApplied,
+          // 注意：不再持久化 zoom, panX, panY, hasInitialCenterApplied
+          // 这些值会在每次缩放/拖拽时频繁变化，持久化会导致性能问题
         }) as Partial<CanvasState>,
       }
     )

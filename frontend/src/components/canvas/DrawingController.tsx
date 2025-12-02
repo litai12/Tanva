@@ -89,11 +89,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [isGroupCapturePending, setIsGroupCapturePending] = useState(false);
   const [modelCapturePending, setModelCapturePending] = useState<Record<string, boolean>>({});
   const [contextMenuState, setContextMenuState] = useState<CanvasContextMenuState | null>(null);
+
+  // 内存优化：使用 ref 存储频繁变化的值，避免闭包重建
   const zoomRef = useRef(zoom);
+  const panRef = useRef({ x: panX, y: panY });
 
   useEffect(() => {
     zoomRef.current = zoom;
-  }, [zoom]);
+    panRef.current = { x: panX, y: panY };
+  }, [zoom, panX, panY]);
 
   // 初始化图层管理器
   useEffect(() => {
@@ -211,6 +215,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       onImageDeselect: () => console.log('取消图片选择')
     }
   });
+
+  // 内存优化：使用 ref 存储实例数组，避免大型闭包
+  const imageInstancesRef = useRef(imageTool.imageInstances);
+  imageInstancesRef.current = imageTool.imageInstances;
 
   // ========== 初始化快速图片上传Hook ==========
   const quickImageUpload = useQuickImageUpload({
@@ -464,6 +472,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     },
     setDrawMode
   });
+
+  // 内存优化：3D模型实例也使用 ref
+  const model3DInstancesRef = useRef(model3DTool.model3DInstances);
+  useEffect(() => {
+    model3DInstancesRef.current = model3DTool.model3DInstances;
+  }, [model3DTool.model3DInstances]);
 
   useEffect(() => {
     const handleInsertModelFromLibrary = (event: CustomEvent) => {
@@ -867,12 +881,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 延迟一点，确保UI状态稳定
       await new Promise(resolve => setTimeout(resolve, 100));
 
+      // 使用 ref 获取最新实例，避免闭包捕获大量数据
+      const currentImageInstances = imageInstancesRef.current;
+      const currentModel3DInstances = model3DInstancesRef.current;
+
       // 调试信息
       console.log('截图前的状态:', {
-        imageCount: imageTool.imageInstances.length,
-        model3DCount: model3DTool.model3DInstances.length,
-        images: imageTool.imageInstances,
-        models: model3DTool.model3DInstances
+        imageCount: currentImageInstances.length,
+        model3DCount: currentModel3DInstances.length,
+        images: currentImageInstances,
+        models: currentModel3DInstances
       });
 
       // 使用带回调的截图模式，同时下载和传入AI对话框
@@ -893,8 +911,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       };
 
       const result = await AutoScreenshotService.captureAutoScreenshot(
-        imageTool.imageInstances,
-        model3DTool.model3DInstances,
+        currentImageInstances,
+        currentModel3DInstances,
         {
           format: 'png',
           quality: 0.92,
@@ -906,13 +924,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 截图完成后的回调，直接传入AI聊天
           onComplete: (dataUrl: string, filename: string) => {
             console.log('🎨 截图完成，同时下载文件和传入AI对话框...', { filename });
-            
+
             // 将截图设置为AI编辑源图片
             setSourceImageForEditing(dataUrl);
-            
+
             // 显示AI对话框
             showAIDialog();
-            
+
             console.log('✅ 截图已下载到本地并传入AI对话框');
           }
         }
@@ -940,8 +958,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     currentSelectedPaths,
     currentSelectedImageIds,
     currentSelectedModelIds,
-    imageTool.imageInstances,
-    model3DTool.model3DInstances,
+    // 移除 imageTool.imageInstances 和 model3DTool.model3DInstances 依赖
+    // 改用 refs，避免每次实例变化都重建回调
     setDrawMode,
     setSourceImageForEditing,
     showAIDialog
@@ -2729,6 +2747,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         onTextResizeStart={simpleTextTool.startTextResize}
         onTextResize={simpleTextTool.resizeTextDrag}
         onTextResizeEnd={simpleTextTool.endTextResize}
+        onTextDoubleClick={simpleTextTool.startEditText}
       />
 
       {/* 简单文本编辑器 */}

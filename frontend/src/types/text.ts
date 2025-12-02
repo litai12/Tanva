@@ -227,7 +227,7 @@ export const COMMON_FONTS = [
 // 默认文本样式
 export const DEFAULT_TEXT_STYLE: TextStyle = {
   fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", sans-serif',
-  fontSize: 72,
+  fontSize: 32,
   fontColor: '#000000',
   fontWeight: 'normal',
   fontStyle: 'normal',
@@ -270,7 +270,7 @@ export const DEFAULT_TEXT_STYLE: TextStyle = {
 export const DEFAULT_TEXT_EDITOR_CONFIG: TextEditorConfig = {
   minFontSize: 8,
   maxFontSize: 200,
-  defaultFontSize: 72,
+  defaultFontSize: 32,
   defaultFontFamily: 'Arial',
   defaultColor: '#000000',
   enableRichText: true,

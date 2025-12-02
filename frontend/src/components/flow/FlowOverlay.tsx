@@ -1523,7 +1523,8 @@ function FlowInner() {
         }
       }
     } catch {}
-  }, [isValidConnection, canAcceptConnection, setEdges, rf, setNodes, isTextHandle]);
+    setIsConnecting(false);
+  }, [isValidConnection, canAcceptConnection, setEdges, rf, setNodes, isTextHandle, setIsConnecting]);
 
   // 监听来自节点的本地数据写入（TextPrompt）
   React.useEffect(() => {
@@ -1992,6 +1993,7 @@ function FlowInner() {
 
   // 连接状态回调
   const onConnectStart = React.useCallback(() => setIsConnecting(true), [setIsConnecting]);
+  const onConnectStop = React.useCallback(() => setIsConnecting(false), [setIsConnecting]);
   const onConnectEnd = React.useCallback(() => setIsConnecting(false), [setIsConnecting]);
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
@@ -2360,6 +2362,7 @@ function FlowInner() {
         }}
         onConnect={onConnect}
         onConnectStart={onConnectStart}
+        onConnectStop={onConnectStop}
         onConnectEnd={onConnectEnd}
         onPaneClick={onPaneClick}
         onEdgeDoubleClick={handleEdgeDoubleClick}

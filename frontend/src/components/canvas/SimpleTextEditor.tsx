@@ -85,7 +85,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
       // 计算实际显示尺寸（考虑缩放）
       const rawFontSize = getTextStyle().fontSize * zoom;
       // 限制字体大小在合理范围内
-      const clampedFontSize = Math.min(Math.max(rawFontSize, 12), 72);
+      const clampedFontSize = Math.min(Math.max(rawFontSize, 12), 128);
       const minWidth = Math.max(bounds.width * zoom, 150);
       const minHeight = Math.max(bounds.height * zoom, clampedFontSize * 1.5);
 
@@ -201,8 +201,8 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
 
   // 计算显示字体大小（应用缩放，但设置合理的上下限）
   const rawDisplayFontSize = textStyle.fontSize * zoom;
-  // 限制显示字体大小在 12px - 72px 之间，避免过大或过小
-  const displayFontSize = Math.min(Math.max(rawDisplayFontSize, 12), 72);
+  // 限制显示字体大小在 12px - 128px 之间，避免过大或过小
+  const displayFontSize = Math.min(Math.max(rawDisplayFontSize, 12), 128);
 
   return (
     <textarea
