@@ -3006,7 +3006,6 @@ function FlowInner() {
                       >
                         <Upload size={16} strokeWidth={2} />
                       </button>
-                      <input ref={importInputRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={(e) => handleImportFiles(e.target.files)} />
                     </div>
                     <div style={{ display:'flex', alignItems:'center', padding: 2, border: '1px solid #d4d8de', borderRadius: 999, background: '#fff' }}>
                       <button
@@ -3174,6 +3173,13 @@ function FlowInner() {
             ) : null}
           </div>
         )}
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json"
+          style={{ display: 'none' }}
+          onChange={(e) => handleImportFiles(e.target.files)}
+        />
       </div>
     </div>
   );
