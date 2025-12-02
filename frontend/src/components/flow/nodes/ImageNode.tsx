@@ -7,6 +7,8 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 
+const RESIZE_EDGE_THICKNESS = 8;
+
 const lineControlConfigs = [
   {
     position: 'top',
@@ -17,7 +19,7 @@ const lineControlConfigs = [
       left: 0,
       right: 'auto',
       width: '100%',
-      height: 18,
+      height: RESIZE_EDGE_THICKNESS,
       transform: 'none',
       cursor: 'ns-resize',
       pointerEvents: 'auto'
@@ -32,39 +34,9 @@ const lineControlConfigs = [
       left: 0,
       right: 'auto',
       width: '100%',
-      height: 18,
+      height: RESIZE_EDGE_THICKNESS,
       transform: 'none',
       cursor: 'ns-resize',
-      pointerEvents: 'auto'
-    }
-  },
-  {
-    position: 'left',
-    icon: '↔',
-    style: {
-      top: 0,
-      bottom: 'auto',
-      left: 0,
-      right: 'auto',
-      width: 18,
-      height: '100%',
-      transform: 'none',
-      cursor: 'ew-resize',
-      pointerEvents: 'auto'
-    }
-  },
-  {
-    position: 'right',
-    icon: '↔',
-    style: {
-      top: 0,
-      bottom: 'auto',
-      left: 'auto',
-      right: 0,
-      width: 18,
-      height: '100%',
-      transform: 'none',
-      cursor: 'ew-resize',
       pointerEvents: 'auto'
     }
   }
