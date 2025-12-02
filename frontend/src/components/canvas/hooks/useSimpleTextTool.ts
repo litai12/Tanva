@@ -8,6 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useToolStore } from '@/stores/toolStore';
 import type { TextAssetSnapshot } from '@/types/project';
 
 interface TextStyle {
@@ -39,7 +40,8 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const textIdCounter = useRef(0);
-  
+  const setDrawMode = useToolStore(state => state.setDrawMode);
+
   // 双击检测
   const lastClickTimeRef = useRef(0);
   const lastClickTargetRef = useRef<string | null>(null);
@@ -64,7 +66,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     // 系统默认：中文优先选择黑体族（Heiti/SimHei），英文字体回退 sans-serif
     fontFamily: '"Heiti SC", "SimHei", "黑体", sans-serif',
     fontWeight: 'bold',
-    fontSize: 72,
+    fontSize: 32,
     color: '#000000',
     align: 'left',
     italic: false
@@ -132,10 +134,13 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     setSelectedTextId(id);
     setEditingTextId(id);
 
+    // 创建文本后立即切换到选择模式，防止继续点击生成文字
+    setDrawMode('select');
+
     logger.debug(`📝 创建简单文本: ${id}`, { content, position: point });
     try { historyService.commit('create-text').catch(() => {}); } catch {}
     return textItem;
-  }, [currentColor, ensureDrawingLayer]);
+  }, [currentColor, ensureDrawingLayer, setDrawMode]);
 
   // 选择文本
   const selectText = useCallback((textId: string) => {
@@ -219,22 +224,41 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
 
   // 删除文本
   const deleteText = useCallback((textId: string) => {
-    setTextItems(prev => {
-      const item = prev.find(item => item.id === textId);
-      if (item) {
-        item.paperText.remove();
+    const itemToDelete = textItems.find(item => item.id === textId);
+    if (!itemToDelete) {
+      console.warn('删除文本失败：未找到文本 ID', textId);
+      return;
+    }
+
+    // 先移除 Paper.js 对象
+    try {
+      if (itemToDelete.paperText && itemToDelete.paperText.isInserted()) {
+        itemToDelete.paperText.remove();
       }
-      return prev.filter(item => item.id !== textId);
-    });
-    
+    } catch (error) {
+      console.warn('删除 Paper.js 文本对象失败:', error);
+    }
+
+    // 更新状态
+    setTextItems(prev => prev.filter(item => item.id !== textId));
+
     if (selectedTextId === textId) {
       setSelectedTextId(null);
     }
     if (editingTextId === textId) {
       setEditingTextId(null);
     }
+
+    // 发送删除成功的 toast 通知
+    try {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '文本已删除', type: 'success' }
+      }));
+    } catch {}
+
+    console.log('🗑️ 已删除文本:', textId);
     try { historyService.commit('delete-text').catch(() => {}); } catch {}
-  }, [selectedTextId, editingTextId]);
+  }, [selectedTextId, editingTextId, textItems]);
 
   // 更新文本样式
   const updateTextStyle = useCallback((textId: string, updates: Partial<TextStyle>) => {
@@ -320,18 +344,36 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
 
     const deltaX = currentPoint.x - dragStartRef.current.x;
     const deltaY = currentPoint.y - dragStartRef.current.y;
-    
-    const newPosition = dragStartRef.current.textPosition.add(new paper.Point(deltaX, deltaY));
-    moveText(selectedTextId, newPosition);
-  }, [isDragging, selectedTextId, moveText]);
+
+    // 基于拖拽开始时的位置计算新位置
+    const newPosition = new paper.Point(
+      dragStartRef.current.textPosition.x + deltaX,
+      dragStartRef.current.textPosition.y + deltaY
+    );
+
+    // 直接更新 Paper.js 对象位置（不通过 moveText 避免状态更新）
+    const textItem = textItems.find(item => item.id === selectedTextId);
+    if (textItem) {
+      textItem.paperText.position = newPosition;
+    }
+  }, [isDragging, selectedTextId, textItems]);
 
   // 结束拖拽文本
   const endTextDrag = useCallback(() => {
+    // 同步最终位置到状态
+    if (selectedTextId && dragStartRef.current) {
+      const textItem = textItems.find(item => item.id === selectedTextId);
+      if (textItem) {
+        // 使用 Paper.js 对象的当前位置更新状态
+        moveText(selectedTextId, textItem.paperText.position);
+      }
+    }
+
     setIsDragging(false);
     dragStartRef.current = null;
     console.log('✋ 结束拖拽文本');
     try { historyService.commit('move-text').catch(() => {}); } catch {}
-  }, []);
+  }, [selectedTextId, textItems, moveText]);
 
   // 调整文本大小（通过改变字体大小）
   const resizeText = useCallback((textId: string, newFontSize: number) => {
@@ -572,7 +614,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
 
   // 处理键盘事件
   const handleKeyDown = useCallback((event: KeyboardEvent) => {
-    // 删除键
+    // 删除键 - 仅在非编辑模式下删除选中的文本
     if ((event.key === 'Delete' || event.key === 'Backspace') && selectedTextId && !editingTextId) {
       event.preventDefault();
       deleteText(selectedTextId);
@@ -586,15 +628,33 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       return true;
     }
 
-    // Enter键完成编辑
-    if (event.key === 'Enter' && editingTextId) {
+    // Enter键完成编辑（不加 Shift）
+    if (event.key === 'Enter' && editingTextId && !event.shiftKey) {
       event.preventDefault();
       stopEditText();
       return true;
     }
 
+    // Ctrl+A / Cmd+A 全选所有文本（仅在非编辑模式下）
+    if (event.key === 'a' && (event.ctrlKey || event.metaKey) && !editingTextId) {
+      // 如果有选中的文本，全选其内容（进入编辑模式）
+      if (selectedTextId) {
+        event.preventDefault();
+        startEditText(selectedTextId);
+        // 延迟选择全部文本，等待编辑器渲染
+        setTimeout(() => {
+          const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+          if (textarea) {
+            textarea.focus();
+            textarea.select();
+          }
+        }, 50);
+        return true;
+      }
+    }
+
     return false;
-  }, [selectedTextId, editingTextId, deleteText, stopEditText]);
+  }, [selectedTextId, editingTextId, deleteText, stopEditText, startEditText]);
 
   // 主动创建文本的方法
   const createTextAtPoint = useCallback((point?: paper.Point) => {
