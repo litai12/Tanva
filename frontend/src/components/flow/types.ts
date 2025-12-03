@@ -1,6 +1,6 @@
 import type { Node, Edge } from 'reactflow';
 
-export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'storyboardSplit';
+export type NodeKind = 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generate4' | 'generatePro' | 'storyboardSplit';
 
 export type TextPromptData = {
   text?: string;
@@ -23,6 +23,14 @@ export type GenerateData = {
   error?: string;
   aspectRatio?: string;
   presetPrompt?: string;
+};
+
+export type GenerateProData = {
+  status?: GenerateStatus;
+  imageData?: string; // base64 string
+  error?: string;
+  aspectRatio?: string;
+  prompts?: string[]; // 多个提示词，依次叠加
 };
 
 export type Generate4Data = {
@@ -59,7 +67,7 @@ export type StoryboardSplitData = {
   boxH?: number;
 };
 
-export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | Generate4Data | TextChatData | StoryboardSplitData;
+export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | GenerateData | GenerateProData | Generate4Data | TextChatData | StoryboardSplitData;
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;

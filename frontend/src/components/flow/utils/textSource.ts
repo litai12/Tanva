@@ -4,7 +4,7 @@ type NodeData = Record<string, unknown>;
 
 const STORYBOARD_HANDLE_PREFIX = 'prompt';
 
-const TEXT_KEYS = ['text', 'prompt', 'expandedText', 'responseText', 'manualInput'];
+const TEXT_KEYS = ['text', 'prompt', 'expandedText', 'responseText', 'manualInput', 'presetPrompt'];
 
 const toNodeData = (node?: Node | null): NodeData => (node?.data as NodeData) || {};
 
