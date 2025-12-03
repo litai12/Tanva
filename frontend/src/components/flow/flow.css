@@ -62,6 +62,13 @@
   font-weight: 400;
 }
 
+/* React Flow 默认禁用了节点文本选择，文本便笺需要能复制/全选 */
+.tanva-textnote,
+.tanva-textnote * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .tanva-textnote .tanva-textnote-handle {
   opacity: 0;
   pointer-events: none;
