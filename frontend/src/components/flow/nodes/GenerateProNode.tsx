@@ -6,6 +6,19 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { cn } from '@/lib/utils';
+
+// 长宽比图标
+const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <rect x="2" y="4" width="12" height="8" stroke="currentColor" strokeWidth="1.5" fill="none" rx="1" />
+  </svg>
+);
 
 type Props = {
   id: string;
@@ -28,12 +41,18 @@ const DEFAULT_IMAGE_WIDTH = 296;
 
 export default function GenerateProNode({ id, data, selected }: Props) {
   const { status, error } = data;
-  const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const src = React.useMemo(
+    () => (data.imageData ? `data:image/png;base64,${data.imageData}` : undefined),
+    [data.imageData]
+  );
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const [isResizing, setIsResizing] = React.useState(false);
   const [resizeCorner, setResizeCorner] = React.useState<string | null>(null);
+  const [isTextFocused, setIsTextFocused] = React.useState(false); // 文字输入框是否聚焦
+  const [isAspectMenuOpen, setIsAspectMenuOpen] = React.useState(false);
+  const aspectMenuRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // 图片宽度
@@ -45,29 +64,30 @@ export default function GenerateProNode({ id, data, selected }: Props) {
     return p.length > 0 ? p : [''];
   }, [data.prompts]);
 
-  // 使用全局图片历史记录
+  // 使用全局图片历史记录 - 只在预览时才获取
   const projectId = useProjectContentStore((state) => state.projectId);
-  const history = useImageHistoryStore((state) => state.history);
-  const projectHistory = React.useMemo(() => {
-    if (!projectId) return history;
-    return history.filter((item) => {
-      const pid = item.projectId ?? null;
-      return pid === projectId || pid === null;
-    });
-  }, [history, projectId]);
-  const allImages = React.useMemo(
-    () =>
-      projectHistory.map(
-        (item) =>
-          ({
-            id: item.id,
-            src: item.src,
-            title: item.title,
-            timestamp: item.timestamp,
-          }) as ImageItem,
-      ),
-    [projectHistory],
-  );
+
+  // 只在预览模式下才获取历史记录，避免不必要的重渲染
+  const allImages = React.useMemo(() => {
+    if (!preview) return [];
+    const history = useImageHistoryStore.getState().history;
+    const projectHistory = projectId
+      ? history.filter((item) => {
+          const pid = item.projectId ?? null;
+          return pid === projectId || pid === null;
+        })
+      : history;
+    return projectHistory.map(
+      (item) =>
+        ({
+          id: item.id,
+          src: item.src,
+          title: item.title,
+          timestamp: item.timestamp,
+        }) as ImageItem,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview, projectId]);
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
@@ -125,6 +145,37 @@ export default function GenerateProNode({ id, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
+  // 长宽比选项
+  const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(() => ([
+    { label: '自动', value: '' },
+    { label: '1:1', value: '1:1' },
+    { label: '3:4', value: '3:4' },
+    { label: '4:3', value: '4:3' },
+    { label: '2:3', value: '2:3' },
+    { label: '3:2', value: '3:2' },
+    { label: '4:5', value: '4:5' },
+    { label: '5:4', value: '5:4' },
+    { label: '9:16', value: '9:16' },
+    { label: '16:9', value: '16:9' },
+    { label: '21:9', value: '21:9' },
+  ]), []);
+
+  // 更新长宽比
+  const updateAspectRatio = React.useCallback((ratio: string) => {
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: {
+          id,
+          patch: {
+            aspectRatio: ratio || undefined
+          }
+        }
+      })
+    );
+  }, [id]);
+
+  const aspectRatioValue = data.aspectRatio ?? '';
+
   // 当图片数据更新时，添加到全局历史记录
   React.useEffect(() => {
     if (data.imageData && status === 'succeeded') {
@@ -157,7 +208,19 @@ export default function GenerateProNode({ id, data, selected }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
 
-  // 处理角点拖拽调整大小
+  // 点击外部关闭长宽比菜单
+  React.useEffect(() => {
+    if (!isAspectMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (aspectMenuRef.current && !aspectMenuRef.current.contains(e.target as Node)) {
+        setIsAspectMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isAspectMenuOpen]);
+
+  // 处理角点拖拽调整大小 - 以中心点为基准
   const handleResizeStart = React.useCallback((corner: string) => (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -165,14 +228,55 @@ export default function GenerateProNode({ id, data, selected }: Props) {
     setResizeCorner(corner);
 
     const startX = e.clientX;
+    const startY = e.clientY;
     const startWidth = imageWidth;
+    let lastWidth = startWidth;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
-      // 根据角点位置决定方向
-      const multiplier = corner.includes('right') ? 1 : -1;
-      const newWidth = startWidth + deltaX * multiplier;
-      updateImageWidth(newWidth);
+      const deltaY = moveEvent.clientY - startY;
+
+      // 根据角点位置决定调整方向
+      let widthChange = 0;
+
+      if (corner === 'top-left') {
+        // 左上角：向左上拖放大，向右下拖缩小
+        widthChange = -Math.max(deltaX, deltaY * (4/3));
+      } else if (corner === 'top-right') {
+        // 右上角：向右上拖放大，向左下拖缩小
+        widthChange = Math.max(deltaX, -deltaY * (4/3));
+      } else if (corner === 'bottom-left') {
+        // 左下角：向左下拖放大，向右上拖缩小
+        widthChange = Math.max(-deltaX, deltaY * (4/3));
+      } else if (corner === 'bottom-right') {
+        // 右下角：向右下拖放大，向左上拖缩小
+        widthChange = Math.max(deltaX, deltaY * (4/3));
+      }
+
+      const newWidth = Math.max(MIN_IMAGE_WIDTH, Math.min(MAX_IMAGE_WIDTH, startWidth + widthChange));
+
+      // 计算相对于上一次的增量变化
+      const incrementalChange = newWidth - lastWidth;
+      lastWidth = newWidth;
+
+      if (incrementalChange === 0) return;
+
+      // 计算需要偏移的位置（增量变化的一半，高度按比例）- 以中心点为基准
+      const positionOffsetX = -incrementalChange / 2;
+      const positionOffsetY = -(incrementalChange * 0.75) / 2;
+
+      // 同时更新宽度和位置
+      window.dispatchEvent(
+        new CustomEvent('flow:updateNodeData', {
+          detail: {
+            id,
+            patch: {
+              imageWidth: newWidth,
+              _positionOffset: { x: positionOffsetX, y: positionOffsetY }
+            }
+          }
+        })
+      );
     };
 
     const handleMouseUp = () => {
@@ -184,7 +288,7 @@ export default function GenerateProNode({ id, data, selected }: Props) {
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [imageWidth, updateImageWidth]);
+  }, [imageWidth, id]);
 
   // 计算图片高度（保持4:3比例）
   const imageHeight = imageWidth * 0.75;
@@ -319,6 +423,21 @@ export default function GenerateProNode({ id, data, selected }: Props) {
           }}
           onMouseEnter={() => setHover('img-out')}
           onMouseLeave={() => setHover(null)}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            // 触发创建新节点并连线的事件
+            window.dispatchEvent(
+              new CustomEvent('flow:duplicateAndConnect', {
+                detail: {
+                  sourceId: id,
+                  sourceHandle: 'img',
+                  targetHandle: 'img',
+                  nodeType: 'generatePro',
+                  offsetX: imageWidth + 100, // 水平偏移
+                }
+              })
+            );
+          }}
         />
 
         {hover === 'img-in' && (
@@ -341,16 +460,24 @@ export default function GenerateProNode({ id, data, selected }: Props) {
         )}
       </div>
 
-      {/* 进度条 */}
-      {status === 'running' && (
-        <div style={{ marginTop: 8 }}>
-          <GenerationProgressBar status={status} />
-        </div>
-      )}
+      {/* 进度条区域 - 与文字框上缘对齐 */}
+      <div style={{ height: 14, position: 'relative' }}>
+        {status === 'running' && (
+          <div style={{
+            position: 'absolute',
+            bottom: -6,
+            left: 16,
+            right: 16,
+            zIndex: 10,
+          }}>
+            <GenerationProgressBar status={status} />
+          </div>
+        )}
+      </div>
 
       {/* 多个提示词输入框 - 带白色背景和圆角 */}
       {prompts.map((prompt, index) => (
-        <div key={index} style={{ marginTop: 12, position: 'relative' }}>
+        <div key={index} style={{ marginTop: index === 0 ? 0 : 8, position: 'relative' }}>
           <div
             className="nodrag nopan group"
             style={{
@@ -382,6 +509,8 @@ export default function GenerateProNode({ id, data, selected }: Props) {
               onPointerDown={stopNodeDrag}
               onMouseDownCapture={stopNodeDrag}
               onMouseDown={stopNodeDrag}
+              onFocus={() => setIsTextFocused(true)}
+              onBlur={() => setIsTextFocused(false)}
             />
             {/* 删除按钮 - 只有多个时显示，hover时才可见 */}
             {prompts.length > 1 && (
@@ -455,8 +584,8 @@ export default function GenerateProNode({ id, data, selected }: Props) {
         </div>
       ))}
 
-      {/* 选中时才显示：添加提示词按钮和按钮组 */}
-      {selected && (
+      {/* 选中或文字聚焦时显示：添加提示词按钮和按钮组 */}
+      {(selected || isTextFocused) && (
         <>
           {/* 添加提示词按钮 */}
           <div
@@ -483,10 +612,28 @@ export default function GenerateProNode({ id, data, selected }: Props) {
           </div>
 
           {/* 按钮组 */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <div
               className="inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass"
             >
+              {/* 长宽比选择按钮 */}
+              <div className="relative" ref={aspectMenuRef}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsAspectMenuOpen(!isAspectMenuOpen);
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className={cn(
+                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center",
+                    aspectRatioValue ? "bg-blue-50 border-blue-300 text-blue-600" : ""
+                  )}
+                  title={aspectRatioValue ? `长宽比: ${aspectRatioValue}` : '选择长宽比'}
+                >
+                  <AspectRatioIcon style={{ width: 14, height: 14 }} />
+                </button>
+              </div>
+
               {/* Run 按钮 */}
               <button
                 onClick={onRun}
@@ -509,6 +656,33 @@ export default function GenerateProNode({ id, data, selected }: Props) {
                 <SendIcon style={{ width: 14, height: 14 }} />
               </button>
             </div>
+
+            {/* 长宽比水平选择栏 */}
+            {isAspectMenuOpen && (
+              <div
+                className="bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1"
+              >
+                {aspectOptions.map(opt => (
+                  <button
+                    key={opt.value || 'auto'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateAspectRatio(opt.value);
+                      setIsAspectMenuOpen(false);
+                    }}
+                    onPointerDownCapture={stopNodeDrag}
+                    className={cn(
+                      "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
+                      (aspectRatioValue === opt.value || (!aspectRatioValue && opt.value === ''))
+                        ? "bg-blue-500 text-white font-medium"
+                        : "text-gray-700 hover:bg-gray-100"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}

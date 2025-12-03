@@ -427,15 +427,12 @@ export class ImageGenerationService {
                   },
                 };
 
-                // 配置 imageConfig（aspectRatio 和 imageSize）
-                if (request.aspectRatio || request.imageSize) {
-                  config.generationConfig.imageConfig = {};
-                  if (request.aspectRatio) {
-                    config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
-                  }
-                  if (request.imageSize) {
-                    config.generationConfig.imageConfig.imageSize = request.imageSize;
-                  }
+                // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
+                // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
+                if (request.aspectRatio) {
+                  config.imageConfig = {
+                    aspectRatio: request.aspectRatio,
+                  };
                 }
 
                 // 配置 thinkingLevel（Gemini 3 特性）
@@ -541,15 +538,12 @@ export class ImageGenerationService {
                   },
                 };
 
-                // 配置 imageConfig（aspectRatio 和 imageSize）
-                if (request.aspectRatio || request.imageSize) {
-                  config.generationConfig.imageConfig = {};
-                  if (request.aspectRatio) {
-                    config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
-                  }
-                  if (request.imageSize) {
-                    config.generationConfig.imageConfig.imageSize = request.imageSize;
-                  }
+                // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
+                // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
+                if (request.aspectRatio) {
+                  config.imageConfig = {
+                    aspectRatio: request.aspectRatio,
+                  };
                 }
 
                 // 配置 thinkingLevel（Gemini 3 特性）
@@ -736,15 +730,12 @@ export class ImageGenerationService {
               },
             };
 
-            // 配置 imageConfig（aspectRatio 和 imageSize）
-            if (request.aspectRatio || request.imageSize) {
-              config.generationConfig.imageConfig = {};
-              if (request.aspectRatio) {
-                config.generationConfig.imageConfig.aspectRatio = request.aspectRatio;
-              }
-              if (request.imageSize) {
-                config.generationConfig.imageConfig.imageSize = request.imageSize;
-              }
+            // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
+            // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
+            if (request.aspectRatio) {
+              config.imageConfig = {
+                aspectRatio: request.aspectRatio,
+              };
             }
 
             // 配置 thinkingLevel（Gemini 3 特性）

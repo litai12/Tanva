@@ -1535,14 +1535,32 @@ function FlowInner() {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { id: string; patch: Record<string, any> };
       if (!detail?.id) return;
+
+      // 处理位置偏移（用于中心点缩放）
+      const positionOffset = detail.patch?._positionOffset;
+
       setNodes((ns) => ns.map((n) => {
         if (n.id !== detail.id) return n;
         const patch = { ...(detail.patch || {}) };
+
+        // 移除内部使用的 _positionOffset
+        delete patch._positionOffset;
+
         if (Object.prototype.hasOwnProperty.call(patch, 'imageData') &&
             !Object.prototype.hasOwnProperty.call(patch, 'imageName')) {
           patch.imageName = undefined;
         }
-        return { ...n, data: { ...n.data, ...patch } };
+
+        // 如果有位置偏移，同时更新节点位置
+        let newPosition = n.position;
+        if (positionOffset) {
+          newPosition = {
+            x: n.position.x + positionOffset.x,
+            y: n.position.y + positionOffset.y,
+          };
+        }
+
+        return { ...n, position: newPosition, data: { ...n.data, ...patch } };
       }));
       // 若目标是 Image 且设置了 imageData 为空，自动断开输入连线
       if (Object.prototype.hasOwnProperty.call(detail.patch, 'imageData') && !detail.patch.imageData) {
@@ -1552,6 +1570,62 @@ function FlowInner() {
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
   }, [setNodes]);
+
+  // 监听双击输出节点创建新节点并连线
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        sourceId: string;
+        sourceHandle: string;
+        targetHandle: string;
+        nodeType: string;
+        offsetX: number;
+      };
+      if (!detail?.sourceId || !detail?.nodeType) return;
+
+      const sourceNode = rf.getNode(detail.sourceId);
+      if (!sourceNode) return;
+
+      // 创建新节点 ID
+      const newId = `${detail.nodeType}_${Date.now()}`;
+
+      // 计算新节点位置（在源节点右侧）
+      const newPosition = {
+        x: sourceNode.position.x + detail.offsetX,
+        y: sourceNode.position.y,
+      };
+
+      // 根据节点类型创建默认数据
+      const newData = detail.nodeType === 'generatePro'
+        ? { status: 'idle' as const, prompts: [''], imageWidth: 296 }
+        : { status: 'idle' as const };
+
+      // 添加新节点
+      setNodes(ns => ns.concat([{
+        id: newId,
+        type: detail.nodeType,
+        position: newPosition,
+        data: newData,
+        selected: true,
+      } as any]));
+
+      // 取消选中源节点，选中新节点
+      setNodes(ns => ns.map(n => ({
+        ...n,
+        selected: n.id === newId,
+      })));
+
+      // 创建连线
+      setEdges(eds => addEdge({
+        source: detail.sourceId,
+        sourceHandle: detail.sourceHandle,
+        target: newId,
+        targetHandle: detail.targetHandle,
+      }, eds));
+    };
+    window.addEventListener('flow:duplicateAndConnect', handler as EventListener);
+    return () => window.removeEventListener('flow:duplicateAndConnect', handler as EventListener);
+  }, [rf, setNodes, setEdges]);
 
   React.useEffect(() => {
     const handler = (event: Event) => {
