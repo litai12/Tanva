@@ -47,6 +47,36 @@ async function bootstrap() {
   await app.register(fastifyCookie, { secret: cookieSecret });
   await app.register(fastifyMultipart);
 
+  const fastifyInstance = app.getHttpAdapter().getInstance();
+  fastifyInstance.addContentTypeParser(
+    '*',
+    { parseAs: 'string' },
+    (request, body, done) => {
+      const contentType = request.headers['content-type'];
+      const hasExplicitType = typeof contentType === 'string' && contentType.length > 0;
+
+      if (!body) {
+        done(null, {});
+        return;
+      }
+
+      const trimmed = typeof body === 'string' ? body.trim() : '';
+      if (!trimmed) {
+        done(null, {});
+        return;
+      }
+
+      try {
+        // Attempt to treat unknown/absent content types as JSON to avoid 415 errors.
+        const parsed = JSON.parse(trimmed);
+        done(null, parsed);
+      } catch {
+        // Fallback to raw string when payload is not JSON.
+        done(null, hasExplicitType ? body : trimmed);
+      }
+    },
+  );
+
   app.setGlobalPrefix('api');
   
   // CORS 配置：支持 Cloudflare Tunnel 和其他配置的域名
