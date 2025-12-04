@@ -173,12 +173,28 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
         <label style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, display: 'block' }}>优化预览</label>
         <div style={{ position: 'relative', flex: 1 }}>
           <textarea
+            className="nodrag nopan nowheel"
             value={loading ? '' : expandedText}
             onChange={(e) => {
               const v = e.target.value;
               setExpandedText(v);
               // 编辑即生效：向右输出编辑后的文本
               updateNodeData({ expandedText: v, text: v });
+            }}
+            onPointerDownCapture={(event) => {
+              event.stopPropagation();
+              if (event.nativeEvent?.stopImmediatePropagation) {
+                event.nativeEvent.stopImmediatePropagation();
+              }
+            }}
+            onMouseDownCapture={(event) => {
+              event.stopPropagation();
+            }}
+            onWheelCapture={(event) => {
+              event.stopPropagation();
+              if (event.nativeEvent?.stopImmediatePropagation) {
+                event.nativeEvent.stopImmediatePropagation();
+              }
             }}
             placeholder={loading ? '' : '生成预览后将在此处展示扩写结果'}
             style={{
@@ -191,7 +207,8 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
               borderRadius: 6,
               padding: 8,
               background: '#fff',
-              outline: 'none'
+              outline: 'none',
+              cursor: 'text'
             }}
           />
           {loading && (

@@ -1,12 +1,13 @@
 import React from 'react';
-import { Handle, Position } from 'reactflow';
-import { Send as SendIcon, Play, Plus, X } from 'lucide-react';
+import { Handle, Position, useEdges, useReactFlow } from 'reactflow';
+import { Send as SendIcon, Play, Plus, X, Link } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { cn } from '@/lib/utils';
+import { resolveTextFromSourceNode } from '../utils/textSource';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -66,6 +67,10 @@ export default function GenerateProNode({ id, data, selected }: Props) {
 
   // 使用全局图片历史记录 - 只在预览时才获取
   const projectId = useProjectContentStore((state) => state.projectId);
+  const rf = useReactFlow();
+  const edges = useEdges();
+  const [externalPrompt, setExternalPrompt] = React.useState<string | null>(null);
+  const [externalSourceId, setExternalSourceId] = React.useState<string | null>(null);
 
   // 只在预览模式下才获取历史记录，避免不必要的重渲染
   const allImages = React.useMemo(() => {
@@ -94,6 +99,38 @@ export default function GenerateProNode({ id, data, selected }: Props) {
     const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & { stopImmediatePropagation?: () => void };
     nativeEvent.stopImmediatePropagation?.();
   }, []);
+
+  const refreshExternalPrompt = React.useCallback(() => {
+    const textEdge = edges.find(e => e.target === id && e.targetHandle === 'text');
+    if (!textEdge) {
+      setExternalPrompt(null);
+      setExternalSourceId(null);
+      return;
+    }
+    setExternalSourceId(textEdge.source);
+    const sourceNode = rf.getNode(textEdge.source);
+    if (!sourceNode) {
+      setExternalPrompt(null);
+      return;
+    }
+    const resolved = resolveTextFromSourceNode(sourceNode, textEdge.sourceHandle);
+    setExternalPrompt(resolved && resolved.trim().length ? resolved.trim() : null);
+  }, [edges, id, rf]);
+
+  React.useEffect(() => {
+    refreshExternalPrompt();
+  }, [refreshExternalPrompt]);
+
+  React.useEffect(() => {
+    if (!externalSourceId) return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
+      if (!detail?.id || detail.id !== externalSourceId) return;
+      refreshExternalPrompt();
+    };
+    window.addEventListener('flow:updateNodeData', handler as EventListener);
+    return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
+  }, [externalSourceId, refreshExternalPrompt]);
 
   // 更新图片宽度
   const updateImageWidth = React.useCallback((width: number) => {
@@ -489,10 +526,41 @@ export default function GenerateProNode({ id, data, selected }: Props) {
               position: 'relative',
             }}
           >
+            {index === 0 && externalPrompt && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 6,
+                  marginBottom: 8,
+                  padding: '8px 10px',
+                  background: '#f0f9ff',
+                  borderRadius: 8,
+                  border: '1px solid #bae6fd',
+                }}
+              >
+                <Link style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: '#0369a1',
+                    lineHeight: 1.4,
+                    wordBreak: 'break-word',
+                    maxHeight: 60,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {externalPrompt.length > 100 ? `${externalPrompt.slice(0, 100)}...` : externalPrompt}
+                </span>
+              </div>
+            )}
             <textarea
               value={prompt}
               onChange={(event) => updatePrompt(index, event.target.value)}
-              placeholder={index === 0 ? "输入提示词..." : "输入额外提示词..."}
+              placeholder={index === 0
+                ? (externalPrompt ? "输入额外提示词..." : "输入提示词...")
+                : "输入额外提示词..."}
               rows={2}
               style={{
                 width: '100%',

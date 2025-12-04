@@ -255,6 +255,7 @@ export default function TextPromptNode({ id, data, selected }: Props) {
         )}
       </div>
       <textarea
+        className="nodrag nopan nowheel"
         value={value}
         onChange={(e) => {
           const v = e.target.value;
@@ -274,6 +275,9 @@ export default function TextPromptNode({ id, data, selected }: Props) {
           if (event.nativeEvent?.stopImmediatePropagation) {
             event.nativeEvent.stopImmediatePropagation();
           }
+        }}
+        onMouseDownCapture={(event) => {
+          event.stopPropagation();
         }}
         placeholder="输入提示词"
         style={{

@@ -52,13 +52,40 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
   // 检测外部文本连接
   const rf = useReactFlow();
   const edges = useEdges();
-  const externalPrompt = React.useMemo(() => {
+  const [externalPrompt, setExternalPrompt] = React.useState<string | null>(null);
+  const [externalSourceId, setExternalSourceId] = React.useState<string | null>(null);
+
+  const refreshExternalPrompt = React.useCallback(() => {
     const textEdge = edges.find(e => e.target === id && e.targetHandle === 'text');
-    if (!textEdge) return null;
+    if (!textEdge) {
+      setExternalPrompt(null);
+      setExternalSourceId(null);
+      return;
+    }
+    setExternalSourceId(textEdge.source);
     const sourceNode = rf.getNode(textEdge.source);
-    if (!sourceNode) return null;
-    return resolveTextFromSourceNode(sourceNode, textEdge.sourceHandle) || null;
+    if (!sourceNode) {
+      setExternalPrompt(null);
+      return;
+    }
+    const resolved = resolveTextFromSourceNode(sourceNode, textEdge.sourceHandle);
+    setExternalPrompt(resolved && resolved.trim().length ? resolved.trim() : null);
   }, [edges, id, rf]);
+
+  React.useEffect(() => {
+    refreshExternalPrompt();
+  }, [refreshExternalPrompt]);
+
+  React.useEffect(() => {
+    if (!externalSourceId) return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string }>).detail;
+      if (!detail?.id || detail.id !== externalSourceId) return;
+      refreshExternalPrompt();
+    };
+    window.addEventListener('flow:updateNodeData', handler as EventListener);
+    return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
+  }, [externalSourceId, refreshExternalPrompt]);
 
   // 图片区域宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;
