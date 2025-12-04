@@ -220,12 +220,12 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
           <div
             style={{
               position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
+              bottom: 4,
+              left: 4,
+              right: 4,
               height: 4,
               background: 'rgba(59, 130, 246, 0.2)',
-              borderRadius: '0 0 8px 8px',
+              borderRadius: 2,
               overflow: 'hidden',
             }}
           >
