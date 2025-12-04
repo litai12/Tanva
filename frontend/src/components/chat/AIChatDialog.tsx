@@ -48,6 +48,9 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
   { value: 'vector', label: 'Vector', description: '生成 Paper.js 矢量图形' }
 ];
 
+// 长按提示词扩写按钮触发面板的最小时长（毫秒）
+const LONG_PRESS_DURATION = 550;
+
 const PROVIDER_MODE_OPTIONS: Partial<Record<SupportedAIProvider, ManualModeOption[]>> = {
   gemini: BASE_MANUAL_MODE_OPTIONS,
   'gemini-pro': BASE_MANUAL_MODE_OPTIONS,
