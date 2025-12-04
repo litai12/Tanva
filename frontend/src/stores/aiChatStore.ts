@@ -31,6 +31,7 @@ import type {
   SupportedAIProvider,
   MidjourneyMetadata,
   AIError,
+  AIImageEditRequest,
 } from '@/types/ai';
 import type {
   ConversationContext,
@@ -2260,7 +2261,7 @@ export const useAIChatStore = create<AIChatState>()(
         });
       }
 
-      const buildEditRequest = (model: string) => ({
+      const buildEditRequest = (model: string): AIImageEditRequest => ({
         prompt,
         sourceImage: normalizedSourceImage,
         model,
@@ -4378,13 +4379,15 @@ export const useAIChatStore = create<AIChatState>()(
 
 if (typeof window !== 'undefined') {
   try {
-    useAIChatStore.subscribe(
-      (state) => state.messages,
-      (messages, previous) => {
-        if (messages === previous) return;
-        logChatConversationSnapshot(messages);
-      }
-    );
+    // 订阅 messages 变化并记录对话快照
+    let previousMessages = useAIChatStore.getState().messages;
+
+    useAIChatStore.subscribe((state) => {
+      const messages = state.messages;
+      if (messages === previousMessages) return;
+      previousMessages = messages;
+      logChatConversationSnapshot(messages);
+    });
 
     (window as any).tanvaDebugConversation = () => {
       const messages = useAIChatStore.getState().messages;

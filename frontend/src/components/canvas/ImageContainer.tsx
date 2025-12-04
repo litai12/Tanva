@@ -1,37 +1,57 @@
-import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
-import paper from 'paper';
-import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
-import { useCanvasStore } from '@/stores';
-import { Sparkles, EyeOff, Wand2, Copy, Box, Crop, ImageUp } from 'lucide-react';
-import { Button } from '../ui/button';
-import ImagePreviewModal, { type ImageItem } from '../ui/ImagePreviewModal';
-import backgroundRemovalService from '@/services/backgroundRemovalService';
-import { LoadingSpinner } from '../ui/loading-spinner';
-import { logger } from '@/utils/logger';
-import { cn } from '@/lib/utils';
-import { convert2Dto3D } from '@/services/convert2Dto3DService';
-import { uploadToOSS } from '@/services/ossUploadService';
-import { useProjectContentStore } from '@/stores/projectContentStore';
-import type { Model3DData } from '@/services/model3DUploadService';
-import { optimizeHdImage } from '@/services/hdUpscaleService';
-import ExpandImageSelector from './ExpandImageSelector';
-import { useToolStore } from '@/stores';
-import aiImageService from '@/services/aiImageService';
-import { useImageHistoryStore } from '@/stores/imageHistoryStore';
-import { loadImageElement, trimTransparentPng } from '@/utils/imageHelper';
-import { imageUrlCache } from '@/services/imageUrlCache';
+import React, {
+  useRef,
+  useCallback,
+  useMemo,
+  useState,
+  useEffect,
+} from "react";
+import paper from "paper";
+import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
+import { useCanvasStore } from "@/stores";
+import {
+  Sparkles,
+  EyeOff,
+  Wand2,
+  Copy,
+  Box,
+  Crop,
+  ImageUp,
+} from "lucide-react";
+import { Button } from "../ui/button";
+import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
+import backgroundRemovalService from "@/services/backgroundRemovalService";
+import { LoadingSpinner } from "../ui/loading-spinner";
+import { logger } from "@/utils/logger";
+import { cn } from "@/lib/utils";
+import { convert2Dto3D } from "@/services/convert2Dto3DService";
+import { uploadToOSS } from "@/services/ossUploadService";
+import { useProjectContentStore } from "@/stores/projectContentStore";
+import type { Model3DData } from "@/services/model3DUploadService";
+import { optimizeHdImage } from "@/services/hdUpscaleService";
+import { expandImage } from "@/services/expandImageService";
+import ExpandImageSelector from "./ExpandImageSelector";
+import { useToolStore } from "@/stores";
+import aiImageService from "@/services/aiImageService";
+import { useImageHistoryStore } from "@/stores/imageHistoryStore";
+import { loadImageElement, trimTransparentPng } from "@/utils/imageHelper";
+import { imageUrlCache } from "@/services/imageUrlCache";
 
-const HD_UPSCALE_RESOLUTION: '4k' = '4k';
-const EXPAND_PRESET_PROMPT = '帮我在空白部分扩展这张图，补全内容';
+const HD_UPSCALE_RESOLUTION: "4k" = "4k";
+const EXPAND_PRESET_PROMPT = "帮我在空白部分扩展这张图，补全内容";
 
 type Bounds = { x: number; y: number; width: number; height: number };
-const ensureDataUrlString = (imageData: string, mime: string = 'image/png'): string => {
-  if (!imageData) return '';
-  return imageData.startsWith('data:image') ? imageData : `data:${mime};base64,${imageData}`;
+const ensureDataUrlString = (
+  imageData: string,
+  mime: string = "image/png"
+): string => {
+  if (!imageData) return "";
+  return imageData.startsWith("data:image")
+    ? imageData
+    : `data:${mime};base64,${imageData}`;
 };
 
 const normalizeImageSrc = (value?: string | null): string => {
-  if (!value) return '';
+  if (!value) return "";
   const trimmed = value.trim();
   if (/^data:image\//i.test(trimmed) || /^https?:\/\//i.test(trimmed)) {
     return trimmed;
@@ -45,7 +65,7 @@ const composeExpandedImage = async (
   targetBounds: Bounds
 ): Promise<{ dataUrl: string; width: number; height: number }> => {
   if (!targetBounds.width || !targetBounds.height) {
-    throw new Error('请选择有效的扩展区域');
+    throw new Error("请选择有效的扩展区域");
   }
 
   const image = await loadImageElement(sourceDataUrl);
@@ -54,32 +74,33 @@ const composeExpandedImage = async (
 
   const scaleX = image.width / safeOriginalWidth;
   const scaleY = image.height / safeOriginalHeight;
-  const scale = Number.isFinite(scaleX) && Number.isFinite(scaleY)
-    ? (scaleX + scaleY) / 2
-    : Number.isFinite(scaleX)
-    ? scaleX
-    : Number.isFinite(scaleY)
-    ? scaleY
-    : 1;
+  const scale =
+    Number.isFinite(scaleX) && Number.isFinite(scaleY)
+      ? (scaleX + scaleY) / 2
+      : Number.isFinite(scaleX)
+      ? scaleX
+      : Number.isFinite(scaleY)
+      ? scaleY
+      : 1;
 
   const canvasWidth = Math.max(1, Math.round(targetBounds.width * scale));
   const canvasHeight = Math.max(1, Math.round(targetBounds.height * scale));
   const offsetX = Math.round((originalBounds.x - targetBounds.x) * scale);
   const offsetY = Math.round((originalBounds.y - targetBounds.y) * scale);
 
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = canvasWidth;
   canvas.height = canvasHeight;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   if (!ctx) {
-    throw new Error('无法创建扩展画布');
+    throw new Error("无法创建扩展画布");
   }
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
   return {
-    dataUrl: canvas.toDataURL('image/png'),
+    dataUrl: canvas.toDataURL("image/png"),
     width: canvasWidth,
     height: canvasHeight,
   };
@@ -104,7 +125,12 @@ interface ImageContainerProps {
   layerIndex?: number; // 图层索引，用于计算z-index
   onSelect?: () => void;
   onMove?: (newPosition: { x: number; y: number }) => void; // Paper.js坐标
-  onResize?: (newBounds: { x: number; y: number; width: number; height: number }) => void; // Paper.js坐标
+  onResize?: (newBounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => void; // Paper.js坐标
   onDelete?: (imageId: string) => void;
   onToggleVisibility?: (imageId: string) => void; // 切换图层可见性回调
   getImageDataForEditing?: (imageId: string) => string | null; // 获取高质量图像数据的函数
@@ -116,7 +142,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   bounds,
   isSelected = false,
   visible = true,
-  drawMode = 'select',
+  drawMode = "select",
   isSelectionDragging = false,
   layerIndex = 0,
   onSelect,
@@ -125,13 +151,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   onDelete,
   onToggleVisibility,
   getImageDataForEditing,
-  showIndividualTools = true
+  showIndividualTools = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const enableVisibilityToggle = false; // Temporarily hide layer visibility control
 
   // 获取AI聊天状态
-  const { setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending } = useAIChatStore();
+  const {
+    setSourceImageForEditing,
+    addImageForBlending,
+    showDialog,
+    sourceImageForEditing,
+    sourceImagesForBlending,
+  } = useAIChatStore();
 
   // 获取画布状态 - 用于监听画布移动变化
   const { zoom, panX, panY } = useCanvasStore();
@@ -139,13 +171,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const sharedButtonStyle = undefined;
 
   const sharedButtonClass =
-    'p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center';
-  const sharedIconClass = 'w-3.5 h-3.5';
+    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center";
+  const sharedIconClass = "w-3.5 h-3.5";
 
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
   const [isPositionStable, setIsPositionStable] = useState(true);
-  
+
   // 预览模态框状态
   const [showPreview, setShowPreview] = useState(false);
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
@@ -155,7 +187,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isOptimizingHd, setIsOptimizingHd] = useState(false);
   const [showExpandSelector, setShowExpandSelector] = useState(false);
   const [localPreviewTimestamp] = useState(() => Date.now());
-  
+
   // 获取项目ID用于上传
   const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
@@ -181,29 +213,43 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   }, [scopedHistory]);
 
   // 将Paper.js世界坐标转换为屏幕坐标（改进版）
-  const convertToScreenBounds = useCallback((paperBounds: { x: number; y: number; width: number; height: number }) => {
-    if (!paper.view) return paperBounds;
+  const convertToScreenBounds = useCallback(
+    (paperBounds: { x: number; y: number; width: number; height: number }) => {
+      if (!paper.view) return paperBounds;
 
-    try {
-      const dpr = window.devicePixelRatio || 1;
-      // 使用更精确的坐标转换
-      const topLeft = paper.view.projectToView(new paper.Point(paperBounds.x, paperBounds.y));
-      const bottomRight = paper.view.projectToView(new paper.Point(paperBounds.x + paperBounds.width, paperBounds.y + paperBounds.height));
+      try {
+        const dpr = window.devicePixelRatio || 1;
+        // 使用更精确的坐标转换
+        const topLeft = paper.view.projectToView(
+          new paper.Point(paperBounds.x, paperBounds.y)
+        );
+        const bottomRight = paper.view.projectToView(
+          new paper.Point(
+            paperBounds.x + paperBounds.width,
+            paperBounds.y + paperBounds.height
+          )
+        );
 
-      // 添加数值验证，防止NaN或无限值
-      const result = {
-        x: isFinite(topLeft.x) ? topLeft.x / dpr : paperBounds.x,
-        y: isFinite(topLeft.y) ? topLeft.y / dpr : paperBounds.y,
-        width: isFinite(bottomRight.x - topLeft.x) ? (bottomRight.x - topLeft.x) / dpr : paperBounds.width,
-        height: isFinite(bottomRight.y - topLeft.y) ? (bottomRight.y - topLeft.y) / dpr : paperBounds.height
-      };
+        // 添加数值验证，防止NaN或无限值
+        const result = {
+          x: isFinite(topLeft.x) ? topLeft.x / dpr : paperBounds.x,
+          y: isFinite(topLeft.y) ? topLeft.y / dpr : paperBounds.y,
+          width: isFinite(bottomRight.x - topLeft.x)
+            ? (bottomRight.x - topLeft.x) / dpr
+            : paperBounds.width,
+          height: isFinite(bottomRight.y - topLeft.y)
+            ? (bottomRight.y - topLeft.y) / dpr
+            : paperBounds.height,
+        };
 
-      return result;
-    } catch (error) {
-      console.warn('坐标转换失败，使用原始坐标:', error);
-      return paperBounds;
-    }
-  }, [zoom, panX, panY]); // 添加画布状态依赖，确保画布变化时函数重新创建
+        return result;
+      } catch (error) {
+        console.warn("坐标转换失败，使用原始坐标:", error);
+        return paperBounds;
+      }
+    },
+    [zoom, panX, panY]
+  ); // 添加画布状态依赖，确保画布变化时函数重新创建
 
   // 使用 ref 存储最新的 bounds，避免 getRealTimePaperBounds 依赖变化
   const boundsRef = useRef(bounds);
@@ -217,21 +263,24 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const getRealTimePaperBounds = useCallback(() => {
     try {
       // 首先尝试从所有图层中查找图片对象
-      const imageGroup = paper.project?.layers?.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === imageData.id
+      const imageGroup = paper.project?.layers?.flatMap((layer) =>
+        layer.children.filter(
+          (child) =>
+            child.data?.type === "image" && child.data?.imageId === imageData.id
         )
       )[0];
 
       if (imageGroup instanceof paper.Group) {
-        const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+        const raster = imageGroup.children.find(
+          (child) => child instanceof paper.Raster
+        ) as paper.Raster;
         if (raster && raster.bounds && isFinite(raster.bounds.x)) {
           // 获取实际的边界信息，确保数值有效
           const realBounds = {
             x: Math.round(raster.bounds.x * 100) / 100, // 四舍五入到小数点后2位
             y: Math.round(raster.bounds.y * 100) / 100,
             width: Math.round(raster.bounds.width * 100) / 100,
-            height: Math.round(raster.bounds.height * 100) / 100
+            height: Math.round(raster.bounds.height * 100) / 100,
           };
 
           // 验证bounds是否合理
@@ -241,7 +290,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }
       }
     } catch (error) {
-      console.warn('获取Paper.js实时坐标失败:', error);
+      console.warn("获取Paper.js实时坐标失败:", error);
     }
 
     return boundsRef.current; // 使用 ref 回退到props中的bounds
@@ -340,7 +389,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     setIsPositionStable(true);
   }, [bounds]);
 
-
   // 使用实时坐标进行屏幕坐标转换
   const screenBounds = useMemo(() => {
     return convertToScreenBounds(realTimeBounds);
@@ -348,37 +396,46 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
     // 首先检查缓存的 dataUrl
-    const cachedDataUrl = imageUrlCache.getCachedDataUrl(imageData.id, projectId);
+    const cachedDataUrl = imageUrlCache.getCachedDataUrl(
+      imageData.id,
+      projectId
+    );
     if (cachedDataUrl) {
       return cachedDataUrl;
     }
 
-    const ensureDataUrl = async (input: string | null): Promise<string | null> => {
+    const ensureDataUrl = async (
+      input: string | null
+    ): Promise<string | null> => {
       if (!input) return null;
-      if (input.startsWith('data:image/')) {
+      if (input.startsWith("data:image/")) {
         return input;
       }
 
       // 对于远程URL，只在必要时才转换为Base64
       // 优化：如果调用者只需要URL用于API调用，应该使用 getProcessableImageUrl 代替
-      if (/^https?:\/\//i.test(input) || input.startsWith('blob:')) {
+      if (/^https?:\/\//i.test(input) || input.startsWith("blob:")) {
         try {
           const response = await fetch(input);
           const blob = await response.blob();
           return await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => {
-              if (typeof reader.result === 'string') {
+              if (typeof reader.result === "string") {
                 resolve(reader.result);
               } else {
-                reject(new Error('无法读取图像数据'));
+                reject(new Error("无法读取图像数据"));
               }
             };
-            reader.onerror = () => reject(reader.error ?? new Error('读取图像数据失败'));
+            reader.onerror = () =>
+              reject(reader.error ?? new Error("读取图像数据失败"));
             reader.readAsDataURL(blob);
           });
         } catch (convertError) {
-          console.warn('⚠️ 无法转换远程图像为Base64，尝试使用Canvas数据', convertError);
+          console.warn(
+            "⚠️ 无法转换远程图像为Base64，尝试使用Canvas数据",
+            convertError
+          );
           return null;
         }
       }
@@ -405,17 +462,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return result;
     }
 
-    console.warn('⚠️ 未找到原始图像数据，尝试从Canvas抓取');
-    const imageGroup = paper.project?.layers?.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageData.id
+    console.warn("⚠️ 未找到原始图像数据，尝试从Canvas抓取");
+    const imageGroup = paper.project?.layers?.flatMap((layer) =>
+      layer.children.filter(
+        (child) =>
+          child.data?.type === "image" && child.data?.imageId === imageData.id
       )
     )[0];
 
     if (imageGroup) {
-      const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+      const raster = imageGroup.children.find(
+        (child) => child instanceof paper.Raster
+      ) as paper.Raster;
       if (raster && raster.canvas) {
-        const canvasData = raster.canvas.toDataURL('image/png');
+        const canvasData = raster.canvas.toDataURL("image/png");
         result = await ensureDataUrl(canvasData);
         if (result) {
           // 缓存结果
@@ -426,7 +486,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     return null;
-  }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src, projectId]);
+  }, [
+    getImageDataForEditing,
+    imageData.id,
+    imageData.url,
+    imageData.src,
+    projectId,
+  ]);
 
   const getProcessableImageUrl = useCallback(async (): Promise<string> => {
     // 1. 首先检查缓存
@@ -436,16 +502,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     // 2. 尝试从 Paper.js 的 raster 获取源URL
-    const imageGroup = paper.project?.layers
-      ?.flatMap(layer =>
-        layer.children.filter(child => child.data?.type === 'image' && child.data?.imageId === imageData.id)
-      )[0];
+    const imageGroup = paper.project?.layers?.flatMap((layer) =>
+      layer.children.filter(
+        (child) =>
+          child.data?.type === "image" && child.data?.imageId === imageData.id
+      )
+    )[0];
 
     let rasterSource: string | null = null;
     if (imageGroup) {
-      const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster | undefined;
+      const raster = imageGroup.children.find(
+        (child) => child instanceof paper.Raster
+      ) as paper.Raster | undefined;
       if (raster && raster.source) {
-        rasterSource = typeof raster.source === 'string' ? raster.source : null;
+        rasterSource = typeof raster.source === "string" ? raster.source : null;
       }
     }
 
@@ -460,21 +530,21 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     // 4. 只有在没有远程URL时才进行转换和上传
     const imageDataUrl = await resolveImageDataUrl();
     if (!imageDataUrl) {
-      throw new Error('无法获取当前图片的图像数据');
+      throw new Error("无法获取当前图片的图像数据");
     }
 
     const response = await fetch(imageDataUrl);
     const blob = await response.blob();
 
     const uploadResult = await uploadToOSS(blob, {
-      dir: projectId ? `projects/${projectId}/images/` : 'uploads/images/',
+      dir: projectId ? `projects/${projectId}/images/` : "uploads/images/",
       fileName: `canvas-image-${Date.now()}.png`,
-      contentType: 'image/png',
+      contentType: "image/png",
       projectId,
     });
 
     if (!uploadResult.success || !uploadResult.url) {
-      throw new Error(uploadResult.error || '当前图片上传失败');
+      throw new Error(uploadResult.error || "当前图片上传失败");
     }
 
     if (!/^https?:\/\//i.test(uploadResult.url)) {
@@ -482,559 +552,631 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     // 缓存上传后的URL
-    imageUrlCache.setCachedUrl(imageData.id, uploadResult.url, projectId, imageDataUrl);
+    imageUrlCache.setCachedUrl(
+      imageData.id,
+      uploadResult.url,
+      projectId,
+      imageDataUrl
+    );
 
     return uploadResult.url;
-  }, [imageData.id, imageData.url, imageData.src, projectId, resolveImageDataUrl]);
+  }, [
+    imageData.id,
+    imageData.url,
+    imageData.src,
+    projectId,
+    resolveImageDataUrl,
+  ]);
 
   // 处理AI编辑按钮点击
-  const handleAIEdit = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const run = async () => {
-      const imageDataUrl = await resolveImageDataUrl();
-      if (!imageDataUrl) {
-        console.error('❌ 无法获取图像数据');
-        return;
-      }
-      
-      // 检查是否已有图片，如果有则添加到融合模式，否则设置为编辑图片
-      const hasExistingImages = sourceImageForEditing || sourceImagesForBlending.length > 0;
-      
-      if (hasExistingImages) {
-        // 如果有编辑图片，先将其转换为融合模式
-        if (sourceImageForEditing) {
-          addImageForBlending(sourceImageForEditing);
-          setSourceImageForEditing(null);
-          console.log('🎨 将编辑图像转换为融合模式');
-        }
-        
-        // 已有图片：添加新图片到融合模式
-        addImageForBlending(imageDataUrl);
-        console.log('🎨 已添加图像到融合模式');
-      } else {
-        // 没有现有图片：设置为编辑图片
-        setSourceImageForEditing(imageDataUrl);
-        console.log('🎨 已设置图像为编辑模式');
-      }
-      
-      showDialog();
-    };
+  const handleAIEdit = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    run().catch((error) => {
-      console.error('获取图像数据失败:', error);
-    });
-  }, [resolveImageDataUrl, setSourceImageForEditing, addImageForBlending, showDialog, sourceImageForEditing, sourceImagesForBlending]);
+      const run = async () => {
+        const imageDataUrl = await resolveImageDataUrl();
+        if (!imageDataUrl) {
+          console.error("❌ 无法获取图像数据");
+          return;
+        }
+
+        // 检查是否已有图片，如果有则添加到融合模式，否则设置为编辑图片
+        const hasExistingImages =
+          sourceImageForEditing || sourceImagesForBlending.length > 0;
+
+        if (hasExistingImages) {
+          // 如果有编辑图片，先将其转换为融合模式
+          if (sourceImageForEditing) {
+            addImageForBlending(sourceImageForEditing);
+            setSourceImageForEditing(null);
+            console.log("🎨 将编辑图像转换为融合模式");
+          }
+
+          // 已有图片：添加新图片到融合模式
+          addImageForBlending(imageDataUrl);
+          console.log("🎨 已添加图像到融合模式");
+        } else {
+          // 没有现有图片：设置为编辑图片
+          setSourceImageForEditing(imageDataUrl);
+          console.log("🎨 已设置图像为编辑模式");
+        }
+
+        showDialog();
+      };
+
+      run().catch((error) => {
+        console.error("获取图像数据失败:", error);
+      });
+    },
+    [
+      resolveImageDataUrl,
+      setSourceImageForEditing,
+      addImageForBlending,
+      showDialog,
+      sourceImageForEditing,
+      sourceImagesForBlending,
+    ]
+  );
 
   // 处理切换可见性按钮点击
-  const handleToggleVisibility = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (onToggleVisibility) {
-      onToggleVisibility(imageData.id);
-      console.log('👁️‍🗨️ 切换图层可见性:', imageData.id);
-    }
-  }, [imageData.id, onToggleVisibility]);
+  const handleToggleVisibility = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-  const handleCreateFlowImageNode = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+      if (onToggleVisibility) {
+        onToggleVisibility(imageData.id);
+        console.log("👁️‍🗨️ 切换图层可见性:", imageData.id);
+      }
+    },
+    [imageData.id, onToggleVisibility]
+  );
 
-    const run = async () => {
-      const imageDataUrl = await resolveImageDataUrl();
-      if (!imageDataUrl) {
-        console.warn('⚠️ 无法获取图像数据，无法创建Flow节点');
+  const handleCreateFlowImageNode = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const run = async () => {
+        const imageDataUrl = await resolveImageDataUrl();
+        if (!imageDataUrl) {
+          console.warn("⚠️ 无法获取图像数据，无法创建Flow节点");
+          return;
+        }
+        const base64 = imageDataUrl.includes(",")
+          ? imageDataUrl.split(",")[1]
+          : imageDataUrl;
+        window.dispatchEvent(
+          new CustomEvent("flow:createImageNode", {
+            detail: {
+              imageData: base64,
+              label: "Image",
+              imageName: imageData.fileName || `图片 ${imageData.id}`,
+            },
+          })
+        );
+        console.log("🧩 已请求创建Flow Image节点");
+      };
+
+      run().catch((error) => {
+        console.error("将图片发送到Flow失败:", error);
+      });
+    },
+    [imageData.fileName, resolveImageDataUrl]
+  );
+
+  const handleBackgroundRemoval = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isRemovingBackground) {
         return;
       }
-      const base64 = imageDataUrl.includes(',') ? imageDataUrl.split(',')[1] : imageDataUrl;
-      window.dispatchEvent(new CustomEvent('flow:createImageNode', {
-        detail: {
-          imageData: base64,
-          label: 'Image',
-          imageName: imageData.fileName || `图片 ${imageData.id}`
-        }
-      }));
-      console.log('🧩 已请求创建Flow Image节点');
-    };
 
-    run().catch((error) => {
-      console.error('将图片发送到Flow失败:', error);
-    });
-  }, [imageData.fileName, resolveImageDataUrl]);
-
-  const handleBackgroundRemoval = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (isRemovingBackground) {
-      return;
-    }
-
-    const execute = async () => {
-      const baseImage = await resolveImageDataUrl();
-      if (!baseImage) {
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '无法获取原图，无法抠图', type: 'error' }
-        }));
-        return;
-      }
-
-      setIsRemovingBackground(true);
-      try {
-        logger.info('🎯 开始背景移除', { imageId: imageData.id });
-
-        // Step 1: 使用 Gemini editImage 预处理，将背景换成纯色
-        logger.info('📷 Step 1: Gemini 预处理 - 背景换成纯色');
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '🔄 正在预处理图片...', type: 'info' }
-        }));
-
-        const editResult = await aiImageService.editImage({
-          prompt: '只保留完整的主体，背景换成纯色',
-          sourceImage: baseImage,
-          model: 'gemini-3-pro-image-preview',
-          aiProvider: 'gemini-pro',
-          outputFormat: 'png',
-          imageOnly: true,
-        });
-
-        if (!editResult.success || !editResult.data?.imageData) {
-          logger.warn('⚠️ Gemini 预处理失败，使用原图继续抠图', editResult.error);
-          // 预处理失败时，继续使用原图进行抠图
+      const execute = async () => {
+        const baseImage = await resolveImageDataUrl();
+        if (!baseImage) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "无法获取原图，无法抠图", type: "error" },
+            })
+          );
+          return;
         }
 
-        const imageForRemoval = (editResult.success && editResult.data?.imageData)
-          ? ensureDataUrlString(editResult.data.imageData, 'image/png')
-          : baseImage;
+        setIsRemovingBackground(true);
+        try {
+          logger.info("🎯 开始背景移除", { imageId: imageData.id });
 
-        if (editResult.success && editResult.data?.imageData) {
-          logger.info('✅ Gemini 预处理完成，开始抠图算法');
-          window.dispatchEvent(new CustomEvent('toast', {
-            detail: { message: '🔄 正在精细抠图...', type: 'info' }
-          }));
-        }
+          // Step 1: 使用 Gemini editImage 预处理，将背景换成纯色
+          logger.info("📷 Step 1: Gemini 预处理 - 背景换成纯色");
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "🔄 正在预处理图片...", type: "info" },
+            })
+          );
 
-        // Step 2: 将预处理后的图片传给抠图算法
-        logger.info('📷 Step 2: 抠图算法处理');
-        const result = await backgroundRemovalService.removeBackground(imageForRemoval, 'image/png', true);
-        if (!result.success || !result.imageData) {
-          throw new Error(result.error || '背景移除失败');
-        }
-
-        const centerPoint = {
-          x: realTimeBounds.x + realTimeBounds.width / 2,
-          y: realTimeBounds.y + realTimeBounds.height / 2
-        };
-
-        const fileName = `background-removed-${Date.now()}.png`;
-        window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-          detail: {
-            imageData: result.imageData,
-            fileName,
-            smartPosition: centerPoint,
-            operationType: 'background-removal',
-            sourceImageId: imageData.id
-          }
-        }));
-
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '✨ 抠图完成，已生成新图', type: 'success' }
-        }));
-        logger.info('✅ 背景移除完成', { imageId: imageData.id });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '背景移除失败';
-        console.error('背景移除失败:', error);
-        logger.error('❌ 背景移除失败', error);
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message, type: 'error' }
-        }));
-      } finally {
-        setIsRemovingBackground(false);
-      }
-    };
-
-    execute().catch((error) => {
-      console.error('抠图异常:', error);
-      setIsRemovingBackground(false);
-    });
-  }, [imageData.id, resolveImageDataUrl, isRemovingBackground, realTimeBounds]);
-
-  // 处理2D转3D按钮点击
-  const handleConvertTo3D = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (isConvertingTo3D) {
-      return;
-    }
-
-    const execute = async () => {
-      setIsConvertingTo3D(true);
-      try {
-        // 获取当前选中图片的URL，优先从Paper.js的raster获取
-        let imageUrl: string;
-        const imageGroup = paper.project?.layers?.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId === imageData.id
-          )
-        )[0];
-        
-        let rasterSource: string | null = null;
-        if (imageGroup) {
-          const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster | undefined;
-          if (raster && raster.source) {
-            rasterSource = typeof raster.source === 'string' ? raster.source : null;
-          }
-        }
-        
-        const currentUrl = rasterSource || imageData.url || imageData.src;
-        
-        if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
-          imageUrl = currentUrl;
-        } else {
-          const imageDataUrl = await resolveImageDataUrl();
-          if (!imageDataUrl) {
-            throw new Error('无法获取当前图片的图像数据');
-          }
-
-          const response = await fetch(imageDataUrl);
-          const blob = await response.blob();
-
-          const uploadResult = await uploadToOSS(blob, {
-            dir: projectId ? `projects/${projectId}/images/` : 'uploads/images/',
-            fileName: `2d-to-3d-${Date.now()}.png`,
-            contentType: 'image/png',
-            projectId,
+          const editResult = await aiImageService.editImage({
+            prompt: "只保留完整的主体，背景换成纯色",
+            sourceImage: baseImage,
+            model: "gemini-3-pro-image-preview",
+            aiProvider: "gemini-pro",
+            outputFormat: "png",
+            imageOnly: true,
           });
 
-          if (!uploadResult.success || !uploadResult.url) {
-            throw new Error(uploadResult.error || '当前图片上传失败');
+          if (!editResult.success || !editResult.data?.imageData) {
+            logger.warn(
+              "⚠️ Gemini 预处理失败，使用原图继续抠图",
+              editResult.error
+            );
+            // 预处理失败时，继续使用原图进行抠图
           }
 
-          imageUrl = uploadResult.url;
-        }
-        
-        if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
-          throw new Error(`无效的图片URL: ${imageUrl}`);
-        }
+          const imageForRemoval =
+            editResult.success && editResult.data?.imageData
+              ? ensureDataUrlString(editResult.data.imageData, "image/png")
+              : baseImage;
 
-        const convertResult = await convert2Dto3D({ imageUrl });
-        
-        if (!convertResult.success || !convertResult.modelUrl) {
-          throw new Error(convertResult.error || '2D转3D失败');
-        }
-
-        const modelUrl = convertResult.modelUrl;
-        const fileName = modelUrl.split('/').pop() || `model-${Date.now()}.glb`;
-
-        const model3DData: Model3DData = {
-          url: modelUrl,
-          format: 'glb',
-          fileName,
-          fileSize: 0,
-          defaultScale: { x: 1, y: 1, z: 1 },
-          defaultRotation: { x: 0, y: 0, z: 0 },
-          timestamp: Date.now(),
-        };
-
-        const modelWidth = realTimeBounds.width;
-        const modelHeight = realTimeBounds.height;
-        const spacing = 20;
-        
-        const modelStartX = realTimeBounds.x + realTimeBounds.width + spacing;
-        const modelStartY = realTimeBounds.y;
-        const modelEndX = modelStartX + modelWidth;
-        const modelEndY = modelStartY + modelHeight;
-
-        window.dispatchEvent(new CustomEvent('canvas:insert-model3d', {
-          detail: {
-            modelData: model3DData,
-            size: {
-              width: modelWidth,
-              height: modelHeight
-            },
-            position: {
-              start: { x: modelStartX, y: modelStartY },
-              end: { x: modelEndX, y: modelEndY }
-            }
-          }
-        }));
-
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '✨ 2D转3D完成，已生成3D模型', type: 'success' }
-        }));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '2D转3D失败';
-        logger.error('2D转3D失败', error);
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message, type: 'error' }
-        }));
-      } finally {
-        setIsConvertingTo3D(false);
-      }
-    };
-
-    execute();
-  }, [imageData.id, imageData.url, imageData.src, resolveImageDataUrl, isConvertingTo3D, realTimeBounds, projectId]);
-
-  // 处理扩图按钮点击
-  const handleExpandImage = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isExpandingImage) return;
-    setShowExpandSelector(true);
-  }, [isExpandingImage]);
-
-  // 处理扩图选择完成
-  const aiProvider = useAIChatStore((state) => state.aiProvider);
-
-  const handleExpandSelect = useCallback(async (
-    selectedBounds: { x: number; y: number; width: number; height: number },
-    expandRatios: { left: number; top: number; right: number; bottom: number }
-  ) => {
-    setShowExpandSelector(false);
-    setIsExpandingImage(true);
-
-    try {
-      const hasExpandArea =
-        !!expandRatios &&
-        (expandRatios.left > 0 || expandRatios.top > 0 || expandRatios.right > 0 || expandRatios.bottom > 0);
-
-      if (!hasExpandArea) {
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '请拖拽外框扩展空白区域后再尝试', type: 'error' }
-        }));
-        return;
-      }
-
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '⏳ 正在准备扩图，请稍候...', type: 'info' }
-      }));
-
-      const baseImageDataUrl = await resolveImageDataUrl();
-      if (!baseImageDataUrl) {
-        throw new Error('无法获取当前图片数据');
-      }
-
-      const composed = await composeExpandedImage(baseImageDataUrl, realTimeBounds, selectedBounds);
-      const normalizedSourceImage = composed.dataUrl.includes(',')
-        ? composed.dataUrl.split(',')[1]
-        : composed.dataUrl;
-
-      const modelToUse = getImageModelForProvider(aiProvider);
-      logger.info('🔁 调用AI扩图', {
-        imageId: imageData.id,
-        provider: aiProvider,
-        model: modelToUse,
-        targetSize: {
-          width: selectedBounds.width,
-          height: selectedBounds.height,
-        }
-      });
-      console.log('🟦 扩图提示词', EXPAND_PRESET_PROMPT);
-
-      const result = await aiImageService.editImage({
-        prompt: EXPAND_PRESET_PROMPT,
-        sourceImage: normalizedSourceImage,
-        outputFormat: 'png',
-        aiProvider,
-        model: modelToUse,
-        imageOnly: true,
-      });
-
-      if (!result.success || !result.data || !result.data.imageData) {
-        throw new Error(result.error?.message || '扩图失败');
-      }
-
-      const expandedImageData = ensureDataUrlString(result.data.imageData);
-      let finalImageData = expandedImageData;
-      let placementBounds = selectedBounds;
-
-      try {
-        const trimResult = await trimTransparentPng(expandedImageData, {
-          alphaThreshold: 8,
-          padding: 1
-        });
-
-        if (trimResult?.changed && trimResult.originalSize.width > 0 && trimResult.originalSize.height > 0) {
-          finalImageData = trimResult.dataUrl;
-          const pixelToPaperX = selectedBounds.width / trimResult.originalSize.width;
-          const pixelToPaperY = selectedBounds.height / trimResult.originalSize.height;
-
-          let newX = selectedBounds.x + trimResult.cropBounds.left * pixelToPaperX;
-          let newY = selectedBounds.y + trimResult.cropBounds.top * pixelToPaperY;
-          let newWidth = trimResult.cropBounds.width * pixelToPaperX;
-          let newHeight = trimResult.cropBounds.height * pixelToPaperY;
-
-          const maxRight = selectedBounds.x + selectedBounds.width;
-          const maxBottom = selectedBounds.y + selectedBounds.height;
-          if (newX + newWidth > maxRight) {
-            newWidth = maxRight - newX;
-          }
-          if (newY + newHeight > maxBottom) {
-            newHeight = maxBottom - newY;
+          if (editResult.success && editResult.data?.imageData) {
+            logger.info("✅ Gemini 预处理完成，开始抠图算法");
+            window.dispatchEvent(
+              new CustomEvent("toast", {
+                detail: { message: "🔄 正在精细抠图...", type: "info" },
+              })
+            );
           }
 
-          placementBounds = {
-            x: newX,
-            y: newY,
-            width: Math.max(1, newWidth),
-            height: Math.max(1, newHeight)
+          // Step 2: 将预处理后的图片传给抠图算法
+          logger.info("📷 Step 2: 抠图算法处理");
+          const result = await backgroundRemovalService.removeBackground(
+            imageForRemoval,
+            "image/png",
+            true
+          );
+          if (!result.success || !result.imageData) {
+            throw new Error(result.error || "背景移除失败");
+          }
+
+          const centerPoint = {
+            x: realTimeBounds.x + realTimeBounds.width / 2,
+            y: realTimeBounds.y + realTimeBounds.height / 2,
           };
 
-          logger.info('🪄 自动裁剪PNG透明边界', {
-            originalPixels: trimResult.originalSize,
-            cropBounds: trimResult.cropBounds,
-            placementBounds
-          });
+          const fileName = `background-removed-${Date.now()}.png`;
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: result.imageData,
+                fileName,
+                smartPosition: centerPoint,
+                operationType: "background-removal",
+                sourceImageId: imageData.id,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "✨ 抠图完成，已生成新图", type: "success" },
+            })
+          );
+          logger.info("✅ 背景移除完成", { imageId: imageData.id });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "背景移除失败";
+          console.error("背景移除失败:", error);
+          logger.error("❌ 背景移除失败", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+        } finally {
+          setIsRemovingBackground(false);
         }
-      } catch (trimError) {
-        console.warn('PNG透明边界裁剪失败，使用原始边界', trimError);
+      };
+
+      execute().catch((error) => {
+        console.error("抠图异常:", error);
+        setIsRemovingBackground(false);
+      });
+    },
+    [imageData.id, resolveImageDataUrl, isRemovingBackground, realTimeBounds]
+  );
+
+  // 处理2D转3D按钮点击
+  const handleConvertTo3D = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (isConvertingTo3D) {
+        return;
       }
 
-      const originalCenter = {
-        x: realTimeBounds.x + realTimeBounds.width / 2,
-        y: realTimeBounds.y + realTimeBounds.height / 2,
+      const execute = async () => {
+        setIsConvertingTo3D(true);
+        try {
+          // 获取当前选中图片的URL，优先从Paper.js的raster获取
+          let imageUrl: string;
+          const imageGroup = paper.project?.layers?.flatMap((layer) =>
+            layer.children.filter(
+              (child) =>
+                child.data?.type === "image" &&
+                child.data?.imageId === imageData.id
+            )
+          )[0];
+
+          let rasterSource: string | null = null;
+          if (imageGroup) {
+            const raster = imageGroup.children.find(
+              (child) => child instanceof paper.Raster
+            ) as paper.Raster | undefined;
+            if (raster && raster.source) {
+              rasterSource =
+                typeof raster.source === "string" ? raster.source : null;
+            }
+          }
+
+          const currentUrl = rasterSource || imageData.url || imageData.src;
+
+          if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
+            imageUrl = currentUrl;
+          } else {
+            const imageDataUrl = await resolveImageDataUrl();
+            if (!imageDataUrl) {
+              throw new Error("无法获取当前图片的图像数据");
+            }
+
+            const response = await fetch(imageDataUrl);
+            const blob = await response.blob();
+
+            const uploadResult = await uploadToOSS(blob, {
+              dir: projectId
+                ? `projects/${projectId}/images/`
+                : "uploads/images/",
+              fileName: `2d-to-3d-${Date.now()}.png`,
+              contentType: "image/png",
+              projectId,
+            });
+
+            if (!uploadResult.success || !uploadResult.url) {
+              throw new Error(uploadResult.error || "当前图片上传失败");
+            }
+
+            imageUrl = uploadResult.url;
+          }
+
+          if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+            throw new Error(`无效的图片URL: ${imageUrl}`);
+          }
+
+          const convertResult = await convert2Dto3D({ imageUrl });
+
+          if (!convertResult.success || !convertResult.modelUrl) {
+            throw new Error(convertResult.error || "2D转3D失败");
+          }
+
+          const modelUrl = convertResult.modelUrl;
+          const fileName =
+            modelUrl.split("/").pop() || `model-${Date.now()}.glb`;
+
+          const model3DData: Model3DData = {
+            url: modelUrl,
+            format: "glb",
+            fileName,
+            fileSize: 0,
+            defaultScale: { x: 1, y: 1, z: 1 },
+            defaultRotation: { x: 0, y: 0, z: 0 },
+            timestamp: Date.now(),
+          };
+
+          const modelWidth = realTimeBounds.width;
+          const modelHeight = realTimeBounds.height;
+          const spacing = 20;
+
+          const modelStartX = realTimeBounds.x + realTimeBounds.width + spacing;
+          const modelStartY = realTimeBounds.y;
+          const modelEndX = modelStartX + modelWidth;
+          const modelEndY = modelStartY + modelHeight;
+
+          window.dispatchEvent(
+            new CustomEvent("canvas:insert-model3d", {
+              detail: {
+                modelData: model3DData,
+                size: {
+                  width: modelWidth,
+                  height: modelHeight,
+                },
+                position: {
+                  start: { x: modelStartX, y: modelStartY },
+                  end: { x: modelEndX, y: modelEndY },
+                },
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "✨ 2D转3D完成，已生成3D模型",
+                type: "success",
+              },
+            })
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "2D转3D失败";
+          logger.error("2D转3D失败", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+        } finally {
+          setIsConvertingTo3D(false);
+        }
       };
-      const expandPlacementGap = Math.max(32, Math.min(120, realTimeBounds.width * 0.1));
-      const expandResultCenter = {
-        x: originalCenter.x - realTimeBounds.width - expandPlacementGap,
-        y: originalCenter.y,
-      };
 
-      window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-        detail: {
-          imageData: finalImageData,
-          fileName: `expanded-${Date.now()}.png`,
-          selectedImageBounds: placementBounds,
-          smartPosition: expandResultCenter,
-          operationType: 'expand-image',
-          sourceImageId: imageData.id,
-        },
-      }));
+      execute();
+    },
+    [
+      imageData.id,
+      imageData.url,
+      imageData.src,
+      resolveImageDataUrl,
+      isConvertingTo3D,
+      realTimeBounds,
+      projectId,
+    ]
+  );
 
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '✨ 扩图完成，已生成新图', type: 'success' }
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '扩图失败';
-      logger.error('扩图失败', error);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message, type: 'error' }
-      }));
-    } finally {
-      setIsExpandingImage(false);
-      setDrawMode('select');
-    }
-  }, [aiProvider, imageData.id, realTimeBounds, resolveImageDataUrl, setDrawMode]);
+  // 处理扩图按钮点击
+  const handleExpandImage = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isExpandingImage) return;
+      setShowExpandSelector(true);
+    },
+    [isExpandingImage]
+  );
 
-  const handleOptimizeHdImage = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isOptimizingHd) return;
+  // 处理扩图选择完成（走与 2D→3D 一致的后端扩图服务 & API_BASE_URL）
+  const handleExpandSelect = useCallback(
+    async (
+      selectedBounds: { x: number; y: number; width: number; height: number },
+      expandRatios: { left: number; top: number; right: number; bottom: number }
+    ) => {
+      setShowExpandSelector(false);
+      setIsExpandingImage(true);
 
-    const execute = async () => {
-      setIsOptimizingHd(true);
       try {
+        const hasExpandArea =
+          !!expandRatios &&
+          (expandRatios.left > 0 ||
+            expandRatios.top > 0 ||
+            expandRatios.right > 0 ||
+            expandRatios.bottom > 0);
+
+        if (!hasExpandArea) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "请拖拽外框扩展空白区域后再尝试",
+                type: "error",
+              },
+            })
+          );
+          return;
+        }
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "⏳ 正在准备扩图，请稍候...", type: "info" },
+          })
+        );
+
+        // 与 2D→3D、高清放大一致：先拿到可供后端处理的 imageUrl（远程 URL 或自动上传到 OSS 后的 URL）
         const imageUrl = await getProcessableImageUrl();
-        const resolutionLabel = HD_UPSCALE_RESOLUTION.toUpperCase();
 
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: {
-            message: `⏳ 开始高清放大（${resolutionLabel}），请稍候...`,
-            type: 'info',
-          },
-        }));
-
-        const result = await optimizeHdImage({
+        logger.info("🔁 调用后端扩图服务", {
+          imageId: imageData.id,
           imageUrl,
-          resolution: HD_UPSCALE_RESOLUTION,
-          filenamePrefix: `optimize_HD_image_${HD_UPSCALE_RESOLUTION}`,
+          expandRatios,
+        });
+
+        const result = await expandImage({
+          imageUrl,
+          expandRatios,
+          prompt: EXPAND_PRESET_PROMPT,
         });
 
         if (!result.success || !result.imageUrl) {
-          throw new Error(result.error || '高清放大失败');
+          throw new Error(result.error || "扩图失败");
         }
 
-        const placementGap = Math.max(32, Math.min(120, realTimeBounds.width * 0.2));
-        const smartPosition = {
-          x: realTimeBounds.x + realTimeBounds.width + placementGap,
+        const finalImageUrl = result.imageUrl;
+
+        const originalCenter = {
+          x: realTimeBounds.x + realTimeBounds.width / 2,
           y: realTimeBounds.y + realTimeBounds.height / 2,
         };
+        const expandPlacementGap = Math.max(
+          32,
+          Math.min(120, realTimeBounds.width * 0.1)
+        );
+        const expandResultCenter = {
+          x: originalCenter.x - realTimeBounds.width - expandPlacementGap,
+          y: originalCenter.y,
+        };
 
-        window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-          detail: {
-            imageData: result.imageUrl,
-            fileName: `hd-${HD_UPSCALE_RESOLUTION}-${Date.now()}.png`,
-            selectedImageBounds: {
-              x: realTimeBounds.x,
-              y: realTimeBounds.y,
-              width: realTimeBounds.width,
-              height: realTimeBounds.height,
+        window.dispatchEvent(
+          new CustomEvent("triggerQuickImageUpload", {
+            detail: {
+              imageData: finalImageUrl,
+              fileName: `expanded-${Date.now()}.png`,
+              selectedImageBounds: selectedBounds,
+              smartPosition: expandResultCenter,
+              operationType: "expand-image",
+              sourceImageId: imageData.id,
             },
-            smartPosition,
-            operationType: 'optimize-hd-image',
-            sourceImageId: imageData.id,
-          },
-        }));
+          })
+        );
 
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: {
-            message: `✨ 高清放大完成（${resolutionLabel}）`,
-            type: 'success',
-          },
-        }));
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "✨ 扩图完成，已生成新图", type: "success" },
+          })
+        );
       } catch (error) {
-        const message = error instanceof Error ? error.message : '高清放大失败';
-        logger.error('高清放大失败', error);
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message, type: 'error' },
-        }));
+        const message = error instanceof Error ? error.message : "扩图失败";
+        logger.error("扩图失败", error);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message, type: "error" },
+          })
+        );
       } finally {
-        setIsOptimizingHd(false);
+        setIsExpandingImage(false);
+        setDrawMode("select");
       }
-    };
+    },
+    [getProcessableImageUrl, imageData.id, realTimeBounds, setDrawMode]
+  );
 
-    execute();
-  }, [getProcessableImageUrl, imageData.id, isOptimizingHd, realTimeBounds]);
+  const handleOptimizeHdImage = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isOptimizingHd) return;
+
+      const execute = async () => {
+        setIsOptimizingHd(true);
+        try {
+          const imageUrl = await getProcessableImageUrl();
+          const resolutionLabel = HD_UPSCALE_RESOLUTION.toUpperCase();
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: `⏳ 开始高清放大（${resolutionLabel}），请稍候...`,
+                type: "info",
+              },
+            })
+          );
+
+          const result = await optimizeHdImage({
+            imageUrl,
+            resolution: HD_UPSCALE_RESOLUTION,
+            filenamePrefix: `optimize_HD_image_${HD_UPSCALE_RESOLUTION}`,
+          });
+
+          if (!result.success || !result.imageUrl) {
+            throw new Error(result.error || "高清放大失败");
+          }
+
+          const placementGap = Math.max(
+            32,
+            Math.min(120, realTimeBounds.width * 0.2)
+          );
+          const smartPosition = {
+            x: realTimeBounds.x + realTimeBounds.width + placementGap,
+            y: realTimeBounds.y + realTimeBounds.height / 2,
+          };
+
+          window.dispatchEvent(
+            new CustomEvent("triggerQuickImageUpload", {
+              detail: {
+                imageData: result.imageUrl,
+                fileName: `hd-${HD_UPSCALE_RESOLUTION}-${Date.now()}.png`,
+                selectedImageBounds: {
+                  x: realTimeBounds.x,
+                  y: realTimeBounds.y,
+                  width: realTimeBounds.width,
+                  height: realTimeBounds.height,
+                },
+                smartPosition,
+                operationType: "optimize-hd-image",
+                sourceImageId: imageData.id,
+              },
+            })
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: `✨ 高清放大完成（${resolutionLabel}）`,
+                type: "success",
+              },
+            })
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "高清放大失败";
+          logger.error("高清放大失败", error);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message, type: "error" },
+            })
+          );
+        } finally {
+          setIsOptimizingHd(false);
+        }
+      };
+
+      execute();
+    },
+    [getProcessableImageUrl, imageData.id, isOptimizingHd, realTimeBounds]
+  );
 
   // 处理扩图取消
   const handleExpandCancel = useCallback(() => {
     setShowExpandSelector(false);
     // 恢复画板的默认选择模式
-    setDrawMode('select');
+    setDrawMode("select");
   }, [setDrawMode]);
 
   const basePreviewSrc = useMemo(() => {
-    const candidate = getImageDataForEditing?.(imageData.id) || imageData.url || imageData.src || imageData.localDataUrl;
+    const candidate =
+      getImageDataForEditing?.(imageData.id) ||
+      imageData.url ||
+      imageData.src ||
+      imageData.localDataUrl;
     return normalizeImageSrc(candidate);
-  }, [getImageDataForEditing, imageData.id, imageData.url, imageData.src, imageData.localDataUrl]);
+  }, [
+    getImageDataForEditing,
+    imageData.id,
+    imageData.url,
+    imageData.src,
+    imageData.localDataUrl,
+  ]);
 
   const previewCollection = useMemo<ImageItem[]>(() => {
     const mapBySrc = new Map<string, ImageItem>();
-    
+
     // 判断文件名是否以.png结尾
     const isPngFileName = (title?: string): boolean => {
       if (!title) return false;
-      return title.toLowerCase().endsWith('.png');
+      return title.toLowerCase().endsWith(".png");
     };
-    
+
     // 处理历史图片，优先保留非.png命名的图片
     // 只按URL去重，避免误判不同内容的图片为重复
     relatedHistoryImages.forEach((item) => {
       if (!item.src) return;
       const normalizedSrc = normalizeImageSrc(item.src);
       if (!normalizedSrc) return;
-      
+
       const existing = mapBySrc.get(normalizedSrc);
       const currentIsPng = isPngFileName(item.title);
-      
+
       // 如果URL相同，按URL去重
       if (existing) {
         const existingIsPng = isPngFileName(existing.title);
-        
+
         // 优先保留非.png命名的图片
         if (currentIsPng && !existingIsPng) {
           // 当前是.png，已存在的是非.png，保留已存在的
@@ -1068,11 +1210,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       };
       const existing = mapBySrc.get(basePreviewSrc);
       const currentIsPng = isPngFileName(imageData.fileName);
-      
+
       // 如果URL相同
       if (existing) {
         const existingIsPng = isPngFileName(existing.title);
-        
+
         // 如果当前选中的是.png，且已存在非.png的，则隐藏当前选中的（不添加到集合）
         if (currentIsPng && !existingIsPng) {
           // 不添加，保留已存在的非.png版本，继续执行返回结果
@@ -1090,19 +1232,29 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     return Array.from(mapBySrc.values());
-  }, [basePreviewSrc, imageData.fileName, imageData.id, relatedHistoryImages, localPreviewTimestamp]);
+  }, [
+    basePreviewSrc,
+    imageData.fileName,
+    imageData.id,
+    relatedHistoryImages,
+    localPreviewTimestamp,
+  ]);
 
   const activePreviewId = previewImageId ?? imageData.id;
   const activePreviewSrc = useMemo(() => {
-    if (!previewCollection.length) return '';
-    const target = previewCollection.find((item) => item.id === activePreviewId);
-    return target?.src || previewCollection[0]?.src || '';
+    if (!previewCollection.length) return "";
+    const target = previewCollection.find(
+      (item) => item.id === activePreviewId
+    );
+    return target?.src || previewCollection[0]?.src || "";
   }, [activePreviewId, previewCollection]);
 
   useEffect(() => {
     if (!showPreview) return;
     if (!previewCollection.length) return;
-    const exists = previewCollection.some((item) => item.id === activePreviewId);
+    const exists = previewCollection.some(
+      (item) => item.id === activePreviewId
+    );
     if (!exists) {
       setPreviewImageId(previewCollection[0].id);
     }
@@ -1115,8 +1267,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         setPreviewImageId(imageData.id);
       }
     };
-    window.addEventListener('canvas:image-open-preview', handler as EventListener);
-    return () => window.removeEventListener('canvas:image-open-preview', handler as EventListener);
+    window.addEventListener(
+      "canvas:image-open-preview",
+      handler as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "canvas:image-open-preview",
+        handler as EventListener
+      );
   }, [imageData.id]);
 
   // 已简化 - 移除了所有鼠标事件处理逻辑，让Paper.js完全处理交互
@@ -1125,25 +1284,25 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     <div
       ref={containerRef}
       style={{
-        position: 'absolute',
+        position: "absolute",
         left: screenBounds.x,
         top: screenBounds.y,
         width: screenBounds.width,
         height: screenBounds.height,
         zIndex: 10 + layerIndex * 2 + (isSelected ? 1 : 0), // 大幅降低z-index，确保在对话框下方
-        cursor: 'default',
-        userSelect: 'none',
-        pointerEvents: 'none', // 让所有鼠标事件穿透到Paper.js
-        display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
+        cursor: "default",
+        userSelect: "none",
+        pointerEvents: "none", // 让所有鼠标事件穿透到Paper.js
+        display: visible ? "block" : "none", // 根据visible属性控制显示/隐藏
       }}
     >
       {/* 透明覆盖层，让交互穿透到Paper.js */}
       <div
         style={{
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'transparent',
-          pointerEvents: 'none'
+          width: "100%",
+          height: "100%",
+          backgroundColor: "transparent",
+          pointerEvents: "none",
         }}
       />
 
@@ -1152,7 +1311,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         <ExpandImageSelector
           imageBounds={realTimeBounds}
           imageId={imageData.id}
-          imageUrl={imageData.url || imageData.src || ''}
+          imageUrl={imageData.url || imageData.src || ""}
           onSelect={handleExpandSelect}
           onCancel={handleExpandCancel}
         />
@@ -1162,93 +1321,99 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       {isSelected && showIndividualTools && !showExpandSelector && (
         <div
           className={`absolute transition-all duration-150 ease-out ${
-            !isPositionStable ? 'opacity-90 translate-y-1' : 'opacity-100 translate-y-0'
+            !isPositionStable
+              ? "opacity-90 translate-y-1"
+              : "opacity-100 translate-y-0"
           }`}
           style={{
             bottom: -60,
-            left: '50%',
-            transform: 'translateX(-50%)',
+            left: "50%",
+            transform: "translateX(-50%)",
             zIndex: 30,
-            pointerEvents: 'auto',
+            pointerEvents: "auto",
           }}
         >
-          <div
-            className="flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass"
-          >
+          <div className='flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
             <Button
-              variant="outline"
-              size="sm"
+              variant='outline'
+              size='sm'
               className={sharedButtonClass}
               onClick={handleAIEdit}
-              title="添加到AI对话框进行编辑"
+              title='添加到AI对话框进行编辑'
               style={sharedButtonStyle}
             >
               <Sparkles className={sharedIconClass} />
             </Button>
 
             <Button
-              variant="outline"
-              size="sm"
+              variant='outline'
+              size='sm'
               disabled={isRemovingBackground}
               className={sharedButtonClass}
               onClick={handleBackgroundRemoval}
-              title={isRemovingBackground ? '正在抠图...' : '一键抠图'}
+              title={isRemovingBackground ? "正在抠图..." : "一键抠图"}
               style={sharedButtonStyle}
             >
               {isRemovingBackground ? (
-                <LoadingSpinner size="sm" className="text-blue-600" />
+                <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <Wand2 className={sharedIconClass} />
               )}
             </Button>
 
             <Button
-              variant="outline"
-              size="sm"
+              variant='outline'
+              size='sm'
               disabled={isConvertingTo3D}
               className={sharedButtonClass}
               onClick={handleConvertTo3D}
-              title={isConvertingTo3D ? '正在转换3D...' : '2D转3D'}
+              title={isConvertingTo3D ? "正在转换3D..." : "2D转3D"}
               style={sharedButtonStyle}
             >
               {isConvertingTo3D ? (
-                <LoadingSpinner size="sm" className="text-blue-600" />
+                <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <Box className={sharedIconClass} />
               )}
             </Button>
 
             <Button
-              variant="outline"
-              size="sm"
+              variant='outline'
+              size='sm'
               disabled={isOptimizingHd}
               className={sharedButtonClass}
               onClick={handleOptimizeHdImage}
               title={
                 isOptimizingHd
-                  ? '正在高清放大...'
+                  ? "正在高清放大..."
                   : `高清放大（${HD_UPSCALE_RESOLUTION.toUpperCase()}）`
               }
               style={sharedButtonStyle}
             >
               {isOptimizingHd ? (
-                <LoadingSpinner size="sm" className="text-blue-600" />
+                <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <ImageUp className={sharedIconClass} />
               )}
             </Button>
 
             <Button
-              variant="outline"
-              size="sm"
+              variant='outline'
+              size='sm'
               disabled={isExpandingImage || showExpandSelector}
               className={sharedButtonClass}
               onClick={handleExpandImage}
-              title={isExpandingImage ? '正在扩图，预计需要8-10分钟，请耐心等待...' : showExpandSelector ? '请选择扩图区域' : '扩图（预计8-10分钟）'}
+              title={
+                isExpandingImage
+                  ? "正在扩图，预计需要8-10分钟，请耐心等待..."
+                  : showExpandSelector
+                  ? "请选择扩图区域"
+                  : "扩图（预计8-10分钟）"
+              }
               style={sharedButtonStyle}
             >
               {isExpandingImage ? (
-                <LoadingSpinner size="sm" className="text-blue-600" />
+                <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <Crop className={sharedIconClass} />
               )}
@@ -1256,11 +1421,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
             {enableVisibilityToggle && (
               <Button
-                variant="outline"
-                size="sm"
+                variant='outline'
+                size='sm'
                 className={sharedButtonClass}
                 onClick={handleToggleVisibility}
-                title="隐藏图层（可在图层面板中恢复）"
+                title='隐藏图层（可在图层面板中恢复）'
                 style={sharedButtonStyle}
               >
                 <EyeOff className={sharedIconClass} />
@@ -1268,16 +1433,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             )}
 
             <Button
-              variant="outline"
-              size="sm"
+              variant='outline'
+              size='sm'
               className={sharedButtonClass}
               onClick={handleCreateFlowImageNode}
-              title="复制到Flow为Image节点"
+              title='复制到Flow为Image节点'
               style={sharedButtonStyle}
             >
               <Copy className={sharedIconClass} />
             </Button>
-
           </div>
         </div>
       )}
@@ -1294,7 +1458,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         imageCollection={previewCollection}
         currentImageId={activePreviewId}
         onImageChange={(imageId: string) => setPreviewImageId(imageId)}
-        collectionTitle="项目内图片"
+        collectionTitle='项目内图片'
       />
     </div>
   );
