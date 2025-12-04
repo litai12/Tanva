@@ -3,7 +3,6 @@ import { Handle, Position } from 'reactflow';
 import { Send as SendIcon, Play } from 'lucide-react';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
-import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { cn } from '@/lib/utils';
 
@@ -164,10 +163,8 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
   // 2x2 网格渲染单元
   const renderCell = (idx: number) => {
     const img = images[idx];
-    // 正在生成这张图片：status 是 running 且这张图片还没有生成出来
-    const isLoading = status === 'running' && !img;
-    // 已经有前面的图片，说明轮到这张了
-    const isCurrentlyGenerating = isLoading && images.length === idx;
+    // 并发模式：status 是 running 且这张图片还没有生成出来，都显示生成中
+    const isGenerating = status === 'running' && !img;
     return (
       <div
         key={idx}
@@ -199,7 +196,7 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
           />
         ) : (
           <span style={{ fontSize: 12, color: '#9ca3af' }}>
-            {isCurrentlyGenerating ? '生成中...' : isLoading ? '等待中' : '空'}
+            {isGenerating ? '生成中...' : '空'}
           </span>
         )}
         {/* 图片序号标签 */}
@@ -218,8 +215,8 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
         >
           {idx + 1}
         </div>
-        {/* 单张图片底部进度条 */}
-        {isCurrentlyGenerating && (
+        {/* 单张图片底部进度条 - 并发模式下所有正在生成的图片都显示 */}
+        {isGenerating && (
           <div
             style={{
               position: 'absolute',
@@ -407,23 +404,8 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
         ))}
       </div>
 
-      {/* 进度条区域 */}
-      <div style={{ height: 14, position: 'relative' }}>
-        {status === 'running' && (
-          <div style={{
-            position: 'absolute',
-            bottom: -6,
-            left: 16,
-            right: 16,
-            zIndex: 10,
-          }}>
-            <GenerationProgressBar status={status} />
-          </div>
-        )}
-      </div>
-
       {/* 提示词输入框 */}
-      <div ref={promptBoxRef} style={{ marginTop: 0, position: 'relative' }}>
+      <div ref={promptBoxRef} style={{ marginTop: 8, position: 'relative' }}>
         <div
           className="nodrag nopan"
           style={{

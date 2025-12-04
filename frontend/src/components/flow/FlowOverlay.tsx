@@ -1796,7 +1796,13 @@ function FlowInner() {
       return;
     }
 
-    if (node.type !== 'generate' && node.type !== 'generate4' && node.type !== 'generateRef' && node.type !== 'generatePro') return;
+    if (
+      node.type !== 'generate' &&
+      node.type !== 'generate4' &&
+      node.type !== 'generateRef' &&
+      node.type !== 'generatePro' &&
+      node.type !== 'generatePro4'
+    ) return;
 
     const { text: promptFromText, hasEdge: hasPromptEdge } = getTextPromptForNode(nodeId);
 
@@ -1977,17 +1983,16 @@ function FlowInner() {
       return;
     }
 
-    // 处理 generatePro4 节点：生成4张图片
+    // 处理 generatePro4 节点：并发生成4张图片
     if (node.type === 'generatePro4') {
       const total = 4;
       setNodes(ns => ns.map(n => n.id === nodeId ? {
         ...n,
         data: { ...n.data, status: 'running', error: undefined, images: [] }
       } : n));
-      const produced: string[] = [];
 
-      for (let i = 0; i < total; i++) {
-        let generatedImage: string | undefined;
+      // 并发生成4张图片
+      const generateSingleImage = async (index: number): Promise<{ index: number; image?: string; error?: string }> => {
         try {
           let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
           if (imageDatas.length === 0) {
@@ -2022,41 +2027,60 @@ function FlowInner() {
           }
 
           if (result.success && result.data?.imageData) {
-            generatedImage = result.data.imageData;
+            return { index, image: result.data.imageData };
           }
-        } catch {
-          // 忽略单张失败，继续下一张
+          // 返回错误信息
+          return { index, error: result.error?.message || '生成失败' };
+        } catch (err) {
+          console.error(`[generatePro4] Image ${index} generation error:`, err);
+          return { index, error: err instanceof Error ? err.message : '生成异常' };
         }
+      };
 
-        if (generatedImage) {
-          produced[i] = generatedImage;
+      // 创建4个并发任务
+      const tasks = Array.from({ length: total }, (_, i) => generateSingleImage(i));
+      const produced: string[] = new Array(total).fill('');
+      const errors: string[] = [];
 
-          const outs = rf.getEdges().filter(e => e.source === nodeId && (e as any).sourceHandle === `img${i + 1}`);
-          if (outs.length) {
-            const imgB64 = generatedImage;
-            setNodes(ns => ns.map(n => {
-              const hits = outs.filter(e => e.target === n.id);
-              if (!hits.length) return n;
-              if (n.type === 'image' && imgB64) return { ...n, data: { ...n.data, imageData: imgB64 } };
-              return n;
-            }));
+      // 使用 Promise.all 等待所有任务完成，同时监听每个完成的结果
+      const results = await Promise.all(
+        tasks.map(async (task) => {
+          const result = await task;
+          if (result.image) {
+            produced[result.index] = result.image;
+
+            // 更新UI显示已完成的图片
+            setNodes(ns => ns.map(n => n.id === nodeId ? {
+              ...n,
+              data: { ...n.data, images: [...produced] }
+            } : n));
+
+            // 更新连接的下游节点
+            const outs = rf.getEdges().filter(e => e.source === nodeId && (e as any).sourceHandle === `img${result.index + 1}`);
+            if (outs.length) {
+              const imgB64 = result.image;
+              setNodes(ns => ns.map(n => {
+                const hits = outs.filter(e => e.target === n.id);
+                if (!hits.length) return n;
+                if (n.type === 'image' && imgB64) return { ...n, data: { ...n.data, imageData: imgB64 } };
+                return n;
+              }));
+            }
+          } else if (result.error) {
+            errors.push(`图${result.index + 1}: ${result.error}`);
           }
-        }
-
-        // 更新进度
-        setNodes(ns => ns.map(n => n.id === nodeId ? {
-          ...n,
-          data: { ...n.data, images: [...produced] }
-        } : n));
-      }
+          return result;
+        })
+      );
 
       const hasAny = produced.filter(Boolean).length > 0;
+      const errorMsg = errors.length > 0 ? errors.join('; ') : '全部生成失败';
       setNodes(ns => ns.map(n => n.id === nodeId ? {
         ...n,
         data: {
           ...n.data,
           status: hasAny ? 'succeeded' : 'failed',
-          error: hasAny ? undefined : '全部生成失败',
+          error: hasAny ? undefined : errorMsg,
           images: [...produced],
         }
       } : n));
