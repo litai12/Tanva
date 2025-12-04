@@ -21,7 +21,7 @@ import ImagePreviewModal from '@/components/ui/ImagePreviewModal';
 import { useAIChatStore, getTextModelForProvider } from '@/stores/aiChatStore';
 import { useUIStore } from '@/stores';
 import type { ManualAIMode, ChatMessage } from '@/stores/aiChatStore';
-import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain, Copy, FileText } from 'lucide-react';
+import { Send, AlertCircle, Image, X, History, Plus, BookOpen, SlidersHorizontal, Check, Loader2, Share2, Download, Brain, Copy, FileText, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -2517,7 +2517,7 @@ const AIChatDialog: React.FC = () => {
                 {generationStatus.isGenerating ? (
                   <LoadingSpinner size="sm" />
                 ) : (
-                  <Send className="h-3.5 w-3.5" />
+                  <Play className="h-3.5 w-3.5" />
                 )}
               </Button>
             </div>

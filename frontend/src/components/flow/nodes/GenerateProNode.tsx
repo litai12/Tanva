@@ -620,8 +620,14 @@ export default function GenerateProNode({ id, data, selected }: Props) {
               <div className="relative" ref={aspectMenuRef}>
                 <button
                   onClick={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     setIsAspectMenuOpen(!isAspectMenuOpen);
+                  }}
+                  onMouseDown={(e) => {
+                    // 阻止点击时节点失去选中状态
+                    e.preventDefault();
+                    e.stopPropagation();
                   }}
                   onPointerDownCapture={stopNodeDrag}
                   className={cn(
@@ -636,7 +642,16 @@ export default function GenerateProNode({ id, data, selected }: Props) {
 
               {/* Run 按钮 */}
               <button
-                onClick={onRun}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onRun();
+                }}
+                onMouseDown={(e) => {
+                  // 阻止点击时节点失去选中状态
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
                 disabled={status === 'running'}
                 onPointerDownCapture={stopNodeDrag}
                 className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
@@ -647,7 +662,16 @@ export default function GenerateProNode({ id, data, selected }: Props) {
 
               {/* 发送按钮 */}
               <button
-                onClick={onSend}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSend();
+                }}
+                onMouseDown={(e) => {
+                  // 阻止点击时节点失去选中状态
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
                 disabled={!data.imageData}
                 onPointerDownCapture={stopNodeDrag}
                 className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
