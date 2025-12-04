@@ -233,9 +233,9 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
               className="generatepro4-progress-bar"
               style={{
                 height: '100%',
-                background: 'linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6)',
-                backgroundSize: '200% 100%',
-                width: '100%',
+                background: 'linear-gradient(90deg, #3b82f6, #60a5fa)',
+                borderRadius: 2,
+                width: '30%',
               }}
             />
           </div>
@@ -270,12 +270,13 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
     >
       {/* 进度条动画样式 */}
       <style>{`
-        @keyframes generatepro4-shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
+        @keyframes generatepro4-slide {
+          0% { transform: translateX(0); }
+          50% { transform: translateX(233%); }
+          100% { transform: translateX(0); }
         }
         .generatepro4-progress-bar {
-          animation: generatepro4-shimmer 2s linear infinite;
+          animation: generatepro4-slide 1.2s ease-in-out infinite;
         }
       `}</style>
       {/* 图片区域容器 */}
