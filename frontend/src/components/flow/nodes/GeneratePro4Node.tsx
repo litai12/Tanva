@@ -1,10 +1,11 @@
 import React from 'react';
-import { Handle, Position } from 'reactflow';
-import { Send as SendIcon, Play } from 'lucide-react';
+import { Handle, Position, useReactFlow, useEdges } from 'reactflow';
+import { Send as SendIcon, Play, Link } from 'lucide-react';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { cn } from '@/lib/utils';
+import { resolveTextFromSourceNode } from '../utils/textSource';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -47,6 +48,17 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const promptBoxRef = React.useRef<HTMLDivElement>(null);
   const imageBoxRef = React.useRef<HTMLDivElement>(null);
+
+  // 检测外部文本连接
+  const rf = useReactFlow();
+  const edges = useEdges();
+  const externalPrompt = React.useMemo(() => {
+    const textEdge = edges.find(e => e.target === id && e.targetHandle === 'text');
+    if (!textEdge) return null;
+    const sourceNode = rf.getNode(textEdge.source);
+    if (!sourceNode) return null;
+    return resolveTextFromSourceNode(sourceNode, textEdge.sourceHandle) || null;
+  }, [edges, id, rf]);
 
   // 图片区域宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;
@@ -418,10 +430,40 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
             position: 'relative',
           }}
         >
+          {/* 外部连接的提示词显示 */}
+          {externalPrompt && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 6,
+                marginBottom: 8,
+                padding: '8px 10px',
+                background: '#f0f9ff',
+                borderRadius: 8,
+                border: '1px solid #bae6fd',
+              }}
+            >
+              <Link style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
+              <span
+                style={{
+                  fontSize: 13,
+                  color: '#0369a1',
+                  lineHeight: 1.4,
+                  wordBreak: 'break-word',
+                  maxHeight: 60,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {externalPrompt.length > 100 ? externalPrompt.slice(0, 100) + '...' : externalPrompt}
+              </span>
+            </div>
+          )}
           <textarea
             value={prompts[0] || ''}
             onChange={(event) => updatePrompt(0, event.target.value)}
-            placeholder="输入提示词..."
+            placeholder={externalPrompt ? "输入额外提示词（可选）..." : "输入提示词..."}
             rows={2}
             style={{
               width: '100%',
