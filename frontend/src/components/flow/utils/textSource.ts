@@ -34,6 +34,17 @@ export const resolveTextFromSourceNode = (node: Node | null | undefined, handleI
     if (segment) return segment;
   }
 
+  // 处理 generatePro / generatePro4 的 prompts 数组
+  if (node.type === 'generatePro' || node.type === 'generatePro4') {
+    const prompts = data.prompts;
+    if (Array.isArray(prompts) && prompts.length > 0) {
+      const first = prompts[0];
+      if (typeof first === 'string' && first.trim().length > 0) {
+        return first.trim();
+      }
+    }
+  }
+
   for (const key of TEXT_KEYS) {
     const value = data[key];
     if (typeof value === 'string' && value.trim().length > 0) {

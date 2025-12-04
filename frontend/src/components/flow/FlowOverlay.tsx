@@ -36,6 +36,7 @@ import Sora2VideoNode from './nodes/Sora2VideoNode';
 import TextNoteNode from './nodes/TextNoteNode';
 import StoryboardSplitNode from './nodes/StoryboardSplitNode';
 import GenerateProNode from './nodes/GenerateProNode';
+import GeneratePro4Node from './nodes/GeneratePro4Node';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
@@ -79,6 +80,7 @@ const nodeTypes = {
   generate: GenerateNode,
   generate4: Generate4Node,
   generatePro: GenerateProNode,
+  generatePro4: GeneratePro4Node,
   generateRef: GenerateReferenceNode,
   three: ThreeNode,
   camera: CameraNode,
@@ -1287,7 +1289,7 @@ function FlowInner() {
     return () => window.removeEventListener('click', onNativeClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
@@ -1297,6 +1299,7 @@ function FlowInner() {
       image: { w: 260, h: 240 },
       generate: { w: 260, h: 200 },
       generatePro: { w: 320, h: 400 },
+      generatePro4: { w: 380, h: 480 },
       generate4: { w: 300, h: 240 },
       generateRef: { w: 260, h: 240 },
       three: { w: 280, h: 260 },
@@ -1314,6 +1317,7 @@ function FlowInner() {
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h, presetPrompt: '' }
       : type === 'generatePro' ? { status: 'idle' as const, boxW: size.w, boxH: size.h, prompts: [''] }
+      : type === 'generatePro4' ? { status: 'idle' as const, images: [], boxW: size.w, boxH: size.h, prompts: [''] }
       : type === 'generate4' ? { status: 'idle' as const, images: [], count: 4, boxW: size.w, boxH: size.h }
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
@@ -1326,7 +1330,7 @@ function FlowInner() {
     return id;
   }, [setNodes]);
 
-  const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote','storyboardSplit','generatePro'], []);
+  const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote','storyboardSplit','generatePro','generatePro4'], []);
   const TEXT_PROMPT_MAX_CONNECTIONS = 20;
   const isTextHandle = React.useCallback((handle?: string | null) => typeof handle === 'string' && handle.startsWith('text'), []);
 
@@ -1352,18 +1356,18 @@ function FlowInner() {
     // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
     if (targetNode.type === 'generateRef') {
       if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
-      if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','generate','generate4','generatePro','three','camera'].includes(sourceNode.type || '');
-      if (targetHandle === 'image2' || targetHandle === 'img') return ['image','generate','generate4','generatePro','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'image2' || targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
-    if (targetNode.type === 'generate' || targetNode.type === 'generate4' || targetNode.type === 'generatePro') {
+    if (targetNode.type === 'generate' || targetNode.type === 'generate4' || targetNode.type === 'generatePro' || targetNode.type === 'generatePro4') {
       if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
-      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'sora2Video') {
       if (targetHandle === 'image') {
-        return ['image','generate','generate4','generatePro','three','camera'].includes(sourceNode.type || '');
+        return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       }
       if (targetHandle === 'text') {
         return textSourceTypes.includes(sourceNode.type || '');
@@ -1372,7 +1376,7 @@ function FlowInner() {
     }
 
     if (targetNode.type === 'image') {
-      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'promptOptimize') {
@@ -1384,7 +1388,7 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'analysis') {
-      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'textChat') {
@@ -1408,7 +1412,7 @@ function FlowInner() {
     const targetNode = rf.getNode(params.target);
     const currentEdges = rf.getEdges();
     const incoming = currentEdges.filter(e => e.target === params.target && e.targetHandle === params.targetHandle);
-    if (targetNode?.type === 'generate' || targetNode?.type === 'generate4' || targetNode?.type === 'generatePro') {
+    if (targetNode?.type === 'generate' || targetNode?.type === 'generate4' || targetNode?.type === 'generatePro' || targetNode?.type === 'generatePro4') {
       if (params.targetHandle === 'text') return true; // 允许连接，新线会替换旧线
       if (params.targetHandle === 'img') return incoming.length < 6;
     }
@@ -1460,7 +1464,7 @@ function FlowInner() {
       }
       
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generatePro') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video') || (tgt?.type === 'storyboardSplit')) && isTextHandle(params.targetHandle)) {
+      if (((tgt?.type === 'generate') || (tgt?.type === 'generatePro') || (tgt?.type === 'generatePro4') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video') || (tgt?.type === 'storyboardSplit')) && isTextHandle(params.targetHandle)) {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       if ((tgt?.type === 'sora2Video') && params.targetHandle === 'image') {
@@ -1487,7 +1491,7 @@ function FlowInner() {
         const src = rf.getNode(params.source);
         let img: string | undefined;
         let incomingImageName: string | undefined;
-        if (src?.type === 'generate4') {
+        if (src?.type === 'generate4' || src?.type === 'generatePro4') {
           const handle = (params as any).sourceHandle as string | undefined;
           const idx = handle && handle.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
           const imgs = (src.data as any)?.images as string[] | undefined;
@@ -1673,7 +1677,7 @@ function FlowInner() {
       if (!srcNode) return undefined;
       const data = (srcNode.data as any);
 
-      if (srcNode.type === 'generate4') {
+      if (srcNode.type === 'generate4' || srcNode.type === 'generatePro4') {
         const handle = (edge as any).sourceHandle as string | undefined;
         const idx = handle?.startsWith('img')
           ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
@@ -1813,8 +1817,8 @@ function FlowInner() {
         failWithMessage('提示词为空');
         return;
       }
-    } else if (node.type === 'generatePro') {
-      // GeneratePro: 合并本地 prompts 数组和外部提示词
+    } else if (node.type === 'generatePro' || node.type === 'generatePro4') {
+      // GeneratePro / GeneratePro4: 合并本地 prompts 数组和外部提示词
       const localPrompts = (() => {
         const raw = (node.data as any)?.prompts;
         if (Array.isArray(raw)) {
@@ -1973,6 +1977,92 @@ function FlowInner() {
       return;
     }
 
+    // 处理 generatePro4 节点：生成4张图片
+    if (node.type === 'generatePro4') {
+      const total = 4;
+      setNodes(ns => ns.map(n => n.id === nodeId ? {
+        ...n,
+        data: { ...n.data, status: 'running', error: undefined, images: [] }
+      } : n));
+      const produced: string[] = [];
+
+      for (let i = 0; i < total; i++) {
+        let generatedImage: string | undefined;
+        try {
+          let result: { success: boolean; data?: AIImageResult; error?: { message: string } };
+          if (imageDatas.length === 0) {
+            result = await generateImageViaAPI({
+              prompt,
+              outputFormat: 'png',
+              aiProvider,
+              model: imageModel,
+              aspectRatio: aspectRatioValue,
+              imageSize: imageSize || undefined,
+            });
+          } else if (imageDatas.length === 1) {
+            result = await editImageViaAPI({
+              prompt,
+              sourceImage: imageDatas[0],
+              outputFormat: 'png',
+              aiProvider,
+              model: imageModel,
+              aspectRatio: aspectRatioValue,
+              imageSize: imageSize || undefined,
+            });
+          } else {
+            result = await blendImagesViaAPI({
+              prompt,
+              sourceImages: imageDatas.slice(0, 6),
+              outputFormat: 'png',
+              aiProvider,
+              model: imageModel,
+              aspectRatio: aspectRatioValue,
+              imageSize: imageSize || undefined,
+            });
+          }
+
+          if (result.success && result.data?.imageData) {
+            generatedImage = result.data.imageData;
+          }
+        } catch {
+          // 忽略单张失败，继续下一张
+        }
+
+        if (generatedImage) {
+          produced[i] = generatedImage;
+
+          const outs = rf.getEdges().filter(e => e.source === nodeId && (e as any).sourceHandle === `img${i + 1}`);
+          if (outs.length) {
+            const imgB64 = generatedImage;
+            setNodes(ns => ns.map(n => {
+              const hits = outs.filter(e => e.target === n.id);
+              if (!hits.length) return n;
+              if (n.type === 'image' && imgB64) return { ...n, data: { ...n.data, imageData: imgB64 } };
+              return n;
+            }));
+          }
+        }
+
+        // 更新进度
+        setNodes(ns => ns.map(n => n.id === nodeId ? {
+          ...n,
+          data: { ...n.data, images: [...produced] }
+        } : n));
+      }
+
+      const hasAny = produced.filter(Boolean).length > 0;
+      setNodes(ns => ns.map(n => n.id === nodeId ? {
+        ...n,
+        data: {
+          ...n.data,
+          status: hasAny ? 'succeeded' : 'failed',
+          error: hasAny ? undefined : '全部生成失败',
+          images: [...produced],
+        }
+      } : n));
+      return;
+    }
+
     setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
 
     try {
@@ -2095,7 +2185,7 @@ function FlowInner() {
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
-    (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef' || n.type === 'generatePro')
+    (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef' || n.type === 'generatePro' || n.type === 'generatePro4')
       ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
       : n.type === 'sora2Video'
         ? { ...n, data: { ...n.data, onRun: runNode } }
@@ -2872,6 +2962,39 @@ function FlowInner() {
                 >
                   <span>Generate Pro</span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>专业生成</span>
+                </button>
+                <button
+                  onClick={() => createNodeAtWorldCenter('generatePro4', addPanel.world)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    padding: '12px 16px',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    width: '100%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f9fafb';
+                    e.currentTarget.style.borderColor = '#d1d5db';
+                    e.currentTarget.style.transform = 'translateX(2px)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e5e7eb';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <span>Generate Pro 4</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>四图专业生成</span>
                 </button>
                 <button
                   onClick={() => createNodeAtWorldCenter('generateRef', addPanel.world)} 
