@@ -100,7 +100,6 @@ export const historyService = {
     }
     st.present = snap;
     st.future = [];
-    try { console.log('🧭 commit', label || '', { past: st.past.length }); } catch {}
   },
 
   async undo() {

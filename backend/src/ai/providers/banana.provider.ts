@@ -28,8 +28,9 @@ export class BananaProvider implements IAIProvider {
   private apiKey: string | null = null;
   private readonly apiBaseUrl = 'https://api1.147ai.com/v1beta/models';
   private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
-  private readonly DEFAULT_TIMEOUT = 120000;
+  private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
   private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
 
   // 降级模型映射：Pro模型 -> 2.5模型（与国内极速版一致）
   private readonly FALLBACK_MODELS: Record<string, string> = {
@@ -186,7 +187,8 @@ export class BananaProvider implements IAIProvider {
         lastError = error instanceof Error ? error : new Error(String(error));
 
         if (attempt < maxRetries) {
-          const delay = 1000 * attempt;
+          // 使用递增延迟
+          const delay = this.RETRY_DELAYS[attempt - 1] || this.RETRY_DELAYS[this.RETRY_DELAYS.length - 1];
           this.logger.warn(
             `${operationType} attempt ${attempt} failed: ${lastError.message}, retrying in ${delay}ms...`
           );

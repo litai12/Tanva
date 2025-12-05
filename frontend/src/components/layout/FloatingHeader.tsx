@@ -1087,7 +1087,7 @@ return (
                                             暂无项目
                                         </DropdownMenuItem>
                                     ) : (
-                                        projects.slice(0, 5).map((project) => (
+                                        projects.map((project) => (
                                             <DropdownMenuItem
                                                 key={project.id}
                                                 onClick={(event) => {

@@ -86,8 +86,8 @@ export async function refreshProjectThumbnail(
     if (upload.success && upload.asset?.url) {
       thumbnailUrl = upload.asset.url;
     } else {
-      logger.warn?.('⚠️ Thumbnail upload failed，fallback to dataURL', { projectId, error: upload.error });
-      thumbnailUrl = screenshot.dataUrl;
+      logger.warn?.('⚠️ Thumbnail upload failed, skipping thumbnail update', { projectId, error: upload.error });
+      return;
     }
 
     await useProjectStore.getState().updateMeta(projectId, {

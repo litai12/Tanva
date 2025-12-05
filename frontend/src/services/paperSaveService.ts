@@ -425,7 +425,6 @@ class PaperSaveService {
         return JSON.stringify({ layers: [] });
       }
 
-      console.log('✅ Paper.js项目序列化成功');
       return jsonString as string;
     } catch (error) {
       console.error('❌ Paper.js项目序列化失败:', error);
@@ -695,7 +694,6 @@ class PaperSaveService {
           itemCount,
           savedAt: new Date().toISOString(),
         };
-        console.log('💾 更新项目内容store中的paperJson...', { projectId: contentStore.projectId, hasPaperContent: !!paperJson, ...meta });
         saveMonitor.push(contentStore.projectId, 'serialize', meta);
       } else {
         console.warn('⚠️ Paper.js项目状态异常，尝试恢复...');
@@ -712,7 +710,6 @@ class PaperSaveService {
         updatedAt: new Date().toISOString()
       }, { markDirty: true });
 
-      console.log('✅ Paper.js内容已更新到项目store，将触发自动保存');
     } catch (error) {
       console.error('❌ 更新Paper.js内容失败:', error);
 
