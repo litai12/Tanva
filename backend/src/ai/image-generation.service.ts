@@ -68,10 +68,11 @@ export class ImageGenerationService {
   private readonly genAI: GoogleGenAI | null;
   private readonly defaultApiKey: string | null;
   private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
-  private readonly DEFAULT_TIMEOUT = 120000;
-  private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
-  private readonly MAX_IMAGE_RETRIES = 5;
-  private readonly IMAGE_RETRY_DELAY_BASE = 500;
+  private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
+  private readonly EDIT_TIMEOUT = 300000; // 5分钟
+  // 优化后的重试配置：单层重试，递增延迟
+  private readonly MAX_RETRIES = 3; // 最多重试 3 次（总共 4 次尝试）
+  private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
 
   constructor(private readonly config: ConfigService) {
     this.defaultApiKey =
@@ -198,11 +199,16 @@ export class ImageGenerationService {
     return this.normalizeFileInput(imageInput, context);
   }
 
+  /**
+   * 优化后的重试方法
+   * - 只对可重试错误进行重试（网络错误、超时等）
+   * - 使用递增延迟策略
+   * - 认证错误、参数错误直接失败
+   */
   private async withRetry<T>(
     operation: () => Promise<T>,
     operationType: string,
-    maxRetries: number = 2,
-    baseDelay: number = 1000
+    maxRetries: number = this.MAX_RETRIES
   ): Promise<T> {
     let lastError: Error;
 
@@ -219,12 +225,19 @@ export class ImageGenerationService {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
+        // 检查是否为可重试错误
+        if (!this.isRetryableError(lastError)) {
+          this.logger.error(`${operationType} failed with non-retryable error: ${lastError.message}`);
+          throw lastError;
+        }
+
         if (attempt <= maxRetries) {
-          const delay = baseDelay;
+          // 使用递增延迟
+          const delay = this.RETRY_DELAYS[attempt - 1] || this.RETRY_DELAYS[this.RETRY_DELAYS.length - 1];
           this.logger.warn(`${operationType} attempt ${attempt} failed: ${lastError.message}, retrying in ${delay}ms...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
         } else {
-          this.logger.error(`${operationType} failed after all attempts`);
+          this.logger.error(`${operationType} failed after ${maxRetries + 1} attempts`);
         }
       }
     }
@@ -398,99 +411,61 @@ export class ImageGenerationService {
     const model = request.model || this.DEFAULT_MODEL;
     const startTime = Date.now();
 
-    let lastResult: ParsedStreamResponse | null = null;
+    // 简化后的单层重试逻辑
+    const result = await this.withRetry(
+      async () => {
+        return await this.withTimeout(
+          (async () => {
+            const config: any = {
+              safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                {
+                  category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                  threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+                {
+                  category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                  threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+                { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+              ],
+              generationConfig: {
+                responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+              },
+            };
 
-    for (let attempt = 1; attempt <= this.MAX_IMAGE_RETRIES; attempt++) {
-      this.logger.debug(`Image generation attempt ${attempt}/${this.MAX_IMAGE_RETRIES}`);
+            if (request.aspectRatio) {
+              config.imageConfig = {
+                aspectRatio: request.aspectRatio,
+              };
+            }
 
-      try {
-        const result = await this.withRetry(
-          async () => {
-            return await this.withTimeout(
-              (async () => {
-                const config: any = {
-                  safetySettings: [
-                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    {
-                      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                      threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    {
-                      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                      threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
-                  ],
-                  generationConfig: {
-                    responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
-                  },
-                };
+            if (request.thinkingLevel) {
+              config.generationConfig.thinkingLevel = request.thinkingLevel;
+            }
 
-                // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-                // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-                if (request.aspectRatio) {
-                  config.imageConfig = {
-                    aspectRatio: request.aspectRatio,
-                  };
-                }
+            const stream = await client.models.generateContentStream({
+              model,
+              contents: request.prompt,
+              config,
+            });
 
-                // 配置 thinkingLevel（Gemini 3 特性）
-                if (request.thinkingLevel) {
-                  config.generationConfig.thinkingLevel = request.thinkingLevel;
-                }
-
-                const stream = await client.models.generateContentStream({
-                  model,
-                  contents: request.prompt,
-                  config,
-                });
-
-                return this.parseStreamResponse(stream, 'Image generation');
-              })(),
-              this.DEFAULT_TIMEOUT,
-              'Image generation request'
-            );
-          },
-          'Image generation',
-          3,
-          1000
+            return this.parseStreamResponse(stream, 'Image generation');
+          })(),
+          this.DEFAULT_TIMEOUT,
+          'Image generation request'
         );
-
-        lastResult = result;
-
-        if (result.imageBytes && result.imageBytes.length > 0) {
-          this.logger.log(`Successfully generated image on attempt ${attempt}`);
-          break;
-        } else {
-          this.logger.warn(`Attempt ${attempt} did not return image data`);
-
-          if (attempt < this.MAX_IMAGE_RETRIES) {
-            await new Promise((resolve) => setTimeout(resolve, this.IMAGE_RETRY_DELAY_BASE));
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Image generation attempt ${attempt} failed: ${message}`);
-
-        if (attempt === this.MAX_IMAGE_RETRIES) {
-          throw error;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, this.IMAGE_RETRY_DELAY_BASE));
-      }
-    }
-
-    if (!lastResult) {
-      throw new Error('All image generation attempts failed');
-    }
+      },
+      'Image generation'
+    );
 
     const processingTime = Date.now() - startTime;
     this.logger.log(`Image generation completed in ${processingTime}ms`);
 
     return {
-      imageData: lastResult.imageBytes || undefined,
-      textResponse: lastResult.textResponse || '',
+      imageData: result.imageBytes || undefined,
+      textResponse: result.textResponse || '',
     };
   }
 
@@ -509,170 +484,116 @@ export class ImageGenerationService {
     const model = request.model || this.DEFAULT_MODEL;
     const startTime = Date.now();
 
-    let lastResult: ParsedStreamResponse | null = null;
+    // 简化后的单层重试逻辑
+    const result = await this.withRetry(
+      async () => {
+        return await this.withTimeout(
+          (async () => {
+            const config: any = {
+              safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                {
+                  category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                  threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+                {
+                  category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                  threshold: HarmBlockThreshold.BLOCK_NONE,
+                },
+                { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+              ],
+              generationConfig: {
+                responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
+              },
+            };
 
-    for (let attempt = 1; attempt <= this.MAX_IMAGE_RETRIES; attempt++) {
-      this.logger.debug(`Image edit attempt ${attempt}/${this.MAX_IMAGE_RETRIES}`);
+            if (request.aspectRatio) {
+              config.imageConfig = {
+                aspectRatio: request.aspectRatio,
+              };
+            }
 
-      try {
-        const result = await this.withRetry(
-          async () => {
-            return await this.withTimeout(
-              (async () => {
-                const config: any = {
-                  safetySettings: [
-                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-                    {
-                      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                      threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    {
-                      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                      threshold: HarmBlockThreshold.BLOCK_NONE,
-                    },
-                    { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
-                  ],
-                  generationConfig: {
-                    responseModalities: request.imageOnly ? ['Image'] : ['Text', 'Image'],
-                  },
-                };
+            if (request.thinkingLevel) {
+              config.generationConfig.thinkingLevel = request.thinkingLevel;
+            }
 
-                // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-                // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-                if (request.aspectRatio) {
-                  config.imageConfig = {
-                    aspectRatio: request.aspectRatio,
-                  };
-                }
+            const contents = [
+              { text: request.prompt },
+              {
+                inlineData: {
+                  mimeType: sourceMimeType,
+                  data: sourceImageData,
+                },
+              },
+            ];
 
-                // 配置 thinkingLevel（Gemini 3 特性）
-                if (request.thinkingLevel) {
-                  config.generationConfig.thinkingLevel = request.thinkingLevel;
-                }
+            // 优先尝试非流式 API，失败后降级到流式 API
+            try {
+              this.logger.debug('Calling non-stream generateContent for image edit...');
+              const response = await client.models.generateContent({
+                model,
+                contents,
+                config,
+              });
 
-                const contents = [
-                  { text: request.prompt },
-                  {
-                    inlineData: {
-                      mimeType: sourceMimeType,
-                      data: sourceImageData,
-                    },
-                  },
-                ];
+              const nonStreamResult = this.parseNonStreamResponse(response, 'Image edit');
 
-                try {
-                  this.logger.debug('Calling non-stream generateContent for image edit...');
-                  const response = await client.models.generateContent({
-                    model,
-                    contents,
-                    config,
-                  });
+              if (!nonStreamResult.imageBytes || nonStreamResult.imageBytes.length === 0) {
+                this.logger.warn('Non-stream API returned no image data, falling back to stream API...');
+                throw new Error('No image data in non-stream response');
+              }
 
-                  const nonStreamResult = this.parseNonStreamResponse(response, 'Image edit');
+              this.logger.log('Image edit non-stream API succeeded');
+              return nonStreamResult;
+            } catch (nonStreamError) {
+              const errorMessage =
+                nonStreamError instanceof Error ? nonStreamError.message : String(nonStreamError);
+              const normalizedMessage = errorMessage.toLowerCase();
+              const fallbackTriggers = [
+                'fetch', 'network', 'timeout', 'socket', 'connection',
+                'econn', 'enotfound', 'refused', 'empty response', 'no image data',
+              ];
+              const shouldFallback = fallbackTriggers.some((keyword) =>
+                normalizedMessage.includes(keyword)
+              );
 
-                  if (!nonStreamResult.imageBytes || nonStreamResult.imageBytes.length === 0) {
-                    this.logger.warn('Non-stream API returned no image data, falling back to stream API...');
-                    throw new Error('No image data in non-stream response');
-                  }
+              if (!shouldFallback) {
+                throw nonStreamError;
+              }
 
-                  this.logger.log('Image edit non-stream API succeeded');
-                  return nonStreamResult;
-                } catch (nonStreamError) {
-                  const errorMessage =
-                    nonStreamError instanceof Error ? nonStreamError.message : String(nonStreamError);
-                  const normalizedMessage = errorMessage.toLowerCase();
-                  const fallbackTriggers = [
-                    'fetch',
-                    'network',
-                    'timeout',
-                    'socket',
-                    'connection',
-                    'econn',
-                    'enotfound',
-                    'refused',
-                    'empty response',
-                    'no image data',
-                  ];
-                  const shouldFallback = fallbackTriggers.some((keyword) =>
-                    normalizedMessage.includes(keyword)
-                  );
+              this.logger.warn(`Image edit non-stream API failed (${errorMessage}), falling back to stream API...`);
 
-                  if (!shouldFallback) {
-                    throw nonStreamError;
-                  }
+              const stream = await client.models.generateContentStream({
+                model,
+                contents,
+                config,
+              });
 
-                  this.logger.warn(`Image edit non-stream API failed (${errorMessage}), falling back to stream API...`);
+              const streamResult = await this.parseStreamResponse(stream, 'Image edit');
 
-                  try {
-                    const stream = await client.models.generateContentStream({
-                      model,
-                      contents,
-                      config,
-                    });
+              if (!streamResult.imageBytes || streamResult.imageBytes.length === 0) {
+                this.logger.error('Stream API also returned no image data');
+                throw new Error('Stream API returned no image data');
+              }
 
-                    const streamResult = await this.parseStreamResponse(stream, 'Image edit');
-
-                    if (!streamResult.imageBytes || streamResult.imageBytes.length === 0) {
-                      this.logger.error('Stream API also returned no image data');
-                      throw new Error('Stream API returned no image data');
-                    }
-
-                    this.logger.log('Image edit stream API fallback succeeded');
-                    return streamResult;
-                  } catch (fallbackError) {
-                    const fallbackMessage =
-                      fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-                    this.logger.error(
-                      `Both non-stream and stream API failed. Non-stream: ${errorMessage}, Stream: ${fallbackMessage}`
-                    );
-                    throw new Error(`Image edit failed: ${errorMessage}. Fallback also failed: ${fallbackMessage}`);
-                  }
-                }
-              })(),
-              this.EDIT_TIMEOUT,
-              'Image edit request'
-            );
-          },
-          'Image edit',
-          3,
-          1000
+              this.logger.log('Image edit stream API fallback succeeded');
+              return streamResult;
+            }
+          })(),
+          this.EDIT_TIMEOUT,
+          'Image edit request'
         );
-
-        lastResult = result;
-
-        if (result.imageBytes && result.imageBytes.length > 0) {
-          this.logger.log(`Successfully edited image on attempt ${attempt}`);
-          break;
-        } else {
-          this.logger.warn(`Attempt ${attempt} did not return image data`);
-
-          if (attempt < this.MAX_IMAGE_RETRIES) {
-            await new Promise((resolve) => setTimeout(resolve, this.IMAGE_RETRY_DELAY_BASE));
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Image edit attempt ${attempt} failed: ${message}`);
-
-        if (attempt === this.MAX_IMAGE_RETRIES) {
-          throw error;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, this.IMAGE_RETRY_DELAY_BASE));
-      }
-    }
-
-    if (!lastResult) {
-      throw new Error('All image edit attempts failed');
-    }
+      },
+      'Image edit'
+    );
 
     const processingTime = Date.now() - startTime;
     this.logger.log(`Image edit completed in ${processingTime}ms`);
 
     return {
-      imageData: lastResult.imageBytes || undefined,
-      textResponse: lastResult.textResponse || '',
+      imageData: result.imageBytes || undefined,
+      textResponse: result.textResponse || '',
     };
   }
 
@@ -703,13 +624,10 @@ export class ImageGenerationService {
       },
     }));
 
-    let lastResult: ParsedStreamResponse | null = null;
-
-    for (let attempt = 1; attempt <= this.MAX_IMAGE_RETRIES; attempt++) {
-      this.logger.debug(`Image blend attempt ${attempt}/${this.MAX_IMAGE_RETRIES}`);
-
-      try {
-        const result = await this.withTimeout(
+    // 简化后的单层重试逻辑
+    const result = await this.withRetry(
+      async () => {
+        return await this.withTimeout(
           (async () => {
             const config: any = {
               safetySettings: [
@@ -730,15 +648,12 @@ export class ImageGenerationService {
               },
             };
 
-            // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-            // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
             if (request.aspectRatio) {
               config.imageConfig = {
                 aspectRatio: request.aspectRatio,
               };
             }
 
-            // 配置 thinkingLevel（Gemini 3 特性）
             if (request.thinkingLevel) {
               config.generationConfig.thinkingLevel = request.thinkingLevel;
             }
@@ -754,41 +669,16 @@ export class ImageGenerationService {
           this.DEFAULT_TIMEOUT,
           'Image blend request'
         );
-
-        lastResult = result;
-
-        if (result.imageBytes && result.imageBytes.length > 0) {
-          this.logger.log(`Successfully blended images on attempt ${attempt}`);
-          break;
-        } else {
-          this.logger.warn(`Attempt ${attempt} did not return image data`);
-
-          if (attempt < this.MAX_IMAGE_RETRIES) {
-            await new Promise((resolve) => setTimeout(resolve, this.IMAGE_RETRY_DELAY_BASE));
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`Image blend attempt ${attempt} failed: ${message}`);
-
-        if (attempt === this.MAX_IMAGE_RETRIES) {
-          throw error;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, this.IMAGE_RETRY_DELAY_BASE));
-      }
-    }
-
-    if (!lastResult) {
-      throw new Error('All image blend attempts failed');
-    }
+      },
+      'Image blend'
+    );
 
     const processingTime = Date.now() - startTime;
     this.logger.log(`Image blend completed in ${processingTime}ms`);
 
     return {
-      imageData: lastResult.imageBytes || undefined,
-      textResponse: lastResult.textResponse || '',
+      imageData: result.imageBytes || undefined,
+      textResponse: result.textResponse || '',
     };
   }
 
@@ -867,9 +757,7 @@ export class ImageGenerationService {
             this.DEFAULT_TIMEOUT,
             'File analysis request'
           ),
-        'File analysis',
-        2,
-        1200
+        'File analysis'
       );
 
       const processingTime = Date.now() - startTime;

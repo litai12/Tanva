@@ -1165,9 +1165,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             !isPositionStable ? 'opacity-90 translate-y-1' : 'opacity-100 translate-y-0'
           }`}
           style={{
-            bottom: -60,
+            top: '100%',
+            marginTop: 12,
             left: '50%',
-            transform: 'translateX(-50%)',
+            transform: `translateX(-50%) scale(${zoom})`,
+            transformOrigin: 'top center',
             zIndex: 30,
             pointerEvents: 'auto',
           }}
