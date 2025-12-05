@@ -780,7 +780,7 @@ const FloatingHeader: React.FC = () => {
                                                 <Sparkles className="h-4 w-4 text-green-600" />
                                                 <span className="font-medium text-sm text-slate-700">国际版</span>
                                             </div>
-                                            <div className="text-xs text-slate-500">（推荐）可使用个人KEY不消耗积分</div>
+                                            <div className="text-xs text-slate-500">可使用个人KEY不消耗积分</div>
                                         </div>
                                         {aiProvider === 'gemini-pro' && (
                                             <Check className="h-5 w-5 text-green-600 flex-shrink-0" />
@@ -801,12 +801,35 @@ const FloatingHeader: React.FC = () => {
                                         <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <Zap className="h-4 w-4 text-amber-600" />
-                                                <span className="font-medium text-sm text-slate-700">国内版</span>
+                                                <span className="font-medium text-sm text-slate-700">国内Pro版</span>
                                             </div>
-                                            <div className="text-xs text-slate-500">需要后台兑换积分，有积分上限</div>
+                                            <div className="text-xs text-slate-500">2代模型 品质最佳 建议避开高峰时段使用</div>
                                         </div>
                                         {aiProvider === 'banana' && (
                                             <Check className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                                        )}
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => setAIProvider('banana-2.5')}
+                                    className={cn(
+                                        "relative rounded-xl border-2 p-4 text-left transition-all",
+                                        aiProvider === 'banana-2.5'
+                                            ? "border-orange-500 bg-orange-50"
+                                            : "border-slate-200 bg-white hover:border-orange-300 hover:bg-orange-50/30"
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Zap className="h-4 w-4 text-orange-600" />
+                                                <span className="font-medium text-sm text-slate-700">国内极速版</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">1代模型 高速稳定</div>
+                                        </div>
+                                        {aiProvider === 'banana-2.5' && (
+                                            <Check className="h-5 w-5 text-orange-600 flex-shrink-0" />
                                         )}
                                     </div>
                                 </button>

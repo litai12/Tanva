@@ -55,6 +55,7 @@ const PROVIDER_MODE_OPTIONS: Partial<Record<SupportedAIProvider, ManualModeOptio
   gemini: BASE_MANUAL_MODE_OPTIONS,
   'gemini-pro': BASE_MANUAL_MODE_OPTIONS,
   banana: BASE_MANUAL_MODE_OPTIONS,
+  'banana-2.5': BASE_MANUAL_MODE_OPTIONS,
   runninghub: BASE_MANUAL_MODE_OPTIONS,
   midjourney: BASE_MANUAL_MODE_OPTIONS
 };
@@ -356,8 +357,9 @@ const AIChatDialog: React.FC = () => {
   const aiProviderOptions: { value: SupportedAIProvider; label: string; description: string }[] = [
     // 暂时隐藏基础官方版
     // { value: 'gemini', label: '基础官方版', description: 'Gemini2.5 + Banana 1.0' },
-    { value: 'gemini-pro', label: '国际版', description: '（推荐）可使用个人KEY不消耗积分' },
-    { value: 'banana', label: '国内版', description: '需要后台兑换积分，有积分上限' },
+    { value: 'gemini-pro', label: '国际版', description: '可使用个人KEY不消耗积分' },
+    { value: 'banana', label: '国内Pro版', description: '2代模型 品质最佳 建议避开高峰时段使用' },
+    { value: 'banana-2.5', label: '国内极速版', description: '1代模型 高速稳定' },
     // 暂时隐藏 Midjourney 选项
     // { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
   ];
@@ -1297,7 +1299,7 @@ const AIChatDialog: React.FC = () => {
 
   // 计算图像尺寸面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
   useLayoutEffect(() => {
-    if (!isImageSizeOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana')) return;
+    if (!isImageSizeOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana' && aiProvider !== 'banana-2.5')) return;
     const update = () => {
       const panelEl = imageSizePanelRef.current;
       const containerEl = dialogRef.current;
@@ -1338,7 +1340,7 @@ const AIChatDialog: React.FC = () => {
 
   // 计算思考级别面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
   useLayoutEffect(() => {
-    if (!isThinkingLevelOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana')) return;
+    if (!isThinkingLevelOpen || (aiProvider !== 'gemini-pro' && aiProvider !== 'banana' && aiProvider !== 'banana-2.5')) return;
     const update = () => {
       const panelEl = thinkingLevelPanelRef.current;
       const containerEl = dialogRef.current;
@@ -2228,7 +2230,7 @@ const AIChatDialog: React.FC = () => {
               </Button>
 
               {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
-              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && (
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana' || aiProvider === 'banana-2.5') && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen(v => !v)}
@@ -2251,7 +2253,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 思考级别按钮 - Gemini Pro 和 Banana API */}
-              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && (
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana' || aiProvider === 'banana-2.5') && (
                 <Button
                   ref={thinkingLevelButtonRef}
                   onClick={() => setIsThinkingLevelOpen(v => !v)}
@@ -2320,7 +2322,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 图像尺寸下拉菜单 - Gemini Pro 和 Banana API */}
-              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && isImageSizeOpen && typeof document !== 'undefined' && (
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana' || aiProvider === 'banana-2.5') && isImageSizeOpen && typeof document !== 'undefined' && (
                 createPortal(
                   <div
                     ref={imageSizePanelRef}
@@ -2364,7 +2366,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 思考级别下拉菜单 - Gemini Pro 和 Banana API */}
-              {(aiProvider === 'gemini-pro' || aiProvider === 'banana') && isThinkingLevelOpen && typeof document !== 'undefined' && (
+              {(aiProvider === 'gemini-pro' || aiProvider === 'banana' || aiProvider === 'banana-2.5') && isThinkingLevelOpen && typeof document !== 'undefined' && (
                 createPortal(
                   <div
                     ref={thinkingLevelPanelRef}
