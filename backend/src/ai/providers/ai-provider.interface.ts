@@ -152,6 +152,7 @@ export interface AnalysisResult {
 export interface TextResult {
   text: string;
   webSearchResult?: any;
+  metadata?: Record<string, any>;
 }
 
 export interface ToolSelectionRequest {
@@ -181,6 +182,7 @@ export interface PaperJSGenerateRequest {
 export interface PaperJSResult {
   code: string;
   explanation?: string;
+  metadata?: Record<string, any>;
 }
 
 /**

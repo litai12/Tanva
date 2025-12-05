@@ -31,6 +31,14 @@ export class BananaProvider implements IAIProvider {
   private readonly DEFAULT_TIMEOUT = 120000;
   private readonly MAX_RETRIES = 3;
 
+  // 降级模型映射：Pro模型 -> 2.5模型（与国内极速版一致）
+  private readonly FALLBACK_MODELS: Record<string, string> = {
+    'gemini-3-pro-image-preview': 'gemini-2.5-flash-image',
+    'gemini-3-pro-preview': 'gemini-2.5-flash',
+    'banana-gemini-3-pro-preview': 'gemini-2.5-flash',
+    'banana-gemini-3-pro-image-preview': 'gemini-2.5-flash-image',
+  };
+
   constructor(private readonly config: ConfigService) {}
 
   async initialize(): Promise<void> {
@@ -57,6 +65,40 @@ export class BananaProvider implements IAIProvider {
     // 移除banana-前缀，确保API能识别模型名称
     // banana-gemini-3-pro-image-preview -> gemini-3-pro-image-preview
     return model.startsWith('banana-') ? model.substring(7) : model;
+  }
+
+  /**
+   * 判断错误是否应该触发降级
+   * - 500系列服务器错误
+   * - 超时错误
+   * - 模型不可用错误
+   * - 速率限制错误
+   */
+  private shouldFallback(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('500') ||
+      message.includes('502') ||
+      message.includes('503') ||
+      message.includes('504') ||
+      message.includes('timeout') ||
+      message.includes('model') && message.includes('not') ||
+      message.includes('unavailable') ||
+      message.includes('rate limit') ||
+      message.includes('quota') ||
+      message.includes('overloaded') ||
+      message.includes('capacity')
+    );
+  }
+
+  /**
+   * 获取降级模型
+   * 如果当前模型有对应的降级模型，返回降级模型名称
+   * 否则返回 null
+   */
+  private getFallbackModel(currentModel: string): string | null {
+    const normalized = this.normalizeModelName(currentModel);
+    return this.FALLBACK_MODELS[normalized] || this.FALLBACK_MODELS[currentModel] || null;
   }
 
   private inferMimeTypeFromBase64(data: string): string {
@@ -342,62 +384,98 @@ export class BananaProvider implements IAIProvider {
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(`Generating image with prompt: ${request.prompt.substring(0, 50)}...`);
 
-    try {
-      const model = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
-      this.logger.debug(`Using model: ${model}`);
+    const originalModel = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    let currentModel = originalModel;
+    let usedFallback = false;
 
-      const result = await this.withRetry(
-        async () => {
-          return await this.withTimeout(
-            (async () => {
-              const config: any = {
-                responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
-              };
+    // 尝试使用主模型，失败后降级
+    for (let round = 0; round < 2; round++) {
+      try {
+        this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
 
-              // 配置 imageConfig（aspectRatio 和 imageSize）
-              if (request.aspectRatio || request.imageSize) {
-                config.imageConfig = {};
-                if (request.aspectRatio) {
-                  config.imageConfig.aspectRatio = request.aspectRatio;
+        const result = await this.withRetry(
+          async () => {
+            return await this.withTimeout(
+              (async () => {
+                const config: any = {
+                  responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
+                };
+
+                // 配置 imageConfig（aspectRatio 和 imageSize）
+                if (request.aspectRatio || request.imageSize) {
+                  config.imageConfig = {};
+                  if (request.aspectRatio) {
+                    config.imageConfig.aspectRatio = request.aspectRatio;
+                  }
+                  if (request.imageSize) {
+                    config.imageConfig.imageSize = request.imageSize;
+                  }
                 }
-                if (request.imageSize) {
-                  config.imageConfig.imageSize = request.imageSize;
+
+                // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+                if (request.thinkingLevel && !usedFallback) {
+                  config.thinking_level = request.thinkingLevel;
                 }
-              }
 
-              // 配置 thinking_level（Gemini 3 特性）
-              if (request.thinkingLevel) {
-                config.thinking_level = request.thinkingLevel;
-              }
+                return await this.makeRequest(currentModel, request.prompt, config);
+              })(),
+              this.DEFAULT_TIMEOUT,
+              'Image generation'
+            );
+          },
+          'Image generation'
+        );
 
-              return await this.makeRequest(model, request.prompt, config);
-            })(),
-            this.DEFAULT_TIMEOUT,
-            'Image generation'
-          );
-        },
-        'Image generation'
-      );
+        if (usedFallback) {
+          this.logger.log(`🔄 [FALLBACK SUCCESS] Image generation succeeded with fallback model: ${currentModel}`);
+        }
 
-      return {
-        success: true,
-        data: {
-          imageData: result.imageBytes || undefined,
-          textResponse: result.textResponse || '',
-          hasImage: !!result.imageBytes,
-        },
-      };
-    } catch (error) {
-      this.logger.error('Image generation failed:', error);
-      return {
-        success: false,
-        error: {
-          code: 'GENERATION_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to generate image',
-          details: error,
-        },
-      };
+        return {
+          success: true,
+          data: {
+            imageData: result.imageBytes || undefined,
+            textResponse: result.textResponse || '',
+            hasImage: !!result.imageBytes,
+            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+          },
+        };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+
+        // 检查是否应该降级
+        if (!usedFallback && this.shouldFallback(err)) {
+          const fallbackModel = this.getFallbackModel(currentModel);
+          if (fallbackModel) {
+            this.logger.warn(
+              `⚠️ [FALLBACK] Image generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+            );
+            currentModel = fallbackModel;
+            usedFallback = true;
+            continue; // 重试使用降级模型
+          }
+        }
+
+        // 无法降级或降级后仍然失败
+        this.logger.error('Image generation failed:', error);
+        return {
+          success: false,
+          error: {
+            code: 'GENERATION_FAILED',
+            message: err.message,
+            details: error,
+          },
+        };
+      }
     }
+
+    // 不应该到达这里，但为了类型安全
+    return {
+      success: false,
+      error: {
+        code: 'GENERATION_FAILED',
+        message: 'Unexpected error in image generation',
+      },
+    };
   }
 
   async editImage(
@@ -405,69 +483,111 @@ export class BananaProvider implements IAIProvider {
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(`Editing image with prompt: ${request.prompt.substring(0, 50)}...`);
 
-    try {
-      const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'edit');
-      const model = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'edit');
+    const originalModel = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    let currentModel = originalModel;
+    let usedFallback = false;
 
-      const result = await this.withTimeout(
-        (async () => {
-          const config: any = {
-            responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
-          };
+    // 尝试使用主模型，失败后降级
+    for (let round = 0; round < 2; round++) {
+      try {
+        this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
 
-          // 配置 imageConfig（aspectRatio 和 imageSize）
-          if (request.aspectRatio || request.imageSize) {
-            config.imageConfig = {};
-            if (request.aspectRatio) {
-              config.imageConfig.aspectRatio = request.aspectRatio;
-            }
-            if (request.imageSize) {
-              config.imageConfig.imageSize = request.imageSize;
-            }
+        const result = await this.withRetry(
+          async () => {
+            return await this.withTimeout(
+              (async () => {
+                const config: any = {
+                  responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
+                };
+
+                // 配置 imageConfig（aspectRatio 和 imageSize）
+                if (request.aspectRatio || request.imageSize) {
+                  config.imageConfig = {};
+                  if (request.aspectRatio) {
+                    config.imageConfig.aspectRatio = request.aspectRatio;
+                  }
+                  if (request.imageSize) {
+                    config.imageConfig.imageSize = request.imageSize;
+                  }
+                }
+
+                // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+                if (request.thinkingLevel && !usedFallback) {
+                  config.thinking_level = request.thinkingLevel;
+                }
+
+                return await this.makeRequest(
+                  currentModel,
+                  [
+                    { text: request.prompt },
+                    {
+                      inlineData: {
+                        mimeType,
+                        data: imageData,
+                      },
+                    },
+                  ],
+                  config
+                );
+              })(),
+              this.DEFAULT_TIMEOUT,
+              'Image edit'
+            );
+          },
+          'Image edit'
+        );
+
+        if (usedFallback) {
+          this.logger.log(`🔄 [FALLBACK SUCCESS] Image edit succeeded with fallback model: ${currentModel}`);
+        }
+
+        return {
+          success: true,
+          data: {
+            imageData: result.imageBytes || undefined,
+            textResponse: result.textResponse || '',
+            hasImage: !!result.imageBytes,
+            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+          },
+        };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+
+        // 检查是否应该降级
+        if (!usedFallback && this.shouldFallback(err)) {
+          const fallbackModel = this.getFallbackModel(currentModel);
+          if (fallbackModel) {
+            this.logger.warn(
+              `⚠️ [FALLBACK] Image edit failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+            );
+            currentModel = fallbackModel;
+            usedFallback = true;
+            continue; // 重试使用降级模型
           }
+        }
 
-          // 配置 thinking_level（Gemini 3 特性）
-          if (request.thinkingLevel) {
-            config.thinking_level = request.thinkingLevel;
-          }
-
-          return await this.makeRequest(
-            model,
-            [
-              { text: request.prompt },
-              {
-                inlineData: {
-                  mimeType,
-                  data: imageData,
-                },
-              },
-            ],
-            config
-          );
-        })(),
-        this.DEFAULT_TIMEOUT,
-        'Image edit'
-      );
-
-      return {
-        success: true,
-        data: {
-          imageData: result.imageBytes || undefined,
-          textResponse: result.textResponse || '',
-          hasImage: !!result.imageBytes,
-        },
-      };
-    } catch (error) {
-      this.logger.error('Image edit failed:', error);
-      return {
-        success: false,
-        error: {
-          code: 'EDIT_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to edit image',
-          details: error,
-        },
-      };
+        // 无法降级或降级后仍然失败
+        this.logger.error('Image edit failed:', error);
+        return {
+          success: false,
+          error: {
+            code: 'EDIT_FAILED',
+            message: err.message,
+            details: error,
+          },
+        };
+      }
     }
+
+    // 不应该到达这里，但为了类型安全
+    return {
+      success: false,
+      error: {
+        code: 'EDIT_FAILED',
+        message: 'Unexpected error in image edit',
+      },
+    };
   }
 
   async blendImages(
@@ -477,72 +597,114 @@ export class BananaProvider implements IAIProvider {
       `Blending ${request.sourceImages.length} images with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
-    try {
-      const model = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    const normalizedImages = request.sourceImages.map((imageData, index) => {
+      const normalized = this.normalizeImageInput(imageData, `blend source #${index + 1}`);
+      return normalized;
+    });
 
-      const normalizedImages = request.sourceImages.map((imageData, index) => {
-        const normalized = this.normalizeImageInput(imageData, `blend source #${index + 1}`);
-        return normalized;
-      });
+    const imageParts = normalizedImages.map((image) => ({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.data,
+      },
+    }));
 
-      const imageParts = normalizedImages.map((image) => ({
-        inlineData: {
-          mimeType: image.mimeType,
-          data: image.data,
-        },
-      }));
+    const originalModel = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    let currentModel = originalModel;
+    let usedFallback = false;
 
-      const result = await this.withTimeout(
-        (async () => {
-          const config: any = {
-            responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
-          };
+    // 尝试使用主模型，失败后降级
+    for (let round = 0; round < 2; round++) {
+      try {
+        this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
 
-          // 配置 imageConfig（aspectRatio 和 imageSize）
-          if (request.aspectRatio || request.imageSize) {
-            config.imageConfig = {};
-            if (request.aspectRatio) {
-              config.imageConfig.aspectRatio = request.aspectRatio;
-            }
-            if (request.imageSize) {
-              config.imageConfig.imageSize = request.imageSize;
-            }
+        const result = await this.withRetry(
+          async () => {
+            return await this.withTimeout(
+              (async () => {
+                const config: any = {
+                  responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
+                };
+
+                // 配置 imageConfig（aspectRatio 和 imageSize）
+                if (request.aspectRatio || request.imageSize) {
+                  config.imageConfig = {};
+                  if (request.aspectRatio) {
+                    config.imageConfig.aspectRatio = request.aspectRatio;
+                  }
+                  if (request.imageSize) {
+                    config.imageConfig.imageSize = request.imageSize;
+                  }
+                }
+
+                // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+                if (request.thinkingLevel && !usedFallback) {
+                  config.thinking_level = request.thinkingLevel;
+                }
+
+                return await this.makeRequest(
+                  currentModel,
+                  [{ text: request.prompt }, ...imageParts],
+                  config
+                );
+              })(),
+              this.DEFAULT_TIMEOUT,
+              'Image blend'
+            );
+          },
+          'Image blend'
+        );
+
+        if (usedFallback) {
+          this.logger.log(`🔄 [FALLBACK SUCCESS] Image blend succeeded with fallback model: ${currentModel}`);
+        }
+
+        return {
+          success: true,
+          data: {
+            imageData: result.imageBytes || undefined,
+            textResponse: result.textResponse || '',
+            hasImage: !!result.imageBytes,
+            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+          },
+        };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+
+        // 检查是否应该降级
+        if (!usedFallback && this.shouldFallback(err)) {
+          const fallbackModel = this.getFallbackModel(currentModel);
+          if (fallbackModel) {
+            this.logger.warn(
+              `⚠️ [FALLBACK] Image blend failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+            );
+            currentModel = fallbackModel;
+            usedFallback = true;
+            continue; // 重试使用降级模型
           }
+        }
 
-          // 配置 thinking_level（Gemini 3 特性）
-          if (request.thinkingLevel) {
-            config.thinking_level = request.thinkingLevel;
-          }
-
-          return await this.makeRequest(
-            model,
-            [{ text: request.prompt }, ...imageParts],
-            config
-          );
-        })(),
-        this.DEFAULT_TIMEOUT,
-        'Image blend'
-      );
-
-      return {
-        success: true,
-        data: {
-          imageData: result.imageBytes || undefined,
-          textResponse: result.textResponse || '',
-          hasImage: !!result.imageBytes,
-        },
-      };
-    } catch (error) {
-      this.logger.error('Image blend failed:', error);
-      return {
-        success: false,
-        error: {
-          code: 'BLEND_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to blend images',
-          details: error,
-        },
-      };
+        // 无法降级或降级后仍然失败
+        this.logger.error('Image blend failed:', error);
+        return {
+          success: false,
+          error: {
+            code: 'BLEND_FAILED',
+            message: err.message,
+            details: error,
+          },
+        };
+      }
     }
+
+    // 不应该到达这里，但为了类型安全
+    return {
+      success: false,
+      error: {
+        code: 'BLEND_FAILED',
+        message: 'Unexpected error in image blend',
+      },
+    };
   }
 
   async analyzeImage(
@@ -616,51 +778,92 @@ export class BananaProvider implements IAIProvider {
   ): Promise<AIProviderResponse<TextResult>> {
     this.logger.log(`🤖 Generating text response using Banana (147) API...`);
 
-    try {
-      // 🔥 使用 gemini-2.5-flash 作为文本生成的默认模型
-      const model = this.normalizeModelName(request.model || 'gemini-2.5-flash');
-      this.logger.log(`📝 Using model: ${model}`);
+    // 文本生成默认使用 gemini-2.5-flash，如果指定了 Pro 模型则使用降级策略
+    const originalModel = this.normalizeModelName(request.model || 'gemini-2.5-flash');
+    let currentModel = originalModel;
+    let usedFallback = false;
 
-      const apiConfig: any = {
-        responseModalities: ['TEXT']
-      };
+    // 尝试使用主模型，失败后降级
+    for (let round = 0; round < 2; round++) {
+      try {
+        this.logger.log(`📝 Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
 
-      if (request.enableWebSearch) {
-        apiConfig.tools = [{ googleSearch: {} }];
-        this.logger.log('🔍 Web search enabled');
+        const apiConfig: any = {
+          responseModalities: ['TEXT']
+        };
+
+        if (request.enableWebSearch) {
+          apiConfig.tools = [{ googleSearch: {} }];
+          this.logger.log('🔍 Web search enabled');
+        }
+
+        const result = await this.withRetry(
+          async () => {
+            return await this.withTimeout(
+              (async () => {
+                return await this.makeRequest(
+                  currentModel,
+                  request.prompt,
+                  apiConfig
+                );
+              })(),
+              this.DEFAULT_TIMEOUT,
+              'Text generation'
+            );
+          },
+          'Text generation'
+        );
+
+        if (usedFallback) {
+          this.logger.log(`🔄 [FALLBACK SUCCESS] Text generation succeeded with fallback model: ${currentModel}`);
+        } else {
+          this.logger.log(`✅ Text generation succeeded with ${result.textResponse.length} characters`);
+        }
+
+        return {
+          success: true,
+          data: {
+            text: result.textResponse,
+            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+          },
+        };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+
+        // 检查是否应该降级
+        if (!usedFallback && this.shouldFallback(err)) {
+          const fallbackModel = this.getFallbackModel(currentModel);
+          if (fallbackModel) {
+            this.logger.warn(
+              `⚠️ [FALLBACK] Text generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+            );
+            currentModel = fallbackModel;
+            usedFallback = true;
+            continue; // 重试使用降级模型
+          }
+        }
+
+        // 无法降级或降级后仍然失败
+        this.logger.error('❌ Text generation failed:', error);
+        return {
+          success: false,
+          error: {
+            code: 'TEXT_GENERATION_FAILED',
+            message: err.message,
+            details: error,
+          },
+        };
       }
-
-      const result = await this.withTimeout(
-        (async () => {
-          return await this.makeRequest(
-            model,
-            request.prompt,
-            apiConfig
-          );
-        })(),
-        this.DEFAULT_TIMEOUT,
-        'Text generation'
-      );
-
-      this.logger.log(`✅ Text generation succeeded with ${result.textResponse.length} characters`);
-
-      return {
-        success: true,
-        data: {
-          text: result.textResponse,
-        },
-      };
-    } catch (error) {
-      this.logger.error('❌ Text generation failed:', error);
-      return {
-        success: false,
-        error: {
-          code: 'TEXT_GENERATION_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to generate text',
-          details: error,
-        },
-      };
     }
+
+    // 不应该到达这里，但为了类型安全
+    return {
+      success: false,
+      error: {
+        code: 'TEXT_GENERATION_FAILED',
+        message: 'Unexpected error in text generation',
+      },
+    };
   }
 
   async selectTool(
@@ -824,63 +1027,103 @@ export class BananaProvider implements IAIProvider {
   ): Promise<AIProviderResponse<PaperJSResult>> {
     this.logger.log(`📐 Generating Paper.js code using Banana (147) API...`);
 
-    try {
-      // 使用 gemini-3-pro-preview 作为 Paper.js 代码生成的默认模型
-      const model = this.normalizeModelName(request.model || 'gemini-3-pro-preview');
-      this.logger.log(`📝 Using model: ${model}`);
+    // 系统提示词
+    const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
 
-      // 系统提示词
-      const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
-      
-      // 将系统提示词和用户输入拼接
-      const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
+    // 将系统提示词和用户输入拼接
+    const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
-      const apiConfig: any = {
-        responseModalities: ['TEXT']
-      };
+    const originalModel = this.normalizeModelName(request.model || 'gemini-3-pro-preview');
+    let currentModel = originalModel;
+    let usedFallback = false;
 
-      // 配置 thinking_level（Gemini 3 特性）
-      if (request.thinkingLevel) {
-        apiConfig.thinking_level = request.thinkingLevel;
+    // 尝试使用主模型，失败后降级
+    for (let round = 0; round < 2; round++) {
+      try {
+        this.logger.log(`📝 Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
+
+        const apiConfig: any = {
+          responseModalities: ['TEXT']
+        };
+
+        // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+        if (request.thinkingLevel && !usedFallback) {
+          apiConfig.thinking_level = request.thinkingLevel;
+        }
+
+        const result = await this.withRetry(
+          async () => {
+            return await this.withTimeout(
+              (async () => {
+                return await this.makeRequest(
+                  currentModel,
+                  finalPrompt,
+                  apiConfig
+                );
+              })(),
+              this.DEFAULT_TIMEOUT,
+              'Paper.js code generation'
+            );
+          },
+          'Paper.js code generation'
+        );
+
+        if (!result.textResponse) {
+          throw new Error('No code response from API');
+        }
+
+        // 清理响应，移除 markdown 代码块包装
+        const cleanedCode = this.cleanCodeResponse(result.textResponse);
+
+        if (usedFallback) {
+          this.logger.log(`🔄 [FALLBACK SUCCESS] Paper.js code generation succeeded with fallback model: ${currentModel}`);
+        } else {
+          this.logger.log(`✅ Paper.js code generation succeeded with ${cleanedCode.length} characters`);
+        }
+
+        return {
+          success: true,
+          data: {
+            code: cleanedCode,
+            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+          },
+        };
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+
+        // 检查是否应该降级
+        if (!usedFallback && this.shouldFallback(err)) {
+          const fallbackModel = this.getFallbackModel(currentModel);
+          if (fallbackModel) {
+            this.logger.warn(
+              `⚠️ [FALLBACK] Paper.js code generation failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+            );
+            currentModel = fallbackModel;
+            usedFallback = true;
+            continue; // 重试使用降级模型
+          }
+        }
+
+        // 无法降级或降级后仍然失败
+        this.logger.error('❌ Paper.js code generation failed:', error);
+        return {
+          success: false,
+          error: {
+            code: 'PAPERJS_GENERATION_FAILED',
+            message: err.message,
+            details: error,
+          },
+        };
       }
-
-      const result = await this.withTimeout(
-        (async () => {
-          return await this.makeRequest(
-            model,
-            finalPrompt,
-            apiConfig
-          );
-        })(),
-        this.DEFAULT_TIMEOUT,
-        'Paper.js code generation'
-      );
-
-      if (!result.textResponse) {
-        throw new Error('No code response from API');
-      }
-
-      // 清理响应，移除 markdown 代码块包装
-      const cleanedCode = this.cleanCodeResponse(result.textResponse);
-
-      this.logger.log(`✅ Paper.js code generation succeeded with ${cleanedCode.length} characters`);
-
-      return {
-        success: true,
-        data: {
-          code: cleanedCode,
-        },
-      };
-    } catch (error) {
-      this.logger.error('❌ Paper.js code generation failed:', error);
-      return {
-        success: false,
-        error: {
-          code: 'PAPERJS_GENERATION_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to generate Paper.js code',
-          details: error,
-        },
-      };
     }
+
+    // 不应该到达这里，但为了类型安全
+    return {
+      success: false,
+      error: {
+        code: 'PAPERJS_GENERATION_FAILED',
+        message: 'Unexpected error in Paper.js code generation',
+      },
+    };
   }
 }
