@@ -2915,7 +2915,7 @@ const AIChatDialog: React.FC = () => {
                                         {generationStatus?.stage || '正在生成视频'}
                                       </span>
                                       {typeof generationStatus?.progress === 'number' && (
-                                        <span className="text-[11px] text-blue-500">{generationStatus.progress}%</span>
+                                        <span className="text-[11px] text-blue-500">{generationStatus.progress.toFixed(1)}%</span>
                                       )}
                                     </div>
                                   </div>
@@ -2978,7 +2978,7 @@ const AIChatDialog: React.FC = () => {
                                               {generationStatus?.stage || '正在生成图像'}
                                             </span>
                                             {typeof generationStatus?.progress === 'number' && (
-                                              <span className="text-[11px] text-blue-500">{generationStatus.progress}%</span>
+                                              <span className="text-[11px] text-blue-500">{generationStatus.progress.toFixed(1)}%</span>
                                             )}
                                           </div>
                                         </div>

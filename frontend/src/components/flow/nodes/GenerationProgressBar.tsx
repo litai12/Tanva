@@ -41,15 +41,22 @@ export default function GenerationProgressBar({ status, progress }: Props) {
     return;
   }, [statusKey, targetVisible]);
 
+  // 2分钟（120秒）内从0%到95%的进度模拟
+  // 每秒更新一次，总共120次更新，每次增加约0.79%
   React.useEffect(() => {
     if (statusKey !== 'running' || numericProgress !== null) return;
+    const TOTAL_DURATION_MS = 120 * 1000; // 2分钟
+    const MAX_PROGRESS = 95; // 最大到95%，等待实际完成
+    const UPDATE_INTERVAL_MS = 1000; // 每秒更新一次
+    const TOTAL_UPDATES = TOTAL_DURATION_MS / UPDATE_INTERVAL_MS;
+    const INCREMENT_PER_UPDATE = MAX_PROGRESS / TOTAL_UPDATES; // 约0.79%每秒
+
     const interval = window.setInterval(() => {
       setDisplayedProgress((prev) => {
-        if (prev >= 92) return prev;
-        const increment = prev < 30 ? 10 : prev < 60 ? 6 : 3;
-        return Math.min(prev + increment, 92);
+        if (prev >= MAX_PROGRESS) return prev;
+        return Math.min(prev + INCREMENT_PER_UPDATE, MAX_PROGRESS);
       });
-    }, 450);
+    }, UPDATE_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [statusKey, numericProgress]);
 

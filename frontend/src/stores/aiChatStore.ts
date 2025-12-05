@@ -1788,34 +1788,28 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '正在生成'
       });
 
-      // 模拟进度更新
+      // 模拟进度更新 - 2分钟（120秒）内从0%到95%
+      // 每秒更新一次，每次增加约0.79%
       logProcessStep(metrics, 'generateImage progress interval start');
+      const PROGRESS_MAX = 95;
+      const PROGRESS_INCREMENT = PROGRESS_MAX / 120; // 约0.79%每秒
       progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
 
-        if (currentProgress >= 92) {
+        if (currentProgress >= PROGRESS_MAX) {
           if (progressInterval) clearInterval(progressInterval);
           return;
         }
 
-        let increment = 2;
-        if (currentProgress < 30) {
-          increment = 8;
-        } else if (currentProgress < 60) {
-          increment = 6;
-        } else if (currentProgress < 80) {
-          increment = 4;
-        }
-
-        const nextProgress = Math.min(92, currentProgress + increment);
+        const nextProgress = Math.min(PROGRESS_MAX, currentProgress + PROGRESS_INCREMENT);
 
         get().updateMessageStatus(aiMessageId, {
           isGenerating: true,
           progress: nextProgress,
           error: null
         });
-      }, 600);
+      }, 1000);
 
       // 调用后端API生成图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
@@ -2204,34 +2198,28 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '正在编辑'
       });
 
-      // 模拟进度更新
+      // 模拟进度更新 - 2分钟（120秒）内从0%到95%
+      // 每秒更新一次，每次增加约0.79%
       logProcessStep(metrics, 'editImage progress interval start');
+      const PROGRESS_MAX_EDIT = 95;
+      const PROGRESS_INCREMENT_EDIT = PROGRESS_MAX_EDIT / 120; // 约0.79%每秒
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
 
-        if (currentProgress >= 92) {
+        if (currentProgress >= PROGRESS_MAX_EDIT) {
           clearInterval(progressInterval);
           return;
         }
 
-        let increment = 2;
-        if (currentProgress < 30) {
-          increment = 8;
-        } else if (currentProgress < 60) {
-          increment = 6;
-        } else if (currentProgress < 80) {
-          increment = 4;
-        }
-
-        const nextProgress = Math.min(92, currentProgress + increment);
+        const nextProgress = Math.min(PROGRESS_MAX_EDIT, currentProgress + PROGRESS_INCREMENT_EDIT);
 
         get().updateMessageStatus(aiMessageId, {
           isGenerating: true,
           progress: nextProgress,
           error: null
         });
-      }, 600);
+      }, 1000);
 
       // 调用后端API编辑图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
@@ -2607,33 +2595,28 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '正在融合'
       });
 
+      // 模拟进度更新 - 2分钟（120秒）内从0%到95%
+      // 每秒更新一次，每次增加约0.79%
       logProcessStep(metrics, 'blendImages progress interval start');
+      const PROGRESS_MAX_BLEND = 95;
+      const PROGRESS_INCREMENT_BLEND = PROGRESS_MAX_BLEND / 120; // 约0.79%每秒
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
 
-        if (currentProgress >= 92) {
+        if (currentProgress >= PROGRESS_MAX_BLEND) {
           clearInterval(progressInterval);
           return;
         }
 
-        let increment = 2;
-        if (currentProgress < 30) {
-          increment = 8;
-        } else if (currentProgress < 60) {
-          increment = 6;
-        } else if (currentProgress < 80) {
-          increment = 4;
-        }
-
-        const nextProgress = Math.min(92, currentProgress + increment);
+        const nextProgress = Math.min(PROGRESS_MAX_BLEND, currentProgress + PROGRESS_INCREMENT_BLEND);
 
         get().updateMessageStatus(aiMessageId, {
           isGenerating: true,
           progress: nextProgress,
           error: null
         });
-      }, 600);
+      }, 1000);
 
       const modelToUse = getImageModelForProvider(state.aiProvider);
       console.log('🤖 [AI Provider] blendImages', {
@@ -3061,33 +3044,28 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '正在分析'
       });
 
+      // 模拟进度更新 - 2分钟（120秒）内从0%到95%
+      // 每秒更新一次，每次增加约0.79%
       logProcessStep(metrics, 'analyzeImage progress interval start');
+      const PROGRESS_MAX_ANALYZE = 95;
+      const PROGRESS_INCREMENT_ANALYZE = PROGRESS_MAX_ANALYZE / 120; // 约0.79%每秒
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
 
-        if (currentProgress >= 92) {
+        if (currentProgress >= PROGRESS_MAX_ANALYZE) {
           clearInterval(progressInterval);
           return;
         }
 
-        let increment = 3;
-        if (currentProgress < 30) {
-          increment = 8;
-        } else if (currentProgress < 60) {
-          increment = 6;
-        } else if (currentProgress < 80) {
-          increment = 4;
-        }
-
-        const nextProgress = Math.min(92, currentProgress + increment);
+        const nextProgress = Math.min(PROGRESS_MAX_ANALYZE, currentProgress + PROGRESS_INCREMENT_ANALYZE);
 
         get().updateMessageStatus(aiMessageId, {
           isGenerating: true,
           progress: nextProgress,
           error: null
         });
-      }, 500);
+      }, 1000);
 
       // 调用后端API分析图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
@@ -3256,33 +3234,28 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '正在分析'
       });
 
+      // 模拟进度更新 - 2分钟（120秒）内从0%到95%
+      // 每秒更新一次，每次增加约0.79%
       logProcessStep(metrics, 'analyzePdf progress interval start');
+      const PROGRESS_MAX_PDF = 95;
+      const PROGRESS_INCREMENT_PDF = PROGRESS_MAX_PDF / 120; // 约0.79%每秒
       const progressInterval = setInterval(() => {
         const currentMessage = get().messages.find(m => m.id === aiMessageId);
         const currentProgress = currentMessage?.generationStatus?.progress ?? 0;
 
-        if (currentProgress >= 92) {
+        if (currentProgress >= PROGRESS_MAX_PDF) {
           clearInterval(progressInterval);
           return;
         }
 
-        let increment = 3;
-        if (currentProgress < 30) {
-          increment = 8;
-        } else if (currentProgress < 60) {
-          increment = 6;
-        } else if (currentProgress < 80) {
-          increment = 4;
-        }
-
-        const nextProgress = Math.min(92, currentProgress + increment);
+        const nextProgress = Math.min(PROGRESS_MAX_PDF, currentProgress + PROGRESS_INCREMENT_PDF);
 
         get().updateMessageStatus(aiMessageId, {
           isGenerating: true,
           progress: nextProgress,
           error: null
         });
-      }, 500);
+      }, 1000);
 
       // 调用后端API分析 PDF（复用 analyzeImage 接口）
       const modelToUse = getImageModelForProvider(state.aiProvider);

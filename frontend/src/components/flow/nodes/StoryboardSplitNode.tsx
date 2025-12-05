@@ -16,7 +16,7 @@ type Props = {
 };
 
 const MIN_OUTPUT_COUNT = 1;
-const MAX_OUTPUT_COUNT = 20;
+const MAX_OUTPUT_COUNT = 50;
 const DEFAULT_OUTPUT_COUNT = 9;
 
 /**
@@ -291,7 +291,7 @@ export default function StoryboardSplitNode({ id, data, selected }: Props) {
             borderRadius: 6
           }}
         />
-        <span style={{ fontSize: 11, color: '#9ca3af' }}>(1-20)</span>
+        <span style={{ fontSize: 11, color: '#9ca3af' }}>(1-50)</span>
       </div>
 
       {/* 输入预览 */}
