@@ -53,6 +53,7 @@ export async function refreshProjectThumbnail(
   }
 
   inFlight.add(projectId);
+  const startTime = performance.now();
 
   try {
     const screenshot = await AutoScreenshotService.captureAutoScreenshot(
@@ -94,8 +95,17 @@ export async function refreshProjectThumbnail(
       thumbnailUrl,
     });
 
-    logger.debug?.('✅ Project thumbnail refreshed', { projectId });
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(
+      `%c🖼️ THUMBNAIL GENERATED | ${elapsed}s | Project: ${projectId.slice(0, 8)}...`,
+      'background: #4CAF50; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px; border-radius: 4px;'
+    );
   } catch (error) {
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(
+      `%c❌ THUMBNAIL FAILED | ${elapsed}s | Project: ${projectId.slice(0, 8)}...`,
+      'background: #f44336; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px; border-radius: 4px;'
+    );
     logger.warn?.('⚠️ Thumbnail refresh error', { projectId, error });
   } finally {
     inFlight.delete(projectId);

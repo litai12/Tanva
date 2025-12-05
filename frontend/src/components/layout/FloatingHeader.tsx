@@ -1075,7 +1075,7 @@ return (
                             <DropdownMenuContent
                                 align="start"
                                 sideOffset={12}
-                                className="min-w-[220px] max-h-[400px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg"
+                                className="min-w-[220px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg overflow-hidden"
                             >
                                 <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-medium text-slate-400">
                                     切换项目
@@ -1112,10 +1112,12 @@ return (
                                         event.preventDefault();
                                         await create();
                                     }}
-                                    className="px-2 py-1 text-sm text-blue-600 hover:text-blue-700 flex items-center gap-2"
+                                    className="flex items-center justify-between gap-3 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
                                 >
-                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current">+</span>
-                                    新建项目
+                                    <span className="flex items-center gap-2">
+                                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-current text-xs">+</span>
+                                        新建项目
+                                    </span>
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
