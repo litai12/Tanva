@@ -2984,7 +2984,18 @@ function FlowInner() {
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 >
-                  <span>Generate Pro</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Generate Pro
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: '#2563eb',
+                      background: '#eff6ff',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      letterSpacing: '0.5px'
+                    }}>Beta</span>
+                  </span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>专业生成</span>
                 </button>
                 <button
@@ -3017,7 +3028,18 @@ function FlowInner() {
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 >
-                  <span>Generate Pro 4</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Generate Pro 4
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: '#2563eb',
+                      background: '#eff6ff',
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      letterSpacing: '0.5px'
+                    }}>Beta</span>
+                  </span>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>四图专业生成</span>
                 </button>
                 <button

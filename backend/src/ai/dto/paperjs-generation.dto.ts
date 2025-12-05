@@ -19,10 +19,10 @@ export class PaperJSGenerateRequestDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['gemini', 'gemini-pro', 'banana'], {
-    message: 'aiProvider must be either gemini, gemini-pro, or banana',
+  @IsIn(['gemini', 'gemini-pro', 'banana', 'banana-2.5'], {
+    message: 'aiProvider must be either gemini, gemini-pro, banana, or banana-2.5',
   })
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5';
 
   @IsOptional()
   @IsString()

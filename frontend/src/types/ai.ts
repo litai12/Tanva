@@ -85,7 +85,7 @@ export interface MidjourneyModalRequest {
   maskBase64?: string;
 }
 
-export type SupportedAIProvider = 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
+export type SupportedAIProvider = 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
 
 export interface AIImageGenerateRequest {
   prompt: string;

@@ -49,6 +49,7 @@ export class AiController {
     gemini: 'gemini-3-pro-image-preview',
     'gemini-pro': 'gemini-3-pro-image-preview',
     banana: 'gemini-3-pro-image-preview',
+    'banana-2.5': 'gemini-2.5-flash-image',
     runninghub: 'runninghub-su-effect',
     midjourney: 'midjourney-fast',
   };
@@ -56,6 +57,7 @@ export class AiController {
     gemini: 'gemini-2.5-flash',
     'gemini-pro': 'gemini-3-pro-preview',
     banana: 'banana-gemini-3-pro-preview',
+    'banana-2.5': 'gemini-2.5-flash',
     runninghub: 'gemini-2.5-flash',
     midjourney: 'gemini-2.5-flash',
   };

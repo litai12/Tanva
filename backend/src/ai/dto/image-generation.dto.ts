@@ -41,7 +41,7 @@ export class GenerateImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -83,7 +83,7 @@ export class EditImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -126,7 +126,7 @@ export class BlendImagesDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -168,7 +168,7 @@ export class AnalyzeImageDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()
@@ -186,7 +186,7 @@ export class TextChatDto {
 
   @IsOptional()
   @IsString()
-  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'runninghub' | 'midjourney';
+  aiProvider?: 'gemini' | 'gemini-pro' | 'banana' | 'banana-2.5' | 'runninghub' | 'midjourney';
 
   @IsOptional()
   @IsObject()

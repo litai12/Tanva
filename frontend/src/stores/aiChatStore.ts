@@ -169,6 +169,8 @@ const GEMINI_FLASH_IMAGE_MODEL = 'gemini-2.5-flash-image-preview';
 const DEFAULT_TEXT_MODEL = 'gemini-2.5-flash';
 const GEMINI_PRO_TEXT_MODEL = 'gemini-3-pro-preview';
 const BANANA_TEXT_MODEL = 'banana-gemini-3-pro-preview';
+const BANANA_25_IMAGE_MODEL = 'gemini-2.5-flash-image';
+const BANANA_25_TEXT_MODEL = 'gemini-2.5-flash';
 export const SORA2_VIDEO_MODELS = {
   hd: 'sora-2-pro-reverse',
   sd: 'sora-2-reverse'
@@ -230,6 +232,9 @@ export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === 'midjourney') {
     return MIDJOURNEY_IMAGE_MODEL;
   }
+  if (provider === 'banana-2.5') {
+    return BANANA_25_IMAGE_MODEL;
+  }
   return DEFAULT_IMAGE_MODEL;
 };
 
@@ -237,6 +242,7 @@ const TEXT_MODEL_BY_PROVIDER: Record<AIProviderType, string> = {
   gemini: DEFAULT_TEXT_MODEL,
   'gemini-pro': GEMINI_PRO_TEXT_MODEL,
   banana: BANANA_TEXT_MODEL,
+  'banana-2.5': BANANA_25_TEXT_MODEL,
   runninghub: DEFAULT_TEXT_MODEL,
   midjourney: DEFAULT_TEXT_MODEL,
 };
