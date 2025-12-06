@@ -29,7 +29,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-sky-50">
       <Card className="w-full max-w-xl p-8">
         <div className="flex items-center justify-center mb-6">
-          <img src="/logo.png" className="h-10 mr-2" />
+          <img src="/Logo.svg" className="h-10 mr-2" />
           <div className="text-2xl font-semibold">创建账户</div>
         </div>
         <form onSubmit={onSubmit} className="space-y-4">

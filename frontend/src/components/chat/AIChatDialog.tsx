@@ -2714,8 +2714,8 @@ const AIChatDialog: React.FC = () => {
                   const shouldUseVerticalLayout = isAiMessage && ((hasGeneratedImage || expectsImageOutput || isImageTaskInFlight) || (hasGeneratedVideo || expectsVideoOutput || isVideoTaskInFlight));
                   const aiHeader = isAiMessage ? (
                     <div className="flex items-center gap-2 mb-2">
-                      <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
-                      <span className="text-sm font-bold text-black">TAI</span>
+                      <img src="/Logo.svg" alt="Tanvas Logo" className="w-4 h-4" />
+                      <span className="text-sm font-bold text-black">Tanvas</span>
                       {message.webSearchResult?.hasSearchResults && (
                         <div className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
                           <MinimalGlobeIcon className="w-3 h-3" />
@@ -3185,8 +3185,8 @@ const AIChatDialog: React.FC = () => {
                   >
                     {/* AI消息标识 */}
                     <div className="flex items-center gap-2 mb-2">
-                      <img src="/logo.png" alt="TAI Logo" className="w-4 h-4" />
-                      <span className="text-sm font-bold text-black">TAI</span>
+                      <img src="/Logo.svg" alt="Tanvas Logo" className="w-4 h-4" />
+                      <span className="text-sm font-bold text-black">Tanvas</span>
                     </div>
                     <div className="text-sm leading-relaxed text-black break-words markdown-content">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>

@@ -6,17 +6,16 @@ export default function Home() {
   const navigate = useNavigate();
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-white to-sky-50 text-slate-800 flex flex-col">
-      <header className="w-full flex justify-start py-6 px-4">
-        <div className="flex items-center justify-between gap-4 w-full max-w-6xl">
+      <header className="w-full py-3 px-4">
+        <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="TAI" className="h-8 w-auto" />
-            <span className="font-semibold text-2xl tracking-wide">TAI</span>
+            <img src="/LogoText.svg" alt="Tanvas" className="h-6 w-auto" />
           </div>
-          <nav className="flex items-center gap-4">
+          <div className="flex items-center gap-4">
             <AccountBadge />
             <Button variant="ghost" onClick={() => navigate('/auth/login')}>登录</Button>
             <Button onClick={() => navigate('/auth/register')}>注册</Button>
-          </nav>
+          </div>
         </div>
       </header>
 
@@ -35,7 +34,7 @@ export default function Home() {
       </main>
 
       <footer className="border-t py-6 mt-auto text-center text-sm text-slate-500">
-        © {new Date().getFullYear()} TAI · v1.0.0
+        © {new Date().getFullYear()} Tanvas · v1.0.0
       </footer>
     </div>
   );

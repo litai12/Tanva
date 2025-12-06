@@ -1043,23 +1043,16 @@ return (
             <div className="flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto">
                 {/* Logo */}
                 <div
-                    className="flex items-center justify-center w-6 h-6 cursor-pointer hover:opacity-80 transition-opacity select-none"
+                    className="flex w-[110px] h-auto items-center pb-1 justify-center cursor-pointer hover:opacity-80 transition-opacity select-none"
                     onClick={handleLogoClick}
                     title="返回首页"
                 >
                     <img
-                        src="/logo.png"
+                        src="/LogoText.svg"
                         alt="Logo"
-                        className="w-6 h-6 object-contain"
                         draggable="false"
                     />
                 </div>
-
-                {/* Beta Badge */}
-                <Badge variant="secondary" className="text-[8px] px-1 py-0">
-                    Beta
-                </Badge>
-
                 {/* 分隔线 */}
                 <div className="w-px h-5 bg-gray-300/40" />
 

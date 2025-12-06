@@ -62,7 +62,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 class AIImageService {
-  private readonly API_BASE = '/api';
+  private readonly API_BASE = import.meta.env.VITE_API_BASE || '/api';
   private readonly PUBLIC_API_BASE = '/api/public/ai';
 
   /**

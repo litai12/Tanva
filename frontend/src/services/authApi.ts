@@ -12,11 +12,20 @@ export type GoogleApiKeyInfo = {
   mode: 'official' | 'custom';
 };
 
-const base = '';
+const viteEnv =
+  typeof import.meta !== "undefined" && (import.meta as any).env
+    ? (import.meta as any).env
+    : undefined;
+const isMock = viteEnv?.VITE_AUTH_MODE === "mock";
 
-// Mock mode toggle (front-end only auth flow)
-const viteEnv = (typeof import.meta !== 'undefined' && (import.meta as any).env) ? (import.meta as any).env : undefined;
-const isMock = viteEnv?.VITE_AUTH_MODE === 'mock';
+// 后端基础地址，统一从 .env 中读取：
+// 例如在 .env.development / .env.production 中配置：
+// VITE_API_BASE_URL="https://your-backend-domain.com"
+// 如果不配置，则默认走相对路径 "/api"（配合 Vite 代理一起用）
+const base =
+  viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
+    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+    : "";
 
 // Simple localStorage-based mock helpers
 const LS_USER_KEY = 'mock_user';

@@ -57,8 +57,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-sky-50">
       <Card className="w-full max-w-2xl p-8">
         <div className="flex items-center justify-center mb-6">
-          <img src="/logo.png" className="h-10 mr-2" />
-          <div className="text-3xl font-semibold tracking-wide">TAI</div>
+          <img src="/LogoText.svg" className="h-7 w-auto" />
         </div>
         <div className="flex gap-8">
           <div className="flex-1">
