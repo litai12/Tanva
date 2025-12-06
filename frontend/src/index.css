@@ -250,67 +250,46 @@ textarea:disabled {
 
 .mist-glow {
   position: absolute;
-  top: 0;
-  left: -60px;
-  right: -60px;
-  bottom: -80px;
+  top: -60px;
+  left: -150px;
+  right: -150px;
+  bottom: -120px;
   pointer-events: none;
   z-index: 0;
-  filter: blur(40px);
-  border-radius: 50%;
-  background: conic-gradient(
-    from 0deg,
-    rgba(147, 197, 253, 0.5),
-    rgba(196, 181, 253, 0.45),
-    rgba(251, 207, 232, 0.4),
-    rgba(253, 230, 138, 0.35),
-    rgba(167, 243, 208, 0.4),
-    rgba(147, 197, 253, 0.5)
-  );
+  filter: blur(45px);
+  background:
+    radial-gradient(circle 380px at 25% 45%, rgba(147, 197, 253, 0.7) 0%, rgba(147, 197, 253, 0.3) 45%, transparent 75%),
+    radial-gradient(circle 350px at 75% 50%, rgba(196, 181, 253, 0.65) 0%, rgba(196, 181, 253, 0.25) 45%, transparent 75%);
   animation: mist-rotate 20s linear infinite;
 }
 
 .mist-layer-1 {
   position: absolute;
-  top: 10px;
-  left: -80px;
-  right: -80px;
-  bottom: -100px;
+  top: -80px;
+  left: -180px;
+  right: -180px;
+  bottom: -140px;
   pointer-events: none;
   z-index: 0;
   filter: blur(50px);
-  border-radius: 50%;
-  background: conic-gradient(
-    from 120deg,
-    rgba(165, 180, 252, 0.4),
-    rgba(134, 239, 172, 0.35),
-    rgba(252, 182, 206, 0.4),
-    rgba(147, 197, 253, 0.35),
-    rgba(253, 230, 138, 0.3),
-    rgba(165, 180, 252, 0.4)
-  );
+  background:
+    radial-gradient(circle 400px at 70% 40%, rgba(251, 207, 232, 0.7) 0%, rgba(251, 207, 232, 0.3) 45%, transparent 75%),
+    radial-gradient(circle 360px at 30% 55%, rgba(167, 243, 208, 0.65) 0%, rgba(167, 243, 208, 0.25) 45%, transparent 75%);
   animation: mist-rotate-reverse 25s linear infinite;
 }
 
 .mist-layer-2 {
   position: absolute;
-  top: 20px;
-  left: -100px;
-  right: -100px;
-  bottom: -120px;
+  top: -100px;
+  left: -200px;
+  right: -200px;
+  bottom: -160px;
   pointer-events: none;
   z-index: 0;
-  filter: blur(60px);
-  border-radius: 50%;
-  background: conic-gradient(
-    from 240deg,
-    rgba(196, 181, 253, 0.35),
-    rgba(167, 243, 208, 0.3),
-    rgba(251, 207, 232, 0.35),
-    rgba(165, 180, 252, 0.3),
-    rgba(253, 230, 138, 0.25),
-    rgba(196, 181, 253, 0.35)
-  );
+  filter: blur(55px);
+  background:
+    radial-gradient(circle 420px at 35% 45%, rgba(165, 180, 252, 0.65) 0%, rgba(165, 180, 252, 0.25) 45%, transparent 75%),
+    radial-gradient(circle 380px at 65% 45%, rgba(253, 230, 138, 0.6) 0%, rgba(253, 230, 138, 0.2) 45%, transparent 75%);
   animation: mist-scale-pulse 30s ease-in-out infinite;
 }
 
