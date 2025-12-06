@@ -195,11 +195,12 @@ export const useAIImageDisplay = () => {
             // 添加高亮边框
             paper.project.activeLayer.addChild(highlightBorder);
 
-            // 选中新创建的图像
+            // 取消所有Paper.js原生选择状态（避免显示原生选择框）
             if (paper.project.selectedItems) {
               paper.project.deselectAll();
             }
-            raster.selected = true;
+            // 注意：不要设置 raster.selected = true，这会显示Paper.js原生的选择框
+            // 我们使用自定义的选择框（selectionBorder）来显示选中状态
 
             // 强制更新视图多次确保渲染
             paper.view.update();

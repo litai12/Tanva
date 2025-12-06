@@ -311,11 +311,15 @@ export const useSelectionTool = ({
     });
     setSelectedPaths([]);
 
+    // 清除Paper.js原生选择状态（避免残留的原生选择框）
+    if (paper.project) {
+      paper.project.deselectAll();
+    }
 
     // 清除其他选择
     onModel3DDeselect();
     onImageDeselect();
-    
+
     // 强制更新Paper.js视图，确保所有视觉状态同步
     paper.view.update();
   }, [selectedPaths, handlePathDeselect, onModel3DDeselect, onImageDeselect]);
