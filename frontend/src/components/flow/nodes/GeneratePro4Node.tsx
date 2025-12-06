@@ -36,7 +36,7 @@ type Props = {
 
 const DEFAULT_IMAGE_WIDTH = 340;
 
-export default function GeneratePro4Node({ id, data, selected }: Props) {
+function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const images = React.useMemo(() => data.images || [], [data.images]);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -695,3 +695,5 @@ export default function GeneratePro4Node({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(GeneratePro4NodeInner);

@@ -385,4 +385,4 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
   );
 };
 
-export default TextChatNode;
+export default React.memo(TextChatNode);

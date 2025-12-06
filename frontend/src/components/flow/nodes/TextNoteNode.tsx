@@ -14,7 +14,7 @@ const handleConfigs = [
   { key: 'right', position: Position.Right, style: { right: 0, top: '50%', transform: 'translate(50%, -50%)' } },
 ] as const;
 
-export default function TextNoteNode({ id, data, selected }: Props) {
+function TextNoteNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const [value, setValue] = React.useState<string>(data.text || '');
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
@@ -196,3 +196,5 @@ export default function TextNoteNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(TextNoteNodeInner);

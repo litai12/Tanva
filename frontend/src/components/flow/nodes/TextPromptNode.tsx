@@ -10,7 +10,7 @@ type Props = {
 
 const DEFAULT_TITLE = 'Prompt';
 
-export default function TextPromptNode({ id, data, selected }: Props) {
+function TextPromptNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const [value, setValue] = React.useState<string>(data.text || '');
@@ -322,3 +322,5 @@ export default function TextPromptNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(TextPromptNodeInner);

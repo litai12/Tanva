@@ -20,7 +20,7 @@ type Props = {
   selected?: boolean;
 };
 
-export default function PromptOptimizeNode({ id, data, selected }: Props) {
+function PromptOptimizeNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const [upstreamText, setUpstreamText] = React.useState<string>('');
   const [hover, setHover] = React.useState<string | null>(null);
@@ -272,3 +272,5 @@ export default function PromptOptimizeNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(PromptOptimizeNodeInner);

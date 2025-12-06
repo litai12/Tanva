@@ -52,7 +52,7 @@ function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): st
   return segments;
 }
 
-export default function StoryboardSplitNode({ id, data, selected }: Props) {
+function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const edgesRef = React.useRef<Edge[]>(edges);
@@ -399,3 +399,5 @@ export default function StoryboardSplitNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(StoryboardSplitNodeInner);

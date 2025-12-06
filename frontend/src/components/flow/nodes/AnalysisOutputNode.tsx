@@ -7,7 +7,7 @@ type Props = {
   selected?: boolean;
 };
 
-export default function AnalysisNode({ id, data, selected }: Props) {
+function AnalysisOutputNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
@@ -90,3 +90,5 @@ export default function AnalysisNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(AnalysisOutputNodeInner);

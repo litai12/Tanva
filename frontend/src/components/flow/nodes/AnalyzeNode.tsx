@@ -19,7 +19,7 @@ type Props = {
 // 默认提示词
 const DEFAULT_ANALYSIS_PROMPT = '分析一下这张图的内容，尽可能描述出来场景中的物体和特点，用一段提示词的方式输出';
 
-export default function AnalysisNode({ id, data, selected = false }: Props) {
+function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const { status, error } = data;
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   const [hover, setHover] = React.useState<string | null>(null);
@@ -256,3 +256,5 @@ export default function AnalysisNode({ id, data, selected = false }: Props) {
     </div>
   );
 }
+
+export default React.memo(AnalysisNodeInner);

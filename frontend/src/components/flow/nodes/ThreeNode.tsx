@@ -21,7 +21,7 @@ type Props = {
   selected?: boolean;
 };
 
-export default function ThreeNode({ id, data, selected }: Props) {
+function ThreeNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const rendererRef = React.useRef<THREE.WebGLRenderer | null>(null);
@@ -373,3 +373,5 @@ export default function ThreeNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(ThreeNodeInner);

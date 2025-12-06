@@ -37,7 +37,7 @@ type DownloadFeedback = {
   message: string;
 };
 
-export default function Sora2VideoNode({ id, data, selected }: Props) {
+function Sora2VideoNodeInner({ id, data, selected }: Props) {
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
   const [hover, setHover] = React.useState<string | null>(null);
@@ -783,3 +783,5 @@ export default function Sora2VideoNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(Sora2VideoNodeInner);

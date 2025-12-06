@@ -21,7 +21,7 @@ type Props = {
   selected?: boolean;
 };
 
-export default function GenerateNode({ id, data, selected }: Props) {
+function GenerateNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   const [hover, setHover] = React.useState<string | null>(null);
@@ -320,3 +320,5 @@ export default function GenerateNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(GenerateNodeInner);

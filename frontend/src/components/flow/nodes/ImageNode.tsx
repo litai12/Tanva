@@ -95,7 +95,7 @@ const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
 
-export default function ImageNode({ id, data, selected }: Props) {
+function ImageNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
@@ -427,3 +427,5 @@ export default function ImageNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(ImageNodeInner);

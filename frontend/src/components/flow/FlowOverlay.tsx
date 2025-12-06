@@ -2592,6 +2592,7 @@ function FlowInner() {
         selectionKeyCode={isPointerMode ? null : null}
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
+        onlyRenderVisibleElements={true}
       >
         {backgroundEnabled && (
           <Background

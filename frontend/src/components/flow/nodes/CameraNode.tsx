@@ -13,7 +13,7 @@ type Props = {
   selected?: boolean;
 };
 
-export default function CameraNode({ id, data, selected }: Props) {
+function CameraNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
@@ -143,3 +143,5 @@ export default function CameraNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(CameraNodeInner);

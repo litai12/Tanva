@@ -22,7 +22,7 @@ type Props = {
 
 const DEFAULT_REFERENCE_PROMPT = '请参考第二张图的内容';
 
-export default function GenerateReferenceNode({ id, data, selected }: Props) {
+function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
   const [hover, setHover] = React.useState<string | null>(null);
@@ -321,3 +321,5 @@ export default function GenerateReferenceNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(GenerateReferenceNodeInner);

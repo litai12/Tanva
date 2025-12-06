@@ -40,7 +40,7 @@ const MIN_IMAGE_WIDTH = 150;
 const MAX_IMAGE_WIDTH = 600;
 const DEFAULT_IMAGE_WIDTH = 296;
 
-export default function GenerateProNode({ id, data, selected }: Props) {
+function GenerateProNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const src = React.useMemo(
     () => (data.imageData ? `data:image/png;base64,${data.imageData}` : undefined),
@@ -810,3 +810,5 @@ export default function GenerateProNode({ id, data, selected }: Props) {
     </div>
   );
 }
+
+export default React.memo(GenerateProNodeInner);
