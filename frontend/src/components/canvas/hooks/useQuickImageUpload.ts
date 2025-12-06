@@ -423,16 +423,76 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             }
 
+            // 创建加载指示器（转圈动画）
+            const loadingIndicatorSize = 48;
+            const loadingGroup = new paper.Group();
+            loadingGroup.position = targetPosition;
+            loadingGroup.data = { type: 'loading-indicator', imageId };
+
+            // 创建背景圆形
+            const bgCircle = new paper.Path.Circle({
+                center: new paper.Point(0, 0),
+                radius: loadingIndicatorSize / 2,
+                fillColor: new paper.Color(1, 1, 1, 0.9),
+                strokeColor: new paper.Color(0.9, 0.9, 0.9),
+                strokeWidth: 1
+            });
+            loadingGroup.addChild(bgCircle);
+
+            // 创建旋转的弧形（loading spinner）
+            const arcRadius = loadingIndicatorSize / 2 - 8;
+            const loadingArc = new paper.Path.Arc({
+                from: new paper.Point(0, -arcRadius),
+                through: new paper.Point(arcRadius, 0),
+                to: new paper.Point(0, arcRadius),
+                strokeColor: new paper.Color('#3b82f6'),
+                strokeWidth: 3,
+                strokeCap: 'round'
+            });
+            loadingGroup.addChild(loadingArc);
+
+            // 添加到画布
+            paper.project.activeLayer.addChild(loadingGroup);
+            paper.view.update();
+
+            // 启动旋转动画
+            let rotationAngle = 0;
+            let animationFrameId: number | null = null;
+            const animateLoading = () => {
+                if (loadingGroup && loadingGroup.parent) {
+                    rotationAngle += 6;
+                    loadingArc.rotate(6, new paper.Point(0, 0));
+                    paper.view.update();
+                    animationFrameId = requestAnimationFrame(animateLoading);
+                }
+            };
+            animationFrameId = requestAnimationFrame(animateLoading);
+
+            // 移除加载指示器的函数
+            const removeLoadingIndicator = () => {
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                    animationFrameId = null;
+                }
+                if (loadingGroup && loadingGroup.parent) {
+                    loadingGroup.remove();
+                    paper.view.update();
+                }
+            };
+
             // 创建图片的 Raster 对象（先绑定 onLoad 再设置 source，避免极快缓存触发导致丢失回调）
             const raster = new paper.Raster();
             (raster as any).crossOrigin = 'anonymous';
             raster.position = targetPosition;
-            
+
             // 提前记录，便于排查定位
             try { console.log('[QuickUpload] 准备加载图片', { targetPosition }); } catch {}
 
             // 等待图片加载完成
             raster.onLoad = () => {
+                // 移除加载指示器
+                removeLoadingIndicator();
+
                 if (!asset) {
                     logger.error('快速上传：缺少图片资源');
                     return;
@@ -688,6 +748,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             };
 
             raster.onError = (e: any) => {
+                // 移除加载指示器
+                removeLoadingIndicator();
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
                 logger.error('图片加载失败');
                 try { console.error('[QuickUpload] 图片加载失败', { imageId, error: e }); } catch {}

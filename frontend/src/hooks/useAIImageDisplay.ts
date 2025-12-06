@@ -54,6 +54,62 @@ export const useAIImageDisplay = () => {
       const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
       const imageDataUrl = `data:${mimeType};base64,${aiResult.imageData}`;
 
+      // 创建加载指示器（转圈动画）
+      const loadingIndicatorSize = 48;
+      const targetPosition = new paper.Point(0, 0);
+      const loadingGroup = new paper.Group();
+      loadingGroup.position = targetPosition;
+      loadingGroup.data = { type: 'loading-indicator', aiResultId: aiResult.id };
+
+      // 创建背景圆形
+      const bgCircle = new paper.Path.Circle({
+        center: new paper.Point(0, 0),
+        radius: loadingIndicatorSize / 2,
+        fillColor: new paper.Color(1, 1, 1, 0.9),
+        strokeColor: new paper.Color(0.9, 0.9, 0.9),
+        strokeWidth: 1
+      });
+      loadingGroup.addChild(bgCircle);
+
+      // 创建旋转的弧形（loading spinner）
+      const arcRadius = loadingIndicatorSize / 2 - 8;
+      const loadingArc = new paper.Path.Arc({
+        from: new paper.Point(0, -arcRadius),
+        through: new paper.Point(arcRadius, 0),
+        to: new paper.Point(0, arcRadius),
+        strokeColor: new paper.Color('#3b82f6'),
+        strokeWidth: 3,
+        strokeCap: 'round'
+      });
+      loadingGroup.addChild(loadingArc);
+
+      // 添加到画布
+      paper.project.activeLayer.addChild(loadingGroup);
+      paper.view.update();
+
+      // 启动旋转动画
+      let animationFrameId: number | null = null;
+      const animateLoading = () => {
+        if (loadingGroup && loadingGroup.parent) {
+          loadingArc.rotate(6, new paper.Point(0, 0));
+          paper.view.update();
+          animationFrameId = requestAnimationFrame(animateLoading);
+        }
+      };
+      animationFrameId = requestAnimationFrame(animateLoading);
+
+      // 移除加载指示器的函数
+      const removeLoadingIndicator = () => {
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
+        if (loadingGroup && loadingGroup.parent) {
+          loadingGroup.remove();
+          paper.view.update();
+        }
+      };
+
       // 创建新的图像元素用于加载
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -71,6 +127,9 @@ export const useAIImageDisplay = () => {
 
           // 在onLoad回调中处理图片
           raster.onLoad = () => {
+            // 移除加载指示器
+            removeLoadingIndicator();
+
             console.log('🎯 [DEBUG] Paper.js Raster.onLoad触发，开始处理图片...');
             // 存储原始尺寸信息
             const originalWidth = raster.width;
@@ -284,11 +343,15 @@ export const useAIImageDisplay = () => {
           }; // raster.onLoad结束
 
         } catch (error) {
+          // 移除加载指示器
+          removeLoadingIndicator();
           console.error('❌ 创建Paper.js图像对象失败:', error);
         }
       };
 
       img.onerror = (error) => {
+        // 移除加载指示器
+        removeLoadingIndicator();
         console.error('❌ 图像加载失败:', error);
         console.error('🔍 调试信息:', {
           imageDataUrl: imageDataUrl.substring(0, 100) + '...',
