@@ -20,15 +20,22 @@ export default function Home() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 pt-12 pb-24 flex-1">
-        <div className="text-center mb-10">
+        <div className="text-center mb-10 relative z-10">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">探索创作之境</h1>
           <p className="mt-4 text-slate-600">专业绘图与 AI 创作平台，轻松开启你的灵感旅程</p>
         </div>
         <div className="mx-auto max-w-3xl px-4">
-          <div className="w-full sm:w-[480px] border rounded-xl p-8 hover:shadow transition mx-auto text-center">
-            <h3 className="text-lg font-semibold mb-2">开始对话</h3>
-            <p className="text-sm text-slate-600 mb-6">体验 AI 助手优化与生成</p>
-            <Button onClick={() => navigate('/app')}>立即体验</Button>
+          <div className="mist-card-wrapper w-full sm:w-[860px] mx-auto ">
+            <div className="mist-glow"></div>
+            <div className="mist-layer-1"></div>
+            <div className="mist-layer-2"></div>
+            <div className="w-full border rounded-xl p-12 hover:shadow transition text-center mist-card">
+              <div className="mist-content">
+                <h3 className="text-lg font-semibold mb-2">开始对话</h3>
+                <p className="text-sm text-slate-600 mb-6">体验 AI 助手优化与生成</p>
+                <Button onClick={() => navigate('/app')}>立即体验</Button>
+              </div>
+            </div>
           </div>
         </div>
       </main>

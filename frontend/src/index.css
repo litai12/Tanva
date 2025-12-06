@@ -125,3 +125,196 @@ textarea:disabled {
 [draggable="true"]:active {
   cursor: grabbing !important;
 }
+
+/* ==================== 彩雾动画效果 ==================== */
+@keyframes mist-drift-1 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  25% {
+    transform: translate(15%, -10%) rotate(5deg) scale(1.05);
+  }
+  50% {
+    transform: translate(5%, 15%) rotate(-3deg) scale(0.98);
+  }
+  75% {
+    transform: translate(-10%, 5%) rotate(2deg) scale(1.02);
+  }
+}
+
+@keyframes mist-drift-2 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  33% {
+    transform: translate(-12%, 8%) rotate(-4deg) scale(1.03);
+  }
+  66% {
+    transform: translate(8%, -12%) rotate(6deg) scale(0.97);
+  }
+}
+
+@keyframes mist-drift-3 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate(10%, 10%) rotate(-5deg) scale(1.08);
+  }
+}
+
+@keyframes mist-drift-4 {
+  0%, 100% {
+    transform: translate(0%, 0%) rotate(0deg) scale(1);
+  }
+  40% {
+    transform: translate(-8%, -8%) rotate(3deg) scale(1.04);
+  }
+  80% {
+    transform: translate(6%, -4%) rotate(-2deg) scale(0.96);
+  }
+}
+
+@keyframes mist-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.mist-card-wrapper {
+  position: relative;
+  padding: 20px 80px 120px 80px;
+  margin: -20px -80px -120px -80px;
+}
+
+/* 纯净液态玻璃卡片 - 无颜色 */
+.mist-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.mist-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.25) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 动态旋转的彩雾光环 */
+@keyframes mist-rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mist-rotate-reverse {
+  0% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes mist-scale-pulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.05) rotate(180deg);
+    opacity: 0.8;
+  }
+}
+
+.mist-glow {
+  position: absolute;
+  top: 0;
+  left: -60px;
+  right: -60px;
+  bottom: -80px;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(40px);
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    rgba(147, 197, 253, 0.5),
+    rgba(196, 181, 253, 0.45),
+    rgba(251, 207, 232, 0.4),
+    rgba(253, 230, 138, 0.35),
+    rgba(167, 243, 208, 0.4),
+    rgba(147, 197, 253, 0.5)
+  );
+  animation: mist-rotate 20s linear infinite;
+}
+
+.mist-layer-1 {
+  position: absolute;
+  top: 10px;
+  left: -80px;
+  right: -80px;
+  bottom: -100px;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(50px);
+  border-radius: 50%;
+  background: conic-gradient(
+    from 120deg,
+    rgba(165, 180, 252, 0.4),
+    rgba(134, 239, 172, 0.35),
+    rgba(252, 182, 206, 0.4),
+    rgba(147, 197, 253, 0.35),
+    rgba(253, 230, 138, 0.3),
+    rgba(165, 180, 252, 0.4)
+  );
+  animation: mist-rotate-reverse 25s linear infinite;
+}
+
+.mist-layer-2 {
+  position: absolute;
+  top: 20px;
+  left: -100px;
+  right: -100px;
+  bottom: -120px;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(60px);
+  border-radius: 50%;
+  background: conic-gradient(
+    from 240deg,
+    rgba(196, 181, 253, 0.35),
+    rgba(167, 243, 208, 0.3),
+    rgba(251, 207, 232, 0.35),
+    rgba(165, 180, 252, 0.3),
+    rgba(253, 230, 138, 0.25),
+    rgba(196, 181, 253, 0.35)
+  );
+  animation: mist-scale-pulse 30s ease-in-out infinite;
+}
+
+.mist-content {
+  position: relative;
+  z-index: 2;
+}
