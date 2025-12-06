@@ -3728,6 +3728,11 @@ export const useAIChatStore = create<AIChatState>()(
     console.log('📐 开始生成 Paper.js 代码，消息ID:', aiMessageId);
     logProcessStep(metrics, 'generatePaperJSCode message prepared');
 
+    // 显示占位标记
+    if (paperSandboxService.isReady()) {
+      paperSandboxService.showVectorPlaceholder();
+    }
+
     try {
       // 更新进度
       get().updateMessageStatus(aiMessageId, {
@@ -3787,6 +3792,9 @@ export const useAIChatStore = create<AIChatState>()(
         stage: '应用到画布'
       });
 
+      // 隐藏占位标记
+      paperSandboxService.hideVectorPlaceholder();
+
       // 自动应用到当前图层
       const applyResult = paperSandboxService.applyOutputToActiveLayer();
 
@@ -3817,6 +3825,9 @@ export const useAIChatStore = create<AIChatState>()(
 
       logProcessStep(metrics, 'generatePaperJSCode completed successfully');
     } catch (error) {
+      // 隐藏占位标记
+      paperSandboxService.hideVectorPlaceholder();
+
       const errorMessage = error instanceof Error ? error.message : 'Paper.js 代码生成失败';
       console.error('❌ Paper.js 代码生成失败:', errorMessage);
 

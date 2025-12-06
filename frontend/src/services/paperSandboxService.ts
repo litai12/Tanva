@@ -3,7 +3,9 @@ import { useLayerStore } from '@/stores/layerStore';
 
 const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
 const SANDBOX_LAYER_NAME = '__tanva_sandbox__';
+const PLACEHOLDER_LAYER_NAME = '__tanva_vector_placeholder__';
 let lastSandboxItems: paper.Item[] = [];
+let placeholderGroup: paper.Group | null = null;
 
 const insertAboveGrid = (layer: paper.Layer) => {
   const gridLayer = paper.project?.layers.find((candidate) => candidate.name === 'grid');
@@ -411,6 +413,194 @@ export const paperSandboxService = {
       message: `已将 ${clones.length} 个图形应用到当前图层，可直接编辑和移动`,
       count: clones.length,
     };
+  },
+
+  /**
+   * 显示矢量图形生成占位标记
+   * 在画布中央显示一个彩雾涌动效果，提示用户正在生成矢量图形
+   */
+  showVectorPlaceholder(): void {
+    if (!paper.project || !paper.view) {
+      console.warn('[Sandbox] Paper.js 未初始化，无法显示占位标记');
+      return;
+    }
+
+    // 如果已存在占位标记，先移除
+    this.hideVectorPlaceholder();
+
+    const previousLayer = paper.project.activeLayer;
+
+    // 创建占位标记图层
+    let placeholderLayer = paper.project.layers.find(
+      (layer) => layer.name === PLACEHOLDER_LAYER_NAME
+    );
+    if (!placeholderLayer) {
+      placeholderLayer = new paper.Layer();
+      placeholderLayer.name = PLACEHOLDER_LAYER_NAME;
+      placeholderLayer.data = { isPlaceholder: true, isHelper: true };
+      insertAboveGrid(placeholderLayer);
+    }
+    placeholderLayer.activate();
+    placeholderLayer.visible = true;
+
+    const center = paper.view.center;
+    const baseRadius = 80;
+
+    // 创建占位标记组
+    placeholderGroup = new paper.Group();
+    placeholderGroup.data = { isPlaceholder: true, isHelper: true };
+
+    // 彩雾颜色配置 - 参考 AI 对话框的彩雾效果
+    // 使用径向渐变模拟模糊效果
+    const auraColors = [
+      { r: 59/255, g: 130/255, b: 246/255, offset: { x: -0.35, y: -0.3 }, radius: 1.1 },   // 蓝色 - 左上
+      { r: 167/255, g: 139/255, b: 250/255, offset: { x: 0.35, y: -0.4 }, radius: 1.0 },   // 紫色 - 右上
+      { r: 248/255, g: 113/255, b: 113/255, offset: { x: -0.4, y: 0.35 }, radius: 1.05 },  // 红色 - 左下
+      { r: 251/255, g: 191/255, b: 36/255, offset: { x: 0.35, y: 0.3 }, radius: 1.1 },     // 黄色 - 右下
+      { r: 52/255, g: 211/255, b: 153/255, offset: { x: 0, y: 0 }, radius: 0.85 },         // 绿色 - 中心
+    ];
+
+    // 创建彩雾圆形 - 使用径向渐变实现柔和边缘
+    const auraCircles: paper.Path.Circle[] = [];
+    auraColors.forEach((config, index) => {
+      const offsetX = config.offset.x * baseRadius;
+      const offsetY = config.offset.y * baseRadius;
+      const circleCenter = new paper.Point(center.x + offsetX, center.y + offsetY);
+      const circleRadius = baseRadius * config.radius;
+
+      const circle = new paper.Path.Circle({
+        center: circleCenter,
+        radius: circleRadius,
+      });
+
+      // 创建径向渐变 - 从中心到边缘逐渐透明
+      const gradient = new paper.Gradient(
+        [
+          new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0.5), 0),
+          new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0.3), 0.5),
+          new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0), 1),
+        ],
+        true // radial gradient
+      );
+
+      circle.fillColor = new paper.Color(gradient, circleCenter, circleCenter.add(new paper.Point(circleRadius, 0)));
+      circle.data = { isHelper: true, auraIndex: index };
+      auraCircles.push(circle);
+    });
+
+    // 文字提示 - 更淡雅的颜色
+    const text = new paper.PointText({
+      point: new paper.Point(center.x, center.y + baseRadius + 45),
+      content: '正在生成矢量图形...',
+      fillColor: new paper.Color(0.4, 0.5, 0.7, 0.7),
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: 13,
+      justification: 'center',
+    });
+    text.data = { isHelper: true };
+
+    placeholderGroup.addChildren([...auraCircles, text]);
+
+    // 添加彩雾涌动动画
+    let frameCount = 0;
+    const initialPositions = auraCircles.map(c => c.position.clone());
+    const initialRadii = auraColors.map(c => baseRadius * c.radius);
+    // 保存初始渐变配置用于动画
+    const initialGradientConfigs = auraColors.map(c => ({ r: c.r, g: c.g, b: c.b }));
+
+    paper.view.onFrame = () => {
+      if (placeholderGroup && placeholderGroup.parent) {
+        frameCount++;
+        const time = frameCount * 0.02;
+
+        // 每个彩雾圆形独立运动
+        auraCircles.forEach((circle, index) => {
+          const initialPos = initialPositions[index];
+          const initialRadius = initialRadii[index];
+          const colorConfig = initialGradientConfigs[index];
+
+          // 不同相位的正弦波运动，创造涌动效果
+          const phase = index * Math.PI * 0.4;
+          const moveX = Math.sin(time + phase) * 12;
+          const moveY = Math.cos(time * 0.8 + phase) * 10;
+
+          // 更新位置
+          const newPos = new paper.Point(
+            initialPos.x + moveX,
+            initialPos.y + moveY
+          );
+          circle.position = newPos;
+
+          // 脉冲缩放效果
+          const scalePhase = index * Math.PI * 0.3;
+          const scale = 1 + Math.sin(time * 0.6 + scalePhase) * 0.12;
+          const newRadius = initialRadius * scale;
+
+          // 通过重新设置 bounds 来缩放圆形
+          circle.bounds = new paper.Rectangle(
+            newPos.x - newRadius,
+            newPos.y - newRadius,
+            newRadius * 2,
+            newRadius * 2
+          );
+
+          // 更新渐变以匹配新位置和大小
+          const gradient = new paper.Gradient(
+            [
+              new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0.55), 0),
+              new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0.35), 0.5),
+              new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0), 1),
+            ],
+            true
+          );
+          circle.fillColor = new paper.Color(gradient, newPos, newPos.add(new paper.Point(newRadius, 0)));
+        });
+      }
+    };
+
+    paper.view.update();
+
+    // 恢复之前的活跃图层
+    if (previousLayer && previousLayer.name !== PLACEHOLDER_LAYER_NAME) {
+      previousLayer.activate();
+    }
+
+    console.log('[Sandbox] 矢量图形彩雾占位标记已显示');
+  },
+
+  /**
+   * 隐藏矢量图形生成占位标记
+   */
+  hideVectorPlaceholder(): void {
+    if (!paper.project) {
+      return;
+    }
+
+    // 停止动画
+    if (paper.view) {
+      paper.view.onFrame = null;
+    }
+
+    // 移除占位标记组
+    if (placeholderGroup && placeholderGroup.parent) {
+      placeholderGroup.remove();
+      placeholderGroup = null;
+    }
+
+    // 移除占位标记图层
+    const placeholderLayer = paper.project.layers.find(
+      (layer) => layer.name === PLACEHOLDER_LAYER_NAME
+    );
+    if (placeholderLayer) {
+      placeholderLayer.removeChildren();
+      placeholderLayer.remove();
+    }
+
+    if (paper.view) {
+      paper.view.update();
+    }
+
+    console.log('[Sandbox] 矢量图形占位标记已隐藏');
   },
 
   getCodeExamples(): Record<string, string> {
