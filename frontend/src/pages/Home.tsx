@@ -13,8 +13,8 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-4">
             <AccountBadge />
-            <Button variant="ghost" className="text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-2xl" onClick={() => navigate('/auth/login')}>登录</Button>
-            <Button className="bg-gray-600 hover:bg-gray-700 text-white rounded-2xl" onClick={() => navigate('/auth/register')}>注册</Button>
+            <Button variant="ghost" className="text-gray-700 hover:text-gray-500 hover:bg-gray-100 rounded-2xl" onClick={() => navigate('/auth/login')}>登录</Button>
+            <Button className="bg-gray-700 hover:bg-gray-500 text-white rounded-2xl" onClick={() => navigate('/auth/register')}>注册</Button>
           </div>
         </div>
       </header>
@@ -33,7 +33,7 @@ export default function Home() {
               <div className="mist-content">
                 <h3 className="text-lg font-semibold mb-2">开始对话</h3>
                 <p className="text-sm text-slate-600 mb-6">体验 AI 助手优化与生成</p>
-                <Button className="bg-gray-800 hover:bg-gray-900 text-white rounded-2xl h-9 px-4" onClick={() => navigate('/app')}>立即体验</Button>
+                <Button className="bg-gray-700 hover:bg-gray-500 text-white rounded-2xl h-9 px-4" onClick={() => navigate('/app')}>立即体验</Button>
               </div>
             </div>
           </div>

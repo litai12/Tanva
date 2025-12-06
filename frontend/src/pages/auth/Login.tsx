@@ -62,8 +62,8 @@ export default function LoginPage() {
         <div className="flex gap-8">
           <div className="flex-1">
             <div className="flex gap-6 mb-6 text-sm">
-              <button className={tab==='password'? 'text-sky-600 font-semibold':'text-slate-500'} onClick={()=>setTab('password')}>密码登录</button>
-              <button className={tab==='sms'? 'text-sky-600 font-semibold':'text-slate-500'} onClick={()=>setTab('sms')}>验证码登录</button>
+              <button className={tab==='password'? 'text-gray-700 font-semibold':'text-slate-400'} onClick={()=>setTab('password')}>密码登录</button>
+              <button className={tab==='sms'? 'text-gray-700 font-semibold':'text-slate-400'} onClick={()=>setTab('sms')}>验证码登录</button>
             </div>
             {/* 固定高度容器，避免切换时跳跃 */}
             <div className="relative min-h-[260px] transition-[min-height]">
@@ -72,7 +72,7 @@ export default function LoginPage() {
                   <Input placeholder="请输入手机号" value={phone} onChange={e=>setPhone(e.target.value)} required />
                   <Input placeholder="请输入密码" type="password" value={password} onChange={e=>setPassword(e.target.value)} required />
                   {error && <div className="text-red-500 text-sm">{error}</div>}
-                  <Button type="submit" className="w-full" disabled={loading}>{loading? '登录中...' : '登录'}</Button>
+                  <Button type="submit" className="w-full bg-gray-700 hover:bg-gray-800 text-white rounded-2xl" disabled={loading}>{loading? '登录中...' : '登录'}</Button>
                   <div className="flex justify-between text-sm text-slate-500">
                     <Link to="#">忘记密码</Link>
                     <Link to="/auth/register">立即注册</Link>
@@ -86,7 +86,7 @@ export default function LoginPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      className="whitespace-nowrap flex-shrink-0 min-w-[64px]"
+                      className="whitespace-nowrap flex-shrink-0 min-w-[64px] rounded-2xl"
                       onClick={async () => {
                         if (!phone) { alert('请输入手机号'); return; }
                         try {
@@ -107,7 +107,7 @@ export default function LoginPage() {
                   </Button>
                   </div>
                   {error && <div className="text-red-500 text-sm">{error}</div>}
-                  <Button type="submit" className="w-full" disabled={loading}>
+                  <Button type="submit" className="w-full bg-gray-700 hover:bg-gray-500 text-white rounded-2xl" disabled={loading}>
                     {loading ? '登录中…' : '登录'}
                   </Button>
                 </form>
@@ -116,8 +116,8 @@ export default function LoginPage() {
           </div>
           <div className="hidden md:block w-[1px] bg-slate-100" />
           <div className="hidden md:flex flex-col items-center justify-center w-64">
-            <div className="h-40 w-40 bg-slate-100 rounded-md flex items-center justify-center text-slate-400">二维码</div>
-            <div className="mt-2 text-sm text-slate-500">扫码登录（预留）</div>
+            <div className="h-40 w-40 bg-slate-100 rounded-md flex items-center justify-center text-slate-400">二维码（未开放）</div>
+            <div className="mt-2 text-sm text-slate-500">扫码登录</div>
           </div>
         </div>
       </Card>
