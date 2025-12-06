@@ -2089,7 +2089,7 @@ const AIChatDialog: React.FC = () => {
                 placeholder={getSmartPlaceholder()}
                 disabled={false}
                 className={cn(
-                  "resize-none px-4 min-h-[80px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200"
+                  "resize-none px-4 pb-12 min-h-[80px] max-h-[200px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
                 )}
                 rows={showHistory ? 3 : 1}
               />
@@ -2415,11 +2415,10 @@ const AIChatDialog: React.FC = () => {
                 size="sm"
                 variant="outline"
                 className={cn(
-                  // 移除最大化按钮后，收紧到右侧
                   "absolute right-28 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   !generationStatus.isGenerating
-                    ? enableWebSearch 
+                    ? enableWebSearch
                       ? "hover:bg-blue-600 bg-blue-500 text-white border-blue-500"
                       : "hover:bg-liquid-glass-hover text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
