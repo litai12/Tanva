@@ -84,12 +84,14 @@ const FloatingHeader: React.FC = () => {
         gridColor,
         gridBgColor,
         gridBgEnabled,
+        zoomSensitivity,
         setGridStyle,
         setGridSize,
         setGridDotSize,
         setGridColor,
         setGridBgColor,
-        setGridBgEnabled
+        setGridBgEnabled,
+        setZoomSensitivity
     } = useCanvasStore();
 
     // AI 配置
@@ -678,6 +680,28 @@ const FloatingHeader: React.FC = () => {
                                         />
                                     </label>
                                 )}
+                            </div>
+                        </div>
+
+                        {/* 缩放灵敏度设置 */}
+                        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur space-y-4">
+                            <div>
+                                <div className="text-sm font-medium text-slate-700">滚轮缩放灵敏度</div>
+                                <div className="text-xs text-slate-500">调整鼠标滚轮/触控板缩放的响应速度，值越小越平滑</div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <span className="text-xs text-slate-500 w-8">慢</span>
+                                <input
+                                    type="range"
+                                    min={1}
+                                    max={10}
+                                    step={1}
+                                    value={zoomSensitivity}
+                                    onChange={(e) => setZoomSensitivity(Number(e.target.value))}
+                                    className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                />
+                                <span className="text-xs text-slate-500 w-8">快</span>
+                                <span className="text-sm font-medium text-slate-700 w-6 text-center">{zoomSensitivity}</span>
                             </div>
                         </div>
 

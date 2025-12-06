@@ -47,7 +47,7 @@ const GlobalZoomCapture = () => {
     const applyZoom = (focusX: number, focusY: number, deltaZoom: number) => {
       const store = useCanvasStore.getState();
       const currentZoom = store.zoom || 1;
-      const nextZoom = computeSmoothZoom(currentZoom, deltaZoom);
+      const nextZoom = computeSmoothZoom(currentZoom, deltaZoom, { sensitivity: store.zoomSensitivity });
       if (currentZoom === nextZoom) return;
       const nextPanX = store.panX + focusX * (1 / nextZoom - 1 / currentZoom);
       const nextPanY = store.panY + focusY * (1 / nextZoom - 1 / currentZoom);

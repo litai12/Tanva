@@ -117,7 +117,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         const delta = normalizeWheelDelta(event.deltaY, event.deltaMode);
         if (Math.abs(delta) < 1e-6) return;
 
-        const z2 = computeSmoothZoom(z1, delta);
+        const z2 = computeSmoothZoom(z1, delta, { sensitivity: store.zoomSensitivity });
         if (z1 === z2) return;
 
         // 保持鼠标下的世界坐标点不动：

@@ -1922,88 +1922,6 @@ const AIChatDialog: React.FC = () => {
 
 
 
-          {/* 统一的图像预览区域 */}
-          {hasImagePreview && (
-            <div className="mb-3">
-              <div className="flex flex-wrap gap-2">
-                {/* 单图编辑显示 */}
-                {sourceImageForEditing && (
-                  <div className="relative group">
-                    <img
-                      src={sourceImageForEditing}
-                      alt="编辑图像"
-                      className="w-16 h-16 object-cover rounded border shadow-sm"
-                    />
-                    <button
-                      onClick={handleRemoveSourceImage}
-                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="删除图片"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                )}
-
-                {/* 分析图像显示 - 隐藏无法显示的预览 */}
-                {false && sourceImageForAnalysis && (
-                  <div className="relative group">
-                    <img
-                      src={sourceImageForAnalysis}
-                      alt="分析图像"
-                      className="w-16 h-16 object-cover rounded border shadow-sm"
-                    />
-                    <button
-                      onClick={() => setSourceImageForAnalysis(null)}
-                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="删除图片"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                )}
-
-                {/* 多图融合显示 */}
-                {sourceImagesForBlending.map((imageData, index) => (
-                  <div key={index} className="relative group">
-                    <img
-                      src={imageData}
-                      alt={`融合图片 ${index + 1}`}
-                      className="w-16 h-16 object-cover rounded border shadow-sm"
-                    />
-                    {/* 图像序号角标 */}
-                    <div
-                      className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center"
-                      style={{ fontSize: '0.6rem' }}
-                    >
-                      {index + 1}
-                    </div>
-                    <button
-                      onClick={() => removeImageFromBlending(index)}
-                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      title={`删除图片 ${index + 1}`}
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                ))}
-
-                {/* 添加更多图片按钮 */}
-                {(sourceImagesForBlending.length < 4 && sourceImagesForBlending.length > 0) ||
-                  (sourceImageForEditing && sourceImagesForBlending.length === 0) ? (
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-16 h-16 border-2 border-dashed border-gray-300 hover:border-blue-400 rounded flex items-center justify-center transition-colors group"
-                    title="添加更多图片"
-                  >
-                    <Plus className="w-6 h-6 text-gray-400 group-hover:text-blue-500" />
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          )}
-
-
-
           {/* 输入区域 */}
           <div
             ref={inputAreaRef}
@@ -2021,7 +1939,7 @@ const AIChatDialog: React.FC = () => {
                 const x = (e as any).clientX, y = (e as any).clientY;
                 const inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
                 if (!inside) return;
-                
+
                 const edgeDist = Math.min(x - r.left, r.right - x, y - r.top, r.bottom - y);
                 // 只在真正的边缘区域（比如边框）才阻止默认行为，减小阈值到8px
                 if (edgeDist <= 8) {
@@ -2049,6 +1967,86 @@ const AIChatDialog: React.FC = () => {
               } catch {}
             }}
           >
+            {/* 统一的图像预览区域 - 位于输入框上方 */}
+            {hasImagePreview && (
+              <div className="mb-3">
+                <div className="flex flex-wrap gap-2">
+                  {/* 单图编辑显示 */}
+                  {sourceImageForEditing && (
+                    <div className="relative group">
+                      <img
+                        src={sourceImageForEditing}
+                        alt="编辑图像"
+                        className="w-16 h-16 object-cover rounded border shadow-sm"
+                      />
+                      <button
+                        onClick={handleRemoveSourceImage}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="删除图片"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 分析图像显示 - 隐藏无法显示的预览 */}
+                  {false && sourceImageForAnalysis && (
+                    <div className="relative group">
+                      <img
+                        src={sourceImageForAnalysis}
+                        alt="分析图像"
+                        className="w-16 h-16 object-cover rounded border shadow-sm"
+                      />
+                      <button
+                        onClick={() => setSourceImageForAnalysis(null)}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="删除图片"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 多图融合显示 */}
+                  {sourceImagesForBlending.map((imageData, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={imageData}
+                        alt={`融合图片 ${index + 1}`}
+                        className="w-16 h-16 object-cover rounded border shadow-sm"
+                      />
+                      {/* 图像序号角标 */}
+                      <div
+                        className="absolute -top-0.5 -left-0.5 bg-blue-600 text-white w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center"
+                        style={{ fontSize: '0.6rem' }}
+                      >
+                        {index + 1}
+                      </div>
+                      <button
+                        onClick={() => removeImageFromBlending(index)}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        title={`删除图片 ${index + 1}`}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* 添加更多图片按钮 */}
+                  {(sourceImagesForBlending.length < 4 && sourceImagesForBlending.length > 0) ||
+                    (sourceImageForEditing && sourceImagesForBlending.length === 0) ? (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-16 h-16 border-2 border-dashed border-gray-300 hover:border-blue-400 rounded flex items-center justify-center transition-colors group"
+                      title="添加更多图片"
+                    >
+                      <Plus className="w-6 h-6 text-gray-400 group-hover:text-blue-500" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
             <div className="relative">
               {/* PDF 文件 @ 标签提示 - 位于输入框上方 */}
               {sourcePdfForAnalysis && (

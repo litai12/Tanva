@@ -37,6 +37,9 @@ interface CanvasState {
   units: Unit;                // 当前显示单位
   scaleRatio: number;         // 1像素对应多少米
   showScaleBar: boolean;      // 显示比例尺
+
+  // 缩放设置
+  zoomSensitivity: number;    // 滚轮缩放灵敏度 (1-10)
   
   // 操作方法
   setGridSize: (size: number) => void;
@@ -59,6 +62,9 @@ interface CanvasState {
   setUnits: (units: Unit) => void;
   setScaleRatio: (ratio: number) => void;
   toggleScaleBar: () => void;
+
+  // 缩放设置操作方法
+  setZoomSensitivity: (sensitivity: number) => void;
 }
 
 export const useCanvasStore = create<CanvasState>()(
@@ -85,6 +91,9 @@ export const useCanvasStore = create<CanvasState>()(
       units: 'm',           // 默认米单位
       scaleRatio: 0.1,      // 默认1像素=0.1米
       showScaleBar: true,   // 默认显示比例尺
+
+      // 缩放设置初始状态
+      zoomSensitivity: 3,   // 默认灵敏度3（范围1-10，较低值更平滑）
       
       // 设置方法
       setGridSize: (size) => set({ gridSize: size }),
@@ -119,6 +128,12 @@ export const useCanvasStore = create<CanvasState>()(
         set({ scaleRatio: validRatio });
       },
       toggleScaleBar: () => set((state) => ({ showScaleBar: !state.showScaleBar })),
+
+      // 缩放设置操作方法
+      setZoomSensitivity: (sensitivity) => {
+        const validSensitivity = Math.max(1, Math.min(10, Math.round(sensitivity))); // 限制范围 1-10
+        set({ zoomSensitivity: validSensitivity });
+      },
       }),
       {
         name: 'canvas-settings', // localStorage 键名
@@ -137,6 +152,8 @@ export const useCanvasStore = create<CanvasState>()(
           units: state.units,
           scaleRatio: state.scaleRatio,
           showScaleBar: state.showScaleBar,
+          // 缩放偏好（不常变化）
+          zoomSensitivity: state.zoomSensitivity,
           // 注意：不再持久化 zoom, panX, panY, hasInitialCenterApplied
           // 这些值会在每次缩放/拖拽时频繁变化，持久化会导致性能问题
         }) as Partial<CanvasState>,
