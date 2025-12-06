@@ -43,9 +43,10 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const cookieSecret = configService.get('COOKIE_SECRET') ?? 'dev-cookie-secret';
 
-  await app.register(fastifyHelmet, { contentSecurityPolicy: false });
-  await app.register(fastifyCookie, { secret: cookieSecret });
-  await app.register(fastifyMultipart);
+  // 由于 Nest 的 Fastify 类型定义与部分插件的泛型不完全匹配，这里进行类型断言以避免 TS 推断冲突
+  await app.register(fastifyHelmet as any, { contentSecurityPolicy: false } as any);
+  await app.register(fastifyCookie as any, { secret: cookieSecret } as any);
+  await app.register(fastifyMultipart as any);
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
   fastifyInstance.addContentTypeParser(

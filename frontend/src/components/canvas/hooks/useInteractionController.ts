@@ -77,6 +77,9 @@ interface SimpleTextTool {
   handleCanvasClick: (point: paper.Point, event?: PointerEvent, currentDrawMode?: string) => void;
   handleDoubleClick: (point: paper.Point) => void;
   handleKeyDown: (event: KeyboardEvent) => boolean;
+  // 文本选择/编辑状态（可选，供键盘事件处理逻辑使用）
+  selectedTextId?: string | null;
+  editingTextId?: string | null;
 }
 
 type GroupPathDragMode = 'image' | 'path';
