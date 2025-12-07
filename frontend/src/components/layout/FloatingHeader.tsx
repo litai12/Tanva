@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -33,7 +33,9 @@ import {
     Zap,
     Key,
     Eye,
-    EyeOff
+    EyeOff,
+    Code,
+    FolderOpen
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
@@ -62,6 +64,7 @@ const SETTINGS_SECTIONS = [
 type SettingsSectionId = typeof SETTINGS_SECTIONS[number]['id'];
 
 const VIEW_APPEARANCE_STORAGE_KEY = 'tanva-view-settings';
+const MAX_QUICK_PROJECTS = 5;
 
 const FloatingHeader: React.FC = () => {
     const navigate = useNavigate();
@@ -456,6 +459,15 @@ const FloatingHeader: React.FC = () => {
             console.error('❌ 退出登录失败:', err);
         }
     };
+    const recentProjects = useMemo(() => {
+        const sliced = projects.slice(0, MAX_QUICK_PROJECTS);
+        if (currentProject && !sliced.some((p) => p.id === currentProject.id)) {
+            const trimmed = sliced.slice(0, Math.max(MAX_QUICK_PROJECTS - 1, 0));
+            return [...trimmed, currentProject];
+        }
+        return sliced;
+    }, [projects, currentProject?.id]);
+    const hasMoreProjects = projects.length > MAX_QUICK_PROJECTS;
 
     const renderSettingsContent = () => {
         switch (activeSettingsSection) {
@@ -1007,6 +1019,24 @@ const FloatingHeader: React.FC = () => {
                         )}
                         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
+                                <div className="text-sm font-medium text-slate-700">Paper.js 沙盒</div>
+                                <div className="text-xs text-slate-500">打开 Paper.js 代码调试工作台</div>
+                            </div>
+                            <Button
+                                variant="outline"
+                                className="rounded-xl text-sm border-blue-200 text-blue-600 hover:bg-blue-50"
+                                onClick={() => {
+                                    const { toggleSandboxPanel } = useUIStore.getState();
+                                    toggleSandboxPanel();
+                                    setIsSettingsOpen(false);
+                                }}
+                            >
+                                <Code className="mr-2 h-4 w-4" />
+                                打开沙盒
+                            </Button>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
                                 <div className="text-sm font-medium text-slate-700">退出登录</div>
                                 <div className="text-xs text-slate-500">注销当前账号并返回登录页</div>
                             </div>
@@ -1099,12 +1129,12 @@ return (
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator className="mb-1" />
                                 <div className="max-h-[340px] overflow-y-auto space-y-0.5">
-                                    {projects.length === 0 ? (
+                                    {recentProjects.length === 0 ? (
                                         <DropdownMenuItem disabled className="cursor-default text-slate-400">
                                             暂无项目
                                         </DropdownMenuItem>
                                     ) : (
-                                        projects.map((project) => (
+                                        recentProjects.map((project) => (
                                             <DropdownMenuItem
                                                 key={project.id}
                                                 onClick={(event) => {
@@ -1123,7 +1153,22 @@ return (
                                         ))
                                     )}
                                 </div>
+                                {hasMoreProjects && (
+                                    <div className="px-2 pt-1 text-[11px] text-slate-400">
+                                        最近文件仅显示 {MAX_QUICK_PROJECTS} 条（当前文件始终保留），更多请点击下方“打开/管理文件”
+                                    </div>
+                                )}
                                 <DropdownMenuSeparator className="my-1" />
+                                <DropdownMenuItem
+                                    onClick={(event) => {
+                                        event.preventDefault();
+                                        openModal();
+                                    }}
+                                    className="mx-1 mt-1 flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:bg-slate-50"
+                                >
+                                    <FolderOpen className="h-4 w-4 text-slate-600" />
+                                    打开/管理文件
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                     onClick={async (event) => {
                                         event.preventDefault();

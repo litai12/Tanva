@@ -156,7 +156,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     toggleFill,
   } = useToolStore();
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode, showSandboxPanel, toggleSandboxPanel } = useUIStore();
+  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode } = useUIStore();
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
@@ -304,7 +304,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   return (
     <div
       className={cn(
-        "fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-3 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-[50ms] ease-out",
+        "fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-[50ms] ease-out",
         isLayerPanelOpen ? "left-[322px]" : "left-2"
       )}
     >
@@ -712,9 +712,9 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
 
       {/* 工具按钮 */}
-      <div className="flex flex-col items-center gap-2">
-        {/* 清理画布按钮 */}
-        {onClearCanvas && (
+      {onClearCanvas && (
+        <div className="flex flex-col items-center gap-2">
+          {/* 清理画布按钮 */}
           <Button
             onClick={() => {
               if (window.confirm('确定要清空画布吗？此操作将删除所有图元，不可撤销。')) {
@@ -728,24 +728,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           >
             <Trash2 className="w-4 h-4" />
           </Button>
-        )}
-
-        {/* Paper.js 沙盒开关 */}
-        <Button
-          onClick={toggleSandboxPanel}
-          variant={showSandboxPanel ? "default" : "outline"}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(showSandboxPanel)
-          )}
-          title={showSandboxPanel ? "关闭 Paper.js 沙盒" : "打开 Paper.js 沙盒"}
-        >
-          <Code className="w-4 h-4" />
-        </Button>
-
-        {/* 专注模式按钮已移至独立组件 FocusModeButton */}
-      </div>
+          {/* Paper.js 沙盒开关已移至设置面板的高级选项中 */}
+          {/* 专注模式按钮已移至独立组件 FocusModeButton */}
+        </div>
+      )}
     </div>
   );
 };
