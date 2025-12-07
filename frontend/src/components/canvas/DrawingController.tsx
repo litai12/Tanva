@@ -649,37 +649,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     onTextSelect: (textId, addToSelection) => {
       if (addToSelection) {
         // 多选模式：保持现有选择
-        simpleTextTool.selectText(textId);
+        simpleTextTool.selectText(textId, true);
       } else {
         // 单选模式：取消其他选择
         simpleTextTool.deselectText();
-        simpleTextTool.selectText(textId);
+        simpleTextTool.selectText(textId, false);
       }
     },
     onTextMultiSelect: (textIds) => {
-      simpleTextTool.deselectText();
-      textIds.forEach((textId) => {
-        simpleTextTool.selectText(textId);
-      });
+      simpleTextTool.selectMultipleTexts(textIds);
     },
     onTextDeselect: () => {
       simpleTextTool.deselectText();
     }
   });
 
+  const selectedTextItems = useMemo(
+    () => simpleTextTool.textItems.filter((item) => item.isSelected && item.paperText),
+    [simpleTextTool.textItems]
+  );
+
   const hasSelection = useMemo(() => {
     const imageCount = imageTool.selectedImageIds?.length ?? 0;
     const modelCount = model3DTool.selectedModel3DIds?.length ?? 0;
     const pathCount =
       (selectionTool.selectedPath ? 1 : 0) + (selectionTool.selectedPaths?.length ?? 0);
-    const textSelected = !!simpleTextTool.selectedTextId;
-    return imageCount > 0 || modelCount > 0 || pathCount > 0 || textSelected;
+    const textCount = selectedTextItems.length;
+    return imageCount > 0 || modelCount > 0 || pathCount > 0 || textCount > 0;
   }, [
     imageTool.selectedImageIds,
     model3DTool.selectedModel3DIds,
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
-    simpleTextTool.selectedTextId,
+    selectedTextItems,
   ]);
 
   const hasSelectionRef = useRef(hasSelection);
@@ -923,6 +925,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           if (path) selectedPaperItemsSet.add(path);
         });
       }
+      simpleTextTool.textItems
+        .filter((item) => item.isSelected && item.paperText)
+        .forEach((item) => selectedPaperItemsSet.add(item.paperText));
 
       const manualSelection = {
         paperItems: Array.from(selectedPaperItemsSet),
@@ -1014,8 +1019,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (item) set.add(item);
       });
     }
+    selectedTextItems.forEach(({ paperText }) => {
+      if (paperText) set.add(paperText);
+    });
     return Array.from(set);
-  }, [selectionTool.selectedPath, selectionTool.selectedPaths]);
+  }, [selectionTool.selectedPath, selectionTool.selectedPaths, selectedTextItems]);
 
   const groupSelectionCount = selectedImageInstances.length + selectedModelInstances.length + selectedPaperItems.length;
   const isGroupSelection = groupSelectionCount >= 2;

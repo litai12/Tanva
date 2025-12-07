@@ -205,6 +205,11 @@ export const useSelectionTool = ({
       selectionBoxRef.current = null;
     }
 
+    // 先清除所有之前的选择
+    onImageDeselect();
+    onModel3DDeselect();
+    onTextDeselect?.();
+
     // 创建选择区域
     const selectionRect = new paper.Rectangle(selectionStartPoint, endPoint);
     const selectedPathsInBox: paper.Path[] = [];
@@ -323,7 +328,7 @@ export const useSelectionTool = ({
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
-  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, imageInstances, model3DInstances, isLayerVisible]);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, onImageDeselect, onModel3DDeselect, onTextDeselect, imageInstances, model3DInstances, isLayerVisible]);
 
   // ========== 清除所有选择 ==========
   const clearAllSelections = useCallback(() => {

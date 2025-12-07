@@ -143,12 +143,19 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   }, [currentColor, ensureDrawingLayer, setDrawMode]);
 
   // 选择文本
-  const selectText = useCallback((textId: string) => {
-    setSelectedTextId(textId);
-    setTextItems(prev => prev.map(item => ({
-      ...item,
-      isSelected: item.id === textId
-    })));
+  const selectText = useCallback((textId: string, multiSelect: boolean = false) => {
+    setTextItems(prev => prev.map(item => {
+      if (item.id === textId) {
+        return { ...item, isSelected: true };
+      }
+      // 如果不是多选模式，取消其他文本的选择
+      return multiSelect ? item : { ...item, isSelected: false };
+    }));
+
+    // 只有在非多选模式下才更新 selectedTextId
+    if (!multiSelect) {
+      setSelectedTextId(textId);
+    }
   }, []);
 
   // 取消选择
@@ -158,6 +165,20 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       ...item,
       isSelected: false
     })));
+  }, []);
+
+  // 多选文本
+  const selectMultipleTexts = useCallback((textIds: string[]) => {
+    setTextItems(prev => prev.map(item => ({
+      ...item,
+      isSelected: textIds.includes(item.id)
+    })));
+    // 设置第一个为 selectedTextId
+    if (textIds.length > 0) {
+      setSelectedTextId(textIds[0]);
+    } else {
+      setSelectedTextId(null);
+    }
   }, []);
 
   const clearAllTextItems = useCallback(() => {
@@ -923,6 +944,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     createText,
     createTextAtPoint,
     selectText,
+    selectMultipleTexts,
     deselectText,
     startEditText,
     stopEditText,
