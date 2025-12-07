@@ -887,12 +887,17 @@ export class BananaProvider implements IAIProvider {
 - blendImages: 融合多张图像
 - analyzeImage: 分析图像内容
 - chatResponse: 文本对话或聊天
+- generateVideo: 生成视频
 - generatePaperJS: 生成 Paper.js 矢量图形代码
 
-**工具选择规则**:
-- 如果用户提到 "svg"、"矢量"、"矢量图"、"vector"、"图形"、"几何"、"Paper.js"、"paperjs"、"代码绘图"、"线条"、"路径"、"圆形"、"矩形"、"多边形" 等关键词，选择 generatePaperJS
-- 如果用户要求 "简单图形"、"几何图形"、"数学图形" 等，选择 generatePaperJS
-- 否则按照原有逻辑选择其他工具
+请根据用户的实际需求，智能判断最合适的工具。例如：
+- 用户要求生成矢量图、SVG、几何图形、代码绘图等 → generatePaperJS
+- 用户要求生成图像、照片、画作等 → generateImage
+- 用户要求编辑、修改现有图像 → editImage
+- 用户要求融合、混合多张图像 → blendImages
+- 用户要求分析、识别图像内容 → analyzeImage
+- 用户要求生成视频 → generateVideo
+- 其他对话、提问、讨论 → chatResponse
 
 请以以下JSON格式回复（仅返回JSON，不要其他文字）:
 {

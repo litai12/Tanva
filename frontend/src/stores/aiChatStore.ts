@@ -530,31 +530,6 @@ export async function requestSora2VideoGeneration(
   options?.onProgress?.('解析视频响应', 85);
   return response.data;
 }
-
-/**
- * 智能识别是否为视频生成意图
- */
-function detectVideoIntent(input: string): boolean {
-  const videoKeywords = ['视频', 'video', '动画', 'animation', '动态', '运动', 'motion', '生成视频', '制作视频'];
-  return videoKeywords.some(kw =>
-    input.toLowerCase().includes(kw.toLowerCase())
-  );
-}
-
-/**
- * 检测 Paper.js 矢量图生成意图
- */
-function detectPaperJSIntent(input: string): boolean {
-  const paperJSKeywords = [
-    'svg', '矢量', '矢量图', 'vector', '图形', '几何',
-    'paperjs', 'paper.js', 'paper', '代码绘图', '线条',
-    '路径', '圆形', '矩形', '多边形', '简单图形', '几何图形', '数学图形'
-  ];
-  return paperJSKeywords.some(kw =>
-    input.toLowerCase().includes(kw.toLowerCase())
-  );
-}
-
 const blobToDataUrl = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -3786,7 +3761,7 @@ export const useAIChatStore = create<AIChatState>()(
       hasImages: totalImageCount > 0,
       imageCount: explicitImageCount, // 传递显式图片数量，不包含缓存
       hasCachedImage: !!cachedImage,  // 单独标记是否有缓存图片
-      availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse', 'generateVideo'],
+      availableTools: ['generateImage', 'editImage', 'blendImages', 'analyzeImage', 'chatResponse', 'generateVideo', 'generatePaperJS'],
       aiProvider: state.aiProvider,
       context: toolSelectionContext
     };
@@ -3814,15 +3789,8 @@ export const useAIChatStore = create<AIChatState>()(
       if (state.sourcePdfForAnalysis) {
         selectedTool = 'analyzePdf';
       }
-      // 🎬 在 Auto 模式下智能检测视频意图
-      else if (state.aiProvider === 'banana' && detectVideoIntent(input)) {
-        selectedTool = 'generateVideo';
-      }
-      // 📐 在 Auto 模式下智能检测 Paper.js 矢量图意图
-      else if (detectPaperJSIntent(input)) {
-        selectedTool = 'generatePaperJS';
-      }
       else {
+        // 完全靠 AI 来判断工具选择，包括矢量图生成
         logProcessStep(metrics, 'tool selection start');
         const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
         logProcessStep(metrics, 'tool selection completed');
