@@ -955,65 +955,103 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
   };
 };
 
+const hasRenderableMedia = (message: {
+  imageData?: string | null;
+  imageRemoteUrl?: string | null;
+  imageUrl?: string | null;
+  thumbnail?: string | null;
+  videoUrl?: string | null;
+  videoThumbnail?: string | null;
+}): boolean => Boolean(
+  message.imageData ||
+  message.imageRemoteUrl ||
+  message.imageUrl ||
+  message.thumbnail ||
+  message.videoUrl ||
+  message.videoThumbnail
+);
+
+const shouldDropMessageOnHydrate = (message: SerializedChatMessage): boolean => {
+  const hasMedia = hasRenderableMedia(message);
+  if (message.type === 'error') {
+    return true;
+  }
+  if (message.type === 'ai' && message.generationStatus?.error && !hasMedia) {
+    return true;
+  }
+  return false;
+};
+
 const hydrateMessageGenerationState = (message: ChatMessage): ChatMessage => {
   if (message.type !== 'ai') return message;
   const status = message.generationStatus;
-  if (!status?.isGenerating) return message;
+  if (!status) return message;
+
+  const wasInFlight = !!status.isGenerating;
+  const hadError = typeof status.error === 'string' && status.error.trim().length > 0;
+  if (!wasInFlight && !hadError) return message;
 
   const normalizeContent =
-    (message.content?.trim() || '') === '正在准备处理您的请求...'
+    wasInFlight && (message.content?.trim() || '') === '正在准备处理您的请求...'
       ? '上次请求在刷新后已终止，请重新发送。'
       : message.content;
+  const hasMedia = hasRenderableMedia(message);
 
   return {
     ...message,
     content: normalizeContent,
-    generationStatus: {
-      ...status,
-      isGenerating: false,
-      progress: status.progress ?? 0,
-      error: status.error ?? '任务已停止',
-      stage: '已终止'
-    }
+    generationStatus: hasMedia
+      ? {
+          ...status,
+          isGenerating: false,
+          progress: status.progress ?? (hadError ? 0 : 100),
+          error: null,
+          stage: undefined
+        }
+      : undefined,
+    expectsImageOutput: hasMedia ? message.expectsImageOutput : false,
+    expectsVideoOutput: hasMedia ? message.expectsVideoOutput : false
   };
 };
 
 const deserializeConversation = (data: SerializedConversationContext): ConversationContext => {
-  const messages: ChatMessage[] = data.messages.map((message) => {
-    const remoteUrl = (message as any).imageRemoteUrl || (message as any).imageUrl;
-    const baseImage = message.imageData;
-    const thumbnail = message.thumbnail;
-    return hydrateMessageGenerationState({
-      id: message.id,
-      type: message.type,
-      content: message.content,
-      timestamp: new Date(message.timestamp),
-      webSearchResult: message.webSearchResult,
-      imageData: baseImage,
-      imageRemoteUrl: remoteUrl,
-      thumbnail,
-      expectsImageOutput: message.expectsImageOutput,
-      sourceImageData: message.sourceImageData,
-      sourceImagesData: message.sourceImagesData,
-      provider: message.provider as AIProviderType | undefined,
-      metadata: message.metadata ? { ...message.metadata } : undefined,
-      generationStatus: message.generationStatus
-        ? {
-            isGenerating: !!message.generationStatus.isGenerating,
-            progress: message.generationStatus.progress ?? 0,
-            error: message.generationStatus.error ?? null,
-            stage: message.generationStatus.stage,
-          }
-        : undefined,
-      videoUrl: message.videoUrl,
-      videoSourceUrl: message.videoSourceUrl,
-      videoThumbnail: message.videoThumbnail,
-      videoDuration: message.videoDuration,
-      videoReferencedUrls: message.videoReferencedUrls,
-      videoTaskId: message.videoTaskId ?? null,
-      videoStatus: message.videoStatus ?? null
+  const messages: ChatMessage[] = data.messages
+    .filter((message) => !shouldDropMessageOnHydrate(message))
+    .map((message) => {
+      const remoteUrl = (message as any).imageRemoteUrl || (message as any).imageUrl;
+      const baseImage = message.imageData;
+      const thumbnail = message.thumbnail;
+      return hydrateMessageGenerationState({
+        id: message.id,
+        type: message.type,
+        content: message.content,
+        timestamp: new Date(message.timestamp),
+        webSearchResult: message.webSearchResult,
+        imageData: baseImage,
+        imageRemoteUrl: remoteUrl,
+        thumbnail,
+        expectsImageOutput: message.expectsImageOutput,
+        sourceImageData: message.sourceImageData,
+        sourceImagesData: message.sourceImagesData,
+        provider: message.provider as AIProviderType | undefined,
+        metadata: message.metadata ? { ...message.metadata } : undefined,
+        generationStatus: message.generationStatus
+          ? {
+              isGenerating: !!message.generationStatus.isGenerating,
+              progress: message.generationStatus.progress ?? 0,
+              error: message.generationStatus.error ?? null,
+              stage: message.generationStatus.stage,
+            }
+          : undefined,
+        videoUrl: message.videoUrl,
+        videoSourceUrl: message.videoSourceUrl,
+        videoThumbnail: message.videoThumbnail,
+        videoDuration: message.videoDuration,
+        videoReferencedUrls: message.videoReferencedUrls,
+        videoTaskId: message.videoTaskId ?? null,
+        videoStatus: message.videoStatus ?? null
+      });
     });
-  });
 
   const operations: OperationHistory[] = data.operations.map((operation) => ({
     id: operation.id,

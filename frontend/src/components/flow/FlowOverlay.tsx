@@ -633,12 +633,8 @@ function FlowInner() {
       }
 
       if (isPaste) {
-        if (clipboardService.getZone() !== 'flow') return;
-        const handled = handlePasteFlow();
-        if (handled) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
+        // 粘贴逻辑改为在 clipboard/paste 事件中处理，以便检测剪贴板里是否有图片
+        return;
       }
     };
 
@@ -647,6 +643,37 @@ function FlowInner() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [handleCopyFlow, handlePasteFlow]);
+
+  // 只在剪贴板中没有图片/文件时才接管 Flow 的粘贴，避免阻止画布粘贴图片
+  React.useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      const active = document.activeElement as Element | null;
+      const tagName = active?.tagName?.toLowerCase();
+      const isEditable = !!active && (tagName === 'input' || tagName === 'textarea' || (active as any).isContentEditable);
+      if (isEditable) return;
+
+      if (clipboardService.getZone() !== 'flow') return;
+      const payload = clipboardService.getFlowData();
+      if (!payload || !Array.isArray(payload.nodes) || payload.nodes.length === 0) return;
+
+      const items = event.clipboardData?.items;
+      const hasFileOrImage = items ? Array.from(items).some((item) =>
+        item && (item.kind === 'file' || (typeof item.type === 'string' && item.type.startsWith('image/')))
+      ) : false;
+      if (hasFileOrImage) return;
+
+      const handled = handlePasteFlow();
+      if (handled) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [handlePasteFlow]);
 
   // 当项目内容的 flow 变化时，水合到 ReactFlow
   React.useEffect(() => {

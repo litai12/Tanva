@@ -55,50 +55,50 @@ html, body, #root {
 /* 定义光标 SVG */
 @layer base {
   :root {
-    --cursor-t: url("data:image/svg+xml,%3Csvg width='20' height='20' xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cg%3E%3Crect x='2' y='3' width='16' height='2' fill='%232563eb' rx='1'/%3E%3Crect x='9' y='3' width='2' height='12' fill='%232563eb' rx='1'/%3E%3C/g%3E%3C/svg%3E");
+    --cursor-t: url("data:image/svg+xml,%3Csvg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cg stroke='%23000' stroke-width='1' stroke-linecap='round'%3E%3Cline x1='10' y1='3' x2='10' y2='17'/%3E%3Cline x1='3' y1='10' x2='17' y2='10'/%3E%3C/g%3E%3C/svg%3E");
   }
 }
 
 /* 基础元素光标 */
 * {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 /* 确保所有交互元素都有光标 */
 a, button, input[type="button"], input[type="submit"], select, textarea, [role="button"], [role="link"] {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 /* Canvas 元素特殊处理 */
 canvas {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 /* SVG 元素 */
 svg {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 /* ReactFlow 相关元素 */
 .react-flow {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 .react-flow__pane {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 .react-flow__node {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 .react-flow__edge {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 /* Flow overlay */
 .tanva-flow-overlay {
-  cursor: var(--cursor-t) 10 5, auto !important;
+  cursor: var(--cursor-t) 10 10, auto !important;
 }
 
 /* 保留特定操作的光标 */
