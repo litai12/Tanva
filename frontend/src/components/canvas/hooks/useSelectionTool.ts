@@ -484,7 +484,7 @@ export const useSelectionTool = ({
         return { type: 'selection-box-start', point };
       } else {
         // 检查是否属于占位符组（2D图片或3D模型占位符）
-        let isPlaceholder = false;
+        let placeholderGroup: paper.Group | null = null;
         let currentItem: paper.Item = hitResult.item;
 
         // 向上遍历父级查找占位符组
@@ -493,16 +493,30 @@ export const useSelectionTool = ({
           if (parent instanceof paper.Group && parent.data) {
             const parentData = parent.data;
             if (parentData.type === 'image-placeholder' || parentData.type === '3d-model-placeholder') {
-              isPlaceholder = true;
-              logger.debug('忽略占位符中的对象:', parentData.type);
+              placeholderGroup = parent;
               break;
             }
           }
           currentItem = parent as paper.Item;
         }
 
-        if (isPlaceholder) {
-          // 取消所有选择，开始选择框拖拽
+        if (placeholderGroup) {
+          // 允许直接选中占位框，便于删除
+          const mainPath = placeholderGroup.children?.find?.(
+            (child: any) => child instanceof paper.Path
+          ) as paper.Path | undefined;
+
+          const targetPath = mainPath || (hitResult.item as paper.Path);
+
+          if (targetPath) {
+            clearAllSelections();
+            handlePathSelect(targetPath);
+            setSelectedPaths([targetPath]);
+            logger.debug('选中占位符:', placeholderGroup.data?.type);
+            return { type: 'path', path: targetPath };
+          }
+
+          // 如果未找到合适的路径，则保持原逻辑，开始选择框
           clearAllSelections();
           startSelectionBox(point);
           return { type: 'selection-box-start', point };

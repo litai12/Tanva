@@ -130,7 +130,12 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     group.data = {
       type: '3d-model-placeholder',
       bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
-      isHelper: true  // 标记为辅助元素，不显示在图层列表中
+      isHelper: true,  // 标记为辅助元素，不显示在图层列表中
+      placeholderMinSize: minSize
+    };
+    placeholder.data = {
+      placeholderGroup: group,
+      placeholderType: 'model3d'
     };
 
     // 仅按钮区域触发上传

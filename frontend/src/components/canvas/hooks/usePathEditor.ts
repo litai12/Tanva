@@ -48,6 +48,17 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
 
   // 开始拖拽控制点
   const startSegmentDrag = useCallback((segment: paper.Segment, startPoint: paper.Point, shiftPressed: boolean = false) => {
+    const placeholderGroup = (segment.path as any)?.data?.placeholderGroup as paper.Group | undefined;
+    if (placeholderGroup) {
+      setIsSegmentDragging(true);
+      setDraggedSegment(segment);
+      setDragStartPoint(startPoint);
+      setIsScaling(true);
+      setOriginalBounds(placeholderGroup.bounds.clone());
+      logger.debug('开始占位符缩放');
+      return;
+    }
+
     setIsSegmentDragging(true);
     setDraggedSegment(segment);
     setDragStartPoint(startPoint);
@@ -125,6 +136,29 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   const updateSegmentDrag = useCallback((currentPoint: paper.Point) => {
     if (!isSegmentDragging || !draggedSegment || !dragStartPoint) return;
 
+    const placeholderGroup = (draggedSegment.path as any)?.data?.placeholderGroup as paper.Group | undefined;
+
+    if (placeholderGroup && originalBounds) {
+      const center = originalBounds.center;
+      const minSize = (placeholderGroup.data?.placeholderMinSize as number | undefined) ?? 40;
+      const delta = currentPoint.subtract(center);
+      const width = Math.max(minSize, Math.abs(delta.x) * 2);
+      const height = Math.max(minSize, Math.abs(delta.y) * 2);
+      const newBounds = new paper.Rectangle(
+        center.subtract([width / 2, height / 2]),
+        new paper.Size(width, height)
+      );
+      placeholderGroup.fitBounds(newBounds);
+      try {
+        placeholderGroup.data = {
+          ...placeholderGroup.data,
+          bounds: { x: newBounds.x, y: newBounds.y, width: newBounds.width, height: newBounds.height }
+        };
+      } catch {}
+      logger.debug('更新占位符中心缩放');
+      return;
+    }
+
     if (isScaling && originalBounds && draggedSegment.path) {
       // Shift+拖拽：等比例缩放
       scaleRectangle(draggedSegment.path, draggedSegment, originalBounds, dragStartPoint, currentPoint);
@@ -152,6 +186,16 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
 
   // 开始拖拽整个路径
   const startPathDrag = useCallback((path: paper.Path, startPoint: paper.Point) => {
+    const placeholderGroup = (path as any)?.data?.placeholderGroup as paper.Group | undefined;
+    if (placeholderGroup) {
+      setIsPathDragging(true);
+      setDraggedPath(path);
+      setDragStartPoint(startPoint);
+      setOriginalBounds(placeholderGroup.bounds.clone());
+      logger.debug('开始拖拽占位符');
+      return;
+    }
+
     setIsPathDragging(true);
     setDraggedPath(path);
     setDragStartPoint(startPoint);
@@ -161,6 +205,22 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   // 更新路径位置
   const updatePathDrag = useCallback((currentPoint: paper.Point) => {
     if (!isPathDragging || !draggedPath || !dragStartPoint) return;
+
+    const placeholderGroup = (draggedPath as any)?.data?.placeholderGroup as paper.Group | undefined;
+    if (placeholderGroup) {
+      const delta = currentPoint.subtract(dragStartPoint);
+      placeholderGroup.translate(delta);
+      const b = placeholderGroup.bounds;
+      try {
+        placeholderGroup.data = {
+          ...placeholderGroup.data,
+          bounds: { x: b.x, y: b.y, width: b.width, height: b.height }
+        };
+      } catch {}
+      setDragStartPoint(currentPoint);
+      logger.debug('移动占位符');
+      return;
+    }
 
     const delta = currentPoint.subtract(dragStartPoint);
     draggedPath.translate(delta);

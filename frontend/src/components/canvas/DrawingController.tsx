@@ -1957,7 +1957,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     if (pathTargets.length > 0) {
       pathTargets.forEach((path) => {
-        try { path.remove(); didDelete = true; } catch {}
+        const placeholderGroup = (path as any)?.data?.placeholderGroup as paper.Group | undefined;
+        if (placeholderGroup) {
+          try { placeholderGroup.remove(); didDelete = true; } catch {}
+        } else {
+          try { path.remove(); didDelete = true; } catch {}
+        }
       });
       setSelectedPaths([]);
       setSelectedPath(null);

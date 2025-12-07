@@ -128,7 +128,12 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     group.data = {
       type: 'image-placeholder',
       bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
-      isHelper: true  // 标记为辅助元素，不显示在图层列表中
+      isHelper: true,  // 标记为辅助元素，不显示在图层列表中
+      placeholderMinSize: minSize
+    };
+    placeholder.data = {
+      placeholderGroup: group,
+      placeholderType: 'image'
     };
 
     // 仅按钮区域触发上传
