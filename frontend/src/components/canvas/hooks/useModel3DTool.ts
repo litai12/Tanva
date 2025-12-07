@@ -133,10 +133,12 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       isHelper: true,  // 标记为辅助元素，不显示在图层列表中
       placeholderMinSize: minSize
     };
-    placeholder.data = {
-      placeholderGroup: group,
-      placeholderType: 'model3d'
+    const attachPlaceholderMeta = (item: any) => {
+      if (item) {
+        item.data = { ...(item.data || {}), placeholderGroup: group, placeholderType: 'model3d' };
+      }
     };
+    [placeholder, buttonGroup, buttonBg, frontFace, topFace, rightFace, text].forEach(attachPlaceholderMeta);
 
     // 仅按钮区域触发上传
     const triggerUpload = () => {

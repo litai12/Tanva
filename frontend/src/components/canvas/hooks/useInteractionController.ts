@@ -925,16 +925,44 @@ export const useInteractionController = ({
       if (!isEditable && (event.key === 'Delete' || event.key === 'Backspace')) {
         let didDelete = false;
 
-        // 删除路径（单选与多选）
+        // 删除路径（单选与多选），含占位符组
         try {
           const selectedPath = (latestSelectionTool as any)?.selectedPath as paper.Path | null;
           const selectedPaths = (latestSelectionTool as any)?.selectedPaths as paper.Path[] | undefined;
+          const removedPlaceholders = new Set<paper.Group>();
+
+          const resolvePlaceholderGroup = (path: paper.Path | null | undefined): paper.Group | null => {
+            let node: any = path;
+            while (node) {
+              if (node.data?.placeholderGroup) return node.data.placeholderGroup as paper.Group;
+              if (node.data?.type === 'image-placeholder' || node.data?.type === '3d-model-placeholder') {
+                return node as paper.Group;
+              }
+              node = node.parent;
+            }
+            return null;
+          };
+
           if (selectedPath) {
-            try { selectedPath.remove(); didDelete = true; } catch {}
+            const ph = resolvePlaceholderGroup(selectedPath);
+            if (ph && !removedPlaceholders.has(ph)) {
+              try { ph.remove(); didDelete = true; } catch {}
+              removedPlaceholders.add(ph);
+            } else {
+              try { selectedPath.remove(); didDelete = true; } catch {}
+            }
             try { (latestSelectionTool as any)?.setSelectedPath?.(null); } catch {}
           }
           if (Array.isArray(selectedPaths) && selectedPaths.length > 0) {
-            selectedPaths.forEach(p => { try { p.remove(); didDelete = true; } catch {} });
+            selectedPaths.forEach(p => {
+              const ph = resolvePlaceholderGroup(p);
+              if (ph && !removedPlaceholders.has(ph)) {
+                try { ph.remove(); didDelete = true; } catch {}
+                removedPlaceholders.add(ph);
+              } else {
+                try { p.remove(); didDelete = true; } catch {}
+              }
+            });
             try { (latestSelectionTool as any)?.setSelectedPaths?.([]); } catch {}
           }
         } catch {}

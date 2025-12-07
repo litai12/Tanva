@@ -488,22 +488,22 @@ export const useSelectionTool = ({
         let currentItem: paper.Item = hitResult.item;
 
         // 向上遍历父级查找占位符组
-        while (currentItem && currentItem.parent) {
-          const parent = currentItem.parent;
-          if (parent instanceof paper.Group && parent.data) {
-            const parentData = parent.data;
-            if (parentData.type === 'image-placeholder' || parentData.type === '3d-model-placeholder') {
-              placeholderGroup = parent;
-              break;
-            }
+        while (currentItem) {
+          if (currentItem.data?.placeholderGroup) {
+            placeholderGroup = currentItem.data.placeholderGroup as paper.Group;
+            break;
           }
-          currentItem = parent as paper.Item;
+          if (currentItem.data?.type === 'image-placeholder' || currentItem.data?.type === '3d-model-placeholder') {
+            placeholderGroup = currentItem as paper.Group;
+            break;
+          }
+          currentItem = currentItem.parent as paper.Item;
         }
 
         if (placeholderGroup) {
           // 允许直接选中占位框，便于删除
           const mainPath = placeholderGroup.children?.find?.(
-            (child: any) => child instanceof paper.Path
+            (child: any) => child instanceof paper.Path && !(child as any).data?.uploadHotspotType
           ) as paper.Path | undefined;
 
           const targetPath = mainPath || (hitResult.item as paper.Path);

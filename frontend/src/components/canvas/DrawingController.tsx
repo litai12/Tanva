@@ -1817,6 +1817,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     let current: paper.Item | null = hitResult.item;
     while (current) {
       const data = current.data || {};
+
+      // 检查是否在占位框内部（占位框的子元素不应该被单独选中）
+      if (data.placeholderGroup || data.placeholderType) {
+        // 这是占位框的子元素，不应该被选中
+        return null;
+      }
+
       if (data.isHelper || data.isSelectionHelper || data.isResizeHandle) {
         current = current.parent;
         continue;
@@ -1956,12 +1963,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
 
     if (pathTargets.length > 0) {
+      const removedPlaceholders = new Set<paper.Group>();
       pathTargets.forEach((path) => {
-        const placeholderGroup = (path as any)?.data?.placeholderGroup as paper.Group | undefined;
+        let placeholderGroup = (path as any)?.data?.placeholderGroup as paper.Group | undefined;
+        if (!placeholderGroup) {
+          // 向上查找父级是否为占位符组
+          let node: any = path;
+          while (node) {
+            if (node.data?.placeholderGroup) {
+              placeholderGroup = node.data.placeholderGroup as paper.Group;
+              break;
+            }
+            if (node.data?.type === 'image-placeholder' || node.data?.type === '3d-model-placeholder') {
+              placeholderGroup = node as paper.Group;
+              break;
+            }
+            node = node.parent;
+          }
+        }
+
+        const target: paper.Item = placeholderGroup || path;
         if (placeholderGroup) {
-          try { placeholderGroup.remove(); didDelete = true; } catch {}
+          if (!removedPlaceholders.has(placeholderGroup)) {
+            try {
+              // 确保删除整个占位框组及其所有子元素
+              placeholderGroup.remove();
+              didDelete = true;
+            } catch {}
+            removedPlaceholders.add(placeholderGroup);
+          }
         } else {
-          try { path.remove(); didDelete = true; } catch {}
+          try { target.remove(); didDelete = true; } catch {}
         }
       });
       setSelectedPaths([]);
