@@ -108,6 +108,12 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     rightFace.strokeColor = new paper.Color('#fff');
     rightFace.strokeWidth = 1;
 
+    // 上传按钮组合，单独承载点击事件
+    const buttonGroup = new paper.Group([buttonBg, frontFace, topFace, rightFace]);
+    buttonGroup.data = {
+      uploadHotspotType: 'model3d'
+    };
+
     // 创建提示文字 - 调整位置，在按钮下方留出适当间距
     const textY = Math.round(center.y + buttonHeight / 2 + 25);
     const fontSize = Math.round(Math.min(14, finalWidth * 0.06, finalHeight * 0.08));
@@ -120,19 +126,20 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     });
 
     // 创建组合
-    const group = new paper.Group([placeholder, buttonBg, frontFace, topFace, rightFace, text]);
+    const group = new paper.Group([placeholder, buttonGroup, text]);
     group.data = {
       type: '3d-model-placeholder',
       bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
       isHelper: true  // 标记为辅助元素，不显示在图层列表中
     };
 
-    // 添加点击事件
-    group.onClick = () => {
-      logger.upload('🎲 点击3D模型占位框，触发上传');
+    // 仅按钮区域触发上传
+    const triggerUpload = () => {
+      logger.upload('🎲 点击3D模型上传按钮，触发上传');
       currentModel3DPlaceholderRef.current = group;
       setTriggerModel3DUpload(true);
     };
+    buttonGroup.onClick = triggerUpload;
 
     return group;
   }, [ensureDrawingLayer]);

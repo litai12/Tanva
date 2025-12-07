@@ -124,7 +124,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
 
           {/* 图片预览或选择区域 */}
           {!selectedImage ? (
-            <div className="border-2 border-dashed border-blue-200 rounded-2xl p-16 text-center hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 cursor-pointer bg-gradient-to-br from-blue-50 to-transparent">
+            <div className="border-2 border-dashed border-blue-200 rounded-2xl p-16 text-center bg-gradient-to-br from-blue-50 to-transparent">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -132,21 +132,17 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full h-full flex flex-col items-center justify-center gap-4"
-                disabled={processing}
-              >
+              <div className="w-full h-full flex flex-col items-center justify-center gap-4">
                 <div className="p-4 bg-blue-100 rounded-full">
                   <ImageIcon className="w-10 h-10 text-blue-600" />
                 </div>
                 <div>
                   <p className="text-lg font-semibold text-gray-800">
-                    Click to upload or drag and drop
+                    点击上传图片
                   </p>
                   <p className="text-sm text-gray-500 mt-1">PNG, JPG, GIF, WebP up to 100MB</p>
                 </div>
-              </button>
+              </div>
             </div>
           ) : (
             <div className="relative group">
@@ -232,7 +228,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
                 className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
               >
                 <ImageIcon className="w-5 h-5 mr-2" />
-                Select Image
+                点击上传图片
               </Button>
               {onCancel && (
                 <Button onClick={onCancel} variant="outline" className="px-6 py-6 rounded-xl border-2 border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-all duration-200">

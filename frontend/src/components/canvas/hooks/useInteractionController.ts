@@ -331,45 +331,59 @@ export const useInteractionController = ({
           fill: true,
           tolerance: 2 / currentZoom,
         } as any);
-          if (hit && hit.item) {
-            let node: any = hit.item;
-            while (node && !node.data?.type && node.parent) node = node.parent;
-            const isPlaceholder = !!node && node.data?.type === 'image-placeholder';
-            if (isPlaceholder) {
-              // 将该占位组设置为当前占位，并触发上传
-              try {
-                const placeholderRef = (latestImageTool as any)?.currentPlaceholderRef;
-                if (placeholderRef) {
-                  placeholderRef.current = node;
-                }
-              } catch {}
-              try {
-                const triggerUpload = (latestImageTool as any)?.setTriggerImageUpload;
-                if (typeof triggerUpload === 'function') {
-                  triggerUpload(true);
-                }
-              } catch {}
-              logger.upload('📸 命中图片占位框，触发上传');
-              return;
+        if (hit && hit.item) {
+          let node: any = hit.item;
+          let imagePlaceholder: any = null;
+          let modelPlaceholder: any = null;
+          let hotspotType: 'image' | 'model3d' | null = null;
+
+          while (node) {
+            if (!hotspotType && node.data?.uploadHotspotType) {
+              hotspotType = node.data.uploadHotspotType;
             }
-            const isModelPlaceholder = !!node && node.data?.type === '3d-model-placeholder';
-            if (isModelPlaceholder) {
-              try {
-                const placeholderRef = (latestModel3DTool as any)?.currentModel3DPlaceholderRef;
-                if (placeholderRef) {
-                  placeholderRef.current = node;
-                }
-              } catch {}
-              try {
-                const triggerUpload = (latestModel3DTool as any)?.setTriggerModel3DUpload;
-                if (typeof triggerUpload === 'function') {
-                  triggerUpload(true);
-                }
-              } catch {}
-              logger.upload('🎲 命中3D模型占位框，触发上传');
-              return;
+            if (!imagePlaceholder && node.data?.type === 'image-placeholder') {
+              imagePlaceholder = node;
             }
+            if (!modelPlaceholder && node.data?.type === '3d-model-placeholder') {
+              modelPlaceholder = node;
+            }
+            node = node.parent;
           }
+
+          if (hotspotType === 'image' && imagePlaceholder) {
+            try {
+              const placeholderRef = (latestImageTool as any)?.currentPlaceholderRef;
+              if (placeholderRef) {
+                placeholderRef.current = imagePlaceholder;
+              }
+            } catch {}
+            try {
+              const triggerUpload = (latestImageTool as any)?.setTriggerImageUpload;
+              if (typeof triggerUpload === 'function') {
+                triggerUpload(true);
+              }
+            } catch {}
+            logger.upload('📸 命中图片上传按钮，触发上传');
+            return;
+          }
+
+          if (hotspotType === 'model3d' && modelPlaceholder) {
+            try {
+              const placeholderRef = (latestModel3DTool as any)?.currentModel3DPlaceholderRef;
+              if (placeholderRef) {
+                placeholderRef.current = modelPlaceholder;
+              }
+            } catch {}
+            try {
+              const triggerUpload = (latestModel3DTool as any)?.setTriggerModel3DUpload;
+              if (typeof triggerUpload === 'function') {
+                triggerUpload(true);
+              }
+            } catch {}
+            logger.upload('🎲 命中3D模型上传按钮，触发上传');
+            return;
+          }
+        }
       } catch {}
 
       // 首先检查是否点击在图像的调整控制点上
