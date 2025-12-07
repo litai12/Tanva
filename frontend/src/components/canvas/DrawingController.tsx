@@ -56,6 +56,53 @@ const extractLocalImageData = (imageData: unknown): string | null => {
   return null;
 };
 
+const isEditableElement = (el: Element | null): boolean => {
+  if (!el) return false;
+  const tag = el.tagName?.toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return true;
+  const anyEl = el as any;
+  return !!anyEl?.isContentEditable;
+};
+
+const fileToDataURL = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
+const seemsImageUrl = (text: string): boolean => {
+  if (!text || !/^https?:\/\//i.test(text)) return false;
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(text)) return true;
+  return false;
+};
+
+const fetchImagePayload = async (url: string): Promise<string> => {
+  let payload = url;
+  try {
+    const ctrl = new AbortController();
+    const id = setTimeout(() => ctrl.abort(), 5000);
+    const resp = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(id);
+    if (resp.ok) {
+      const blob = await resp.blob();
+      if (blob.type.startsWith('image/')) {
+        payload = await new Promise<string>((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result || ''));
+          fr.onerror = reject;
+          fr.readAsDataURL(blob);
+        });
+      }
+    }
+  } catch {
+    // ignore fetch errors and fall back to raw URL
+  }
+  return payload;
+};
+
 interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
@@ -227,6 +274,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     canvasRef,
     projectId,
   });
+  const uploadImageToCanvas = quickImageUpload.handleQuickImageUploaded;
   // ========== 监听drawMode变化，处理快速上传 ==========
   useEffect(() => {
     // 只在drawMode变化时触发，避免重复触发
@@ -319,31 +367,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // ========== 粘贴到画布：从剪贴板粘贴图片 ==========
   useEffect(() => {
-    const isEditableElement = (el: Element | null): boolean => {
-      if (!el) return false;
-      const tag = el.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea') return true;
-      const anyEl = el as any;
-      if (anyEl.isContentEditable) return true;
-      return false;
-    };
-
-    const fileToDataURL = (file: File): Promise<string> => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-    };
-
-    const seemsImageUrl = (text: string): boolean => {
-      if (!text || !/^https?:\/\//i.test(text)) return false;
-      // 简单判断：常见图片后缀或 data:image/ 开头
-      if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(text)) return true;
-      return false;
-    };
-
     const handlePaste = (e: ClipboardEvent) => {
       void (async () => {
         try {
@@ -367,7 +390,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               try {
                 const dataUrl = await fileToDataURL(file);
                 // 直接复用快速上传放置逻辑，默认落在视口中心
-                await quickImageUpload.handleQuickImageUploaded?.(dataUrl, file.name);
+                await uploadImageToCanvas?.(dataUrl, file.name);
               } catch (err) {
                 console.error('粘贴图片处理失败:', err);
               }
@@ -376,33 +399,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
           // 无图片项时，尝试处理文本中的图片URL
-          const text = clipboardData.getData('text/plain');
-          if (seemsImageUrl(text)) {
+          const text = clipboardData.getData('text/plain')?.trim();
+          if (text && seemsImageUrl(text)) {
             e.preventDefault();
             try {
-              // 尝试优先拉取为 Blob 转 DataURL，避免跨域导出受限
-              let payload: string = text;
-              try {
-                const ctrl = new AbortController();
-                const id = setTimeout(() => ctrl.abort(), 5000);
-                const resp = await fetch(text, { signal: ctrl.signal });
-                clearTimeout(id);
-                if (resp.ok) {
-                  const blob = await resp.blob();
-                  if (blob.type.startsWith('image/')) {
-                    payload = await new Promise<string>((resolve, reject) => {
-                      const fr = new FileReader();
-                      fr.onload = () => resolve(String(fr.result || ''));
-                      fr.onerror = reject;
-                      fr.readAsDataURL(blob);
-                    });
-                  }
-                }
-              } catch {
-                // 拉取失败则退回直接使用URL（可能受CORS限制，仅用于展示）
-              }
-
-              await quickImageUpload.handleQuickImageUploaded?.(payload, undefined);
+              const payload = await fetchImagePayload(text);
+              await uploadImageToCanvas?.(payload, undefined);
             } catch (err) {
               console.error('粘贴URL处理失败:', err);
             }
@@ -415,7 +417,81 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [quickImageUpload]);
+  }, [uploadImageToCanvas]);
+
+  // ========== 拖拽图片到画布 ==========
+  useEffect(() => {
+    const isEventInsideCanvas = (event: DragEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return false;
+      const rect = canvas.getBoundingClientRect();
+      const { clientX, clientY } = event;
+      return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    };
+
+    const handleDragOver = (event: DragEvent) => {
+      if (!isEventInsideCanvas(event)) return;
+      const items = Array.from(event.dataTransfer?.items || []);
+      const hasImageFile = items.some((item) => item.kind === 'file' && typeof item.type === 'string' && item.type.startsWith('image/'));
+      const hasPotentialUrl = items.some((item) => item.kind === 'string');
+      // 只要落在画布上且存在可处理的条目就阻止默认行为，避免浏览器打开文件
+      event.preventDefault();
+      try {
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'copy';
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    const handleDrop = (event: DragEvent) => {
+      void (async () => {
+        if (!isEventInsideCanvas(event)) return;
+        const canvas = canvasRef.current;
+        if (!canvas || !paper?.project) return;
+        const dt = event.dataTransfer;
+        if (!dt) return;
+
+        const projectPoint = clientToProject(canvas, event.clientX, event.clientY);
+        const imageFiles = Array.from(dt.files || []).filter((file) => file.type && file.type.startsWith('image/'));
+
+        if (imageFiles.length > 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          const file = imageFiles[0];
+          try {
+            const dataUrl = await fileToDataURL(file);
+            await uploadImageToCanvas?.(dataUrl, file.name, undefined, { x: projectPoint.x, y: projectPoint.y }, 'manual');
+          } catch (err) {
+            console.error('处理拖拽图片失败:', err);
+          }
+          return;
+        }
+
+        const uriList = dt.getData('text/uri-list');
+        const plainText = dt.getData('text/plain');
+        const text = (uriList || plainText || '').trim();
+        if (!text || !seemsImageUrl(text)) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        try {
+          const payload = await fetchImagePayload(text);
+          await uploadImageToCanvas?.(payload, undefined, undefined, { x: projectPoint.x, y: projectPoint.y }, 'manual');
+        } catch (err) {
+          console.error('拖拽图片链接处理失败:', err);
+        }
+      })();
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [canvasRef, uploadImageToCanvas]);
 
   // ========== 监听AI生成图片的快速上传触发事件 ==========
   useEffect(() => {
