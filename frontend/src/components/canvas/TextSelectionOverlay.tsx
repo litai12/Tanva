@@ -148,6 +148,14 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
         .filter((item): item is { id: string; bounds: NonNullable<ReturnType<typeof getSelectionBounds>> } => !!item.bounds),
     [inactiveTexts, getSelectionBounds]
   );
+  const allSelectionBounds = useMemo(
+    () =>
+      selectedTexts
+        .map((t) => ({ id: t.id, bounds: getSelectionBounds(t) }))
+        .filter((item): item is { id: string; bounds: NonNullable<ReturnType<typeof getSelectionBounds>> } => !!item.bounds),
+    [selectedTexts, getSelectionBounds]
+  );
+  const isMultiSelection = selectedTexts.length > 1;
 
   // 转换屏幕坐标到Paper.js坐标
   const screenToPaperPoint = useCallback((clientX: number, clientY: number): paper.Point => {
@@ -257,7 +265,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
 
   return (
     <>
-      {inactiveSelectionBounds.map(({ id, bounds }) => (
+      {(isMultiSelection ? allSelectionBounds : inactiveSelectionBounds).map(({ id, bounds }) => (
         <div
           key={`text-selection-${id}`}
           style={{
@@ -275,7 +283,7 @@ const TextSelectionOverlay: React.FC<TextSelectionOverlayProps> = ({
           }}
         />
       ))}
-      {activeText && activeSelectionBounds && !isEditingActive && (
+      {!isMultiSelection && activeText && activeSelectionBounds && !isEditingActive && (
         <div
           style={{
             position: 'fixed',
