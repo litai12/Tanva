@@ -112,7 +112,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             console.error('获取画布图像时出错:', error);
         }
 
-        console.log('📊 画布图像统计:', images.length, '张图像（含待加载）:', images);
         return images;
     }, []);
 
@@ -176,17 +175,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             }
         }
 
-        if (attempts > 0) {
-            try {
-                console.log(`🔄 智能排版：检测到位置冲突，已尝试 ${attempts} 次位移`, {
-                    desired: desiredPosition,
-                    final: position,
-                    operationType: operationType || 'unknown'
-                });
-            } catch (error) {
-                // 忽略日志异常
-            }
-        }
 
         return position;
     }, [getAllCanvasImages]);
@@ -200,13 +188,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     ) => {
         const getSpacing = () => useUIStore.getState().smartPlacementOffset || 778;
         const existingImages = getAllCanvasImages();
-
-        console.log('🧠 智能排版计算:', {
-            operationType,
-            sourceImageId,
-            sourceImages,
-            existingImageCount: existingImages.length
-        });
 
         switch (operationType) {
             case 'generate': {
@@ -223,7 +204,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     }
                 }
                 const gpos = { x: 0, y: index * spacing };
-                console.log('📍 生成图默认位置计算(向下):', gpos, `(索引 ${index}, 总计 ${genImages.length})`);
                 return gpos;
             }
 
@@ -234,13 +214,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     const sourceImage = findImageById(sourceImageId);
                     if (sourceImage) {
                         const position = { x: sourceImage.x + spacing, y: sourceImage.y };
-                        console.log('📍 编辑图位置计算(向右):', position, '(基于源图', sourceImageId, ')');
                         return position;
                     }
                 }
                 // 没有找到源图，默认向右偏移
                 const editPosition = { x: spacing, y: 0 };
-                console.log('📍 编辑图默认位置(向右):', editPosition);
                 return editPosition;
             }
 
@@ -251,20 +229,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     const firstSourceImage = findImageById(sourceImages[0]);
                     if (firstSourceImage) {
                         const position = { x: firstSourceImage.x + spacing, y: firstSourceImage.y };
-                        console.log('📍 融合图位置计算(向右):', position, '(基于第一张源图', sourceImages[0], ')');
                         return position;
                     }
                 }
                 // 没有找到源图，默认向右偏移
                 const blendPosition = { x: spacing, y: 0 };
-                console.log('📍 融合图默认位置(向右):', blendPosition);
                 return blendPosition;
             }
 
             default:
                 // 默认位置
                 const defaultPosition = { x: 0, y: 0 };
-                console.log('📍 默认位置:', defaultPosition);
                 return defaultPosition;
         }
     }, [getAllCanvasImages, findImageById]);
@@ -364,9 +339,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     videoInfo: extraOptions?.videoInfo
                 };
                 pendingImagesRef.current.push(entry);
-                console.log('🔄 添加待加载图片到预测队列:', imageId, initialPoint
-                    ? `(初始位置: ${initialPoint.x}, ${initialPoint.y})`
-                    : '(待计算位置)');
                 return entry;
             };
 
@@ -485,8 +457,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             (raster as any).crossOrigin = 'anonymous';
             raster.position = targetPosition;
 
-            // 提前记录，便于排查定位
-            try { console.log('[QuickUpload] 准备加载图片', { targetPosition }); } catch {}
 
             // 等待图片加载完成
             raster.onLoad = () => {
@@ -500,9 +470,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
                 // 🔥 从待加载列表中移除此图片
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
-                console.log('✅ 图片加载完成，从待加载队列移除:', imageId);
-
-                try { console.log('[QuickUpload] 图片加载完成', { w: raster.width, h: raster.height }); } catch {}
                 // 获取原始尺寸
                 const originalWidth = raster.width;
                 const originalHeight = raster.height;
@@ -720,14 +687,14 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         projectId: projectId ?? null
                     });
                 } catch (historyError) {
-                    try { console.warn('[QuickUpload] 写入图片历史失败:', historyError); } catch {}
+                    // 忽略历史记录错误
                 }
 
                 const positionInfo = selectedImageBounds ? '选中图片位置' : (placeholder ? '占位框位置' : '坐标原点');
                 logger.upload(`✅ 快速上传成功：图片已添加到${positionInfo} - ${fileName || 'uploaded-image'}`);
                 try { historyService.commit('add-image').catch(() => {}); } catch {}
 
-                // 若图片落点不在当前视口内，自动将视口平移到图片中心，避免“已成功但看不见”的困扰
+                // 若图片落点不在当前视口内，自动将视口平移到图片中心，避免"已成功但看不见"的困扰
                 try {
                     const vb = paper.view.bounds;
                     const inView = vb && vb.intersects(raster.bounds);
@@ -739,10 +706,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         const desiredPanX = (cx / z) - raster.position.x;
                         const desiredPanY = (cy / z) - raster.position.y;
                         setPan(desiredPanX, desiredPanY);
-                        try { console.log('[QuickUpload] 自动居中到新图片', { desiredPanX, desiredPanY, z }); } catch {}
                     }
                 } catch (e) {
-                    try { console.warn('[QuickUpload] 自动居中失败', e); } catch {}
+                    // 忽略自动居中错误
                 }
                 paper.view.update();
             };
@@ -752,7 +718,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 removeLoadingIndicator();
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
                 logger.error('图片加载失败');
-                try { console.error('[QuickUpload] 图片加载失败', { imageId, error: e }); } catch {}
             };
 
             // 触发加载

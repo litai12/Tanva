@@ -12,24 +12,32 @@ interface UseSelectionToolProps {
   zoom: number;
   imageInstances: ImageInstance[];
   model3DInstances: Model3DInstance[];
+  textItems?: Array<{ id: string; paperText: paper.PointText }>;
   onImageSelect: (imageId: string, addToSelection?: boolean) => void;
   onImageMultiSelect: (imageIds: string[]) => void;
   onModel3DSelect: (modelId: string, addToSelection?: boolean) => void;
   onModel3DMultiSelect: (modelIds: string[]) => void;
   onImageDeselect: () => void;
   onModel3DDeselect: () => void;
+  onTextSelect?: (textId: string, addToSelection?: boolean) => void;
+  onTextMultiSelect?: (textIds: string[]) => void;
+  onTextDeselect?: () => void;
 }
 
 export const useSelectionTool = ({
   zoom,
   imageInstances,
   model3DInstances,
+  textItems = [],
   onImageSelect,
   onImageMultiSelect,
   onModel3DSelect,
   onModel3DMultiSelect,
   onImageDeselect,
-  onModel3DDeselect
+  onModel3DDeselect,
+  onTextSelect,
+  onTextMultiSelect,
+  onTextDeselect
 }: UseSelectionToolProps) => {
 
   // ========== 选择工具状态 ==========
@@ -204,6 +212,7 @@ export const useSelectionTool = ({
     // 收集要选择的对象
     const selectedImages: string[] = [];
     const selectedModels: string[] = [];
+    const selectedTexts: string[] = [];
 
     // 检查图片实例是否与选择框相交
     for (const image of imageInstances) {
@@ -225,6 +234,19 @@ export const useSelectionTool = ({
       if (selectionRect.intersects(modelBounds)) {
         selectedModels.push(model.id);
         logger.upload('选择框收集3D模型:', model.id);
+      }
+    }
+
+    // 检查文本实例是否与选择框相交
+    for (const textItem of textItems) {
+      if (textItem.paperText && textItem.paperText.bounds) {
+        const textBounds = textItem.paperText.bounds;
+        if (selectionRect.intersects(textBounds)) {
+          if (!selectedTexts.includes(textItem.id)) {
+            selectedTexts.push(textItem.id);
+            logger.upload('选择框收集文本:', textItem.id);
+          }
+        }
       }
     }
 
@@ -268,24 +290,31 @@ export const useSelectionTool = ({
 
     // 处理所有类型的选择（同时支持多种类型）
     let totalSelected = 0;
-    
+
     // 选择所有框内图片
     if (selectedImages.length > 0) {
       onImageMultiSelect(selectedImages);
       logger.upload(`选择框选中${selectedImages.length}个图片: ${selectedImages.join(', ')}`);
       totalSelected += selectedImages.length;
     }
-    
+
     // 选择所有框包3D模型
     if (selectedModels.length > 0) {
       onModel3DMultiSelect(selectedModels);
       logger.upload(`选择框选中${selectedModels.length}个3D模型: ${selectedModels.join(', ')}`);
       totalSelected += selectedModels.length;
     }
-    
+
+    // 选择所有框内文本
+    if (selectedTexts.length > 0 && onTextMultiSelect) {
+      onTextMultiSelect(selectedTexts);
+      logger.upload(`选择框选中${selectedTexts.length}个文本: ${selectedTexts.join(', ')}`);
+      totalSelected += selectedTexts.length;
+    }
+
     // 路径已经在上面处理过了
     totalSelected += selectedPathsInBox.length;
-    
+
     // 输出总计
     if (totalSelected > 0) {
       logger.debug(`框选完成：总共选中 ${totalSelected} 个元素`);
@@ -294,7 +323,7 @@ export const useSelectionTool = ({
     // 重置状态
     setIsSelectionDragging(false);
     setSelectionStartPoint(null);
-  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, imageInstances, model3DInstances, isLayerVisible]);
+  }, [isSelectionDragging, selectionStartPoint, selectedPaths, onImageMultiSelect, onModel3DMultiSelect, onTextMultiSelect, imageInstances, model3DInstances, isLayerVisible]);
 
   // ========== 清除所有选择 ==========
   const clearAllSelections = useCallback(() => {
@@ -319,10 +348,11 @@ export const useSelectionTool = ({
     // 清除其他选择
     onModel3DDeselect();
     onImageDeselect();
+    onTextDeselect?.();
 
     // 强制更新Paper.js视图，确保所有视觉状态同步
     paper.view.update();
-  }, [selectedPaths, handlePathDeselect, onModel3DDeselect, onImageDeselect]);
+  }, [selectedPaths, handlePathDeselect, onModel3DDeselect, onImageDeselect, onTextDeselect]);
 
   // ========== 点击检测功能 ==========
 
@@ -383,6 +413,21 @@ export const useSelectionTool = ({
   const handleSelectionClick = useCallback((point: paper.Point, ctrlPressed: boolean = false) => {
     const { hitResult, imageClicked, modelClicked } = detectClickedObject(point);
 
+    // 检查是否点击了文本
+    let textClicked: string | null = null;
+    if (!imageClicked && !modelClicked) {
+      // 反向遍历以选择最上层的文本
+      for (let i = textItems.length - 1; i >= 0; i--) {
+        const textItem = textItems[i];
+        if (textItem.paperText && textItem.paperText.bounds) {
+          if (textItem.paperText.bounds.contains(point)) {
+            textClicked = textItem.id;
+            break;
+          }
+        }
+      }
+    }
+
     if (imageClicked) {
       // 如果按住Ctrl键，进行增量选择
       if (ctrlPressed) {
@@ -409,6 +454,17 @@ export const useSelectionTool = ({
         logger.upload('选中3D模型:', modelClicked);
       }
       return { type: '3d-model', id: modelClicked };
+    } else if (textClicked && onTextSelect) {
+      // 选中文本
+      if (ctrlPressed) {
+        onTextSelect(textClicked, true);
+        logger.upload(`增量选中文本: ${textClicked}`);
+      } else {
+        clearAllSelections();
+        onTextSelect(textClicked);
+        logger.upload('选中文本:', textClicked);
+      }
+      return { type: 'text', id: textClicked };
     } else if (hitResult && hitResult.item instanceof paper.Path) {
       // 检查路径是否在网格图层或其他背景图层中，如果是则不选择
       const path = hitResult.item as paper.Path;
@@ -492,10 +548,12 @@ export const useSelectionTool = ({
   }, [
     imageInstances,
     model3DInstances,
+    textItems,
     zoom,
     clearAllSelections,
     onImageSelect,
     onModel3DSelect,
+    onTextSelect,
     handlePathSelect,
     startSelectionBox,
     detectClickedObject,

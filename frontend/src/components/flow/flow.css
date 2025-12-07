@@ -164,6 +164,16 @@
   user-select: none !important;
 }
 
+/* 确保文本工具生成的文字始终可以被选中 */
+.tanva-textnote,
+.tanva-textnote *,
+textarea,
+input[type="text"],
+[contenteditable="true"] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
 /* 去除节点被选中时的蓝色外框/阴影 */
 .tanva-flow-overlay .react-flow__node.selected {
   box-shadow: none !important;

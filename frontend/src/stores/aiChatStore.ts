@@ -119,7 +119,7 @@ const logChatConversationSnapshot = (messages: ChatMessage[]): void => {
       hasImage: Boolean(msg.imageData || msg.imageRemoteUrl || msg.thumbnail),
       timestamp: toISOString(msg.timestamp),
     }));
-    console.log(`💬 [AI Chat] 对话内容快照（最近 ${tail.length} 条）`, tail);
+    // 对话快照已记录
   } catch (error) {
     console.warn('⚠️ 无法打印AI对话内容:', error);
   }
@@ -222,7 +222,6 @@ const shouldFallbackToGeminiFlash = (
   return isQuotaOrRateLimitError(error);
 };
 
-
 export const getImageModelForProvider = (provider: AIProviderType): string => {
   if (provider === 'gemini-pro') {
     return GEMINI_PRO_IMAGE_MODEL;
@@ -295,14 +294,7 @@ const logProcessStep = (metrics: ProcessMetrics | undefined, label: string) => {
   if (!metrics) return;
   const now = getTimestamp();
   metrics.lastStepTime = now;
-  if (!label.includes('API response received')) {
-    return;
-  }
-
-  const totalSeconds = ((now - metrics.startTime) / 1000).toFixed(2);
-  const idPart = metrics.messageId ? `${metrics.traceId}/${metrics.messageId}` : metrics.traceId;
-  const apiLabel = label.replace(' API response received', '').trim();
-  console.log(`⏱️ [${idPart}] ${apiLabel} API 耗时 ${totalSeconds}s`);
+  // 性能指标已记录
 };
 
 const ensureDataUrl = (imageData: string): string =>
@@ -826,11 +818,6 @@ async function buildRunningHubProviderOptions(params: {
     runningHubOptions.webhookUrl = RUNNINGHUB_WEBHOOK_URL;
   }
 
-  console.log('📤 RunningHub 节点参数', {
-    nodeInfoList,
-    projectId,
-  });
-
   return {
     runningHub: runningHubOptions,
   };
@@ -854,7 +841,6 @@ export async function uploadImageToOSS(imageData: string, projectId?: string | n
     });
 
     if (result.success && result.url) {
-      console.log('✅ 图片上传成功:', result.url);
       return result.url;
     } else {
       console.error('❌ 图片上传失败:', result.error);
@@ -1359,7 +1345,6 @@ export const useAIChatStore = create<AIChatState>()(
             }
 
             await get().refreshSessions({ markProjectDirty });
-            console.log(`🧹 ${reason} 已触发旧版会话轻量化并同步`);
           } catch (error) {
             console.error(`❌ ${reason} 会话迁移失败:`, error);
           } finally {
@@ -1433,19 +1418,11 @@ export const useAIChatStore = create<AIChatState>()(
       storedMessage = contextManager.addMessage(message);
     }
 
-    console.log('📨 添加新消息:', {
-      type: storedMessage.type,
-      content: storedMessage.content.substring(0, 50) + (storedMessage.content.length > 50 ? '...' : ''),
-      id: storedMessage.id
-    });
-
     set((state) => ({
       messages: state.messages.some((msg) => msg.id === storedMessage!.id)
         ? state.messages
         : [...state.messages, storedMessage!]
     }));
-
-    console.log('📊 消息列表更新后长度:', get().messages.length);
     return storedMessage!;
   },
 
@@ -1499,7 +1476,6 @@ export const useAIChatStore = create<AIChatState>()(
   refreshSessions: async (options) => {
     // 🔥 防止在水合过程中调用
     if (isHydratingNow) {
-      console.log('⏸️ 跳过refreshSessions：正在进行水合操作');
       return;
     }
 
@@ -1690,8 +1666,6 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       triggerLegacyMigration('hydratePersistedSessions', markProjectDirty);
-
-      console.log('✅ 水合操作完成，现在允许refreshSessions调用');
     } finally {
       // 🔥 清除hydrating标记，允许refreshSessions执行
       isHydratingNow = false;
@@ -1704,7 +1678,6 @@ export const useAIChatStore = create<AIChatState>()(
   resetSessions: () => {
     // 🔥 防止在hydration期间重置
     if (isHydratingNow) {
-      console.log('⏸️ 跳过resetSessions：正在进行水合操作');
       return;
     }
 
@@ -1729,7 +1702,6 @@ export const useAIChatStore = create<AIChatState>()(
     // 🔥 并行模式：不检查全局状态，每个请求独立
     // 🔥 立即增加正在生成的图片计数
     generatingImageCount++;
-    console.log('🔥 开始生成，当前生成计数:', generatingImageCount);
 
     const override = options?.override;
     let aiMessageId: string | undefined;
@@ -1777,8 +1749,6 @@ export const useAIChatStore = create<AIChatState>()(
       return;
     }
 
-    console.log('🎨 开始生成图像，消息ID:', aiMessageId);
-
     let progressInterval: ReturnType<typeof setInterval> | null = null;
     try {
       // 🔥 使用消息级别的进度更新
@@ -1814,11 +1784,6 @@ export const useAIChatStore = create<AIChatState>()(
 
       // 调用后端API生成图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
-      console.log('🤖 [AI Provider] generateImage', {
-        aiProvider: state.aiProvider,
-        model: modelToUse,
-        prompt: prompt.substring(0, 50) + '...'
-      });
       logProcessStep(metrics, `generateImage calling API (${modelToUse})`);
 
       let providerOptions: AIProviderOptions | undefined;
@@ -1967,20 +1932,12 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 如果没有图像，记录详细原因并返回
         if (!result.data.hasImage) {
-          console.warn('⚠️ API返回了文本回复但没有图像，详细信息:', {
-            文本回复: result.data.textResponse,
-            图像数据存在: !!inlineImageData,
-            图像数据长度: inlineImageData?.length || 0,
-            hasImage标志: result.data.hasImage,
-            生成提示: result.data.prompt
-          });
           return;
         }
 
         // 可选：自动下载图片到用户的默认下载文件夹
         const downloadImageData = (imageData: string, prompt: string, autoDownload: boolean = false) => {
           if (!autoDownload) {
-            console.log('⏭️ 跳过自动下载，图片将直接添加到画布');
             return;
           }
 
@@ -2001,8 +1958,6 @@ export const useAIChatStore = create<AIChatState>()(
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
-            console.log('✅ 图像下载已开始:', link.download);
           } catch (error) {
             console.error('❌ 下载图像失败:', error);
           }
@@ -2017,10 +1972,9 @@ export const useAIChatStore = create<AIChatState>()(
         // 自动添加到画布中央 - 使用快速上传工具的逻辑（仅当有图像时）
         const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
           if (!inlineData) {
-            console.log('⚠️ 跳过画布添加：没有图像数据');
             return;
           }
-          
+
           // 构建图像数据URL
           const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
           const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
@@ -2036,9 +1990,6 @@ export const useAIChatStore = create<AIChatState>()(
               const offset = useUIStore.getState().smartPlacementOffset || 778;
               // 回归原始逻辑：直接向下排列，保证连续性
               smartPosition = { x: cx, y: cy + offset };
-              console.log('📍 生成图智能位置(相对缓存 → 下移)', offset, 'px, 位置:', smartPosition);
-            } else {
-              console.log('📍 无缓存位置，按默认策略放置');
             }
           } catch (e) {
             console.warn('计算生成图智能位置失败:', e);
@@ -2055,7 +2006,6 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImages: undefined
             }
           }));
-          console.log('📋 已触发快速图片上传事件，使用智能排版 (操作类型: generate)');
         };
 
         // 自动添加到画布
@@ -2065,20 +2015,12 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }, 100); // 短暂延迟，确保UI更新
 
-        console.log('✅ 图像生成成功，已自动添加到画布', {
-          imageDataLength: inlineImageData?.length,
-          prompt: result.data.prompt,
-          model: result.data.model,
-          id: result.data.id,
-          createdAt: result.data.createdAt,
-          metadata: result.data.metadata
-        });
         logProcessStep(metrics, 'generateImage completed');
 
         // 取消自动关闭对话框 - 保持对话框打开状态
         // setTimeout(() => {
         //   get().hideDialog();
-        //   console.log('🔄 AI对话框已自动关闭');
+        //
         // }, 100); // 延迟0.1秒关闭，让用户看到生成完成的消息
 
       } else {
@@ -2109,7 +2051,6 @@ export const useAIChatStore = create<AIChatState>()(
       if (progressInterval) clearInterval(progressInterval);
       // 🔥 无论成功失败，都减少正在生成的图片计数
       generatingImageCount--;
-      console.log('✅ 生成结束，当前生成计数:', generatingImageCount);
       logProcessStep(metrics, 'generateImage finished (finally)');
     }
   },
@@ -2187,7 +2128,6 @@ export const useAIChatStore = create<AIChatState>()(
       return;
     }
 
-    console.log('🖌️ 开始编辑图像，消息ID:', aiMessageId);
     logProcessStep(metrics, 'editImage message prepared');
 
     try {
@@ -2224,11 +2164,6 @@ export const useAIChatStore = create<AIChatState>()(
 
       // 调用后端API编辑图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
-      console.log('🤖 [AI Provider] editImage', {
-        aiProvider: state.aiProvider,
-        model: modelToUse,
-        prompt: prompt.substring(0, 50) + '...'
-      });
       logProcessStep(metrics, `editImage calling API (${modelToUse})`);
 
       let providerOptions: AIProviderOptions | undefined;
@@ -2294,7 +2229,6 @@ export const useAIChatStore = create<AIChatState>()(
         logProcessStep(metrics, 'editImage fallback response received');
 
         if (result.success) {
-          console.log('✅ 已切换到 Gemini 2.5 Flash 图像模型并重新执行编辑');
         } else {
           console.error('❌ Gemini 2.5 Flash 降级编辑仍然失败:', result.error);
         }
@@ -2383,14 +2317,12 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 如果没有图像，记录原因并返回
         if (!result.data.hasImage) {
-          console.log('⚠️ 编辑API返回了文本回复但没有图像:', result.data.textResponse);
           return;
         }
 
         // 自动添加到画布
         const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
           if (!inlineData) {
-            console.log('⚠️ 跳过编辑图像画布添加：没有图像数据');
             return;
           }
           
@@ -2407,7 +2339,6 @@ export const useAIChatStore = create<AIChatState>()(
               if (selectedImage) {
                 selectedImageBounds = selectedImage.bounds;
                 sourceImageId = selectedImage.id;
-                console.log('🎯 发现选中图片，ID:', sourceImageId, '边界:', selectedImageBounds);
               }
             }
           } catch (error) {
@@ -2423,16 +2354,13 @@ export const useAIChatStore = create<AIChatState>()(
               const cy = cached.bounds.y + cached.bounds.height / 2;
               const offset = useUIStore.getState().smartPlacementOffset || 778;
               smartPosition = { x: cx + offset, y: cy };
-              console.log('📍 编辑产出智能位置(相对缓存 → 右移)', offset, 'px:', smartPosition);
             } else if (selectedImageBounds) {
               // 兼容：若无缓存但传入了选中图片边界，则基于选中图向右
               const cx = selectedImageBounds.x + selectedImageBounds.width / 2;
               const cy = selectedImageBounds.y + selectedImageBounds.height / 2;
               const offset = useUIStore.getState().smartPlacementOffset || 778;
               smartPosition = { x: cx + offset, y: cy };
-              console.log('📍 编辑产出智能位置(相对选中图 → 右移)', offset, 'px:', smartPosition);
             } else {
-              console.log('📍 无缓存和选中边界，按默认策略放置');
             }
           } catch (e) {
             console.warn('计算编辑产出智能位置失败:', e);
@@ -2449,9 +2377,6 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImages: undefined
             }
           }));
-
-          const targetInfo = sourceImageId ? `选中图片${sourceImageId}下方` : '默认位置';
-          console.log(`📋 已触发快速图片上传事件，使用智能排版 (操作类型: edit, 目标位置: ${targetInfo})`);
         };
 
         setTimeout(() => {
@@ -2460,18 +2385,12 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }, 100);
 
-        console.log('✅ 图像编辑成功，已自动添加到画布', {
-          imageDataLength: inlineImageData?.length,
-          prompt: result.data.prompt,
-          model: result.data.model,
-          id: result.data.id
-        });
         logProcessStep(metrics, 'editImage completed');
 
         // 取消自动关闭对话框 - 保持对话框打开状态
         // setTimeout(() => {
         //   get().hideDialog();
-        //   console.log('🔄 AI对话框已自动关闭');
+        //
         // }, 100); // 延迟0.1秒关闭，让用户看到编辑完成的消息
 
       } else {
@@ -2515,7 +2434,6 @@ export const useAIChatStore = create<AIChatState>()(
     if (imageData) {
       const imageId = `user_upload_${Date.now()}`;
       contextManager.cacheLatestImage(imageData, imageId, '用户上传的图片');
-      console.log('📸 用户上传图片已缓存:', imageId);
     }
   },
 
@@ -2583,8 +2501,6 @@ export const useAIChatStore = create<AIChatState>()(
       console.error('❌ 无法获取AI消息ID');
       return;
     }
-
-    console.log('🔀 开始融合图像，消息ID:', aiMessageId);
     logProcessStep(metrics, 'blendImages message prepared');
 
     try {
@@ -2620,12 +2536,6 @@ export const useAIChatStore = create<AIChatState>()(
       }, 1000);
 
       const modelToUse = getImageModelForProvider(state.aiProvider);
-      console.log('🤖 [AI Provider] blendImages', {
-        aiProvider: state.aiProvider,
-        model: modelToUse,
-        imageCount: sourceImages.length,
-        prompt: prompt.substring(0, 50) + '...'
-      });
 
       const result = await blendImagesViaAPI({
         prompt,
@@ -2716,13 +2626,11 @@ export const useAIChatStore = create<AIChatState>()(
         logProcessStep(metrics, 'blendImages history recorded');
 
         if (!result.data.hasImage) {
-          console.log('⚠️ 融合API返回了文本回复但没有图像:', result.data.textResponse);
           return;
         }
 
         const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
           if (!inlineData) {
-            console.log('⚠️ 跳过融合图像画布添加：没有图像数据');
             return;
           }
           
@@ -2736,7 +2644,6 @@ export const useAIChatStore = create<AIChatState>()(
             if ((window as any).tanvaImageInstances) {
               const selectedImages = (window as any).tanvaImageInstances.filter((img: any) => img.isSelected);
               sourceImageIds = selectedImages.map((img: any) => img.id);
-              console.log('🎯 发现选中的源图像IDs:', sourceImageIds);
             }
           } catch (error) {
             console.warn('获取源图像IDs失败:', error);
@@ -2755,7 +2662,6 @@ export const useAIChatStore = create<AIChatState>()(
                     const cy = cached.bounds.y + cached.bounds.height / 2;
                     const offset = useUIStore.getState().smartPlacementOffset || 778;
                     const pos = { x: cx + offset, y: cy };
-                    console.log('📍 融合产出智能位置(相对缓存 → 右移)', offset, 'px:', pos);
                     return pos;
                   }
                 } catch (e) {
@@ -2767,9 +2673,6 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImages: sourceImageIds.length > 0 ? sourceImageIds : undefined
             }
           }));
-          
-          const targetInfo = sourceImageIds.length > 0 ? `第一张源图像${sourceImageIds[0]}下方` : '默认位置';
-          console.log(`📋 已触发快速图片上传事件，使用智能排版 (操作类型: blend, 目标位置: ${targetInfo})`);
         };
 
         setTimeout(() => {
@@ -2778,13 +2681,12 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }, 100);
 
-        console.log('✅ 图像融合成功，已自动添加到画布');
         logProcessStep(metrics, 'blendImages completed');
 
         // 取消自动关闭对话框 - 保持对话框打开状态
         // setTimeout(() => {
         //   get().hideDialog();
-        //   console.log('🔄 AI对话框已自动关闭');
+        //
         // }, 100); // 延迟0.1秒关闭，让用户看到融合完成的消息
 
       } else {
@@ -2821,7 +2723,6 @@ export const useAIChatStore = create<AIChatState>()(
     // 🔥 立即缓存用户上传的融合图片（缓存最后一张）
     const imageId = `user_blend_upload_${Date.now()}`;
     contextManager.cacheLatestImage(imageData, imageId, '用户上传的融合图片');
-    console.log('📸 用户融合图片已缓存:', imageId);
   },
 
   removeImageFromBlending: (index: number) => {
@@ -3032,8 +2933,6 @@ export const useAIChatStore = create<AIChatState>()(
       console.error('❌ 无法获取AI消息ID');
       return;
     }
-
-    console.log('🔍 开始分析图片，消息ID:', aiMessageId);
     logProcessStep(metrics, 'analyzeImage message prepared');
 
     try {
@@ -3070,11 +2969,6 @@ export const useAIChatStore = create<AIChatState>()(
 
       // 调用后端API分析图像
       const modelToUse = getImageModelForProvider(state.aiProvider);
-      console.log('🤖 [AI Provider] analyzeImage', {
-        aiProvider: state.aiProvider,
-        model: modelToUse,
-        prompt: prompt || '默认分析'
-      });
 
       const result = await analyzeImageViaAPI({
         prompt: prompt || '请详细分析这张图片的内容',
@@ -3117,8 +3011,6 @@ export const useAIChatStore = create<AIChatState>()(
             };
           }
         }
-
-        console.log('✅ 图片分析成功');
         logProcessStep(metrics, 'analyzeImage completed');
 
       } else {
@@ -3146,7 +3038,6 @@ export const useAIChatStore = create<AIChatState>()(
     if (imageData) {
       const imageId = `user_analysis_upload_${Date.now()}`;
       contextManager.cacheLatestImage(imageData, imageId, '用户上传的分析图片');
-      console.log('📸 用户分析图片已缓存:', imageId);
     }
   },
 
@@ -3157,7 +3048,6 @@ export const useAIChatStore = create<AIChatState>()(
       sourcePdfFileName: pdfData ? (fileName ?? null) : null
     });
     if (pdfData) {
-      console.log('📄 用户 PDF 文件已设置，数据长度:', pdfData.length, '文件名:', fileName || '未提供');
     }
   },
 
@@ -3222,8 +3112,6 @@ export const useAIChatStore = create<AIChatState>()(
       console.error('❌ 无法获取AI消息ID');
       return;
     }
-
-    console.log('📄 开始分析 PDF，消息ID:', aiMessageId);
     logProcessStep(metrics, 'analyzePdf message prepared');
 
     try {
@@ -3260,11 +3148,6 @@ export const useAIChatStore = create<AIChatState>()(
 
       // 调用后端API分析 PDF（复用 analyzeImage 接口）
       const modelToUse = getImageModelForProvider(state.aiProvider);
-      console.log('🤖 [AI Provider] analyzePdf', {
-        aiProvider: state.aiProvider,
-        model: modelToUse,
-        prompt: prompt || '默认分析'
-      });
 
       const result = await analyzeImageViaAPI({
         prompt: prompt || '请详细分析这个 PDF 文件的内容',
@@ -3310,8 +3193,6 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 清除 PDF 状态
         set({ sourcePdfForAnalysis: null, sourcePdfFileName: null });
-
-        console.log('✅ PDF 分析成功');
         logProcessStep(metrics, 'analyzePdf completed');
 
       } else {
@@ -3384,8 +3265,6 @@ export const useAIChatStore = create<AIChatState>()(
       console.error('❌ 无法获取AI消息ID');
       return;
     }
-
-    console.log('💬 开始生成文本回复，消息ID:', aiMessageId);
     logProcessStep(metrics, 'generateTextResponse message prepared');
 
     try {
@@ -3401,13 +3280,6 @@ export const useAIChatStore = create<AIChatState>()(
       const state = get();
       const modelToUse = getTextModelForProvider(state.aiProvider);
       const contextPrompt = contextManager.buildContextPrompt(prompt);
-      console.log('🤖 [AI Provider] generateTextResponse', {
-        aiProvider: state.aiProvider,
-        model: modelToUse,
-        enableWebSearch: state.enableWebSearch,
-        prompt: prompt.substring(0, 50) + '...',
-        contextPreview: contextPrompt.substring(0, 80) + (contextPrompt.length > 80 ? '...' : '')
-      });
 
       logProcessStep(metrics, `generateTextResponse calling API (${modelToUse})`);
       const result = await generateTextResponseViaAPI({
@@ -3454,8 +3326,6 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         await get().refreshSessions();
-
-        console.log('✅ 文本回复成功:', result.data.text);
         logProcessStep(metrics, 'generateTextResponse completed');
       } else {
         throw new Error(result.error?.message || '文本生成失败');
@@ -3529,8 +3399,6 @@ export const useAIChatStore = create<AIChatState>()(
       console.error('❌ 无法获取AI消息ID');
       return;
     }
-
-    console.log('🎬 开始生成视频，消息ID:', aiMessageId);
     logProcessStep(metrics, 'generateVideo message prepared');
 
     try {
@@ -3606,8 +3474,6 @@ export const useAIChatStore = create<AIChatState>()(
           stage: '完成'
         }
       }));
-
-      console.log('✅ 视频生成完成');
       logProcessStep(metrics, 'generateVideo finished');
 
       if (ENABLE_VIDEO_CANVAS_PLACEMENT) {
@@ -3725,8 +3591,6 @@ export const useAIChatStore = create<AIChatState>()(
       console.error('❌ 无法获取AI消息ID');
       return;
     }
-
-    console.log('📐 开始生成 Paper.js 代码，消息ID:', aiMessageId);
     logProcessStep(metrics, 'generatePaperJSCode message prepared');
 
     // 显示占位标记
@@ -3761,7 +3625,6 @@ export const useAIChatStore = create<AIChatState>()(
       }
 
       const { code, explanation } = result.data;
-      console.log('✅ Paper.js 代码生成成功:', code.substring(0, 100) + '...');
 
       // 更新进度
       get().updateMessageStatus(aiMessageId, {
@@ -3782,8 +3645,6 @@ export const useAIChatStore = create<AIChatState>()(
       if (!executionResult.success) {
         throw new Error(executionResult.error || '代码执行失败');
       }
-
-      console.log('✅ Paper.js 代码执行成功');
 
       // 更新进度
       get().updateMessageStatus(aiMessageId, {
@@ -3867,7 +3728,6 @@ export const useAIChatStore = create<AIChatState>()(
     const isIterative = contextManager.detectIterativeIntent(input);
     if (isIterative && !isRetry) {
       contextManager.incrementIteration();
-      console.log('🔄 检测到迭代优化意图');
     }
 
     // 预先创建用户消息与占位AI消息，提供即时反馈
@@ -3931,20 +3791,6 @@ export const useAIChatStore = create<AIChatState>()(
       context: toolSelectionContext
     };
 
-    console.log('🔍 工具选择调试信息:', {
-      userInput: input,
-      hasImages: toolSelectionRequest.hasImages,
-      显式图片数量: explicitImageCount,
-      总图片数量: totalImageCount,
-      isRetry: isRetry,
-      详细: {
-        融合图片数量: state.sourceImagesForBlending.length,
-        编辑图片: state.sourceImageForEditing ? '有' : '无',
-        分析图片: state.sourceImageForAnalysis ? '有' : '无',
-        缓存图片: cachedImage ? `ID: ${cachedImage.imageId}` : '无'
-      }
-    });
-
     // 根据手动模式或AI选择工具
     const manualMode = state.manualAIMode;
     const manualToolMap: Record<ManualAIMode, AvailableTool | null> = {
@@ -3963,22 +3809,18 @@ export const useAIChatStore = create<AIChatState>()(
 
     if (manualMode !== 'auto') {
       selectedTool = manualToolMap[manualMode];
-      console.log('🎛️ 手动模式直接选择工具:', manualMode, '→', selectedTool);
     } else {
       // 📄 检测是否有 PDF 文件需要分析
       if (state.sourcePdfForAnalysis) {
         selectedTool = 'analyzePdf';
-        console.log('🧠 检测到 PDF 文件，自动选择 analyzePdf 工具');
       }
       // 🎬 在 Auto 模式下智能检测视频意图
       else if (state.aiProvider === 'banana' && detectVideoIntent(input)) {
         selectedTool = 'generateVideo';
-        console.log('🧠 智能检测到视频生成意图，自动选择 generateVideo 工具');
       }
       // 📐 在 Auto 模式下智能检测 Paper.js 矢量图意图
       else if (detectPaperJSIntent(input)) {
         selectedTool = 'generatePaperJS';
-        console.log('🧠 智能检测到矢量图生成意图，自动选择 generatePaperJS 工具');
       }
       else {
         logProcessStep(metrics, 'tool selection start');
@@ -3993,8 +3835,6 @@ export const useAIChatStore = create<AIChatState>()(
 
         selectedTool = toolSelectionResult.data.selectedTool as AvailableTool | null;
         parameters = { prompt: (toolSelectionResult.data.parameters?.prompt || input) };
-
-        console.log('🎯 AI选择工具:', selectedTool);
         logProcessStep(metrics, `tool decided: ${selectedTool ?? 'none'}`);
       }
     }
@@ -4017,11 +3857,6 @@ export const useAIChatStore = create<AIChatState>()(
 
         case 'editImage':
           if (state.sourceImageForEditing) {
-            console.log('🖼️ 使用显式图像进行编辑:', {
-              imageDataLength: state.sourceImageForEditing.length,
-              imageDataPrefix: state.sourceImageForEditing.substring(0, 50),
-              isBase64: state.sourceImageForEditing.startsWith('data:image')
-            });
             logProcessStep(metrics, 'invoking editImage with explicit image');
             await store.editImage(parameters.prompt, state.sourceImageForEditing, true, { override: messageOverride, metrics });
             logProcessStep(metrics, 'editImage finished');
@@ -4034,19 +3869,8 @@ export const useAIChatStore = create<AIChatState>()(
           } else {
             // 🖼️ 检查是否有缓存的图像可以编辑
             const cachedImage = contextManager.getCachedImage();
-            console.log('🔍 editImage case 调试:', {
-              hasSourceImage: !!state.sourceImageForEditing,
-              cachedImage: cachedImage ? `ID: ${cachedImage.imageId}` : 'none',
-              input: input
-            });
             
             if (cachedImage) {
-              console.log('🖼️ 使用缓存的图像进行编辑:', {
-                imageId: cachedImage.imageId,
-                imageDataLength: cachedImage.imageData.length,
-                imageDataPrefix: cachedImage.imageData.substring(0, 50),
-                isBase64: cachedImage.imageData.startsWith('data:image')
-              });
               logProcessStep(metrics, 'invoking editImage with cached image');
               await store.editImage(parameters.prompt, cachedImage.imageData, false, { override: messageOverride, metrics }); // 不显示图片占位框
               logProcessStep(metrics, 'editImage finished');
@@ -4086,7 +3910,6 @@ export const useAIChatStore = create<AIChatState>()(
             // 🖼️ 检查是否有缓存的图像可以分析
             const cachedImage = contextManager.getCachedImage();
             if (cachedImage) {
-              console.log('🖼️ 使用缓存的图像进行分析:', cachedImage.imageId);
               logProcessStep(metrics, 'invoking analyzeImage (cached image)');
               await store.analyzeImage(parameters.prompt || input, cachedImage.imageData, { override: messageOverride, metrics });
               logProcessStep(metrics, 'analyzeImage finished');
@@ -4098,7 +3921,6 @@ export const useAIChatStore = create<AIChatState>()(
 
         case 'analyzePdf':
           if (state.sourcePdfForAnalysis) {
-            console.log('📄 执行 PDF 分析，参数:', parameters.prompt || input);
             logProcessStep(metrics, 'invoking analyzePdf');
             await store.analyzePdf(parameters.prompt || input, state.sourcePdfForAnalysis, { override: messageOverride, metrics });
             logProcessStep(metrics, 'analyzePdf finished');
@@ -4109,15 +3931,11 @@ export const useAIChatStore = create<AIChatState>()(
           break;
 
         case 'chatResponse':
-          console.log('🎯 执行文本对话，参数:', parameters.prompt);
-          console.log('🔧 调用 generateTextResponse 方法...');
-          console.log('🔧 store 对象:', store);
-          console.log('🔧 generateTextResponse 方法存在:', typeof store.generateTextResponse);
+
           try {
             logProcessStep(metrics, 'invoking generateTextResponse');
             const result = await store.generateTextResponse(parameters.prompt, { override: messageOverride, metrics });
             logProcessStep(metrics, 'generateTextResponse finished');
-            console.log('✅ generateTextResponse 执行完成，返回值:', result);
           } catch (error) {
             console.error('❌ generateTextResponse 执行失败:', error);
             if (error instanceof Error) {
@@ -4128,12 +3946,10 @@ export const useAIChatStore = create<AIChatState>()(
           break;
 
         case 'generateVideo':
-          console.log('🎬 执行视频生成，参数:', parameters.prompt);
           try {
             logProcessStep(metrics, 'invoking generateVideo');
             await store.generateVideo(parameters.prompt, state.sourceImageForEditing, { override: messageOverride, metrics });
             logProcessStep(metrics, 'generateVideo finished');
-            console.log('✅ generateVideo 执行完成');
             // 清理源图像
             if (state.sourceImageForEditing) {
               store.setSourceImageForEditing(null);
@@ -4148,12 +3964,10 @@ export const useAIChatStore = create<AIChatState>()(
           break;
 
         case 'generatePaperJS':
-          console.log('📐 执行 Paper.js 代码生成，参数:', parameters.prompt);
           try {
             logProcessStep(metrics, 'invoking generatePaperJS');
             await store.generatePaperJSCode(parameters.prompt, { override: messageOverride, metrics });
             logProcessStep(metrics, 'generatePaperJS finished');
-            console.log('✅ Paper.js 代码生成并执行完成');
           } catch (error) {
             console.error('❌ Paper.js 代码生成失败:', error);
             if (error instanceof Error) {
@@ -4188,11 +4002,6 @@ export const useAIChatStore = create<AIChatState>()(
   // 智能工具选择功能 - 统一入口（支持并行生成）
   processUserInput: async (input: string) => {
     const state = get();
-    console.log('🤖 [AI Provider] processUserInput started', {
-      aiProvider: state.aiProvider,
-      manualAIMode: state.manualAIMode,
-      input: input.substring(0, 50) + '...'
-    });
 
     // 🔥 移除全局锁定检查，允许并行生成
     // if (state.generationStatus.isGenerating) return;
@@ -4214,8 +4023,6 @@ export const useAIChatStore = create<AIChatState>()(
     }
 
     get().refreshSessions();
-
-    console.log('🤖 智能处理用户输入（并行模式）...');
 
     // 🔥 不再设置全局生成状态，而是直接执行处理流程
     // 每个消息会有自己的生成状态
@@ -4325,7 +4132,6 @@ export const useAIChatStore = create<AIChatState>()(
     });
     hasHydratedSessions = true;
     get().refreshSessions({ markProjectDirty: false });
-    console.log('🧠 初始化上下文会话:', sessionId);
   },
 
   getContextSummary: () => {
@@ -4339,12 +4145,10 @@ export const useAIChatStore = create<AIChatState>()(
 
   enableIterativeMode: () => {
     contextManager.incrementIteration();
-    console.log('🔄 启用迭代模式');
   },
 
   disableIterativeMode: () => {
     contextManager.resetIteration();
-    console.log('🔄 禁用迭代模式');
   },
       };
     },

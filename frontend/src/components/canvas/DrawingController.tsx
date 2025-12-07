@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Download, Trash2 } from 'luci
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { useTextStore } from '@/stores/textStore';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
@@ -565,11 +566,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   });
 
+  // ========== 初始化路径编辑器Hook ==========
+  const pathEditor = usePathEditor({
+    zoom
+  });
+
+  // ========== 初始化橡皮擦工具Hook ==========
+  const eraserTool = useEraserTool({
+    context: drawingContext,
+    strokeWidth
+  });
+
+  // ========== 初始化简单文本工具Hook ==========
+  const simpleTextTool = useSimpleTextTool({
+    currentColor,
+    ensureDrawingLayer: drawingContext.ensureDrawingLayer,
+  });
+
   // ========== 初始化选择工具Hook ==========
   const selectionTool = useSelectionTool({
     zoom,
     imageInstances: imageTool.imageInstances,
     model3DInstances: model3DTool.model3DInstances,
+    textItems: simpleTextTool.textItems,
     onImageSelect: (imageId, addToSelection) => {
       // 先执行原有选择逻辑
       imageTool.handleImageSelect(imageId, addToSelection);
@@ -626,25 +645,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     onModel3DSelect: model3DTool.handleModel3DSelect,
     onModel3DMultiSelect: model3DTool.handleModel3DMultiSelect,
     onImageDeselect: imageTool.handleImageDeselect,
-    onModel3DDeselect: model3DTool.handleModel3DDeselect
-  });
-
-
-  // ========== 初始化路径编辑器Hook ==========
-  const pathEditor = usePathEditor({
-    zoom
-  });
-
-  // ========== 初始化橡皮擦工具Hook ==========
-  const eraserTool = useEraserTool({
-    context: drawingContext,
-    strokeWidth
-  });
-
-  // ========== 初始化简单文本工具Hook ==========
-  const simpleTextTool = useSimpleTextTool({
-    currentColor,
-    ensureDrawingLayer: drawingContext.ensureDrawingLayer,
+    onModel3DDeselect: model3DTool.handleModel3DDeselect,
+    onTextSelect: (textId, addToSelection) => {
+      if (addToSelection) {
+        // 多选模式：保持现有选择
+        simpleTextTool.selectText(textId);
+      } else {
+        // 单选模式：取消其他选择
+        simpleTextTool.deselectText();
+        simpleTextTool.selectText(textId);
+      }
+    },
+    onTextMultiSelect: (textIds) => {
+      simpleTextTool.deselectText();
+      textIds.forEach((textId) => {
+        simpleTextTool.selectText(textId);
+      });
+    },
+    onTextDeselect: () => {
+      simpleTextTool.deselectText();
+    }
   });
 
   const hasSelection = useMemo(() => {
