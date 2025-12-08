@@ -1006,6 +1006,189 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
+  async img2Vector(request: {
+    sourceImage: string;
+    prompt?: string;
+    model?: string;
+    thinkingLevel?: 'high' | 'low';
+    canvasWidth?: number;
+    canvasHeight?: number;
+    style?: 'simple' | 'detailed' | 'artistic';
+  }): Promise<AIProviderResponse<{ code: string; imageAnalysis: string; explanation?: string; model: string }>> {
+    this.logger.log('🖼️ Converting image to vector with Banana (147) API...');
+
+    try {
+      const { data: sourceData, mimeType } = this.normalizeFileInput(request.sourceImage, 'analysis');
+      const originalModel = this.normalizeModelName(request.model || 'gemini-3-pro-preview');
+      let currentModel = originalModel;
+      let usedFallback = false;
+
+      // 尝试主模型，失败时按降级模型重试
+      for (let round = 0; round < 2; round++) {
+        try {
+          this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
+
+          // Step 1: 图像分析
+          const analysisPrompt = `请详细分析这个图像，并用中文描述以下内容（用于生成矢量图）：
+1. 主要形状和轮廓
+2. 颜色和配色方案
+3. 结构和布局
+4. 风格特征
+5. 关键细节和元素
+
+${request.prompt ? `额外要求：${request.prompt}` : ''}`;
+
+          const analysisResult = await this.withRetry(
+            () =>
+              this.withTimeout(
+                this.makeRequest(
+                  currentModel,
+                  [
+                    { text: analysisPrompt },
+                    {
+                      inlineData: {
+                        mimeType,
+                        data: sourceData,
+                      },
+                    },
+                  ],
+                  { responseModalities: ['TEXT'] }
+                ),
+                this.DEFAULT_TIMEOUT,
+                'Image analysis for img2vector'
+              ),
+            'Image analysis for img2vector'
+          );
+
+          const imageAnalysis = analysisResult.textResponse?.trim();
+          if (!imageAnalysis) {
+            throw new Error('Image analysis returned empty response');
+          }
+
+          // Step 2: 生成 Paper.js 代码
+          const styleGuide = this.getStyleGuide(request.style || 'detailed');
+          const vectorPrompt = `你是一个paper.js代码专家。根据以下图像分析结果，生成纯净的paper.js矢量代码。
+
+${styleGuide}
+
+图像分析结果：
+${imageAnalysis}
+
+要求：
+- 只输出纯净的paper.js代码，不要其他解释
+- 使用view.center作为中心，围绕中心绘图
+- 代码应该能直接执行
+- 保留图像的主要特征和风格`;
+
+          const vectorResult = await this.withRetry(
+            () =>
+              this.withTimeout(
+                this.makeRequest(
+                  currentModel,
+                  [{ text: vectorPrompt }],
+                  {
+                    responseModalities: ['TEXT'],
+                    ...(request.thinkingLevel && !usedFallback ? { thinking_level: request.thinkingLevel } : {}),
+                  }
+                ),
+                this.DEFAULT_TIMEOUT,
+                'Paper.js code generation from img2vector'
+              ),
+            'Paper.js code generation from img2vector'
+          );
+
+          if (!vectorResult.textResponse) {
+            throw new Error('No code response from API');
+          }
+
+          const cleanedCode = this.cleanCodeResponse(vectorResult.textResponse);
+
+          if (usedFallback) {
+            this.logger.log(
+              `🔄 [FALLBACK SUCCESS] img2vector succeeded with fallback model: ${currentModel}`
+            );
+          } else {
+            this.logger.log('✅ img2vector conversion succeeded');
+          }
+
+          return {
+            success: true,
+            data: {
+              code: cleanedCode,
+              imageAnalysis,
+              explanation: '矢量图已根据图像分析结果生成',
+              model: currentModel,
+            },
+          };
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+
+          if (!usedFallback && this.shouldFallback(err)) {
+            const fallbackModel = this.getFallbackModel(currentModel);
+            if (fallbackModel) {
+              this.logger.warn(
+                `⚠️ [FALLBACK] img2vector failed with ${currentModel}, falling back to ${fallbackModel}. Error: ${err.message}`
+              );
+              currentModel = fallbackModel;
+              usedFallback = true;
+              continue; // 重试降级模型
+            }
+          }
+
+          this.logger.error('❌ img2vector conversion failed:', error);
+          return {
+            success: false,
+            error: {
+              code: 'IMG2VECTOR_FAILED',
+              message: err.message,
+              details: error,
+            },
+          };
+        }
+      }
+
+      // 不应该到这里，为类型安全保底
+      return {
+        success: false,
+        error: {
+          code: 'IMG2VECTOR_FAILED',
+          message: 'Unexpected error in img2vector',
+        },
+      };
+    } catch (error) {
+      this.logger.error('❌ img2vector conversion failed:', error);
+      return {
+        success: false,
+        error: {
+          code: 'IMG2VECTOR_FAILED',
+          message: error instanceof Error ? error.message : 'Failed to convert image to vector',
+          details: error,
+        },
+      };
+    }
+  }
+
+  private getStyleGuide(style: 'simple' | 'detailed' | 'artistic'): string {
+    const guides = {
+      simple: `风格指南：简洁风格
+- 使用基本形状（圆形、矩形、线条）
+- 最少化细节
+- 清晰的轮廓
+- 适合图标或简化设计`,
+      detailed: `风格指南：详细风格
+- 保留大部分细节
+- 使用多个图层和形状
+- 精确的比例和位置
+- 适合精确的矢量表现`,
+      artistic: `风格指南：艺术风格
+- 创意解释和变形
+- 使用渐变和复杂形状
+- 强调美学效果
+- 适合艺术和创意表现`,
+    };
+    return guides[style];
+  }
+
   /**
    * 清理代码响应，移除 markdown 代码块包装
    */

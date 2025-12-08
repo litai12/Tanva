@@ -1207,6 +1207,9 @@ interface AIChatState {
   // Paper.js 向量图形生成功能
   generatePaperJSCode: (prompt: string, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
 
+  // 图像转矢量功能
+  img2Vector: (prompt: string, sourceImage: string, style?: 'simple' | 'detailed' | 'artistic', options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
+
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
   
@@ -3731,6 +3734,181 @@ export const useAIChatStore = create<AIChatState>()(
     }
   },
 
+  // 图像转矢量 - 分析图像并生成 Paper.js 矢量代码
+  img2Vector: async (
+    prompt: string,
+    sourceImage: string,
+    style: 'simple' | 'detailed' | 'artistic' = 'detailed',
+    options?: { override?: MessageOverride; metrics?: ProcessMetrics }
+  ) => {
+    const state = get();
+    const metrics = options?.metrics;
+    logProcessStep(metrics, 'img2Vector entered');
+
+    const override = options?.override;
+    let aiMessageId: string | undefined;
+
+    if (override) {
+      aiMessageId = override.aiMessageId;
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: '正在分析图像并生成矢量图...',
+        expectsImageOutput: false,
+        generationStatus: {
+          ...(msg.generationStatus || { isGenerating: true, progress: 0, error: null }),
+          isGenerating: true,
+          error: null,
+          stage: '分析图像中'
+        }
+      }));
+    } else {
+      // 添加用户消息
+      get().addMessage({
+        type: 'user',
+        content: prompt
+      });
+
+      // 创建占位 AI 消息
+      const placeholderMessage: Omit<ChatMessage, 'id' | 'timestamp'> = {
+        type: 'ai',
+        content: '正在分析图像并生成矢量图...',
+        expectsImageOutput: false,
+        generationStatus: {
+          isGenerating: true,
+          progress: 0,
+          error: null,
+          stage: '分析图像中'
+        },
+        provider: state.aiProvider
+      };
+
+      const storedPlaceholder = get().addMessage(placeholderMessage);
+      aiMessageId = storedPlaceholder.id;
+    }
+
+    if (!aiMessageId) {
+      console.error('❌ 无法获取AI消息ID');
+      return;
+    }
+    logProcessStep(metrics, 'img2Vector message prepared');
+
+    // 显示占位标记
+    if (paperSandboxService.isReady()) {
+      paperSandboxService.showVectorPlaceholder();
+    }
+
+    try {
+      // 更新进度 - 分析图像
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 20,
+        error: null,
+        stage: '分析图像中'
+      });
+
+      // 调用 AI 进行图像转矢量
+      const result = await aiImageService.img2Vector({
+        sourceImage,
+        prompt,
+        aiProvider: state.aiProvider,
+        model: getTextModelForProvider(state.aiProvider),
+        thinkingLevel: state.thinkingLevel ?? undefined,
+        canvasWidth: 1920,
+        canvasHeight: 1080,
+        style
+      });
+
+      logProcessStep(metrics, 'img2Vector API call completed');
+
+      if (!result.success || !result.data) {
+        throw new Error(result.error?.message || '图像转矢量失败');
+      }
+
+      const { code, imageAnalysis, explanation } = result.data;
+
+      // 更新进度 - 生成代码
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 50,
+        error: null,
+        stage: '生成代码中'
+      });
+
+      // 更新进度 - 执行代码
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 60,
+        error: null,
+        stage: '执行代码中'
+      });
+
+      // 检查 Paper.js 是否就绪
+      if (!paperSandboxService.isReady()) {
+        throw new Error('Paper.js 画布尚未就绪，请稍后再试');
+      }
+
+      // 执行 Paper.js 代码
+      const executionResult = paperSandboxService.executeCode(code);
+
+      if (!executionResult.success) {
+        throw new Error(executionResult.error || '代码执行失败');
+      }
+
+      // 更新进度 - 应用到画布
+      get().updateMessageStatus(aiMessageId, {
+        isGenerating: true,
+        progress: 85,
+        error: null,
+        stage: '应用到画布'
+      });
+
+      // 隐藏占位标记
+      paperSandboxService.hideVectorPlaceholder();
+
+      // 自动应用到当前图层
+      const applyResult = paperSandboxService.applyOutputToActiveLayer();
+
+      if (!applyResult.success) {
+        console.warn('⚠️ 应用到画布失败:', applyResult.error);
+      }
+
+      // 更新消息为成功
+      get().updateMessage(aiMessageId, (msg) => ({
+        ...msg,
+        content: `✅ 图像已转换为矢量图形！\n\n📊 图像分析:\n${imageAnalysis}\n\n${explanation || '矢量图已成功生成并应用到画布。'}`,
+        generationStatus: {
+          isGenerating: false,
+          progress: 100,
+          error: null,
+          stage: '完成'
+        }
+      }));
+
+      logProcessStep(metrics, 'img2Vector completed successfully');
+    } catch (error) {
+      // 隐藏占位标记
+      paperSandboxService.hideVectorPlaceholder();
+
+      const errorMessage = error instanceof Error ? error.message : '图像转矢量失败';
+      console.error('❌ 图像转矢量失败:', errorMessage);
+
+      // 更新消息为错误状态
+      get().updateMessage(aiMessageId!, (msg) => ({
+        ...msg,
+        content: `❌ 图像转矢量失败: ${errorMessage}`,
+        generationStatus: {
+          isGenerating: false,
+          progress: 0,
+          error: errorMessage,
+          stage: '已终止'
+        }
+      }));
+
+      logProcessStep(metrics, 'img2Vector failed');
+      throw error;
+    }
+  },
+
   // 🔄 核心处理流程 - 可重试的执行逻辑
   executeProcessFlow: async (input: string, isRetry: boolean = false) => {
     const state = get();
@@ -3972,8 +4150,24 @@ export const useAIChatStore = create<AIChatState>()(
         case 'generatePaperJS':
           try {
             logProcessStep(metrics, 'invoking generatePaperJS');
-            await store.generatePaperJSCode(parameters.prompt, { override: messageOverride, metrics });
-            logProcessStep(metrics, 'generatePaperJS finished');
+            // 检查是否有上传的参考图像用于 img2vector
+            if (state.sourceImageForEditing) {
+              // 使用 img2vector 功能
+              const vectorStyle = (state as any).vectorStyle || 'detailed';
+              await store.img2Vector(
+                parameters.prompt,
+                state.sourceImageForEditing,
+                vectorStyle,
+                { override: messageOverride, metrics }
+              );
+              logProcessStep(metrics, 'img2Vector finished');
+              // 清理源图像
+              store.setSourceImageForEditing(null);
+            } else {
+              // 使用普通的 generatePaperJS
+              await store.generatePaperJSCode(parameters.prompt, { override: messageOverride, metrics });
+              logProcessStep(metrics, 'generatePaperJS finished');
+            }
           } catch (error) {
             console.error('❌ Paper.js 代码生成失败:', error);
             if (error instanceof Error) {

@@ -254,6 +254,34 @@ export interface AIPaperJSResult {
   };
 }
 
+// 图像转矢量请求
+export interface AIImg2VectorRequest {
+  sourceImage: string; // base64 encoded image
+  prompt?: string;
+  model?: string;
+  aiProvider?: SupportedAIProvider;
+  thinkingLevel?: 'high' | 'low';
+  canvasWidth?: number;
+  canvasHeight?: number;
+  style?: 'simple' | 'detailed' | 'artistic';
+}
+
+// 图像转矢量结果
+export interface AIImg2VectorResult {
+  code: string;
+  imageAnalysis: string;
+  explanation?: string;
+  model: string;
+  provider: string;
+  createdAt: string;
+  metadata?: {
+    canvasSize?: { width: number; height: number };
+    processingTime?: number;
+    style?: string;
+    [key: string]: unknown;
+  };
+}
+
 // Function Calling 工具定义
 export interface AITool {
   name: string;

@@ -5,6 +5,7 @@ import {
   Post,
   UseGuards,
   ServiceUnavailableException,
+  InternalServerErrorException,
   Get,
   Optional,
   Req,
@@ -30,6 +31,7 @@ import {
   ExpandImageDto,
 } from './dto/image-generation.dto';
 import { PaperJSGenerateRequestDto, PaperJSGenerateResponseDto } from './dto/paperjs-generation.dto';
+import { Img2VectorRequestDto, Img2VectorResponseDto } from './dto/img2vector.dto';
 import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { MidjourneyProvider } from './providers/midjourney.provider';
@@ -766,6 +768,113 @@ export class AiController {
             height: dto.canvasHeight || 1080,
           },
           processingTime,
+        },
+      };
+    }, undefined, undefined, skipCredits);
+  }
+
+  @Post('img2vector')
+  async img2Vector(@Body() dto: Img2VectorRequestDto, @Req() req: any): Promise<Img2VectorResponseDto> {
+    this.logger.log(`🖼️ Image to vector conversion request`);
+
+    const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
+    const model = this.resolveTextModel(providerName, dto.model);
+    const normalizedModel = model?.replace(/^banana-/, '') || model;
+
+    // 检查是否使用自定义 API Key
+    const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
+    const skipCredits = !!customApiKey;
+    let fallbackProvider: string | null = null;
+
+    return this.withCredits(req, 'gemini-img2vector', model, async () => {
+      const startTime = Date.now();
+
+      if (providerName && providerName !== 'gemini-pro') {
+        const provider = this.factory.getProvider(dto.model, providerName);
+
+        if (typeof (provider as any).img2Vector === 'function') {
+          try {
+            const result = await (provider as any).img2Vector({
+              sourceImage: dto.sourceImage,
+              prompt: dto.prompt,
+              model,
+              thinkingLevel: dto.thinkingLevel,
+              canvasWidth: dto.canvasWidth,
+              canvasHeight: dto.canvasHeight,
+              style: dto.style,
+            });
+
+            if (result.success && result.data) {
+              const processingTime = Date.now() - startTime;
+              this.logger.log(`✅ Image to vector conversion completed in ${processingTime}ms`);
+
+              return {
+                code: result.data.code,
+                imageAnalysis: result.data.imageAnalysis,
+                explanation: result.data.explanation,
+                model,
+                provider: providerName,
+                createdAt: new Date().toISOString(),
+                metadata: {
+                  canvasSize: {
+                    width: dto.canvasWidth || 1920,
+                    height: dto.canvasHeight || 1080,
+                  },
+                  processingTime,
+                  style: dto.style || 'detailed',
+                },
+              };
+            }
+
+            const message = result.error?.message || 'Failed to convert image to vector';
+            this.logger.error(`[${providerName}] img2vector failed: ${message}`);
+            throw new InternalServerErrorException(message);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.error(`[${providerName}] img2vector threw error: ${message}`, error as any);
+            throw new InternalServerErrorException(message);
+          }
+        }
+
+        // 提供商未实现 img2Vector，回退到默认 Gemini 流程
+        this.logger.warn(`[${providerName}] img2Vector not implemented, falling back to Gemini service`);
+        fallbackProvider = providerName;
+      }
+
+      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+      const result = await this.imageGeneration.img2Vector({
+        sourceImage: dto.sourceImage,
+        prompt: dto.prompt,
+        model: normalizedModel,
+        thinkingLevel: dto.thinkingLevel,
+        canvasWidth: dto.canvasWidth,
+        canvasHeight: dto.canvasHeight,
+        style: dto.style,
+        customApiKey,
+      }).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(`[gemini] img2vector failed: ${message}`, error as any);
+        throw new InternalServerErrorException(message);
+      });
+
+      const processingTime = Date.now() - startTime;
+      this.logger.log(`✅ Image to vector conversion completed in ${processingTime}ms`);
+
+      return {
+        code: result.code,
+        imageAnalysis: result.imageAnalysis,
+        explanation: result.explanation,
+        model: result.model,
+        provider: fallbackProvider ? 'gemini' : dto.aiProvider || 'gemini',
+        createdAt: new Date().toISOString(),
+        metadata: {
+          canvasSize: {
+            width: dto.canvasWidth || 1920,
+            height: dto.canvasHeight || 1080,
+          },
+          processingTime,
+          style: dto.style || 'detailed',
+          ...(fallbackProvider ? { fallbackProvider } : {}),
         },
       };
     }, undefined, undefined, skipCredits);

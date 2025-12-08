@@ -961,6 +961,207 @@ export class ImageGenerationService {
   }
 
   /**
+   * 图像转矢量 - 分析图像并生成 Paper.js 矢量代码
+   */
+  async img2Vector(request: {
+    sourceImage: string; // base64
+    prompt?: string;
+    model?: string;
+    thinkingLevel?: 'high' | 'low';
+    canvasWidth?: number;
+    canvasHeight?: number;
+    style?: 'simple' | 'detailed' | 'artistic';
+    customApiKey?: string | null;
+  }): Promise<{ code: string; imageAnalysis: string; explanation?: string; model: string }> {
+    this.logger.log(`Starting img2vector conversion...`);
+    const startTime = Date.now();
+
+    try {
+      const client = this.getClient(request.customApiKey);
+      const model = request.model || 'gemini-3-pro-preview';
+
+      // 第一步：分析图像
+      this.logger.log('Step 1: Analyzing image...');
+      const { data: sourceFileData, mimeType: sourceMimeType } = this.normalizeFileInput(
+        request.sourceImage,
+        'analysis',
+      );
+
+      const analysisPrompt = `请详细分析这个图像，并用中文描述以下内容（用于生成矢量图）：
+1. 主要形状和轮廓
+2. 颜色和配色方案
+3. 结构和布局
+4. 风格特征
+5. 关键细节和元素
+
+${request.prompt ? `额外要求：${request.prompt}` : ''}`;
+
+      const analysisStream = await client.models.generateContentStream({
+        model,
+        contents: [
+          { text: analysisPrompt },
+          {
+            inlineData: {
+              mimeType: sourceMimeType,
+              data: sourceFileData,
+            },
+          },
+        ],
+        config: {
+          safetySettings: [
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+            {
+              category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            {
+              category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+              threshold: HarmBlockThreshold.BLOCK_NONE,
+            },
+            { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+          ],
+        },
+      });
+
+      const analysisResult = await this.parseStreamResponse(analysisStream, 'Image analysis for img2vector');
+      const imageAnalysis = analysisResult.textResponse;
+      this.logger.log(`Image analysis completed: ${imageAnalysis.substring(0, 100)}...`);
+
+      // 第二步：根据分析结果生成 Paper.js 代码
+      this.logger.log('Step 2: Generating Paper.js code from analysis...');
+
+      const styleGuide = this.getStyleGuide(request.style || 'detailed');
+      const vectorGenerationPrompt = `你是一个paper.js代码专家。根据以下图像分析结果，生成纯净的paper.js矢量代码。
+
+${styleGuide}
+
+图像分析结果：
+${imageAnalysis}
+
+要求：
+- 只输出纯净的paper.js代码，不要其他解释
+- 使用view.center作为中心，围绕中心绘图
+- 代码应该能直接执行
+- 保留图像的主要特征和风格`;
+
+      const vectorResult = await this.withRetry(
+        async () => {
+          return await this.withTimeout(
+            (async () => {
+              const apiConfig: any = {
+                safetySettings: [
+                  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                  },
+                  {
+                    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold: HarmBlockThreshold.BLOCK_NONE,
+                  },
+                  { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+                ],
+                generationConfig: {},
+              };
+
+              if (request.thinkingLevel) {
+                apiConfig.generationConfig.thinking_level = request.thinkingLevel;
+              }
+
+              try {
+                const response = await client.models.generateContent({
+                  model,
+                  contents: [{ text: vectorGenerationPrompt }],
+                  config: apiConfig,
+                });
+
+                if (!response.text) {
+                  throw new Error('Non-stream API returned empty response');
+                }
+
+                return { text: response.text };
+              } catch (nonStreamError) {
+                const isNetworkError = this.isRetryableError(
+                  nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
+                );
+
+                if (isNetworkError) {
+                  this.logger.warn('Non-stream API failed, falling back to stream API...');
+                  try {
+                    const stream = await client.models.generateContentStream({
+                      model,
+                      contents: [{ text: vectorGenerationPrompt }],
+                      config: apiConfig,
+                    });
+
+                    const streamResult = await this.parseStreamResponse(stream, 'Paper.js code generation');
+                    this.logger.log('Stream API fallback succeeded');
+                    return { text: streamResult.textResponse };
+                  } catch (fallbackError) {
+                    throw nonStreamError;
+                  }
+                } else {
+                  throw nonStreamError;
+                }
+              }
+            })(),
+            this.DEFAULT_TIMEOUT,
+            'Paper.js code generation request'
+          );
+        },
+        'Paper.js code generation from img2vector',
+        5
+      );
+
+      const processingTime = Date.now() - startTime;
+      this.logger.log(`img2vector conversion completed in ${processingTime}ms`);
+
+      if (!vectorResult.text) {
+        throw new Error('No code response from API');
+      }
+
+      const cleanedCode = this.cleanCodeResponse(vectorResult.text);
+
+      return {
+        code: cleanedCode,
+        imageAnalysis,
+        explanation: '矢量图已根据图像分析结果生成',
+        model,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`img2vector conversion failed: ${message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取矢量风格指南
+   */
+  private getStyleGuide(style: 'simple' | 'detailed' | 'artistic'): string {
+    const guides = {
+      simple: `风格指南：简洁风格
+- 使用基本形状（圆形、矩形、线条）
+- 最少化细节
+- 清晰的轮廓
+- 适合图标或简化设计`,
+      detailed: `风格指南：详细风格
+- 保留大部分细节
+- 使用多个图层和形状
+- 精确的比例和位置
+- 适合精确的矢量表现`,
+      artistic: `风格指南：艺术风格
+- 创意解释和变形
+- 使用渐变和复杂形状
+- 强调美学效果
+- 适合艺术和创意表现`,
+    };
+    return guides[style];
+  }
+
+  /**
    * 清理代码响应，移除 markdown 代码块包装
    */
   private cleanCodeResponse(text: string): string {

@@ -16,10 +16,12 @@ import type {
   AIImageAnalyzeRequest,
   AITextChatRequest,
   AIPaperJSGenerateRequest,
+  AIImg2VectorRequest,
   AIImageResult,
   AIImageAnalysisResult,
   AITextChatResult,
   AIPaperJSResult,
+  AIImg2VectorResult,
   AIServiceResponse,
   AIError,
   ToolSelectionRequest,
@@ -485,6 +487,25 @@ class AIImageService {
 
     if (response.success && response.data) {
       console.log('[AIImageService] Paper.js code generated successfully');
+    }
+
+    return response;
+  }
+
+  /**
+   * 图像转矢量 - 分析图像并生成 Paper.js 矢量代码
+   */
+  async img2Vector(request: AIImg2VectorRequest): Promise<AIServiceResponse<AIImg2VectorResult>> {
+    console.log('[AIImageService] Converting image to vector');
+    const response = await this.callAPI<AIImg2VectorResult>(
+      `${this.API_BASE}/ai/img2vector`,
+      request,
+      'Image to vector conversion'
+    );
+
+    if (response.success && response.data) {
+      console.log('[AIImageService] Image to vector conversion completed successfully');
+      console.log('[AIImageService] Image analysis:', response.data.imageAnalysis.substring(0, 100));
     }
 
     return response;
