@@ -7,8 +7,9 @@ import { saveMonitor } from '@/utils/saveMonitor';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
-  private readonly SAVE_DELAY = 150; // 初始延迟，用于收敛多次触发
-  private readonly MIN_SAVE_INTERVAL = 800; // 两次实际保存之间的最小间隔(ms)
+  // 优化：增加保存延迟和间隔，减少内存峰值
+  private readonly SAVE_DELAY = 500; // 增加到500ms，更好地收敛多次触发
+  private readonly MIN_SAVE_INTERVAL = 2000; // 增加到2秒，减少频繁序列化
   private isInitialized = false;
   private scheduledForProjectId: string | null = null;
   private lastSaveTimestamp = 0;

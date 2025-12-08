@@ -51,6 +51,11 @@ export class MemoryMonitor {
   private readonly BROWSER_HEAP_WARNING_RATIO = 0.85;
   private readonly BROWSER_HEAP_ABSOLUTE = 900 * 1024 * 1024; // 约900MB
 
+  // 优化：添加自动清理回调机制
+  private readonly AGGRESSIVE_CLEANUP_THRESHOLD = 0.75;  // 75% 时触发主动清理
+  private readonly CRITICAL_CLEANUP_THRESHOLD = 0.90;    // 90% 时强制清理
+  private cleanupCallbacks: Array<() => void> = [];
+
   static getInstance(): MemoryMonitor {
     if (!MemoryMonitor.instance) {
       MemoryMonitor.instance = new MemoryMonitor();
@@ -218,6 +223,65 @@ export class MemoryMonitor {
       console.warn('手动垃圾回收不可用。使用 --js-flags="--expose-gc" 启动Chrome以启用此功能。');
     }
     this.markCleanup();
+  }
+
+  // 优化：注册内存压力清理回调
+  onMemoryPressure(callback: () => void): () => void {
+    this.cleanupCallbacks.push(callback);
+    // 返回取消注册函数
+    return () => {
+      const index = this.cleanupCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.cleanupCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  // 优化：检查并执行自动清理
+  checkAndCleanup(): void {
+    this.updateBrowserMemoryStats();
+
+    if (!this.stats.browserMemory.supported || this.stats.browserMemory.jsHeapSizeLimit === 0) {
+      return;
+    }
+
+    const heapUsageRatio = this.stats.browserMemory.usedJSHeapSize /
+                          this.stats.browserMemory.jsHeapSizeLimit;
+
+    if (heapUsageRatio > this.CRITICAL_CLEANUP_THRESHOLD) {
+      console.warn('[MemoryMonitor] 触发强制清理 (堆内存 > 90%)');
+      this.executeCleanup(true);
+    } else if (heapUsageRatio > this.AGGRESSIVE_CLEANUP_THRESHOLD) {
+      console.warn('[MemoryMonitor] 触发主动清理 (堆内存 > 75%)');
+      this.executeCleanup(false);
+    }
+  }
+
+  // 执行清理回调
+  private executeCleanup(isForced: boolean): void {
+    console.log(`[MemoryMonitor] 执行${isForced ? '强制' : '主动'}清理，共 ${this.cleanupCallbacks.length} 个回调`);
+
+    // 执行所有注册的清理回调
+    this.cleanupCallbacks.forEach(callback => {
+      try {
+        callback();
+      } catch (error) {
+        console.error('[MemoryMonitor] 清理回调执行失败:', error);
+      }
+    });
+
+    // 强制清理时尝试触发垃圾回收
+    if (isForced && typeof (window as any).gc === 'function') {
+      (window as any).gc();
+    }
+
+    this.markCleanup();
+    this.emitMemoryEvent(false); // 发送内存压力缓解事件
+  }
+
+  // 获取已注册的清理回调数量
+  getCleanupCallbackCount(): number {
+    return this.cleanupCallbacks.length;
   }
 }
 

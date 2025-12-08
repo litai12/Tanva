@@ -467,8 +467,6 @@ const FloatingHeader: React.FC = () => {
         }
         return sliced;
     }, [projects, currentProject?.id]);
-    const hasMoreProjects = projects.length > MAX_QUICK_PROJECTS;
-
     const renderSettingsContent = () => {
         switch (activeSettingsSection) {
             case 'workspace':
@@ -1129,11 +1127,11 @@ return (
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator className="mb-1" />
                                 <div className="max-h-[340px] overflow-y-auto space-y-0.5">
-                                    {recentProjects.length === 0 ? (
-                                        <DropdownMenuItem disabled className="cursor-default text-slate-400">
-                                            暂无项目
-                                        </DropdownMenuItem>
-                                    ) : (
+                                {recentProjects.length === 0 ? (
+                                    <DropdownMenuItem disabled className="cursor-default text-slate-400">
+                                        暂无项目
+                                    </DropdownMenuItem>
+                                ) : (
                                         recentProjects.map((project) => (
                                             <DropdownMenuItem
                                                 key={project.id}
@@ -1153,20 +1151,15 @@ return (
                                         ))
                                     )}
                                 </div>
-                                {hasMoreProjects && (
-                                    <div className="px-2 pt-1 text-[11px] text-slate-400">
-                                        最近文件仅显示 {MAX_QUICK_PROJECTS} 条（当前文件始终保留），更多请点击下方“打开/管理文件”
-                                    </div>
-                                )}
                                 <DropdownMenuSeparator className="my-1" />
                                 <DropdownMenuItem
                                     onClick={(event) => {
                                         event.preventDefault();
                                         openModal();
                                     }}
-                                    className="mx-1 mt-1 flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:bg-slate-50"
+                                    className="flex items-center gap-2 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
                                 >
-                                    <FolderOpen className="h-4 w-4 text-slate-600" />
+                                    <FolderOpen className="h-4 w-4" />
                                     打开/管理文件
                                 </DropdownMenuItem>
                                 <DropdownMenuItem

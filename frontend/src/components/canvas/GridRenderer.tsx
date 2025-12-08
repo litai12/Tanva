@@ -21,8 +21,13 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
   const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
 
-  // Paper.js对象池 - 简化为只有线条对象池
+  // Paper.js对象池 - 优化：增加池大小和清理机制
   const pathPoolRef = useRef<paper.Path[]>([]);
+  const MAX_POOL_SIZE = 500; // 增加到500，支持大型项目
+  const POOL_CLEANUP_THRESHOLD = 750; // 超过750时触发清理
+  const lastPoolCleanupRef = useRef<number>(Date.now());
+  const POOL_CLEANUP_INTERVAL = 30000; // 30秒清理一次
+
   const axisPathsRef = useRef<{ xAxis: paper.Path | null, yAxis: paper.Path | null }>({
     xAxis: null,
     yAxis: null
@@ -91,10 +96,15 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       const child = existingChildren[i];
       if (child instanceof paper.Path && !child.data?.isAxis) {
         child.visible = false;
-        
-        // 只回收线条网格到对象池
-        if (child.data?.type === 'grid' && pathPoolRef.current.length < 50) {
-          pathPoolRef.current.push(child as paper.Path);
+
+        // 优化：增加对象池大小，并验证对象有效性
+        if (child.data?.type === 'grid' && pathPoolRef.current.length < MAX_POOL_SIZE) {
+          // 验证对象有效性后再回收
+          if (child.project && !(child as any).removed) {
+            pathPoolRef.current.push(child as paper.Path);
+          } else {
+            child.remove();
+          }
         } else {
           child.remove();
         }
@@ -102,6 +112,24 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         // 保留坐标轴，只是隐藏
         child.visible = false;
       }
+    }
+
+    // 定期清理对象池中的无效对象
+    const now = Date.now();
+    if (now - lastPoolCleanupRef.current > POOL_CLEANUP_INTERVAL) {
+      pathPoolRef.current = pathPoolRef.current.filter(path => {
+        if (!path.project || (path as any).removed) {
+          path.remove();
+          return false;
+        }
+        return true;
+      });
+      // 如果池太大，删除一半
+      if (pathPoolRef.current.length > POOL_CLEANUP_THRESHOLD) {
+        const toRemove = pathPoolRef.current.splice(0, Math.floor(pathPoolRef.current.length / 2));
+        toRemove.forEach(path => path.remove());
+      }
+      lastPoolCleanupRef.current = now;
     }
 
     gridLayer.activate();
@@ -150,30 +178,40 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const padding = currentGridSize * 2;
     const viewWidth = viewBounds.width;
     const viewHeight = viewBounds.height;
-    
-    // 根据缩放级别动态调整渲染范围
-    const renderMultiplier = Math.max(1, Math.min(3, 1 / zoom)); // 缩放越小，渲染范围越大
-    const effectivePadding = padding * renderMultiplier;
-    
+
+    // 优化：根据缩放级别动态调整渲染倍数，避免低缩放时渲染过多
+    const calculateRenderMultiplier = (z: number): number => {
+      if (z >= 0.5) return 3;      // 50%+ 渲染3倍
+      if (z >= 0.3) return 4;      // 30-50% 渲染4倍
+      if (z >= 0.15) return 5;     // 15-30% 渲染5倍
+      return 6;                     // <15% 渲染6倍（保持原来的值）
+    };
+
+    const renderMultiplier = calculateRenderMultiplier(zoom);
+    const effectivePadding = padding * Math.min(renderMultiplier, 3);
+
     const minX = Math.floor((viewBounds.left - effectivePadding) / currentGridSize) * currentGridSize;
     const maxX = Math.ceil((viewBounds.right + effectivePadding) / currentGridSize) * currentGridSize;
     const minY = Math.floor((viewBounds.top - effectivePadding) / currentGridSize) * currentGridSize;
     const maxY = Math.ceil((viewBounds.bottom + effectivePadding) / currentGridSize) * currentGridSize;
-    
-    // 虚拟化限制：防止渲染区域过大，但确保足够的覆盖
-    const maxRenderWidth = viewWidth * 6; // 增加到6倍视口宽度
-    const maxRenderHeight = viewHeight * 6; // 增加到6倍视口高度
-    
+
+    // 优化：虚拟化限制，根据缩放动态调整，并设置绝对像素上限
+    const maxRenderWidth = viewWidth * renderMultiplier;
+    const maxRenderHeight = viewHeight * renderMultiplier;
+
+    // 绝对像素上限：防止极端情况下渲染过多（增大到8000px，确保正常显示）
+    const MAX_RENDER_PIXELS = 8000;
+    const cappedRenderWidth = Math.min(maxRenderWidth, MAX_RENDER_PIXELS);
+    const cappedRenderHeight = Math.min(maxRenderHeight, MAX_RENDER_PIXELS);
+
     // 修复边界计算逻辑
-    const actualMaxX = Math.min(maxX, minX + maxRenderWidth);
-    const actualMaxY = Math.min(maxY, minY + maxRenderHeight);
-    const actualMinX = Math.max(minX, minX); // 确保不会缩小最小边界
-    const actualMinY = Math.max(minY, minY); // 确保不会缩小最小边界
-    
+    const actualMaxX = Math.min(maxX, minX + cappedRenderWidth);
+    const actualMaxY = Math.min(maxY, minY + cappedRenderHeight);
+
     // 使用修正后的边界
-    const finalMinX = actualMinX;
+    const finalMinX = minX;
     const finalMaxX = actualMaxX;
-    const finalMinY = actualMinY;
+    const finalMinY = minY;
     const finalMaxY = actualMaxY;
 
     // 创建或更新坐标轴（如果启用）- 固定在Paper.js (0,0)点
@@ -497,18 +535,27 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const checkMemoryPressure = () => {
       const stats = memoryMonitor.getStats();
       const totalPoolSize = stats.activePoolSize.gridLines;
-      
+
       // 如果对象池总大小超过1000或总对象超过5000，强制清理
       if (totalPoolSize > 1000 || stats.totalItems > 5000) {
         console.warn('检测到内存压力，执行强制清理:', stats);
         forceMemoryCleanup();
       }
+
+      // 优化：调用 memoryMonitor 的自动清理检查
+      memoryMonitor.checkAndCleanup();
     };
+
+    // 注册内存压力清理回调
+    const unregister = memoryMonitor.onMemoryPressure(forceMemoryCleanup);
 
     // 每30秒检查一次内存使用情况
     const intervalId = setInterval(checkMemoryPressure, 30000);
-    
-    return () => clearInterval(intervalId);
+
+    return () => {
+      clearInterval(intervalId);
+      unregister(); // 取消注册清理回调
+    };
   }, [forceMemoryCleanup]);
 
   // 清理函数
