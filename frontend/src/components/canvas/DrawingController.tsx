@@ -103,6 +103,10 @@ const fetchImagePayload = async (url: string): Promise<string> => {
   return payload;
 };
 
+const CANVAS_CLIPBOARD_MIME = 'application/x-tanva-canvas';
+const CANVAS_CLIPBOARD_FALLBACK_TEXT = 'Tanva canvas selection';
+const CANVAS_CLIPBOARD_TYPE = 'tanva-canvas';
+
 interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
@@ -137,6 +141,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [isGroupCapturePending, setIsGroupCapturePending] = useState(false);
   const [modelCapturePending, setModelCapturePending] = useState<Record<string, boolean>>({});
   const [contextMenuState, setContextMenuState] = useState<CanvasContextMenuState | null>(null);
+  const handleCanvasPasteRef = useRef<() => boolean>(() => false);
 
   // 内存优化：使用 ref 存储频繁变化的值，避免闭包重建
   const zoomRef = useRef(zoom);
@@ -376,6 +381,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           const clipboardData = e.clipboardData;
           if (!clipboardData) return;
+
+          // 先尝试处理画布内的结构化剪贴板数据
+          const rawCanvasData =
+            clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
+            clipboardData.getData('application/json');
+          if (rawCanvasData) {
+            try {
+              const parsed = JSON.parse(rawCanvasData);
+              const payload: CanvasClipboardData | null =
+                parsed?.type === CANVAS_CLIPBOARD_TYPE ? parsed.data : (parsed?.images && parsed?.paths ? parsed : null);
+              if (payload) {
+                clipboardService.setCanvasData(payload);
+                const handled = handleCanvasPasteRef.current();
+                if (handled) {
+                  e.preventDefault();
+                  return;
+                }
+              }
+            } catch (err) {
+              logger.warn('解析画布剪贴板数据失败', err);
+            }
+          }
 
           // 优先处理图片项
           const items = clipboardData.items;
@@ -1681,7 +1708,83 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     stopEditText,
   ]);
 
+  // 供粘贴事件处理器调用最新的粘贴逻辑
+  handleCanvasPasteRef.current = handleCanvasPaste;
+
   const editingTextId = simpleTextTool.editingTextId;
+
+  // 监听画布指针事件，标记当前剪贴板域为 canvas，避免 Flow 的快捷键拦截
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const target = event.target as Node | null;
+      if (target && canvas.contains(target)) {
+        clipboardService.setActiveZone('canvas');
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    return () => window.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+  }, [canvasRef]);
+
+  // 在按下复制/粘贴快捷键前标记画布为激活区域，防止 Flow 层截获
+  useEffect(() => {
+    const handleKeyPreCapture = (event: KeyboardEvent) => {
+      const key = event.key?.toLowerCase?.() || '';
+      if ((key !== 'c' && key !== 'v') || !(event.metaKey || event.ctrlKey)) return;
+      if (!hasSelectionRef.current && !clipboardService.getCanvasData()) return;
+
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const canvas = canvasRef.current;
+      const fromCanvas = !!canvas && path.includes(canvas);
+      const fromFlowOverlay = path.some((el) => {
+        return el instanceof Element && el.classList?.contains('tanva-flow-overlay');
+      });
+      if (!fromCanvas || fromFlowOverlay) {
+        return; // 不在画布区域的快捷键，不强制切换到画布
+      }
+
+      clipboardService.setActiveZone('canvas');
+    };
+    window.addEventListener('keydown', handleKeyPreCapture, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyPreCapture, { capture: true });
+  }, []);
+
+  // 复制事件：同步画布选择到系统剪贴板，避免默认粘贴落入外部内容
+  useEffect(() => {
+    const handleCopyEvent = (event: ClipboardEvent) => {
+      try {
+        const active = document.activeElement as Element | null;
+        if (isEditableElement(active) || editingTextId) return;
+
+        const handled = handleCanvasCopy();
+        if (!handled) return;
+
+        const payload = clipboardService.getCanvasData();
+        if (!payload) return;
+
+        const serialized = JSON.stringify({
+          type: CANVAS_CLIPBOARD_TYPE,
+          version: 1,
+          data: payload,
+        });
+
+        if (event.clipboardData) {
+          event.clipboardData.setData(CANVAS_CLIPBOARD_MIME, serialized);
+          event.clipboardData.setData('application/json', serialized);
+          event.clipboardData.setData('text/plain', CANVAS_CLIPBOARD_FALLBACK_TEXT);
+          event.preventDefault();
+        } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          void navigator.clipboard.writeText(serialized).catch(() => {});
+        }
+      } catch (error) {
+        logger.warn('复制画布到系统剪贴板失败', error);
+      }
+    };
+
+    window.addEventListener('copy', handleCopyEvent);
+    return () => window.removeEventListener('copy', handleCopyEvent);
+  }, [handleCanvasCopy, editingTextId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1709,7 +1812,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (isCopy) {
         const handled = handleCanvasCopy();
         if (handled) {
-          event.preventDefault();
+          // 继续让浏览器触发原生 copy 事件以写入系统剪贴板
         }
         return;
       }

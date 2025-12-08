@@ -623,9 +623,20 @@ function FlowInner() {
       const isEditable = !!active && (tagName === 'input' || tagName === 'textarea' || (active as any).isContentEditable);
       if (isEditable) return;
 
+      const anySelected = rf.getNodes().some((n: any) => n.selected);
+      const canPasteFlow = !!clipboardService.getFlowData();
+
+      // 若当前处于画布激活，但 Flow 有选中/可粘贴，则切换到 Flow
+      if ((isCopy && anySelected) || (isPaste && canPasteFlow)) {
+        clipboardService.setActiveZone('flow');
+      } else if (clipboardService.getZone() !== 'flow') {
+        return;
+      }
+
       if (isCopy) {
         const handled = handleCopyFlow();
         if (handled) {
+          clipboardService.setActiveZone('flow');
           event.preventDefault();
           event.stopPropagation();
         }
@@ -2584,6 +2595,7 @@ function FlowInner() {
       className={`tanva-flow-overlay absolute inset-0 ${isPointerMode ? 'pointer-mode' : ''}`}
       onDoubleClick={handleContainerDoubleClick}
       onWheelCapture={handleWheelCapture}
+      onPointerDownCapture={() => clipboardService.setActiveZone('flow')}
     >
       {FlowToolbar}
       <ReactFlow

@@ -37,13 +37,16 @@ type ClipboardPayload =
 
 class ClipboardService {
   private payload: ClipboardPayload | null = null;
+  private activeZone: ClipboardZone | null = null;
 
   setCanvasData(data: CanvasClipboardData) {
     this.payload = { type: 'canvas', data, timestamp: Date.now() };
+    this.activeZone = 'canvas';
   }
 
   setFlowData(data: FlowClipboardData) {
     this.payload = { type: 'flow', data, timestamp: Date.now() };
+    this.activeZone = 'flow';
   }
 
   getCanvasData(): CanvasClipboardData | null {
@@ -55,11 +58,16 @@ class ClipboardService {
   }
 
   getZone(): ClipboardZone | null {
-    return this.payload?.type ?? null;
+    return this.activeZone ?? (this.payload?.type ?? null);
+  }
+
+  setActiveZone(zone: ClipboardZone | null) {
+    this.activeZone = zone;
   }
 
   clear() {
     this.payload = null;
+    this.activeZone = null;
   }
 }
 
