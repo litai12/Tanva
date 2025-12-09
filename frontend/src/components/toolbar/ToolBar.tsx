@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, BookOpen } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -156,7 +156,25 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     toggleFill,
   } = useToolStore();
 
-  const { showLayerPanel: isLayerPanelOpen, toggleLayerPanel, toggleFlowPanel, showFlowPanel, flowUIEnabled, focusMode } = useUIStore();
+  const {
+    showLayerPanel: isLayerPanelOpen,
+    toggleLayerPanel,
+    toggleFlowPanel,
+    showFlowPanel,
+    flowUIEnabled,
+    focusMode,
+  } = useUIStore();
+  const [templatePanelOpen, setTemplatePanelOpen] = React.useState(false);
+
+  // 跟随 Flow 添加面板的可见性（仅模板页签时亮起）
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail || {};
+      setTemplatePanelOpen(Boolean(detail.visible && detail.tab === 'templates'));
+    };
+    window.addEventListener('flow:add-panel-visibility-change', handler as EventListener);
+    return () => window.removeEventListener('flow:add-panel-visibility-change', handler as EventListener);
+  }, []);
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
@@ -230,9 +248,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   };
 
   // 根据模式获取激活状态的按钮样式
+  const inactiveButtonStyle = "bg-white/70 text-gray-700 border-transparent hover:bg-blue-50 hover:border-blue-300";
   const getActiveButtonStyle = (isActive: boolean) => {
     if (!isActive) {
-      return "bg-white/50 text-gray-700 border-gray-300 hover:bg-blue-50 hover:border-blue-300";
+      return inactiveButtonStyle;
     }
     return "bg-blue-600 text-white";
   };
@@ -240,7 +259,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   // 获取绘图子面板按钮样式（绘图工具展开菜单中的按钮）
   const getSubPanelButtonStyle = (isActive: boolean) => {
     if (!isActive) {
-      return "bg-white/50 border-gray-300 text-gray-700 hover:bg-blue-50 hover:border-blue-300";
+      return inactiveButtonStyle;
     }
     return "bg-blue-600 text-white";
   };
@@ -569,9 +588,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Eraser className="w-4 h-4" />
       </Button>
 
-      <Separator orientation="horizontal" className="w-6" />
-
-
       {/* 独立工具按钮 */}
       <div className="flex flex-col items-center gap-2">
         {/* 文字工具 */}
@@ -708,6 +724,25 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         title="图层面板"
       >
         <Layers className="w-4 h-4" />
+      </Button>
+
+      {/* 模板库按钮 */}
+      <Button
+        variant={templatePanelOpen ? 'default' : 'outline'}
+        size="sm"
+        className={cn(
+          "p-0 h-8 w-8 rounded-full",
+          getActiveButtonStyle(templatePanelOpen)
+        )}
+        onClick={() => {
+          const detail = templatePanelOpen
+            ? { visible: false }
+            : { visible: true, tab: 'templates', scope: 'public' };
+          try { window.dispatchEvent(new CustomEvent('flow:set-template-panel', { detail })); } catch {}
+        }}
+        title="公共模板"
+      >
+        <BookOpen className="w-4 h-4" />
       </Button>
 
 

@@ -873,6 +873,40 @@ function FlowInner() {
     setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
   }, [rf]);
 
+  // 允许外部（如工具栏按钮）打开添加/模板面板
+  React.useEffect(() => {
+    const handleSet = (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail || {};
+      const shouldOpen = detail.visible !== false;
+      if (!shouldOpen) {
+        setAddPanel(v => ({ ...v, visible: false }));
+        return;
+      }
+      const targetTab: 'nodes' | 'templates' | 'personal' = detail.tab === 'personal' || detail.tab === 'nodes' ? detail.tab : 'templates';
+      setAddTabWithMemory(targetTab);
+      if (detail.scope === 'public' || detail.scope === 'mine') {
+        setTemplateScope(detail.scope);
+      }
+      const x = detail.screen?.x ?? window.innerWidth / 2;
+      const y = detail.screen?.y ?? window.innerHeight / 2;
+      openAddPanelAt(x, y);
+    };
+    // 兼容旧事件名称，新的 flow:set-template-panel 支持关闭
+    window.addEventListener('flow:open-template-panel', handleSet as EventListener);
+    window.addEventListener('flow:set-template-panel', handleSet as EventListener);
+    return () => {
+      window.removeEventListener('flow:open-template-panel', handleSet as EventListener);
+      window.removeEventListener('flow:set-template-panel', handleSet as EventListener);
+    };
+  }, [openAddPanelAt, setAddTabWithMemory, setTemplateScope]);
+
+  // 把面板可见性和当前页签通知给外部（例如工具栏按钮同步状态）
+  React.useEffect(() => {
+    try {
+      window.dispatchEvent(new CustomEvent('flow:add-panel-visibility-change', { detail: { visible: addPanel.visible, tab: addTab } }));
+    } catch {}
+  }, [addPanel.visible, addTab]);
+
   // ---------- 导出/导入（序列化） ----------
   const cleanNodeData = React.useCallback((data: any) => {
     if (!data) return {};
