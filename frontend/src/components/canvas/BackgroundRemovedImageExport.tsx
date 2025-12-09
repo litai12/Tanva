@@ -10,13 +10,15 @@ export interface BackgroundRemovedImageExportProps {
   onExportComplete?: () => void;
 }
 
+ 
+
 /**
  * 背景移除图像导出组件
  * 支持导出、下载、复制等操作
  */
 export const BackgroundRemovedImageExport: React.FC<
   BackgroundRemovedImageExportProps
-> = ({ onExportComplete }) => {
+> = ({ onExportComplete: _onExportComplete }) => {
   const [removedImages, setRemovedImages] = useState<paper.Raster[]>([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(
     null

@@ -38,7 +38,8 @@ const PUBLIC_ENDPOINT_MAP: Record<string, string> = {
 
 // 网络错误重试配置
 const MAX_NETWORK_RETRIES = 3;
-const INITIAL_RETRY_DELAY_MS = 1000;
+const RETRY_DELAY_MS = 1000; // 固定1秒延迟
+const REQUEST_TIMEOUT_MS = 180000; // 3分钟超时
 
 // 判断是否为可重试的网络错误
 function isRetryableError(error: Error): boolean {
@@ -233,7 +234,7 @@ class AIImageService {
   }
 
   /**
-   * 通用 API 调用方法（带网络错误重试）
+   * 通用 API 调用方法（带网络错误重试和超时控制）
    */
   private async callAPI<T>(
     url: string,
@@ -241,6 +242,10 @@ class AIImageService {
     operationType: string,
     retryCount: number = 0
   ): Promise<AIServiceResponse<T>> {
+    // 创建 AbortController 用于超时控制
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     try {
       console.log(`🌐 ${operationType}: Calling ${url}${retryCount > 0 ? ` (retry ${retryCount}/${MAX_NETWORK_RETRIES})` : ''}`);
 
@@ -251,7 +256,10 @@ class AIImageService {
         },
         credentials: 'include', // 发送认证 cookie
         body: JSON.stringify(request),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (response.status === 401 || response.status === 403) {
         console.warn(`⚠️ ${operationType}: token expired? attempting refresh...`);
@@ -287,13 +295,19 @@ class AIImageService {
         data: data.data || data,
       };
     } catch (error) {
+      clearTimeout(timeoutId);
       const err = error instanceof Error ? error : new Error(String(error));
 
-      // 检查是否可以重试
-      if (retryCount < MAX_NETWORK_RETRIES && isRetryableError(err)) {
-        const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, retryCount); // 指数退避
-        console.warn(`⚠️ ${operationType} failed: ${err.message}, retrying in ${delay}ms... (${retryCount + 1}/${MAX_NETWORK_RETRIES})`);
-        await sleep(delay);
+      // 检查是否为超时错误
+      const isTimeout = err.name === 'AbortError';
+      if (isTimeout) {
+        console.warn(`⚠️ ${operationType} timeout after ${REQUEST_TIMEOUT_MS / 1000}s`);
+      }
+
+      // 检查是否可以重试（超时也可重试）
+      if (retryCount < MAX_NETWORK_RETRIES && (isTimeout || isRetryableError(err))) {
+        console.warn(`⚠️ ${operationType} failed: ${isTimeout ? 'timeout' : err.message}, retrying in ${RETRY_DELAY_MS}ms... (${retryCount + 1}/${MAX_NETWORK_RETRIES})`);
+        await sleep(RETRY_DELAY_MS);
         return this.callAPI<T>(url, request, operationType, retryCount + 1);
       }
 
@@ -301,8 +315,8 @@ class AIImageService {
       return {
         success: false,
         error: {
-          code: 'NETWORK_ERROR',
-          message: error instanceof Error ? error.message : 'Network error',
+          code: isTimeout ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR',
+          message: isTimeout ? `请求超时 (${REQUEST_TIMEOUT_MS / 1000}秒)` : (error instanceof Error ? error.message : 'Network error'),
           timestamp: new Date(),
         } as AIError,
       };

@@ -1062,7 +1062,7 @@ return (
         <div
             aria-hidden={focusMode}
             className={cn(
-                "fixed top-4 left-0 right-0 z-50 px-4 flex items-center justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
+                "fixed top-4 left-0 right-0 z-50 px-4 flex items-start justify-between gap-4 transition-all duration-[50ms] ease-out pointer-events-none",
                 showLayerPanel ? "left-[306px]" : "left-0",
                 focusMode && "hidden"
             )}
@@ -1183,67 +1183,74 @@ return (
             {/* 空白拉伸 */}
             <div className="flex-1" />
 
-            {/* 右侧栏：功能按钮 */}
-            <div className="flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300 pointer-events-auto">
-                {/* 素材库按钮 */}
-                {showLibraryButton && (
+            {/* 右侧栏：功能按钮 + 保存状态 */}
+            <div className="flex flex-col items-center gap-1 pointer-events-auto">
+                <div className="flex items-center gap-1.5 md:gap-2 px-4 md:px-6 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all duration-300">
+                    {/* 素材库按钮 */}
+                    {showLibraryButton && (
+                        <Button
+                            onClick={toggleLibraryPanel}
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                                "h-7 text-xs flex items-center rounded-full transition-all duration-200",
+                                "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
+                                "hover:bg-blue-500 hover:text-white hover:border-blue-500",
+                                showLibraryPanel ? "text-blue-600" : "",
+                                "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1"
+                            )}
+                            title={showLibraryButton ? "关闭素材库" : "打开素材库"}
+                        >
+                            <Library className="w-3 h-3" />
+                            <span className="hidden sm:inline">素材库</span>
+                        </Button>
+                    )}
+
+                    {/* 帮助按钮 */}
                     <Button
-                        onClick={toggleLibraryPanel}
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
+                        title="帮助"
+                    >
+                        <HelpCircle className="w-4 h-4" />
+                    </Button>
+
+                    {/* 分享按钮 */}
+                    <Button
                         variant="ghost"
                         size="sm"
                         className={cn(
-                            "h-7 text-xs flex items-center rounded-full transition-all duration-200",
+                            "h-7 text-xs flex items-center rounded-full transition-all duration-200 w-7 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1",
                             "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
-                            "hover:bg-blue-500 hover:text-white hover:border-blue-500",
-                            showLibraryPanel ? "text-blue-600" : "",
-                            "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1"
+                            "hover:bg-blue-500 hover:text-white hover:border-blue-500"
                         )}
-                        title={showLibraryButton ? "关闭素材库" : "打开素材库"}
+                        onClick={handleShare}
+                        title="分享"
                     >
-                        <Library className="w-3 h-3" />
-                        <span className="hidden sm:inline">素材库</span>
+                        <Share className="w-3 h-3" />
+                        <span className="hidden sm:inline">分享</span>
                     </Button>
-                )}
 
-                {/* 帮助按钮 */}
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
-                    title="帮助"
-                >
-                    <HelpCircle className="w-4 h-4" />
-                </Button>
-
-                {/* 分享按钮 */}
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                        "h-7 text-xs flex items-center rounded-full transition-all duration-200 w-7 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1",
-                        "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
-                        "hover:bg-blue-500 hover:text-white hover:border-blue-500"
-                    )}
-                    onClick={handleShare}
-                    title="分享"
-                >
-                    <Share className="w-3 h-3" />
-                    <span className="hidden sm:inline">分享</span>
-                </Button>
-
-                {/* 设置按钮 */}
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
-                    title="设置"
-                    onClick={() => {
-                        setActiveSettingsSection('workspace');
-                        setIsSettingsOpen(true);
-                    }}
-                >
-                    <Menu className="w-4 h-4" />
-                </Button>
+                    {/* 设置按钮 */}
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
+                        title="设置"
+                        onClick={() => {
+                            setActiveSettingsSection('workspace');
+                            setIsSettingsOpen(true);
+                        }}
+                    >
+                        <Menu className="w-4 h-4" />
+                    </Button>
+                </div>
+                <div className="pr-1 text-[11px] leading-none w-full text-center h-4 flex items-center justify-center select-none pointer-events-none">
+                    <span className="pointer-events-none">
+                        <AutosaveStatus />
+                    </span>
+                </div>
             </div>
 
             {isSettingsOpen && typeof document !== 'undefined' && createPortal(

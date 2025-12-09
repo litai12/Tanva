@@ -70,7 +70,7 @@ interface CanvasState {
 export const useCanvasStore = create<CanvasState>()(
   subscribeWithSelector(
     persist(
-      (set, get, api) => ({
+      (set, get, _api) => ({
       // 初始状态
       gridSize: 32,
       gridStyle: GridStyle.LINES, // 默认使用线条网格

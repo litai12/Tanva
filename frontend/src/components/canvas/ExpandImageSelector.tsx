@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import paper from 'paper';
-import { useCanvasStore } from '@/stores';
 import { Button } from '../ui/button';
 import { X, Send, Ruler } from 'lucide-react';
 import {
@@ -34,7 +33,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
   onCancel,
 }) => {
   const [expandRatios, setExpandRatios] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null);
-  const [selectedSizeLabel, setSelectedSizeLabel] = useState('常用尺寸');
+  const [_selectedSizeLabel, setSelectedSizeLabel] = useState('常用尺寸');
   const [frameBounds, setFrameBounds] = useState(imageBounds);
   const isDraggingRef = useRef(false);
   const hasCustomFrameRef = useRef(false);

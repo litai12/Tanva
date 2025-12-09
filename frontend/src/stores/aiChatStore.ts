@@ -109,7 +109,7 @@ const formatMessageContentForLog = (content: string): string => {
 
 const logChatConversationSnapshot = (messages: ChatMessage[]): void => {
   try {
-    const tail = messages.slice(-8).map((msg) => ({
+    const _tail = messages.slice(-8).map((msg) => ({
       id: msg.id,
       type: msg.type,
       provider: msg.provider,
@@ -290,7 +290,7 @@ const getResultImageRemoteUrl = (result?: AIImageResult | null): string | undefi
   return undefined;
 };
 
-const logProcessStep = (metrics: ProcessMetrics | undefined, label: string) => {
+const logProcessStep = (metrics: ProcessMetrics | undefined, _label: string) => {
   if (!metrics) return;
   const now = getTimestamp();
   metrics.lastStepTime = now;
@@ -4118,7 +4118,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             logProcessStep(metrics, 'invoking generateTextResponse');
-            const result = await store.generateTextResponse(parameters.prompt, { override: messageOverride, metrics });
+            await store.generateTextResponse(parameters.prompt, { override: messageOverride, metrics });
             logProcessStep(metrics, 'generateTextResponse finished');
           } catch (error) {
             console.error('❌ generateTextResponse 执行失败:', error);

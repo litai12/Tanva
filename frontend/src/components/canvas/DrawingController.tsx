@@ -4,7 +4,6 @@ import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Download, Trash2 } from 'luci
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
-import { useTextStore } from '@/stores/textStore';
 import ImageUploadComponent from './ImageUploadComponent';
 import Model3DUploadComponent from './Model3DUploadComponent';
 import Model3DContainer from './Model3DContainer';
@@ -180,7 +179,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
 
     // 监听 Paper.js 项目恢复事件
-    const handleProjectRecovery = (event: CustomEvent) => {
+    const handleProjectRecovery = (_event: CustomEvent) => {
       console.log('🔄 收到Paper.js项目恢复请求，重新初始化图层管理器...');
 
       try {
@@ -459,8 +458,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleDragOver = (event: DragEvent) => {
       if (!isEventInsideCanvas(event)) return;
       const items = Array.from(event.dataTransfer?.items || []);
-      const hasImageFile = items.some((item) => item.kind === 'file' && typeof item.type === 'string' && item.type.startsWith('image/'));
-      const hasPotentialUrl = items.some((item) => item.kind === 'string');
+      const _hasImageFile = items.some((item) => item.kind === 'file' && typeof item.type === 'string' && item.type.startsWith('image/'));
+      const _hasPotentialUrl = items.some((item) => item.kind === 'string');
       // 只要落在画布上且存在可处理的条目就阻止默认行为，避免浏览器打开文件
       event.preventDefault();
       try {

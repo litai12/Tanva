@@ -91,7 +91,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
           timestamp: item.timestamp,
         }) as ImageItem,
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [preview, projectId]);
 
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {

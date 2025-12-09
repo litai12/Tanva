@@ -62,6 +62,8 @@ export default function ManualSaveButton() {
       }
       setError(message);
       console.error('手动保存失败:', error);
+    } finally {
+      setSaving(false);
     }
   }, [markSaved, setError, setSaving]);
 

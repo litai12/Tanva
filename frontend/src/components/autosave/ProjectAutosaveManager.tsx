@@ -9,7 +9,6 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { useProjectStore } from '@/stores/projectStore';
 import { contextManager } from '@/services/contextManager';
-import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
 
 type ProjectAutosaveManagerProps = {
@@ -103,7 +102,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           };
 
           // 先尝试一次
-          let restored = await attempt();
+          const restored = await attempt();
           
           if (!restored) {
             // 监听全局 paper-ready 事件再试
@@ -242,7 +241,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     const handler = (event: BeforeUnloadEvent) => {
       if (!dirty) return;
       event.preventDefault();
-      // eslint-disable-next-line no-param-reassign
+       
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);

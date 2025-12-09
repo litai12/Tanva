@@ -6,7 +6,7 @@ import React, {
   useEffect,
 } from "react";
 import paper from "paper";
-import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
+import { useAIChatStore } from "@/stores/aiChatStore";
 import { useCanvasStore } from "@/stores";
 import {
   Sparkles,
@@ -22,18 +22,17 @@ import ImagePreviewModal, { type ImageItem } from "../ui/ImagePreviewModal";
 import backgroundRemovalService from "@/services/backgroundRemovalService";
 import { LoadingSpinner } from "../ui/loading-spinner";
 import { logger } from "@/utils/logger";
-import { cn } from "@/lib/utils";
 import { convert2Dto3D } from "@/services/convert2Dto3DService";
 import { uploadToOSS } from "@/services/ossUploadService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import type { Model3DData } from "@/services/model3DUploadService";
-import { optimizeHdImage } from "@/services/hdUpscaleService";
+// optimizeHdImage 已弃用，改用 aiImageService.editImage
 import { expandImage } from "@/services/expandImageService";
 import ExpandImageSelector from "./ExpandImageSelector";
 import { useToolStore } from "@/stores";
 import aiImageService from "@/services/aiImageService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
-import { loadImageElement, trimTransparentPng } from "@/utils/imageHelper";
+import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 
 const HD_UPSCALE_RESOLUTION: "4k" = "4k";
@@ -59,7 +58,7 @@ const normalizeImageSrc = (value?: string | null): string => {
   return `data:image/png;base64,${trimmed}`;
 };
 
-const composeExpandedImage = async (
+const _composeExpandedImage = async (
   sourceDataUrl: string,
   originalBounds: Bounds,
   targetBounds: Bounds
@@ -142,13 +141,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   bounds,
   isSelected = false,
   visible = true,
-  drawMode = "select",
-  isSelectionDragging = false,
+  drawMode: _drawMode = "select",
+  isSelectionDragging: _isSelectionDragging = false,
   layerIndex = 0,
-  onSelect,
-  onMove,
-  onResize,
-  onDelete,
+  onSelect: _onSelect,
+  onMove: _onMove,
+  onResize: _onResize,
+  onDelete: _onDelete,
   onToggleVisibility,
   getImageDataForEditing,
   showIndividualTools = true,
@@ -661,8 +660,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         try {
           logger.info("🎯 开始背景移除", { imageId: imageData.id });
 
-          // Step 1: 使用 Gemini editImage 预处理，将背景换成纯色
-          logger.info("📷 Step 1: Gemini 预处理 - 背景换成纯色");
+          // 使用 Gemini 2.5 Flash 模型进行预处理（速度更快）
+          const BG_REMOVAL_MODEL = "gemini-2.5-flash-image";
+          const BG_REMOVAL_PROVIDER = "banana-2.5";
+
+          logger.info("📷 Step 1: Gemini 2.5 预处理 - 背景换成纯色", {
+            aiProvider: BG_REMOVAL_PROVIDER,
+            model: BG_REMOVAL_MODEL
+          });
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: { message: "🔄 正在预处理图片...", type: "info" },
@@ -672,8 +677,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           const editResult = await aiImageService.editImage({
             prompt: "只保留完整的主体，背景换成纯色",
             sourceImage: baseImage,
-            model: "gemini-3-pro-image-preview",
-            aiProvider: "gemini-pro",
+            model: BG_REMOVAL_MODEL,
+            aiProvider: BG_REMOVAL_PROVIDER,
             outputFormat: "png",
             imageOnly: true,
           });
@@ -1027,59 +1032,62 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const execute = async () => {
         setIsOptimizingHd(true);
         try {
-          const imageUrl = await getProcessableImageUrl();
-          const resolutionLabel = HD_UPSCALE_RESOLUTION.toUpperCase();
+          // 获取图片数据
+          const baseImage = await resolveImageDataUrl();
+          if (!baseImage) {
+            throw new Error("无法获取原图");
+          }
 
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: `⏳ 开始高清放大（${resolutionLabel}），请稍候...`,
+                message: "⏳ 开始高清放大（4K），请稍候...",
                 type: "info",
               },
             })
           );
 
-          const result = await optimizeHdImage({
-            imageUrl,
-            resolution: HD_UPSCALE_RESOLUTION,
-            filenamePrefix: `optimize_HD_image_${HD_UPSCALE_RESOLUTION}`,
+          // 使用 Banana provider 进行高清放大（只有 Banana 支持 imageSize 参数）
+          const HD_UPSCALE_MODEL = "gemini-3-pro-image-preview";
+          const HD_UPSCALE_PROVIDER = "banana";
+
+          logger.info("📷 高清放大 - 使用 Banana editImage (4K)", {
+            aiProvider: HD_UPSCALE_PROVIDER,
+            model: HD_UPSCALE_MODEL,
+            imageSize: "4K"
           });
 
-          if (!result.success || !result.imageUrl) {
-            throw new Error(result.error || "高清放大失败");
+          const editResult = await aiImageService.editImage({
+            prompt: "高清放大这张图",
+            sourceImage: baseImage,
+            model: HD_UPSCALE_MODEL,
+            aiProvider: HD_UPSCALE_PROVIDER,
+            outputFormat: "png",
+            imageSize: "4K",
+            imageOnly: true,
+          });
+
+          if (!editResult.success || !editResult.data?.imageData) {
+            throw new Error(editResult.error?.message || "高清放大失败");
           }
 
-          const placementGap = Math.max(
-            32,
-            Math.min(120, realTimeBounds.width * 0.2)
-          );
-          const smartPosition = {
-            x: realTimeBounds.x + realTimeBounds.width + placementGap,
-            y: realTimeBounds.y + realTimeBounds.height / 2,
-          };
+          const resultImageData = editResult.data.imageData.startsWith("data:image")
+            ? editResult.data.imageData
+            : `data:image/png;base64,${editResult.data.imageData}`;
 
-          window.dispatchEvent(
-            new CustomEvent("triggerQuickImageUpload", {
-              detail: {
-                imageData: result.imageUrl,
-                fileName: `hd-${HD_UPSCALE_RESOLUTION}-${Date.now()}.png`,
-                selectedImageBounds: {
-                  x: realTimeBounds.x,
-                  y: realTimeBounds.y,
-                  width: realTimeBounds.width,
-                  height: realTimeBounds.height,
-                },
-                smartPosition,
-                operationType: "optimize-hd-image",
-                sourceImageId: imageData.id,
-              },
-            })
-          );
+          // 直接下载 4K 图片，不加载到画布
+          const fileName = `hd-4k-${Date.now()}.png`;
+          const link = document.createElement("a");
+          link.href = resultImageData;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
 
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: `✨ 高清放大完成（${resolutionLabel}）`,
+                message: "✨ 高清放大完成（4K），已下载",
                 type: "success",
               },
             })
@@ -1100,7 +1108,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       execute();
     },
-    [getProcessableImageUrl, imageData.id, isOptimizingHd, realTimeBounds]
+    [resolveImageDataUrl, imageData.id, isOptimizingHd, realTimeBounds]
   );
 
   // 处理扩图取消
@@ -1347,18 +1355,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               )}
             </Button>
 
-            {/* 高清放大按钮暂时隐藏
             <Button
               variant='outline'
               size='sm'
               disabled={isOptimizingHd}
               className={sharedButtonClass}
               onClick={handleOptimizeHdImage}
-              title={
-                isOptimizingHd
-                  ? "正在高清放大..."
-                  : `高清放大（${HD_UPSCALE_RESOLUTION.toUpperCase()}）`
-              }
+              title={isOptimizingHd ? "正在高清放大..." : "高清放大（4K）"}
               style={sharedButtonStyle}
             >
               {isOptimizingHd ? (
@@ -1367,7 +1370,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 <ImageUp className={sharedIconClass} />
               )}
             </Button>
-            */}
 
             <Button
               variant='outline'

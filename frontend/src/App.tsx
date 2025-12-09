@@ -3,10 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import Canvas from '@/pages/Canvas';
 import PromptOptimizerDemo from '@/pages/PromptOptimizerDemo';
 import Sora2Test from '@/pages/Sora2Test';
-import AccountBadge from '@/components/AccountBadge';
 import ProjectAutosaveManager from '@/components/autosave/ProjectAutosaveManager';
-import AutosaveStatus from '@/components/autosave/AutosaveStatus';
-import ManualSaveButton from '@/components/autosave/ManualSaveButton';
 import SaveDebugPanel from '@/components/autosave/SaveDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
@@ -30,6 +27,13 @@ const App: React.FC = () => {
     return search.includes('sora2-test') || hash.includes('sora2-test');
   });
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const paramProjectId = searchParams.get('projectId');
+  const currentProjectId = useProjectStore((state) => state.currentProjectId);
+
+  // 记录上一次打开的项目ID，避免重复打开
+  const lastOpenedProjectIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return undefined;
@@ -50,21 +54,6 @@ const App: React.FC = () => {
       window.removeEventListener('popstate', evaluate);
     };
   }, []);
-
-  if (showPromptDemo) {
-    return <PromptOptimizerDemo />;
-  }
-
-  if (showSora2Test) {
-    return <Sora2Test />;
-  }
-
-  const [searchParams, setSearchParams] = useSearchParams();
-  const paramProjectId = searchParams.get('projectId');
-  const currentProjectId = useProjectStore((state) => state.currentProjectId);
-
-  // 记录上一次打开的项目ID，避免重复打开
-  const lastOpenedProjectIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!paramProjectId) {
@@ -102,6 +91,15 @@ const App: React.FC = () => {
     next.set('projectId', currentProjectId);
     setSearchParams(next, { replace: true });
   }, [currentProjectId, paramProjectId, setSearchParams]);
+
+  // 条件渲染放在所有 Hooks 之后
+  if (showPromptDemo) {
+    return <PromptOptimizerDemo />;
+  }
+
+  if (showSora2Test) {
+    return <Sora2Test />;
+  }
 
   return (
     <div className="h-screen w-screen">

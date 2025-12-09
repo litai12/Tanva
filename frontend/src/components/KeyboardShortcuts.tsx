@@ -53,6 +53,11 @@ export default function KeyboardShortcuts() {
             ? '保存失败：内容过大，请尝试清理或拆分项目'
             : (raw || '保存失败');
           try { useProjectContentStore.getState().setError(msg); } catch {}
+        } finally {
+          const store = useProjectContentStore.getState();
+          if (store.projectId === storeBefore.projectId) {
+            store.setSaving(false);
+          }
         }
       }
     };

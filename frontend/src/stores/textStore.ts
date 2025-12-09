@@ -7,15 +7,13 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { logger } from '@/utils/logger';
-import type { 
-  TextInstance, 
-  TextStyle, 
+import type {
+  TextInstance,
+  TextStyle,
   TextToolState,
   TextHistoryRecord,
   TextOperation,
   CreateTextParams,
-  DEFAULT_TEXT_STYLE,
-  DEFAULT_TEXT_EDITOR_CONFIG,
   TextEditorConfig
 } from '@/types/text';
 import { DEFAULT_TEXT_STYLE as defaultStyle, DEFAULT_TEXT_EDITOR_CONFIG as defaultConfig } from '@/types/text';
@@ -542,10 +540,10 @@ export const useTextStore = create<TextState>()(
       const { history, historyIndex } = get();
       if (historyIndex < 0) return false;
 
-      const record = history[historyIndex];
+      const _record = history[historyIndex];
       // 这里应该实现撤销逻辑，恢复到beforeState
       // 简化版本，实际需要更复杂的实现
-      
+
       set(state => ({
         historyIndex: state.historyIndex - 1
       }));
@@ -558,7 +556,7 @@ export const useTextStore = create<TextState>()(
       const { history, historyIndex } = get();
       if (historyIndex >= history.length - 1) return false;
 
-      const record = history[historyIndex + 1];
+      const _record = history[historyIndex + 1];
       // 这里应该实现重做逻辑，恢复到afterState
       // 简化版本，实际需要更复杂的实现
 

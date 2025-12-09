@@ -34,7 +34,7 @@ export class PathObjectPool {
         // 无效对象直接删除
         try {
           path.remove();
-        } catch (e) {
+        } catch {
           // 忽略删除失败
         }
       }
@@ -53,7 +53,7 @@ export class PathObjectPool {
       // 无效对象直接删除
       try {
         path.remove();
-      } catch (e) {
+      } catch {
         // 忽略删除失败
       }
       return;
@@ -66,11 +66,11 @@ export class PathObjectPool {
       path.strokeColor = null;
       path.fillColor = null;
       path.data = {};
-    } catch (e) {
+    } catch {
       // 清理失败，删除对象
       try {
         path.remove();
-      } catch (e2) {
+      } catch {
         // 忽略
       }
       return;
@@ -84,7 +84,7 @@ export class PathObjectPool {
       // 池满了，直接删除
       try {
         path.remove();
-      } catch (e) {
+      } catch {
         // 忽略
       }
     }
@@ -111,7 +111,7 @@ export class PathObjectPool {
       }
 
       return true;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
@@ -142,7 +142,7 @@ export class PathObjectPool {
       } else {
         try {
           path.remove();
-        } catch (e) {
+        } catch {
           // 忽略
         }
         removedCount++;
@@ -157,7 +157,7 @@ export class PathObjectPool {
       toRemove.forEach(path => {
         try {
           path.remove();
-        } catch (e) {
+        } catch {
           // 忽略
         }
       });
@@ -178,7 +178,7 @@ export class PathObjectPool {
     for (const path of this.pool) {
       try {
         path.remove();
-      } catch (e) {
+      } catch {
         // 忽略
       }
     }

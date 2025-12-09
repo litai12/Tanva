@@ -15,7 +15,7 @@ export default function LoginPage() {
   const { login, loginWithSms, loading, error } = useAuthStore();
   const loadProjects = useProjectStore((s) => s.load);
 
-  const isMock = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_AUTH_MODE) === 'mock';
+  const _isMock = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_AUTH_MODE) === 'mock';
 
   const ensureProjectPrepared = async () => {
     await loadProjects();

@@ -317,7 +317,7 @@ class Sora2Service {
                 fullContent += content;
                 onChunk?.(content);
               }
-            } catch (e) {
+            } catch {
               console.debug('Failed to parse stream chunk:', jsonStr);
             }
           }
@@ -335,7 +335,7 @@ class Sora2Service {
               fullContent += content;
               onChunk?.(content);
             }
-          } catch (e) {
+          } catch {
             console.debug('Failed to parse final stream chunk:', jsonStr);
           }
         }

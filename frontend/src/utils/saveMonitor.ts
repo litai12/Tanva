@@ -42,7 +42,7 @@ export const saveMonitor = {
 export function attachGlobalDump() {
   try {
     (window as any).dumpSaveLog = (projectId: string) => {
-      // eslint-disable-next-line no-console
+       
       console.log('SaveEvents', saveMonitor.get(projectId));
     };
   } catch {}

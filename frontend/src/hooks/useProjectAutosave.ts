@@ -99,9 +99,10 @@ export function useProjectAutosave(projectId: string | null) {
       } else {
         // 重试次数用尽，设置错误状态
         setError(`${errorMessage} (已重试 ${MAX_RETRY_ATTEMPTS} 次)`);
-        setSaving(false);
         retryCountRef.current = 0;
       }
+    } finally {
+      setSaving(false);
     }
   };
 

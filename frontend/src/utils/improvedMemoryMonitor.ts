@@ -239,7 +239,7 @@ export class ImprovedMemoryMonitor {
       window.dispatchEvent(
         new CustomEvent(eventName, { detail: { stats: { ...this.stats } } })
       );
-    } catch (error) {
+    } catch {
       // 忽略自定义事件失败
     }
   }
