@@ -163,31 +163,30 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     showFlowPanel,
     flowUIEnabled,
     focusMode,
+    showTemplatePanel,
+    toggleTemplatePanel,
+    setShowTemplatePanel,
   } = useUIStore();
-  const [templatePanelOpen, setTemplatePanelOpen] = React.useState(false);
 
-  // 跟随 Flow 添加面板的可见性（外部关闭时同步，打开由按钮立即设置）
+  // 监听外部关闭模板面板（点击空白、ESC等）
   React.useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<any>)?.detail || {};
-      const visible = Boolean(detail.visible);
-      const allowedTabs = Array.isArray(detail.allowedTabs) ? detail.allowedTabs : undefined;
-      const tab = detail.tab;
-      if (!visible) {
-        setTemplatePanelOpen(false);
-        return;
+      if (!detail.visible) {
+        setShowTemplatePanel(false);
       }
-      const isNodesOnly = tab === 'nodes' || (allowedTabs && allowedTabs.length === 1 && allowedTabs[0] === 'nodes');
-      const isTemplateArea =
-        tab === 'templates' ||
-        tab === 'personal' ||
-        (allowedTabs && allowedTabs.some((t: string) => t === 'templates' || t === 'personal')) ||
-        (allowedTabs && allowedTabs.length > 0 && !allowedTabs.includes('nodes'));
-      setTemplatePanelOpen(!isNodesOnly && isTemplateArea);
     };
     window.addEventListener('flow:add-panel-visibility-change', handler as EventListener);
     return () => window.removeEventListener('flow:add-panel-visibility-change', handler as EventListener);
-  }, []);
+  }, [setShowTemplatePanel]);
+
+  // 当 store 状态变化时，同步到 FlowOverlay
+  React.useEffect(() => {
+    const detail = showTemplatePanel
+      ? { visible: true, tab: 'templates', scope: 'public', allowedTabs: ['templates', 'personal'] }
+      : { visible: false };
+    try { window.dispatchEvent(new CustomEvent('flow:set-template-panel', { detail })); } catch {}
+  }, [showTemplatePanel]);
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
@@ -741,20 +740,13 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* 模板库按钮 */}
       <Button
-        variant={templatePanelOpen ? 'default' : 'outline'}
+        variant={showTemplatePanel ? 'default' : 'outline'}
         size="sm"
         className={cn(
           "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(templatePanelOpen)
+          getActiveButtonStyle(showTemplatePanel)
         )}
-        onClick={() => {
-          const nextOpen = !templatePanelOpen;
-          setTemplatePanelOpen(nextOpen);
-          const detail = nextOpen
-            ? { visible: true, tab: 'templates', scope: 'public', allowedTabs: ['templates', 'personal'] }
-            : { visible: false };
-          try { window.dispatchEvent(new CustomEvent('flow:set-template-panel', { detail })); } catch {}
-        }}
+        onClick={toggleTemplatePanel}
         title="公共模板"
       >
         <BookOpen className="w-4 h-4" />

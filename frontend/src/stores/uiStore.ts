@@ -15,6 +15,7 @@ interface UIState {
   flowEraserActive: boolean; // 节点擦除工具开关（仅 Node 模式）
   focusMode: boolean; // 专注模式 - 仅隐藏顶部导航栏和 AI 对话框
   showSandboxPanel: boolean; // Paper.js 沙盒面板
+  showTemplatePanel: boolean; // 模板库面板
 
   // 智能落位配置
   smartPlacementOffset: number; // px，默认 778
@@ -33,6 +34,7 @@ interface UIState {
   setFlowEraser: (v: boolean) => void;
   toggleFocusMode: () => void;
   toggleSandboxPanel: () => void;
+  toggleTemplatePanel: () => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -43,6 +45,7 @@ interface UIState {
   setShowFlowPanel: (show: boolean) => void;
   setSmartPlacementOffset: (offset: number) => void;
   setShowSandboxPanel: (show: boolean) => void;
+  setShowTemplatePanel: (show: boolean) => void;
 }
 
 const initialOffset = (() => {
@@ -120,6 +123,7 @@ export const useUIStore = create<UIState>()(
       flowEraserActive: persistedUIPreferences?.flowEraserActive ?? false,
       focusMode: persistedUIPreferences?.focusMode ?? false,
       showSandboxPanel: persistedUIPreferences?.showSandboxPanel ?? false,
+      showTemplatePanel: false, // 模板面板默认关闭，不持久化
       smartPlacementOffset: persistedUIPreferences?.smartPlacementOffset ?? initialOffset,
 
       // 切换方法
@@ -136,6 +140,7 @@ export const useUIStore = create<UIState>()(
       setFlowEraser: (v) => set({ flowEraserActive: !!v }),
       toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
       toggleSandboxPanel: () => set((state) => ({ showSandboxPanel: !state.showSandboxPanel })),
+      toggleTemplatePanel: () => set((state) => ({ showTemplatePanel: !state.showTemplatePanel })),
 
       // 设置方法
       setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
@@ -145,6 +150,7 @@ export const useUIStore = create<UIState>()(
       setShowBounds: (show) => set({ showBounds: show }),
       setShowFlowPanel: (show) => set({ showFlowPanel: show }),
       setShowSandboxPanel: (show) => set({ showSandboxPanel: show }),
+      setShowTemplatePanel: (show) => set({ showTemplatePanel: show }),
       setSmartPlacementOffset: (offset) => set(() => {
         const v = Math.max(16, Math.min(4096, Math.round(offset)));
         try { if (typeof window !== 'undefined') localStorage.setItem('tanva-smart-offset', String(v)); } catch {}

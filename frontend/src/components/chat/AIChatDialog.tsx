@@ -1546,28 +1546,33 @@ const AIChatDialog: React.FC = () => {
     }
   };
 
-  // 外圈双击放大/缩小
-  // - 历史面板关闭时：只在顶部 20px 区域触发
-  // - 历史面板展开时：空白区域都可以触发最大化
-  // - 最大化时：空白区域都可以触发缩小
-  const handleOuterDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // 如果刚刚拖拽过，不触发双击事件
-    if (hasDraggedRef.current) return;
-    const y = e.clientY;
+  const shouldToggleByDblClick = (clientX: number, clientY: number, target?: HTMLElement | null) => {
     const card = dialogRef.current;
-    if (!card) return;
+    if (!card) return false;
+
     const cardRect = card.getBoundingClientRect();
+    const insideCard = clientX >= cardRect.left && clientX <= cardRect.right && clientY >= cardRect.top && clientY <= cardRect.bottom;
+    if (!insideCard) return false;
 
-    // 检查是否在交互元素上（不包含 data-history-ignore-toggle，允许在历史面板空白处双击）
-    const tgt = e.target as HTMLElement;
-    const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
-    if (interactive) return;
+    // 在交互控件上双击不触发（避免影响输入、按钮、图片等交互）
+    const interactive = target?.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+    if (interactive) return false;
 
-    const isInTopEdge = y >= cardRect.top && y <= cardRect.top + 20;
+    return true;
+  };
 
-    // 历史面板关闭时，只在顶部区域触发
-    if (!showHistory && !isMaximized && !isInTopEdge) return;
+  const cancelPendingHistoryToggle = () => {
+    if (historySingleClickTimerRef.current) {
+      window.clearTimeout(historySingleClickTimerRef.current);
+      historySingleClickTimerRef.current = null;
+    }
+  };
 
+  // 外圈双击放大/缩小 - 放宽触发区域：在对话框任意非交互区域双击即可切换
+  const handleOuterDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (hasDraggedRef.current) return;
+    if (!shouldToggleByDblClick(e.clientX, e.clientY, e.target as HTMLElement | null)) return;
+    cancelPendingHistoryToggle();
     setIsMaximized(!isMaximized);
   };
 
@@ -1582,36 +1587,19 @@ const AIChatDialog: React.FC = () => {
 
     const card = dialogRef.current;
     if (!card) return;
-    const cardRect = card.getBoundingClientRect();
-    const y = e.clientY;
-
-    const isInTopEdge = y >= cardRect.top && y <= cardRect.top + 20;
-
-    if (historySingleClickTimerRef.current) {
-      window.clearTimeout(historySingleClickTimerRef.current);
-      historySingleClickTimerRef.current = null;
-    }
+    cancelPendingHistoryToggle();
     suppressHistoryClickRef.current = true;
     const target = e.target as HTMLElement;
-    // 忽略在交互控件上的双击（但仍阻止冒泡，防误触画布）
-    // 不包含 data-history-ignore-toggle，允许在历史面板空白处双击
-    const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
     e.preventDefault();
     e.stopPropagation();
     // 尽力阻断同层监听
     // @ts-ignore
     e.nativeEvent?.stopImmediatePropagation?.();
-    if (interactive) {
+    if (!shouldToggleByDblClick(e.clientX, e.clientY, target)) {
       suppressHistoryClickRef.current = false;
       return;
     }
-    // 历史面板关闭时，只在顶部区域触发
-    // 历史面板展开或最大化时，空白区域都可触发
-    if (!showHistory && !isMaximized && !isInTopEdge) {
-      suppressHistoryClickRef.current = false;
-      return;
-    }
-    // 双击切换大小
+
     setIsMaximized(!isMaximized);
     suppressHistoryClickRef.current = false;
   };
@@ -1619,9 +1607,6 @@ const AIChatDialog: React.FC = () => {
   // 全局兜底：根据状态决定双击触发区域
   // 注意：Hook 需在任何 early return 之前声明，避免 Hook 次序不一致
   useEffect(() => {
-    const showHistoryNow = showHistoryRef.current;
-    const isMaximizedNow = isMaximizedRef.current;
-
     const onDbl = (ev: MouseEvent) => {
       // 如果刚刚拖拽过，不触发双击事件
       if (hasDraggedRef.current) return;
@@ -1629,22 +1614,13 @@ const AIChatDialog: React.FC = () => {
       if (!card) return;
       const x = ev.clientX, y = ev.clientY;
       const r = card.getBoundingClientRect();
-
       const insideCard = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-      const isInTopEdge = y >= r.top && y <= r.top + 20;
 
       const tgt = ev.target as HTMLElement;
-      // 不包含 data-history-ignore-toggle，允许在历史面板空白处双击
-      const interactive = tgt.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
+      const shouldToggle = shouldToggleByDblClick(x, y, tgt);
 
-      if (insideCard && !interactive) {
-        // 历史面板关闭时，只在顶部区域触发
-        // 历史面板展开或最大化时，空白区域都可触发
-        const showHistoryCurrent = showHistoryRef.current;
-        const isMaximizedCurrent = isMaximizedRef.current;
-        if (!showHistoryCurrent && !isMaximizedCurrent && !isInTopEdge) {
-          return;
-        }
+      if (shouldToggle) {
+        cancelPendingHistoryToggle();
         ev.stopPropagation();
         ev.preventDefault();
         setIsMaximized(!isMaximizedRef.current);
@@ -1722,31 +1698,15 @@ const AIChatDialog: React.FC = () => {
 
       const card = dialogRef.current;
       if (!card) return;
-      const y = ev.clientY;
-      const r = card.getBoundingClientRect();
-
-      const isInTopEdge = y >= r.top && y <= r.top + 20;
-
       const target = ev.target as HTMLElement;
-      // 不包含 data-history-ignore-toggle，允许在历史面板空白处双击
-      const interactive = target.closest('textarea, input, button, a, img, [role="textbox"], [contenteditable="true"]');
-      if (interactive) {
-        // 在交互控件上双击：只阻止冒泡，不切换
+      const shouldToggle = shouldToggleByDblClick(ev.clientX, ev.clientY, target);
+
+      if (shouldToggle) {
+        cancelPendingHistoryToggle();
         ev.stopPropagation();
-        return;
+        ev.preventDefault();
+        setIsMaximized(!isMaximizedRef.current);
       }
-
-      ev.stopPropagation();
-      ev.preventDefault();
-
-      // 历史面板关闭时，只在顶部区域触发
-      // 历史面板展开或最大化时，空白区域都可触发
-      const showHistoryCurrent = showHistoryRef.current;
-      const isMaximizedCurrent = isMaximizedRef.current;
-      if (!showHistoryCurrent && !isMaximizedCurrent && !isInTopEdge) {
-        return;
-      }
-      setIsMaximized(!isMaximizedRef.current);
     };
     const el = containerRef.current;
     if (el) el.addEventListener('dblclick', handler, true);

@@ -188,6 +188,80 @@ const RUNNINGHUB_WEBAPP_ID = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID;
 const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
 const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
 const VIDEO_FETCH_TIMEOUT_MS = 60000;
+const DEFAULT_PLACEHOLDER_EDGE = 768;
+const MIN_PLACEHOLDER_EDGE = 96;
+
+type PlaceholderSpec = {
+  placeholderId: string;
+  center: { x: number; y: number };
+  width: number;
+  height: number;
+  operationType?: string;
+};
+
+const parseAspectRatioValue = (ratio?: string | null): number | null => {
+  if (!ratio) return null;
+  const parts = ratio.split(':').map((v) => Number(v));
+  if (parts.length !== 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1]) || parts[0] <= 0 || parts[1] <= 0) {
+    return null;
+  }
+  return parts[0] / parts[1];
+};
+
+const estimatePlaceholderSize = (params: {
+  aspectRatio?: string | null;
+  imageSize?: '1K' | '2K' | '4K' | null;
+  fallbackBounds?: { width: number; height: number } | null;
+}): { width: number; height: number } => {
+  if (params.fallbackBounds && params.fallbackBounds.width > 0 && params.fallbackBounds.height > 0) {
+    return { width: params.fallbackBounds.width, height: params.fallbackBounds.height };
+  }
+
+  const ratio = parseAspectRatioValue(params.aspectRatio) || 1;
+  let baseEdge = DEFAULT_PLACEHOLDER_EDGE;
+
+  if (params.imageSize === '2K') {
+    baseEdge = DEFAULT_PLACEHOLDER_EDGE * 1.1;
+  } else if (params.imageSize === '4K') {
+    baseEdge = DEFAULT_PLACEHOLDER_EDGE * 1.25;
+  }
+
+  if (ratio >= 1) {
+    return {
+      width: baseEdge,
+      height: Math.max(MIN_PLACEHOLDER_EDGE, baseEdge / ratio)
+    };
+  }
+
+  return {
+    width: Math.max(MIN_PLACEHOLDER_EDGE, baseEdge * ratio),
+    height: baseEdge
+  };
+};
+
+const getViewCenter = (): { x: number; y: number } | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const paperView = (window as any)?.paper?.view;
+    if (paperView?.center) {
+      return { x: paperView.center.x, y: paperView.center.y };
+    }
+  } catch {}
+  return null;
+};
+
+const dispatchPlaceholderEvent = (placeholder: PlaceholderSpec, action: 'add' | 'remove' = 'add') => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('predictImagePlaceholder', {
+      detail: action === 'add'
+        ? { ...placeholder, action }
+        : { placeholderId: placeholder.placeholderId, action }
+    }));
+  } catch (error) {
+    console.warn('⚠️ 派发占位符事件失败', error);
+  }
+};
 
 type VideoPosterBuildResult = {
   dataUrl: string;
@@ -1775,6 +1849,49 @@ export const useAIChatStore = create<AIChatState>()(
       return;
     }
 
+    const placeholderId = `ai-placeholder-${aiMessageId}`;
+    const removePredictivePlaceholder = () => {
+      dispatchPlaceholderEvent({
+        placeholderId,
+        center: { x: 0, y: 0 },
+        width: 0,
+        height: 0,
+        operationType: 'generate'
+      }, 'remove');
+    };
+
+    try {
+      const cached = contextManager.getCachedImage();
+      const offset = useUIStore.getState().smartPlacementOffset || 778;
+      let center: { x: number; y: number } | null = null;
+
+      if (cached?.bounds) {
+        center = {
+          x: cached.bounds.x + cached.bounds.width / 2,
+          y: cached.bounds.y + cached.bounds.height / 2 + offset
+        };
+      } else {
+        center = getViewCenter();
+      }
+
+      if (center) {
+        const size = estimatePlaceholderSize({
+          aspectRatio: state.aspectRatio,
+          imageSize: state.imageSize,
+          fallbackBounds: cached?.bounds ?? null
+        });
+        dispatchPlaceholderEvent({
+          placeholderId,
+          center,
+          width: size.width,
+          height: size.height,
+          operationType: 'generate'
+        });
+      }
+    } catch (error) {
+      console.warn('⚠️ 预测占位符生成失败', error);
+    }
+
     let progressInterval: ReturnType<typeof setInterval> | null = null;
     try {
       // 🔥 使用消息级别的进度更新
@@ -1958,6 +2075,7 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 如果没有图像，记录详细原因并返回
         if (!result.data.hasImage) {
+          removePredictivePlaceholder();
           return;
         }
 
@@ -1998,6 +2116,7 @@ export const useAIChatStore = create<AIChatState>()(
         // 自动添加到画布中央 - 使用快速上传工具的逻辑（仅当有图像时）
         const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
           if (!inlineData) {
+            removePredictivePlaceholder();
             return;
           }
 
@@ -2029,7 +2148,8 @@ export const useAIChatStore = create<AIChatState>()(
               operationType: 'generate',
               smartPosition,
               sourceImageId: undefined,
-              sourceImages: undefined
+              sourceImages: undefined,
+              placeholderId
             }
           }));
         };
@@ -2060,6 +2180,7 @@ export const useAIChatStore = create<AIChatState>()(
         });
 
         console.error('❌ 图像生成失败:', errorMessage);
+        removePredictivePlaceholder();
       }
 
     } catch (error) {
@@ -2073,6 +2194,7 @@ export const useAIChatStore = create<AIChatState>()(
       });
 
       console.error('❌ 图像生成异常:', error);
+      removePredictivePlaceholder();
     } finally {
       if (progressInterval) clearInterval(progressInterval);
       // 🔥 无论成功失败，都减少正在生成的图片计数
@@ -2152,6 +2274,65 @@ export const useAIChatStore = create<AIChatState>()(
     if (!aiMessageId) {
       console.error('❌ 无法获取AI消息ID');
       return;
+    }
+
+    const placeholderId = `ai-placeholder-${aiMessageId}`;
+    const removePredictivePlaceholder = () => {
+      dispatchPlaceholderEvent({
+        placeholderId,
+        center: { x: 0, y: 0 },
+        width: 0,
+        height: 0,
+        operationType: 'edit'
+      }, 'remove');
+    };
+
+    try {
+      let selectedImageBounds: { x: number; y: number; width: number; height: number } | null = null;
+      try {
+        if ((window as any).tanvaImageInstances) {
+          const selectedImage = (window as any).tanvaImageInstances.find((img: any) => img.isSelected);
+          if (selectedImage?.bounds) {
+            selectedImageBounds = selectedImage.bounds;
+          }
+        }
+      } catch {}
+
+      const cached = contextManager.getCachedImage();
+      const offset = useUIStore.getState().smartPlacementOffset || 778;
+      let center: { x: number; y: number } | null = null;
+
+      if (cached?.bounds) {
+        center = {
+          x: cached.bounds.x + cached.bounds.width / 2 + offset,
+          y: cached.bounds.y + cached.bounds.height / 2
+        };
+      } else if (selectedImageBounds) {
+        center = {
+          x: selectedImageBounds.x + selectedImageBounds.width / 2 + offset,
+          y: selectedImageBounds.y + selectedImageBounds.height / 2
+        };
+      } else {
+        center = getViewCenter();
+      }
+
+      if (center) {
+        const size = estimatePlaceholderSize({
+          aspectRatio: state.aspectRatio,
+          imageSize: state.imageSize,
+          fallbackBounds: selectedImageBounds ?? cached?.bounds ?? null
+        });
+
+        dispatchPlaceholderEvent({
+          placeholderId,
+          center,
+          width: size.width,
+          height: size.height,
+          operationType: 'edit'
+        });
+      }
+    } catch (error) {
+      console.warn('⚠️ 预测编辑占位符生成失败', error);
     }
 
     logProcessStep(metrics, 'editImage message prepared');
@@ -2343,12 +2524,14 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 如果没有图像，记录原因并返回
         if (!result.data.hasImage) {
+          removePredictivePlaceholder();
           return;
         }
 
         // 自动添加到画布
         const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
           if (!inlineData) {
+            removePredictivePlaceholder();
             return;
           }
           
@@ -2400,7 +2583,8 @@ export const useAIChatStore = create<AIChatState>()(
               operationType: 'edit',
               smartPosition,
               sourceImageId: sourceImageId,
-              sourceImages: undefined
+              sourceImages: undefined,
+              placeholderId
             }
           }));
         };
@@ -2430,6 +2614,7 @@ export const useAIChatStore = create<AIChatState>()(
         });
 
         console.error('❌ 图像编辑失败:', errorMessage);
+        removePredictivePlaceholder();
       }
 
     } catch (error) {
@@ -2450,6 +2635,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       console.error('❌ 图像编辑异常:', error);
       logProcessStep(metrics, 'editImage failed');
+      removePredictivePlaceholder();
     }
   },
 
@@ -2528,6 +2714,50 @@ export const useAIChatStore = create<AIChatState>()(
       return;
     }
     logProcessStep(metrics, 'blendImages message prepared');
+
+    const placeholderId = `ai-placeholder-${aiMessageId}`;
+    const removePredictivePlaceholder = () => {
+      dispatchPlaceholderEvent({
+        placeholderId,
+        center: { x: 0, y: 0 },
+        width: 0,
+        height: 0,
+        operationType: 'blend'
+      }, 'remove');
+    };
+
+    try {
+      const cached = contextManager.getCachedImage();
+      const offset = useUIStore.getState().smartPlacementOffset || 778;
+      let center: { x: number; y: number } | null = null;
+
+      if (cached?.bounds) {
+        center = {
+          x: cached.bounds.x + cached.bounds.width / 2 + offset,
+          y: cached.bounds.y + cached.bounds.height / 2
+        };
+      } else {
+        center = getViewCenter();
+      }
+
+      if (center) {
+        const size = estimatePlaceholderSize({
+          aspectRatio: state.aspectRatio,
+          imageSize: state.imageSize,
+          fallbackBounds: cached?.bounds ?? null
+        });
+
+        dispatchPlaceholderEvent({
+          placeholderId,
+          center,
+          width: size.width,
+          height: size.height,
+          operationType: 'blend'
+        });
+      }
+    } catch (error) {
+      console.warn('⚠️ 预测融合占位符生成失败', error);
+    }
 
     try {
       // 🔥 使用消息级别的进度更新
@@ -2652,11 +2882,13 @@ export const useAIChatStore = create<AIChatState>()(
         logProcessStep(metrics, 'blendImages history recorded');
 
         if (!result.data.hasImage) {
+          removePredictivePlaceholder();
           return;
         }
 
         const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
           if (!inlineData) {
+            removePredictivePlaceholder();
             return;
           }
           
@@ -2696,7 +2928,8 @@ export const useAIChatStore = create<AIChatState>()(
                 return undefined;
               })(),
               sourceImageId: undefined,
-              sourceImages: sourceImageIds.length > 0 ? sourceImageIds : undefined
+              sourceImages: sourceImageIds.length > 0 ? sourceImageIds : undefined,
+              placeholderId
             }
           }));
         };
@@ -2725,6 +2958,7 @@ export const useAIChatStore = create<AIChatState>()(
         });
 
         console.error('❌ 图像融合失败:', errorMessage);
+        removePredictivePlaceholder();
       }
 
     } catch (error) {
@@ -2738,6 +2972,7 @@ export const useAIChatStore = create<AIChatState>()(
 
       console.error('❌ 图像融合异常:', error);
       logProcessStep(metrics, 'blendImages failed');
+      removePredictivePlaceholder();
     }
   },
 

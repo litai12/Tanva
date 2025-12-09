@@ -36,6 +36,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         expectedHeight: number;
         x: number;
         y: number;
+        placeholderId?: string;
         videoInfo?: {
             videoUrl: string;
             sourceUrl?: string;
@@ -47,6 +48,102 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     };
 
     const pendingImagesRef = useRef<Array<PendingImageEntry>>([]);
+    const predictedPlaceholdersRef = useRef<Map<string, paper.Item>>(new Map());
+
+    const upsertPendingImage = useCallback((entry: PendingImageEntry) => {
+        if (!entry?.id) return;
+        const list = pendingImagesRef.current;
+        const index = list.findIndex((item) => item.id === entry.id);
+        if (index >= 0) {
+            list[index] = { ...list[index], ...entry };
+        } else {
+            list.push(entry);
+        }
+    }, []);
+
+    const removePendingImage = useCallback((id?: string) => {
+        if (!id) return;
+        pendingImagesRef.current = pendingImagesRef.current.filter((item) => item.id !== id);
+    }, []);
+
+    const removePredictedPlaceholder = useCallback((placeholderId: string | undefined | null) => {
+        if (!placeholderId) return;
+        const existing = predictedPlaceholdersRef.current.get(placeholderId);
+        if (existing && existing.parent) {
+            existing.remove();
+        }
+        predictedPlaceholdersRef.current.delete(placeholderId);
+        removePendingImage(placeholderId);
+    }, [removePendingImage]);
+
+    const showPredictedPlaceholder = useCallback((params: {
+        placeholderId: string;
+        center: { x: number; y: number };
+        width: number;
+        height: number;
+        operationType?: string;
+    }) => {
+        if (!params?.placeholderId || !params.center) return;
+        if (!paper.project || !paper.view) return;
+
+        ensureDrawingLayer();
+
+        // 清理旧的同ID占位符
+        removePredictedPlaceholder(params.placeholderId);
+
+        const minSize = 48;
+        const width = Math.max(params.width || 0, minSize);
+        const height = Math.max(params.height || 0, minSize);
+        const centerPoint = new paper.Point(params.center.x, params.center.y);
+
+        const rect = new paper.Path.Rectangle({
+            rectangle: new paper.Rectangle(
+                centerPoint.subtract([width / 2, height / 2]),
+                new paper.Size(width, height)
+            ),
+            strokeColor: new paper.Color('#60a5fa'),
+            dashArray: [10, 8],
+            strokeWidth: 1.2,
+            fillColor: new paper.Color(0.9, 0.95, 1, 0.35)
+        });
+
+        const label = new paper.PointText({
+            point: centerPoint.add([0, Math.min(height / 2 - 10, 32)]),
+            content: '生成中...',
+            justification: 'center',
+            fillColor: new paper.Color('#2563eb'),
+            fontSize: Math.max(12, Math.min(16, width * 0.035))
+        });
+
+        const group = new paper.Group([rect, label]);
+        group.position = centerPoint;
+        group.locked = true;
+        group.data = {
+            type: 'image-placeholder',
+            placeholderId: params.placeholderId,
+            bounds: {
+                x: centerPoint.x - width / 2,
+                y: centerPoint.y - height / 2,
+                width,
+                height
+            },
+            isHelper: true,
+            placeholderSource: 'ai-predict',
+            operationType: params.operationType
+        };
+
+        predictedPlaceholdersRef.current.set(params.placeholderId, group);
+        upsertPendingImage({
+            id: params.placeholderId,
+            expectedWidth: width,
+            expectedHeight: height,
+            x: centerPoint.x,
+            y: centerPoint.y,
+            operationType: params.operationType
+        });
+
+        paper.view.update();
+    }, [ensureDrawingLayer, removePredictedPlaceholder, upsertPendingImage]);
 
     // ========== 智能排版工具函数 ==========
     
@@ -245,15 +342,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     }, [getAllCanvasImages, findImageById]);
 
     // ========== 查找画布中的图片占位框 ==========
-    const findImagePlaceholder = useCallback(() => {
+    const findImagePlaceholder = useCallback((placeholderId?: string) => {
         try {
+            if (placeholderId) {
+                const existing = predictedPlaceholdersRef.current.get(placeholderId);
+                if (existing) return existing;
+            }
+
             if (!paper.project) return null;
 
             // 遍历所有图层查找占位框
             for (const layer of paper.project.layers) {
                 for (const item of layer.children) {
                     if (item.data?.type === 'image-placeholder' && item.data?.bounds) {
-                        return item;
+                        if (!placeholderId || item.data?.placeholderId === placeholderId) {
+                            return item;
+                        }
                     }
                 }
             }
@@ -275,6 +379,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         sourceImages?: string[],
         extraOptions?: {
             videoInfo?: PendingImageEntry['videoInfo'];
+            placeholderId?: string;
         }
     ) => {
         let asset: StoredImageAsset | null = null;
@@ -322,8 +427,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         try {
             ensureDrawingLayer();
 
-            const imageId = asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const expectedSize = 768;
+            const placeholderId = extraOptions?.placeholderId;
+            const placeholder = findImagePlaceholder(placeholderId);
+            const placeholderBounds = placeholder?.data?.bounds;
+            const imageId = placeholderId || asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const defaultExpectedSize = 768;
+            const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
+            const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
             let targetPosition: paper.Point;
             let pendingEntry: PendingImageEntry | null = null;
@@ -332,20 +442,31 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const entry: PendingImageEntry = {
                     id: imageId,
                     operationType: pendingOperationType,
-                    expectedWidth: expectedSize,
-                    expectedHeight: expectedSize,
+                    expectedWidth,
+                    expectedHeight,
                     x: initialPoint?.x ?? 0,
                     y: initialPoint?.y ?? 0,
-                    videoInfo: extraOptions?.videoInfo
+                    videoInfo: extraOptions?.videoInfo,
+                    placeholderId
                 };
-                pendingImagesRef.current.push(entry);
+                upsertPendingImage(entry);
                 return entry;
             };
+
+            const placeholderCenter = placeholderBounds
+                ? new paper.Point(
+                    placeholderBounds.x + placeholderBounds.width / 2,
+                    placeholderBounds.y + placeholderBounds.height / 2
+                  )
+                : null;
+
+            const baseWidth = expectedWidth;
+            const baseHeight = expectedHeight;
 
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
                 pendingEntry = registerPending(desiredPoint);
-                const adjustedPoint = findNonOverlappingPosition(desiredPoint, expectedSize, expectedSize, pendingOperationType, imageId);
+                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, pendingOperationType, imageId);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -356,6 +477,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 } else {
                     logger.upload(`📍 快速上传：使用智能位置 (${adjustedPoint.x}, ${adjustedPoint.y})`);
                 }
+            } else if (placeholderCenter) {
+                pendingEntry = registerPending(placeholderCenter);
+                const adjustedPoint = findNonOverlappingPosition(placeholderCenter, baseWidth, baseHeight, pendingOperationType, imageId);
+                targetPosition = adjustedPoint;
+                if (pendingEntry) {
+                    pendingEntry.x = adjustedPoint.x;
+                    pendingEntry.y = adjustedPoint.y;
+                }
+                if (!placeholderCenter.equals(adjustedPoint)) {
+                    logger.upload(`📍 快速上传：占位符位置冲突，已调整至 (${adjustedPoint.x.toFixed(1)}, ${adjustedPoint.y.toFixed(1)})`);
+                } else {
+                    logger.upload(`📍 快速上传：使用占位符位置 (${adjustedPoint.x.toFixed(1)}, ${adjustedPoint.y.toFixed(1)})`);
+                }
             } else if (operationType) {
                 pendingEntry = registerPending(null);
                 const calculated = calculateSmartPosition(operationType, sourceImageId, sourceImages, imageId);
@@ -364,7 +498,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     pendingEntry.x = desiredPoint.x;
                     pendingEntry.y = desiredPoint.y;
                 }
-                const adjustedPoint = findNonOverlappingPosition(desiredPoint, expectedSize, expectedSize, operationType, imageId);
+                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, operationType, imageId);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -381,7 +515,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     : new paper.Point(0, 0);
                 const centerPoint = new paper.Point(centerSource.x, centerSource.y);
                 pendingEntry = registerPending(centerPoint);
-                const adjustedPoint = findNonOverlappingPosition(centerPoint, expectedSize, expectedSize, 'manual', imageId);
+                const adjustedPoint = findNonOverlappingPosition(centerPoint, baseWidth, baseHeight, 'manual', imageId);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -485,7 +619,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 // 🎯 优先使用传递的选中图片边界，其次查找占位框
                 let targetBounds = selectedImageBounds;
                 if (!targetBounds) {
-                    placeholder = findImagePlaceholder();
+                    placeholder = findImagePlaceholder(placeholderId);
                     if (placeholder && placeholder.data?.bounds) {
                         targetBounds = placeholder.data.bounds;
                     }
@@ -532,7 +666,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     }
 
                     // 删除占位框（如果存在）
-                    if (placeholder) {
+                    if (placeholderId) {
+                        removePredictedPlaceholder(placeholderId);
+                    } else if (placeholder) {
                         placeholder.remove();
                         logger.upload('🗑️ 已删除占位框');
                     }
@@ -710,6 +846,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 } catch (e) {
                     // 忽略自动居中错误
                 }
+                if (placeholderId) {
+                    removePredictedPlaceholder(placeholderId);
+                }
                 paper.view.update();
             };
 
@@ -717,6 +856,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 // 移除加载指示器
                 removeLoadingIndicator();
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
+                if (placeholderId) {
+                    removePredictedPlaceholder(placeholderId);
+                }
                 logger.error('图片加载失败');
             };
 
@@ -726,7 +868,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             logger.error('快速上传图片时出错:', error);
             console.error('快速上传图片时出错:', error);
         }
-    }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, findNonOverlappingPosition, projectId]);
+    }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, findNonOverlappingPosition, projectId, removePredictedPlaceholder, upsertPendingImage]);
 
     // 处理上传错误
     const handleQuickUploadError = useCallback((error: string) => {
@@ -749,6 +891,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         handleQuickImageUploaded,
         handleQuickUploadError,
         handleQuickUploadTriggerHandled,
+        showPredictedPlaceholder,
+        removePredictedPlaceholder,
         // 智能排版相关函数
         calculateSmartPosition,
         getAllCanvasImages,

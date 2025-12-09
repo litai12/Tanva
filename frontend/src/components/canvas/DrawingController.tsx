@@ -530,7 +530,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         operationType,
         sourceImageId,
         sourceImages,
-        videoInfo
+        videoInfo,
+        placeholderId
       } = event.detail;
       
       logger.debug('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { 
@@ -552,7 +553,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           operationType,
           sourceImageId,
           sourceImages,
-          { videoInfo }
+          { videoInfo, placeholderId }
         );
         logger.debug('✅ [DEBUG] 已调用智能排版快速上传处理函数');
       }
@@ -562,6 +563,42 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     return () => {
       window.removeEventListener('triggerQuickImageUpload', handleTriggerQuickUpload as EventListener);
+    };
+  }, [quickImageUpload]);
+
+  // 监听预测占位符事件，提前在画布上标记预计位置与尺寸
+  useEffect(() => {
+    const handlePredictPlaceholder = (event: CustomEvent) => {
+      const detail = event.detail || {};
+      const action = detail.action || 'add';
+      const placeholderId = detail.placeholderId as string | undefined;
+
+      if (!placeholderId) return;
+
+      if (action === 'remove') {
+        quickImageUpload.removePredictedPlaceholder(placeholderId);
+        return;
+      }
+
+      const center = detail.center as { x: number; y: number } | undefined;
+      const width = detail.width as number | undefined;
+      const height = detail.height as number | undefined;
+      const operationType = detail.operationType as string | undefined;
+
+      if (!center || typeof width !== 'number' || typeof height !== 'number') return;
+
+      quickImageUpload.showPredictedPlaceholder({
+        placeholderId,
+        center,
+        width,
+        height,
+        operationType
+      });
+    };
+
+    window.addEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
+    return () => {
+      window.removeEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
     };
   }, [quickImageUpload]);
 
