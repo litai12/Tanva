@@ -97,121 +97,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         }
     }, []);
 
-    const showPredictedPlaceholder = useCallback((params: {
-        placeholderId: string;
-        center: { x: number; y: number };
-        width: number;
-        height: number;
-        operationType?: string;
-        retries?: number;
-    }) => {
-        if (!params?.placeholderId || !params.center) return;
-
-        if (!paper.project || !paper.view) {
-            const retries = typeof params.retries === 'number' ? params.retries : 4;
-            if (retries > 0) {
-                setTimeout(() => showPredictedPlaceholder({ ...params, retries: retries - 1 }), 180);
-            }
-            return;
-        }
-
-        ensureDrawingLayer();
-
-        // 清理旧的同ID占位符
-        removePredictedPlaceholder(params.placeholderId);
-
-        const minSize = 48;
-        const width = Math.max(params.width || 0, minSize);
-        const height = Math.max(params.height || 0, minSize);
-        const centerPoint = new paper.Point(params.center.x, params.center.y);
-
-        const rect = new paper.Path.Rectangle({
-            rectangle: new paper.Rectangle(
-                centerPoint.subtract([width / 2, height / 2]),
-                new paper.Size(width, height)
-            ),
-            strokeColor: new paper.Color('#60a5fa'),
-            dashArray: [10, 8],
-            strokeWidth: 1.2,
-            fillColor: new paper.Color(0.9, 0.95, 1, 0.35)
-        });
-
-        // 创建加载动画圆弧
-        const spinnerRadius = Math.min(width, height) * 0.08;
-        const spinnerCenter = centerPoint.subtract([0, height * 0.1]);
-        const spinner = new paper.Path.Arc({
-            from: spinnerCenter.add([0, -spinnerRadius]),
-            through: spinnerCenter.add([spinnerRadius, 0]),
-            to: spinnerCenter.add([0, spinnerRadius]),
-            strokeColor: new paper.Color('#3b82f6'),
-            strokeWidth: 2.5,
-            strokeCap: 'round'
-        });
-
-        const label = new paper.PointText({
-            point: centerPoint.add([0, height * 0.15]),
-            content: '正在生成',
-            justification: 'center',
-            fillColor: new paper.Color('#2563eb'),
-            fontSize: Math.max(12, Math.min(16, width * 0.035)),
-            fontWeight: 'bold'
-        });
-
-        const progressLabel = new paper.PointText({
-            point: centerPoint.add([0, height * 0.25]),
-            content: '0%',
-            justification: 'center',
-            fillColor: new paper.Color('#60a5fa'),
-            fontSize: Math.max(10, Math.min(14, width * 0.03))
-        });
-
-        const group = new paper.Group([rect, spinner, label, progressLabel]);
-        group.position = centerPoint;
-        group.locked = true;
-        group.data = {
-            type: 'image-placeholder',
-            placeholderId: params.placeholderId,
-            bounds: {
-                x: centerPoint.x - width / 2,
-                y: centerPoint.y - height / 2,
-                width,
-                height
-            },
-            isHelper: true,
-            placeholderSource: 'ai-predict',
-            operationType: params.operationType,
-            spinnerElement: spinner,
-            progressLabelElement: progressLabel
-        };
-
-        // 启动旋转动画
-        let animationFrameId: number | null = null;
-        const animateSpinner = () => {
-            if (spinner && spinner.parent && group.parent) {
-                spinner.rotate(8, spinnerCenter);
-                paper.view.update();
-                animationFrameId = requestAnimationFrame(animateSpinner);
-            }
-        };
-        animationFrameId = requestAnimationFrame(animateSpinner);
-
-        // 存储动画ID以便清理
-        (group as any)._spinnerAnimationId = animationFrameId;
-
-        predictedPlaceholdersRef.current.set(params.placeholderId, group);
-        upsertPendingImage({
-            id: params.placeholderId,
-            expectedWidth: width,
-            expectedHeight: height,
-            x: centerPoint.x,
-            y: centerPoint.y,
-            operationType: params.operationType,
-            placeholderId: params.placeholderId
-        });
-
-        paper.view.update();
-    }, [ensureDrawingLayer, removePredictedPlaceholder, upsertPendingImage]);
-
     // ========== 智能排版工具函数 ==========
     
     // 获取画布上所有图像的位置信息（包括正在加载中的）
@@ -407,6 +292,167 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 return defaultPosition;
         }
     }, [getAllCanvasImages, findImageById]);
+
+    const showPredictedPlaceholder = useCallback((params: {
+        placeholderId: string;
+        center?: { x: number; y: number } | null;
+        width: number;
+        height: number;
+        operationType?: string;
+        retries?: number;
+        preferSmartLayout?: boolean;
+        smartPosition?: { x: number; y: number };
+        sourceImageId?: string;
+        sourceImages?: string[];
+    }) => {
+        if (!params?.placeholderId) return;
+
+        if (!paper.project || !paper.view) {
+            const retries = typeof params.retries === 'number' ? params.retries : 4;
+            if (retries > 0) {
+                setTimeout(() => showPredictedPlaceholder({ ...params, retries: retries - 1 }), 180);
+            }
+            return;
+        }
+
+        ensureDrawingLayer();
+
+        const minSize = 48;
+        const width = Math.max(params.width || 0, minSize);
+        const height = Math.max(params.height || 0, minSize);
+
+        const resolveCenter = (): { x: number; y: number } | null => {
+            let base = params.center ?? params.smartPosition ?? null;
+
+            if ((params.preferSmartLayout || !base) && typeof calculateSmartPosition === 'function') {
+                const smart = calculateSmartPosition(
+                    params.operationType || 'generate',
+                    params.sourceImageId,
+                    params.sourceImages,
+                    params.placeholderId
+                );
+                if (smart && Number.isFinite(smart.x) && Number.isFinite(smart.y)) {
+                    base = { x: smart.x, y: smart.y };
+                }
+            }
+
+            if (!base && paper.view?.center) {
+                base = { x: paper.view.center.x, y: paper.view.center.y };
+            }
+
+            return base;
+        };
+
+        const baseCenter = resolveCenter();
+        if (!baseCenter) {
+            console.warn('🎯 [QuickUpload] 占位符缺少中心点');
+            return;
+        }
+
+        // 清理旧的同ID占位符
+        removePredictedPlaceholder(params.placeholderId);
+
+        const desiredPoint = new paper.Point(baseCenter.x, baseCenter.y);
+        let centerPoint = desiredPoint;
+
+        try {
+            centerPoint = findNonOverlappingPosition(
+                desiredPoint,
+                width,
+                height,
+                params.operationType,
+                params.placeholderId
+            );
+        } catch (e) {
+            console.warn('🎯 [QuickUpload] 占位符防碰撞计算失败，使用原始位置', e);
+        }
+
+        const rect = new paper.Path.Rectangle({
+            rectangle: new paper.Rectangle(
+                centerPoint.subtract([width / 2, height / 2]),
+                new paper.Size(width, height)
+            ),
+            strokeColor: new paper.Color('#60a5fa'),
+            dashArray: [10, 8],
+            strokeWidth: 1.2,
+            fillColor: new paper.Color(0.9, 0.95, 1, 0.35)
+        });
+
+        // 创建加载动画圆弧
+        const spinnerRadius = Math.min(width, height) * 0.08;
+        const spinnerCenter = centerPoint.subtract([0, height * 0.1]);
+        const spinner = new paper.Path.Arc({
+            from: spinnerCenter.add([0, -spinnerRadius]),
+            through: spinnerCenter.add([spinnerRadius, 0]),
+            to: spinnerCenter.add([0, spinnerRadius]),
+            strokeColor: new paper.Color('#3b82f6'),
+            strokeWidth: 2.5,
+            strokeCap: 'round'
+        });
+
+        const label = new paper.PointText({
+            point: centerPoint.add([0, height * 0.15]),
+            content: '正在生成',
+            justification: 'center',
+            fillColor: new paper.Color('#2563eb'),
+            fontSize: Math.max(12, Math.min(16, width * 0.035)),
+            fontWeight: 'bold'
+        });
+
+        const progressLabel = new paper.PointText({
+            point: centerPoint.add([0, height * 0.25]),
+            content: '0%',
+            justification: 'center',
+            fillColor: new paper.Color('#60a5fa'),
+            fontSize: Math.max(10, Math.min(14, width * 0.03))
+        });
+
+        const group = new paper.Group([rect, spinner, label, progressLabel]);
+        group.position = centerPoint;
+        group.locked = true;
+        group.data = {
+            type: 'image-placeholder',
+            placeholderId: params.placeholderId,
+            bounds: {
+                x: centerPoint.x - width / 2,
+                y: centerPoint.y - height / 2,
+                width,
+                height
+            },
+            isHelper: true,
+            placeholderSource: 'ai-predict',
+            operationType: params.operationType,
+            spinnerElement: spinner,
+            progressLabelElement: progressLabel
+        };
+
+        // 启动旋转动画
+        let animationFrameId: number | null = null;
+        const animateSpinner = () => {
+            if (spinner && spinner.parent && group.parent) {
+                spinner.rotate(8, spinnerCenter);
+                paper.view.update();
+                animationFrameId = requestAnimationFrame(animateSpinner);
+            }
+        };
+        animationFrameId = requestAnimationFrame(animateSpinner);
+
+        // 存储动画ID以便清理
+        (group as any)._spinnerAnimationId = animationFrameId;
+
+        predictedPlaceholdersRef.current.set(params.placeholderId, group);
+        upsertPendingImage({
+            id: params.placeholderId,
+            expectedWidth: width,
+            expectedHeight: height,
+            x: centerPoint.x,
+            y: centerPoint.y,
+            operationType: params.operationType,
+            placeholderId: params.placeholderId
+        });
+
+        paper.view.update();
+    }, [calculateSmartPosition, ensureDrawingLayer, findNonOverlappingPosition, removePredictedPlaceholder, upsertPendingImage]);
 
     // ========== 查找画布中的图片占位框 ==========
     const findImagePlaceholder = useCallback((placeholderId?: string) => {

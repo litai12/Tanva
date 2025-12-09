@@ -579,6 +579,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const detail = event.detail || {};
       const action = detail.action || 'add';
       const placeholderId = detail.placeholderId as string | undefined;
+      const preferSmartLayout = Boolean(detail.preferSmartLayout);
+      const smartPosition = detail.smartPosition as { x: number; y: number } | undefined;
+      const sourceImageId = detail.sourceImageId as string | undefined;
+      const sourceImages = detail.sourceImages as string[] | undefined;
 
       if (!placeholderId) {
         console.warn('🎯 [DrawingController] 缺少 placeholderId');
@@ -598,7 +602,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       console.log('🎯 [DrawingController] 占位符参数:', { center, width, height, operationType });
 
-      if (!center || typeof width !== 'number' || typeof height !== 'number') {
+      let resolvedCenter = center;
+      if ((preferSmartLayout || !resolvedCenter) && typeof quickImageUploadRef.current.calculateSmartPosition === 'function') {
+        const smart = smartPosition ??
+          quickImageUploadRef.current.calculateSmartPosition(
+            operationType || 'generate',
+            sourceImageId,
+            sourceImages,
+            placeholderId
+          );
+        if (smart && Number.isFinite(smart.x) && Number.isFinite(smart.y)) {
+          resolvedCenter = { x: smart.x, y: smart.y };
+          console.log('🎯 [DrawingController] 使用智能排版位置:', resolvedCenter);
+        }
+      }
+
+      if (!resolvedCenter && paper?.view?.center) {
+        resolvedCenter = { x: paper.view.center.x, y: paper.view.center.y };
+      }
+
+      if (!resolvedCenter || typeof width !== 'number' || typeof height !== 'number') {
         console.warn('🎯 [DrawingController] 参数不完整，跳过显示');
         return;
       }
@@ -606,10 +629,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.log('🎯 [DrawingController] 调用 showPredictedPlaceholder');
       quickImageUploadRef.current.showPredictedPlaceholder({
         placeholderId,
-        center,
+        center: resolvedCenter,
         width,
         height,
-        operationType
+        operationType,
+        preferSmartLayout,
+        smartPosition,
+        sourceImageId,
+        sourceImages
       });
     };
 

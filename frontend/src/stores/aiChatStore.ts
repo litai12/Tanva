@@ -194,10 +194,26 @@ const MIN_PLACEHOLDER_EDGE = 96;
 
 type PlaceholderSpec = {
   placeholderId: string;
-  center: { x: number; y: number };
+  center?: { x: number; y: number } | null;
   width: number;
   height: number;
   operationType?: string;
+  /**
+   * 使用画布的智能排版逻辑（无 center 时会自动计算）
+   */
+  preferSmartLayout?: boolean;
+  /**
+   * 智能排版参考的源图（编辑）
+   */
+  sourceImageId?: string;
+  /**
+   * 智能排版参考的源图列表（融合）
+   */
+  sourceImages?: string[];
+  /**
+   * 预计算的智能位置（如果已算好，可直接用）
+   */
+  smartPosition?: { x: number; y: number };
 };
 
 const parseAspectRatioValue = (ratio?: string | null): number | null => {
@@ -1907,12 +1923,16 @@ export const useAIChatStore = create<AIChatState>()(
       });
       console.log('🎯 [generateImage] 占位符尺寸:', size);
 
+      const smartPosition = center ? { ...center } : undefined;
+
       dispatchPlaceholderEvent({
         placeholderId,
         center,
         width: size.width,
         height: size.height,
-        operationType: 'generate'
+        operationType: 'generate',
+        preferSmartLayout: true,
+        smartPosition
       });
     } catch (error) {
       console.warn('⚠️ 预测占位符生成失败', error);
@@ -2354,7 +2374,10 @@ export const useAIChatStore = create<AIChatState>()(
           center,
           width: size.width,
           height: size.height,
-          operationType: 'edit'
+          operationType: 'edit',
+          preferSmartLayout: true,
+          sourceImageId: cached?.imageId,
+          smartPosition: center ? { ...center } : undefined
         });
       }
     } catch (error) {
@@ -2778,7 +2801,10 @@ export const useAIChatStore = create<AIChatState>()(
           center,
           width: size.width,
           height: size.height,
-          operationType: 'blend'
+          operationType: 'blend',
+          preferSmartLayout: true,
+          sourceImages,
+          smartPosition: center ? { ...center } : undefined
         });
       }
     } catch (error) {
