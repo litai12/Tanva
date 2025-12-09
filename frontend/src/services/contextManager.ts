@@ -204,7 +204,30 @@ class ContextManager implements IContextManager {
           trimmedCount++;
           return { ...msg, imageData: undefined };
         }
-        return msg;
+        const next = { ...msg };
+
+        if (next.thumbnail && isBase64Data(next.thumbnail) && next.thumbnail.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+          trimmedCount++;
+          next.thumbnail = undefined;
+        }
+
+        if (next.sourceImageData && isBase64Data(next.sourceImageData) && next.sourceImageData.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+          trimmedCount++;
+          next.sourceImageData = undefined;
+        }
+
+        if (Array.isArray(next.sourceImagesData) && next.sourceImagesData.length > 0) {
+          const filtered = next.sourceImagesData.filter((item) => {
+            if (isBase64Data(item) && item.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+              trimmedCount++;
+              return false;
+            }
+            return true;
+          });
+          next.sourceImagesData = filtered.length > 0 ? filtered : undefined;
+        }
+
+        return next;
       });
 
       // 限制消息数量
@@ -223,6 +246,24 @@ class ContextManager implements IContextManager {
             console.log(`🧹 [ContextManager] 会话 ${sessionId} 清理了大型图片缓存（有远程URL）`);
           }
         }
+      }
+
+      // 清理图片历史中的大型 base64 数据（若已存在远程 URL）
+      if (Array.isArray(context.contextInfo.imageHistory)) {
+        context.contextInfo.imageHistory = context.contextInfo.imageHistory.map((item) => {
+          const next = { ...item };
+          if (next.imageRemoteUrl) {
+            if (next.imageData && isBase64Data(next.imageData) && next.imageData.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+              trimmedCount++;
+              next.imageData = null;
+            }
+            if (next.thumbnail && isBase64Data(next.thumbnail) && next.thumbnail.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+              trimmedCount++;
+              next.thumbnail = null;
+            }
+          }
+          return next;
+        });
       }
 
       if (trimmedCount > 0) {

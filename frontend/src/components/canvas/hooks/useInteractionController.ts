@@ -946,7 +946,14 @@ export const useInteractionController = ({
           if (selectedPath) {
             const ph = resolvePlaceholderGroup(selectedPath);
             if (ph && !removedPlaceholders.has(ph)) {
-              try { ph.remove(); didDelete = true; } catch {}
+              try {
+                const pid = ph.data?.placeholderId;
+                ph.remove();
+                if (pid && typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('predictImagePlaceholder', { detail: { placeholderId: pid, action: 'remove' } }));
+                }
+                didDelete = true;
+              } catch {}
               removedPlaceholders.add(ph);
             } else {
               try { selectedPath.remove(); didDelete = true; } catch {}
@@ -957,7 +964,14 @@ export const useInteractionController = ({
             selectedPaths.forEach(p => {
               const ph = resolvePlaceholderGroup(p);
               if (ph && !removedPlaceholders.has(ph)) {
-                try { ph.remove(); didDelete = true; } catch {}
+                try {
+                  const pid = ph.data?.placeholderId;
+                  ph.remove();
+                  if (pid && typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('predictImagePlaceholder', { detail: { placeholderId: pid, action: 'remove' } }));
+                  }
+                  didDelete = true;
+                } catch {}
                 removedPlaceholders.add(ph);
               } else {
                 try { p.remove(); didDelete = true; } catch {}

@@ -409,7 +409,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         const group = new paper.Group([rect, spinner, label, progressLabel]);
         group.position = centerPoint;
-        group.locked = true;
+        // 允许被选中拖动/删除
+        group.locked = false;
         group.data = {
             type: 'image-placeholder',
             placeholderId: params.placeholderId,
@@ -419,7 +420,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 width,
                 height
             },
-            isHelper: true,
+            isHelper: false,
             placeholderSource: 'ai-predict',
             operationType: params.operationType,
             spinnerElement: spinner,

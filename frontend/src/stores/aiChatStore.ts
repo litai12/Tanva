@@ -191,6 +191,7 @@ const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
 const VIDEO_FETCH_TIMEOUT_MS = 60000;
 const DEFAULT_PLACEHOLDER_EDGE = 768;
 const MIN_PLACEHOLDER_EDGE = 96;
+const INLINE_MEDIA_LIMIT = 150_000; // ~150KB string; guard against oversized base64 persisting in memory/localStorage
 
 type PlaceholderSpec = {
   placeholderId: string;
@@ -458,6 +459,17 @@ const shouldUploadLegacyInline = (inline: string | null, remote?: string | null)
       !isRemoteUrl(remote) &&
       inline.length > LEGACY_INLINE_IMAGE_THRESHOLD
   );
+
+const dropLargeInline = (value?: string | null): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // remove whitespace to measure real length
+  const compact = trimmed.replace(/\s+/g, '');
+  if (compact.length > INLINE_MEDIA_LIMIT) return undefined;
+  return compact;
+};
 
 const migrateMessageImagePayload = async (
   message: ChatMessage,
@@ -979,11 +991,18 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
         (isRemoteUrl(message.imageRemoteUrl) ? message.imageRemoteUrl : undefined) ||
         (isRemoteUrl(message.imageData) ? message.imageData : undefined);
 
-      const fallbackThumbnail =
+      const fallbackThumbnail = dropLargeInline(
         message.thumbnail ??
-        (!remoteUrl && message.imageData
-          ? ensureDataUrl(message.imageData)
-          : undefined);
+          (!remoteUrl && message.imageData ? ensureDataUrl(message.imageData) : undefined)
+      );
+
+      const safeImageData = dropLargeInline(remoteUrl ? undefined : message.imageData);
+  const safeSourceImageData = dropLargeInline(message.sourceImageData);
+  const safeSourceImagesData = Array.isArray(message.sourceImagesData)
+    ? message.sourceImagesData
+        .map((v) => dropLargeInline(v))
+        .filter((v): v is string => Boolean(v))
+    : undefined;
 
       const serialized: SerializedChatMessage = {
         id: message.id,
@@ -993,11 +1012,11 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
         webSearchResult: cloneSafely(message.webSearchResult),
         imageRemoteUrl: remoteUrl || undefined,
         imageUrl: remoteUrl || undefined,
-        imageData: !remoteUrl ? message.imageData : undefined,
+        imageData: safeImageData,
         thumbnail: fallbackThumbnail,
         expectsImageOutput: message.expectsImageOutput,
-        sourceImageData: message.sourceImageData,
-        sourceImagesData: message.sourceImagesData,
+        sourceImageData: safeSourceImageData,
+        sourceImagesData: safeSourceImagesData,
         provider: message.provider,
         metadata: message.metadata ? cloneSafely(message.metadata) : undefined,
         generationStatus: message.generationStatus
@@ -1029,7 +1048,7 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
       metadata: operation.metadata ? cloneSafely(operation.metadata) : null
     })),
     cachedImages: {
-      latest: null,
+      latest: dropLargeInline(context.cachedImages.latest) ?? null,
       latestId: context.cachedImages.latestId ?? null,
       latestPrompt: context.cachedImages.latestPrompt ?? null,
       timestamp: context.cachedImages.timestamp ? toISOString(context.cachedImages.timestamp) : null,
@@ -1046,9 +1065,9 @@ const serializeConversation = async (context: ConversationContext): Promise<Seri
         timestamp: toISOString(item.timestamp),
         operationType: item.operationType,
         parentImageId: item.parentImageId ?? null,
-        thumbnail: item.thumbnail ?? null,
+        thumbnail: dropLargeInline(item.thumbnail) ?? null,
         imageRemoteUrl: item.imageRemoteUrl ?? null,
-        imageData: item.imageData ?? null
+        imageData: dropLargeInline(item.imageData) ?? null
       })),
       iterationCount: context.contextInfo.iterationCount,
       lastOperationType: context.contextInfo.lastOperationType
@@ -1584,6 +1603,7 @@ export const useAIChatStore = create<AIChatState>()(
             progress: status.progress
           }
         }));
+        // 占位框的清理交由生成/上传流程完成，避免在 100% 时提前移除导致落位信息丢失
       } catch (error) {
         console.warn('⚠️ 派发占位符进度更新事件失败', error);
       }
@@ -2072,6 +2092,13 @@ export const useAIChatStore = create<AIChatState>()(
           }
         }
 
+        // 触发占位符进度完结 & 移除
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: false,
+          progress: 100,
+          error: null
+        });
+
         let uploadedAssets: { remoteUrl?: string; thumbnail?: string } | undefined;
         if (inlineImageData) {
           uploadedAssets = await registerMessageImageHistory({
@@ -2171,20 +2198,8 @@ export const useAIChatStore = create<AIChatState>()(
           const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
           const fileName = `ai_generated_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
-          // 计算智能位置：基于缓存图片中心 → 向下（偏移量由 smartPlacementOffset 决定）
+          // 优先使用占位框位置；让 quick upload 根据 placeholderId 查找并自适应，避免跳到缓存链条的下一张
           let smartPosition: { x: number; y: number } | undefined = undefined;
-          try {
-            const cached = contextManager.getCachedImage();
-            if (cached?.bounds) {
-              const cx = cached.bounds.x + cached.bounds.width / 2;
-              const cy = cached.bounds.y + cached.bounds.height / 2;
-              const offset = useUIStore.getState().smartPlacementOffset || 778;
-              // 回归原始逻辑：直接向下排列，保证连续性
-              smartPosition = { x: cx, y: cy + offset };
-            }
-          } catch (e) {
-            console.warn('计算生成图智能位置失败:', e);
-          }
 
           // 直接触发快速上传事件，复用现有的上传逻辑，添加智能排版信息
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
@@ -2603,26 +2618,8 @@ export const useAIChatStore = create<AIChatState>()(
             console.warn('获取选中图片信息失败:', error);
           }
 
-          // 计算智能位置：基于缓存图片中心 → 向右（偏移量由 smartPlacementOffset 决定）
+          // 让 quick upload 根据 placeholderId/选中图自动定位，避免硬编码向右偏移导致跳位
           let smartPosition: { x: number; y: number } | undefined = undefined;
-          try {
-            const cached = contextManager.getCachedImage();
-            if (cached?.bounds) {
-              const cx = cached.bounds.x + cached.bounds.width / 2;
-              const cy = cached.bounds.y + cached.bounds.height / 2;
-              const offset = useUIStore.getState().smartPlacementOffset || 778;
-              smartPosition = { x: cx + offset, y: cy };
-            } else if (selectedImageBounds) {
-              // 兼容：若无缓存但传入了选中图片边界，则基于选中图向右
-              const cx = selectedImageBounds.x + selectedImageBounds.width / 2;
-              const cy = selectedImageBounds.y + selectedImageBounds.height / 2;
-              const offset = useUIStore.getState().smartPlacementOffset || 778;
-              smartPosition = { x: cx + offset, y: cy };
-            } else {
-            }
-          } catch (e) {
-            console.warn('计算编辑产出智能位置失败:', e);
-          }
 
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
@@ -2643,6 +2640,13 @@ export const useAIChatStore = create<AIChatState>()(
             addImageToCanvas(result.data, inlineImageData);
           }
         }, 100);
+
+        // 触发占位符进度完结 & 移除
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: false,
+          progress: 100,
+          error: null
+        });
 
         logProcessStep(metrics, 'editImage completed');
 
@@ -2964,21 +2968,8 @@ export const useAIChatStore = create<AIChatState>()(
               imageData: imageDataUrl,
               fileName: fileName,
               operationType: 'blend',
-              smartPosition: (() => {
-                try {
-                  const cached = contextManager.getCachedImage();
-                  if (cached?.bounds) {
-                    const cx = cached.bounds.x + cached.bounds.width / 2;
-                    const cy = cached.bounds.y + cached.bounds.height / 2;
-                    const offset = useUIStore.getState().smartPlacementOffset || 778;
-                    const pos = { x: cx + offset, y: cy };
-                    return pos;
-                  }
-                } catch (e) {
-                  console.warn('计算融合产出智能位置失败:', e);
-                }
-                return undefined;
-              })(),
+              // 让 quick upload 根据 placeholderId/源图自动定位，避免跳到缓存链条位置
+              smartPosition: undefined,
               sourceImageId: undefined,
               sourceImages: sourceImageIds.length > 0 ? sourceImageIds : undefined,
               placeholderId
@@ -2991,6 +2982,13 @@ export const useAIChatStore = create<AIChatState>()(
             addImageToCanvas(result.data, inlineImageData);
           }
         }, 100);
+
+        // 触发占位符进度完结 & 移除
+        get().updateMessageStatus(aiMessageId, {
+          isGenerating: false,
+          progress: 100,
+          error: null
+        });
 
         logProcessStep(metrics, 'blendImages completed');
 
