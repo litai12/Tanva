@@ -566,17 +566,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
   }, [quickImageUpload]);
 
+  // 使用 ref 存储 quickImageUpload 的最新引用，避免 useEffect 重复执行
+  const quickImageUploadRef = useRef(quickImageUpload);
+  useEffect(() => {
+    quickImageUploadRef.current = quickImageUpload;
+  }, [quickImageUpload]);
+
   // 监听预测占位符事件，提前在画布上标记预计位置与尺寸
   useEffect(() => {
     const handlePredictPlaceholder = (event: CustomEvent) => {
+      console.log('🎯 [DrawingController] 收到占位符事件:', event.detail);
       const detail = event.detail || {};
       const action = detail.action || 'add';
       const placeholderId = detail.placeholderId as string | undefined;
 
-      if (!placeholderId) return;
+      if (!placeholderId) {
+        console.warn('🎯 [DrawingController] 缺少 placeholderId');
+        return;
+      }
 
       if (action === 'remove') {
-        quickImageUpload.removePredictedPlaceholder(placeholderId);
+        console.log('🎯 [DrawingController] 移除占位符:', placeholderId);
+        quickImageUploadRef.current.removePredictedPlaceholder(placeholderId);
         return;
       }
 
@@ -585,9 +596,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const height = detail.height as number | undefined;
       const operationType = detail.operationType as string | undefined;
 
-      if (!center || typeof width !== 'number' || typeof height !== 'number') return;
+      console.log('🎯 [DrawingController] 占位符参数:', { center, width, height, operationType });
 
-      quickImageUpload.showPredictedPlaceholder({
+      if (!center || typeof width !== 'number' || typeof height !== 'number') {
+        console.warn('🎯 [DrawingController] 参数不完整，跳过显示');
+        return;
+      }
+
+      console.log('🎯 [DrawingController] 调用 showPredictedPlaceholder');
+      quickImageUploadRef.current.showPredictedPlaceholder({
         placeholderId,
         center,
         width,
@@ -597,10 +614,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     window.addEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
+    console.log('🎯 [DrawingController] 已注册占位符事件监听器');
     return () => {
       window.removeEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
     };
-  }, [quickImageUpload]);
+  }, []); // 空依赖数组，只注册一次
+
+  // 监听占位符进度更新事件
+  useEffect(() => {
+    const handleUpdateProgress = (event: CustomEvent) => {
+      const detail = event.detail || {};
+      const placeholderId = detail.placeholderId as string | undefined;
+      const progress = detail.progress as number | undefined;
+
+      if (!placeholderId || typeof progress !== 'number') return;
+
+      quickImageUploadRef.current.updatePlaceholderProgress(placeholderId, progress);
+    };
+
+    window.addEventListener('updatePlaceholderProgress', handleUpdateProgress as EventListener);
+    return () => {
+      window.removeEventListener('updatePlaceholderProgress', handleUpdateProgress as EventListener);
+    };
+  }, []); // 空依赖数组，只注册一次
 
   // ========== 初始化3D模型工具Hook ==========
   const model3DTool = useModel3DTool({

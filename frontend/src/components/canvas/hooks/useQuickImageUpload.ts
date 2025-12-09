@@ -69,12 +69,33 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
     const removePredictedPlaceholder = useCallback((placeholderId: string | undefined | null) => {
         if (!placeholderId) return;
         const existing = predictedPlaceholdersRef.current.get(placeholderId);
-        if (existing && existing.parent) {
-            existing.remove();
+        if (existing) {
+            // 清理旋转动画
+            const animationId = (existing as any)._spinnerAnimationId;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            if (existing.parent) {
+                existing.remove();
+            }
         }
         predictedPlaceholdersRef.current.delete(placeholderId);
         removePendingImage(placeholderId);
     }, [removePendingImage]);
+
+    // 更新占位符进度
+    const updatePlaceholderProgress = useCallback((placeholderId: string, progress: number) => {
+        if (!placeholderId) return;
+        const existing = predictedPlaceholdersRef.current.get(placeholderId);
+        if (!existing || !existing.parent) return;
+
+        // 查找进度标签并更新
+        const progressLabel = existing.data?.progressLabelElement as paper.PointText | undefined;
+        if (progressLabel && progressLabel.parent) {
+            progressLabel.content = `${progress.toFixed(1)}%`;
+            paper.view?.update();
+        }
+    }, []);
 
     const showPredictedPlaceholder = useCallback((params: {
         placeholderId: string;
@@ -82,9 +103,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         width: number;
         height: number;
         operationType?: string;
+        retries?: number;
     }) => {
         if (!params?.placeholderId || !params.center) return;
-        if (!paper.project || !paper.view) return;
+
+        if (!paper.project || !paper.view) {
+            const retries = typeof params.retries === 'number' ? params.retries : 4;
+            if (retries > 0) {
+                setTimeout(() => showPredictedPlaceholder({ ...params, retries: retries - 1 }), 180);
+            }
+            return;
+        }
 
         ensureDrawingLayer();
 
@@ -107,15 +136,36 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             fillColor: new paper.Color(0.9, 0.95, 1, 0.35)
         });
 
-        const label = new paper.PointText({
-            point: centerPoint.add([0, Math.min(height / 2 - 10, 32)]),
-            content: '生成中...',
-            justification: 'center',
-            fillColor: new paper.Color('#2563eb'),
-            fontSize: Math.max(12, Math.min(16, width * 0.035))
+        // 创建加载动画圆弧
+        const spinnerRadius = Math.min(width, height) * 0.08;
+        const spinnerCenter = centerPoint.subtract([0, height * 0.1]);
+        const spinner = new paper.Path.Arc({
+            from: spinnerCenter.add([0, -spinnerRadius]),
+            through: spinnerCenter.add([spinnerRadius, 0]),
+            to: spinnerCenter.add([0, spinnerRadius]),
+            strokeColor: new paper.Color('#3b82f6'),
+            strokeWidth: 2.5,
+            strokeCap: 'round'
         });
 
-        const group = new paper.Group([rect, label]);
+        const label = new paper.PointText({
+            point: centerPoint.add([0, height * 0.15]),
+            content: '正在生成',
+            justification: 'center',
+            fillColor: new paper.Color('#2563eb'),
+            fontSize: Math.max(12, Math.min(16, width * 0.035)),
+            fontWeight: 'bold'
+        });
+
+        const progressLabel = new paper.PointText({
+            point: centerPoint.add([0, height * 0.25]),
+            content: '0%',
+            justification: 'center',
+            fillColor: new paper.Color('#60a5fa'),
+            fontSize: Math.max(10, Math.min(14, width * 0.03))
+        });
+
+        const group = new paper.Group([rect, spinner, label, progressLabel]);
         group.position = centerPoint;
         group.locked = true;
         group.data = {
@@ -129,8 +179,24 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             },
             isHelper: true,
             placeholderSource: 'ai-predict',
-            operationType: params.operationType
+            operationType: params.operationType,
+            spinnerElement: spinner,
+            progressLabelElement: progressLabel
         };
+
+        // 启动旋转动画
+        let animationFrameId: number | null = null;
+        const animateSpinner = () => {
+            if (spinner && spinner.parent && group.parent) {
+                spinner.rotate(8, spinnerCenter);
+                paper.view.update();
+                animationFrameId = requestAnimationFrame(animateSpinner);
+            }
+        };
+        animationFrameId = requestAnimationFrame(animateSpinner);
+
+        // 存储动画ID以便清理
+        (group as any)._spinnerAnimationId = animationFrameId;
 
         predictedPlaceholdersRef.current.set(params.placeholderId, group);
         upsertPendingImage({
@@ -139,7 +205,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             expectedHeight: height,
             x: centerPoint.x,
             y: centerPoint.y,
-            operationType: params.operationType
+            operationType: params.operationType,
+            placeholderId: params.placeholderId
         });
 
         paper.view.update();
@@ -893,6 +960,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         handleQuickUploadTriggerHandled,
         showPredictedPlaceholder,
         removePredictedPlaceholder,
+        updatePlaceholderProgress,
         // 智能排版相关函数
         calculateSmartPosition,
         getAllCanvasImages,

@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import paper from 'paper';
 import { aiImageService } from '@/services/aiImageService';
 import { paperSandboxService } from '@/services/paperSandboxService';
 import {
@@ -240,9 +241,8 @@ const estimatePlaceholderSize = (params: {
 };
 
 const getViewCenter = (): { x: number; y: number } | null => {
-  if (typeof window === 'undefined') return null;
   try {
-    const paperView = (window as any)?.paper?.view;
+    const paperView = paper?.view || (typeof window !== 'undefined' ? (window as any)?.paper?.view : null);
     if (paperView?.center) {
       return { x: paperView.center.x, y: paperView.center.y };
     }
@@ -253,6 +253,7 @@ const getViewCenter = (): { x: number; y: number } | null => {
 const dispatchPlaceholderEvent = (placeholder: PlaceholderSpec, action: 'add' | 'remove' = 'add') => {
   if (typeof window === 'undefined') return;
   try {
+    console.log('🎯 [占位符事件] 派发事件:', { action, placeholder });
     window.dispatchEvent(new CustomEvent('predictImagePlaceholder', {
       detail: action === 'add'
         ? { ...placeholder, action }
@@ -1556,6 +1557,21 @@ export const useAIChatStore = create<AIChatState>()(
         message.generationStatus = { ...message.generationStatus, ...status } as any;
       }
     }
+
+    // 派发占位符进度更新事件
+    if (status && typeof status.progress === 'number' && typeof window !== 'undefined') {
+      const placeholderId = `ai-placeholder-${messageId}`;
+      try {
+        window.dispatchEvent(new CustomEvent('updatePlaceholderProgress', {
+          detail: {
+            placeholderId,
+            progress: status.progress
+          }
+        }));
+      } catch (error) {
+        console.warn('⚠️ 派发占位符进度更新事件失败', error);
+      }
+    }
   },
   updateMessage: (messageId, updater) => {
     set((state) => ({
@@ -1865,29 +1881,39 @@ export const useAIChatStore = create<AIChatState>()(
       const offset = useUIStore.getState().smartPlacementOffset || 778;
       let center: { x: number; y: number } | null = null;
 
+      console.log('🎯 [generateImage] 准备显示占位符, cached:', cached);
+
       if (cached?.bounds) {
         center = {
           x: cached.bounds.x + cached.bounds.width / 2,
           y: cached.bounds.y + cached.bounds.height / 2 + offset
         };
+        console.log('🎯 [generateImage] 使用缓存图片位置:', center);
       } else {
         center = getViewCenter();
+        console.log('🎯 [generateImage] 使用视口中心:', center);
       }
 
-      if (center) {
-        const size = estimatePlaceholderSize({
-          aspectRatio: state.aspectRatio,
-          imageSize: state.imageSize,
-          fallbackBounds: cached?.bounds ?? null
-        });
-        dispatchPlaceholderEvent({
-          placeholderId,
-          center,
-          width: size.width,
-          height: size.height,
-          operationType: 'generate'
-        });
+      // 如果 center 仍然为 null，使用默认位置 (0, 0)
+      if (!center) {
+        center = { x: 0, y: 0 };
+        console.log('🎯 [generateImage] 使用默认位置 (0, 0)');
       }
+
+      const size = estimatePlaceholderSize({
+        aspectRatio: state.aspectRatio,
+        imageSize: state.imageSize,
+        fallbackBounds: cached?.bounds ?? null
+      });
+      console.log('🎯 [generateImage] 占位符尺寸:', size);
+
+      dispatchPlaceholderEvent({
+        placeholderId,
+        center,
+        width: size.width,
+        height: size.height,
+        operationType: 'generate'
+      });
     } catch (error) {
       console.warn('⚠️ 预测占位符生成失败', error);
     }
