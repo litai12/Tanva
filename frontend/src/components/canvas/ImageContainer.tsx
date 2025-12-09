@@ -1347,6 +1347,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               )}
             </Button>
 
+            {/* 高清放大按钮暂时隐藏
             <Button
               variant='outline'
               size='sm'
@@ -1366,6 +1367,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                 <ImageUp className={sharedIconClass} />
               )}
             </Button>
+            */}
 
             <Button
               variant='outline'
@@ -1375,10 +1377,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               onClick={handleExpandImage}
               title={
                 isExpandingImage
-                  ? "正在扩图，预计需要8-10分钟，请耐心等待..."
+                  ? "正在扩图..."
                   : showExpandSelector
                   ? "请选择扩图区域"
-                  : "扩图（预计8-10分钟）"
+                  : "扩图"
               }
               style={sharedButtonStyle}
             >

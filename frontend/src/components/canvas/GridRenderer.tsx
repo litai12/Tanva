@@ -19,6 +19,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
+  const dotRasterRef = useRef<paper.Raster | null>(null); // 点阵模式使用的单一 Raster
   const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
 
   // Paper.js对象池 - 优化：增加池大小和清理机制
@@ -94,6 +95,13 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const existingChildren = gridLayer.children;
     for (let i = existingChildren.length - 1; i >= 0; i--) {
       const child = existingChildren[i];
+      if (child instanceof paper.Raster && child.data?.type === 'grid-dot-raster') {
+        child.remove();
+        if (dotRasterRef.current === child) {
+          dotRasterRef.current = null;
+        }
+        continue;
+      }
       if (child instanceof paper.Path && !child.data?.isAxis) {
         child.visible = false;
 
@@ -257,6 +265,9 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       }
     }
 
+    // 用于上报面板的对象池计数
+    let poolStats = { main: 0, minor: 0, lines: 0 };
+
     // 创建网格（如果启用）- 暂时禁用点阵，只支持线条和纯色
     if (showGrid) {
       // 可选：在任何样式下都叠加底色
@@ -266,12 +277,26 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
       // 覆盖层（线条/点阵）
       if (gridStyle === GridStyle.DOTS) {
-        createDotGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, gridDotSize, gridLayer);
+        const counts = createDotGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, gridDotSize, gridLayer);
+        poolStats = { main: counts.mainCount, minor: counts.minorCount, lines: 0 };
       } else if (gridStyle === GridStyle.LINES) {
-        createLineGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer);
+        // 切换到线条时移除点阵 Raster
+        if (dotRasterRef.current) {
+          dotRasterRef.current.remove();
+          dotRasterRef.current = null;
+        }
+        const counts = createLineGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer);
+        poolStats = { main: counts.mainCount, minor: counts.minorCount, lines: counts.lineCount };
       } else {
-        // SOLID 时已绘制底色，无需叠加
+        // SOLID 时移除点阵并不叠加其他内容
+        if (dotRasterRef.current) {
+          dotRasterRef.current.remove();
+          dotRasterRef.current = null;
+        }
       }
+    } else {
+      // 网格关闭时同步清零
+      memoryMonitor.updatePoolStats(0, 0, 0);
     }
 
     // 将网格层移到最底部并清除渲染标记
@@ -284,6 +309,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     if (previousActiveLayer && previousActiveLayer.name &&
       previousActiveLayer.name.startsWith('layer_')) {
       previousActiveLayer.activate();
+    }
+
+    if (showGrid) {
+      memoryMonitor.updatePoolStats(poolStats.main, poolStats.minor, poolStats.lines);
     }
   }, [zoom, showGrid, showAxis, gridStyle, gridDotSize, gridColor, gridBgColor, gridBgEnabled]);
 
@@ -301,6 +330,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   };
 
   const createLineGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, zoom: number, gridLayer: paper.Layer) => {
+    let mainCount = 0;
+    let minorCount = 0;
+    let lineCount = 0;
+
     // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
     const shouldShowMinorGrid = zoom >= 0.3;
     const minorColor = getColorWithAlpha(gridColor, 0.10);
@@ -318,6 +351,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       // 如果是副网格且缩放过小，则跳过
       if (!isMainGrid && !shouldShowMinorGrid) continue;
 
+      lineCount += 1;
+      if (isMainGrid) mainCount += 1;
+      else minorCount += 1;
+
       // 从对象池获取路径或创建新的 - 垂直线
       let line: paper.Path;
       const poolItem = pathPoolRef.current.pop();
@@ -330,6 +367,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line.strokeColor = isMainGrid ? majorColor : minorColor;
         line.strokeWidth = isMainGrid ? 0.8 : 0.3;
         line.visible = true;
+        line.data = { ...(line.data || {}), isHelper: true, type: 'grid', isMain: isMainGrid };
       } else {
         // 创建新路径
         line = new paper.Path.Line({
@@ -337,10 +375,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           to: [x, maxY],
           strokeColor: isMainGrid ? majorColor : minorColor,
           strokeWidth: isMainGrid ? 0.8 : 0.3,
-          data: { isHelper: true, type: 'grid' }
+          data: { isHelper: true, type: 'grid', isMain: isMainGrid }
         });
       }
       gridLayer.addChild(line);
+      lineCount += 1;
     }
 
     // 创建水平网格线
@@ -355,6 +394,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       // 如果是副网格且缩放过小，则跳过
       if (!isMainGrid && !shouldShowMinorGrid) continue;
 
+      lineCount += 1;
+      if (isMainGrid) mainCount += 1;
+      else minorCount += 1;
+
       // 从对象池获取路径或创建新的 - 水平线
       let line: paper.Path;
       const poolItem = pathPoolRef.current.pop();
@@ -367,6 +410,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line.strokeColor = isMainGrid ? majorColor : minorColor;
         line.strokeWidth = isMainGrid ? 0.8 : 0.3;
         line.visible = true;
+        line.data = { ...(line.data || {}), isHelper: true, type: 'grid', isMain: isMainGrid };
       } else {
         // 创建新路径
         line = new paper.Path.Line({
@@ -374,32 +418,124 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
           to: [maxX, y],
           strokeColor: isMainGrid ? majorColor : minorColor,
           strokeWidth: isMainGrid ? 0.8 : 0.3,
-          data: { isHelper: true, type: 'grid' }
+          data: { isHelper: true, type: 'grid', isMain: isMainGrid }
         });
       }
       gridLayer.addChild(line);
+      lineCount += 1;
     }
+
+    return { mainCount, minorCount, lineCount };
   };
 
   // 点阵网格创建
-  const createDotGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, dotSize: number, gridLayer: paper.Layer) => {
-    const fill = new paper.Color(0, 0, 0, 0.28); // 默认透明度
-    try {
-      const c = gridColor.replace('#','');
-      const r = c.length === 6 ? parseInt(c.substring(0,2), 16) : 229;
-      const g = c.length === 6 ? parseInt(c.substring(2,4), 16) : 231;
-      const b = c.length === 6 ? parseInt(c.substring(4,6), 16) : 235;
-      fill.red = r/255; fill.green = g/255; fill.blue = b/255;
-    } catch {}
+  const createDotGrid = (
+    currentGridSize: number,
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number,
+    dotSize: number,
+    gridLayer: paper.Layer
+  ) => {
+    // 先移除旧的 Raster，避免累计
+    if (dotRasterRef.current) {
+      dotRasterRef.current.remove();
+      dotRasterRef.current = null;
+    }
+
+    const viewWidth = maxX - minX;
+    const viewHeight = maxY - minY;
+    if (viewWidth <= 0 || viewHeight <= 0) {
+      return { mainCount: 0, minorCount: 0, lineCount: 0 };
+    }
+
+    // 计算主/副点数量（基于坐标索引，避免实际创建所有点）
+    const startX = Math.ceil(minX / currentGridSize);
+    const endX = Math.floor(maxX / currentGridSize);
+    const startY = Math.ceil(minY / currentGridSize);
+    const endY = Math.floor(maxY / currentGridSize);
+    const cols = Math.max(0, endX - startX + 1);
+    const rows = Math.max(0, endY - startY + 1);
+    const countMultiples = (start: number, end: number, step: number) => {
+      const first = Math.ceil(start / step) * step;
+      const last = Math.floor(end / step) * step;
+      if (first > last) return 0;
+      return Math.floor((last - first) / step) + 1;
+    };
+    const mainCols = countMultiples(startX, endX, 5);
+    const mainRows = countMultiples(startY, endY, 5);
+    const mainCount = mainCols * mainRows;
+    const totalDots = cols * rows;
+    const minorCount = Math.max(0, totalDots - mainCount);
+
+    // 用小 tile 生成重复图案，再绘制到受限尺寸的离屏画布，减少对象数量
+    const patternSize = Math.max(1, Math.round(currentGridSize * 5)); // 5格一周期
+    const tile = document.createElement('canvas');
+    tile.width = patternSize;
+    tile.height = patternSize;
+    const tctx = tile.getContext('2d');
+    if (!tctx) return { mainCount, minorCount, lineCount: 0 };
+
+    const parseColor = (hex: string) => {
+      let r = 229, g = 231, b = 235;
+      const h = (hex || '').replace('#', '');
+      if (h.length === 3) {
+        r = parseInt(h[0] + h[0], 16);
+        g = parseInt(h[1] + h[1], 16);
+        b = parseInt(h[2] + h[2], 16);
+      } else if (h.length === 6) {
+        r = parseInt(h.substring(0, 2), 16);
+        g = parseInt(h.substring(2, 4), 16);
+        b = parseInt(h.substring(4, 6), 16);
+      }
+      return `rgba(${r}, ${g}, ${b}, 0.28)`;
+    };
 
     const radius = Math.max(0.5, Math.min(4, dotSize));
-
-    for (let x = minX; x <= maxX; x += currentGridSize) {
-      for (let y = minY; y <= maxY; y += currentGridSize) {
-        const dot = new paper.Path.Circle({ center: [x, y], radius, fillColor: fill, data: { isHelper: true, type: 'grid-dot' } });
-        gridLayer.addChild(dot);
+    const color = parseColor(gridColor);
+    tctx.fillStyle = color;
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 5; j++) {
+        const isMain = i === 0 && j === 0; // 每 5 格交点
+        const cx = i * currentGridSize;
+        const cy = j * currentGridSize;
+        tctx.beginPath();
+        tctx.arc(cx, cy, isMain ? radius * 1.2 : radius, 0, Math.PI * 2);
+        tctx.fill();
       }
     }
+
+    const MAX_CANVAS = 4096; // 防止离屏画布过大
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.min(MAX_CANVAS, Math.max(1, Math.round(viewWidth + patternSize)));
+    canvas.height = Math.min(MAX_CANVAS, Math.max(1, Math.round(viewHeight + patternSize)));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { mainCount, minorCount, lineCount: 0 };
+
+    const pattern = ctx.createPattern(tile, 'repeat');
+    if (!pattern) return { mainCount, minorCount, lineCount: 0 };
+
+    // 对齐世界坐标系，保证点阵与其他网格元素对齐
+    const offsetX = ((minX % patternSize) + patternSize) % patternSize;
+    const offsetY = ((minY % patternSize) + patternSize) % patternSize;
+    ctx.translate(-offsetX, -offsetY);
+    ctx.fillStyle = pattern;
+    ctx.fillRect(0, 0, canvas.width + patternSize, canvas.height + patternSize);
+
+    const raster = new paper.Raster({
+      source: canvas,
+      position: new paper.Point(
+        minX + canvas.width / 2,
+        minY + canvas.height / 2
+      ),
+    });
+    raster.data = { isHelper: true, type: 'grid-dot-raster' };
+    raster.smoothing = false;
+    gridLayer.addChild(raster);
+    dotRasterRef.current = raster;
+
+    return { mainCount, minorCount, lineCount: 0 };
   };
 
   // 纯色背景创建函数 - 创建淡淡的灰色背景
@@ -447,6 +583,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         gridLayer.removeChildren();
       }
       isInitializedRef.current = false; // 重置初始化标记
+      if (dotRasterRef.current) {
+        dotRasterRef.current.remove();
+        dotRasterRef.current = null;
+      }
+      memoryMonitor.updatePoolStats(0, 0, 0);
       return;
     }
 
@@ -568,6 +709,11 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         }
       });
       pathPoolRef.current = [];
+
+      if (dotRasterRef.current) {
+        dotRasterRef.current.remove();
+        dotRasterRef.current = null;
+      }
 
 
       // 清理坐标轴

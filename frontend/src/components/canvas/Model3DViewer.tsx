@@ -17,19 +17,16 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 interface Model3DViewerProps {
   modelData: Model3DData;
-  width: number;
-  height: number;
   isSelected?: boolean;
   drawMode?: string; // 当前绘图模式
   onCameraChange?: (camera: Model3DCameraState) => void;
-  isResizing?: boolean; // 是否正在调整容器大小
 }
 
 const TARGET_MODEL_SIZE = 2.0;
 const MAX_MODEL_UPSCALE = 3.0;
-const MODEL_SCALE_MULTIPLIER = 8; // 控制模型基础体积，值越大初始尺寸越大
+const MODEL_SCALE_MULTIPLIER = 1.5; // 控制模型基础体积，值越大初始尺寸越大
 const CONTAINER_SCALE_MULTIPLIER = 7; // 控制容器对缩放的影响，值越大越不受框限制
-const BASELINE_SCALE_MULTIPLIER = 6; // 保障最小放大倍数
+const BASELINE_SCALE_MULTIPLIER = 1.0; // 保障最小放大倍数
 const CAMERA_DISTANCE_MULTIPLIER = 0.7;
 const MIN_CAMERA_DISTANCE = 1.5;
 const EPSILON = 1e-4;
@@ -55,16 +52,10 @@ const cameraStatesEqual = (a: Model3DCameraState, b: Model3DCameraState) =>
 // 3D模型组件
 function Model3D({
   modelPath,
-  width,
-  height,
   onLoaded,
-  isResizing = false,
 }: {
   modelPath: string;
-  width: number;
-  height: number;
   onLoaded?: (boundingBox: THREE.Box3) => void;
-  isResizing?: boolean;
 }) {
   const meshRef = useRef<THREE.Group>(null);
   const { scene } = useGLTF(modelPath);
@@ -279,75 +270,21 @@ function Model3D({
     };
   }, [scene, onLoaded]);
 
-  // 根据容器大小动态调整缩放（仅在用户主动调整容器大小时更新，避免操作3D模型时抽搐）
-  const scaleUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastWidthRef = useRef(width);
-  const lastHeightRef = useRef(height);
+  // 模型缩放：只使用基础缩放因子，不随容器大小变化
+  // 容器大小变化只影响可视区域，不影响模型本身的缩放
   const isInitialMountRef = useRef(true);
 
   useEffect(() => {
-    // 根据3D框（容器）的实际大小来计算模型缩放
-    // 使用容器较小边作为基准，让模型大小与容器大小成正比
-    const minContainerSize = Math.min(width, height);
-    const referenceSize = 360; // 参考尺寸越小，默认越大
-    const containerScale = minContainerSize / referenceSize;
-    const dynamicScale =
-      baseScaleFactor * containerScale * CONTAINER_SCALE_MULTIPLIER;
+    // 基础缩放 = baseScaleFactor * BASELINE_SCALE_MULTIPLIER
+    // 模型大小固定，不随容器缩放而变化
     const baselineScale = baseScaleFactor * BASELINE_SCALE_MULTIPLIER;
-    const finalScale = Math.max(dynamicScale, baselineScale);
 
-    // 首次挂载时，直接设置缩放，不延迟
-    if (isInitialMountRef.current) {
+    // 首次挂载或 baseScaleFactor 变化时设置缩放
+    if (isInitialMountRef.current || baseScaleFactor > 0) {
       isInitialMountRef.current = false;
-      setAutoScale([finalScale, finalScale, finalScale]);
-      lastWidthRef.current = width;
-      lastHeightRef.current = height;
-      return;
+      setAutoScale([baselineScale, baselineScale, baselineScale]);
     }
-
-    // 如果正在调整大小，立即更新缩放（用户主动调整容器）
-    if (isResizing) {
-      setAutoScale([finalScale, finalScale, finalScale]);
-      lastWidthRef.current = width;
-      lastHeightRef.current = height;
-      return;
-    }
-
-    // 如果不在调整大小，计算尺寸变化量
-    const widthDiff = Math.abs(width - lastWidthRef.current);
-    const heightDiff = Math.abs(height - lastHeightRef.current);
-
-    // 只有当尺寸变化超过很大阈值时才更新（说明是用户主动调整大小，而不是微小波动）
-    // 大幅提高阈值，避免操作3D模型时的任何尺寸变化触发更新
-    const threshold = 20; // 20像素的阈值，只有明显的大小变化才更新
-
-    if (widthDiff < threshold && heightDiff < threshold) {
-      return;
-    }
-
-    // 更新记录的尺寸
-    lastWidthRef.current = width;
-    lastHeightRef.current = height;
-
-    // 清除之前的定时器
-    if (scaleUpdateTimerRef.current) {
-      clearTimeout(scaleUpdateTimerRef.current);
-    }
-
-    // 使用较长的防抖延迟，确保只在用户停止调整大小时才更新
-    scaleUpdateTimerRef.current = setTimeout(() => {
-      // 使用requestAnimationFrame确保平滑更新
-      requestAnimationFrame(() => {
-        setAutoScale([finalScale, finalScale, finalScale]);
-      });
-    }, 300); // 300ms防抖延迟，确保用户停止调整后才更新
-
-    return () => {
-      if (scaleUpdateTimerRef.current) {
-        clearTimeout(scaleUpdateTimerRef.current);
-      }
-    };
-  }, [width, height, baseScaleFactor, isResizing]);
+  }, [baseScaleFactor]);
 
   return (
     <group ref={meshRef} scale={autoScale}>
@@ -538,8 +475,8 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               preserveDrawingBuffer: true,
               powerPreference: "high-performance",
               toneMapping: THREE.ACESFilmicToneMapping,
-              // 略微提高曝光，让环境不那么灰但不过曝
-              toneMappingExposure: 1.05,
+              // 提高曝光，让环境更明亮通透
+              toneMappingExposure: 1.25,
               outputColorSpace: THREE.SRGBColorSpace,
             }}
             style={{
@@ -549,49 +486,46 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
           >
             <Suspense fallback={null}>
               {/* 更通透的光照组合：微暖环境光 + 半球光 + 多向主辅光 + 前向聚光 */}
-              <ambientLight color='#fff9ef' intensity={0.78} />
+              <ambientLight color='#fff9ef' intensity={1.0} />
               {/* 天空偏中性、地面略微冷一点，避免整体发灰 */}
-              <hemisphereLight args={["#ffffff", "#a8b9ce", 1.05]} />
+              <hemisphereLight args={["#ffffff", "#a8b9ce", 1.3]} />
               <directionalLight
                 position={[6, 8, 6]}
                 // 主光略暖，增强体积感
-                intensity={0.92}
+                intensity={1.15}
                 color='#fff4d6'
                 castShadow
               />
               <directionalLight
                 position={[-6, 6, -4]}
                 // 辅光略冷，增加对比和边缘轮廓
-                intensity={0.42}
+                intensity={0.55}
                 color='#d1e7ff'
               />
               <directionalLight
                 position={[0, 5, 10]}
-                intensity={0.55}
+                intensity={0.7}
                 color='#ffffff'
               />
               <pointLight
                 position={[0, 7, 0]}
-                intensity={0.38}
+                intensity={0.5}
                 color='#ffffff'
               />
               <pointLight
                 position={[2, 3, -3]}
-                intensity={0.26}
+                intensity={0.35}
                 color='#fff6da'
               />
               <pointLight
                 position={[-2, 2, 3]}
-                intensity={0.24}
+                intensity={0.32}
                 color='#e8f2ff'
               />
 
               <Model3D
-                modelPath={modelData.url || modelData.path || ""}
-                width={width}
-                height={height}
+                modelPath={modelData.url || ""}
                 onLoaded={handleModelLoaded}
-                isResizing={isResizing}
               />
 
               <CameraController

@@ -55,6 +55,7 @@ export class MemoryMonitor {
   private readonly AGGRESSIVE_CLEANUP_THRESHOLD = 0.75;  // 75% 时触发主动清理
   private readonly CRITICAL_CLEANUP_THRESHOLD = 0.90;    // 90% 时强制清理
   private cleanupCallbacks: Array<() => void> = [];
+  private isCleaning = false;
 
   static getInstance(): MemoryMonitor {
     if (!MemoryMonitor.instance) {
@@ -216,13 +217,8 @@ export class MemoryMonitor {
 
   // 强制垃圾回收（开发模式下可用）
   forceCleanup(): void {
-    if (typeof (window as any).gc === 'function') {
-      (window as any).gc();
-      console.log('手动垃圾回收已触发');
-    } else if (import.meta.env.DEV) {
-      console.warn('手动垃圾回收不可用。使用 --js-flags="--expose-gc" 启动Chrome以启用此功能。');
-    }
-    this.markCleanup();
+    // 复用统一的清理流程，确保回调被执行
+    this.executeCleanup(true);
   }
 
   // 优化：注册内存压力清理回调
@@ -259,24 +255,35 @@ export class MemoryMonitor {
 
   // 执行清理回调
   private executeCleanup(isForced: boolean): void {
-    console.log(`[MemoryMonitor] 执行${isForced ? '强制' : '主动'}清理，共 ${this.cleanupCallbacks.length} 个回调`);
-
-    // 执行所有注册的清理回调
-    this.cleanupCallbacks.forEach(callback => {
-      try {
-        callback();
-      } catch (error) {
-        console.error('[MemoryMonitor] 清理回调执行失败:', error);
-      }
-    });
-
-    // 强制清理时尝试触发垃圾回收
-    if (isForced && typeof (window as any).gc === 'function') {
-      (window as any).gc();
+    if (this.isCleaning) {
+      console.warn('[MemoryMonitor] 清理已在进行中，跳过重复调用');
+      return;
     }
 
-    this.markCleanup();
-    this.emitMemoryEvent(false); // 发送内存压力缓解事件
+    this.isCleaning = true;
+
+    try {
+      console.log(`[MemoryMonitor] 执行${isForced ? '强制' : '主动'}清理，共 ${this.cleanupCallbacks.length} 个回调`);
+
+      // 执行所有注册的清理回调
+      this.cleanupCallbacks.forEach(callback => {
+        try {
+          callback();
+        } catch (error) {
+          console.error('[MemoryMonitor] 清理回调执行失败:', error);
+        }
+      });
+
+      // 强制清理时尝试触发垃圾回收
+      if (isForced && typeof (window as any).gc === 'function') {
+        (window as any).gc();
+      }
+
+      this.markCleanup();
+      this.emitMemoryEvent(false); // 发送内存压力缓解事件
+    } finally {
+      this.isCleaning = false;
+    }
   }
 
   // 获取已注册的清理回调数量
