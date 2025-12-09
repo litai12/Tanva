@@ -417,7 +417,7 @@ export const paperSandboxService = {
 
   /**
    * 显示矢量图形生成占位标记
-   * 在画布中央显示一个彩雾涌动效果，提示用户正在生成矢量图形
+   * 在画布中央显示一个彩雾涌动效果
    */
   showVectorPlaceholder(): void {
     if (!paper.project || !paper.view) {
@@ -488,18 +488,7 @@ export const paperSandboxService = {
       auraCircles.push(circle);
     });
 
-    // 文字提示 - 更淡雅的颜色
-    const text = new paper.PointText({
-      point: new paper.Point(center.x, center.y + baseRadius + 45),
-      content: '正在生成矢量图形...',
-      fillColor: new paper.Color(0.4, 0.5, 0.7, 0.7),
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      fontSize: 13,
-      justification: 'center',
-    });
-    text.data = { isHelper: true };
-
-    placeholderGroup.addChildren([...auraCircles, text]);
+    placeholderGroup.addChildren(auraCircles);
 
     // 添加彩雾涌动动画
     let frameCount = 0;

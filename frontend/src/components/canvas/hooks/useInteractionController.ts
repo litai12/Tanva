@@ -1037,7 +1037,7 @@ export const useInteractionController = ({
 
       if (tryOpenImagePreview()) return;
 
-      console.log('🎯 检测到原生双击事件，当前模式:', currentDrawMode);
+      logger.debug('🎯 检测到原生双击事件，当前模式:', currentDrawMode);
       
       // 允许在任何模式下双击文本进行编辑
       // 这样即使在选择模式下也能双击编辑文本

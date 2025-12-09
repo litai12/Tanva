@@ -12,7 +12,7 @@ const SORA2_VIDEO_MODELS: Record<VideoQuality, string> = {
   sd: process.env.SORA2_SD_MODEL || 'sora-2-reverse',
 };
 
-const SORA2_FAILED_STATUSES = ['failed', 'error', 'blocked'];
+const SORA2_FAILED_STATUSES = ['failed', 'error', 'blocked', 'terminated'];
 const SORA2_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
 const SORA2_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
 const SORA2_ASYNC_HOST_HINTS = ['asyncdata.', 'asyncndata.'];
@@ -21,7 +21,7 @@ const SORA2_FETCH_TIMEOUT_MS = 60000;
 const SORA2_MAX_RETRY = 3;
 const SORA2_RETRY_BASE_DELAY_MS = 1200;
 const SORA2_POLL_INTERVAL_MS = 5000;
-const SORA2_POLL_MAX_ATTEMPTS = 60;
+const SORA2_POLL_MAX_ATTEMPTS = 120;
 const SORA2_POLL_STATUSES = ['queued', 'processing', 'downloading', 'pending'];
 
 interface Sora2ResolvedMedia {
@@ -36,7 +36,7 @@ interface Sora2ResolvedMedia {
 
 interface GenerateVideoOptions {
   prompt: string;
-  referenceImageUrl?: string;
+  referenceImageUrls?: string[];
   quality?: VideoQuality;
 }
 
@@ -78,7 +78,7 @@ export class Sora2VideoService {
         const requestPayload = {
           model,
           stream: true,
-          messages: this.buildMessages(options.prompt, options.referenceImageUrl),
+          messages: this.buildMessages(options.prompt, options.referenceImageUrls),
         };
 
         const response = await fetch(`${this.apiBase}/v1/chat/completions`, {
@@ -196,7 +196,7 @@ export class Sora2VideoService {
     return SORA2_VIDEO_MODELS[quality] || SORA2_VIDEO_MODELS.hd;
   }
 
-  private buildMessages(prompt: string, imageUrl?: string) {
+  private buildMessages(prompt: string, imageUrls?: string[]) {
     const content: Array<
       | { type: 'text'; text: string }
       | {
@@ -210,12 +210,16 @@ export class Sora2VideoService {
       },
     ];
 
-    if (imageUrl) {
+    const normalizedImages = (imageUrls || [])
+      .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+      .map((url) => url.trim());
+
+    normalizedImages.forEach((url) => {
       content.push({
         type: 'image_url',
-        image_url: { url: imageUrl },
+        image_url: { url },
       });
-    }
+    });
 
     return [
       {

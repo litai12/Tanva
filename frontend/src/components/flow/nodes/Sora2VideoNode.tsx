@@ -269,6 +269,10 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     const nativeEvent = event.nativeEvent;
     nativeEvent?.stopImmediatePropagation?.();
   };
+  // 阻止按钮的mousedown事件冒泡，防止触发节点拖拽
+  const handleButtonMouseDown = (event: React.MouseEvent) => {
+    event.stopPropagation();
+  };
 
   const renderPreview = () => {
     const commonMediaStyle: React.CSSProperties = {
@@ -381,6 +385,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={onRun}
+            onMouseDown={handleButtonMouseDown}
             disabled={data.status === 'running'}
             style={{
               width: 36,
@@ -401,6 +406,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={() => copyVideoLink(data.videoUrl)}
+            onMouseDown={handleButtonMouseDown}
             title="复制链接"
             style={{
               width: 36,
@@ -421,6 +427,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={() => triggerDownload(data.videoUrl)}
+            onMouseDown={handleButtonMouseDown}
             title="下载视频"
             style={{
               width: 36,

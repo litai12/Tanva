@@ -17,7 +17,7 @@ interface VideoGenerationState {
 const Sora2TestPage: React.FC = () => {
   const [apiKey, setApiKey] = useState<string>('');
   const [prompt, setPrompt] = useState<string>('');
-  const [imageUrl, setImageUrl] = useState<string>('');
+  const [imageInputs, setImageInputs] = useState<string>('');
   const [state, setState] = useState<VideoGenerationState>({
     isLoading: false,
     isStreaming: false,
@@ -67,12 +67,17 @@ const Sora2TestPage: React.FC = () => {
       successMessage: undefined,
     });
 
+    const parsedImageUrls = imageInputs
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+
     try {
       if (useStream) {
         // 流式生成
         const result = await sora2Service.generateVideoStream(
           prompt,
-          imageUrl || undefined,
+          parsedImageUrls.length ? parsedImageUrls : undefined,
           (chunk) => {
             setState((prev) => ({
               ...prev,
@@ -102,7 +107,7 @@ const Sora2TestPage: React.FC = () => {
         // 非流式生成
         const result = await sora2Service.generateVideo(
           prompt,
-          imageUrl || undefined,
+          parsedImageUrls.length ? parsedImageUrls : undefined,
           modelName
         );
 
@@ -270,12 +275,14 @@ const Sora2TestPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">Reference Image URL (Optional)</label>
-                  <Input
-                    placeholder="https://example.com/image.jpg"
-                    value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    className="font-mono text-sm"
+                  <label className="block text-sm font-medium text-gray-700">
+                    Reference Image URLs (Optional, comma or newline separated)
+                  </label>
+                  <textarea
+                    placeholder="https://example.com/image1.jpg, https://example.com/image2.jpg"
+                    value={imageInputs}
+                    onChange={(e) => setImageInputs(e.target.value)}
+                    className="font-mono text-sm w-full h-20 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 

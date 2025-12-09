@@ -90,12 +90,12 @@ class Sora2Service {
   /**
    * 生成视频（使用 stream: true）
    * @param prompt 视频描述提示词
-   * @param imageUrl 可选的参考图像 URL
+   * @param imageUrls 可选的参考图像 URL（可多张）
    * @param onChunk 流式数据回调函数
    */
   async generateVideoStream(
     prompt: string,
-    imageUrl?: string,
+    imageUrls?: string | string[],
     onChunk?: (chunk: string) => void,
     modelOverride?: string
   ): Promise<AIServiceResponse<{ fullContent: string }>> {
@@ -117,7 +117,7 @@ class Sora2Service {
         console.log('🖼️ Image URL:', imageUrl);
       }
 
-      const messages = this.buildMessages(prompt, imageUrl);
+      const messages = this.buildMessages(prompt, imageUrls);
       const model = modelOverride || this.DEFAULT_MODEL;
       const request: Sora2Request = {
         model,
@@ -177,7 +177,7 @@ class Sora2Service {
    */
   async generateVideo(
     prompt: string,
-    imageUrl?: string,
+    imageUrls?: string | string[],
     modelOverride?: string
   ): Promise<AIServiceResponse<string>> {
     if (!this.apiKey) {
@@ -194,7 +194,7 @@ class Sora2Service {
     try {
       console.log('🎬 Sora2Service: Starting video generation...');
 
-      const messages = this.buildMessages(prompt, imageUrl);
+      const messages = this.buildMessages(prompt, imageUrls);
       const model = modelOverride || this.DEFAULT_MODEL;
       const request: Sora2Request = {
         model,
@@ -251,7 +251,7 @@ class Sora2Service {
   /**
    * 构建消息体
    */
-  private buildMessages(prompt: string, imageUrl?: string): Sora2Message[] {
+  private buildMessages(prompt: string, imageUrls?: string | string[]): Sora2Message[] {
     const content: Sora2Content[] = [
       {
         type: 'text',
@@ -259,12 +259,21 @@ class Sora2Service {
       },
     ];
 
-    if (imageUrl) {
-      content.push({
-        type: 'image_url',
-        image_url: { url: imageUrl },
+    const normalizedImages = Array.isArray(imageUrls)
+      ? imageUrls
+      : imageUrls
+      ? [imageUrls]
+      : [];
+
+    normalizedImages
+      .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+      .map((url) => url.trim())
+      .forEach((url) => {
+        content.push({
+          type: 'image_url',
+          image_url: { url },
+        });
       });
-    }
 
     return [
       {

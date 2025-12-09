@@ -512,14 +512,24 @@ export type Sora2VideoGenerationOptions = {
 
 export async function requestSora2VideoGeneration(
   prompt: string,
-  referenceImageUrl?: string | null,
+  referenceImageUrls?: string | string[] | null,
   options?: Sora2VideoGenerationOptions,
 ) {
   options?.onProgress?.('提交视频生成请求', 35);
 
+  const normalizedImages = Array.isArray(referenceImageUrls)
+    ? referenceImageUrls
+    : referenceImageUrls
+    ? [referenceImageUrls]
+    : [];
+
+  const cleanedImageUrls = normalizedImages
+    .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
+    .map((url) => url.trim());
+
   const response = await generateVideoViaAPI({
     prompt,
-    referenceImageUrl: referenceImageUrl || undefined,
+    referenceImageUrls: cleanedImageUrls.length ? cleanedImageUrls : undefined,
     quality: options?.quality,
   });
 
@@ -3364,7 +3374,7 @@ export const useAIChatStore = create<AIChatState>()(
   // 🎬 视频生成方法
   generateVideo: async (
     prompt: string,
-    referenceImage?: string | null,
+    referenceImages?: string | string[] | null,
     options?: { override?: MessageOverride; metrics?: ProcessMetrics }
   ) => {
     const metrics = options?.metrics;
@@ -3419,8 +3429,14 @@ export const useAIChatStore = create<AIChatState>()(
 
     try {
       // 处理参考图像上传（如果有）
-      let referenceImageUrl: string | undefined;
-      if (referenceImage) {
+      const referenceImageList = Array.isArray(referenceImages)
+        ? referenceImages
+        : referenceImages
+        ? [referenceImages]
+        : [];
+      const referenceImageUrls: string[] = [];
+
+      if (referenceImageList.length) {
         get().updateMessageStatus(aiMessageId, {
           isGenerating: true,
           progress: 15,
@@ -3429,12 +3445,19 @@ export const useAIChatStore = create<AIChatState>()(
         });
 
         const projectId = useProjectContentStore.getState().projectId;
-        const uploadedUrl = await uploadImageToOSS(ensureDataUrl(referenceImage), projectId);
-
-        if (!uploadedUrl) {
-          console.warn('⚠️ 参考图像上传失败，继续生成视频');
-        } else {
-          referenceImageUrl = uploadedUrl;
+        for (const img of referenceImageList) {
+          if (!img) continue;
+          try {
+            const dataUrl = ensureDataUrl(img);
+            const uploadedUrl = await uploadImageToOSS(dataUrl, projectId);
+            if (uploadedUrl) {
+              referenceImageUrls.push(uploadedUrl);
+            } else {
+              console.warn('⚠️ 参考图像上传失败，继续生成视频');
+            }
+          } catch (error) {
+            console.warn('⚠️ 参考图像上传失败，继续生成视频', error);
+          }
         }
       }
 
@@ -3450,7 +3473,7 @@ export const useAIChatStore = create<AIChatState>()(
       logProcessStep(metrics, 'generateVideo calling backend video API');
       const videoResult = await requestSora2VideoGeneration(
         prompt,
-        referenceImageUrl,
+        referenceImageUrls,
         {
           quality: DEFAULT_SORA2_VIDEO_QUALITY,
           onProgress: (stage, progress) => {

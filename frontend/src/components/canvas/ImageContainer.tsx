@@ -560,16 +560,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           if (sourceImageForEditing) {
             addImageForBlending(sourceImageForEditing);
             setSourceImageForEditing(null);
-            console.log("🎨 将编辑图像转换为融合模式");
+            logger.debug("🎨 将编辑图像转换为融合模式");
           }
 
           // 已有图片：添加新图片到融合模式
           addImageForBlending(imageDataUrl);
-          console.log("🎨 已添加图像到融合模式");
+          logger.debug("🎨 已添加图像到融合模式");
         } else {
           // 没有现有图片：设置为编辑图片
           setSourceImageForEditing(imageDataUrl);
-          console.log("🎨 已设置图像为编辑模式");
+          logger.debug("🎨 已设置图像为编辑模式");
         }
 
         showDialog();
@@ -597,7 +597,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       if (onToggleVisibility) {
         onToggleVisibility(imageData.id);
-        console.log("👁️‍🗨️ 切换图层可见性:", imageData.id);
+        logger.debug("👁️‍🗨️ 切换图层可见性:", imageData.id);
       }
     },
     [imageData.id, onToggleVisibility]
@@ -626,7 +626,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             },
           })
         );
-        console.log("🧩 已请求创建Flow Image节点");
+        logger.debug("🧩 已请求创建Flow Image节点");
       };
 
       run().catch((error) => {

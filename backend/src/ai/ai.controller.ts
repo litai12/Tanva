@@ -672,10 +672,15 @@ export class AiController {
     const quality = dto.quality === 'sd' ? 'sd' : 'hd';
     const serviceType: ServiceType = quality === 'sd' ? 'sora-sd' : 'sora-hd';
     const model = this.sora2VideoService.getModelForQuality(quality);
-    const inputImageCount = dto.referenceImageUrl ? 1 : undefined;
+    const normalizedArray =
+      dto.referenceImageUrls?.filter((url) => typeof url === 'string' && url.trim().length > 0) ||
+      [];
+    const legacySingle = dto.referenceImageUrl?.trim();
+    const referenceImageUrls = legacySingle ? [...normalizedArray, legacySingle] : normalizedArray;
+    const inputImageCount = referenceImageUrls.length || undefined;
 
     this.logger.log(
-      `🎬 Video generation request received (quality=${quality}, hasReference=${Boolean(dto.referenceImageUrl)})`,
+      `🎬 Video generation request received (quality=${quality}, referenceCount=${referenceImageUrls.length})`,
     );
 
     return this.withCredits(
@@ -685,7 +690,7 @@ export class AiController {
       async () =>
         this.sora2VideoService.generateVideo({
           prompt: dto.prompt,
-          referenceImageUrl: dto.referenceImageUrl,
+          referenceImageUrls,
           quality,
         }),
       inputImageCount,

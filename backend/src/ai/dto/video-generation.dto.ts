@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class GenerateVideoDto {
   @ApiProperty({ description: '视频描述提示词' })
@@ -7,7 +7,13 @@ export class GenerateVideoDto {
   @MaxLength(2000)
   prompt!: string;
 
-  @ApiProperty({ description: '参考图像 URL', required: false })
+  @ApiProperty({ description: '参考图像 URL 列表', required: false, type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  referenceImageUrls?: string[];
+
+  @ApiProperty({ description: '单张参考图像 URL（兼容旧版）', required: false })
   @IsOptional()
   @IsString()
   referenceImageUrl?: string;

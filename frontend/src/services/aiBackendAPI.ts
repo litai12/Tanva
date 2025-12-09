@@ -19,11 +19,22 @@ import type {
   MidjourneyModalRequest,
 } from '@/types/ai';
 import { fetchWithAuth } from './authFetch';
+import { logger } from '@/utils/logger';
 
 const API_BASE_URL = '/api';
 const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
 const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
+
+const getTimestamp = () =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+
+const logApiTiming = (endpoint: string, startTime: number, meta?: Record<string, any>) => {
+  const duration = getTimestamp() - startTime;
+  logger.perf(`AI API ${endpoint}`, duration, meta);
+};
 
 type ImageResponseLogMeta = {
   endpoint: string;
@@ -215,16 +226,32 @@ async function performGenerateImageRequest(
 export async function generateImageViaAPI(
   request: AIImageGenerateRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
+  const startedAt = getTimestamp();
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
+  let attempts = 0;
 
   for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
+    attempts = attempt;
     lastResponse = await performGenerateImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      logApiTiming('generate-image', startedAt, {
+        success: false,
+        attempts,
+        provider: request.aiProvider,
+        model: resolveDefaultModel(request.model, request.aiProvider),
+        status: lastResponse.error?.code,
+      });
       return lastResponse;
     }
 
     if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+      logApiTiming('generate-image', startedAt, {
+        success: true,
+        attempts,
+        provider: request.aiProvider,
+        model: lastResponse.data.model,
+      });
       return lastResponse;
     }
 
@@ -240,6 +267,12 @@ export async function generateImageViaAPI(
     }
   }
 
+  logApiTiming('generate-image', startedAt, {
+    success: lastResponse?.success ?? false,
+    attempts,
+    provider: request.aiProvider,
+    model: lastResponse?.data?.model || resolveDefaultModel(request.model, request.aiProvider),
+  });
   return lastResponse ?? {
     success: false,
     error: {
@@ -316,16 +349,32 @@ async function performEditImageRequest(
  * 编辑图像 - 通过后端 API（在缺少图像数据时自动补偿重试）
  */
 export async function editImageViaAPI(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
+  const startedAt = getTimestamp();
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
+  let attempts = 0;
 
   for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
+    attempts = attempt;
     lastResponse = await performEditImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      logApiTiming('edit-image', startedAt, {
+        success: false,
+        attempts,
+        provider: request.aiProvider,
+        model: resolveDefaultModel(request.model, request.aiProvider),
+        status: lastResponse.error?.code,
+      });
       return lastResponse;
     }
 
     if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+      logApiTiming('edit-image', startedAt, {
+        success: true,
+        attempts,
+        provider: request.aiProvider,
+        model: lastResponse.data.model,
+      });
       return lastResponse;
     }
 
@@ -341,6 +390,12 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
     }
   }
 
+  logApiTiming('edit-image', startedAt, {
+    success: lastResponse?.success ?? false,
+    attempts,
+    provider: request.aiProvider,
+    model: lastResponse?.data?.model || resolveDefaultModel(request.model, request.aiProvider),
+  });
   return lastResponse ?? {
     success: false,
     error: {
@@ -417,16 +472,32 @@ async function performBlendImagesRequest(
  * 融合图像 - 通过后端 API（在缺少图像数据时自动补偿重试）
  */
 export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
+  const startedAt = getTimestamp();
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
+  let attempts = 0;
 
   for (let attempt = 1; attempt <= MAX_IMAGE_GENERATION_ATTEMPTS; attempt++) {
+    attempts = attempt;
     lastResponse = await performBlendImagesRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      logApiTiming('blend-images', startedAt, {
+        success: false,
+        attempts,
+        provider: request.aiProvider,
+        model: resolveDefaultModel(request.model, request.aiProvider),
+        status: lastResponse.error?.code,
+      });
       return lastResponse;
     }
 
     if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+      logApiTiming('blend-images', startedAt, {
+        success: true,
+        attempts,
+        provider: request.aiProvider,
+        model: lastResponse.data.model,
+      });
       return lastResponse;
     }
 
@@ -442,6 +513,12 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
     }
   }
 
+  logApiTiming('blend-images', startedAt, {
+    success: lastResponse?.success ?? false,
+    attempts,
+    provider: request.aiProvider,
+    model: lastResponse?.data?.model || resolveDefaultModel(request.model, request.aiProvider),
+  });
   return lastResponse ?? {
     success: false,
     error: {
@@ -460,6 +537,7 @@ type MidjourneyActionParams = MidjourneyActionRequest & {
 export async function midjourneyActionViaAPI(
   params: MidjourneyActionParams
 ): Promise<AIServiceResponse<AIImageResult>> {
+  const startedAt = getTimestamp();
   const { displayPrompt, actionLabel, ...payload } = params;
 
   try {
@@ -473,6 +551,11 @@ export async function midjourneyActionViaAPI(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      logApiTiming('midjourney-action', startedAt, {
+        success: false,
+        status: response.status,
+        action: actionLabel,
+      });
       return {
         success: false,
         error: {
@@ -495,11 +578,21 @@ export async function midjourneyActionViaAPI(
       actionLabel,
     };
 
+    logApiTiming('midjourney-action', startedAt, {
+      success: true,
+      action: actionLabel,
+    });
+
     return {
       success: true,
       data: mapped,
     };
   } catch (error) {
+    logApiTiming('midjourney-action', startedAt, {
+      success: false,
+      action: actionLabel,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return {
       success: false,
       error: {
@@ -518,6 +611,7 @@ type MidjourneyModalParams = MidjourneyModalRequest & {
 export async function midjourneyModalViaAPI(
   params: MidjourneyModalParams
 ): Promise<AIServiceResponse<AIImageResult>> {
+  const startedAt = getTimestamp();
   const { displayPrompt, ...payload } = params;
 
   try {
@@ -531,6 +625,10 @@ export async function midjourneyModalViaAPI(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      logApiTiming('midjourney-modal', startedAt, {
+        success: false,
+        status: response.status,
+      });
       return {
         success: false,
         error: {
@@ -548,11 +646,19 @@ export async function midjourneyModalViaAPI(
       model: MIDJOURNEY_IMAGE_MODEL,
     });
 
+    logApiTiming('midjourney-modal', startedAt, {
+      success: true,
+    });
+
     return {
       success: true,
       data: mapped,
     };
   } catch (error) {
+    logApiTiming('midjourney-modal', startedAt, {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return {
       success: false,
       error: {
@@ -568,6 +674,7 @@ export async function midjourneyModalViaAPI(
  * 分析图像 - 通过后端 API
  */
 export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promise<AIServiceResponse<AIImageAnalysisResult>> {
+  const startedAt = getTimestamp();
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/analyze-image`, {
       method: 'POST',
@@ -579,6 +686,12 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      logApiTiming('analyze-image', startedAt, {
+        success: false,
+        status: response.status,
+        provider: request.aiProvider,
+        model: request.model,
+      });
       return {
         success: false,
         error: {
@@ -591,6 +704,13 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
 
     const data = await response.json();
 
+    logApiTiming('analyze-image', startedAt, {
+      success: true,
+      provider: request.aiProvider,
+      model: request.model,
+      textLength: typeof data?.text === 'string' ? data.text.length : undefined,
+    });
+
     return {
       success: true,
       data: {
@@ -600,6 +720,12 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
       },
     };
   } catch (error) {
+    logApiTiming('analyze-image', startedAt, {
+      success: false,
+      provider: request.aiProvider,
+      model: request.model,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return {
       success: false,
       error: {
@@ -615,6 +741,7 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
  * 文本对话 - 通过后端 API
  */
 export async function generateTextResponseViaAPI(request: AITextChatRequest): Promise<AIServiceResponse<AITextChatResult>> {
+  const startedAt = getTimestamp();
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/text-chat`, {
       method: 'POST',
@@ -626,6 +753,12 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      logApiTiming('text-chat', startedAt, {
+        success: false,
+        status: response.status,
+        provider: request.aiProvider,
+        model: request.model,
+      });
       return {
         success: false,
         error: {
@@ -638,6 +771,13 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
 
     const data = await response.json();
 
+    logApiTiming('text-chat', startedAt, {
+      success: true,
+      provider: request.aiProvider,
+      model: request.model || 'gemini-2.5-flash',
+      textLength: typeof data?.text === 'string' ? data.text.length : undefined,
+    });
+
     return {
       success: true,
       data: {
@@ -647,6 +787,12 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
       },
     };
   } catch (error) {
+    logApiTiming('text-chat', startedAt, {
+      success: false,
+      provider: request.aiProvider,
+      model: request.model,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return {
       success: false,
       error: {
@@ -660,7 +806,7 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
 
 export interface VideoGenerationRequest {
   prompt: string;
-  referenceImageUrl?: string;
+  referenceImageUrls?: string[];
   quality?: 'hd' | 'sd';
 }
 
@@ -677,17 +823,32 @@ export interface VideoGenerationResult {
 export async function generateVideoViaAPI(
   request: VideoGenerationRequest
 ): Promise<AIServiceResponse<VideoGenerationResult>> {
+  const startedAt = getTimestamp();
   try {
+    const referenceImageUrls = (request.referenceImageUrls || []).filter(
+      (url): url is string => typeof url === 'string' && url.trim().length > 0
+    );
+    const payload: VideoGenerationRequest = {
+      ...request,
+      referenceImageUrls: referenceImageUrls.length ? referenceImageUrls : undefined,
+    };
+
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-video`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      logApiTiming('generate-video', startedAt, {
+        success: false,
+        status: response.status,
+        quality: request.quality,
+        references: referenceImageUrls.length,
+      });
       return {
         success: false,
         error: {
@@ -699,11 +860,23 @@ export async function generateVideoViaAPI(
     }
 
     const data = await response.json();
+    logApiTiming('generate-video', startedAt, {
+      success: true,
+      quality: request.quality,
+      references: referenceImageUrls.length,
+      hasThumbnail: Boolean((data as any)?.thumbnailUrl),
+    });
     return {
       success: true,
       data,
     };
   } catch (error) {
+    logApiTiming('generate-video', startedAt, {
+      success: false,
+      quality: request.quality,
+      references: Array.isArray(request.referenceImageUrls) ? request.referenceImageUrls.length : 0,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return {
       success: false,
       error: {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore, GridStyle } from '@/stores';
 import { memoryMonitor } from '@/utils/memoryMonitor';
+import { logger } from '@/utils/logger';
 
 interface GridRendererProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -53,7 +54,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
     // 防止重复调用
     if (gridLayerRef.current?.data?.isRendering) {
-      console.log('Grid render already in progress, skipping');
+      logger.debug('Grid render already in progress, skipping');
       return;
     }
 
@@ -668,7 +669,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       memoryMonitor.forceCleanup();
     }
 
-    console.log('强制内存清理已完成');
+    logger.debug('强制内存清理已完成');
   }, []);
 
   // 监控内存使用，必要时触发强制清理

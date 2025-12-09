@@ -689,7 +689,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
   // ========== 图片删除 ==========
   const handleImageDelete = useCallback((imageId: string) => {
-    console.log('🗑️ 开始删除图片:', imageId);
+    logger.debug('🗑️ 开始删除图片:', imageId);
 
     // 从Paper.js中移除图片对象（深度清理，防止残留）
     try {
@@ -716,7 +716,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             try { item.remove(); } catch {}
           });
           try { paper.view.update(); } catch {}
-          console.log('🗑️ 已从Paper.js中移除图片（深度清理）');
+          logger.debug('🗑️ 已从Paper.js中移除图片（深度清理）');
         } else {
           console.warn('未找到需要删除的图片对象，可能已被移除');
         }
@@ -728,14 +728,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     // 从React状态中移除图片
     setImageInstances(prev => {
       const filtered = prev.filter(img => img.id !== imageId);
-      console.log('🗑️ 已从状态中移除图片，剩余图片数量:', filtered.length);
+      logger.debug('🗑️ 已从状态中移除图片，剩余图片数量:', filtered.length);
       return filtered;
     });
 
     // 如果删除的是当前选中的图片，清除选中状态
     if (selectedImageIds.includes(imageId)) {
       setSelectedImageIds(prev => prev.filter(id => id !== imageId));
-      console.log('🗑️ 已清除选中状态');
+      logger.debug('🗑️ 已清除选中状态');
     }
 
     // 调用删除回调

@@ -163,12 +163,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // Expose paperSaveService globally for testing (development only)
     if (import.meta.env.DEV) {
       (window as any).testPaperSave = () => {
-        console.log('🧪 Testing Paper.js save manually...');
+        logger.debug('🧪 Testing Paper.js save manually...');
         paperSaveService.triggerAutoSave();
       };
 
       (window as any).testPaperState = () => {
-        console.log('🔍 Paper.js状态检查:', {
+        logger.debug('🔍 Paper.js状态检查:', {
           hasPaper: !!paper,
           hasProject: !!paper?.project,
           hasView: !!paper?.view,
@@ -180,7 +180,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 监听 Paper.js 项目恢复事件
     const handleProjectRecovery = (_event: CustomEvent) => {
-      console.log('🔄 收到Paper.js项目恢复请求，重新初始化图层管理器...');
+      logger.debug('🔄 收到Paper.js项目恢复请求，重新初始化图层管理器...');
 
       try {
         // 重新创建图层管理器
@@ -196,7 +196,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }));
         }, 100);
 
-        console.log('✅ Paper.js项目恢复完成');
+        logger.debug('✅ Paper.js项目恢复完成');
       } catch (error) {
         console.error('❌ Paper.js项目恢复失败:', error);
       }
@@ -263,8 +263,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     context: drawingContext,
     canvasRef,
     eventHandlers: {
-      onImageSelect: (imageId) => console.log('图片选中:', imageId),
-      onImageDeselect: () => console.log('取消图片选择')
+      onImageSelect: (imageId) => logger.debug('图片选中:', imageId),
+      onImageDeselect: () => logger.debug('取消图片选择')
     }
   });
 
@@ -297,7 +297,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     const handleQuickImageAdded = (event: CustomEvent) => {
       const imageInstance = event.detail;
-      console.log('🎪 [DEBUG] DrawingController收到quickImageAdded事件:', {
+      logger.debug('🎪 [DEBUG] DrawingController收到quickImageAdded事件:', {
         id: imageInstance.id,
         bounds: imageInstance.bounds,
         layerId: imageInstance.layerId,
@@ -310,9 +310,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (!alreadyExists) {
           imageTool.setImageInstances(prev => [...prev, imageInstance]);
           logger.upload('快速上传的图片已添加到实例管理');
-          console.log('✅ [DEBUG] 图片实例已添加到imageTool管理');
+          logger.debug('✅ [DEBUG] 图片实例已添加到imageTool管理');
         } else {
-          console.log('ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加', imageInstance.id);
+          logger.debug('ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加', imageInstance.id);
         }
 
         // 同步缓存位置信息（如果该图片刚被缓存为最新）
@@ -346,7 +346,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 remoteUrl
               }
             );
-            console.log('🧷 已将图片位置信息写入缓存（覆盖为当前实例）:', { id: imageInstance.id, bounds: imageInstance.bounds });
+            logger.debug('🧷 已将图片位置信息写入缓存（覆盖为当前实例）:', { id: imageInstance.id, bounds: imageInstance.bounds });
           } else {
             console.warn('⚠️ 未找到可缓存的图像数据，保持现有缓存', {
               imageId: imageInstance.id,
@@ -533,7 +533,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         videoInfo
       } = event.detail;
       
-      console.log('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { 
+      logger.debug('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { 
         fileName, 
         hasSelectedBounds: !!selectedImageBounds,
         hasSmartPosition: !!smartPosition,
@@ -554,7 +554,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           sourceImages,
           { videoInfo }
         );
-        console.log('✅ [DEBUG] 已调用智能排版快速上传处理函数');
+        logger.debug('✅ [DEBUG] 已调用智能排版快速上传处理函数');
       }
     };
 
@@ -570,8 +570,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     context: drawingContext,
     canvasRef,
     eventHandlers: {
-      onModel3DSelect: (modelId) => console.log('3D模型选中:', modelId),
-      onModel3DDeselect: () => console.log('取消3D模型选择')
+      onModel3DSelect: (modelId) => logger.debug('3D模型选中:', modelId),
+      onModel3DDeselect: () => logger.debug('取消3D模型选择')
     },
     setDrawMode
   });
@@ -640,10 +640,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     hasFill,
     eventHandlers: {
       onPathCreate: (path) => {
-        console.log('路径创建:', path);
+        logger.debug('路径创建:', path);
       },
       onPathComplete: (path) => {
-        console.log('路径完成:', path);
+        logger.debug('路径完成:', path);
 
         // 检查 Paper.js 项目状态后再触发保存
         if (paper && paper.project && paper.view) {
@@ -653,10 +653,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       },
       onDrawStart: (mode) => {
-        console.log('开始绘制:', mode);
+        logger.debug('开始绘制:', mode);
       },
       onDrawEnd: (mode) => {
-        console.log('结束绘制:', mode);
+        logger.debug('结束绘制:', mode);
 
         // 检查 Paper.js 项目状态后再触发保存
         if (paper && paper.project && paper.view) {
@@ -728,7 +728,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 remoteUrl
               }
             );
-            console.log('📌 已基于选中图片更新缓存位置:', { id: img.id, bounds: img.bounds });
+            logger.debug('📌 已基于选中图片更新缓存位置:', { id: img.id, bounds: img.bounds });
           } else {
             console.warn('⚠️ 选中图片缺少可缓存的数据，跳过缓存更新', {
               imageId,
@@ -855,7 +855,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   useEffect(() => {
     const handlePaperCleared = () => {
-      console.log('🧹 收到 paper-project-cleared 事件，重置前端实例状态');
+      logger.debug('🧹 收到 paper-project-cleared 事件，重置前端实例状态');
 
       resetImageInstances([]);
       resetSelectedImageIds([]);
@@ -915,7 +915,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     lastProcessedProjectIdRef.current = projectId;
     clearingInProgressRef.current = true;
 
-    console.log('🔄 项目ID变化，清空所有实例:', projectId);
+    logger.debug('🔄 项目ID变化，清空所有实例:', projectId);
 
     // 直接同步执行，但使用稳定的函数引用
     try {
@@ -949,7 +949,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 如果已经从 paperJson 恢复过内容，则这次也不需要 snapshot 回填
     const restoredFromPaper = typeof window !== 'undefined' && (window as any).tanvaPaperRestored;
     if (restoredFromPaper) {
-      console.log('🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复');
+      logger.debug('🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复');
       try { (window as any).tanvaPaperRestored = false; } catch {}
       // 视为已回填一次，避免后续空场景再次触发
       try { (window as any)[hydratedFlagKey] = true; } catch {}
@@ -1010,7 +1010,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const currentModel3DInstances = model3DInstancesRef.current;
 
       // 调试信息
-      console.log('截图前的状态:', {
+      logger.debug('截图前的状态:', {
         imageCount: currentImageInstances.length,
         model3DCount: currentModel3DInstances.length,
         images: currentImageInstances,
@@ -1050,7 +1050,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           selection: manualSelection,
           // 截图完成后的回调，直接传入AI聊天
           onComplete: (dataUrl: string, filename: string) => {
-            console.log('🎨 截图完成，同时下载文件和传入AI对话框...', { filename });
+            logger.debug('🎨 截图完成，同时下载文件和传入AI对话框...', { filename });
 
             // 将截图设置为AI编辑源图片
             setSourceImageForEditing(dataUrl);
@@ -1058,14 +1058,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             // 显示AI对话框
             showAIDialog();
 
-            console.log('✅ 截图已下载到本地并传入AI对话框');
+            logger.debug('✅ 截图已下载到本地并传入AI对话框');
           }
         }
       );
 
       if (result.success) {
         logger.debug('✅ 截图成功生成:', result.filename);
-        console.log('截图成功！已下载到本地并传入AI对话框:', result.filename);
+        logger.debug('截图成功！已下载到本地并传入AI对话框:', result.filename);
       } else {
         logger.error('❌ 截图失败:', result.error);
         console.error('截图失败:', result.error);
@@ -1910,7 +1910,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 调用图层store的切换可见性函数
           toggleVisibility(layerStoreId);
           
-          console.log(`👁️ 切换图层可见性: ${currentLayer.name} (storeId: ${layerStoreId})`);
+          logger.debug(`👁️ 切换图层可见性: ${currentLayer.name} (storeId: ${layerStoreId})`);
         } else {
           console.warn('图片没有关联的图层');
         }
@@ -2395,7 +2395,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 处理图片实例更新
     const handleImageInstanceUpdate = (event: CustomEvent) => {
       const { imageId, layerId } = event.detail;
-      console.log(`🔄 DrawingController收到图片实例更新事件: ${imageId} → 图层${layerId}`);
+      logger.debug(`🔄 DrawingController收到图片实例更新事件: ${imageId} → 图层${layerId}`);
       
       imageTool.setImageInstances(prev => prev.map(image => {
         if (image.id === imageId) {
@@ -2412,7 +2412,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 处理3D模型实例更新
     const handleModel3DInstanceUpdate = (event: CustomEvent) => {
       const { modelId, layerId } = event.detail;
-      console.log(`🔄 DrawingController收到3D模型实例更新事件: ${modelId} → 图层${layerId}`);
+      logger.debug(`🔄 DrawingController收到3D模型实例更新事件: ${modelId} → 图层${layerId}`);
       
       model3DTool.setModel3DInstances(prev => prev.map(model => {
         if (model.id === modelId) {
@@ -2815,14 +2815,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             return merged;
           });
           imageTool.setSelectedImageIds([]);
-          console.log(`🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`);
+          logger.debug(`🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`);
         }
 
         // 更新文字实例
         simpleTextTool.hydrateFromPaperItems(textInstances);
         try { (window as any).tanvaTextItems = textInstances; } catch {}
         if (textInstances.length > 0) {
-          console.log(`📝 已从 Paper 恢复 ${textInstances.length} 个文字实例`);
+          logger.debug(`📝 已从 Paper 恢复 ${textInstances.length} 个文字实例`);
         }
 
         // 更新3D模型实例
@@ -2830,13 +2830,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           model3DTool.setModel3DInstances(model3DInstances);
           model3DTool.setSelectedModel3DIds([]);
           try { (window as any).tanvaModel3DInstances = model3DInstances; } catch {}
-          console.log(`🎮 已从 Paper 恢复 ${model3DInstances.length} 个3D模型实例`);
+          logger.debug(`🎮 已从 Paper 恢复 ${model3DInstances.length} 个3D模型实例`);
         }
 
         // 输出总结
         const total = imageInstances.length + textInstances.length + model3DInstances.length;
         if (total > 0) {
-          console.log(`✅ 从 Paper.js 共恢复 ${total} 个实例（图片${imageInstances.length}，文字${textInstances.length}，3D${model3DInstances.length}）`);
+          logger.debug(`✅ 从 Paper.js 共恢复 ${total} 个实例（图片${imageInstances.length}，文字${textInstances.length}，3D${model3DInstances.length}）`);
         }
       } catch (e) {
         console.warn('从Paper重建实例失败:', e);
@@ -2852,7 +2852,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleLayerItemSelected = (event: CustomEvent) => {
       const { item, type, itemId } = event.detail;
 
-      console.log('收到图层面板选择事件:', type, itemId);
+      logger.debug('收到图层面板选择事件:', type, itemId);
 
       // 清除之前的所有选择
       selectionTool.clearAllSelections();

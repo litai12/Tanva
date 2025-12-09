@@ -250,7 +250,7 @@ export const useDrawingTools = ({
     if (pathRef.current) {
       (pathRef.current as any).startPoint = startPoint;
       (pathRef.current as any).isCirclePath = true; // 标记为圆形路径
-      console.log('🔴 创建圆形路径:', {
+      logger.debug('🔴 创建圆形路径:', {
         center: startPoint,
         radius: 1,
         className: pathRef.current.className

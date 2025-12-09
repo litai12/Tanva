@@ -90,6 +90,7 @@ const nodeTypes = {
 };
 
 const DEFAULT_REFERENCE_PROMPT = '请参考第二张图的内容';
+const SORA2_MAX_REFERENCE_IMAGES = 1;
 
 const BUILTIN_TEMPLATE_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: '摄影', label: '摄影' },
@@ -1506,7 +1507,23 @@ function FlowInner() {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       if ((tgt?.type === 'sora2Video') && params.targetHandle === 'image') {
-        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'image'));
+        // 允许多条 image 连接，但限制总数；超过时移除最早的
+        let remainingToDrop = Math.max(
+          0,
+          next.filter(e => e.target === params.target && e.targetHandle === 'image').length
+            - SORA2_MAX_REFERENCE_IMAGES + 1 // +1 for the incoming edge
+        );
+        if (remainingToDrop > 0) {
+          next = next.filter(e => {
+            if (remainingToDrop <= 0) return true;
+            const isImageEdge = e.target === params.target && e.targetHandle === 'image';
+            if (isImageEdge) {
+              remainingToDrop -= 1;
+              return false;
+            }
+            return true;
+          });
+        }
       }
       if (tgt?.type === 'generateRef') {
         const image1Handles = ['image1','refer'];
@@ -1773,19 +1790,21 @@ function FlowInner() {
 
       const imageEdges = currentEdges
         .filter(e => e.target === nodeId && e.targetHandle === 'image')
-        .slice(0, 1);
+        .slice(0, SORA2_MAX_REFERENCE_IMAGES);
       const referenceImages = collectImages(imageEdges);
 
-      let referenceImageUrl: string | undefined;
+      const referenceImageUrls: string[] = [];
       if (referenceImages.length) {
         try {
-          const dataUrl = ensureDataUrl(referenceImages[0]);
-          const uploaded = await uploadImageToOSS(dataUrl, projectId);
-          if (!uploaded) {
-            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '参考图上传失败' } } : n));
-            return;
+          for (const img of referenceImages) {
+            const dataUrl = ensureDataUrl(img);
+            const uploaded = await uploadImageToOSS(dataUrl, projectId);
+            if (!uploaded) {
+              setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '参考图上传失败' } } : n));
+              return;
+            }
+            referenceImageUrls.push(uploaded);
           }
-          referenceImageUrl = uploaded;
         } catch (error) {
           const msg = error instanceof Error ? error.message : '参考图上传失败';
           setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
@@ -1799,7 +1818,7 @@ function FlowInner() {
       try {
         const videoResult = await requestSora2VideoGeneration(
           finalPromptText,
-          referenceImageUrl,
+          referenceImageUrls,
           { quality: videoQuality }
         );
         setNodes(ns => ns.map(n => {

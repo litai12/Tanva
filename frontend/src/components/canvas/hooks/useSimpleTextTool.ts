@@ -277,7 +277,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       }));
     } catch {}
 
-    console.log('🗑️ 已删除文本:', textId);
+    logger.debug('🗑️ 已删除文本:', textId);
     try { historyService.commit('delete-text').catch(() => {}); } catch {}
   }, [selectedTextId, editingTextId, textItems]);
 
@@ -355,7 +355,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       textPosition: textItem.paperText.position.clone()
     };
 
-    console.log('🤏 开始拖拽文本:', textId);
+    logger.debug('🤏 开始拖拽文本:', textId);
     return true;
   }, [textItems]);
 
@@ -392,7 +392,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
 
     setIsDragging(false);
     dragStartRef.current = null;
-    console.log('✋ 结束拖拽文本');
+    logger.debug('✋ 结束拖拽文本');
     try { historyService.commit('move-text').catch(() => {}); } catch {}
   }, [selectedTextId, textItems, moveText]);
 
@@ -450,7 +450,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       fixedCorner: fixedCorner
     };
 
-    console.log('🔄 开始调整文本大小:', textId, '方向:', direction, '固定角:', fixedCorner);
+    logger.debug('🔄 开始调整文本大小:', textId, '方向:', direction, '固定角:', fixedCorner);
     return true;
   }, [textItems]);
 
@@ -523,7 +523,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
   const endTextResize = useCallback(() => {
     setIsResizing(false);
     resizeStartRef.current = null;
-    console.log('✋ 结束调整文本大小');
+    logger.debug('✋ 结束调整文本大小');
     try { historyService.commit('resize-text').catch(() => {}); } catch {}
   }, []);
 
@@ -545,7 +545,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       }
     });
 
-    console.log('🔍 文本点击检测:', {
+    logger.debug('🔍 文本点击检测:', {
       point,
       hitResult,
       hitItem: hitResult?.item,
@@ -563,7 +563,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       for (const textItem of textItems) {
         const bounds = textItem.paperText.bounds;
         if (bounds && bounds.contains(point)) {
-          console.log('📍 通过边界框检测到文本:', textItem.id);
+          logger.debug('📍 通过边界框检测到文本:', textItem.id);
           clickedTextId = textItem.id;
           break;
         }
@@ -580,7 +580,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         timeDiff < 500 && 
         lastClickTargetRef.current === textId;
       
-      console.log('点击检测:', {
+      logger.debug('点击检测:', {
         textId,
         timeDiff,
         lastTarget: lastClickTargetRef.current,
@@ -595,7 +595,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         // 双击进入编辑模式
         selectText(textId);
         startEditText(textId);
-        console.log('🎯 双击编辑文本:', textId);
+        logger.debug('🎯 双击编辑文本:', textId);
       } else {
         // 单击选择文本
         selectText(textId);
@@ -603,7 +603,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         if (editingTextId && editingTextId !== textId) {
           stopEditText();
         }
-        console.log('👆 单击选择文本:', textId);
+        logger.debug('👆 单击选择文本:', textId);
       }
     } else {
       // 点击空白区域的行为取决于当前工具模式
@@ -618,7 +618,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         
         // 创建新文本并立即进入编辑模式
         createText(point, '文本');
-        console.log('✨ 文本工具模式：创建新文本');
+        logger.debug('✨ 文本工具模式：创建新文本');
       } else {
         // 其他工具模式：只取消选择
         deselectText();
@@ -628,7 +628,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         lastClickTimeRef.current = currentTime;
         lastClickTargetRef.current = null;
         
-        console.log('📍 点击空白区域，取消文本选择');
+        logger.debug('📍 点击空白区域，取消文本选择');
       }
     }
   }, [selectText, startEditText, deselectText, stopEditText, createText]);
@@ -688,7 +688,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     
     // 创建新文本并立即进入编辑模式
     createText(createPoint, '文本');
-    console.log('✨ 主动创建文本');
+    logger.debug('✨ 主动创建文本');
   }, [deselectText, stopEditText, createText]);
 
   // 处理双击事件（备选方案）
@@ -714,7 +714,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
       for (const textItem of textItems) {
         const bounds = textItem.paperText.bounds;
         if (bounds && bounds.contains(point)) {
-          console.log('📍 通过边界框检测到文本:', textItem.id);
+          logger.debug('📍 通过边界框检测到文本:', textItem.id);
           clickedTextId = textItem.id;
           break;
         }
@@ -722,11 +722,11 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     }
 
     if (clickedTextId) {
-      console.log('🎯 原生双击编辑文本:', clickedTextId);
+      logger.debug('🎯 原生双击编辑文本:', clickedTextId);
       
       // 如果文本已经在编辑状态，重新聚焦输入框
       if (editingTextId === clickedTextId) {
-        console.log('🔄 文本已在编辑状态，触发重新聚焦');
+        logger.debug('🔄 文本已在编辑状态，触发重新聚焦');
         // 触发输入框重新聚焦和选择全部文本的事件
         setTimeout(() => {
           const inputElement = document.querySelector(`input[type="text"]`) as HTMLInputElement;

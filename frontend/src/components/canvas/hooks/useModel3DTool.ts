@@ -455,7 +455,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
 
   // ========== 3D模型删除 ==========
   const handleModel3DDelete = useCallback((modelId: string) => {
-    console.log('🗑️ 开始删除3D模型:', modelId);
+    logger.debug('🗑️ 开始删除3D模型:', modelId);
 
     const timers = cameraChangeTimersRef.current;
     if (timers[modelId]) {
@@ -487,7 +487,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
             try { item.remove(); } catch {}
           });
           try { paper.view.update(); } catch {}
-          console.log('🗑️ 已从Paper.js中移除3D模型（深度清理）');
+          logger.debug('🗑️ 已从Paper.js中移除3D模型（深度清理）');
         } else {
           console.warn('未找到需要删除的3D模型对象，可能已被移除');
         }
@@ -499,7 +499,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     // 从React状态中移除3D模型
     setModel3DInstances(prev => {
       const filtered = prev.filter(m => m.id !== modelId);
-      console.log('🗑️ 已从状态中移除3D模型，剩余数量:', filtered.length);
+      logger.debug('🗑️ 已从状态中移除3D模型，剩余数量:', filtered.length);
       return filtered;
     });
 
