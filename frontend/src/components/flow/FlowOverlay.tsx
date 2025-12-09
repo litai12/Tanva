@@ -120,7 +120,10 @@ type Sora2VideoHistoryItem = {
   createdAt: string;
 };
 
-const getStoredAddPanelTab = (): 'nodes' | 'templates' | 'personal' => {
+type AddPanelTab = 'nodes' | 'templates' | 'personal';
+const ALL_ADD_TABS: AddPanelTab[] = ['nodes', 'templates', 'personal'];
+
+const getStoredAddPanelTab = (): AddPanelTab => {
   if (typeof window === 'undefined') {
     return 'nodes';
   }
@@ -131,6 +134,105 @@ const getStoredAddPanelTab = (): 'nodes' | 'templates' | 'personal' => {
     return 'nodes';
   }
 };
+
+const NODE_PALETTE_ITEMS = [
+  { key: 'textPrompt', zh: '提示词节点', en: 'Prompt Node' },
+  { key: 'textChat', zh: '纯文本交互节点', en: 'Text Chat Node' },
+  { key: 'textNote', zh: '纯文本节点', en: 'Text Note Node' },
+  { key: 'promptOptimize', zh: '提示词优化节点', en: 'Prompt Optimizer' },
+  { key: 'analysis', zh: '图像分析节点', en: 'Analysis Node' },
+  { key: 'image', zh: '图片节点', en: 'Image Node' },
+  { key: 'generate', zh: '生成节点', en: 'Generate Node' },
+  { key: 'generatePro', zh: '专业生成节点', en: 'Generate Pro', badge: 'Beta' },
+  { key: 'generatePro4', zh: '四图专业生成节点', en: 'Generate Pro 4', badge: 'Beta' },
+  { key: 'generateRef', zh: '参考图生成节点', en: 'Generate Refer' },
+  { key: 'generate4', zh: '生成多张图片节点', en: 'Multi Generate' },
+  { key: 'three', zh: '三维节点', en: '3D Node' },
+  { key: 'sora2Video', zh: '视频生成节点', en: 'Sora2 Video' },
+  { key: 'camera', zh: '截图节点', en: 'Shot Node' },
+  { key: 'storyboardSplit', zh: '分镜拆分节点', en: 'Storyboard Split' },
+];
+
+const nodePaletteButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  fontSize: 13,
+  fontWeight: 500,
+  padding: '14px 16px',
+  borderRadius: 12,
+  border: '1px solid #e5e7eb',
+  background: '#fff',
+  color: '#0f172a',
+  cursor: 'pointer',
+  transition: 'all 0.18s ease',
+  width: '100%',
+  textAlign: 'left'
+};
+
+const nodePaletteZhStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '6px 10px',
+  borderRadius: 12,
+  background: '#f1f5f9',
+  color: '#0f172a',
+  fontSize: 14,
+  fontWeight: 500,
+  letterSpacing: '0.02em',
+};
+
+const nodePaletteEnCodeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  color: '#111827',
+  background: 'transparent',
+  border: 'none',
+  fontSize: 14,
+  fontWeight: 600,
+  letterSpacing: '0.01em',
+  padding: 0,
+  borderRadius: 0,
+  fontFamily: 'Inter, "Helvetica Neue", Arial, ui-sans-serif',
+  whiteSpace: 'nowrap'
+};
+
+const nodePaletteBadgeStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#1d4ed8',
+  background: '#eff6ff',
+  padding: '4px 8px',
+  borderRadius: 999,
+  border: '1px solid #dbeafe',
+  letterSpacing: '0.04em',
+  whiteSpace: 'nowrap'
+};
+
+const setNodePaletteHover = (target: HTMLElement, hovered: boolean) => {
+  target.style.background = hovered ? '#f8fafc' : '#fff';
+  target.style.borderColor = hovered ? '#d5dae3' : '#e5e7eb';
+  target.style.transform = hovered ? 'translateY(-1px)' : 'translateY(0)';
+  target.style.boxShadow = hovered ? '0 12px 26px rgba(15, 23, 42, 0.12)' : 'none';
+};
+
+const NodePaletteButton: React.FC<{ zh: string; en: string; badge?: string; onClick: () => void }> = ({ zh, en, badge, onClick }) => (
+  <button
+    onClick={onClick}
+    style={nodePaletteButtonStyle}
+    onMouseEnter={(e) => setNodePaletteHover(e.currentTarget, true)}
+    onMouseLeave={(e) => setNodePaletteHover(e.currentTarget, false)}
+  >
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={nodePaletteEnCodeStyle}>{en}</span>
+      {badge ? <span style={nodePaletteBadgeStyle}>{badge}</span> : null}
+    </div>
+    <span style={nodePaletteZhStyle}>{zh}</span>
+  </button>
+);
 
 // 用户模板卡片组件
 const UserTemplateCard: React.FC<{
@@ -833,17 +935,26 @@ function FlowInner() {
 
   // 双击空白处弹出添加面板
   const [addPanel, setAddPanel] = React.useState<{ visible: boolean; screen: { x: number; y: number }; world: { x: number; y: number } }>({ visible: false, screen: { x: 0, y: 0 }, world: { x: 0, y: 0 } });
-  const [addTab, setAddTab] = React.useState<'nodes' | 'templates' | 'personal'>(() => getStoredAddPanelTab());
-  const setAddTabWithMemory = React.useCallback((tab: 'nodes' | 'templates' | 'personal') => {
-    setAddTab(tab);
+  const [allowedAddTabs, setAllowedAddTabs] = React.useState<AddPanelTab[]>(ALL_ADD_TABS);
+  const [addTab, setAddTab] = React.useState<AddPanelTab>(() => getStoredAddPanelTab());
+  const clampAddTab = React.useCallback((tab: AddPanelTab, allowed: AddPanelTab[] = allowedAddTabs) => {
+    return allowed.includes(tab) ? tab : allowed[0];
+  }, [allowedAddTabs]);
+  const setAddTabWithMemory = React.useCallback((tab: AddPanelTab, allowedOverride?: AddPanelTab[]) => {
+    const allowed = allowedOverride ?? allowedAddTabs;
+    const next = clampAddTab(tab, allowed);
+    setAddTab(next);
     if (typeof window !== 'undefined') {
       try {
-        window.localStorage.setItem(ADD_PANEL_TAB_STORAGE_KEY, tab);
+        window.localStorage.setItem(ADD_PANEL_TAB_STORAGE_KEY, next);
       } catch (error) {
         console.warn('[FlowOverlay] 无法保存添加面板的页签状态', error);
       }
     }
-  }, [setAddTab]);
+  }, [clampAddTab, allowedAddTabs]);
+  React.useEffect(() => {
+    setAddTab((prev) => clampAddTab(prev, allowedAddTabs));
+  }, [allowedAddTabs, clampAddTab]);
   const addPanelRef = React.useRef<HTMLDivElement | null>(null);
   const lastPaneClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
   const lastGlobalClickRef = React.useRef<{ t: number; x: number; y: number } | null>(null);
@@ -868,10 +979,15 @@ function FlowInner() {
     return Math.max(minFill, columnFill);
   }, []);
 
-  const openAddPanelAt = React.useCallback((clientX: number, clientY: number) => {
+  const openAddPanelAt = React.useCallback((clientX: number, clientY: number, opts?: { tab?: AddPanelTab; scope?: 'public' | 'mine'; allowedTabs?: AddPanelTab[] }) => {
+    const allowed = opts?.allowedTabs && opts.allowedTabs.length ? opts.allowedTabs : ALL_ADD_TABS;
+    setAllowedAddTabs(allowed);
+    const targetTab = clampAddTab(opts?.tab ?? addTab, allowed);
+    setAddTabWithMemory(targetTab, allowed);
+    if (opts?.scope) setTemplateScope(opts.scope);
     const world = rf.screenToFlowPosition({ x: clientX, y: clientY });
     setAddPanel({ visible: true, screen: { x: clientX, y: clientY }, world });
-  }, [rf]);
+  }, [rf, addTab, setAddTabWithMemory, setTemplateScope, clampAddTab]);
 
   // 允许外部（如工具栏按钮）打开添加/模板面板
   React.useEffect(() => {
@@ -882,14 +998,12 @@ function FlowInner() {
         setAddPanel(v => ({ ...v, visible: false }));
         return;
       }
-      const targetTab: 'nodes' | 'templates' | 'personal' = detail.tab === 'personal' || detail.tab === 'nodes' ? detail.tab : 'templates';
-      setAddTabWithMemory(targetTab);
-      if (detail.scope === 'public' || detail.scope === 'mine') {
-        setTemplateScope(detail.scope);
-      }
+      const allowed: AddPanelTab[] | undefined = Array.isArray(detail.allowedTabs) ? detail.allowedTabs.filter((t: any) => ALL_ADD_TABS.includes(t)) as AddPanelTab[] : undefined;
+      const targetTab: AddPanelTab = detail.tab === 'personal' || detail.tab === 'nodes' ? detail.tab : 'templates';
+      const scope: 'public' | 'mine' | undefined = detail.scope === 'public' || detail.scope === 'mine' ? detail.scope : undefined;
       const x = detail.screen?.x ?? window.innerWidth / 2;
       const y = detail.screen?.y ?? window.innerHeight / 2;
-      openAddPanelAt(x, y);
+      openAddPanelAt(x, y, { tab: targetTab, scope, allowedTabs: allowed });
     };
     // 兼容旧事件名称，新的 flow:set-template-panel 支持关闭
     window.addEventListener('flow:open-template-panel', handleSet as EventListener);
@@ -903,9 +1017,9 @@ function FlowInner() {
   // 把面板可见性和当前页签通知给外部（例如工具栏按钮同步状态）
   React.useEffect(() => {
     try {
-      window.dispatchEvent(new CustomEvent('flow:add-panel-visibility-change', { detail: { visible: addPanel.visible, tab: addTab } }));
+      window.dispatchEvent(new CustomEvent('flow:add-panel-visibility-change', { detail: { visible: addPanel.visible, tab: addTab, allowedTabs: allowedAddTabs } }));
     } catch {}
-  }, [addPanel.visible, addTab]);
+  }, [addPanel.visible, addTab, allowedAddTabs]);
 
   // ---------- 导出/导入（序列化） ----------
   const cleanNodeData = React.useCallback((data: any) => {
@@ -1219,7 +1333,7 @@ function FlowInner() {
     const last = lastPaneClickRef.current;
     lastPaneClickRef.current = { t: now, x, y };
     if (last && (now - last.t) < 200 && Math.hypot(last.x - x, last.y - y) < 10) {
-      if (isBlankArea(x, y)) openAddPanelAt(x, y);
+      if (isBlankArea(x, y)) openAddPanelAt(x, y, { tab: 'nodes', allowedTabs: ['nodes'] });
     } else if (!isPointerMode) {
       // 单击空白区域时，取消所有节点的选择（pointer 模式下不自动取消选择）
       setNodes((prev: any[]) => prev.map((node) => ({ ...node, selected: false })));
@@ -1348,7 +1462,7 @@ function FlowInner() {
         if (isBlankArea(x, y)) {
           e.stopPropagation();
           e.preventDefault();
-          openAddPanelAt(x, y);
+          openAddPanelAt(x, y, { tab: 'nodes', allowedTabs: ['nodes'] });
         }
         // 重置记录，避免连续三次点击被识别为两次双击
         lastGlobalClickRef.current = null;
@@ -2478,7 +2592,7 @@ function FlowInner() {
   }, [addPanel.visible]);
 
   const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY);
+    if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY, { tab: 'nodes', allowedTabs: ['nodes'] });
   }, [openAddPanelAt, isBlankArea]);
 
   const commitEdgeLabelValue = React.useCallback((edgeId: string, value: string) => {
@@ -2748,57 +2862,63 @@ function FlowInner() {
               borderTopRightRadius: 16
             }}>
               <div style={{ display: 'flex', gap: 2 }}>
-                <button 
-                onClick={() => setAddTabWithMemory('nodes')} 
-                style={{ 
-                  padding: '10px 18px 14px', 
-                  fontSize: 13,
-                  fontWeight: addTab === 'nodes' ? 600 : 500,
-                  borderRadius: '24px 24px 0 0', 
-                  border: 'none',
-                  background: addTab === 'nodes' ? '#fff' : 'transparent', 
-                  color: addTab === 'nodes' ? '#111827' : '#374151',
-                  marginBottom: -2,
-                  transition: 'all 0.15s ease',
-                  cursor: 'pointer'
-                }}
-              >
-                节点
-              </button>
-              <button 
-                onClick={() => setAddTabWithMemory('templates')} 
-                style={{ 
-                  padding: '10px 18px 14px', 
-                  fontSize: 13,
-                  fontWeight: addTab === 'templates' ? 600 : 500,
-                  borderRadius: '24px 24px 0 0', 
-                  border: 'none',
-                  background: addTab === 'templates' ? '#fff' : 'transparent', 
-                  color: addTab === 'templates' ? '#111827' : '#374151',
-                  marginBottom: -2,
-                  transition: 'all 0.15s ease',
-                  cursor: 'pointer'
-                }}
-              >
-                模板
-              </button>
-              <button 
-                onClick={() => setAddTabWithMemory('personal')} 
-                style={{ 
-                  padding: '10px 18px 14px', 
-                  fontSize: 13,
-                  fontWeight: addTab === 'personal' ? 600 : 500,
-                  borderRadius: '24px 24px 0 0', 
-                  border: 'none',
-                  background: addTab === 'personal' ? '#fff' : 'transparent', 
-                  color: addTab === 'personal' ? '#111827' : '#374151',
-                  marginBottom: -2,
-                  transition: 'all 0.15s ease',
-                  cursor: 'pointer'
-                }}
-              >
-                个人库
-              </button>
+                {allowedAddTabs.includes('nodes') && (
+                  <button 
+                    onClick={() => setAddTabWithMemory('nodes', allowedAddTabs)} 
+                    style={{ 
+                      padding: '10px 18px 14px', 
+                      fontSize: 13,
+                      fontWeight: addTab === 'nodes' ? 600 : 500,
+                      borderRadius: '24px 24px 0 0', 
+                      border: 'none',
+                      background: addTab === 'nodes' ? '#fff' : 'transparent', 
+                      color: addTab === 'nodes' ? '#111827' : '#374151',
+                      marginBottom: -2,
+                      transition: 'all 0.15s ease',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    节点
+                  </button>
+                )}
+                {allowedAddTabs.includes('templates') && (
+                  <button 
+                    onClick={() => setAddTabWithMemory('templates', allowedAddTabs)} 
+                    style={{ 
+                      padding: '10px 18px 14px', 
+                      fontSize: 13,
+                      fontWeight: addTab === 'templates' ? 600 : 500,
+                      borderRadius: '24px 24px 0 0', 
+                      border: 'none',
+                      background: addTab === 'templates' ? '#fff' : 'transparent', 
+                      color: addTab === 'templates' ? '#111827' : '#374151',
+                      marginBottom: -2,
+                      transition: 'all 0.15s ease',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    模板
+                  </button>
+                )}
+                {allowedAddTabs.includes('personal') && (
+                  <button 
+                    onClick={() => setAddTabWithMemory('personal', allowedAddTabs)} 
+                    style={{ 
+                      padding: '10px 18px 14px', 
+                      fontSize: 13,
+                      fontWeight: addTab === 'personal' ? 600 : 500,
+                      borderRadius: '24px 24px 0 0', 
+                      border: 'none',
+                      background: addTab === 'personal' ? '#fff' : 'transparent', 
+                      color: addTab === 'personal' ? '#111827' : '#374151',
+                      marginBottom: -2,
+                      transition: 'all 0.15s ease',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    个人库
+                  </button>
+                )}
               </div>
             </div>
             {addTab === 'nodes' ? (
@@ -2814,523 +2934,15 @@ function FlowInner() {
                   gap: 12,
                   padding: 20
                 }}>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('textPrompt', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Prompt Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('textChat', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Text Chat Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>纯文本交互</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('textNote', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Text Note Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>纯文本</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('promptOptimize', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                <span>Prompt Optimizer</span>
-                <span style={{ fontSize: 12, color: '#9ca3af' }}>提示词优化</span>
-              </button>
-              <button 
-                onClick={() => createNodeAtWorldCenter('analysis', addPanel.world)} 
-                style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Analysis Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>图像分析</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('image', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Image Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>图片</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('generate', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Generate Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>生成</span>
-                </button>
-                <button
-                  onClick={() => createNodeAtWorldCenter('generatePro', addPanel.world)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    padding: '12px 16px',
-                    borderRadius: 8,
-                    border: '1px solid #e5e7eb',
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    Generate Pro
-                    <span style={{
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: '#2563eb',
-                      background: '#eff6ff',
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      letterSpacing: '0.5px'
-                    }}>Beta</span>
-                  </span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>专业生成</span>
-                </button>
-                <button
-                  onClick={() => createNodeAtWorldCenter('generatePro4', addPanel.world)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    padding: '12px 16px',
-                    borderRadius: 8,
-                    border: '1px solid #e5e7eb',
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    Generate Pro 4
-                    <span style={{
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: '#2563eb',
-                      background: '#eff6ff',
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      letterSpacing: '0.5px'
-                    }}>Beta</span>
-                  </span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>四图专业生成</span>
-                </button>
-                <button
-                  onClick={() => createNodeAtWorldCenter('generateRef', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Generate Refer</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>参考图生成</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('generate4', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Multi Generate</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>生成多张图片</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('three', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>3D Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>三维</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('sora2Video', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Sora2 Video</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>视频生成</span>
-                </button>
-                <button 
-                  onClick={() => createNodeAtWorldCenter('camera', addPanel.world)} 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13, 
-                    fontWeight: 500,
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '1px solid #e5e7eb', 
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Shot Node</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>截图</span>
-                </button>
-                <button
-                  onClick={() => createNodeAtWorldCenter('storyboardSplit', addPanel.world)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    padding: '12px 16px',
-                    borderRadius: 8,
-                    border: '1px solid #e5e7eb',
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    width: '100%'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f9fafb';
-                    e.currentTarget.style.borderColor = '#d1d5db';
-                    e.currentTarget.style.transform = 'translateX(2px)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#fff';
-                    e.currentTarget.style.borderColor = '#e5e7eb';
-                    e.currentTarget.style.transform = 'translateX(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <span>Storyboard Split</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>分镜拆分</span>
-                </button>
+                  {NODE_PALETTE_ITEMS.map(item => (
+                    <NodePaletteButton
+                      key={item.key}
+                      zh={item.zh}
+                      en={item.en}
+                      badge={item.badge}
+                      onClick={() => createNodeAtWorldCenter(item.key, addPanel.world)}
+                    />
+                  ))}
                 </div>
               </div>
             ) : addTab === 'templates' ? (
@@ -3338,7 +2950,6 @@ function FlowInner() {
                 <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap: 12, marginBottom: templateScope === 'public' ? 12 : 18 }}>
                   <div>
                     <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>{templateScope === 'public' ? '公共模板' : '我的模板'}</div>
-                    {tplLoading ? <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>加载中…</div> : null}
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap: 8 }}>
                     {/* 小图标：导出/导入，仅在模板页签显示 */}

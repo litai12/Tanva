@@ -166,11 +166,24 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   } = useUIStore();
   const [templatePanelOpen, setTemplatePanelOpen] = React.useState(false);
 
-  // 跟随 Flow 添加面板的可见性（仅模板页签时亮起）
+  // 跟随 Flow 添加面板的可见性（外部关闭时同步，打开由按钮立即设置）
   React.useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<any>)?.detail || {};
-      setTemplatePanelOpen(Boolean(detail.visible && detail.tab === 'templates'));
+      const visible = Boolean(detail.visible);
+      const allowedTabs = Array.isArray(detail.allowedTabs) ? detail.allowedTabs : undefined;
+      const tab = detail.tab;
+      if (!visible) {
+        setTemplatePanelOpen(false);
+        return;
+      }
+      const isNodesOnly = tab === 'nodes' || (allowedTabs && allowedTabs.length === 1 && allowedTabs[0] === 'nodes');
+      const isTemplateArea =
+        tab === 'templates' ||
+        tab === 'personal' ||
+        (allowedTabs && allowedTabs.some((t: string) => t === 'templates' || t === 'personal')) ||
+        (allowedTabs && allowedTabs.length > 0 && !allowedTabs.includes('nodes'));
+      setTemplatePanelOpen(!isNodesOnly && isTemplateArea);
     };
     window.addEventListener('flow:add-panel-visibility-change', handler as EventListener);
     return () => window.removeEventListener('flow:add-panel-visibility-change', handler as EventListener);
@@ -735,9 +748,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           getActiveButtonStyle(templatePanelOpen)
         )}
         onClick={() => {
-          const detail = templatePanelOpen
-            ? { visible: false }
-            : { visible: true, tab: 'templates', scope: 'public' };
+          const nextOpen = !templatePanelOpen;
+          setTemplatePanelOpen(nextOpen);
+          const detail = nextOpen
+            ? { visible: true, tab: 'templates', scope: 'public', allowedTabs: ['templates', 'personal'] }
+            : { visible: false };
           try { window.dispatchEvent(new CustomEvent('flow:set-template-panel', { detail })); } catch {}
         }}
         title="公共模板"
