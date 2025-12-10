@@ -3775,10 +3775,14 @@ export const useAIChatStore = create<AIChatState>()(
       logProcessStep(metrics, 'generateVideo API response received');
 
       // 更新消息，包含视频信息
+      const contentWithFallback = (videoResult as any).fallbackMessage
+        ? `${videoResult.content}\n\nℹ️ ${(videoResult as any).fallbackMessage}`
+        : videoResult.content;
+      
       get().updateMessage(aiMessageId, (msg) => ({
         ...msg,
         type: 'ai',
-        content: videoResult.content,
+        content: contentWithFallback,
         videoUrl: videoResult.videoUrl,
         videoSourceUrl: videoResult.videoUrl,
         videoReferencedUrls: videoResult.referencedUrls,
@@ -3788,7 +3792,8 @@ export const useAIChatStore = create<AIChatState>()(
         videoMetadata: {
           ...(msg.videoMetadata || {}),
           taskInfo: videoResult.taskInfo,
-          referencedUrls: videoResult.referencedUrls
+          referencedUrls: videoResult.referencedUrls,
+          fallbackMessage: (videoResult as any).fallbackMessage
         },
         expectsVideoOutput: false,
         generationStatus: {

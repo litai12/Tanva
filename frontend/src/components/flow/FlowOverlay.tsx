@@ -1989,6 +1989,7 @@ function FlowInner() {
               videoUrl: videoResult.videoUrl,
               thumbnail: nextThumbnail,
               error: undefined,
+              fallbackMessage: (videoResult as any).fallbackMessage,
               videoVersion: Number(previousData.videoVersion || 0) + 1,
               history: appendSora2History(previousData.history as Sora2VideoHistoryItem[] | undefined, historyEntry),
             }

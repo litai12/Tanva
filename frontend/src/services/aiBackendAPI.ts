@@ -818,6 +818,8 @@ export interface VideoGenerationResult {
   status?: string;
   taskId?: string;
   taskInfo?: Record<string, any> | null;
+  /** 备选方案提示信息 */
+  fallbackMessage?: string;
 }
 
 export async function generateVideoViaAPI(

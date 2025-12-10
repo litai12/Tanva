@@ -19,6 +19,7 @@ type Props = {
     clipDuration?: number;
     aspectRatio?: string;
     history?: Sora2VideoHistoryItem[];
+    fallbackMessage?: string;
   };
   selected?: boolean;
 };
@@ -785,6 +786,24 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
         }}>
           <AlertTriangle size={14} />
           <span>{data.error}</span>
+        </div>
+      )}
+
+      {data.fallbackMessage && (
+        <div style={{
+          marginTop: 6,
+          padding: '6px 8px',
+          background: '#fefce8',
+          border: '1px solid #fde047',
+          borderRadius: 6,
+          fontSize: 11,
+          color: '#854d0e',
+          display: 'flex',
+          gap: 6,
+          alignItems: 'center'
+        }}>
+          <span>ℹ️</span>
+          <span>{data.fallbackMessage}</span>
         </div>
       )}
     </div>
