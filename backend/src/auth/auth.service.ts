@@ -1,9 +1,10 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { UsersService } from '../users/users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RegisterDto } from './dto/register.dto';
 
 type TokenPair = { accessToken: string; refreshToken: string };
 
@@ -55,22 +56,83 @@ export class AuthService {
     return { httpOnly: true, secure, sameSite, domain, path: '/' } as const;
   }
 
-  async register(dto: { phone: string; password: string; name?: string; email?: string }) {
-    // 手机号必填且唯一
-    const existsByPhone = await this.usersService.findByPhone(dto.phone);
-    if (existsByPhone) throw new UnauthorizedException('手机号已注册');
-    if (dto.email) {
-      const existsByEmail = await this.usersService.findByEmail(dto.email);
-      if (existsByEmail) throw new UnauthorizedException('邮箱已存在');
+  async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
+    // 默认强制邀请码，如需关闭可设置 INVITE_REQUIRED=false
+    const inviteRequired = (this.config.get<string>('INVITE_REQUIRED') ?? 'true') === 'true';
+    const trimmedCode = dto.invitationCode?.trim();
+
+    if (inviteRequired && !trimmedCode) {
+      throw new BadRequestException('需要邀请码');
     }
+
     const hash = await bcrypt.hash(dto.password, 10);
-    const user = await this.usersService.create({ 
-      phone: dto.phone, 
-      passwordHash: hash, 
-      name: dto.name || dto.phone.slice(-4), 
-      email: dto.email 
+
+    return this.prisma.$transaction(async (tx) => {
+      const existsByPhone = await tx.user.findUnique({ where: { phone: dto.phone } });
+      if (existsByPhone) throw new UnauthorizedException('手机号已注册');
+      if (dto.email) {
+        const existsByEmail = await tx.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+        if (existsByEmail) throw new UnauthorizedException('邮箱已存在');
+      }
+
+      let inviteContext:
+        | { inviterUserId?: string; codeId: string }
+        | null = null;
+
+      if (trimmedCode) {
+        const invite = await tx.invitationCode.findUnique({ where: { code: trimmedCode } });
+        if (!invite) throw new BadRequestException('邀请码不存在');
+        if (invite.status !== 'active') throw new BadRequestException('邀请码不可用');
+        if (invite.usedCount >= invite.maxUses) throw new BadRequestException('邀请码已用完');
+
+        const updateResult = await tx.invitationCode.updateMany({
+          where: { id: invite.id, status: 'active', usedCount: { lt: invite.maxUses } },
+          data: {
+            usedCount: { increment: 1 },
+            status: invite.usedCount + 1 >= invite.maxUses ? 'used' : 'active',
+          },
+        });
+        if (updateResult.count === 0) throw new BadRequestException('邀请码已被用完');
+
+        inviteContext = {
+          inviterUserId: invite.inviterUserId || undefined,
+          codeId: invite.id,
+        };
+      }
+
+      const user = await tx.user.create({
+        data: {
+          email: dto.email ? dto.email.toLowerCase() : null,
+          passwordHash: hash,
+          name: dto.name || dto.phone.slice(-4),
+          phone: dto.phone,
+          invitedById: inviteContext?.inviterUserId,
+        },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatarUrl: true,
+          role: true,
+          status: true,
+          createdAt: true,
+        },
+      });
+
+      if (inviteContext) {
+        await tx.invitationRedemption.create({
+          data: {
+            codeId: inviteContext.codeId,
+            inviteeUserId: user.id,
+            inviterUserId: inviteContext.inviterUserId,
+            metadata: meta ? { ip: meta.ip, ua: meta.ua } : undefined,
+          },
+        });
+      }
+
+      return user;
     });
-    return user;
   }
 
   async validateUser(phone: string, password: string) {

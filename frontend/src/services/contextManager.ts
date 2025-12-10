@@ -253,14 +253,15 @@ class ContextManager implements IContextManager {
         context.contextInfo.imageHistory = context.contextInfo.imageHistory.map((item) => {
           const next = { ...item };
           if (next.imageRemoteUrl) {
-            if (next.imageData && isBase64Data(next.imageData) && next.imageData.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
-              trimmedCount++;
-              next.imageData = null;
-            }
-            if (next.thumbnail && isBase64Data(next.thumbnail) && next.thumbnail.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
-              trimmedCount++;
-              next.thumbnail = null;
-            }
+          if (next.imageData && isBase64Data(next.imageData) && next.imageData.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+            trimmedCount++;
+            // 在运行时类型上使用 undefined，而不是 null，以符合 ImageHistory 的类型定义
+            next.imageData = undefined;
+          }
+          if (next.thumbnail && isBase64Data(next.thumbnail) && next.thumbnail.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
+            trimmedCount++;
+            next.thumbnail = undefined;
+          }
           }
           return next;
         });

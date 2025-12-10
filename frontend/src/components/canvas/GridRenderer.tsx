@@ -532,7 +532,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       ),
     });
     raster.data = { isHelper: true, type: 'grid-dot-raster' };
-    raster.smoothing = false;
+    // Paper.js 类型声明中 smoothing 可能被标成 string，这里显式断言为 any 以避免 TS 报错
+    (raster as any).smoothing = false;
     gridLayer.addChild(raster);
     dotRasterRef.current = raster;
 

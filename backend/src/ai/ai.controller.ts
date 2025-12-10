@@ -41,6 +41,8 @@ import { ServiceType } from '../credits/credits.config';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { GenerateVideoDto } from './dto/video-generation.dto';
 import { Sora2VideoService } from './services/sora2-video.service';
+import { applyWatermarkToBase64 } from './services/watermark.util';
+import { VideoWatermarkService } from './services/video-watermark.service';
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -74,7 +76,39 @@ export class AiController {
     private readonly usersService: UsersService,
     private readonly creditsService: CreditsService,
     private readonly sora2VideoService: Sora2VideoService,
+    private readonly videoWatermarkService: VideoWatermarkService,
   ) {}
+
+  /**
+   * 判断是否管理员：管理员可跳过水印
+   */
+  private isAdminUser(req: any): boolean {
+    const role =
+      req?.user?.role ??
+      (Array.isArray(req?.user?.roles) ? req.user.roles.find((r: any) => r) : null);
+    return typeof role === 'string' && role.toLowerCase() === 'admin';
+  }
+
+  /**
+   * 对返回的 base64 图片统一加水印；管理员或失败时返回原图
+   */
+  private async watermarkIfNeeded(
+    imageData?: string | null,
+    req?: any
+  ): Promise<string | undefined> {
+    if (!imageData) return imageData ?? undefined;
+
+    if (this.isAdminUser(req)) {
+      return imageData;
+    }
+
+    try {
+      return await applyWatermarkToBase64(imageData, { text: 'Tanvas AI' });
+    } catch (error) {
+      this.logger.warn('Watermark failed, fallback to original image', error as any);
+      return imageData;
+    }
+  }
 
   /**
    * 从请求中获取用户的自定义 Google API Key
@@ -348,8 +382,9 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
+          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
           return {
-            imageData: result.data.imageData,
+            imageData: watermarked,
             textResponse: result.data.textResponse || '',
             metadata: result.data.metadata,
           };
@@ -358,7 +393,9 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      return this.imageGeneration.generateImage({ ...dto, customApiKey });
+      const data = await this.imageGeneration.generateImage({ ...dto, customApiKey });
+      const watermarked = await this.watermarkIfNeeded(data.imageData, req);
+      return { ...data, imageData: watermarked };
     }, 0, 1, skipCredits);
   }
 
@@ -386,8 +423,9 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
+          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
           return {
-            imageData: result.data.imageData,
+            imageData: watermarked,
             textResponse: result.data.textResponse || '',
             metadata: result.data.metadata,
           };
@@ -396,7 +434,9 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      return this.imageGeneration.editImage({ ...dto, customApiKey });
+      const data = await this.imageGeneration.editImage({ ...dto, customApiKey });
+      const watermarked = await this.watermarkIfNeeded(data.imageData, req);
+      return { ...data, imageData: watermarked };
     }, 1, 1, skipCredits);
   }
 
@@ -424,8 +464,9 @@ export class AiController {
           providerOptions: dto.providerOptions,
         });
         if (result.success && result.data) {
+          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
           return {
-            imageData: result.data.imageData,
+            imageData: watermarked,
             textResponse: result.data.textResponse || '',
             metadata: result.data.metadata,
           };
@@ -434,7 +475,9 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-      return this.imageGeneration.blendImages({ ...dto, customApiKey });
+      const data = await this.imageGeneration.blendImages({ ...dto, customApiKey });
+      const watermarked = await this.watermarkIfNeeded(data.imageData, req);
+      return { ...data, imageData: watermarked };
     }, dto.sourceImages?.length || 0, 1, skipCredits);
   }
 
@@ -456,8 +499,9 @@ export class AiController {
       });
 
       if (result.success && result.data) {
+        const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
         return {
-          imageData: result.data.imageData,
+          imageData: watermarked,
           textResponse: result.data.textResponse || '',
           metadata: result.data.metadata,
         };
@@ -484,8 +528,9 @@ export class AiController {
       });
 
       if (result.success && result.data) {
+        const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
         return {
-          imageData: result.data.imageData,
+          imageData: watermarked,
           textResponse: result.data.textResponse || '',
           metadata: result.data.metadata,
         };
@@ -687,12 +732,48 @@ export class AiController {
       req,
       serviceType,
       model,
-      async () =>
-        this.sora2VideoService.generateVideo({
+      async () => {
+        const result = await this.sora2VideoService.generateVideo({
           prompt: dto.prompt,
           referenceImageUrls,
           quality,
-        }),
+        });
+
+        if (!result?.videoUrl) {
+          return result;
+        }
+
+        if (this.isAdminUser(req)) {
+          return {
+            ...result,
+            videoUrlRaw: result.videoUrl,
+            videoUrlWatermarked: result.videoUrl,
+            watermarkSkipped: true,
+          };
+        }
+
+        try {
+          const wm = await this.videoWatermarkService.addWatermarkAndUpload(result.videoUrl, {
+            text: 'Tanvas AI',
+          });
+          return {
+            ...result,
+            videoUrl: wm.url,
+            videoUrlRaw: result.videoUrl,
+            videoUrlWatermarked: wm.url,
+            watermarkSkipped: false,
+          };
+        } catch (error) {
+          this.logger.warn('Video watermark failed, fallback to raw video', error as any);
+          return {
+            ...result,
+            videoUrl: result.videoUrl,
+            videoUrlRaw: result.videoUrl,
+            videoUrlWatermarked: result.videoUrl,
+            watermarkFailed: true,
+          };
+        }
+      },
       inputImageCount,
       0,
     );

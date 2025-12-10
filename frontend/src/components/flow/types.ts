@@ -71,3 +71,12 @@ export type AnyNodeData = TextPromptData | PromptOptimizeData | ImageData | Gene
 
 export type AnyNode = Node<AnyNodeData>;
 export type AnyEdge = Edge;
+
+// 节点组类型（用于 NodeGroupWrapper 和 nodeGroupStore）
+export interface NodeGroup {
+  id: string;
+  nodeIds: string[];
+  prompts?: string[];
+  aspectRatio?: string;
+  createdAt: number;
+}

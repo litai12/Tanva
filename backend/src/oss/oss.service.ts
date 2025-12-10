@@ -49,6 +49,16 @@ export class OssService {
     return new OSS({ region, bucket, accessKeyId, accessKeySecret, endpoint });
   }
 
+  async putStream(
+    key: string,
+    stream: NodeJS.ReadableStream,
+    options?: OSS.PutStreamOptions
+  ): Promise<{ key: string; url: string }> {
+    const client = this.client();
+    await client.putStream(key, stream, options);
+    return { key, url: this.publicUrl(key) };
+  }
+
   async putJSON(key: string, data: unknown) {
     try {
       const client = this.client();

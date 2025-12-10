@@ -113,8 +113,8 @@ class Sora2Service {
     try {
       console.log('🎬 Sora2Service: Starting video generation stream...');
       console.log('📝 Prompt:', prompt);
-      if (imageUrl) {
-        console.log('🖼️ Image URL:', imageUrl);
+      if (imageUrls) {
+        console.log('🖼️ Image URL(s):', imageUrls);
       }
 
       const messages = this.buildMessages(prompt, imageUrls);

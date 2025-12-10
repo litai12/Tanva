@@ -127,7 +127,7 @@ export const useNodeGroupStore = create<NodeGroupState>()(
         const group = state.groups[groupId];
         if (!group) return state;
 
-        const newNodeIds = group.nodeIds.filter((id) => id !== nodeId);
+        const newNodeIds = group.nodeIds.filter((id: string) => id !== nodeId);
 
         // 如果组内只剩一个或没有节点，解散组
         if (newNodeIds.length <= 1) {

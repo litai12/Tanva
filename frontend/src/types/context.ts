@@ -132,7 +132,7 @@ export interface SerializedConversationContext {
   messages: SerializedChatMessage[];
   operations: SerializedOperationHistory[];
   cachedImages: {
-    latest: null;
+    latest: string | null;
     latestId: string | null;
     latestPrompt: string | null;
     timestamp: string | null;

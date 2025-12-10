@@ -16,9 +16,11 @@ import { Sora2VideoService } from './services/sora2-video.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
+import { OssModule } from '../oss/oss.module';
+import { VideoWatermarkService } from './services/video-watermark.service';
 
 @Module({
-  imports: [ConfigModule, UsersModule, CreditsModule],
+  imports: [ConfigModule, UsersModule, CreditsModule, OssModule],
   providers: [
     AiService,
     ImageGenerationService,
@@ -32,6 +34,7 @@ import { CreditsModule } from '../credits/credits.module';
     Convert2Dto3DService, // 添加2D转3D服务
     ExpandImageService, // 添加扩图服务
     Sora2VideoService,
+    VideoWatermarkService,
     ApiKeyOrJwtGuard,
   ],
   controllers: [AiController],

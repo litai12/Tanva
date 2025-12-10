@@ -119,7 +119,7 @@ export const authApi = {
       return { user: loadSession(), source: 'local' };
     }
   },
-  async register(payload: { phone: string; password: string; name?: string; email?: string }) {
+  async register(payload: { phone: string; password: string; name?: string; email?: string; invitationCode?: string }) {
     if (isMock) {
       await delay(300);
       const users = readUsers();

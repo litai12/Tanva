@@ -17,6 +17,9 @@ model User {
   avatarUrl                String?
   role                     String       @default("user")
   status                   String       @default("active")
+  invitedById              String?
+  invitedBy                User?        @relation("UserInvitedBy", fields: [invitedById], references: [id])
+  invites                  User[]       @relation("UserInvitedBy")
   googleCustomApiKey       String?      // 用户自定义的 Google Gemini API Key
   googleKeyMode            String       @default("official")  // "official" 或 "custom"
   googleOfficialVerified   Boolean      @default(false)
@@ -28,6 +31,9 @@ model User {
   projects                 Project[]
   creditAccount            CreditAccount?
   apiUsageRecords          ApiUsageRecord[]
+  invitationCodes          InvitationCode[]
+  invitationRedemptions    InvitationRedemption[] @relation("InvitationRedemptionInvitee")
+  invitationRedemptionsGiven InvitationRedemption[] @relation("InvitationRedemptionInviter")
 }
 
 model RefreshToken {
@@ -147,4 +153,37 @@ model CreditPackage {
   sortOrder       Int      @default(0) // 排序
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+// ==================== 邀请码 ====================
+
+model InvitationCode {
+  id           String    @id @default(uuid())
+  code         String    @unique
+  status       String    @default("active") // active / disabled / used
+  maxUses      Int       @default(1)
+  usedCount    Int       @default(0)
+  inviter      User?     @relation(fields: [inviterUserId], references: [id])
+  inviterUserId String?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  redemptions  InvitationRedemption[]
+
+  @@index([status])
+}
+
+model InvitationRedemption {
+  id             String   @id @default(uuid())
+  code           InvitationCode @relation(fields: [codeId], references: [id])
+  codeId         String
+  invitee        User     @relation("InvitationRedemptionInvitee", fields: [inviteeUserId], references: [id])
+  inviteeUserId  String
+  inviter        User?    @relation("InvitationRedemptionInviter", fields: [inviterUserId], references: [id])
+  inviterUserId  String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([codeId])
+  @@index([inviteeUserId])
 }

@@ -601,7 +601,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageMove?.(imageId, newPosition);
-    try { paperSaveService.triggerAutoSave(); } catch {}
   }, [eventHandlers.onImageMove]);
 
   // 直接更新，避免复杂的节流逻辑

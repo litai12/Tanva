@@ -69,7 +69,7 @@ export default function NodeGroupWrapper({
   }, [nodes]);
 
   // 提示词数组
-  const prompts = React.useMemo(() => {
+  const prompts = React.useMemo<string[]>(() => {
     const p = group.prompts || [''];
     return p.length > 0 ? p : [''];
   }, [group.prompts]);
@@ -94,7 +94,7 @@ export default function NodeGroupWrapper({
   const removePrompt = React.useCallback(
     (index: number) => {
       if (prompts.length <= 1) return;
-      const newPrompts = prompts.filter((_, i) => i !== index);
+      const newPrompts = prompts.filter((_prompt: string, i: number) => i !== index);
       onUpdatePrompts(group.id, newPrompts);
     },
     [group.id, prompts, onUpdatePrompts]

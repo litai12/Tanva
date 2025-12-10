@@ -10,6 +10,7 @@ import { clientToProject } from '@/utils/paperCoords';
 import { historyService } from '@/services/historyService';
 import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
+import { paperSaveService } from '@/services/paperSaveService';
 
 // 导入其他hook的类型
 interface SelectionTool {
@@ -829,6 +830,7 @@ export const useInteractionController = ({
         });
         resetGroupPathDrag();
         historyService.commit('move-image').catch(() => {});
+        try { paperSaveService.triggerAutoSave('move-image'); } catch {}
         return;
       }
 
@@ -842,6 +844,7 @@ export const useInteractionController = ({
           resizeStartPoint: null
         });
         historyService.commit('resize-image').catch(() => {});
+        try { paperSaveService.triggerAutoSave('resize-image'); } catch {}
         return;
       }
 

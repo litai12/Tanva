@@ -474,14 +474,14 @@ export const paperSandboxService = {
       });
 
       // 创建径向渐变 - 从中心到边缘逐渐透明
-      const gradient = new paper.Gradient(
-        [
-          new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0.5), 0),
-          new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0.3), 0.5),
-          new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0), 1),
-        ],
-        true // radial gradient
-      );
+      const gradient = new paper.Gradient();
+      gradient.stops = [
+        new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0.5), 0),
+        new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0.3), 0.5),
+        new paper.GradientStop(new paper.Color(config.r, config.g, config.b, 0), 1),
+      ];
+      // 标记为径向渐变
+      (gradient as any).radial = true;
 
       circle.fillColor = new paper.Color(gradient, circleCenter, circleCenter.add(new paper.Point(circleRadius, 0)));
       circle.data = { isHelper: true, auraIndex: index };
@@ -534,14 +534,13 @@ export const paperSandboxService = {
           );
 
           // 更新渐变以匹配新位置和大小
-          const gradient = new paper.Gradient(
-            [
-              new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0.55), 0),
-              new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0.35), 0.5),
-              new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0), 1),
-            ],
-            true
-          );
+          const gradient = new paper.Gradient();
+          gradient.stops = [
+            new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0.55), 0),
+            new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0.35), 0.5),
+            new paper.GradientStop(new paper.Color(colorConfig.r, colorConfig.g, colorConfig.b, 0), 1),
+          ];
+          (gradient as any).radial = true;
           circle.fillColor = new paper.Color(gradient, newPos, newPos.add(new paper.Point(newRadius, 0)));
         });
       }

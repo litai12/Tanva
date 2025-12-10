@@ -17,15 +17,18 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 interface Model3DViewerProps {
   modelData: Model3DData;
+  width?: number;
+  height?: number;
   isSelected?: boolean;
   drawMode?: string; // 当前绘图模式
   onCameraChange?: (camera: Model3DCameraState) => void;
+  isResizing?: boolean;
 }
 
-const TARGET_MODEL_SIZE = 2.0;
-const MAX_MODEL_UPSCALE = 3.0;
-const MODEL_SCALE_MULTIPLIER = 1.5; // 控制模型基础体积，值越大初始尺寸越大
-const CONTAINER_SCALE_MULTIPLIER = 7; // 控制容器对缩放的影响，值越大越不受框限制
+const TARGET_MODEL_SIZE = 1.0;
+const MAX_MODEL_UPSCALE = 2.5;
+const MODEL_SCALE_MULTIPLIER = 1.0; // 控制模型基础体积，值越大初始尺寸越大
+const CONTAINER_SCALE_MULTIPLIER = 8; // 控制容器对缩放的影响，值越大越不受框限制
 const BASELINE_SCALE_MULTIPLIER = 1.0; // 保障最小放大倍数
 const CAMERA_DISTANCE_MULTIPLIER = 0.7;
 const MIN_CAMERA_DISTANCE = 1.5;
@@ -464,7 +467,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
           <Canvas
             camera={{
               position: cameraState.position,
-              fov: 50,
+              fov: 45,
               near: 0.1,
               far: 1000,
             }}
@@ -476,7 +479,7 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               powerPreference: "high-performance",
               toneMapping: THREE.ACESFilmicToneMapping,
               // 提高曝光，让环境更明亮通透
-              toneMappingExposure: 1.25,
+              toneMappingExposure: 1.15,
               outputColorSpace: THREE.SRGBColorSpace,
             }}
             style={{
@@ -553,7 +556,6 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
               }}
             >
               <div style={{ textAlign: "center" }}>
-                <div style={{ marginBottom: "8px" }}>🔄</div>
                 <div>加载3D模型中...</div>
               </div>
             </div>

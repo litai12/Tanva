@@ -27,7 +27,6 @@ import { uploadToOSS } from "@/services/ossUploadService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import type { Model3DData } from "@/services/model3DUploadService";
 // optimizeHdImage 已弃用，改用 aiImageService.editImage
-import { expandImage } from "@/services/expandImageService";
 import ExpandImageSelector from "./ExpandImageSelector";
 import { useToolStore } from "@/stores";
 import aiImageService from "@/services/aiImageService";
@@ -36,7 +35,9 @@ import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 
 const HD_UPSCALE_RESOLUTION: "4k" = "4k";
-const EXPAND_PRESET_PROMPT = "帮我在空白部分扩展这张图，补全内容";
+const EXPAND_PRESET_PROMPT = "帮我扩展这张图的内容，填充周边空白区域";
+const EXPAND_MODEL = "gemini-2.5-flash-image";
+const EXPAND_PROVIDER = "banana-2.5";
 
 type Bounds = { x: number; y: number; width: number; height: number };
 const ensureDataUrlString = (
@@ -96,6 +97,8 @@ const _composeExpandedImage = async (
   }
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
   return {
@@ -382,8 +385,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         return input;
       }
 
-      // 对于远程URL，只在必要时才转换为Base64
-      // 优化：如果调用者只需要URL用于API调用，应该使用 getProcessableImageUrl 代替
+      // 对于远程URL，只在必要时才转换为Base64；仅为获得URL时应复用已有远程链接
       if (/^https?:\/\//i.test(input) || input.startsWith("blob:")) {
         try {
           const response = await fetch(input);
@@ -462,80 +464,6 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     imageData.url,
     imageData.src,
     projectId,
-  ]);
-
-  const getProcessableImageUrl = useCallback(async (): Promise<string> => {
-    // 1. 首先检查缓存
-    const cachedUrl = imageUrlCache.getCachedUrl(imageData.id, projectId);
-    if (cachedUrl) {
-      return cachedUrl;
-    }
-
-    // 2. 尝试从 Paper.js 的 raster 获取源URL
-    const imageGroup = paper.project?.layers?.flatMap((layer) =>
-      layer.children.filter(
-        (child) =>
-          child.data?.type === "image" && child.data?.imageId === imageData.id
-      )
-    )[0];
-
-    let rasterSource: string | null = null;
-    if (imageGroup) {
-      const raster = imageGroup.children.find(
-        (child) => child instanceof paper.Raster
-      ) as paper.Raster | undefined;
-      if (raster && raster.source) {
-        rasterSource = typeof raster.source === "string" ? raster.source : null;
-      }
-    }
-
-    // 3. 优先使用已有的远程URL，避免重复上传
-    const currentUrl = rasterSource || imageData.url || imageData.src;
-    if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
-      // 缓存这个URL以便后续使用
-      imageUrlCache.setCachedUrl(imageData.id, currentUrl, projectId);
-      return currentUrl;
-    }
-
-    // 4. 只有在没有远程URL时才进行转换和上传
-    const imageDataUrl = await resolveImageDataUrl();
-    if (!imageDataUrl) {
-      throw new Error("无法获取当前图片的图像数据");
-    }
-
-    const response = await fetch(imageDataUrl);
-    const blob = await response.blob();
-
-    const uploadResult = await uploadToOSS(blob, {
-      dir: projectId ? `projects/${projectId}/images/` : "uploads/images/",
-      fileName: `canvas-image-${Date.now()}.png`,
-      contentType: "image/png",
-      projectId,
-    });
-
-    if (!uploadResult.success || !uploadResult.url) {
-      throw new Error(uploadResult.error || "当前图片上传失败");
-    }
-
-    if (!/^https?:\/\//i.test(uploadResult.url)) {
-      throw new Error(`无效的图片URL: ${uploadResult.url}`);
-    }
-
-    // 缓存上传后的URL
-    imageUrlCache.setCachedUrl(
-      imageData.id,
-      uploadResult.url,
-      projectId,
-      imageDataUrl
-    );
-
-    return uploadResult.url;
-  }, [
-    imageData.id,
-    imageData.url,
-    imageData.src,
-    projectId,
-    resolveImageDataUrl,
   ]);
 
   // 处理AI编辑按钮点击
@@ -920,28 +848,32 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     [isExpandingImage]
   );
 
-  // 处理扩图选择完成（走与 2D→3D 一致的后端扩图服务 & API_BASE_URL）
+  // 处理扩图选择完成（直接生成带空白画布并交给 Gemini 填充）
   const handleExpandSelect = useCallback(
     async (
       selectedBounds: { x: number; y: number; width: number; height: number },
-      expandRatios: { left: number; top: number; right: number; bottom: number }
+      _expandRatios: { left: number; top: number; right: number; bottom: number }
     ) => {
       setShowExpandSelector(false);
       setIsExpandingImage(true);
 
       try {
+        const selectedRight = selectedBounds.x + selectedBounds.width;
+        const selectedBottom = selectedBounds.y + selectedBounds.height;
+        const imageRight = realTimeBounds.x + realTimeBounds.width;
+        const imageBottom = realTimeBounds.y + realTimeBounds.height;
+
         const hasExpandArea =
-          !!expandRatios &&
-          (expandRatios.left > 0 ||
-            expandRatios.top > 0 ||
-            expandRatios.right > 0 ||
-            expandRatios.bottom > 0);
+          selectedBounds.x < realTimeBounds.x - 0.5 ||
+          selectedBounds.y < realTimeBounds.y - 0.5 ||
+          selectedRight > imageRight + 0.5 ||
+          selectedBottom > imageBottom + 0.5;
 
         if (!hasExpandArea) {
           window.dispatchEvent(
             new CustomEvent("toast", {
               detail: {
-                message: "请拖拽外框扩展空白区域后再尝试",
+                message: "请拖出包含空白区的扩展范围后再尝试",
                 type: "error",
               },
             })
@@ -951,30 +883,46 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
         window.dispatchEvent(
           new CustomEvent("toast", {
-            detail: { message: "⏳ 正在准备扩图，请稍候...", type: "info" },
+            detail: { message: "⏳ 正在准备扩图画布并发送给 Gemini...", type: "info" },
           })
         );
 
-        // 与 2D→3D、高清放大一致：先拿到可供后端处理的 imageUrl（远程 URL 或自动上传到 OSS 后的 URL）
-        const imageUrl = await getProcessableImageUrl();
-
-        logger.info("🔁 调用后端扩图服务", {
-          imageId: imageData.id,
-          imageUrl,
-          expandRatios,
-        });
-
-        const result = await expandImage({
-          imageUrl,
-          expandRatios,
-          prompt: EXPAND_PRESET_PROMPT,
-        });
-
-        if (!result.success || !result.imageUrl) {
-          throw new Error(result.error || "扩图失败");
+        const baseImageDataUrl = await resolveImageDataUrl();
+        if (!baseImageDataUrl) {
+          throw new Error("无法获取当前图片数据");
         }
 
-        const finalImageUrl = result.imageUrl;
+        const composed = await _composeExpandedImage(
+          baseImageDataUrl,
+          realTimeBounds,
+          selectedBounds
+        );
+
+        logger.info("🔁 调用 Gemini edit-image 进行扩图", {
+          imageId: imageData.id,
+          aiProvider: EXPAND_PROVIDER,
+          model: EXPAND_MODEL,
+          prompt: EXPAND_PRESET_PROMPT,
+          composedSize: { width: composed.width, height: composed.height },
+        });
+
+        const editResult = await aiImageService.editImage({
+          prompt: EXPAND_PRESET_PROMPT,
+          sourceImage: composed.dataUrl,
+          model: EXPAND_MODEL,
+          aiProvider: EXPAND_PROVIDER,
+          outputFormat: "png",
+          imageOnly: true,
+        });
+
+        if (!editResult.success || !editResult.data?.imageData) {
+          throw new Error(editResult.error?.message || "扩图失败");
+        }
+
+        const finalImageUrl = ensureDataUrlString(
+          editResult.data.imageData,
+          "image/png"
+        );
 
         const originalCenter = {
           x: realTimeBounds.x + realTimeBounds.width / 2,
@@ -1020,7 +968,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         setDrawMode("select");
       }
     },
-    [getProcessableImageUrl, imageData.id, realTimeBounds, setDrawMode]
+    [resolveImageDataUrl, imageData.id, realTimeBounds, setDrawMode]
   );
 
   const handleOptimizeHdImage = useCallback(

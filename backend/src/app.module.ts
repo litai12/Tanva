@@ -10,6 +10,7 @@ import { AiModule } from './ai/ai.module';
 import { AiPublicModule } from './ai-public/ai-public.module';
 import { CreditsModule } from './credits/credits.module';
 import { AdminModule } from './admin/admin.module';
+import { InvitesModule } from './invites/invites.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AdminModule } from './admin/admin.module';
     AiPublicModule, // 添加公开 AI API 模块
     CreditsModule,  // 积分系统模块
     AdminModule,    // 管理后台模块
+    InvitesModule,  // 邀请码模块
   ],
 })
 export class AppModule {}

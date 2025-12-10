@@ -13,8 +13,11 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Post('register')
-  async register(@Body() dto: RegisterDto) {
-    const user = await this.auth.register(dto);
+  async register(@Body() dto: RegisterDto, @Req() req: any) {
+    const user = await this.auth.register(dto, {
+      ip: req.ip,
+      ua: req.headers['user-agent'],
+    });
     return { user };
   }
 

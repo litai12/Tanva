@@ -48,6 +48,10 @@ export interface Sora2VideoResult {
   status?: string;
   taskId?: string;
   taskInfo?: Record<string, any> | null;
+  videoUrlWatermarked?: string;
+  videoUrlRaw?: string;
+  watermarkSkipped?: boolean;
+  watermarkFailed?: boolean;
 }
 
 @Injectable()
