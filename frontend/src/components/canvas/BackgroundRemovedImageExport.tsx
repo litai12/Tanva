@@ -161,7 +161,7 @@ export const BackgroundRemovedImageExport: React.FC<
                 onClick={() => selectImage(index)}
                 className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                   selectedImageIndex === index
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-gray-800 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
@@ -196,7 +196,7 @@ export const BackgroundRemovedImageExport: React.FC<
               onClick={handleDownload}
               disabled={selectedImageIndex === null || isExporting}
               size="sm"
-              className="flex-1 bg-blue-600 hover:bg-blue-700"
+              className="flex-1 bg-gray-800 hover:bg-gray-900"
             >
               <DownloadIcon className="w-4 h-4 mr-1" />
               下载PNG

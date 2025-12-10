@@ -123,12 +123,12 @@ const VerticalSlider: React.FC<{
     >
       {/* 填充的进度条 */}
       <div
-        className="absolute bottom-0 left-0 right-0 bg-blue-500 rounded-full transition-all duration-150"
+        className="absolute bottom-0 left-0 right-0 bg-gray-800 rounded-full transition-all duration-150"
         style={{ height: `${percentage * 100}%` }}
       />
       {/* 滑块圆圈 */}
       <div
-        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full shadow-md transition-all duration-150"
+        className="absolute w-3 h-3 bg-white border-2 border-gray-800 rounded-full shadow-md transition-all duration-150"
         style={{ 
           bottom: `calc(${percentage * 100}% - 6px)`,
           left: '50%',
@@ -260,12 +260,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   };
 
   // 根据模式获取激活状态的按钮样式
-  const inactiveButtonStyle = "bg-white/70 text-gray-700 border-transparent hover:bg-blue-50 hover:border-blue-300";
+  const inactiveButtonStyle = "bg-white/70 text-gray-700 border-transparent hover:bg-gray-800/10 hover:border-gray-800/20";
   const getActiveButtonStyle = (isActive: boolean) => {
     if (!isActive) {
       return inactiveButtonStyle;
     }
-    return "bg-blue-600 text-white";
+    return "bg-gray-800 text-white";
   };
 
   // 获取绘图子面板按钮样式（绘图工具展开菜单中的按钮）
@@ -273,7 +273,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     if (!isActive) {
       return inactiveButtonStyle;
     }
-    return "bg-blue-600 text-white";
+    return "bg-gray-800 text-white";
   };
 
   // 切换原始尺寸模式

@@ -7,6 +7,7 @@ import {
 
 type VideoQuality = 'hd' | 'sd';
 
+// ==================== 旧API (普通Sora2) 配置 ====================
 const SORA2_VIDEO_MODELS: Record<VideoQuality, string> = {
   hd: process.env.SORA2_HD_MODEL || 'sora-2-pro-reverse',
   sd: process.env.SORA2_SD_MODEL || 'sora-2-reverse',
@@ -23,6 +24,15 @@ const SORA2_RETRY_BASE_DELAY_MS = 1200;
 const SORA2_POLL_INTERVAL_MS = 5000;
 const SORA2_POLL_MAX_ATTEMPTS = 120;
 const SORA2_POLL_STATUSES = ['queued', 'processing', 'downloading', 'pending'];
+
+// ==================== 新API (极速Sora2) 配置 ====================
+const SORA2_V2_VIDEO_MODELS: Record<VideoQuality, string> = {
+  hd: 'sora-2-pro',
+  sd: 'sora-2',
+};
+const SORA2_V2_POLL_INTERVAL_MS = 5000;
+const SORA2_V2_POLL_MAX_ATTEMPTS = 120;
+const SORA2_V2_FAILED_STATUSES = ['failed', 'error', 'cancelled'];
 
 interface Sora2ResolvedMedia {
   videoUrl?: string;
@@ -52,19 +62,214 @@ export interface Sora2VideoResult {
   videoUrlRaw?: string;
   watermarkSkipped?: boolean;
   watermarkFailed?: boolean;
+  /** 备选方案提示信息 */
+  fallbackMessage?: string;
 }
 
 @Injectable()
 export class Sora2VideoService {
   private readonly logger = new Logger(Sora2VideoService.name);
+  // 旧API (普通Sora2)
   private readonly apiBase = process.env.SORA2_API_ENDPOINT || 'https://api1.147ai.com';
   private readonly apiKey = process.env.SORA2_API_KEY;
+  // 新API (极速Sora2)
+  private readonly apiBaseV2 = process.env.SORA2_V2_API_ENDPOINT || 'https://ai.t8star.cn';
+  private readonly apiKeyV2 = process.env.SORA2_V2_API_KEY;
 
+  /**
+   * 主入口方法：首选极速Sora2，失败后回退到普通Sora2
+   */
   async generateVideo(options: GenerateVideoOptions): Promise<Sora2VideoResult> {
+    // 首选：极速Sora2 (新API)
+    if (this.apiKeyV2) {
+      try {
+        this.logger.log('尝试使用极速Sora2 API...');
+        return await this.generateVideoV2(options);
+      } catch (error) {
+        this.logger.warn(
+          `极速Sora2 API失败，切换到普通Sora2: ${error instanceof Error ? error.message : error}`,
+        );
+        // 继续使用备选方案
+      }
+    } else {
+      this.logger.log('极速Sora2 API Key未配置，使用普通Sora2');
+    }
+
+    // 备选：普通Sora2 (旧API)
     if (!this.apiKey) {
       throw new ServiceUnavailableException('Sora2 API Key 未配置');
     }
 
+    const result = await this.generateVideoLegacy(options);
+    // 如果是从极速Sora2回退的，添加提示信息
+    if (this.apiKeyV2) {
+      result.fallbackMessage = '极速Sora2过于繁忙，已为您切换到普通Sora2';
+    }
+    return result;
+  }
+
+  /**
+   * 极速Sora2 (新API - t8star.cn)
+   * 使用 /v2/videos/generations 接口
+   */
+  private async generateVideoV2(options: GenerateVideoOptions): Promise<Sora2VideoResult> {
+    const quality: VideoQuality = options.quality === 'sd' ? 'sd' : 'hd';
+    const model = SORA2_V2_VIDEO_MODELS[quality];
+    const startedAt = Date.now();
+
+    this.logger.log(`极速Sora2 视频生成开始 (quality=${quality}, model=${model})`);
+
+    // 1. 创建任务
+    const createPayload: Record<string, any> = {
+      model,
+      prompt: options.prompt,
+      stream: false,
+    };
+
+    // 添加参考图片（如果有）
+    if (options.referenceImageUrls && options.referenceImageUrls.length > 0) {
+      createPayload.images = options.referenceImageUrls.filter(
+        (url) => typeof url === 'string' && url.trim().length > 0,
+      );
+    }
+
+    // HD模式使用pro模型
+    if (quality === 'hd') {
+      createPayload.hd = true;
+    }
+
+    const createResponse = await fetch(`${this.apiBaseV2}/v2/videos/generations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKeyV2}`,
+      },
+      body: JSON.stringify(createPayload),
+    });
+
+    if (!createResponse.ok) {
+      const errorData = await createResponse.json().catch(() => ({}));
+      const message = errorData?.error?.message || errorData?.message || `HTTP ${createResponse.status}`;
+      throw new ServiceUnavailableException(`极速Sora2 创建任务失败: ${message}`);
+    }
+
+    const createResult = await createResponse.json();
+    this.logger.log(`极速Sora2 创建任务响应: ${JSON.stringify(createResult)}`);
+
+    // API返回格式: {"task_id":"video_xxx"}
+    const taskId = createResult?.task_id || createResult?.data?.id || createResult?.id;
+
+    if (!taskId) {
+      throw new ServiceUnavailableException(`极速Sora2 未返回任务ID, 响应: ${JSON.stringify(createResult)}`);
+    }
+
+    this.logger.log(`极速Sora2 任务已创建: ${taskId}`);
+
+    // 2. 轮询任务状态
+    const pollResult = await this.pollV2TaskUntilComplete(taskId);
+
+    if (!pollResult) {
+      throw new ServiceUnavailableException('极速Sora2 视频生成超时');
+    }
+
+    if (pollResult.status && SORA2_V2_FAILED_STATUSES.includes(pollResult.status)) {
+      throw new ServiceUnavailableException(
+        `极速Sora2 生成失败: ${pollResult.errorMessage || pollResult.status}`,
+      );
+    }
+
+    if (!pollResult.videoUrl) {
+      throw new ServiceUnavailableException('极速Sora2 未返回有效的视频URL');
+    }
+
+    const duration = ((Date.now() - startedAt) / 1000).toFixed(2);
+    this.logger.log(`极速Sora2 视频生成成功，耗时 ${duration}s`);
+
+    return {
+      videoUrl: pollResult.videoUrl,
+      content: `视频已生成（极速Sora2，任务ID: ${taskId}）`,
+      thumbnailUrl: pollResult.thumbnailUrl,
+      referencedUrls: pollResult.videoUrl ? [pollResult.videoUrl] : [],
+      status: pollResult.status,
+      taskId,
+      taskInfo: pollResult.taskInfo,
+    };
+  }
+
+  /**
+   * 轮询极速Sora2任务状态
+   */
+  private async pollV2TaskUntilComplete(
+    taskId: string,
+  ): Promise<Sora2ResolvedMedia | null> {
+    let attempt = 0;
+
+    while (attempt < SORA2_V2_POLL_MAX_ATTEMPTS) {
+      attempt += 1;
+      await this.delay(SORA2_V2_POLL_INTERVAL_MS);
+
+      try {
+        const response = await fetch(
+          `${this.apiBaseV2}/v2/videos/generations/${taskId}`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${this.apiKeyV2}`,
+            },
+          },
+        );
+
+        if (!response.ok) {
+          this.logger.warn(`极速Sora2 轮询失败: HTTP ${response.status}`);
+          continue;
+        }
+
+        const result = await response.json();
+        const data = result?.data || result;
+        const status = data?.status;
+
+        // 检查失败状态
+        if (status && SORA2_V2_FAILED_STATUSES.includes(status)) {
+          return {
+            status,
+            errorMessage: data?.error?.message || data?.message,
+            referencedUrls: [],
+            taskInfo: data,
+          };
+        }
+
+        // 检查成功状态 - 获取视频URL (取 data.output)
+        const videoUrl = data?.output;
+        if (videoUrl) {
+          return {
+            videoUrl,
+            status: status || 'completed',
+            referencedUrls: [videoUrl],
+            taskInfo: data,
+            taskId,
+          };
+        }
+
+        // 仍在处理中
+        if (attempt % 10 === 0) {
+          this.logger.log(`极速Sora2 任务 ${taskId} 仍在处理中... (${attempt}/${SORA2_V2_POLL_MAX_ATTEMPTS})`);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `极速Sora2 轮询异常: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+
+    this.logger.warn(`极速Sora2 任务 ${taskId} 轮询超时`);
+    return null;
+  }
+
+  /**
+   * 普通Sora2 (旧API - 147ai.com)
+   * 使用 /v1/chat/completions 流式接口
+   */
+  private async generateVideoLegacy(options: GenerateVideoOptions): Promise<Sora2VideoResult> {
     const quality: VideoQuality = options.quality === 'sd' ? 'sd' : 'hd';
     const model = this.getModelForQuality(quality);
 
@@ -76,7 +281,7 @@ export class Sora2VideoService {
       attempt += 1;
       try {
         this.logger.log(
-          `Sora2 video generation attempt ${attempt}/${SORA2_MAX_RETRY} (quality=${quality}, model=${model})`,
+          `普通Sora2 video generation attempt ${attempt}/${SORA2_MAX_RETRY} (quality=${quality}, model=${model})`,
         );
 
         const requestPayload = {
@@ -149,7 +354,7 @@ export class Sora2VideoService {
         }
 
         const duration = ((Date.now() - startedAt) / 1000).toFixed(2);
-        this.logger.log(`Sora2 视频生成成功，耗时 ${duration}s`);
+        this.logger.log(`普通Sora2 视频生成成功，耗时 ${duration}s`);
 
         return {
           videoUrl: resolved.videoUrl,

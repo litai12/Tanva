@@ -173,7 +173,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const sharedButtonStyle = undefined;
 
   const sharedButtonClass =
-    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center";
+    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center";
   const sharedIconClass = "w-3.5 h-3.5";
 
   // 实时Paper.js坐标状态

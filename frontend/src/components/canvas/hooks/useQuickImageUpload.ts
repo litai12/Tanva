@@ -371,7 +371,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const halfW = width / 2;
         const halfH = height / 2;
         const cornerRadius = Math.min(width, height) * 0.02;
-        const mainColor = new paper.Color('#8b5cf6');
+        const mainColor = new paper.Color('#4b5563'); // 黑灰色
 
         // 背景矩形
         const bg = new paper.Path.Rectangle({
@@ -403,9 +403,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             strokeColor: {
                 gradient: {
                     stops: [
-                        [new paper.Color(0.55, 0.36, 0.96, 0), 0],
-                        [new paper.Color(0.55, 0.36, 0.96, 0.6), 0.5],
-                        [new paper.Color(0.55, 0.36, 0.96, 0), 1]
+                        [new paper.Color(0.29, 0.33, 0.39, 0), 0],
+                        [new paper.Color(0.29, 0.33, 0.39, 0.6), 0.5],
+                        [new paper.Color(0.29, 0.33, 0.39, 0), 1]
                     ]
                 },
                 origin: centerPoint.add([-halfW + 15, scanLineY]),

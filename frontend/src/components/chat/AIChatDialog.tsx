@@ -2113,16 +2113,16 @@ const AIChatDialog: React.FC = () => {
                       variant="outline"
                       disabled={false}
                       data-dropdown-trigger="true"
-                      className={cn(
-                        "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
-                        "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                        manualAIMode !== 'auto'
-                          ? "bg-blue-50 border-blue-300 text-blue-700"
-                          : !generationStatus.isGenerating
-                            ? "hover:bg-liquid-glass-hover text-gray-700"
-                            : "opacity-50 cursor-not-allowed text-gray-400"
-                      )}
-                    >
+                    className={cn(
+                      "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
+                      "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                      manualAIMode !== 'auto'
+                        ? "bg-gray-100 text-gray-800 border-gray-200"
+                        : !generationStatus.isGenerating
+                          ? "hover:bg-gray-100 text-gray-700"
+                          : "opacity-50 cursor-not-allowed text-gray-400"
+                    )}
+                  >
                       <SlidersHorizontal className="h-3.5 w-3.5" />
                       <span className="font-medium">{manualButtonLabel}</span>
                     </Button>
@@ -2151,14 +2151,14 @@ const AIChatDialog: React.FC = () => {
                           }}
                           className={cn(
                             "flex items-start gap-2 px-3 py-2 text-xs",
-                            isActive ? "bg-blue-50 text-blue-600" : "text-slate-600"
+                            isActive ? "bg-gray-100 text-gray-800" : "text-slate-600"
                           )}
                         >
                           <div className="flex-1 space-y-0.5">
                             <div className="font-medium leading-none">{option.label}</div>
                             <div className="text-[11px] text-slate-400 leading-snug">{option.description}</div>
                           </div>
-                          {isActive && <Check className="h-3.5 w-3.5 text-blue-500" />}
+                          {isActive && <Check className="h-3.5 w-3.5 text-white" />}
                         </DropdownMenuItem>
                       );
                     })}
@@ -2177,9 +2177,9 @@ const AIChatDialog: React.FC = () => {
                   "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   aspectRatio
-                    ? "bg-blue-50 border-blue-300 text-blue-600"
+                    ? "bg-gray-100 text-gray-800 border-gray-200"
                     : !generationStatus.isGenerating
-                      ? "hover:bg-liquid-glass-hover text-gray-700"
+                      ? "hover:bg-gray-100 text-gray-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
                 title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
@@ -2199,9 +2199,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     imageSize
-                      ? "bg-blue-50 border-blue-300 text-blue-600"
+                      ? "bg-gray-100 text-gray-800 border-gray-200"
                       : !generationStatus.isGenerating
-                        ? "hover:bg-liquid-glass-hover text-gray-700"
+                        ? "hover:bg-gray-100 text-gray-700"
                         : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={imageSize ? `分辨率: ${imageSize}` : "选择分辨率"}
@@ -2222,9 +2222,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     thinkingLevel
-                      ? "bg-blue-50 border-blue-300 text-blue-600"
+                      ? "bg-gray-100 text-gray-800 border-gray-200"
                       : !generationStatus.isGenerating
-                        ? "hover:bg-liquid-glass-hover text-gray-700"
+                        ? "hover:bg-gray-100 text-gray-700"
                         : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={thinkingLevel ? `思考级别: ${thinkingLevel === 'high' ? '高' : '低'}` : "选择思考级别"}
@@ -2261,7 +2261,7 @@ const AIChatDialog: React.FC = () => {
                           className={cn(
                             'px-2 py-1 text-xs rounded-md',
                             (aspectRatio === opt.value || (!aspectRatio && opt.value === null))
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              ? 'bg-gray-100 text-gray-800 border border-gray-200'
                               : 'hover:bg-gray-100 text-gray-700 border border-transparent'
                           )}
                           onClick={() => {
@@ -2305,7 +2305,7 @@ const AIChatDialog: React.FC = () => {
                           className={cn(
                             'px-2 py-1 text-xs rounded-md',
                             (imageSize === opt.value || (!imageSize && opt.value === null))
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              ? 'bg-gray-100 text-gray-800 border border-gray-200'
                               : 'hover:bg-gray-100 text-gray-700 border border-transparent'
                           )}
                           onClick={() => {
@@ -2348,7 +2348,7 @@ const AIChatDialog: React.FC = () => {
                           className={cn(
                             'px-2 py-1 text-xs rounded-md',
                             (thinkingLevel === opt.value || (!thinkingLevel && opt.value === null))
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              ? 'bg-gray-100 text-gray-800 border border-gray-200'
                               : 'hover:bg-gray-100 text-gray-700 border border-transparent'
                           )}
                           onClick={() => {
@@ -2377,8 +2377,8 @@ const AIChatDialog: React.FC = () => {
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   !generationStatus.isGenerating
                     ? enableWebSearch
-                      ? "hover:bg-blue-600 bg-blue-500 text-white border-blue-500"
-                      : "hover:bg-liquid-glass-hover text-gray-700"
+                      ? "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
+                      : "hover:bg-gray-100 text-gray-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
                 title={`联网搜索: ${enableWebSearch ? '开启' : '关闭'} - 让AI获取实时信息`}
@@ -2396,9 +2396,9 @@ const AIChatDialog: React.FC = () => {
                   "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   autoOptimizeEnabled
-                    ? "bg-blue-500 text-white border-blue-500 hover:bg-blue-500/90"
+                    ? "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
                     : !generationStatus.isGenerating && !autoOptimizing
-                      ? "hover:bg-liquid-glass-hover text-gray-700"
+                      ? "hover:bg-gray-100 text-gray-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
                 title={autoOptimizeEnabled ? "自动扩写已开启（单击关闭，长按打开设置面板）" : "单击开启自动扩写，长按打开扩写设置面板"}
@@ -2850,7 +2850,7 @@ const AIChatDialog: React.FC = () => {
                                           }
                                         }}
                                         title="下载视频"
-                                        className="w-9 h-9 rounded-full bg-white text-blue-500 border border-blue-100 flex items-center justify-center shadow-sm hover:bg-blue-50 transition-colors"
+                                        className="w-9 h-9 rounded-full bg-white text-blue-500 border border-gray-200 flex items-center justify-center shadow-sm hover:bg-gray-800/10 transition-colors"
                                       >
                                         <Download className="w-3.5 h-3.5" />
                                       </button>

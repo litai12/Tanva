@@ -14,7 +14,7 @@ const LayerTool: React.FC = () => {
             className={cn(
                 "px-2 py-2 h-8 w-8",
                 showLayerPanel 
-                    ? "bg-blue-600 text-white" 
+                    ? "bg-gray-800 text-white" 
                     : "bg-white/50 border-gray-300"
             )}
             onClick={toggleLayerPanel}

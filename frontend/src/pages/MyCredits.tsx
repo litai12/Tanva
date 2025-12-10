@@ -265,7 +265,7 @@ const MyCredits: React.FC = () => {
                 className={cn(
                   "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all",
                   activeTab === tab.id
-                    ? "bg-blue-500 text-white shadow-sm"
+                    ? "bg-gray-800 text-white shadow-sm"
                     : "text-slate-600 hover:bg-slate-100"
                 )}
               >

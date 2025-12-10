@@ -1,6 +1,9 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { OssService } from '../../oss/oss.service';
 import type OSS from 'ali-oss';
 
@@ -10,19 +13,143 @@ interface VideoWatermarkOptions {
   ossKey?: string;
 }
 
+// 水印图片路径（与图片水印使用相同的水印图）
+const WATERMARK_IMAGE_PATH = path.resolve(__dirname, '../../../../frontend/public/tanvas_ai.png');
+// 水印相对于视频短边的比例（与图片水印一致）
+const WATERMARK_SCALE = 0.25;
+// 水印距离边缘的距离（像素）
+const WATERMARK_MARGIN = 25;
+// 水印透明度 (0-1)
+const WATERMARK_OPACITY = 0.8;
+
 @Injectable()
 export class VideoWatermarkService {
   private readonly logger = new Logger(VideoWatermarkService.name);
   private readonly DEFAULT_TEXT = 'Tanvas AI';
-  private readonly DEFAULT_TIMEOUT = 120_000;
+  private readonly DEFAULT_TIMEOUT = 180_000; // 增加超时时间，因为图片水印处理更复杂
 
   constructor(private readonly oss: OssService) {}
 
   /**
-   * 为视频添加文字水印（样式与图片一致：右下角白色半透明），并直接上传至 OSS
-   * 通过 ffmpeg 流式处理，避免落地临时文件
+   * 为视频添加图片水印（样式与图片水印一致：右下角半透明 logo），并上传至 OSS
+   * 使用临时文件处理，因为 MP4 格式不支持管道输出
    */
   async addWatermarkAndUpload(
+    sourceUrl: string,
+    options?: VideoWatermarkOptions
+  ): Promise<{ url: string; key: string; durationMs: number }> {
+    const started = Date.now();
+    const timeoutMs = options?.timeoutMs ?? this.DEFAULT_TIMEOUT;
+    const key =
+      options?.ossKey ||
+      `videos/watermarked/${this.buildDatePrefix()}/video-${this.safeRandomId()}.mp4`;
+
+    // 检查水印图片是否存在
+    if (!fs.existsSync(WATERMARK_IMAGE_PATH)) {
+      this.logger.warn(`水印图片不存在: ${WATERMARK_IMAGE_PATH}，回退到文字水印`);
+      return this.addTextWatermarkAndUpload(sourceUrl, options);
+    }
+
+    // 创建临时文件路径
+    const tempDir = os.tmpdir();
+    const tempFile = path.join(tempDir, `watermark-${this.safeRandomId()}.mp4`);
+
+    // 构造 filter_complex 滤镜：
+    // 使用 scale2ref 根据主视频尺寸缩放水印图片（虽然有 deprecated 警告，但仍然可用）
+    const filterComplex = [
+      // 缩放水印：宽度 = min(主视频宽,高) * WATERMARK_SCALE
+      `[1:v][0:v]scale2ref=w='min(main_w,main_h)*${WATERMARK_SCALE}':h='ow/mdar':flags=lanczos[wm][base]`,
+      // 设置水印透明度
+      `[wm]format=rgba,colorchannelmixer=aa=${WATERMARK_OPACITY}[wm_alpha]`,
+      // 叠加到右下角，留边距
+      `[base][wm_alpha]overlay=main_w-overlay_w-${WATERMARK_MARGIN}:main_h-overlay_h-${WATERMARK_MARGIN}`,
+    ].join(';');
+
+    const ffArgs = [
+      '-y',
+      '-i', sourceUrl,           // 输入视频
+      '-i', WATERMARK_IMAGE_PATH, // 输入水印图片
+      '-filter_complex', filterComplex,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '23',
+      '-c:a', 'copy',
+      '-movflags', '+faststart',
+      tempFile,                   // 输出到临时文件
+    ];
+
+    this.logger.log(`🎥 Start video watermarking -> temp: ${tempFile}`);
+
+    try {
+      // 执行 ffmpeg 命令
+      await new Promise<void>((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+        const stderrChunks: Buffer[] = [];
+        ffmpeg.stderr?.on('data', (chunk) => {
+          if (stderrChunks.length < 30) stderrChunks.push(Buffer.from(chunk));
+        });
+
+        const timeout = setTimeout(() => {
+          ffmpeg.kill('SIGKILL');
+          reject(new ServiceUnavailableException('ffmpeg timeout'));
+        }, timeoutMs);
+
+        ffmpeg.on('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+
+        ffmpeg.on('close', (code) => {
+          clearTimeout(timeout);
+          if (code === 0) {
+            resolve();
+          } else {
+            const stderr = Buffer.concat(stderrChunks).toString('utf8');
+            reject(
+              new ServiceUnavailableException(
+                `ffmpeg exited with code ${code}${stderr ? `: ${stderr.slice(-500)}` : ''}`,
+              ),
+            );
+          }
+        });
+      });
+
+      // 检查临时文件是否存在
+      if (!fs.existsSync(tempFile)) {
+        throw new ServiceUnavailableException('ffmpeg 未生成输出文件');
+      }
+
+      // 上传到 OSS
+      this.logger.log(`🎥 Uploading watermarked video to OSS: ${key}`);
+      const fileStream = fs.createReadStream(tempFile);
+      const uploadOptions: OSS.PutStreamOptions = {
+        mime: 'video/mp4',
+        timeout: 120000,
+        meta: { uid: 0, pid: 0 },
+        callback: undefined as unknown as OSS.ObjectCallback,
+      };
+      const { url } = await this.oss.putStream(key, fileStream, uploadOptions);
+
+      const elapsed = Date.now() - started;
+      this.logger.log(`✅ Video watermarked and uploaded: ${key} (${elapsed}ms)`);
+      return { url, key, durationMs: elapsed };
+    } finally {
+      // 清理临时文件
+      try {
+        if (fs.existsSync(tempFile)) {
+          fs.unlinkSync(tempFile);
+        }
+      } catch (e) {
+        this.logger.warn(`清理临时文件失败: ${tempFile}`);
+      }
+    }
+  }
+
+  /**
+   * 回退方案：使用文字水印（当图片水印不可用时）
+   */
+  private async addTextWatermarkAndUpload(
     sourceUrl: string,
     options?: VideoWatermarkOptions
   ): Promise<{ url: string; key: string; durationMs: number }> {
@@ -38,26 +165,18 @@ export class VideoWatermarkService {
 
     const ffArgs = [
       '-y',
-      '-i',
-      sourceUrl,
-      '-vf',
-      drawtext,
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-crf',
-      '23',
-      '-c:a',
-      'copy',
-      '-movflags',
-      '+faststart',
-      '-f',
-      'mp4',
+      '-i', sourceUrl,
+      '-vf', drawtext,
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-crf', '23',
+      '-c:a', 'copy',
+      '-movflags', '+faststart',
+      '-f', 'mp4',
       'pipe:1',
     ];
 
-    this.logger.log(`🎥 Start video watermarking -> OSS: ${key}`);
+    this.logger.log(`🎥 Start video text watermarking (fallback) -> OSS: ${key}`);
 
     const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -74,7 +193,6 @@ export class VideoWatermarkService {
       mime: 'video/mp4',
       timeout: 120000,
       meta: { uid: 0, pid: 0 },
-      // callback 可选，这里占位满足类型要求
       callback: undefined as unknown as OSS.ObjectCallback,
     };
     const uploadPromise = this.oss.putStream(key, ffmpeg.stdout, uploadOptions);
@@ -100,11 +218,11 @@ export class VideoWatermarkService {
       const elapsed = Date.now() - started;
       if (timeout) clearTimeout(timeout);
       const { url } = await uploadPromise;
-      this.logger.log(`✅ Video watermarked and uploaded: ${key} (${elapsed}ms)`);
+      this.logger.log(`✅ Video text watermarked and uploaded: ${key} (${elapsed}ms)`);
       return { url, key, durationMs: elapsed };
     } catch (error) {
       if (timeout) clearTimeout(timeout);
-      this.logger.warn(`❌ Video watermark failed for ${key}: ${error}`);
+      this.logger.warn(`❌ Video text watermark failed for ${key}: ${error}`);
       throw error;
     } finally {
       if (timeout) clearTimeout(timeout);

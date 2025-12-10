@@ -52,7 +52,7 @@ const LayerPanel: React.FC = () => {
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-blue-500 rounded-full pointer-events-none', []);
+    const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-gray-800 rounded-full pointer-events-none', []);
     // 缓存缩略图
     const thumbCache = useRef<Record<string, { dataUrl: string; timestamp: number }>>({});
 
@@ -1095,7 +1095,7 @@ const LayerPanel: React.FC = () => {
                             <div key={layer.id}>
                                 {/* 图层项 */}
                                 <div
-                                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 group ${activeLayerId === layer.id ? 'bg-blue-50 border border-blue-200' : ''}`}
+                                    className={`flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 group ${activeLayerId === layer.id ? 'bg-gray-800/10 border border-gray-800/20' : ''}`}
                                     onClick={() => activateLayer(layer.id)}
                                     draggable
                                     onDragStart={(e) => {
@@ -1349,7 +1349,7 @@ const LayerPanel: React.FC = () => {
                                         {items.map(item => (
                                             <div
                                                 key={item.id}
-                                                className={`flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 group cursor-pointer ${selectedItemId === item.id ? 'bg-blue-50' : ''
+                                                className={`flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 group cursor-pointer ${selectedItemId === item.id ? 'bg-gray-800/10' : ''
                                                     }`}
                                                 onClick={() => handleItemClick(item, layer.id)}
                                                 onDoubleClick={(e) => {

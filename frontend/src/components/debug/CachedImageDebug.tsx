@@ -347,7 +347,7 @@ const CachedImageDebug: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
-                    className="px-1.5 py-0.5 text-[10px] rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40"
+                    className="px-1.5 py-0.5 text-[10px] rounded bg-gray-800 hover:bg-gray-900 text-white disabled:opacity-40"
                     onClick={handlePreview}
                     disabled={!hasImage}
                   >预览</button>

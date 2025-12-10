@@ -102,7 +102,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             className={cn(
               "p-0 h-7 w-7 rounded",
               currentStyle.italic 
-                ? "bg-blue-600 text-white" 
+                ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ italic: !currentStyle.italic })}
@@ -130,19 +130,19 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
           {/* 常用字号快捷按钮 */}
           <div className="flex flex-wrap gap-1 mt-2">
             {fontSizes.map(size => (
-              <Button
-                key={size}
-                variant={currentStyle.fontSize === size ? 'default' : 'outline'}
-                size="sm"
-                className={cn(
-                  "text-xs h-6 px-2",
-                  currentStyle.fontSize === size 
-                    ? "bg-blue-600 text-white" 
-                    : "bg-white border-gray-300"
-                )}
-                onClick={() => onStyleChange({ fontSize: size })}
-              >
-                {size}
+            <Button
+              key={size}
+              variant={currentStyle.fontSize === size ? 'default' : 'outline'}
+              size="sm"
+              className={cn(
+                "text-xs h-6 px-2",
+                currentStyle.fontSize === size 
+                  ? "bg-gray-800 text-white" 
+                  : "bg-white border-gray-300"
+              )}
+              onClick={() => onStyleChange({ fontSize: size })}
+            >
+              {size}
               </Button>
             ))}
           </div>
@@ -188,7 +188,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             className={cn(
               "flex-1 p-0 h-7",
               currentStyle.align === 'left' 
-                ? "bg-blue-600 text-white" 
+                ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ align: 'left' })}
@@ -203,7 +203,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             className={cn(
               "flex-1 p-0 h-7",
               currentStyle.align === 'center' 
-                ? "bg-blue-600 text-white" 
+                ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ align: 'center' })}
@@ -218,7 +218,7 @@ const TextStylePanel: React.FC<TextStylePanelProps> = ({
             className={cn(
               "flex-1 p-0 h-7",
               currentStyle.align === 'right' 
-                ? "bg-blue-600 text-white" 
+                ? "bg-gray-800 text-white" 
                 : "bg-white border-gray-300"
             )}
             onClick={() => onStyleChange({ align: 'right' })}

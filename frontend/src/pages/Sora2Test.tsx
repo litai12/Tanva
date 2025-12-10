@@ -289,7 +289,7 @@ const Sora2TestPage: React.FC = () => {
                 <Button
                   onClick={handleGenerateVideo}
                   disabled={state.isLoading || !apiKey.trim()}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2"
+                  className="w-full bg-gray-800 hover:bg-gray-900 text-white font-semibold py-2"
                 >
                   {state.isLoading ? (
                     <span className="flex items-center gap-2">

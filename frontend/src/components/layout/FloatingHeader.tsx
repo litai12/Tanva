@@ -516,7 +516,7 @@ const FloatingHeader: React.FC = () => {
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                                    className="h-7 px-2 text-xs text-gray-800 hover:text-gray-900 hover:bg-gray-800/10"
                                     onClick={() => {
                                         setIsSettingsOpen(false);
                                         navigate('/my-credits');
@@ -608,7 +608,7 @@ const FloatingHeader: React.FC = () => {
                             </div>
                             <Button
                                 variant="outline"
-                                className="h-9 rounded-xl text-sm border-blue-200 text-blue-600 hover:bg-blue-50"
+                                className="h-9 rounded-xl text-sm border-gray-800/20 text-gray-900 hover:bg-gray-800/10"
                                 onClick={handleSaveAppearanceSettings}
                             >
                                 保存设置
@@ -643,8 +643,8 @@ const FloatingHeader: React.FC = () => {
                                             className={cn(
                                                 "rounded-full border px-3 py-1.5 text-xs transition-all",
                                                 gridStyle === option.value
-                                                    ? "border-blue-500 bg-blue-500 text-white shadow-sm"
-                                                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-600"
+                                                    ? "border-gray-800 bg-gray-800 text-white shadow-sm"
+                                                    : "border-slate-200 bg-white text-slate-600 hover:border-gray-800/30 hover:text-gray-900"
                                             )}
                                         >
                                             {option.label}
@@ -781,8 +781,8 @@ const FloatingHeader: React.FC = () => {
                                     className={cn(
                                         "relative rounded-xl border-2 p-4 text-left transition-all",
                                         aiProvider === 'gemini'
-                                            ? "border-blue-500 bg-blue-50"
-                                            : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
+                                            ? "border-gray-800 bg-gray-800/5"
+                                            : "border-slate-200 bg-white hover:border-gray-800/30 hover:bg-gray-800/10"
                                     )}
                                 >
                                     <div className="flex items-start justify-between">
@@ -1022,7 +1022,7 @@ const FloatingHeader: React.FC = () => {
                             </div>
                             <Button
                                 variant="outline"
-                                className="rounded-xl text-sm border-blue-200 text-blue-600 hover:bg-blue-50"
+                                className="rounded-xl text-sm border-gray-800/20 text-gray-900 hover:bg-gray-800/10"
                                 onClick={() => {
                                     const { toggleSandboxPanel } = useUIStore.getState();
                                     toggleSandboxPanel();
@@ -1079,6 +1079,7 @@ return (
                         src="/LogoText.svg"
                         alt="Logo"
                         draggable="false"
+                        style={{ imageRendering: 'auto', WebkitFontSmoothing: 'antialiased' }}
                     />
                 </div>
                 {/* 分隔线 */}
@@ -1195,9 +1196,9 @@ return (
                             className={cn(
                                 "h-7 text-xs flex items-center rounded-full transition-all duration-200",
                                 "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
-                                "hover:bg-blue-500 hover:text-white hover:border-blue-500",
-                                showLibraryPanel ? "text-blue-600" : "",
-                                "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1"
+                                "hover:bg-gray-900 hover:text-white hover:border-gray-900",
+                                showLibraryPanel ? "text-gray-900" : "",
+                            "w-8 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1"
                             )}
                             title={showLibraryButton ? "关闭素材库" : "打开素材库"}
                         >
@@ -1223,7 +1224,7 @@ return (
                         className={cn(
                             "h-7 text-xs flex items-center rounded-full transition-all duration-200 w-7 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1",
                             "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
-                            "hover:bg-blue-500 hover:text-white hover:border-blue-500"
+                            "hover:bg-gray-900 hover:text-white hover:border-gray-900"
                         )}
                         onClick={handleShare}
                         title="分享"
@@ -1306,7 +1307,7 @@ return (
                                                 className={cn(
                                                     "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors",
                                                     isActive
-                                                        ? "border-blue-500 bg-blue-500 text-white shadow-sm"
+                                                        ? "border-gray-800 bg-gray-800 text-white shadow-sm"
                                                         : "border-slate-200 bg-white/90 text-slate-600"
                                                 )}
                                             >

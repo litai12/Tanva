@@ -48,7 +48,7 @@ const ZoomIndicator: React.FC = () => {
                     className={`h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
                         !canZoomIn
                             ? 'opacity-40 cursor-not-allowed'
-                            : 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'
+                            : 'hover:bg-gray-800/10 hover:border-gray-800/20 hover:text-gray-900'
                     }`}
                     onClick={zoomIn}
                     disabled={!canZoomIn}
@@ -62,7 +62,7 @@ const ZoomIndicator: React.FC = () => {
                     className={`h-8 w-8 text-xs font-mono font-medium transition-all duration-200 rounded-full flex items-center justify-center ${
                         currentPercent === 100
                             ? 'text-gray-700 cursor-default'
-                            : 'text-blue-600 hover:bg-blue-50'
+                            : 'text-gray-900 hover:bg-gray-800/10'
                     }`}
                     onClick={resetZoom}
                     title={currentPercent === 100 ? "当前为100%" : "点击重置为100%"}
@@ -78,7 +78,7 @@ const ZoomIndicator: React.FC = () => {
                     className={`h-8 w-8 p-0 rounded-full transition-all duration-200 flex items-center justify-center bg-white/50 border-gray-300 ${
                         !canZoomOut
                             ? 'opacity-40 cursor-not-allowed'
-                            : 'hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'
+                            : 'hover:bg-gray-800/10 hover:border-gray-800/20 hover:text-gray-900'
                     }`}
                     onClick={zoomOut}
                     disabled={!canZoomOut}

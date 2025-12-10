@@ -269,7 +269,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
             size="sm"
             className={cn(
               "h-8 w-8 p-0",
-              isFormatActive('bold') && "bg-blue-100 text-blue-600"
+              isFormatActive('bold') && "bg-gray-800 text-white"
             )}
             onClick={() => applyFormat({ bold: !isFormatActive('bold') })}
             title="加粗"
@@ -282,7 +282,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
             size="sm"
             className={cn(
               "h-8 w-8 p-0",
-              isFormatActive('italic') && "bg-blue-100 text-blue-600"
+              isFormatActive('italic') && "bg-gray-800 text-white"
             )}
             onClick={() => applyFormat({ italic: !isFormatActive('italic') })}
             title="斜体"
@@ -295,7 +295,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
             size="sm"
             className={cn(
               "h-8 w-8 p-0",
-              isFormatActive('underline') && "bg-blue-100 text-blue-600"
+              isFormatActive('underline') && "bg-gray-800 text-white"
             )}
             onClick={() => applyFormat({ underline: !isFormatActive('underline') })}
             title="下划线"
@@ -311,7 +311,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
             size="sm"
             className={cn(
               "h-8 w-8 p-0",
-              activeText.style.textAlign === 'left' && "bg-blue-100 text-blue-600"
+              activeText.style.textAlign === 'left' && "bg-gray-800 text-white"
             )}
             onClick={() => applyFormat({ align: 'left' })}
             title="左对齐"
@@ -324,7 +324,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
             size="sm"
             className={cn(
               "h-8 w-8 p-0",
-              activeText.style.textAlign === 'center' && "bg-blue-100 text-blue-600"
+              activeText.style.textAlign === 'center' && "bg-gray-800 text-white"
             )}
             onClick={() => applyFormat({ align: 'center' })}
             title="居中对齐"
@@ -337,7 +337,7 @@ const TextEditor: React.FC<TextEditorProps> = ({ className }) => {
             size="sm"
             className={cn(
               "h-8 w-8 p-0",
-              activeText.style.textAlign === 'right' && "bg-blue-100 text-blue-600"
+              activeText.style.textAlign === 'right' && "bg-gray-800 text-white"
             )}
             onClick={() => applyFormat({ align: 'right' })}
             title="右对齐"

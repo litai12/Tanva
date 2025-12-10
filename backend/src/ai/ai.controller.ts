@@ -743,7 +743,11 @@ export class AiController {
           return result;
         }
 
-        if (this.isAdminUser(req)) {
+        const isAdmin = this.isAdminUser(req);
+        this.logger.log(`🎬 Video generated, isAdmin=${isAdmin}, videoUrl=${result.videoUrl?.substring(0, 80)}...`);
+
+        if (isAdmin) {
+          this.logger.log('🎬 Admin user, skipping watermark');
           return {
             ...result,
             videoUrlRaw: result.videoUrl,
@@ -752,10 +756,12 @@ export class AiController {
           };
         }
 
+        this.logger.log('🎬 Non-admin user, adding watermark...');
         try {
           const wm = await this.videoWatermarkService.addWatermarkAndUpload(result.videoUrl, {
             text: 'Tanvas AI',
           });
+          this.logger.log(`✅ Video watermark success: ${wm.url?.substring(0, 80)}...`);
           return {
             ...result,
             videoUrl: wm.url,
@@ -764,7 +770,7 @@ export class AiController {
             watermarkSkipped: false,
           };
         } catch (error) {
-          this.logger.warn('Video watermark failed, fallback to raw video', error as any);
+          this.logger.error('❌ Video watermark failed:', error);
           return {
             ...result,
             videoUrl: result.videoUrl,

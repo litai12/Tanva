@@ -588,8 +588,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                 }}
                 onPointerDownCapture={stopNodeDrag}
                 className={cn(
-                  "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center",
-                  aspectRatioValue ? "bg-blue-50 border-blue-300 text-blue-600" : ""
+                  "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                  aspectRatioValue ? "bg-gray-800 text-white border-gray-800" : ""
                 )}
                 title={aspectRatioValue ? `长宽比: ${aspectRatioValue}` : '选择长宽比'}
               >
@@ -610,7 +610,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               }}
               disabled={status === 'running'}
               onPointerDownCapture={stopNodeDrag}
-              className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
               title={status === 'running' ? '生成中...' : '运行生成'}
             >
               <Play style={{ width: 14, height: 14 }} />
@@ -629,7 +629,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               }}
               disabled={!images.length}
               onPointerDownCapture={stopNodeDrag}
-              className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
               title={!images.length ? '无可发送的图像' : '发送到画布'}
             >
               <SendIcon style={{ width: 14, height: 14 }} />
@@ -653,7 +653,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                   className={cn(
                     "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
                     (aspectRatioValue === opt.value || (!aspectRatioValue && opt.value === ''))
-                      ? "bg-blue-500 text-white font-medium"
+                      ? "bg-gray-800 text-white font-medium"
                       : "text-gray-700 hover:bg-gray-100"
                   )}
                 >

@@ -311,7 +311,7 @@ const RunningHubTest: React.FC = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="rounded-lg bg-blue-600 px-6 py-3 text-base font-medium text-white shadow hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg bg-gray-800 px-6 py-3 text-base font-medium text-white shadow hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isLoading ? '调用中…' : '🚀 调用 RunningHub'}
               </button>

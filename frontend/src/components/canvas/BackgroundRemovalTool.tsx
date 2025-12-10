@@ -205,7 +205,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
               <Button
                 onClick={handleRemoveBackground}
                 disabled={processing}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                className="flex-1 bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-900 hover:to-gray-800 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
               >
                 <Wand2Icon className="w-5 h-5 mr-2" />
                 Remove Background
@@ -225,7 +225,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
               <Button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={processing}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
+                className="flex-1 bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-900 hover:to-gray-800 text-white text-base font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200"
               >
                 <ImageIcon className="w-5 h-5 mr-2" />
                 点击上传图片
