@@ -367,78 +367,126 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             console.warn('🎯 [QuickUpload] 占位符防碰撞计算失败，使用原始位置', e);
         }
 
-        const rect = new paper.Path.Rectangle({
+        // ========== Agent 风格占位符 - 内部动效设计 ==========
+        const halfW = width / 2;
+        const halfH = height / 2;
+        const cornerRadius = Math.min(width, height) * 0.02;
+        const mainColor = new paper.Color('#8b5cf6');
+
+        // 背景矩形
+        const bg = new paper.Path.Rectangle({
             rectangle: new paper.Rectangle(
-                centerPoint.subtract([width / 2, height / 2]),
+                centerPoint.subtract([halfW, halfH]),
                 new paper.Size(width, height)
             ),
-            strokeColor: new paper.Color('#60a5fa'),
-            dashArray: [10, 8],
-            strokeWidth: 1.2,
-            fillColor: new paper.Color(0.9, 0.95, 1, 0.35)
+            radius: cornerRadius,
+            fillColor: new paper.Color(0.97, 0.97, 0.98, 0.6)
         });
 
-        // 创建加载动画圆弧
-        const spinnerRadius = Math.min(width, height) * 0.08;
-        const spinnerCenter = centerPoint.subtract([0, height * 0.1]);
-        const spinner = new paper.Path.Arc({
-            from: spinnerCenter.add([0, -spinnerRadius]),
-            through: spinnerCenter.add([spinnerRadius, 0]),
-            to: spinnerCenter.add([0, spinnerRadius]),
-            strokeColor: new paper.Color('#3b82f6'),
-            strokeWidth: 2.5,
+        // 静态边框
+        const border = new paper.Path.Rectangle({
+            rectangle: new paper.Rectangle(
+                centerPoint.subtract([halfW, halfH]),
+                new paper.Size(width, height)
+            ),
+            radius: cornerRadius,
+            strokeColor: new paper.Color(0.8, 0.8, 0.85, 0.5),
+            strokeWidth: 1,
+            fillColor: null as any
+        });
+
+        // 内部扫描线（从上到下移动）
+        const scanLineY = -halfH + 10;
+        const scanLine = new paper.Path.Line({
+            from: centerPoint.add([-halfW + 15, scanLineY]),
+            to: centerPoint.add([halfW - 15, scanLineY]),
+            strokeColor: {
+                gradient: {
+                    stops: [
+                        [new paper.Color(0.55, 0.36, 0.96, 0), 0],
+                        [new paper.Color(0.55, 0.36, 0.96, 0.6), 0.5],
+                        [new paper.Color(0.55, 0.36, 0.96, 0), 1]
+                    ]
+                },
+                origin: centerPoint.add([-halfW + 15, scanLineY]),
+                destination: centerPoint.add([halfW - 15, scanLineY])
+            } as any,
+            strokeWidth: 2,
             strokeCap: 'round'
         });
 
-        const label = new paper.PointText({
-            point: centerPoint.add([0, height * 0.15]),
-            content: '正在生成',
-            justification: 'center',
-            fillColor: new paper.Color('#2563eb'),
-            fontSize: Math.max(12, Math.min(16, width * 0.035)),
-            fontWeight: 'bold'
+        // 底部进度条（在框内）
+        const barWidth = width * 0.5;
+        const barHeight = 3;
+        const barY = halfH - 25;
+        const barBg = new paper.Path.Rectangle({
+            rectangle: new paper.Rectangle(
+                centerPoint.add([-barWidth / 2, barY]),
+                new paper.Size(barWidth, barHeight)
+            ),
+            radius: barHeight / 2,
+            fillColor: new paper.Color(0.9, 0.9, 0.92, 0.6)
         });
 
+        const barFg = new paper.Path.Rectangle({
+            rectangle: new paper.Rectangle(
+                centerPoint.add([-barWidth / 2, barY]),
+                new paper.Size(1, barHeight)
+            ),
+            radius: barHeight / 2,
+            fillColor: mainColor
+        });
+
+        // 进度文字
         const progressLabel = new paper.PointText({
-            point: centerPoint.add([0, height * 0.25]),
+            point: centerPoint.add([0, barY + 18]),
             content: '0%',
             justification: 'center',
-            fillColor: new paper.Color('#60a5fa'),
-            fontSize: Math.max(10, Math.min(14, width * 0.03))
+            fillColor: new paper.Color('#6b7280'),
+            fontSize: Math.max(14, Math.min(18, width * 0.028)),
+            fontWeight: '600',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
         });
 
-        const group = new paper.Group([rect, spinner, label, progressLabel]);
+        const group = new paper.Group([bg, border, scanLine, barBg, barFg, progressLabel]);
         group.position = centerPoint;
-        // 允许被选中拖动/删除
         group.locked = false;
         group.data = {
             type: 'image-placeholder',
             placeholderId: params.placeholderId,
             bounds: {
-                x: centerPoint.x - width / 2,
-                y: centerPoint.y - height / 2,
+                x: centerPoint.x - halfW,
+                y: centerPoint.y - halfH,
                 width,
                 height
             },
             isHelper: false,
             placeholderSource: 'ai-predict',
             operationType: params.operationType,
-            spinnerElement: spinner,
-            progressLabelElement: progressLabel
+            spinnerElement: scanLine,
+            progressLabelElement: progressLabel,
+            progressBarElement: barFg,
+            progressBarWidth: barWidth
         };
 
-        // 启动旋转动画
+        // 动画
         let animationFrameId: number | null = null;
-        const animateSpinner = () => {
-            if (spinner && spinner.parent && group.parent) {
-                spinner.rotate(8, spinnerCenter);
-                paper.view.update();
-                animationFrameId = requestAnimationFrame(animateSpinner);
-            }
-        };
-        animationFrameId = requestAnimationFrame(animateSpinner);
+        let animationTime = 0;
 
-        // 存储动画ID以便清理
+        const animate = () => {
+            if (!group?.parent) return;
+            animationTime += 0.016;
+
+            // 1. 扫描线上下移动（在框内）
+            const scanProgress = (Math.sin(animationTime * 1.2) + 1) / 2; // 0-1
+            const scanY = -halfH + 15 + scanProgress * (height - 60);
+            scanLine.position = new paper.Point(centerPoint.x, centerPoint.y + scanY - halfH + 15);
+
+            paper.view.update();
+            animationFrameId = requestAnimationFrame(animate);
+        };
+        animationFrameId = requestAnimationFrame(animate);
+
         (group as any)._spinnerAnimationId = animationFrameId;
 
         predictedPlaceholdersRef.current.set(params.placeholderId, group);

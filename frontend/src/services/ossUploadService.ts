@@ -58,7 +58,18 @@ function inferExtension(fileName?: string, contentType?: string) {
 }
 
 export function dataURLToBlob(dataURL: string): Blob {
-  const [meta, raw] = dataURL.split(',');
+  // 🔧 修复：处理重复的 data URL 前缀（如 "data:image/png;base64,data:image/png;base64,xxx"）
+  let normalizedDataURL = dataURL;
+
+  // 检测并修复重复前缀：如果 split(',') 后的 raw 部分仍然以 "data:" 开头，说明有重复前缀
+  const firstSplit = dataURL.split(',');
+  if (firstSplit.length >= 2 && firstSplit[1].startsWith('data:')) {
+    // 使用第二个 data URL 部分作为实际数据
+    normalizedDataURL = firstSplit.slice(1).join(',');
+    logger.warn('检测到重复的 data URL 前缀，已自动修复');
+  }
+
+  const [meta, raw] = normalizedDataURL.split(',');
   const isBase64 = meta.includes(';base64');
   const mimeMatch = /data:([^;]+)/.exec(meta);
   const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
