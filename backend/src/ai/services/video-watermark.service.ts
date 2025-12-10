@@ -15,11 +15,11 @@ interface VideoWatermarkOptions {
 
 // 水印图片路径（与图片水印使用相同的水印图）
 const WATERMARK_IMAGE_PATH = path.resolve(__dirname, '../../../../frontend/public/tanvas_ai.png');
-// 水印相对于视频短边的比例（与图片水印一致）
-const WATERMARK_SCALE = 0.25;
-// 水印距离边缘的距离（像素）
+// 水印相对于视频短边的比例（视频水印需要更大一些）
+const WATERMARK_SCALE = 2.0;
+// 水印距离边缘的距离（像素，与图片水印保持一致）
 const WATERMARK_MARGIN = 25;
-// 水印透明度 (0-1)
+// 水印透明度 (0-1，与图片水印保持一致)
 const WATERMARK_OPACITY = 0.8;
 
 @Injectable()
@@ -55,9 +55,10 @@ export class VideoWatermarkService {
     const tempFile = path.join(tempDir, `watermark-${this.safeRandomId()}.mp4`);
 
     // 构造 filter_complex 滤镜：
-    // 使用 scale2ref 根据主视频尺寸缩放水印图片（虽然有 deprecated 警告，但仍然可用）
+    // 使用 scale2ref 根据主视频尺寸缩放水印图片（与图片水印逻辑一致）
+    // 水印宽度 = min(主视频宽,高) * WATERMARK_SCALE
     const filterComplex = [
-      // 缩放水印：宽度 = min(主视频宽,高) * WATERMARK_SCALE
+      // 缩放水印：宽度 = min(主视频宽,高) * WATERMARK_SCALE，保持宽高比
       `[1:v][0:v]scale2ref=w='min(main_w,main_h)*${WATERMARK_SCALE}':h='ow/mdar':flags=lanczos[wm][base]`,
       // 设置水印透明度
       `[wm]format=rgba,colorchannelmixer=aa=${WATERMARK_OPACITY}[wm_alpha]`,

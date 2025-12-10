@@ -7,7 +7,7 @@ const WATERMARK_IMAGE_PATH = path.resolve(__dirname, "../../../../frontend/publi
 // 水印透明度
 const WATERMARK_OPACITY = 0.8;
 // 水印相对于图片短边的比例
-const WATERMARK_SCALE = 0.30;
+const WATERMARK_SCALE = 0.25;
 // 水印距离边缘的距离（像素）
 const WATERMARK_MARGIN = 25;
 
