@@ -17,6 +17,37 @@ const MiniMapImageOverlay: React.FC = () => {
   const [svgEl, setSvgEl] = React.useState<SVGSVGElement | null>(null);
   const [targetEl, setTargetEl] = React.useState<SVGGElement | SVGSVGElement | null>(null);
   const [images, setImages] = React.useState<Array<{ id: string; x: number; y: number; width: number; height: number }>>([]);
+  const dragState = React.useRef<{ active: boolean; pointerId: number | null; lastEvent: PointerEvent | null; raf: number }>({
+    active: false,
+    pointerId: null,
+    lastEvent: null,
+    raf: 0,
+  });
+
+  // 将世界坐标平移到视图中心
+  const panToWorldCenter = React.useCallback((worldX: number, worldY: number) => {
+    try {
+      const { zoom, setPan } = useCanvasStore.getState();
+      const vs = paper?.view?.viewSize;
+      const cx = vs ? vs.width / 2 : window.innerWidth / 2;
+      const cy = vs ? vs.height / 2 : window.innerHeight / 2;
+      const desiredPanX = (cx / (zoom || 1)) - worldX;
+      const desiredPanY = (cy / (zoom || 1)) - worldY;
+      setPan(desiredPanX, desiredPanY);
+    } catch {}
+  }, []);
+
+  // 将客户端坐标转换为 minimap 世界坐标
+  const clientToWorld = React.useCallback((clientX: number, clientY: number) => {
+    if (!svgEl) return null;
+    const pt = svgEl.createSVGPoint();
+    pt.x = clientX; pt.y = clientY;
+    const ctm = svgEl.getScreenCTM();
+    if (!ctm) return null;
+    const inv = ctm.inverse();
+    const svgPt = pt.matrixTransform(inv);
+    return { x: svgPt.x, y: svgPt.y };
+  }, [svgEl]);
 
   // 获取 minimap 的 svg 元素
   React.useEffect(() => {
@@ -80,30 +111,76 @@ const MiniMapImageOverlay: React.FC = () => {
     if (!svgEl) return;
     const onClick = (ev: MouseEvent) => {
       try {
-        const pt = svgEl.createSVGPoint();
-        pt.x = ev.clientX; pt.y = ev.clientY;
-        const ctm = svgEl.getScreenCTM();
-        if (!ctm) return;
-        const inv = ctm.inverse();
-        const svgPt = pt.matrixTransform(inv);
+        const world = clientToWorld(ev.clientX, ev.clientY);
+        if (!world) return;
 
         // 若点击位置落在某个图片块内，则用该块中心点；否则就用点击处
-        const hit = images.find(m => svgPt.x >= m.x && svgPt.x <= m.x + m.width && svgPt.y >= m.y && svgPt.y <= m.y + m.height);
-        const worldX = hit ? (hit.x + hit.width / 2) : svgPt.x;
-        const worldY = hit ? (hit.y + hit.height / 2) : svgPt.y;
+        const hit = images.find(m => world.x >= m.x && world.x <= m.x + m.width && world.y >= m.y && world.y <= m.y + m.height);
+        const worldX = hit ? (hit.x + hit.width / 2) : world.x;
+        const worldY = hit ? (hit.y + hit.height / 2) : world.y;
 
-        const { zoom, setPan } = useCanvasStore.getState();
-        const vs = paper?.view?.viewSize;
-        const cx = vs ? vs.width / 2 : window.innerWidth / 2;
-        const cy = vs ? vs.height / 2 : window.innerHeight / 2;
-        const desiredPanX = (cx / (zoom || 1)) - worldX;
-        const desiredPanY = (cy / (zoom || 1)) - worldY;
-        setPan(desiredPanX, desiredPanY);
+        panToWorldCenter(worldX, worldY);
       } catch {}
     };
     svgEl.addEventListener('click', onClick);
     return () => svgEl.removeEventListener('click', onClick);
-  }, [svgEl, images]);
+  }, [svgEl, images, clientToWorld, panToWorldCenter]);
+
+  // 在 MiniMap 上按住拖动以平移画布
+  React.useEffect(() => {
+    const el = svgEl;
+    if (!el) return;
+    const state = dragState.current;
+
+    const applyDrag = () => {
+      state.raf = 0;
+      const ev = state.lastEvent;
+      if (!ev) return;
+      const world = clientToWorld(ev.clientX, ev.clientY);
+      if (!world) return;
+      panToWorldCenter(world.x, world.y);
+    };
+
+    const onPointerDown = (ev: PointerEvent) => {
+      if (ev.button !== 0) return;
+      state.active = true;
+      state.pointerId = ev.pointerId;
+      state.lastEvent = ev;
+      try { el.setPointerCapture(ev.pointerId); } catch {}
+      ev.preventDefault();
+      applyDrag();
+    };
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!state.active || state.pointerId !== ev.pointerId) return;
+      state.lastEvent = ev;
+      if (!state.raf) state.raf = window.requestAnimationFrame(applyDrag);
+    };
+
+    const stopDrag = (ev: PointerEvent) => {
+      if (!state.active || state.pointerId !== ev.pointerId) return;
+      state.active = false;
+      state.pointerId = null;
+      state.lastEvent = null;
+      if (state.raf) {
+        window.cancelAnimationFrame(state.raf);
+        state.raf = 0;
+      }
+      try { el.releasePointerCapture(ev.pointerId); } catch {}
+    };
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', stopDrag);
+    el.addEventListener('pointercancel', stopDrag);
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', stopDrag);
+      el.removeEventListener('pointercancel', stopDrag);
+      if (state.raf) window.cancelAnimationFrame(state.raf);
+    };
+  }, [svgEl, clientToWorld, panToWorldCenter]);
 
   if (!targetEl || images.length === 0) return null;
 

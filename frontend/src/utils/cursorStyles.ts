@@ -1,17 +1,26 @@
 import type { DrawMode } from '@/stores/toolStore';
 
-const createCursorUrl = (svg: string, hotspot: { x: number; y: number } = { x: 12, y: 12 }) =>
-  `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot.x} ${hotspot.y}, auto`;
+const createCursorUrl = (
+  svg: string,
+  hotspot: { x: number; y: number } = { x: 12, y: 12 },
+  fallback: string = 'auto'
+) => `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot.x} ${hotspot.y}, ${fallback}`;
 
 // 图片工具光标
 const IMAGE_CURSOR = createCursorUrl(`
-  <svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='none'>
-    <circle cx='12' cy='12' r='11' fill='white' fill-opacity='0.95' stroke='%23222' stroke-width='1.4'/>
-    <rect x='6.25' y='7' width='11.5' height='9.5' rx='2.1' ry='2.1' stroke='%23222' stroke-width='1.6'/>
-    <circle cx='10' cy='10.2' r='1.2' fill='%23222'/>
-    <path d='M8.3 14.4l2.7-3.1 2.1 2.3 2.6-3 2.3 2.8' stroke='%23222' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/>
+  <svg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48' fill='none'>
+    <rect x='1' y='1' width='22' height='22' rx='5' ry='5' fill='white' fill-opacity='0.92' stroke='%23333' stroke-width='1.2'/>
+    <line x1='3.5' y1='12' x2='20.5' y2='12' stroke='%23333' stroke-width='1.6' stroke-linecap='round'/>
+    <line x1='12' y1='3.5' x2='12' y2='20.5' stroke='%23333' stroke-width='1.6' stroke-linecap='round'/>
+    <circle cx='12' cy='12' r='2' fill='%23333'/>
+    <g transform='translate(21,6)'>
+      <rect x='0' y='0' width='18' height='14' rx='3' ry='3' fill='white' fill-opacity='0.96' stroke='%23333' stroke-width='1.3'/>
+      <rect x='2.4' y='2.8' width='13.2' height='8.6' rx='2.2' ry='2.2' fill='none' stroke='%23333' stroke-width='1.2'/>
+      <circle cx='6.3' cy='5.6' r='1.4' fill='%23333'/>
+      <path d='M4.2 10l2.8-3.1 2.4 2.3 2.2-2.7 2.4 2.8' stroke='%23333' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/>
+    </g>
   </svg>
-`);
+`, { x: 12, y: 12 }, 'crosshair');
 
 // 3D 模型工具光标
 const MODEL_CURSOR = createCursorUrl(`
