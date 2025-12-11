@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useCanvasStore } from '@/stores';
+import { useCurrentTool } from '@/stores/toolStore';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
+import { getCursorForDrawMode } from '@/utils/cursorStyles';
 
 interface InteractionControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -10,11 +12,17 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
   const isDraggingRef = useRef(false); // 拖拽状态缓存
   const zoomRef = useRef(1); // 缓存缩放值避免频繁getState
   const { zoom, setPan, setDragging } = useCanvasStore();
+  const drawMode = useCurrentTool();
+  const drawModeRef = useRef(drawMode);
 
   // 同步缓存的zoom值
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
+
+  useEffect(() => {
+    drawModeRef.current = drawMode;
+  }, [drawMode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -90,7 +98,7 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
         isDraggingRef.current = false; // 清除拖拽状态缓存
         setDragging(false); // 通知canvasStore结束拖拽
         lastScreenPoint = null;
-        canvas.style.cursor = 'default';
+        canvas.style.cursor = getCursorForDrawMode(drawModeRef.current) || 'default';
         
         // 清理拖拽动画
         if (dragAnimationId) {

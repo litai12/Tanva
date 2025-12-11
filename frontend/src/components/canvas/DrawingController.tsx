@@ -37,6 +37,7 @@ import { historyService } from '@/services/historyService';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { clientToProject } from '@/utils/paperCoords';
 import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
+import { applyCursorForDrawMode } from '@/utils/cursorStyles';
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
@@ -150,6 +151,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     zoomRef.current = zoom;
     panRef.current = { x: panX, y: panY };
   }, [zoom, panX, panY]);
+
+  // 根据当前工具切换画布光标（图片/3D 工具展示对应图标）
+  useEffect(() => {
+    applyCursorForDrawMode(canvasRef.current, drawMode);
+
+    return () => {
+      applyCursorForDrawMode(canvasRef.current, null);
+    };
+  }, [canvasRef, drawMode]);
 
   // 初始化图层管理器
   useEffect(() => {
