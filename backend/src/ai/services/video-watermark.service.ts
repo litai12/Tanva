@@ -1,11 +1,15 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { spawn, execSync } from 'child_process';
-import { randomUUID } from 'crypto';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
-import { OssService } from '../../oss/oss.service';
-import type OSS from 'ali-oss';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { spawn, execSync } from "child_process";
+import { randomUUID } from "crypto";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import { OssService } from "../../oss/oss.service";
+import type OSS from "ali-oss";
 
 interface VideoWatermarkOptions {
   text?: string;
@@ -14,18 +18,21 @@ interface VideoWatermarkOptions {
 }
 
 // 水印图片路径（与图片水印使用相同的水印图）
-const WATERMARK_IMAGE_PATH = path.resolve(__dirname, '../../../../frontend/public/tanvas_ai.png');
+const WATERMARK_IMAGE_PATH = path.resolve(
+  __dirname,
+  "../../../../frontend/public/tanvas_ai.png"
+);
 // 水印相对于视频短边的比例（视频水印需要更大一些）
-const WATERMARK_SCALE = 2.0;
+const WATERMARK_SCALE = 1.8;
 // 水印距离边缘的距离（像素，与图片水印保持一致）
 const WATERMARK_MARGIN = 25;
 // 水印透明度 (0-1，与图片水印保持一致)
-const WATERMARK_OPACITY = 0.8;
+const WATERMARK_OPACITY = 0.7;
 
 @Injectable()
 export class VideoWatermarkService {
   private readonly logger = new Logger(VideoWatermarkService.name);
-  private readonly DEFAULT_TEXT = 'Tanvas AI';
+  private readonly DEFAULT_TEXT = "Tanvas AI";
   private readonly DEFAULT_TIMEOUT = 180_000; // 增加超时时间，因为图片水印处理更复杂
 
   constructor(private readonly oss: OssService) {}
@@ -46,7 +53,9 @@ export class VideoWatermarkService {
 
     // 检查水印图片是否存在
     if (!fs.existsSync(WATERMARK_IMAGE_PATH)) {
-      this.logger.warn(`水印图片不存在: ${WATERMARK_IMAGE_PATH}，回退到文字水印`);
+      this.logger.warn(
+        `水印图片不存在: ${WATERMARK_IMAGE_PATH}，回退到文字水印`
+      );
       return this.addTextWatermarkAndUpload(sourceUrl, options);
     }
 
@@ -64,19 +73,27 @@ export class VideoWatermarkService {
       `[wm]format=rgba,colorchannelmixer=aa=${WATERMARK_OPACITY}[wm_alpha]`,
       // 叠加到右下角，留边距
       `[base][wm_alpha]overlay=main_w-overlay_w-${WATERMARK_MARGIN}:main_h-overlay_h-${WATERMARK_MARGIN}`,
-    ].join(';');
+    ].join(";");
 
     const ffArgs = [
-      '-y',
-      '-i', sourceUrl,           // 输入视频
-      '-i', WATERMARK_IMAGE_PATH, // 输入水印图片
-      '-filter_complex', filterComplex,
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '23',
-      '-c:a', 'copy',
-      '-movflags', '+faststart',
-      tempFile,                   // 输出到临时文件
+      "-y",
+      "-i",
+      sourceUrl, // 输入视频
+      "-i",
+      WATERMARK_IMAGE_PATH, // 输入水印图片
+      "-filter_complex",
+      filterComplex,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "23",
+      "-c:a",
+      "copy",
+      "-movflags",
+      "+faststart",
+      tempFile, // 输出到临时文件
     ];
 
     this.logger.log(`🎥 Start video watermarking -> temp: ${tempFile}`);
@@ -84,33 +101,37 @@ export class VideoWatermarkService {
     try {
       // 执行 ffmpeg 命令
       await new Promise<void>((resolve, reject) => {
-        const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const ffmpeg = spawn("ffmpeg", ffArgs, {
+          stdio: ["ignore", "pipe", "pipe"],
+        });
 
         const stderrChunks: Buffer[] = [];
-        ffmpeg.stderr?.on('data', (chunk) => {
+        ffmpeg.stderr?.on("data", (chunk) => {
           if (stderrChunks.length < 30) stderrChunks.push(Buffer.from(chunk));
         });
 
         const timeout = setTimeout(() => {
-          ffmpeg.kill('SIGKILL');
-          reject(new ServiceUnavailableException('ffmpeg timeout'));
+          ffmpeg.kill("SIGKILL");
+          reject(new ServiceUnavailableException("ffmpeg timeout"));
         }, timeoutMs);
 
-        ffmpeg.on('error', (err) => {
+        ffmpeg.on("error", (err) => {
           clearTimeout(timeout);
           reject(err);
         });
 
-        ffmpeg.on('close', (code) => {
+        ffmpeg.on("close", (code) => {
           clearTimeout(timeout);
           if (code === 0) {
             resolve();
           } else {
-            const stderr = Buffer.concat(stderrChunks).toString('utf8');
+            const stderr = Buffer.concat(stderrChunks).toString("utf8");
             reject(
               new ServiceUnavailableException(
-                `ffmpeg exited with code ${code}${stderr ? `: ${stderr.slice(-500)}` : ''}`,
-              ),
+                `ffmpeg exited with code ${code}${
+                  stderr ? `: ${stderr.slice(-500)}` : ""
+                }`
+              )
             );
           }
         });
@@ -118,14 +139,14 @@ export class VideoWatermarkService {
 
       // 检查临时文件是否存在
       if (!fs.existsSync(tempFile)) {
-        throw new ServiceUnavailableException('ffmpeg 未生成输出文件');
+        throw new ServiceUnavailableException("ffmpeg 未生成输出文件");
       }
 
       // 上传到 OSS
       this.logger.log(`🎥 Uploading watermarked video to OSS: ${key}`);
       const fileStream = fs.createReadStream(tempFile);
       const uploadOptions: OSS.PutStreamOptions = {
-        mime: 'video/mp4',
+        mime: "video/mp4",
         timeout: 120000,
         meta: { uid: 0, pid: 0 },
         callback: undefined as unknown as OSS.ObjectCallback,
@@ -133,7 +154,9 @@ export class VideoWatermarkService {
       const { url } = await this.oss.putStream(key, fileStream, uploadOptions);
 
       const elapsed = Date.now() - started;
-      this.logger.log(`✅ Video watermarked and uploaded: ${key} (${elapsed}ms)`);
+      this.logger.log(
+        `✅ Video watermarked and uploaded: ${key} (${elapsed}ms)`
+      );
       return { url, key, durationMs: elapsed };
     } finally {
       // 清理临时文件
@@ -165,33 +188,45 @@ export class VideoWatermarkService {
     const drawtext = `drawtext=text='${text}':fontcolor=white@0.75:fontsize=h*0.035:x=w-tw-20:y=h-th-20:font=sans-serif`;
 
     const ffArgs = [
-      '-y',
-      '-i', sourceUrl,
-      '-vf', drawtext,
-      '-c:v', 'libx264',
-      '-preset', 'veryfast',
-      '-crf', '23',
-      '-c:a', 'copy',
-      '-movflags', '+faststart',
-      '-f', 'mp4',
-      'pipe:1',
+      "-y",
+      "-i",
+      sourceUrl,
+      "-vf",
+      drawtext,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "23",
+      "-c:a",
+      "copy",
+      "-movflags",
+      "+faststart",
+      "-f",
+      "mp4",
+      "pipe:1",
     ];
 
-    this.logger.log(`🎥 Start video text watermarking (fallback) -> OSS: ${key}`);
+    this.logger.log(
+      `🎥 Start video text watermarking (fallback) -> OSS: ${key}`
+    );
 
-    const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const ffmpeg = spawn("ffmpeg", ffArgs, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     const stderrChunks: Buffer[] = [];
-    ffmpeg.stderr?.on('data', (chunk) => {
+    ffmpeg.stderr?.on("data", (chunk) => {
       if (stderrChunks.length < 20) stderrChunks.push(Buffer.from(chunk));
     });
 
     let timeout: NodeJS.Timeout | null = setTimeout(() => {
-      ffmpeg.kill('SIGKILL');
+      ffmpeg.kill("SIGKILL");
     }, timeoutMs);
 
     const uploadOptions: OSS.PutStreamOptions = {
-      mime: 'video/mp4',
+      mime: "video/mp4",
       timeout: 120000,
       meta: { uid: 0, pid: 0 },
       callback: undefined as unknown as OSS.ObjectCallback,
@@ -199,16 +234,16 @@ export class VideoWatermarkService {
     const uploadPromise = this.oss.putStream(key, ffmpeg.stdout, uploadOptions);
 
     const exitPromise = new Promise<void>((resolve, reject) => {
-      ffmpeg.on('error', (err) => reject(err));
-      ffmpeg.on('close', (code) => {
+      ffmpeg.on("error", (err) => reject(err));
+      ffmpeg.on("close", (code) => {
         if (code === 0) {
           resolve();
         } else {
-          const stderr = Buffer.concat(stderrChunks).toString('utf8');
+          const stderr = Buffer.concat(stderrChunks).toString("utf8");
           reject(
             new ServiceUnavailableException(
-              `ffmpeg exited with code ${code}${stderr ? `: ${stderr}` : ''}`,
-            ),
+              `ffmpeg exited with code ${code}${stderr ? `: ${stderr}` : ""}`
+            )
           );
         }
       });
@@ -219,7 +254,9 @@ export class VideoWatermarkService {
       const elapsed = Date.now() - started;
       if (timeout) clearTimeout(timeout);
       const { url } = await uploadPromise;
-      this.logger.log(`✅ Video text watermarked and uploaded: ${key} (${elapsed}ms)`);
+      this.logger.log(
+        `✅ Video text watermarked and uploaded: ${key} (${elapsed}ms)`
+      );
       return { url, key, durationMs: elapsed };
     } catch (error) {
       if (timeout) clearTimeout(timeout);
@@ -235,13 +272,15 @@ export class VideoWatermarkService {
   private buildDatePrefix(): string {
     const now = new Date();
     const yyyy = now.getUTCFullYear();
-    const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(now.getUTCDate()).padStart(2, '0');
+    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(now.getUTCDate()).padStart(2, "0");
     return `${yyyy}/${mm}/${dd}`;
   }
 
   private safeRandomId(): string {
-    return (randomUUID?.() || Math.random().toString(16).slice(2, 10)).replace(/-/g, '');
+    return (randomUUID?.() || Math.random().toString(16).slice(2, 10)).replace(
+      /-/g,
+      ""
+    );
   }
 }
-

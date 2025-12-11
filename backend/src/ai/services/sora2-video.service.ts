@@ -48,6 +48,10 @@ interface GenerateVideoOptions {
   prompt: string;
   referenceImageUrls?: string[];
   quality?: VideoQuality;
+  /** 画面比例，仅极速 Sora2 支持，例如 '16:9' | '9:16' */
+  aspectRatio?: '16:9' | '9:16';
+  /** 时长（秒），仅极速 Sora2 支持，例如 '10' | '15' | '25' */
+  duration?: '10' | '15' | '25';
 }
 
 export interface Sora2VideoResult {
@@ -136,6 +140,16 @@ export class Sora2VideoService {
     // HD模式使用pro模型
     if (quality === 'hd') {
       createPayload.hd = true;
+    }
+
+    // 画面比例（例如 16:9 / 9:16），仅极速 Sora2 支持
+    if (options.aspectRatio === '16:9' || options.aspectRatio === '9:16') {
+      createPayload.aspect_ratio = options.aspectRatio;
+    }
+
+    // 时长（字符串 '10' | '15' | '25'），仅极速 Sora2 支持
+    if (options.duration === '10' || options.duration === '15' || options.duration === '25') {
+      createPayload.duration = options.duration;
     }
 
     const createResponse = await fetch(`${this.apiBaseV2}/v2/videos/generations`, {

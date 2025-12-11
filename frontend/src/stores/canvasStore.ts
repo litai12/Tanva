@@ -141,19 +141,23 @@ export const useCanvasStore = create<CanvasState>()(
         name: 'canvas-settings', // localStorage 键名
         storage: createJSONStorage<Partial<CanvasState>>(() => createSafeStorage({ storageName: 'canvas-settings' })),
         version: GRID_SETTINGS_VERSION,
-        migrate: (persistedState: Partial<CanvasState> | undefined, version) => {
-          if (!persistedState || typeof persistedState !== 'object') return persistedState as Partial<CanvasState>;
+        migrate: (persistedState: unknown, version): Partial<CanvasState> => {
+          if (!persistedState || typeof persistedState !== 'object') {
+            // 返回一个空的偏好配置，由 zustand 使用初始状态补全
+            return {};
+          }
+          const state = persistedState as Partial<CanvasState>;
 
           // 版本 0 -> 1：将默认网格样式迁移为纯色
           if (version < GRID_SETTINGS_VERSION) {
-            const migratedState = { ...persistedState };
+            const migratedState: Partial<CanvasState> = { ...state };
             if (!migratedState.gridStyle || migratedState.gridStyle === GridStyle.LINES) {
               migratedState.gridStyle = GridStyle.SOLID;
             }
             return migratedState;
           }
 
-          return persistedState;
+          return state;
         },
         // 内存优化：只持久化用户偏好设置，不持久化频繁变化的视口状态
         // zoom, panX, panY 会频繁变化（缩放、拖拽时），不应该每次都写入 localStorage

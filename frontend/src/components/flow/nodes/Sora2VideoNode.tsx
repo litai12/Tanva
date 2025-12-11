@@ -235,19 +235,22 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     }
   }, [isDownloading, scheduleFeedbackClear]);
   const handleApplyHistory = React.useCallback((item: Sora2VideoHistoryItem) => {
+    const patch: Record<string, any> = {
+      videoUrl: item.videoUrl,
+      thumbnail: item.thumbnail,
+      videoVersion: Number(data.videoVersion || 0) + 1,
+    };
+
+    // 如果当前正在运行，不要改动运行状态，避免刷新掉 Run 按钮的 loading / 进度
+    if (data.status !== 'running') {
+      patch.status = 'succeeded';
+      patch.error = undefined;
+    }
+
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
-      detail: {
-        id,
-        patch: {
-          videoUrl: item.videoUrl,
-          thumbnail: item.thumbnail,
-          videoVersion: Number(data.videoVersion || 0) + 1,
-          status: 'succeeded',
-          error: undefined,
-        }
-      }
+      detail: { id, patch }
     }));
-  }, [id, data.videoVersion]);
+  }, [id, data.videoVersion, data.status]);
   const formatHistoryTime = React.useCallback((iso: string) => {
     if (!iso) return '-';
     try {

@@ -808,6 +808,10 @@ export interface VideoGenerationRequest {
   prompt: string;
   referenceImageUrls?: string[];
   quality?: 'hd' | 'sd';
+  /** 画面比例，仅极速 Sora2 使用。例如 '16:9' | '9:16' */
+  aspectRatio?: '16:9' | '9:16';
+  /** 时长（秒，仅极速 Sora2 使用）。字符串形式以兼容后端 DTO。 */
+  duration?: '10' | '15' | '25';
 }
 
 export interface VideoGenerationResult {

@@ -140,111 +140,119 @@ function UsersTab() {
       </div>
 
       <div className='bg-white rounded-lg border overflow-hidden'>
-        <table className='w-full text-sm'>
-          <thead className='bg-gray-50'>
-            <tr>
-              <th className='px-4 py-3 text-left'>用户</th>
-              <th className='px-4 py-3 text-left'>手机号</th>
-              <th className='px-4 py-3 text-left'>积分余额</th>
-              <th className='px-4 py-3 text-left'>总消费</th>
-              <th className='px-4 py-3 text-left'>API调用</th>
-              <th className='px-4 py-3 text-left'>角色</th>
-              <th className='px-4 py-3 text-left'>状态</th>
-              <th className='px-4 py-3 text-left'>注册时间</th>
-              <th className='px-4 py-3 text-left'>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+        <div className='max-h-[1100px] overflow-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
               <tr>
-                <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>
-                  加载中...
-                </td>
+                <th className='px-4 py-3 text-left'>用户</th>
+                <th className='px-4 py-3 text-left'>手机号</th>
+                <th className='px-4 py-3 text-left'>积分余额</th>
+                <th className='px-4 py-3 text-left'>总消费</th>
+                <th className='px-4 py-3 text-left'>API调用</th>
+                <th className='px-4 py-3 text-left'>角色</th>
+                <th className='px-4 py-3 text-left'>状态</th>
+                <th className='px-4 py-3 text-left'>注册时间</th>
+                <th className='px-4 py-3 text-left'>操作</th>
               </tr>
-            ) : users.length === 0 ? (
-              <tr>
-                <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>
-                  暂无数据
-                </td>
-              </tr>
-            ) : (
-              users.map((user) => (
-                <tr key={user.id} className='border-t hover:bg-gray-50'>
-                  <td className='px-4 py-3'>
-                    <div>{user.name || "-"}</div>
-                    <div className='text-xs text-gray-400'>
-                      {user.email || "-"}
-                    </div>
-                  </td>
-                  <td className='px-4 py-3'>{user.phone}</td>
-                  <td className='px-4 py-3 font-medium text-blue-600'>
-                    {user.creditBalance}
-                  </td>
-                  <td className='px-4 py-3'>{user.totalSpent}</td>
-                  <td className='px-4 py-3'>{user.apiCallCount}</td>
-                  <td className='px-4 py-3'>
-                    <select
-                      value={user.role}
-                      onChange={(e) =>
-                        handleRoleChange(user.id, e.target.value)
-                      }
-                      className='text-xs border rounded px-2 py-1'
-                    >
-                      <option value='user'>用户</option>
-                      <option value='admin'>管理员</option>
-                    </select>
-                  </td>
-                  <td className='px-4 py-3'>
-                    <select
-                      value={user.status}
-                      onChange={(e) =>
-                        handleStatusChange(user.id, e.target.value)
-                      }
-                      className='text-xs border rounded px-2 py-1'
-                    >
-                      <option value='active'>正常</option>
-                      <option value='inactive'>禁用</option>
-                      <option value='banned'>封禁</option>
-                    </select>
-                  </td>
-                  <td className='px-4 py-3 text-xs text-gray-500'>
-                    {new Date(user.createdAt).toLocaleDateString()}
-                  </td>
-                  <td className='px-4 py-3'>
-                    <div className='flex gap-1'>
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        onClick={() =>
-                          setCreditModal({
-                            userId: user.id,
-                            userName: user.name || user.phone,
-                            type: "add",
-                          })
-                        }
-                      >
-                        充值
-                      </Button>
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        onClick={() =>
-                          setCreditModal({
-                            userId: user.id,
-                            userName: user.name || user.phone,
-                            type: "deduct",
-                          })
-                        }
-                      >
-                        扣除
-                      </Button>
-                    </div>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className='px-4 py-8 text-center text-gray-500'
+                  >
+                    加载中...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : users.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={9}
+                    className='px-4 py-8 text-center text-gray-500'
+                  >
+                    暂无数据
+                  </td>
+                </tr>
+              ) : (
+                users.map((user) => (
+                  <tr key={user.id} className='border-t hover:bg-gray-50'>
+                    <td className='px-4 py-3'>
+                      <div>{user.name || "-"}</div>
+                      <div className='text-xs text-gray-400'>
+                        {user.email || "-"}
+                      </div>
+                    </td>
+                    <td className='px-4 py-3'>{user.phone}</td>
+                    <td className='px-4 py-3 font-medium text-blue-600'>
+                      {user.creditBalance}
+                    </td>
+                    <td className='px-4 py-3'>{user.totalSpent}</td>
+                    <td className='px-4 py-3'>{user.apiCallCount}</td>
+                    <td className='px-4 py-3'>
+                      <select
+                        value={user.role}
+                        onChange={(e) =>
+                          handleRoleChange(user.id, e.target.value)
+                        }
+                        className='text-xs border rounded px-2 py-1'
+                      >
+                        <option value='user'>用户</option>
+                        <option value='admin'>管理员</option>
+                      </select>
+                    </td>
+                    <td className='px-4 py-3'>
+                      <select
+                        value={user.status}
+                        onChange={(e) =>
+                          handleStatusChange(user.id, e.target.value)
+                        }
+                        className='text-xs border rounded px-2 py-1'
+                      >
+                        <option value='active'>正常</option>
+                        <option value='inactive'>禁用</option>
+                        <option value='banned'>封禁</option>
+                      </select>
+                    </td>
+                    <td className='px-4 py-3 text-xs text-gray-500'>
+                      {new Date(user.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className='px-4 py-3'>
+                      <div className='flex gap-1'>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() =>
+                            setCreditModal({
+                              userId: user.id,
+                              userName: user.name || user.phone,
+                              type: "add",
+                            })
+                          }
+                        >
+                          充值
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() =>
+                            setCreditModal({
+                              userId: user.id,
+                              userName: user.name || user.phone,
+                              type: "deduct",
+                            })
+                          }
+                        >
+                          扣除
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {pagination && pagination.totalPages > 1 && (
@@ -319,6 +327,8 @@ function UsersTab() {
 function ApiStatsTab() {
   const [stats, setStats] = useState<ApiUsageStats[]>([]);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   useEffect(() => {
     const loadStats = async () => {
@@ -335,89 +345,123 @@ function ApiStatsTab() {
     loadStats();
   }, []);
 
+  const totalPages = Math.max(1, Math.ceil(stats.length / pageSize));
+  const pagedStats = stats.slice((page - 1) * pageSize, page * pageSize);
+
   return (
     <div className='bg-white rounded-lg border overflow-hidden'>
-      <table className='w-full text-sm'>
-        <thead className='bg-gray-50'>
-          <tr>
-            <th className='px-4 py-3 text-left'>服务名称</th>
-            <th className='px-4 py-3 text-left'>服务类型</th>
-            <th className='px-4 py-3 text-left'>提供商</th>
-            <th className='px-4 py-3 text-left'>用户</th>
-            <th className='px-4 py-3 text-right'>总调用</th>
-            <th className='px-4 py-3 text-right'>成功</th>
-            <th className='px-4 py-3 text-right'>失败</th>
-            <th className='px-4 py-3 text-right'>成功率</th>
-            <th className='px-4 py-3 text-right'>消耗积分</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
+      <div className='max-h-[1200px] overflow-auto'>
+        <table className='w-full text-sm'>
+          <thead className='bg-gray-50'>
             <tr>
-              <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>
-                加载中...
-              </td>
+              <th className='px-4 py-3 text-left'>服务名称</th>
+              <th className='px-4 py-3 text-left'>服务类型</th>
+              <th className='px-4 py-3 text-left'>提供商</th>
+              <th className='px-4 py-3 text-left'>用户</th>
+              <th className='px-4 py-3 text-right'>总调用</th>
+              <th className='px-4 py-3 text-right'>成功</th>
+              <th className='px-4 py-3 text-right'>失败</th>
+              <th className='px-4 py-3 text-right'>成功率</th>
+              <th className='px-4 py-3 text-right'>消耗积分</th>
             </tr>
-          ) : stats.length === 0 ? (
-            <tr>
-              <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>
-                暂无数据
-              </td>
-            </tr>
-          ) : (
-            stats.map((stat) => (
-              <tr key={stat.serviceType} className='border-t hover:bg-gray-50'>
-                <td className='px-4 py-3 font-medium'>{stat.serviceName}</td>
-                <td className='px-4 py-3 text-gray-500'>{stat.serviceType}</td>
-                <td className='px-4 py-3'>
-                  <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
-                    {stat.provider}
-                  </span>
-                </td>
-                <td className='px-4 py-3'>
-                  <div className='space-y-1'>
-                    <div className='text-xs text-gray-500'>
-                      共 {stat.userCount} 个用户
-                    </div>
-                    {stat.topUsers.length > 0 && (
-                      <div className='space-y-0.5'>
-                        {stat.topUsers.map((user, idx) => (
-                          <div key={user.userId} className='text-xs'>
-                            <span className='font-medium'>
-                              {user.userName || user.userPhone}
-                            </span>
-                            <span className='text-gray-400 ml-1'>
-                              ({user.callCount}次)
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td className='px-4 py-3 text-right'>{stat.totalCalls}</td>
-                <td className='px-4 py-3 text-right text-green-600'>
-                  {stat.successfulCalls}
-                </td>
-                <td className='px-4 py-3 text-right text-red-600'>
-                  {stat.failedCalls}
-                </td>
-                <td className='px-4 py-3 text-right'>
-                  {stat.totalCalls > 0
-                    ? ((stat.successfulCalls / stat.totalCalls) * 100).toFixed(
-                        1
-                      )
-                    : 0}
-                  %
-                </td>
-                <td className='px-4 py-3 text-right font-medium'>
-                  {stat.totalCreditsUsed}
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>
+                  加载中...
                 </td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : stats.length === 0 ? (
+              <tr>
+                <td colSpan={9} className='px-4 py-8 text-center text-gray-500'>
+                  暂无数据
+                </td>
+              </tr>
+            ) : (
+              pagedStats.map((stat) => (
+                <tr
+                  key={stat.serviceType}
+                  className='border-t hover:bg-gray-50'
+                >
+                  <td className='px-4 py-3 font-medium'>{stat.serviceName}</td>
+                  <td className='px-4 py-3 text-gray-500'>
+                    {stat.serviceType}
+                  </td>
+                  <td className='px-4 py-3'>
+                    <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
+                      {stat.provider}
+                    </span>
+                  </td>
+                  <td className='px-4 py-3'>
+                    <div className='space-y-1'>
+                      <div className='text-xs text-gray-500'>
+                        共 {stat.userCount} 个用户
+                      </div>
+                      {stat.topUsers.length > 0 && (
+                        <div className='space-y-0.5'>
+                          {stat.topUsers.map((user, idx) => (
+                            <div key={user.userId} className='text-xs'>
+                              <span className='font-medium'>
+                                {user.userName || user.userPhone}
+                              </span>
+                              <span className='text-gray-400 ml-1'>
+                                ({user.callCount}次)
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className='px-4 py-3 text-right'>{stat.totalCalls}</td>
+                  <td className='px-4 py-3 text-right text-green-600'>
+                    {stat.successfulCalls}
+                  </td>
+                  <td className='px-4 py-3 text-right text-red-600'>
+                    {stat.failedCalls}
+                  </td>
+                  <td className='px-4 py-3 text-right'>
+                    {stat.totalCalls > 0
+                      ? (
+                          (stat.successfulCalls / stat.totalCalls) *
+                          100
+                        ).toFixed(1)
+                      : 0}
+                    %
+                  </td>
+                  <td className='px-4 py-3 text-right font-medium'>
+                    {stat.totalCreditsUsed}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {stats.length > 0 && totalPages > 1 && (
+        <div className='mt-4 flex justify-center gap-2 pb-4'>
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={page === 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            上一页
+          </Button>
+          <span className='px-4 py-2 text-sm'>
+            {page} / {totalPages}
+          </span>
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={page === totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            下一页
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -497,81 +541,91 @@ function ApiRecordsTab() {
       </div>
 
       <div className='bg-white rounded-lg border overflow-hidden'>
-        <table className='w-full text-sm'>
-          <thead className='bg-gray-50'>
-            <tr>
-              <th className='px-4 py-3 text-left'>时间</th>
-              <th className='px-4 py-3 text-left'>用户</th>
-              <th className='px-4 py-3 text-left'>服务</th>
-              <th className='px-4 py-3 text-left'>提供商</th>
-              <th className='px-4 py-3 text-right'>消耗积分</th>
-              <th className='px-4 py-3 text-right'>耗时</th>
-              <th className='px-4 py-3 text-left'>状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+        <div className='max-h-[1100px] overflow-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
               <tr>
-                <td colSpan={7} className='px-4 py-8 text-center text-gray-500'>
-                  加载中...
-                </td>
+                <th className='px-4 py-3 text-left'>时间</th>
+                <th className='px-4 py-3 text-left'>用户</th>
+                <th className='px-4 py-3 text-left'>服务</th>
+                <th className='px-4 py-3 text-left'>提供商</th>
+                <th className='px-4 py-3 text-right'>消耗积分</th>
+                <th className='px-4 py-3 text-right'>耗时</th>
+                <th className='px-4 py-3 text-left'>状态</th>
               </tr>
-            ) : records.length === 0 ? (
-              <tr>
-                <td colSpan={7} className='px-4 py-8 text-center text-gray-500'>
-                  暂无数据
-                </td>
-              </tr>
-            ) : (
-              records.map((record) => (
-                <tr key={record.id} className='border-t hover:bg-gray-50'>
-                  <td className='px-4 py-3 text-xs text-gray-500'>
-                    {new Date(record.createdAt).toLocaleString()}
-                  </td>
-                  <td className='px-4 py-3'>
-                    <div>{record.user?.name || "-"}</div>
-                    <div className='text-xs text-gray-400'>
-                      {record.user?.phone}
-                    </div>
-                  </td>
-                  <td className='px-4 py-3'>{record.serviceName}</td>
-                  <td className='px-4 py-3'>
-                    <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
-                      {record.provider}
-                    </span>
-                  </td>
-                  <td className='px-4 py-3 text-right font-medium'>
-                    {record.creditsUsed}
-                  </td>
-                  <td className='px-4 py-3 text-right text-gray-500'>
-                    {record.processingTime ? `${record.processingTime}ms` : "-"}
-                  </td>
-                  <td className='px-4 py-3'>
-                    <span
-                      className={`px-2 py-1 rounded text-xs ${
-                        statusColors[record.responseStatus] || ""
-                      }`}
-                    >
-                      {record.responseStatus === "success"
-                        ? "成功"
-                        : record.responseStatus === "failed"
-                        ? "失败"
-                        : "处理中"}
-                    </span>
-                    {record.errorMessage && (
-                      <div
-                        className='text-xs text-red-500 mt-1 max-w-xs truncate'
-                        title={record.errorMessage}
-                      >
-                        {record.errorMessage}
-                      </div>
-                    )}
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className='px-4 py-8 text-center text-gray-500'
+                  >
+                    加载中...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : records.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className='px-4 py-8 text-center text-gray-500'
+                  >
+                    暂无数据
+                  </td>
+                </tr>
+              ) : (
+                records.map((record) => (
+                  <tr key={record.id} className='border-t hover:bg-gray-50'>
+                    <td className='px-4 py-3 text-xs text-gray-500'>
+                      {new Date(record.createdAt).toLocaleString()}
+                    </td>
+                    <td className='px-4 py-3'>
+                      <div>{record.user?.name || "-"}</div>
+                      <div className='text-xs text-gray-400'>
+                        {record.user?.phone}
+                      </div>
+                    </td>
+                    <td className='px-4 py-3'>{record.serviceName}</td>
+                    <td className='px-4 py-3'>
+                      <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
+                        {record.provider}
+                      </span>
+                    </td>
+                    <td className='px-4 py-3 text-right font-medium'>
+                      {record.creditsUsed}
+                    </td>
+                    <td className='px-4 py-3 text-right text-gray-500'>
+                      {record.processingTime
+                        ? `${record.processingTime}ms`
+                        : "-"}
+                    </td>
+                    <td className='px-4 py-3'>
+                      <span
+                        className={`px-2 py-1 rounded text-xs ${
+                          statusColors[record.responseStatus] || ""
+                        }`}
+                      >
+                        {record.responseStatus === "success"
+                          ? "成功"
+                          : record.responseStatus === "failed"
+                          ? "失败"
+                          : "处理中"}
+                      </span>
+                      {record.errorMessage && (
+                        <div
+                          className='text-xs text-red-500 mt-1 max-w-xs truncate'
+                          title={record.errorMessage}
+                        >
+                          {record.errorMessage}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {pagination && pagination.totalPages > 1 && (
@@ -747,7 +801,7 @@ function InvitesTab() {
               <th className='py-2 pr-2'>状态</th>
               <th className='py-2 pr-2'>用量</th>
               <th className='py-2 pr-2'>邀请人</th>
-              <th className='py-2 pr-2'>使用用户</th>
+              <th className='py-2 pr-2'>使用账户</th>
               <th className='py-2 pr-2'>创建时间</th>
               <th className='py-2 pr-2'>操作</th>
             </tr>
@@ -768,9 +822,9 @@ function InvitesTab() {
                     ? item.redemptions
                         .map(
                           (r) =>
-                            r.invitee?.name ||
                             r.invitee?.phone ||
-                            r.inviteeUserId
+                            r.inviteeUserId ||
+                            r.invitee?.name
                         )
                         .filter(Boolean)
                         .slice(0, 3)

@@ -26,4 +26,22 @@ export class GenerateVideoDto {
   @IsOptional()
   @IsEnum(['hd', 'sd'])
   quality?: 'hd' | 'sd';
+
+  @ApiProperty({
+    description: '画面比例（仅极速 Sora2 支持）',
+    required: false,
+    enum: ['16:9', '9:16'],
+  })
+  @IsOptional()
+  @IsEnum(['16:9', '9:16'])
+  aspectRatio?: '16:9' | '9:16';
+
+  @ApiProperty({
+    description: '视频时长（秒，仅极速 Sora2 支持；sora-2-pro 支持 25s）',
+    required: false,
+    enum: ['10', '15', '25'],
+  })
+  @IsOptional()
+  @IsEnum(['10', '15', '25'])
+  duration?: '10' | '15' | '25';
 }

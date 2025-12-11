@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
@@ -32,8 +31,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const modelRef = React.useRef<THREE.Object3D | null>(null);
   const gridRef = React.useRef<THREE.GridHelper | null>(null);
   const axesRef = React.useRef<THREE.AxesHelper | null>(null);
-  const pmremRef = React.useRef<THREE.PMREMGenerator | null>(null);
-  const envTexRef = React.useRef<THREE.Texture | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const animRef = React.useRef<number | null>(null);
   const fileInput = React.useRef<HTMLInputElement | null>(null);
@@ -68,20 +65,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     [projectHistory],
   );
 
-  // 保持当前观察中心不偏移的帮助函数
-  const keepOrbitCenter = React.useCallback(() => {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    if (!camera || !controls) return;
-    const target = controls.target.clone();
-    const offset = camera.position.clone().sub(target);
-    // 重新设置位置与目标，保证中心不因尺寸变化漂移
-    camera.position.copy(target.clone().add(offset));
-    camera.lookAt(target);
-    controls.target.copy(target);
-    controls.update();
-  }, []);
-
   const initIfNeeded = React.useCallback(() => {
     if (!containerRef.current) return;
     if (rendererRef.current) return;
@@ -108,38 +91,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(renderer.domElement);
-
-    // 自然环境光
-    try {
-      pmremRef.current = new THREE.PMREMGenerator(renderer);
-      const env = pmremRef.current.fromScene(new RoomEnvironment(), 0.04).texture;
-      env.mapping = THREE.EquirectangularReflectionMapping;
-      envTexRef.current = env;
-      scene.environment = env;
-    } catch {}
-
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.18;
-    controls.enablePan = true;
-    controls.enableZoom = true;
-    controls.enableRotate = true;
-    controls.zoomToCursor = true;
-    controls.minDistance = 0.5;
-    controls.maxDistance = 50;
-    controls.rotateSpeed = 0.65;
-    controls.zoomSpeed = 0.85;
-    controls.panSpeed = 0.7;
-    controls.screenSpacePanning = false;
-    controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.PAN,
-    };
-    controls.touches = {
-      ONE: THREE.TOUCH.ROTATE,
-      TWO: THREE.TOUCH.DOLLY_PAN,
-    };
+    controls.enablePan = false; // 只允许旋转/缩放，不平移
     controlsRef.current = controls;
     // 更自然的光照组合：环境+半球+主光
     scene.add(new THREE.AmbientLight(0xffffff, 0.85));
@@ -177,11 +131,10 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         r.setSize(width, height);
         c.aspect = width / height;
         c.updateProjectionMatrix();
-        keepOrbitCenter();
       }
     });
     ro.observe(containerRef.current);
-  }, [data.boxW, data.boxH, keepOrbitCenter]);
+  }, [data.boxW, data.boxH]);
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
@@ -194,7 +147,6 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       r.setSize(Math.max(220, w - 16), Math.max(140, h - 64));
       c.aspect = r.domElement.width / r.domElement.height;
       c.updateProjectionMatrix();
-      keepOrbitCenter();
     }
   };
 
@@ -390,10 +342,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       <input ref={fileInput} type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) loadModelFromFile(f); }} />
       <div
         onDoubleClick={() => src && setPreview(true)}
-        className="nodrag"
-        onContextMenu={(e) => e.preventDefault()}
+        className="nodrag nowheel"
         onPointerDown={(e) => e.stopPropagation()}
-        onWheel={(e) => e.stopPropagation()} // 允许 OrbitControls 接收滚轮，同时阻止冒泡到画布
+        onWheel={(e) => e.stopPropagation()}
         style={{ flex: 1, minHeight: 120, background: '#fff', borderRadius: 6, border: '1px solid #e5e7eb', display: 'flex', overflow: 'hidden', position: 'relative' }}
       >
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />

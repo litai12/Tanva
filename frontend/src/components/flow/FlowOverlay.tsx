@@ -1963,11 +1963,25 @@ function FlowInner() {
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
       const videoQuality = (node.data as any)?.videoQuality === 'sd' ? 'sd' : DEFAULT_SORA2_VIDEO_QUALITY;
 
+      // 仅将受支持的取值传给后端（避免非法值导致请求失败）
+      const aspectRatioForAPI =
+        aspectSetting === '16:9' || aspectSetting === '9:16'
+          ? (aspectSetting as '16:9' | '9:16')
+          : undefined;
+      const durationSecondsForAPI =
+        clipDuration === 10 || clipDuration === 15 || clipDuration === 25
+          ? (clipDuration as 10 | 15 | 25)
+          : undefined;
+
       try {
         const videoResult = await requestSora2VideoGeneration(
           finalPromptText,
           referenceImageUrls,
-          { quality: videoQuality }
+          {
+            quality: videoQuality,
+            aspectRatio: aspectRatioForAPI,
+            durationSeconds: durationSecondsForAPI,
+          }
         );
         setNodes(ns => ns.map(n => {
           if (n.id !== nodeId) return n;

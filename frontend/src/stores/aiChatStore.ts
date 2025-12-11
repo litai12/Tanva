@@ -611,6 +611,10 @@ const migrateLegacySessions = async (
 export type Sora2VideoGenerationOptions = {
   onProgress?: (stage: string, progress: number) => void;
   quality?: Sora2VideoQuality;
+  /** 画面比例，仅极速 Sora2 支持。例如 '16:9' | '9:16' */
+  aspectRatio?: '16:9' | '9:16';
+  /** 时长（秒），仅极速 Sora2 支持。例如 10 / 15 / 25 */
+  durationSeconds?: 10 | 15 | 25;
 };
 
 export async function requestSora2VideoGeneration(
@@ -630,10 +634,18 @@ export async function requestSora2VideoGeneration(
     .filter((url): url is string => typeof url === 'string' && url.trim().length > 0)
     .map((url) => url.trim());
 
+  // 将时长从 number 转为后端期望的字符串枚举
+  const duration: '10' | '15' | '25' | undefined =
+    options?.durationSeconds === 10 || options?.durationSeconds === 15 || options?.durationSeconds === 25
+      ? String(options.durationSeconds) as '10' | '15' | '25'
+      : undefined;
+
   const response = await generateVideoViaAPI({
     prompt,
     referenceImageUrls: cleanedImageUrls.length ? cleanedImageUrls : undefined,
     quality: options?.quality,
+    aspectRatio: options?.aspectRatio,
+    duration,
   });
 
   if (!response.success || !response.data) {

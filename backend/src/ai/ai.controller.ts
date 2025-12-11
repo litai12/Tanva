@@ -737,6 +737,8 @@ export class AiController {
           prompt: dto.prompt,
           referenceImageUrls,
           quality,
+          aspectRatio: dto.aspectRatio,
+          duration: dto.duration,
         });
 
         if (!result?.videoUrl) {
