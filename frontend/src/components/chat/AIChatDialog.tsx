@@ -259,6 +259,7 @@ const AIChatDialog: React.FC = () => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const ensureInputVisibleRafRef = useRef<number | null>(null);
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -401,6 +402,17 @@ const AIChatDialog: React.FC = () => {
     return () => {
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (ensureInputVisibleRafRef.current !== null) {
+        if (typeof window !== 'undefined') {
+          cancelAnimationFrame(ensureInputVisibleRafRef.current);
+        }
+        ensureInputVisibleRafRef.current = null;
       }
     };
   }, []);
@@ -614,6 +626,51 @@ const AIChatDialog: React.FC = () => {
       textareaRef.current.scrollTop = 0;
     }
   }, [currentInput]);
+
+  const ensureInputVisible = useCallback(() => {
+    if (!isVisible) return;
+
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const selectionStart = textarea.selectionStart ?? 0;
+    const selectionEnd = textarea.selectionEnd ?? 0;
+    const hasSelection = selectionStart !== selectionEnd;
+    const isCaretNearEnd = !hasSelection && (textarea.value.length - selectionEnd) <= 80;
+    const hiddenBottom = textarea.scrollHeight - textarea.clientHeight - textarea.scrollTop;
+
+    if (isCaretNearEnd && hiddenBottom > 4) {
+      textarea.scrollTop = textarea.scrollHeight;
+    }
+
+    const inputContainer = inputAreaRef.current;
+    if (inputContainer && typeof window !== 'undefined') {
+      const rect = inputContainer.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+      if (rect.bottom > viewportHeight - 12) {
+        inputContainer.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [isVisible]);
+
+  const scheduleEnsureInputVisible = useCallback(() => {
+    if (typeof window === 'undefined') {
+      ensureInputVisible();
+      return;
+    }
+    if (ensureInputVisibleRafRef.current !== null) {
+      cancelAnimationFrame(ensureInputVisibleRafRef.current);
+    }
+    ensureInputVisibleRafRef.current = requestAnimationFrame(() => {
+      ensureInputVisibleRafRef.current = null;
+      ensureInputVisible();
+    });
+  }, [ensureInputVisible]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    scheduleEnsureInputVisible();
+  }, [currentInput, isVisible, scheduleEnsureInputVisible]);
 
   const setHistoryVisibility = useCallback((visible: boolean, manual = false) => {
     setShowHistory(visible);
@@ -2044,6 +2101,9 @@ const AIChatDialog: React.FC = () => {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
+                onFocus={scheduleEnsureInputVisible}
+                onClick={scheduleEnsureInputVisible}
+                onKeyUp={scheduleEnsureInputVisible}
                 placeholder={getSmartPlaceholder()}
                 disabled={false}
                 className={cn(

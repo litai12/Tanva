@@ -9,8 +9,15 @@ type RefreshOptions = {
 };
 
 const COOLDOWN_MS = 30000;
+const MAX_THUMBNAIL_SIZE = 6 * 1024 * 1024; // 6MB 上限，避免缩略图过大导致上传被拒
 const inFlight = new Set<string>();
 const lastTriggerAt = new Map<string, number>();
+
+function estimateDataUrlBytes(dataUrl?: string | null): number {
+  if (!dataUrl || typeof dataUrl !== 'string') return 0;
+  const [, base64] = dataUrl.split(',');
+  return Math.ceil(((base64?.length || 0) * 3) / 4);
+}
 
 export async function refreshProjectThumbnail(
   projectId: string,
@@ -56,38 +63,60 @@ export async function refreshProjectThumbnail(
   const startTime = performance.now();
 
   try {
-    const screenshot = await AutoScreenshotService.captureAutoScreenshot(
-      imageInstances,
-      model3DInstances,
-      {
-        format: 'png',
-        scale: 2,
-        padding: 0,
-        includeBackground: true,
-        backgroundColor: '#ffffff',
-        autoDownload: false,
-        quality: 0.92,
-      }
-    );
+    let thumbnailUrl: string | null = null;
+    const captureAttempts = [
+      { format: 'jpeg' as const, quality: 0.82, scale: 1.5 },
+      { format: 'jpeg' as const, quality: 0.7, scale: 1.1 },
+    ];
 
-    if (!screenshot.success || !screenshot.dataUrl) {
-      logger.warn?.('⚠️ Thumbnail capture failed', { projectId, error: screenshot.error });
-      return;
+    for (const attempt of captureAttempts) {
+      const screenshot = await AutoScreenshotService.captureAutoScreenshot(
+        imageInstances,
+        model3DInstances,
+        {
+          format: attempt.format,
+          scale: attempt.scale,
+          padding: 0,
+          includeBackground: true,
+          backgroundColor: '#ffffff',
+          autoDownload: false,
+          quality: attempt.quality,
+          filename: 'artboard-thumbnail',
+        }
+      );
+
+      if (!screenshot.success || !screenshot.dataUrl) {
+        logger.warn?.('⚠️ Thumbnail capture failed', { projectId, error: screenshot.error, attempt });
+        continue;
+      }
+
+      const estimatedBytes = estimateDataUrlBytes(screenshot.dataUrl);
+
+      const upload = await imageUploadService.uploadImageDataUrl(screenshot.dataUrl, {
+        dir: `projects/${projectId}/thumbnails/`,
+        fileName: `thumbnail_${Date.now()}.${attempt.format === 'jpeg' ? 'jpg' : 'png'}`,
+        projectId,
+        maxFileSize: MAX_THUMBNAIL_SIZE,
+      });
+
+      if (upload.success && upload.asset?.url) {
+        thumbnailUrl = upload.asset.url;
+        if (estimatedBytes > MAX_THUMBNAIL_SIZE * 0.9) {
+          logger.debug?.('🧹 Thumbnail auto-compressed', { projectId, estimatedBytes, attempt });
+        }
+        break;
+      }
+
+      logger.warn?.('⚠️ Thumbnail upload failed, trying fallback', {
+        projectId,
+        error: upload.error,
+        estimatedBytes,
+        attempt,
+      });
     }
 
-    let thumbnailUrl: string | null = null;
-
-    const upload = await imageUploadService.uploadImageDataUrl(screenshot.dataUrl, {
-      dir: `projects/${projectId}/thumbnails/`,
-      fileName: `thumbnail_${Date.now()}.png`,
-      projectId,
-      maxFileSize: 3 * 1024 * 1024,
-    });
-
-    if (upload.success && upload.asset?.url) {
-      thumbnailUrl = upload.asset.url;
-    } else {
-      logger.warn?.('⚠️ Thumbnail upload failed, skipping thumbnail update', { projectId, error: upload.error });
+    if (!thumbnailUrl) {
+      logger.warn?.('⚠️ Thumbnail upload failed after fallbacks', { projectId });
       return;
     }
 

@@ -859,6 +859,20 @@ export const useInteractionController = ({
     // ========== 绘图模式处理 ==========
     const validDrawingModes: DrawMode[] = ['line', 'free', 'rect', 'circle', 'image', '3d-model'];
 
+    // 直线模式特殊处理：首击抬起时不应结束绘制，否则无法等待第二次点击
+    if (currentDrawMode === 'line') {
+      const hasLinePath = !!latestDrawingTools.pathRef.current;
+      const waitingForSecondClick =
+        !!latestDrawingTools.initialClickPoint &&
+        !hasLinePath &&
+        !latestDrawingTools.hasMoved;
+
+      if (waitingForSecondClick) {
+        logger.debug('🟦 直线模式：首击抬起，保持起点等待第二次点击');
+        return;
+      }
+    }
+
     if (validDrawingModes.includes(currentDrawMode as DrawMode)) {
       // 只有在实际有绘制活动时才调用 finishDraw
       if (latestDrawingTools.isDrawingRef.current ||

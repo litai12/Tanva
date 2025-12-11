@@ -480,7 +480,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             // 1. 扫描线上下移动（在框内）
             const scanProgress = (Math.sin(animationTime * 1.2) + 1) / 2; // 0-1
             const scanY = -halfH + 15 + scanProgress * (height - 60);
-            scanLine.position = new paper.Point(centerPoint.x, centerPoint.y + scanY - halfH + 15);
+            // 位置应基于占位框中心偏移，避免重复减去 halfH 造成越界
+            scanLine.position = new paper.Point(centerPoint.x, centerPoint.y + scanY);
 
             paper.view.update();
             animationFrameId = requestAnimationFrame(animate);

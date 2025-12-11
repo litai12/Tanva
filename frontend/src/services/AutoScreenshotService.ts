@@ -201,7 +201,7 @@ export class AutoScreenshotService {
       ctx.beginPath();
       ctx.rect(0, 0, contentBounds.width, contentBounds.height);
       ctx.clip();
-      console.log(`🔲 设置裁剪区域: 0,0 ${contentBounds.width}x${contentBounds.height}`);
+      logger.debug(`🔲 设置裁剪区域: 0,0 ${contentBounds.width}x${contentBounds.height}`);
 
       // 4. 绘制背景
       if (opts.includeBackground) {
@@ -269,22 +269,22 @@ export class AutoScreenshotService {
     }
 
     // 1. 收集Paper.js元素
-    console.log('🔍 开始收集Paper.js元素...');
+    logger.debug('🔍 开始收集Paper.js元素...');
     
     if (paper.project && paper.project.layers) {
-      console.log(`📋 Paper.js项目信息: 找到 ${paper.project.layers.length} 个图层`);
+      logger.debug(`📋 Paper.js项目信息: 找到 ${paper.project.layers.length} 个图层`);
       
       for (const layer of paper.project.layers) {
         const layerIndex = paper.project.layers.indexOf(layer);
         
-        console.log(`📊 检查图层 ${layerIndex}: ${layer.name || '未命名'} (可见: ${layer.visible}, 子元素数: ${layer.children.length})`);
+        logger.debug(`📊 检查图层 ${layerIndex}: ${layer.name || '未命名'} (可见: ${layer.visible}, 子元素数: ${layer.children.length})`);
         
         if (!layer.visible) {
-          console.log(`⏭️ 跳过不可见图层: ${layerIndex}`);
+          logger.debug(`⏭️ 跳过不可见图层: ${layerIndex}`);
           continue;
         }
         
-        console.log(`✨ 处理可见图层 ${layerIndex}: 开始遍历 ${layer.children.length} 个子元素`);
+        logger.debug(`✨ 处理可见图层 ${layerIndex}: 开始遍历 ${layer.children.length} 个子元素`);
         
         for (let itemIndex = 0; itemIndex < layer.children.length; itemIndex++) {
           const item = layer.children[itemIndex];
@@ -294,7 +294,7 @@ export class AutoScreenshotService {
           if (!item.visible) continue;
 
           // 记录所有遍历的元素（调试信息）
-          console.log(`🔍 检查元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`, {
+          logger.debug(`🔍 检查元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`, {
             visible: item.visible,
             isHelper: item.data?.isHelper,
             hasSegments: item instanceof paper.Path ? item.segments?.length || 0 : 'N/A',
@@ -311,7 +311,7 @@ export class AutoScreenshotService {
             // 宽松的边界验证：只要item.bounds存在就收集（移除严格的相交检查）
             if (item.bounds) {
               if (selectedOnly && !this.shouldIncludePaperItem(item, selection!)) {
-                console.log(`⏭️ 跳过未选中的Paper元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+                logger.debug(`⏭️ 跳过未选中的Paper元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
                 continue;
               }
               // 精确计算层级：图层索引 * 1000 + 元素在图层中的索引
@@ -323,11 +323,11 @@ export class AutoScreenshotService {
               }
               const itemRect = (item as any)?.strokeBounds || item.bounds;
               if (!itemRect) {
-                console.warn(`⚠️ 跳过无有效边界的Paper.js元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+                logger.debug(`⚠️ 跳过无有效边界的Paper.js元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
                 continue;
               }
               
-              console.log(`✅ 收集Paper.js元素: ${item.className} (layer: ${preciseLayerIndex})`, {
+              logger.debug(`✅ 收集Paper.js元素: ${item.className} (layer: ${preciseLayerIndex})`, {
                 bounds: `${Math.round(itemRect.x)},${Math.round(itemRect.y)} ${Math.round(itemRect.width)}x${Math.round(itemRect.height)}`,
                 segments: item instanceof paper.Path ? item.segments.length : 'N/A',
                 strokeColor: item instanceof paper.Path && item.strokeColor ? item.strokeColor.toCSS() : 'N/A',
@@ -349,13 +349,13 @@ export class AutoScreenshotService {
               });
             } else {
               if (selectedOnly && !this.shouldIncludePaperItem(item, selection!)) {
-                console.log(`⏭️ 跳过未选中的Paper元素(无边界): ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+                logger.debug(`⏭️ 跳过未选中的Paper元素(无边界): ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
                 continue;
               }
-              console.warn(`⚠️ 跳过无边界的Paper.js元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
+              logger.debug(`⚠️ 跳过无边界的Paper.js元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`);
             }
           } else {
-            console.log(`⏭️ 跳过非内容元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`, {
+            logger.debug(`⏭️ 跳过非内容元素: ${item.className} (layer: ${layerIndex}, item: ${itemIndex})`, {
               reason: item instanceof paper.Path ? 
                 (!item.segments ? '无segments' : item.segments.length === 0 ? 'segments为空' : '通过Path检查') :
                 item instanceof paper.Group ? '不是Group' : 
@@ -365,23 +365,23 @@ export class AutoScreenshotService {
           }
         }
         
-        console.log(`✅ 图层 ${layerIndex} 处理完成`);
+        logger.debug(`✅ 图层 ${layerIndex} 处理完成`);
       }
       
-      console.log('✅ Paper.js元素收集完成');
+      logger.debug('✅ Paper.js元素收集完成');
     } else {
-      console.warn('⚠️ 未找到Paper.js项目或图层');
+      logger.warn('⚠️ 未找到Paper.js项目或图层');
     }
 
     // 2. 不再单独收集图片实例，直接依赖 Paper.Raster；避免“实例边界未更新”导致裁切异常
 
     // 3. 收集3D模型实例
     const visibleModels = model3DInstances.filter(model => model.visible);
-    console.log(`🎭 收集3D模型实例: 找到 ${visibleModels.length} 个可见模型`);
+    logger.debug(`🎭 收集3D模型实例: 找到 ${visibleModels.length} 个可见模型`);
     
     for (const model of visibleModels) {
       if (selectedOnly && !selectedModelIds.has(model.id)) {
-        console.log(`⏭️ 跳过未选中的3D模型实例: ${model.id}`);
+        logger.debug(`⏭️ 跳过未选中的3D模型实例: ${model.id}`);
         continue;
       }
 
@@ -389,7 +389,7 @@ export class AutoScreenshotService {
       // 采用一个远高于Paper层的权重，必要时可改为读取显式zIndex
       const modelLayerIndex = 1_000_000_000; // always on top
       
-      console.log(`✅ 收集3D模型实例: ${model.id} (layer: ${modelLayerIndex})`, {
+      logger.debug(`✅ 收集3D模型实例: ${model.id} (layer: ${modelLayerIndex})`, {
         bounds: `${Math.round(model.bounds.x)},${Math.round(model.bounds.y)} ${Math.round(model.bounds.width)}x${Math.round(model.bounds.height)}`,
         layerIndex: modelLayerIndex,
         visible: model.visible
@@ -417,7 +417,7 @@ export class AutoScreenshotService {
       paperRasters: elements.filter(el => el.type === 'paper' && el.data instanceof paper.Raster).length
     };
     
-    console.log('📈 元素收集统计:', stats);
+    logger.debug('📈 元素收集统计:', stats);
     
     logger.debug('📋 收集到的元素排序结果:', elements.map(el => ({
       type: el.type,
@@ -429,7 +429,7 @@ export class AutoScreenshotService {
       strokeColor: el.data instanceof paper.Path && el.data.strokeColor ? el.data.strokeColor.toCSS() : 'N/A'
     })));
     
-    console.log('🎯 截图元素绘制顺序:', elements.map((el, index) => 
+    logger.debug('🎯 截图元素绘制顺序:', elements.map((el, index) => 
       `${index + 1}. [${el.type}] Layer:${el.layerIndex} ${el.data.className || el.data.constructor?.name} ID:${el.data.id || 'unknown'} Segments:${el.data instanceof paper.Path ? el.data.segments?.length || 0 : 'N/A'}`
     ).join('\n'));
 

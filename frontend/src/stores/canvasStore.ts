@@ -14,6 +14,8 @@ export const GridStyle = {
 
 export type GridStyle = typeof GridStyle[keyof typeof GridStyle];
 
+const GRID_SETTINGS_VERSION = 1;
+
 interface CanvasState {
   // 网格系统
   gridSize: number;
@@ -73,7 +75,7 @@ export const useCanvasStore = create<CanvasState>()(
       (set, get, _api) => ({
       // 初始状态
       gridSize: 32,
-      gridStyle: GridStyle.LINES, // 默认使用线条网格
+      gridStyle: GridStyle.SOLID, // 默认使用纯色背景
       gridDotSize: 1,
       gridColor: '#000000',
       gridBgColor: '#f7f7f7',
@@ -138,6 +140,21 @@ export const useCanvasStore = create<CanvasState>()(
       {
         name: 'canvas-settings', // localStorage 键名
         storage: createJSONStorage<Partial<CanvasState>>(() => createSafeStorage({ storageName: 'canvas-settings' })),
+        version: GRID_SETTINGS_VERSION,
+        migrate: (persistedState: Partial<CanvasState> | undefined, version) => {
+          if (!persistedState || typeof persistedState !== 'object') return persistedState as Partial<CanvasState>;
+
+          // 版本 0 -> 1：将默认网格样式迁移为纯色
+          if (version < GRID_SETTINGS_VERSION) {
+            const migratedState = { ...persistedState };
+            if (!migratedState.gridStyle || migratedState.gridStyle === GridStyle.LINES) {
+              migratedState.gridStyle = GridStyle.SOLID;
+            }
+            return migratedState;
+          }
+
+          return persistedState;
+        },
         // 内存优化：只持久化用户偏好设置，不持久化频繁变化的视口状态
         // zoom, panX, panY 会频繁变化（缩放、拖拽时），不应该每次都写入 localStorage
         partialize: (state) => ({

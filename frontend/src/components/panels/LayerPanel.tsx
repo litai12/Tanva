@@ -3,7 +3,7 @@ import { logger } from '@/utils/logger';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
-import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles } from 'lucide-react';
+import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
@@ -969,6 +969,16 @@ const LayerPanel: React.FC = () => {
             {/* 面板头部 */}
             <div className="flex items-center justify-between px-4 pt-6 pb-4">
                 <h2 className="text-lg font-semibold text-gray-800">图层</h2>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-gray-600 hover:text-gray-800 bg-transparent"
+                    onClick={handleClose}
+                    title="收起图层面板"
+                    aria-label="收起图层面板"
+                >
+                    <ChevronLeft className="h-4 w-4" />
+                </Button>
             </div>
 
             {/* 工具栏 */}

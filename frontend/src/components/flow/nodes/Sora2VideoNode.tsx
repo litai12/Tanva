@@ -132,9 +132,8 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   const durationOptions = React.useMemo(() => ([
     { label: '10秒', value: 10 },
     { label: '15秒', value: 15 },
-    { label: '20秒', value: 20 },
-    { label: '25秒', value: 25 }
-  ]), []);
+    { label: '25秒', value: 25, locked: !isAdmin }
+  ]), [isAdmin]);
   const handleDurationChange = React.useCallback((value: number) => {
     if (value === clipDuration) return;
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -154,7 +153,9 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   }, [aspectOptions, aspectRatioValue]);
   const durationLabel = React.useMemo(() => {
     const match = durationOptions.find(opt => opt.value === clipDuration);
-    return match ? match.label : '未设置';
+    if (match) return match.label;
+    if (clipDuration) return `${clipDuration}秒`;
+    return '未设置';
   }, [clipDuration, durationOptions]);
 
   React.useEffect(() => {
@@ -625,25 +626,34 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {durationOptions.map((option) => {
                 const isActive = option.value === clipDuration;
+                const isLocked = option.locked;
                 return (
                   <button
                     key={option.value}
                     type="button"
+                    title={isLocked ? '仅管理员可用' : undefined}
                     onClick={() => {
+                      if (isLocked) return;
                       handleDurationChange(option.value);
                       setDurationMenuOpen(false);
                     }}
+                    disabled={isLocked}
                     style={{
                       padding: '4px 10px',
                       borderRadius: 999,
                       border: `1px solid ${isActive ? '#2563eb' : '#e5e7eb'}`,
                       background: isActive ? '#2563eb' : '#fff',
-                      color: isActive ? '#fff' : '#111827',
+                      color: isActive ? '#fff' : (isLocked ? '#9ca3af' : '#111827'),
                       fontSize: 12,
-                      cursor: 'pointer'
+                      cursor: isLocked ? 'not-allowed' : 'pointer',
+                      opacity: isLocked ? 0.6 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
                     }}
                   >
                     {option.label}
+                    {isLocked && <Lock size={10} />}
                   </button>
                 );
               })}
