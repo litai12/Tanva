@@ -1,6 +1,28 @@
-import { fetchWithAuth } from './authFetch';
+// 后端基础地址（可通过 .env 的 VITE_API_BASE_URL 覆盖）
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+  "http://localhost:4000";
 
-const API_BASE = '/api';
+// 拼接基础地址，保证只有一个斜杠
+const buildUrl = (path: string) => {
+  const base = API_BASE.replace(/\/+$/, "");
+  const p = path.replace(/^\/+/, "");
+  return `${base}/${p}`;
+};
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+async function request(path: string, options: RequestInit = {}) {
+  const response = await fetch(buildUrl(path), {
+    credentials: "include",
+    ...options,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || "请求失败");
+  }
+  return response;
+}
 
 export interface DashboardStats {
   totalUsers: number;
@@ -90,7 +112,7 @@ export interface PaginatedResponse<T> {
 export interface InvitationCode {
   id: string;
   code: string;
-  status: 'active' | 'disabled' | 'used' | string;
+  status: "active" | "disabled" | "used" | string;
   maxUses: number;
   usedCount: number;
   inviterUserId?: string | null;
@@ -117,64 +139,63 @@ export interface InvitationListResult {
 
 // 获取管理后台统计数据
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await fetchWithAuth(`${API_BASE}/admin/dashboard`);
-  if (!response.ok) {
-    throw new Error('获取统计数据失败');
-  }
+  const response = await request("/api/admin/dashboard");
   return response.json();
 }
 
 // 邀请码列表
-export async function listInvites(params: { page?: number; pageSize?: number; status?: string; code?: string }): Promise<InvitationListResult> {
+export async function listInvites(params: {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  code?: string;
+}): Promise<InvitationListResult> {
   const searchParams = new URLSearchParams();
-  if (params.page) searchParams.set('page', String(params.page));
-  if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
-  if (params.status) searchParams.set('status', params.status);
-  if (params.code) searchParams.set('code', params.code);
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params.status) searchParams.set("status", params.status);
+  if (params.code) searchParams.set("code", params.code);
 
-  const response = await fetchWithAuth(`${API_BASE}/invites?${searchParams.toString()}`);
-  if (!response.ok) {
-    throw new Error('获取邀请码列表失败');
-  }
+  const response = await request(`/api/invites?${searchParams.toString()}`);
   return response.json();
 }
 
 // 批量生成邀请码
-export async function generateInvites(body: { count?: number; maxUses?: number; prefix?: string; inviterUserId?: string }) {
-  const response = await fetchWithAuth(`${API_BASE}/invites/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+export async function generateInvites(body: {
+  count?: number;
+  maxUses?: number;
+  prefix?: string;
+  inviterUserId?: string;
+}) {
+  const response = await request("/api/invites/generate", {
+    method: "POST",
+    headers: JSON_HEADERS,
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || '生成邀请码失败');
-  }
   return response.json() as Promise<{ codes: string[] }>;
 }
 
 // 禁用邀请码
 export async function disableInvite(id: string) {
-  const response = await fetchWithAuth(`${API_BASE}/invites/${id}/disable`, {
-    method: 'PATCH',
+  const response = await request(`/api/invites/${id}/disable`, {
+    method: "PATCH",
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || '禁用邀请码失败');
-  }
   return response.json();
 }
 
 // 校验邀请码（公共）
 export async function validateInvite(code: string) {
-  const response = await fetch(`${API_BASE}/invites/validate?code=${encodeURIComponent(code)}`, {
-    credentials: 'include',
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || '校验邀请码失败');
-  }
-  return response.json() as Promise<{ usable: boolean; status: string; remaining: number }>;
+  const response = await request(
+    `/api/invites/validate?code=${encodeURIComponent(code)}`,
+    {
+      credentials: "include",
+    }
+  );
+  return response.json() as Promise<{
+    usable: boolean;
+    status: string;
+    remaining: number;
+  }>;
 }
 
 // 获取用户列表
@@ -183,82 +204,70 @@ export async function getUsers(params: {
   pageSize?: number;
   search?: string;
   sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
 }): Promise<{ users: UserWithCredits[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
-  if (params.page) searchParams.set('page', String(params.page));
-  if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
-  if (params.search) searchParams.set('search', params.search);
-  if (params.sortBy) searchParams.set('sortBy', params.sortBy);
-  if (params.sortOrder) searchParams.set('sortOrder', params.sortOrder);
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params.search) searchParams.set("search", params.search);
+  if (params.sortBy) searchParams.set("sortBy", params.sortBy);
+  if (params.sortOrder) searchParams.set("sortOrder", params.sortOrder);
 
-  const response = await fetchWithAuth(`${API_BASE}/admin/users?${searchParams}`);
-  if (!response.ok) {
-    throw new Error('获取用户列表失败');
-  }
+  const response = await request(`/api/admin/users?${searchParams}`);
   return response.json();
 }
 
 // 获取用户详情
 export async function getUserDetail(userId: string) {
-  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}`);
-  if (!response.ok) {
-    throw new Error('获取用户详情失败');
-  }
+  const response = await request(`/api/admin/users/${userId}`);
   return response.json();
 }
 
 // 更新用户状态
 export async function updateUserStatus(userId: string, status: string) {
-  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await request(`/api/admin/users/${userId}/status`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
     body: JSON.stringify({ status }),
   });
-  if (!response.ok) {
-    throw new Error('更新用户状态失败');
-  }
   return response.json();
 }
 
 // 更新用户角色
 export async function updateUserRole(userId: string, role: string) {
-  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/role`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await request(`/api/admin/users/${userId}/role`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
     body: JSON.stringify({ role }),
   });
-  if (!response.ok) {
-    throw new Error('更新用户角色失败');
-  }
   return response.json();
 }
 
 // 为用户添加积分
-export async function addCredits(userId: string, amount: number, description: string) {
-  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/credits/add`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+export async function addCredits(
+  userId: string,
+  amount: number,
+  description: string
+) {
+  const response = await request(`/api/admin/users/${userId}/credits/add`, {
+    method: "POST",
+    headers: JSON_HEADERS,
     body: JSON.stringify({ amount, description }),
   });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || '添加积分失败');
-  }
   return response.json();
 }
 
 // 扣除用户积分
-export async function deductCredits(userId: string, amount: number, description: string) {
-  const response = await fetchWithAuth(`${API_BASE}/admin/users/${userId}/credits/deduct`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+export async function deductCredits(
+  userId: string,
+  amount: number,
+  description: string
+) {
+  const response = await request(`/api/admin/users/${userId}/credits/deduct`, {
+    method: "POST",
+    headers: JSON_HEADERS,
     body: JSON.stringify({ amount, description }),
   });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || '扣除积分失败');
-  }
   return response.json();
 }
 
@@ -268,13 +277,10 @@ export async function getApiUsageStats(params?: {
   endDate?: string;
 }): Promise<ApiUsageStats[]> {
   const searchParams = new URLSearchParams();
-  if (params?.startDate) searchParams.set('startDate', params.startDate);
-  if (params?.endDate) searchParams.set('endDate', params.endDate);
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
 
-  const response = await fetchWithAuth(`${API_BASE}/admin/api-usage/stats?${searchParams}`);
-  if (!response.ok) {
-    throw new Error('获取API使用统计失败');
-  }
+  const response = await request(`/api/admin/api-usage/stats?${searchParams}`);
   return response.json();
 }
 
@@ -290,37 +296,30 @@ export async function getApiUsageRecords(params: {
   endDate?: string;
 }): Promise<{ records: ApiUsageRecord[]; pagination: Pagination }> {
   const searchParams = new URLSearchParams();
-  if (params.page) searchParams.set('page', String(params.page));
-  if (params.pageSize) searchParams.set('pageSize', String(params.pageSize));
-  if (params.userId) searchParams.set('userId', params.userId);
-  if (params.serviceType) searchParams.set('serviceType', params.serviceType);
-  if (params.provider) searchParams.set('provider', params.provider);
-  if (params.status) searchParams.set('status', params.status);
-  if (params.startDate) searchParams.set('startDate', params.startDate);
-  if (params.endDate) searchParams.set('endDate', params.endDate);
+  if (params.page) searchParams.set("page", String(params.page));
+  if (params.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params.userId) searchParams.set("userId", params.userId);
+  if (params.serviceType) searchParams.set("serviceType", params.serviceType);
+  if (params.provider) searchParams.set("provider", params.provider);
+  if (params.status) searchParams.set("status", params.status);
+  if (params.startDate) searchParams.set("startDate", params.startDate);
+  if (params.endDate) searchParams.set("endDate", params.endDate);
 
-  const response = await fetchWithAuth(`${API_BASE}/admin/api-usage/records?${searchParams}`);
-  if (!response.ok) {
-    throw new Error('获取API使用记录失败');
-  }
+  const response = await request(
+    `/api/admin/api-usage/records?${searchParams}`
+  );
   return response.json();
 }
 
 // 获取服务定价
 export async function getPricing() {
-  const response = await fetchWithAuth(`${API_BASE}/admin/pricing`);
-  if (!response.ok) {
-    throw new Error('获取定价配置失败');
-  }
+  const response = await request("/api/admin/pricing");
   return response.json();
 }
 
 // 获取用户积分信息（用户自己）
 export async function getMyCredits(): Promise<UserCreditsInfo> {
-  const response = await fetchWithAuth(`${API_BASE}/credits/balance`);
-  if (!response.ok) {
-    throw new Error('获取积分信息失败');
-  }
+  const response = await request("/api/credits/balance");
   return response.json();
 }
 
@@ -331,14 +330,11 @@ export async function getMyTransactions(params?: {
   type?: string;
 }) {
   const searchParams = new URLSearchParams();
-  if (params?.page) searchParams.set('page', String(params.page));
-  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
-  if (params?.type) searchParams.set('type', params.type);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.type) searchParams.set("type", params.type);
 
-  const response = await fetchWithAuth(`${API_BASE}/credits/transactions?${searchParams}`);
-  if (!response.ok) {
-    throw new Error('获取交易记录失败');
-  }
+  const response = await request(`/api/credits/transactions?${searchParams}`);
   return response.json();
 }
 
@@ -353,17 +349,14 @@ export async function getMyApiUsage(params?: {
   endDate?: string;
 }) {
   const searchParams = new URLSearchParams();
-  if (params?.page) searchParams.set('page', String(params.page));
-  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
-  if (params?.serviceType) searchParams.set('serviceType', params.serviceType);
-  if (params?.provider) searchParams.set('provider', params.provider);
-  if (params?.status) searchParams.set('status', params.status);
-  if (params?.startDate) searchParams.set('startDate', params.startDate);
-  if (params?.endDate) searchParams.set('endDate', params.endDate);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("pageSize", String(params.pageSize));
+  if (params?.serviceType) searchParams.set("serviceType", params.serviceType);
+  if (params?.provider) searchParams.set("provider", params.provider);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.startDate) searchParams.set("startDate", params.startDate);
+  if (params?.endDate) searchParams.set("endDate", params.endDate);
 
-  const response = await fetchWithAuth(`${API_BASE}/credits/usage?${searchParams}`);
-  if (!response.ok) {
-    throw new Error('获取API使用记录失败');
-  }
+  const response = await request(`/api/credits/usage?${searchParams}`);
   return response.json();
 }
