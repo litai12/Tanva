@@ -32,7 +32,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const gridRef = React.useRef<THREE.GridHelper | null>(null);
   const axesRef = React.useRef<THREE.AxesHelper | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
-  const animRef = React.useRef<number | null>(null);
+  const renderPendingRef = React.useRef<number | null>(null);
   const fileInput = React.useRef<HTMLInputElement | null>(null);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
@@ -65,6 +65,21 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     [projectHistory],
   );
 
+  // 单帧渲染调度，避免持续 RAF 占用
+  const requestRender = React.useCallback(() => {
+    if (renderPendingRef.current !== null) return;
+    renderPendingRef.current = requestAnimationFrame(() => {
+      renderPendingRef.current = null;
+      const renderer = rendererRef.current;
+      const scene = sceneRef.current;
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!renderer || !scene || !camera) return;
+      controls?.update();
+      renderer.render(scene, camera);
+    });
+  }, []);
+
   const initIfNeeded = React.useCallback(() => {
     if (!containerRef.current) return;
     if (rendererRef.current) return;
@@ -88,12 +103,13 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     (renderer.domElement.style as any).width = '100%';
     (renderer.domElement.style as any).height = '100%';
     (renderer.domElement.style as any).display = 'block';
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(1); // 降低像素比提升交互流畅度
     containerRef.current.innerHTML = '';
     containerRef.current.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.enablePan = false; // 只允许旋转/缩放，不平移
+    controls.addEventListener('change', requestRender);
     controlsRef.current = controls;
     // 更自然的光照组合：环境+半球+主光
     scene.add(new THREE.AmbientLight(0xffffff, 0.85));
@@ -115,12 +131,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     sceneRef.current = scene;
     cameraRef.current = camera;
     rendererRef.current = renderer;
-    const animate = () => {
-      controls.update();
-      renderer.render(scene, camera);
-      animRef.current = requestAnimationFrame(animate);
-    };
-    animate();
+    requestRender();
 
     // Resize observer to keep renderer matching container size
     const ro = new ResizeObserver(() => {
@@ -131,14 +142,15 @@ function ThreeNodeInner({ id, data, selected }: Props) {
         r.setSize(width, height);
         c.aspect = width / height;
         c.updateProjectionMatrix();
+        requestRender();
       }
     });
     ro.observe(containerRef.current);
-  }, [data.boxW, data.boxH]);
+  }, [data.boxW, data.boxH, requestRender]);
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
-    return () => { clearTimeout(t); if (animRef.current) cancelAnimationFrame(animRef.current); };
+    return () => { clearTimeout(t); if (renderPendingRef.current) cancelAnimationFrame(renderPendingRef.current); };
   }, [initIfNeeded]);
 
   const onResize = (w: number, h: number) => {
@@ -147,6 +159,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       r.setSize(Math.max(220, w - 16), Math.max(140, h - 64));
       c.aspect = r.domElement.width / r.domElement.height;
       c.updateProjectionMatrix();
+      requestRender();
     }
   };
 
@@ -186,7 +199,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     setErr(null);
     if (gridRef.current) gridRef.current.visible = false;
     if (axesRef.current) axesRef.current.visible = false;
-  }, [initIfNeeded]);
+    requestRender();
+  }, [initIfNeeded, requestRender]);
 
   const createLoader = React.useCallback(() => {
     const loader = new GLTFLoader();
@@ -301,6 +315,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     if (axesRef.current) axesRef.current.visible = false;
     try { (fitToObject as any)?.(mesh); } catch {}
     setErr(null);
+    requestRender();
   };
 
   const sendToCanvas = () => {

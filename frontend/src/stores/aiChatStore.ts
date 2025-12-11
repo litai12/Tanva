@@ -1527,7 +1527,7 @@ export const useAIChatStore = create<AIChatState>()(
   imageSize: null,  // 默认图像尺寸为自动（自动模式下优先使用1K）
   thinkingLevel: null,  // 默认不指定思考级别
   manualAIMode: 'auto',
-  aiProvider: 'gemini',  // 默认使用 Google Gemini
+  aiProvider: 'banana-2.5',  // 默认国内极速版
 
   // 对话框控制
   showDialog: () => set({ isVisible: true }),
