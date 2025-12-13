@@ -1456,35 +1456,32 @@ const AIChatDialog: React.FC = () => {
     longPressTriggeredRef.current = false;
   };
 
-  // 计算比例面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
+  // 计算比例面板定位：以输入区域为锚点，优先显示在输入框下方，空间不足时放在上方
   useLayoutEffect(() => {
     if (!isAspectOpen) return;
     const update = () => {
       const panelEl = aspectPanelRef.current;
-      const containerEl = dialogRef.current;
-      const inputEl = inputAreaRef.current;
-      if (!panelEl || !containerEl) return;
+      const anchorEl = inputAreaRef.current || dialogRef.current;
+      if (!panelEl || !anchorEl) return;
 
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 8;
+      const offset = 12;
 
-      // 全屏模式下定位到输入框上方
-      if (isMaximized && inputEl) {
-        const inputRect = inputEl.getBoundingClientRect();
-        let top = inputRect.top - h - offset;
-        let left = inputRect.left + inputRect.width / 2 - w / 2;
-        if (top < 8) top = 8;
-        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-        setAspectPos({ top, left });
-      } else {
-        const containerRect = containerEl.getBoundingClientRect();
-        let top = containerRect.top - h - offset;
-        let left = containerRect.left + containerRect.width / 2 - w / 2;
-        if (top < 8) top = 8;
-        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-        setAspectPos({ top, left });
+      const anchorRect = anchorEl.getBoundingClientRect();
+      // 默认显示在输入区域下方
+      let top = anchorRect.bottom + offset;
+      let left = anchorRect.left + anchorRect.width / 2 - w / 2;
+
+      // 下方空间不足时切换到上方
+      if (top + h > window.innerHeight - 8) {
+        top = Math.max(8, anchorRect.top - h - offset);
       }
+
+      // 屏幕边缘保护
+      top = Math.min(top, window.innerHeight - h - 8);
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+      setAspectPos({ top, left });
       setAspectReady(true);
     };
     const r = requestAnimationFrame(update);
@@ -1495,9 +1492,9 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isAspectOpen, isMaximized]);
+  }, [isAspectOpen]);
 
-  // 计算图像尺寸面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
+  // 计算图像尺寸面板定位：以输入区域为锚点，优先显示在输入框下方，空间不足时放在上方
   useLayoutEffect(() => {
     if (
       !isImageSizeOpen ||
@@ -1508,30 +1505,26 @@ const AIChatDialog: React.FC = () => {
       return;
     const update = () => {
       const panelEl = imageSizePanelRef.current;
-      const containerEl = dialogRef.current;
-      const inputEl = inputAreaRef.current;
-      if (!panelEl || !containerEl) return;
+      const anchorEl = inputAreaRef.current || dialogRef.current;
+      if (!panelEl || !anchorEl) return;
 
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 8;
+      const offset = 12;
 
-      // 全屏模式下定位到输入框上方
-      if (isMaximized && inputEl) {
-        const inputRect = inputEl.getBoundingClientRect();
-        let top = inputRect.top - h - offset;
-        let left = inputRect.left + inputRect.width / 2 - w / 2;
-        if (top < 8) top = 8;
-        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-        setImageSizePos({ top, left });
-      } else {
-        const containerRect = containerEl.getBoundingClientRect();
-        let top = containerRect.top - h - offset;
-        let left = containerRect.left + containerRect.width / 2 - w / 2;
-        if (top < 8) top = 8;
-        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-        setImageSizePos({ top, left });
+      const anchorRect = anchorEl.getBoundingClientRect();
+      // 默认显示在输入区域下方
+      let top = anchorRect.bottom + offset;
+      let left = anchorRect.left + anchorRect.width / 2 - w / 2;
+
+      // 下方空间不足时切换到上方
+      if (top + h > window.innerHeight - 8) {
+        top = Math.max(8, anchorRect.top - h - offset);
       }
+
+      top = Math.min(top, window.innerHeight - h - 8);
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+      setImageSizePos({ top, left });
       setImageSizeReady(true);
     };
     const r = requestAnimationFrame(update);
@@ -1542,9 +1535,9 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isImageSizeOpen, aiProvider, isMaximized]);
+  }, [isImageSizeOpen, aiProvider]);
 
-  // 计算思考级别面板定位：位于对话框容器上方，居中；全屏模式下位于输入框上方
+  // 计算思考级别面板定位：以输入框为锚点，优先显示在输入框下方，空间不足时放在上方
   useLayoutEffect(() => {
     if (
       !isThinkingLevelOpen ||
@@ -1563,17 +1556,16 @@ const AIChatDialog: React.FC = () => {
       const offset = 12; // 提高弹层距离，避免贴近输入框
 
       const inputRect = inputEl.getBoundingClientRect();
-      let top = inputRect.top - h - offset; // 优先显示在输入框上方
+      // 默认显示在输入框下方
+      let top = inputRect.bottom + offset;
       let left = inputRect.left + inputRect.width / 2 - w / 2;
 
-      // 若顶部空间不足，则展示在输入框下方
-      if (top < 8) {
-        top = Math.min(
-          window.innerHeight - h - 8,
-          inputRect.bottom + offset
-        );
+      // 若底部空间不足，则展示在输入框上方
+      if (top + h > window.innerHeight - 8) {
+        top = Math.max(8, inputRect.top - h - offset);
       }
 
+      top = Math.min(top, window.innerHeight - h - 8);
       left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
 
       setThinkingLevelPos({ top, left });
@@ -2068,7 +2060,8 @@ const AIChatDialog: React.FC = () => {
       data-prevent-add-panel
       aria-hidden={focusMode}
       className={cn(
-        "fixed transition-all ease-out select-none",
+        "fixed transition-all ease-out",
+        isDragging || isResizing ? "select-none" : "select-text",
         isMaximized
           ? "top-2 left-2 right-2 bottom-2 z-[9999]" // 最大化：接近全屏，最高 z-index 确保在所有元素之上
           : "z-50",
@@ -2348,7 +2341,7 @@ const AIChatDialog: React.FC = () => {
                 className={cn(
                   "resize-none px-4 pb-12 min-h-[80px] max-h-[200px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
                 )}
-                rows={showHistory ? 3 : 1}
+                rows={2}
               />
 
               {/* 左侧按钮组 */}
@@ -2547,7 +2540,7 @@ const AIChatDialog: React.FC = () => {
                 createPortal(
                   <div
                     ref={aspectPanelRef}
-                    className='rounded-xl bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200'
+                    className='rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass'
                     style={{
                       position: "fixed",
                       top: aspectPos.top,
@@ -2606,7 +2599,7 @@ const AIChatDialog: React.FC = () => {
                 createPortal(
                   <div
                     ref={imageSizePanelRef}
-                    className='rounded-xl bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200'
+                    className='rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass'
                     style={{
                       position: "fixed",
                       top: imageSizePos.top,
@@ -2657,7 +2650,7 @@ const AIChatDialog: React.FC = () => {
                 createPortal(
                   <div
                     ref={thinkingLevelPanelRef}
-                    className='rounded-xl bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200'
+                    className='rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass'
                     style={{
                       position: "fixed",
                       top: thinkingLevelPos.top,

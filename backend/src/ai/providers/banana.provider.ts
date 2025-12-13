@@ -17,6 +17,43 @@ import {
   PaperJSResult,
 } from './ai-provider.interface';
 
+const DEFAULT_TOOLS = [
+  'generateImage',
+  'editImage',
+  'blendImages',
+  'analyzeImage',
+  'chatResponse',
+  'generateVideo',
+  'generatePaperJS',
+] as const;
+
+const TOOL_DESCRIPTIONS: Record<string, string> = {
+  generateImage: '生成新的图像',
+  editImage: '编辑现有图像',
+  blendImages: '融合多张图像',
+  analyzeImage: '分析图像内容',
+  chatResponse: '文本对话或聊天',
+  generateVideo: '生成视频',
+  generatePaperJS: '生成 Paper.js 矢量图形代码',
+};
+
+const VECTOR_KEYWORDS = [
+  '矢量',
+  '矢量图',
+  '矢量化',
+  'vector',
+  'vectorize',
+  'vectorization',
+  'svg',
+  'paperjs',
+  'paper.js',
+  'svg path',
+  '路径代码',
+  'path code',
+  'vector graphic',
+  'vectorgraphics',
+];
+
 /**
  * Banana API Provider - 使用HTTP直接调用Google Gemini API的代理
  * 文档: https://147api.apifox.cn/
@@ -868,6 +905,30 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
+  private sanitizeAvailableTools(tools?: string[], allowVector: boolean = true): string[] {
+    const base = Array.isArray(tools) && tools.length ? tools : [...DEFAULT_TOOLS];
+    const unique = Array.from(new Set(base.filter(Boolean)));
+    const filtered = allowVector ? unique : unique.filter((tool) => tool !== 'generatePaperJS');
+
+    if (filtered.length > 0) {
+      return filtered;
+    }
+
+    return allowVector ? [...DEFAULT_TOOLS] : [...DEFAULT_TOOLS.filter((tool) => tool !== 'generatePaperJS')];
+  }
+
+  private hasVectorIntent(prompt: string): boolean {
+    if (!prompt) return false;
+    const lower = prompt.toLowerCase();
+    return VECTOR_KEYWORDS.some((keyword) => lower.includes(keyword.toLowerCase()));
+  }
+
+  private formatToolList(tools: string[]): string {
+    return tools
+      .map((tool) => `- ${tool}: ${TOOL_DESCRIPTIONS[tool] || '辅助对话'}`)
+      .join('\n');
+  }
+
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
@@ -878,20 +939,20 @@ export class BananaProvider implements IAIProvider {
       const delayMs = 1000;
       let lastError: unknown;
 
-      // 工具选择的系统提示 - 与基础版 ai.service.ts 完全一致
+      const hasVectorIntent = this.hasVectorIntent(request.prompt);
+      const tools = this.sanitizeAvailableTools(request.availableTools, hasVectorIntent);
+      const toolListText = this.formatToolList(tools);
+      const vectorRule = tools.includes('generatePaperJS')
+        ? `只有当用户明确提到以下关键词之一（${VECTOR_KEYWORDS.join(', ')}）或直接要求输出 SVG/Paper.js 矢量代码时，才选择 generatePaperJS；仅描述形状、几何或线条但未出现这些关键词时，不要选择 generatePaperJS，优先 generateImage 或 chatResponse。`
+        : '';
+
       const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
 
 可用工具:
-- generateImage: 生成新的图像
-- editImage: 编辑现有图像
-- blendImages: 融合多张图像
-- analyzeImage: 分析图像内容
-- chatResponse: 文本对话或聊天
-- generateVideo: 生成视频
-- generatePaperJS: 生成 Paper.js 矢量图形代码
+${toolListText}
 
-请根据用户的实际需求，智能判断最合适的工具。例如：
-- 用户要求生成矢量图、SVG、几何图形、代码绘图等 → generatePaperJS
+${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能判断最合适的工具。例如：
+- 用户明确提到“矢量”“vector”“svg”“paperjs”等关键词，或要求输出矢量代码 → generatePaperJS
 - 用户要求生成图像、照片、画作等 → generateImage
 - 用户要求编辑、修改现有图像 → editImage
 - 用户要求融合、混合多张图像 → blendImages
@@ -902,7 +963,8 @@ export class BananaProvider implements IAIProvider {
 请以以下JSON格式回复（仅返回JSON，不要其他文字）:
 {
   "selectedTool": "工具名称",
-  "reasoning": "选择理由"
+  "reasoning": "选择理由",
+  "confidence": 0.0-1.0
 }`;
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -934,16 +996,18 @@ export class BananaProvider implements IAIProvider {
             }
 
             const parsed = JSON.parse(jsonText.trim());
-            const selectedTool = parsed.selectedTool || 'chatResponse';
+            const rawSelected = parsed.selectedTool || 'chatResponse';
+            const selectedTool =
+              tools.includes(rawSelected) ? rawSelected : (tools.includes('chatResponse') ? 'chatResponse' : tools[0]);
 
-            this.logger.log(`✅ Tool selected: ${selectedTool}`);
+            this.logger.log(`✅ Tool selected: ${selectedTool}`, { hasVectorIntent });
 
             return {
               success: true,
               data: {
                 selectedTool,
-                reasoning: parsed.reasoning || '',
-                confidence: 0.85,
+                reasoning: parsed.reasoning || vectorRule,
+                confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.85,
               },
             };
           } catch (parseError) {
@@ -952,7 +1016,7 @@ export class BananaProvider implements IAIProvider {
             return {
               success: true,
               data: {
-                selectedTool: 'chatResponse',
+                selectedTool: tools.includes('chatResponse') ? 'chatResponse' : tools[0],
                 reasoning: 'Fallback due to invalid JSON response',
                 confidence: 0.5,
               },
@@ -976,7 +1040,7 @@ export class BananaProvider implements IAIProvider {
       return {
         success: true,
         data: {
-          selectedTool: 'chatResponse',
+          selectedTool: tools.includes('chatResponse') ? 'chatResponse' : tools[0],
           reasoning: 'Fallback due to repeated failures',
           confidence: 0.4,
         },

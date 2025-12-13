@@ -450,7 +450,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         const group = new paper.Group([bg, border, scanLine, barBg, barFg, progressLabel]);
         group.position = centerPoint;
-        group.locked = false;
+        group.locked = true; // 占位框仅作为指示元素，不允许用户直接选择/拖拽
         group.data = {
             type: 'image-placeholder',
             placeholderId: params.placeholderId,
@@ -460,7 +460,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 width,
                 height
             },
-            isHelper: false,
+            isHelper: true,
             placeholderSource: 'ai-predict',
             operationType: params.operationType,
             spinnerElement: scanLine,
@@ -468,6 +468,21 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             progressBarElement: barFg,
             progressBarWidth: barWidth
         };
+
+        // 标记所有占位元素为辅助，防止被选择/拖拽
+        const attachPlaceholderMeta = (item: paper.Item | null | undefined) => {
+            if (!item) return;
+            item.data = {
+                ...(item.data || {}),
+                placeholderGroup: group,
+                placeholderType: 'image',
+                placeholderId: params.placeholderId,
+                isHelper: true
+            };
+            item.locked = true;
+        };
+        group.children?.forEach((child: paper.Item) => attachPlaceholderMeta(child));
+        attachPlaceholderMeta(group);
 
         // 动画
         let animationFrameId: number | null = null;

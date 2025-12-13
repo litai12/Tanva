@@ -290,8 +290,65 @@ export class AiController {
     return this.providerDefaultTextModels.gemini;
   }
 
+  private hasVectorIntent(prompt: string): boolean {
+    if (!prompt) return false;
+    const lower = prompt.toLowerCase();
+    const keywords = [
+      '矢量',
+      '矢量图',
+      '矢量化',
+      'vector',
+      'vectorize',
+      'vectorization',
+      'svg',
+      'paperjs',
+      'paper.js',
+      'svg path',
+      '路径代码',
+      'path code',
+      'vector graphic',
+      'vectorgraphics',
+    ];
+    return keywords.some((keyword) => lower.includes(keyword.toLowerCase()));
+  }
+
+  private sanitizeAvailableTools(tools?: string[], allowVector: boolean = true): string[] {
+    const defaultTools = [
+      'generateImage',
+      'editImage',
+      'blendImages',
+      'analyzeImage',
+      'chatResponse',
+      'generateVideo',
+      'generatePaperJS',
+    ];
+
+    const base = Array.isArray(tools) && tools.length ? tools : defaultTools;
+    const unique = Array.from(new Set(base.filter(Boolean)));
+    const filtered = allowVector ? unique : unique.filter((tool) => tool !== 'generatePaperJS');
+
+    if (filtered.length > 0) {
+      return filtered;
+    }
+
+    return allowVector ? defaultTools : defaultTools.filter((tool) => tool !== 'generatePaperJS');
+  }
+
+  private enforceSelectedTool(selectedTool: string, allowedTools: string[]): string {
+    if (allowedTools.includes(selectedTool)) {
+      return selectedTool;
+    }
+
+    const fallback = allowedTools.find((tool) => tool !== 'generatePaperJS') || allowedTools[0] || 'chatResponse';
+    this.logger.warn(`Selected tool "${selectedTool}" is not allowed. Falling back to "${fallback}".`);
+    return fallback;
+  }
+
   @Post('tool-selection')
   async toolSelection(@Body() dto: ToolSelectionRequestDto) {
+    const allowVector = this.hasVectorIntent(dto.prompt);
+    const availableTools = this.sanitizeAvailableTools(dto.availableTools, allowVector);
+
     // 🔥 添加详细日志
     this.logger.log('🎯 Tool selection request:', {
       aiProvider: dto.aiProvider,
@@ -299,7 +356,8 @@ export class AiController {
       prompt: dto.prompt.substring(0, 50) + '...',
       hasImages: dto.hasImages,
       imageCount: dto.imageCount,
-      availableTools: dto.availableTools,
+      availableTools,
+      allowVectorIntent: allowVector,
     });
 
     const providerName =
@@ -318,7 +376,7 @@ export class AiController {
         const provider = this.factory.getProvider(normalizedModel, providerName);
         const result = await provider.selectTool({
           prompt: dto.prompt,
-          availableTools: dto.availableTools,
+          availableTools,
           hasImages: dto.hasImages,
           imageCount: dto.imageCount,
           hasCachedImage: dto.hasCachedImage,
@@ -327,9 +385,10 @@ export class AiController {
         });
 
         if (result.success && result.data) {
-          this.logger.log(`✅ [${providerName.toUpperCase()}] Tool selected: ${result.data.selectedTool}`);
+          const selectedTool = this.enforceSelectedTool(result.data.selectedTool, availableTools);
+          this.logger.log(`✅ [${providerName.toUpperCase()}] Tool selected: ${selectedTool}`);
           return {
-            selectedTool: result.data.selectedTool,
+            selectedTool,
             parameters: { prompt: dto.prompt },
             reasoning: result.data.reasoning,
             confidence: result.data.confidence,
@@ -352,10 +411,16 @@ export class AiController {
 
     // 🔥 降级到Google Gemini进行工具选择
     this.logger.log('📊 Falling back to Gemini tool selection');
-    const result = await this.ai.runToolSelectionPrompt(dto.prompt);
+    const result = await this.ai.runToolSelectionPrompt(dto.prompt, availableTools);
+    const selectedTool = this.enforceSelectedTool(result.selectedTool, availableTools);
 
-    this.logger.log('✅ [GEMINI] Tool selected:', result.selectedTool);
-    return result;
+    this.logger.log('✅ [GEMINI] Tool selected:', selectedTool);
+    return {
+      selectedTool,
+      parameters: { prompt: dto.prompt },
+      reasoning: result.reasoning,
+      confidence: result.confidence,
+    };
   }
 
   @Post('generate-image')

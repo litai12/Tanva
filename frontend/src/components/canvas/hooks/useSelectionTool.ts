@@ -363,6 +363,23 @@ export const useSelectionTool = ({
 
   // 检测点击位置的对象类型和具体对象
   const detectClickedObject = useCallback((point: paper.Point) => {
+    const isPlaceholderNode = (item: paper.Item | null | undefined): boolean => {
+      let current: paper.Item | null | undefined = item;
+      while (current) {
+        const data = current.data || {};
+        if (
+          data.placeholderGroup ||
+          data.placeholderType ||
+          data.type === 'image-placeholder' ||
+          data.type === '3d-model-placeholder'
+        ) {
+          return true;
+        }
+        current = current.parent as paper.Item | null | undefined;
+      }
+      return false;
+    };
+
     // 使用Paper.js的hitTest进行点击检测
     const hitResult = paper.project.hitTest(point, {
       segments: true,
@@ -370,6 +387,11 @@ export const useSelectionTool = ({
       fill: true,
       tolerance: 5 / zoom // 根据缩放调整容差
     });
+
+    // 占位符元素不可选，视为空白
+    if (hitResult?.item && isPlaceholderNode(hitResult.item)) {
+      return { hitResult: null, imageClicked: null, modelClicked: null };
+    }
 
     // 首先检查是否点击在图片或3D模型区域内
     let imageClicked = null;
