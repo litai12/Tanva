@@ -397,6 +397,26 @@ const AIChatDialog: React.FC = () => {
       (option) => option.value === manualAIMode
     ) ?? availableManualModeOptions[0];
 
+  const providerToggleOptions: {
+    value: SupportedAIProvider;
+    label: string;
+    description: string;
+  }[] = [
+    {
+      value: "banana-2.5",
+      label: "Fast",
+      description: "国内极速版",
+    },
+    {
+      value: "banana",
+      label: "Pro",
+      description: "国内Pro版",
+    },
+  ];
+  const isDomesticProvider = providerToggleOptions.some(
+    (option) => option.value === aiProvider
+  );
+
   // 记录最新的最大化状态，供原生事件监听使用
   useEffect(() => {
     isMaximizedRef.current = isMaximized;
@@ -407,38 +427,6 @@ const AIChatDialog: React.FC = () => {
     showHistoryRef.current = showHistory;
   }, [showHistory]);
 
-  // AI供应商选项
-  const aiProviderOptions: {
-    value: SupportedAIProvider;
-    label: string;
-    description: string;
-  }[] = [
-    // 暂时隐藏基础官方版
-    // { value: 'gemini', label: '基础官方版', description: 'Gemini2.5 + Banana 1.0' },
-    {
-      value: "banana-2.5",
-      label: "国内极速版",
-      description: "1代模型 高速稳定",
-    },
-    {
-      value: "banana",
-      label: "国内Pro版",
-      description: "2代模型 品质最佳 建议避开高峰时段使用",
-    },
-    {
-      value: "gemini-pro",
-      label: "国际版",
-      description: "可使用个人KEY不消耗积分",
-    },
-    // 暂时隐藏 Midjourney 选项
-    // { value: 'midjourney', label: 'Midjourney', description: '使用 Midjourney (147)' }
-  ];
-  const currentAIProvider =
-    aiProviderOptions.find((option) => option.value === aiProvider) ??
-    aiProviderOptions[0];
-  const defaultAIProviderValue = aiProviderOptions[0]?.value;
-  const providerButtonLabel =
-    currentAIProvider?.label ?? aiProviderOptions[0]?.label ?? "选择供应商";
   const manualButtonLabel =
     currentManualMode?.label ??
     availableManualModeOptions[0]?.label ??
@@ -448,13 +436,10 @@ const AIChatDialog: React.FC = () => {
 
   // 如果当前选择的是隐藏的 gemini，自动切换到 gemini-pro
   useEffect(() => {
-    if (
-      aiProvider === "gemini" &&
-      !aiProviderOptions.some((option) => option.value === "gemini")
-    ) {
+    if (aiProvider === "gemini") {
       setAIProvider("gemini-pro");
     }
-  }, [aiProvider, aiProviderOptions, setAIProvider]);
+  }, [aiProvider, setAIProvider]);
 
   useEffect(() => {
     if (
@@ -1570,30 +1555,28 @@ const AIChatDialog: React.FC = () => {
       return;
     const update = () => {
       const panelEl = thinkingLevelPanelRef.current;
-      const containerEl = dialogRef.current;
       const inputEl = inputAreaRef.current;
-      if (!panelEl || !containerEl) return;
+      if (!panelEl || !inputEl) return;
 
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 8;
+      const offset = 12; // 提高弹层距离，避免贴近输入框
 
-      // 全屏模式下定位到输入框上方
-      if (isMaximized && inputEl) {
-        const inputRect = inputEl.getBoundingClientRect();
-        let top = inputRect.top - h - offset;
-        let left = inputRect.left + inputRect.width / 2 - w / 2;
-        if (top < 8) top = 8;
-        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-        setThinkingLevelPos({ top, left });
-      } else {
-        const containerRect = containerEl.getBoundingClientRect();
-        let top = containerRect.top - h - offset;
-        let left = containerRect.left + containerRect.width / 2 - w / 2;
-        if (top < 8) top = 8;
-        left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-        setThinkingLevelPos({ top, left });
+      const inputRect = inputEl.getBoundingClientRect();
+      let top = inputRect.top - h - offset; // 优先显示在输入框上方
+      let left = inputRect.left + inputRect.width / 2 - w / 2;
+
+      // 若顶部空间不足，则展示在输入框下方
+      if (top < 8) {
+        top = Math.min(
+          window.innerHeight - h - 8,
+          inputRect.bottom + offset
+        );
       }
+
+      left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+
+      setThinkingLevelPos({ top, left });
       setThinkingLevelReady(true);
     };
     const r = requestAnimationFrame(update);
@@ -1604,7 +1587,7 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isThinkingLevelOpen, aiProvider, isMaximized]);
+  }, [isThinkingLevelOpen, aiProvider]);
 
   // 点击外部关闭比例面板
   useEffect(() => {
@@ -2370,69 +2353,45 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute left-2 bottom-2 flex items-center gap-2'>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      disabled={false}
-                      className={cn(
-                        "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200 text-gray-700",
-                        "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                        generationStatus.isGenerating
-                          ? "opacity-50 cursor-not-allowed text-gray-400"
-                          : "hover:bg-liquid-glass-hover"
-                      )}
-                    >
-                      <MinimalGlobeIcon className='h-3.5 w-3.5' />
-                      <span className='font-medium'>{providerButtonLabel}</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align='start'
-                    side={dropdownSide}
-                    sideOffset={8}
-                    className='min-w-[220px] max-h-[400px] overflow-y-auto rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
-                  >
-                    <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
-                      AI供应商
-                    </DropdownMenuLabel>
-                    {aiProviderOptions.map((option) => {
-                      const isActive = aiProvider === option.value;
-                      return (
-                        <DropdownMenuItem
-                          key={option.value}
-                          onClick={() => {
-                            console.log(
-                              "🤖 选择 AI 提供商:",
-                              option.value,
-                              option.label
-                            );
+                <div
+                  className={cn(
+                    "flex h-7 items-center gap-0.5 rounded-full border border-liquid-glass bg-liquid-glass px-1 shadow-liquid-glass backdrop-blur-liquid backdrop-saturate-125",
+                    generationStatus.isGenerating && "opacity-90"
+                  )}
+                  title='快速切换国内模型'
+                >
+                  {providerToggleOptions.map((option) => {
+                    const isActive = aiProvider === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type='button'
+                        className={cn(
+                          "flex h-[20px] items-center justify-center rounded-full px-3 text-[12px] font-semibold transition-colors duration-150",
+                          isActive
+                            ? "bg-slate-900 text-white shadow-sm"
+                            : "text-slate-700",
+                          generationStatus.isGenerating && "cursor-pointer"
+                        )}
+                        onClick={() => {
+                          if (aiProvider !== option.value) {
+                            console.log("🤖 切换 AI 提供商:", option.value);
                             setAIProvider(option.value);
-                          }}
-                          className={cn(
-                            "flex items-start gap-2 px-3 py-2 text-xs cursor-pointer",
-                            isActive
-                              ? "bg-purple-50 text-purple-600"
-                              : "text-slate-600 hover:bg-slate-50"
-                          )}
-                        >
-                          <div className='flex-1 space-y-0.5'>
-                            <div className='font-medium leading-none'>
-                              {option.label}
-                            </div>
-                            <div className='text-[11px] text-slate-400 leading-snug'>
-                              {option.description}
-                            </div>
-                          </div>
-                          {isActive && (
-                            <Check className='h-3.5 w-3.5 text-purple-500' />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                          }
+                        }}
+                        aria-pressed={isActive}
+                        title={`${option.label} · ${option.description}`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!isDomesticProvider && (
+                  <span className='text-[11px] px-2 py-1 rounded-full border border-slate-200 bg-white/90 text-slate-500'>
+                    国际版在设置中启用
+                  </span>
+                )}
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -2517,9 +2476,9 @@ const AIChatDialog: React.FC = () => {
                   "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   aspectRatio
-                    ? "bg-gray-100 text-gray-800 border-gray-200"
+                    ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                     : !generationStatus.isGenerating
-                    ? "hover:bg-gray-100 text-gray-700"
+                    ? "text-slate-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
                 title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
@@ -2541,9 +2500,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-44 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200 text-xs",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     imageSize
-                      ? "bg-gray-100 text-gray-800 border-gray-200"
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating
-                      ? "hover:bg-gray-100 text-gray-700"
+                      ? "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={imageSize ? `分辨率: ${imageSize}` : "选择分辨率"}
@@ -2568,9 +2527,9 @@ const AIChatDialog: React.FC = () => {
                     "absolute right-36 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     thinkingLevel
-                      ? "bg-gray-100 text-gray-800 border-gray-200"
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                       : !generationStatus.isGenerating
-                      ? "hover:bg-gray-100 text-gray-700"
+                      ? "text-slate-700"
                       : "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={
@@ -2750,8 +2709,8 @@ const AIChatDialog: React.FC = () => {
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   !generationStatus.isGenerating
                     ? enableWebSearch
-                      ? "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
-                      : "hover:bg-gray-100 text-gray-700"
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      : "text-slate-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
                 title={`联网搜索: ${
@@ -2771,9 +2730,9 @@ const AIChatDialog: React.FC = () => {
                   "absolute right-20 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                   autoOptimizeEnabled
-                    ? "bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200"
+                    ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
                     : !generationStatus.isGenerating && !autoOptimizing
-                    ? "hover:bg-gray-100 text-gray-700"
+                    ? "text-slate-700"
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
                 title={
