@@ -169,6 +169,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 获取画布状态 - 用于监听画布移动变化
   const { zoom, panX, panY } = useCanvasStore();
+  const toolbarScale = Math.min(zoom || 1, 1); // 按钮最大缩放限制为 100%
 
   const sharedButtonStyle = undefined;
 
@@ -1250,9 +1251,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           className="absolute"
           style={{
             top: '100%',
-            marginTop: 12 * zoom,
+            marginTop: 12 * toolbarScale,
             left: '50%',
-            transform: `translateX(-50%) scale(${zoom})`,
+            transform: `translateX(-50%) scale(${toolbarScale})`,
             transformOrigin: 'top center',
             zIndex: 30,
             pointerEvents: 'auto',

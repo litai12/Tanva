@@ -79,6 +79,14 @@ const BASE_MANUAL_MODE_OPTIONS: ManualModeOption[] = [
 // 长按提示词扩写按钮触发面板的最小时长（毫秒）
 const LONG_PRESS_DURATION = 550;
 
+const AUTO_MODE_MULTIPLIERS = [1, 2, 4, 8] as const;
+const MULTIPLIER_ENABLED_MODES: ManualAIMode[] = [
+  "auto",
+  "generate",
+  "edit",
+  "blend",
+];
+
 const PROVIDER_MODE_OPTIONS: Partial<
   Record<SupportedAIProvider, ManualModeOption[]>
 > = {
@@ -278,6 +286,8 @@ const AIChatDialog: React.FC = () => {
     setManualAIMode,
     aiProvider,
     setAIProvider,
+    autoModeMultiplier,
+    setAutoModeMultiplier,
     executeMidjourneyAction,
   } = useAIChatStore();
   const focusMode = useUIStore((state) => state.focusMode);
@@ -416,6 +426,17 @@ const AIChatDialog: React.FC = () => {
   const isDomesticProvider = providerToggleOptions.some(
     (option) => option.value === aiProvider
   );
+  const isFastMode = aiProvider === "banana-2.5";
+  const showImageSizeControls =
+    !isFastMode &&
+    (aiProvider === "gemini-pro" ||
+      aiProvider === "banana" ||
+      aiProvider === "banana-2.5");
+  const showThinkingLevelControls =
+    !isFastMode &&
+    (aiProvider === "gemini-pro" ||
+      aiProvider === "banana" ||
+      aiProvider === "banana-2.5");
 
   // 记录最新的最大化状态，供原生事件监听使用
   useEffect(() => {
@@ -433,6 +454,24 @@ const AIChatDialog: React.FC = () => {
     "选择模式";
   // 统一向上展开（最大化时避免溢出，紧凑模式保持原有行为）
   const dropdownSide: "top" | "bottom" = "top";
+
+  const handleCycleAutoMultiplier = useCallback(
+    (event?: React.MouseEvent) => {
+      if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+      const currentIndex = AUTO_MODE_MULTIPLIERS.indexOf(
+        autoModeMultiplier as (typeof AUTO_MODE_MULTIPLIERS)[number]
+      );
+      const next =
+        AUTO_MODE_MULTIPLIERS[
+          (currentIndex + 1) % AUTO_MODE_MULTIPLIERS.length
+        ] || AUTO_MODE_MULTIPLIERS[0];
+      setAutoModeMultiplier(next);
+    },
+    [autoModeMultiplier, setAutoModeMultiplier]
+  );
 
   // 如果当前选择的是隐藏的 gemini，自动切换到 gemini-pro
   useEffect(() => {
@@ -511,6 +550,14 @@ const AIChatDialog: React.FC = () => {
       historyInitialHeightRef.current = rect.height;
     }
   }, [showHistory, isMaximized, customHeight]);
+
+  useEffect(() => {
+    if (isFastMode) {
+      setIsAspectOpen(false);
+      setIsImageSizeOpen(false);
+      setIsThinkingLevelOpen(false);
+    }
+  }, [isFastMode]);
 
   // 拖拽处理函数 - 只在顶部横线标识周边区域可以拖拽
   const handleDragStart = useCallback(
@@ -1466,7 +1513,7 @@ const AIChatDialog: React.FC = () => {
 
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 12;
+      const offset = isMaximized ? 12 : 20;
 
       const anchorRect = anchorEl.getBoundingClientRect();
       // 默认显示在输入区域下方
@@ -1492,7 +1539,7 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isAspectOpen]);
+  }, [isAspectOpen, isMaximized]);
 
   // 计算图像尺寸面板定位：以输入区域为锚点，优先显示在输入框下方，空间不足时放在上方
   useLayoutEffect(() => {
@@ -1510,7 +1557,7 @@ const AIChatDialog: React.FC = () => {
 
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 12;
+      const offset = isMaximized ? 12 : 20;
 
       const anchorRect = anchorEl.getBoundingClientRect();
       // 默认显示在输入区域下方
@@ -1535,7 +1582,7 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isImageSizeOpen, aiProvider]);
+  }, [isImageSizeOpen, aiProvider, isMaximized]);
 
   // 计算思考级别面板定位：以输入框为锚点，优先显示在输入框下方，空间不足时放在上方
   useLayoutEffect(() => {
@@ -1553,7 +1600,7 @@ const AIChatDialog: React.FC = () => {
 
       const w = panelEl.offsetWidth;
       const h = panelEl.offsetHeight;
-      const offset = 12; // 提高弹层距离，避免贴近输入框
+      const offset = isMaximized ? 12 : 20; // 提高弹层距离，避免贴近输入框
 
       const inputRect = inputEl.getBoundingClientRect();
       // 默认显示在输入框下方
@@ -1579,7 +1626,7 @@ const AIChatDialog: React.FC = () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isThinkingLevelOpen, aiProvider]);
+  }, [isThinkingLevelOpen, aiProvider, isMaximized]);
 
   // 点击外部关闭比例面板
   useEffect(() => {
@@ -2456,33 +2503,47 @@ const AIChatDialog: React.FC = () => {
                     })}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
+                  <button
+                    type='button'
+                    onClick={handleCycleAutoMultiplier}
+                    className={cn(
+                      "h-7 px-1 text-[11px] font-semibold text-slate-700 transition-colors duration-150",
+                      "hover:text-slate-900 active:translate-y-[0.5px]"
+                    )}
+                    title='倍数：点击依次切换 X1 / X2 / X4 / X8'
+                    aria-label={`倍数 X${autoModeMultiplier}`}
+                  >
+                    X{autoModeMultiplier}
+                  </button>
+                )}
               </div>
 
               {/* 长宽比选择按钮 */}
-              <Button
-                ref={aspectButtonRef}
-                onClick={() => setIsAspectOpen((v) => !v)}
-                disabled={false}
-                size='sm'
-                variant='outline'
-                className={cn(
-                  "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  aspectRatio
-                    ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
-                    : !generationStatus.isGenerating
-                    ? "text-slate-700"
-                    : "opacity-50 cursor-not-allowed text-gray-400"
-                )}
-                title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
-              >
-                <AspectRatioIcon className='h-3.5 w-3.5' />
-              </Button>
+              {!isFastMode && (
+                <Button
+                  ref={aspectButtonRef}
+                  onClick={() => setIsAspectOpen((v) => !v)}
+                  disabled={false}
+                  size='sm'
+                  variant='outline'
+                  className={cn(
+                    "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    aspectRatio
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
+                      : !generationStatus.isGenerating
+                      ? "text-slate-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                  title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
+                >
+                  <AspectRatioIcon className='h-3.5 w-3.5' />
+                </Button>
+              )}
 
               {/* 高清图片设置按钮 - Gemini Pro 和 Banana API */}
-              {(aiProvider === "gemini-pro" ||
-                aiProvider === "banana" ||
-                aiProvider === "banana-2.5") && (
+              {showImageSizeControls && (
                 <Button
                   ref={imageSizeButtonRef}
                   onClick={() => setIsImageSizeOpen((v) => !v)}
@@ -2507,9 +2568,7 @@ const AIChatDialog: React.FC = () => {
               )}
 
               {/* 思考级别按钮 - Gemini Pro 和 Banana API */}
-              {(aiProvider === "gemini-pro" ||
-                aiProvider === "banana" ||
-                aiProvider === "banana-2.5") && (
+              {showThinkingLevelControls && (
                 <Button
                   ref={thinkingLevelButtonRef}
                   onClick={() => setIsThinkingLevelOpen((v) => !v)}
@@ -2535,7 +2594,8 @@ const AIChatDialog: React.FC = () => {
                 </Button>
               )}
 
-              {isAspectOpen &&
+              {!isFastMode &&
+                isAspectOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
                   <div
@@ -2591,9 +2651,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 图像尺寸下拉菜单 - Gemini Pro 和 Banana API */}
-              {(aiProvider === "gemini-pro" ||
-                aiProvider === "banana" ||
-                aiProvider === "banana-2.5") &&
+              {showImageSizeControls &&
                 isImageSizeOpen &&
                 typeof document !== "undefined" &&
                 createPortal(
@@ -2642,9 +2700,7 @@ const AIChatDialog: React.FC = () => {
                 )}
 
               {/* 思考级别下拉菜单 - Gemini Pro 和 Banana API */}
-              {(aiProvider === "gemini-pro" ||
-                aiProvider === "banana" ||
-                aiProvider === "banana-2.5") &&
+              {showThinkingLevelControls &&
                 isThinkingLevelOpen &&
                 typeof document !== "undefined" &&
                 createPortal(

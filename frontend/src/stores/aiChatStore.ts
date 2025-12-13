@@ -151,6 +151,8 @@ let isHydratingNow = false;
 let refreshSessionsTimeout: NodeJS.Timeout | null = null;
 let legacyMigrationInProgress = false;
 
+type AutoModeMultiplier = 1 | 2 | 4 | 8;
+
 const toISOString = (value: Date | string | number | null | undefined): string => {
   if (value instanceof Date) return value.toISOString();
   if (value === null || value === undefined) return new Date().toISOString();
@@ -1280,6 +1282,7 @@ interface AIChatState {
   thinkingLevel: 'high' | 'low' | null;  // 思考级别（仅 Gemini 3）
   manualAIMode: ManualAIMode;
   aiProvider: AIProviderType;  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
+  autoModeMultiplier: AutoModeMultiplier;
 
   // 操作方法
   showDialog: () => void;
@@ -1363,6 +1366,7 @@ interface AIChatState {
   setThinkingLevel: (level: 'high' | 'low' | null) => void;  // 设置思考级别
   setManualAIMode: (mode: ManualAIMode) => void;
   setAIProvider: (provider: AIProviderType) => void;  // 设置AI提供商
+  setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
 
   // 重置状态
   resetState: () => void;
@@ -1528,6 +1532,7 @@ export const useAIChatStore = create<AIChatState>()(
   thinkingLevel: null,  // 默认不指定思考级别
   manualAIMode: 'auto',
   aiProvider: 'banana-2.5',  // 默认国内极速版
+  autoModeMultiplier: 1,
 
   // 对话框控制
   showDialog: () => set({ isVisible: true }),
@@ -4608,6 +4613,11 @@ export const useAIChatStore = create<AIChatState>()(
   setThinkingLevel: (level) => set({ thinkingLevel: level }),
   setManualAIMode: (mode) => set({ manualAIMode: mode }),
   setAIProvider: (provider) => set({ aiProvider: provider }),
+  setAutoModeMultiplier: (multiplier) => {
+    const allowed: AutoModeMultiplier[] = [1, 2, 4, 8];
+    const next = allowed.includes(multiplier) ? multiplier : 1;
+    set({ autoModeMultiplier: next });
+  },
 
   // 重置状态
   resetState: () => {
@@ -4691,6 +4701,7 @@ export const useAIChatStore = create<AIChatState>()(
         aspectRatio: state.aspectRatio,
         imageSize: state.imageSize,
         thinkingLevel: state.thinkingLevel,
+        autoModeMultiplier: state.autoModeMultiplier,
       })
     }
   )

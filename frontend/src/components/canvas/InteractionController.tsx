@@ -35,6 +35,21 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     let dragStartPanY = 0;
     let dragAnimationId: number | null = null;
 
+    const stopDragging = () => {
+      if (!isDragging) return;
+      isDragging = false;
+      isDraggingRef.current = false;
+      setDragging(false);
+      lastScreenPoint = null;
+      if (dragAnimationId) {
+        cancelAnimationFrame(dragAnimationId);
+        dragAnimationId = null;
+      }
+      if (canvas) {
+        canvas.style.cursor = getCursorForDrawMode(drawModeRef.current) || 'default';
+      }
+    };
+
     // 鼠标事件处理
     const handleMouseDown = (event: MouseEvent) => {
       // 只响应中键（button === 1）
@@ -93,18 +108,19 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     };
 
     const handleMouseUp = (event: MouseEvent) => {
-      if (event.button === 1 && isDragging) {
-        isDragging = false;
-        isDraggingRef.current = false; // 清除拖拽状态缓存
-        setDragging(false); // 通知canvasStore结束拖拽
-        lastScreenPoint = null;
-        canvas.style.cursor = getCursorForDrawMode(drawModeRef.current) || 'default';
-        
-        // 清理拖拽动画
-        if (dragAnimationId) {
-          cancelAnimationFrame(dragAnimationId);
-          dragAnimationId = null;
-        }
+      if (event.button === 1) {
+        stopDragging();
+      }
+    };
+
+    // 处理拖拽过程中鼠标离开画布或在窗口外释放中键的场景，避免 isDragging 卡住
+    const handleMouseLeave = () => {
+      stopDragging();
+    };
+
+    const handleWindowMouseUp = (event: MouseEvent) => {
+      if (event.button === 1) {
+        stopDragging();
       }
     };
 
@@ -158,13 +174,17 @@ const InteractionController: React.FC<InteractionControllerProps> = ({ canvasRef
     canvas.addEventListener('mousedown', handleMouseDown);
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseleave', handleMouseLeave);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('mouseup', handleWindowMouseUp);
 
     return () => {
       canvas.removeEventListener('mousedown', handleMouseDown);
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('mouseleave', handleMouseLeave);
       canvas.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
       
       // 清理未完成的动画帧，防止内存泄漏
       if (dragAnimationId) {
