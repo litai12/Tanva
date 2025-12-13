@@ -2013,6 +2013,89 @@ const AIChatDialog: React.FC = () => {
     };
   }, []);
 
+  // 🔥 对消息进行分组处理，支持并行生成的横向布局（必须在 early return 之前）
+  type MessageGroup = {
+    groupId: string;
+    userMessage: ChatMessage | null;
+    aiMessages: ChatMessage[];
+    isParallelGroup: boolean;
+  };
+
+  const groupedMessages = useMemo(() => {
+    const displayMessages = messages.slice(isMaximized ? -50 : -10);
+    const groups: MessageGroup[] = [];
+    const processedIds = new Set<string>();
+
+    for (const msg of displayMessages) {
+      if (processedIds.has(msg.id)) continue;
+
+      // 如果消息有 groupId，找出同组的所有消息
+      if (msg.groupId) {
+        const groupMessages = displayMessages.filter(m => m.groupId === msg.groupId);
+        const userMsg = groupMessages.find(m => m.type === 'user') || null;
+        const aiMsgs = groupMessages.filter(m => m.type === 'ai').sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+
+        // 标记所有同组消息为已处理
+        groupMessages.forEach(m => processedIds.add(m.id));
+
+        groups.push({
+          groupId: msg.groupId,
+          userMessage: userMsg,
+          aiMessages: aiMsgs,
+          isParallelGroup: aiMsgs.length > 1 || (aiMsgs[0]?.groupTotal ?? 1) > 1
+        });
+      } else {
+        // 单独的消息
+        processedIds.add(msg.id);
+        if (msg.type === 'user') {
+          groups.push({
+            groupId: msg.id,
+            userMessage: msg,
+            aiMessages: [],
+            isParallelGroup: false
+          });
+        } else {
+          groups.push({
+            groupId: msg.id,
+            userMessage: null,
+            aiMessages: [msg],
+            isParallelGroup: false
+          });
+        }
+      }
+    }
+
+    return groups;
+  }, [messages, isMaximized]);
+
+  // 🔥 计算彩雾状态（必须在 early return 之前）
+  const generatingTaskCountForAura = messages.filter(
+    (msg) => msg.type === "ai" && msg.generationStatus?.isGenerating
+  ).length;
+  const hasActiveAuraForEffect = generatingTaskCountForAura > 0 && !isMaximized;
+
+  // 控制彩雾挂载/卸载，避免静止状态出现
+  useEffect(() => {
+    if (hasActiveAuraForEffect) {
+      if (auraTimerRef.current) {
+        window.clearTimeout(auraTimerRef.current);
+        auraTimerRef.current = null;
+      }
+      setShowAura(true);
+      return;
+    }
+    auraTimerRef.current = window.setTimeout(() => {
+      setShowAura(false);
+      auraTimerRef.current = null;
+    }, 400);
+    return () => {
+      if (auraTimerRef.current) {
+        window.clearTimeout(auraTimerRef.current);
+        auraTimerRef.current = null;
+      }
+    };
+  }, [hasActiveAuraForEffect]);
+
   // 如果对话框不可见，不渲染（统一画板下始终可见时显示）
   if (!isVisible) return null;
 
@@ -2045,31 +2128,9 @@ const AIChatDialog: React.FC = () => {
   ).length;
 
   // 🔥 显示计数 = pendingTaskCount（包括未开始和生成中的任务）
-  const displayTaskCount = pendingTaskCount;
+  const _displayTaskCount = pendingTaskCount;
   // 🔥 回复状态背景：仅在任务进行中（生成阶段）时显示，最大化时暂停彩雾
   const hasActiveAura = generatingTaskCount > 0 && !isMaximized;
-
-  // 控制彩雾挂载/卸载，避免静止状态出现
-  useEffect(() => {
-    if (hasActiveAura) {
-      if (auraTimerRef.current) {
-        window.clearTimeout(auraTimerRef.current);
-        auraTimerRef.current = null;
-      }
-      setShowAura(true);
-      return;
-    }
-    auraTimerRef.current = window.setTimeout(() => {
-      setShowAura(false);
-      auraTimerRef.current = null;
-    }, 400);
-    return () => {
-      if (auraTimerRef.current) {
-        window.clearTimeout(auraTimerRef.current);
-        auraTimerRef.current = null;
-      }
-    };
-  }, [hasActiveAura]);
 
   // 计算拖拽时是否使用自定义位置
   const useDragPosition = showHistory && !isMaximized && dragOffsetX !== null;
@@ -3074,7 +3135,124 @@ const AIChatDialog: React.FC = () => {
                     </span>
                   </div>
                 </div>
-                {messages.slice(isMaximized ? -50 : -5).map((message) => {
+                {/* 🔥 使用分组渲染，支持并行生成的横向布局 */}
+                {groupedMessages.map((group) => {
+                  // 渲染用户消息
+                  const userMessage = group.userMessage;
+                  const userResendInfo = userMessage ? getResendInfoFromMessage(userMessage) : null;
+                  const userActionButtons = userMessage ? renderUserMessageActions(userMessage, userResendInfo) : null;
+
+                  // 渲染单个 AI 消息的图片/占位符
+                  const renderAiMessageImage = (message: ChatMessage, isCompact: boolean = false) => {
+                    const msgGenerationStatus = message.generationStatus;
+                    const msgExpectsImageOutput = Boolean(message.expectsImageOutput);
+
+                    const imageSrc =
+                      message.imageRemoteUrl ||
+                      (message.imageData
+                        ? message.imageData.startsWith("data:image")
+                          ? message.imageData
+                          : `data:image/png;base64,${message.imageData}`
+                        : undefined) ||
+                      (message.thumbnail
+                        ? message.thumbnail.startsWith("data:image")
+                          ? message.thumbnail
+                          : `data:image/png;base64,${message.thumbnail}`
+                        : undefined);
+
+                    const imageSize = isCompact ? 'w-28 h-28' : 'w-32 h-32';
+
+                    if (imageSrc) {
+                      return (
+                        <img
+                          src={imageSrc}
+                          alt={`AI生成的图像${message.groupIndex !== undefined ? ` ${message.groupIndex + 1}` : ''}`}
+                          className={`${imageSize} object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleImagePreview(imageSrc, "AI生成的图像");
+                          }}
+                          title='点击全屏预览'
+                        />
+                      );
+                    }
+
+                    if (msgExpectsImageOutput || msgGenerationStatus?.isGenerating) {
+                      return (
+                        <div className={`relative ${imageSize} rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden`}>
+                          <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
+                          <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-1 text-xs text-blue-600'>
+                            <Loader2 className='w-4 h-4 animate-spin text-blue-500' />
+                            <span className='font-medium text-center px-1'>
+                              {message.groupIndex !== undefined
+                                ? `${message.groupIndex + 1}/${message.groupTotal || '?'}`
+                                : msgGenerationStatus?.stage || "生成中"}
+                            </span>
+                            {typeof msgGenerationStatus?.progress === "number" && (
+                              <span className='text-[10px] text-blue-500'>
+                                {msgGenerationStatus.progress.toFixed(0)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  };
+
+                  return (
+                    <div key={group.groupId} className='mb-2'>
+                      {/* 用户消息 */}
+                      {userMessage && (
+                        <div className='p-2 text-sm text-black ml-3 mr-1'>
+                          <div
+                            className={cn(
+                              "relative text-sm text-black markdown-content leading-relaxed",
+                              "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
+                            )}
+                          >
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {userMessage.content}
+                            </ReactMarkdown>
+                            {userActionButtons}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI 消息 - 并行组横向布局 */}
+                      {group.aiMessages.length > 0 && (
+                        <div className='p-2 text-sm text-black mr-3'>
+                          {/* AI Header - 只显示一次 */}
+                          <div className='flex items-center gap-2 mb-2'>
+                            <img src='/Logo.svg' alt='Tanvas Logo' className='w-4 h-4' />
+                            <span className='text-sm font-bold text-black'>Tanvas</span>
+                            {group.isParallelGroup && (
+                              <span className='text-xs text-gray-400'>
+                                {group.aiMessages.length}/{group.aiMessages[0]?.groupTotal || group.aiMessages.length} 张
+                              </span>
+                            )}
+                          </div>
+
+                          {/* 🔥 并行组：横向排列图片 */}
+                          {group.isParallelGroup ? (
+                            <div className='mt-2'>
+                              <div className={cn(
+                                "inline-block rounded-lg p-3",
+                                "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
+                              )}>
+                                <div className='flex flex-wrap gap-2'>
+                                  {group.aiMessages.map((aiMsg) => (
+                                    <div key={aiMsg.id} className='flex-shrink-0'>
+                                      {renderAiMessageImage(aiMsg, true)}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            /* 单个 AI 消息：保持原有布局 */
+                            group.aiMessages.map((message) => {
                   const midjourneyMeta = message.metadata?.midjourney as
                     | MidjourneyMetadata
                     | undefined;
@@ -3887,6 +4065,12 @@ const AIChatDialog: React.FC = () => {
                             {message.content}
                           </ReactMarkdown>
                           {userActionButtons}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+                          )}
                         </div>
                       )}
                     </div>

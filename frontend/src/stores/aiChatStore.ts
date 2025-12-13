@@ -99,6 +99,10 @@ export interface ChatMessage {
     error: string | null;
     stage?: string;
   };
+  // 🔥 并行生成分组
+  groupId?: string;      // 所属批量生成组ID
+  groupIndex?: number;   // 在组内的位置 (0-based)
+  groupTotal?: number;   // 组内总数量
 }
 
 const formatMessageContentForLog = (content: string): string => {
@@ -1349,7 +1353,16 @@ interface AIChatState {
   processUserInput: (input: string) => Promise<void>;
   
   // 核心处理流程
-  executeProcessFlow: (input: string, isRetry?: boolean) => Promise<void>;
+  executeProcessFlow: (input: string, isRetry?: boolean, groupInfo?: { groupId: string; groupIndex: number; groupTotal: number }) => Promise<void>;
+
+  // 🔥 并行图片生成（使用预创建的消息）
+  executeParallelImageGeneration: (input: string, options: {
+    groupId: string;
+    groupIndex: number;
+    groupTotal: number;
+    userMessageId: string;
+    aiMessageId: string;
+  }) => Promise<void>;
 
   // 智能模式检测
   getAIMode: () => 'generate' | 'edit' | 'blend' | 'analyze' | 'analyzePdf' | 'text' | 'video' | 'vector';
@@ -4240,7 +4253,7 @@ export const useAIChatStore = create<AIChatState>()(
   },
 
   // 🔄 核心处理流程 - 可重试的执行逻辑
-  executeProcessFlow: async (input: string, isRetry: boolean = false) => {
+  executeProcessFlow: async (input: string, isRetry: boolean = false, groupInfo?: { groupId: string; groupIndex: number; groupTotal: number }) => {
     const state = get();
     const metrics = createProcessMetrics();
     logProcessStep(metrics, 'executeProcessFlow start');
@@ -4251,21 +4264,42 @@ export const useAIChatStore = create<AIChatState>()(
       contextManager.incrementIteration();
     }
 
+    // 🔥 并行生成时，只有第一个任务创建用户消息
+    const isParallelMode = !!groupInfo;
+    const isFirstInGroup = groupInfo?.groupIndex === 0;
+
     // 预先创建用户消息与占位AI消息，提供即时反馈
-    const pendingUserMessage = get().addMessage({
-      type: 'user',
-      content: input
-    });
+    let pendingUserMessage: ChatMessage;
+    if (isParallelMode && !isFirstInGroup) {
+      // 并行模式下，非第一个任务复用第一个任务的用户消息（不重复创建）
+      const existingUserMsg = get().messages.find(
+        m => m.type === 'user' && m.content === input && m.groupId === groupInfo.groupId
+      );
+      pendingUserMessage = existingUserMsg || get().addMessage({
+        type: 'user',
+        content: input,
+        groupId: groupInfo.groupId,
+        groupIndex: 0,
+        groupTotal: groupInfo.groupTotal
+      });
+    } else {
+      pendingUserMessage = get().addMessage({
+        type: 'user',
+        content: input,
+        ...(groupInfo && { groupId: groupInfo.groupId, groupIndex: 0, groupTotal: groupInfo.groupTotal })
+      });
+    }
 
     const pendingAiMessage = get().addMessage({
       type: 'ai',
-      content: '正在准备处理您的请求...',
+      content: isParallelMode ? `正在生成第 ${(groupInfo?.groupIndex ?? 0) + 1}/${groupInfo?.groupTotal ?? 1} 张...` : '正在准备处理您的请求...',
       generationStatus: {
         isGenerating: true,
         progress: 5,
         error: null,
         stage: '准备中'
-      }
+      },
+      ...(groupInfo && { groupId: groupInfo.groupId, groupIndex: groupInfo.groupIndex, groupTotal: groupInfo.groupTotal })
     });
 
     const messageOverride: MessageOverride = {
@@ -4532,6 +4566,7 @@ export const useAIChatStore = create<AIChatState>()(
   // 智能工具选择功能 - 统一入口（支持并行生成）
   processUserInput: async (input: string) => {
     const state = get();
+    const multiplier = state.autoModeMultiplier;
 
     // 🔥 移除全局锁定检查，允许并行生成
     // if (state.generationStatus.isGenerating) return;
@@ -4557,34 +4592,120 @@ export const useAIChatStore = create<AIChatState>()(
     // 🔥 不再设置全局生成状态，而是直接执行处理流程
     // 每个消息会有自己的生成状态
 
-    try {
-      // 执行核心处理流程（每个请求独立）
-      await get().executeProcessFlow(input, false);
+    // 🔥 根据 multiplier 决定是单次还是并行生成
+    if (multiplier === 1) {
+      // 单次生成 - 原有逻辑
+      try {
+        await get().executeProcessFlow(input, false);
+      } catch (error) {
+        let errorMessage = error instanceof Error ? error.message : '处理失败';
 
-    } catch (error) {
-      let errorMessage = error instanceof Error ? error.message : '处理失败';
+        if (errorMessage && errorMessage.length > 1000 && errorMessage.includes('iVBORw0KGgo')) {
+          console.warn('⚠️ 检测到Base64图像数据被当作错误消息，使用默认错误信息');
+          errorMessage = '图像处理失败，请重试';
+        }
 
-      // 🔒 安全检查：防止Base64图像数据被当作错误消息
-      if (errorMessage && errorMessage.length > 1000 && errorMessage.includes('iVBORw0KGgo')) {
-        console.warn('⚠️ 检测到Base64图像数据被当作错误消息，使用默认错误信息');
-        errorMessage = '图像处理失败，请重试';
+        const messages = get().messages;
+        const hasErrorSurface = messages.some((msg) =>
+          msg.type === 'ai' &&
+          msg.generationStatus?.stage === '已终止' &&
+          msg.generationStatus?.error === errorMessage
+        );
+        if (!hasErrorSurface) {
+          get().addMessage({
+            type: 'error',
+            content: `处理失败: ${errorMessage}`
+          });
+        }
+
+        console.error('❌ 智能处理异常:', error);
       }
+    } else {
+      // 🔥 并行生成 - 根据 multiplier 同时发起多个请求
+      const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      console.log(`🚀 [并行生成] 开始并行生成 ${multiplier} 张图片，groupId: ${groupId}`);
 
-      // 如果占位消息尚未写入错误，则补充一条错误提示
-      const messages = get().messages;
-      const hasErrorSurface = messages.some((msg) =>
-        msg.type === 'ai' &&
-        msg.generationStatus?.stage === '已终止' &&
-        msg.generationStatus?.error === errorMessage
-      );
-      if (!hasErrorSurface) {
-        get().addMessage({
-          type: 'error',
-          content: `处理失败: ${errorMessage}`
+      // 🔥 先创建用户消息，避免竞态条件
+      const userMessage = get().addMessage({
+        type: 'user',
+        content: input,
+        groupId,
+        groupIndex: 0,
+        groupTotal: multiplier
+      });
+
+      // 🔥 预先创建所有 AI 占位消息
+      const aiMessageIds: string[] = [];
+      for (let i = 0; i < multiplier; i++) {
+        const aiMsg = get().addMessage({
+          type: 'ai',
+          content: `正在生成第 ${i + 1}/${multiplier} 张...`,
+          generationStatus: {
+            isGenerating: true,
+            progress: 5,
+            error: null,
+            stage: '准备中'
+          },
+          groupId,
+          groupIndex: i,
+          groupTotal: multiplier,
+          expectsImageOutput: true
         });
+        aiMessageIds.push(aiMsg.id);
       }
 
-      console.error('❌ 智能处理异常:', error);
+      // 并行执行多个生成任务，传入预创建的消息 ID
+      const promises = aiMessageIds.map((aiMessageId, index) =>
+        get().executeParallelImageGeneration(input, {
+          groupId,
+          groupIndex: index,
+          groupTotal: multiplier,
+          userMessageId: userMessage.id,
+          aiMessageId
+        }).catch((error) => {
+          console.error(`❌ [并行生成] 第 ${index + 1} 个任务失败:`, error);
+          // 更新失败状态
+          get().updateMessageStatus(aiMessageId, {
+            isGenerating: false,
+            error: error instanceof Error ? error.message : '生成失败'
+          });
+          return null;
+        })
+      );
+
+      // 等待所有任务完成（不阻塞）
+      Promise.allSettled(promises).then((results) => {
+        const successCount = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
+        console.log(`✅ [并行生成] 完成，成功 ${successCount}/${multiplier}`);
+      });
+    }
+  },
+
+  // 🔥 并行图片生成 - 使用预创建的消息，直接调用 generateImage
+  executeParallelImageGeneration: async (input: string, options: {
+    groupId: string;
+    groupIndex: number;
+    groupTotal: number;
+    userMessageId: string;
+    aiMessageId: string;
+  }) => {
+    const { aiMessageId, userMessageId } = options;
+    const metrics = createProcessMetrics();
+    metrics.messageId = aiMessageId;
+    logProcessStep(metrics, `parallel generation ${options.groupIndex + 1}/${options.groupTotal} start`);
+
+    const messageOverride: MessageOverride = {
+      userMessageId,
+      aiMessageId
+    };
+
+    try {
+      // 直接调用 generateImage，跳过工具选择
+      await get().generateImage(input, { override: messageOverride, metrics });
+      logProcessStep(metrics, `parallel generation ${options.groupIndex + 1}/${options.groupTotal} done`);
+    } catch (error) {
+      logProcessStep(metrics, `parallel generation ${options.groupIndex + 1}/${options.groupTotal} error`);
+      throw error;
     }
   },
 
