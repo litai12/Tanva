@@ -853,7 +853,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const primarySource = img.imageData?.src ?? img.imageData?.url;
           const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
           const localDataUrl = extractLocalImageData(img.imageData);
-          const imageDataForCache = inlineSource || localDataUrl || cachedBeforeSelect?.imageData || null;
+          // 🔥 不再使用 cachedBeforeSelect?.imageData 作为 fallback，避免显示错误的图片
+          const imageDataForCache = inlineSource || localDataUrl || null;
           const remoteUrl = (() => {
             if (inlineSource) {
               return img.imageData?.url ?? cachedBeforeSelect?.remoteUrl ?? null;
@@ -864,15 +865,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (typeof img.imageData?.url === 'string' && img.imageData.url.length > 0) {
               return img.imageData.url;
             }
-            return cachedBeforeSelect?.remoteUrl ?? null;
+            return null; // 🔥 不再使用 cachedBeforeSelect?.remoteUrl
           })();
 
           // 将该图片作为最新缓存，并写入位置信息（中心通过bounds在需要时计算）
-          if (imageDataForCache) {
+          const dataToCache = imageDataForCache || remoteUrl;
+          if (dataToCache) {
             contextManager.cacheLatestImage(
-              imageDataForCache,
+              dataToCache,
               img.id,
-              cachedBeforeSelect?.prompt || '用户选择的图片',
+              '用户选择的图片',
               {
                 bounds: img.bounds,
                 layerId: img.layerId,
@@ -885,7 +887,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageId,
               hasInlineSource: !!inlineSource,
               hasLocalDataUrl: !!localDataUrl,
-              hadCachedImage: !!cachedBeforeSelect?.imageData,
               hasRemoteUrl: !!remoteUrl
             });
           }

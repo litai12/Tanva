@@ -466,9 +466,10 @@ export const useSelectionTool = ({
         const clickedImage = imageInstances.find(img => img.id === imageClicked);
         if (!clickedImage?.isSelected) {
           clearAllSelections();
-          onImageSelect(imageClicked);
-          logger.upload('选中图片:', imageClicked);
         }
+        // 🔥 始终调用 onImageSelect，确保 AI 对话框同步更新
+        onImageSelect(imageClicked);
+        logger.upload('选中图片:', imageClicked);
       }
       return { type: 'image', id: imageClicked };
     } else if (modelClicked) {
