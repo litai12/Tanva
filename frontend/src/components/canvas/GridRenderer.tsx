@@ -20,6 +20,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
+  const lastZoomRef = useRef(zoom); // 缓存上次的缩放值
   const dotRasterRef = useRef<paper.Raster | null>(null); // 点阵模式使用的单一 Raster
   const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
 
@@ -273,7 +274,13 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     if (showGrid) {
       // 可选：在任何样式下都叠加底色
       if (gridBgEnabled || gridStyle === GridStyle.SOLID) {
-        createSolidBackground(finalMinX, finalMaxX, finalMinY, finalMaxY, gridLayer);
+        // 背景必须覆盖完整视口，不能使用虚拟化后的裁剪尺寸，否则低缩放会露白
+        const bgPadding = Math.max(viewWidth, viewHeight) * 0.5 + effectivePadding;
+        const bgMinX = viewBounds.left - bgPadding;
+        const bgMaxX = viewBounds.right + bgPadding;
+        const bgMinY = viewBounds.top - bgPadding;
+        const bgMaxY = viewBounds.bottom + bgPadding;
+        createSolidBackground(bgMinX, bgMaxX, bgMinY, bgMaxY, gridLayer);
       }
 
       // 覆盖层（线条/点阵）
@@ -602,16 +609,25 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       Math.pow(panY - lastPanRef.current.y, 2)
     );
 
+    // 检测缩放是否变化
+    const zoomChanged = zoom !== lastZoomRef.current;
+
     // 根据网格样式调整重绘阈值
     const redrawThreshold = gridStyle === GridStyle.DOTS ? gridSize / 3 : gridSize / 2;
     const shouldRedrawFromPan = panDistance > redrawThreshold;
 
-    // 决定是否需要重绘
-    const shouldRedraw = shouldRedrawFromPan || (!isDragging && gridStyle === GridStyle.DOTS);
+    // 决定是否需要重绘：
+    // 1. 平移距离超过阈值
+    // 2. 点阵模式且非拖拽状态
+    // 3. 纯色模式且缩放变化（修复纯色背景脱离问题）
+    const shouldRedraw = shouldRedrawFromPan ||
+      (!isDragging && gridStyle === GridStyle.DOTS) ||
+      (zoomChanged && (gridStyle === GridStyle.SOLID || gridBgEnabled));
 
     if (isFirstRender) {
       createGrid(gridSize);
       lastPanRef.current = { x: panX, y: panY };
+      lastZoomRef.current = zoom;
       isInitializedRef.current = true;
       return;
     }
@@ -621,6 +637,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       const timeoutId = setTimeout(() => {
         createGrid(gridSize);
         lastPanRef.current = { x: panX, y: panY };
+        lastZoomRef.current = zoom;
       }, delay);
 
       return () => clearTimeout(timeoutId);
