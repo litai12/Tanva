@@ -1974,6 +1974,14 @@ function FlowInner() {
           : undefined;
 
       try {
+        console.log('🎬 [Flow] Sending Sora2 video request', {
+          nodeId,
+          quality: videoQuality,
+          aspectRatio: aspectRatioForAPI,
+          duration: durationSecondsForAPI,
+          referenceCount: referenceImageUrls.length,
+          promptPreview: finalPromptText.slice(0, 120),
+        });
         const videoResult = await requestSora2VideoGeneration(
           finalPromptText,
           referenceImageUrls,
@@ -1983,6 +1991,14 @@ function FlowInner() {
             durationSeconds: durationSecondsForAPI,
           }
         );
+        console.log('✅ [Flow] Sora2 video response received', {
+          nodeId,
+          videoUrl: videoResult.videoUrl,
+          thumbnail: videoResult.thumbnailUrl,
+          status: videoResult.status,
+          taskId: videoResult.taskId,
+          referencedUrls: videoResult.referencedUrls?.length,
+        });
         setNodes(ns => ns.map(n => {
           if (n.id !== nodeId) return n;
           const previousData = (n.data as any) || {};
@@ -2010,6 +2026,10 @@ function FlowInner() {
           };
         }));
       } catch (error) {
+        console.warn('❌ [Flow] Sora2 video request failed', {
+          nodeId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         const msg = error instanceof Error ? error.message : '视频生成失败';
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
       }

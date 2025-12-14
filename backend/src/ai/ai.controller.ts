@@ -815,10 +815,21 @@ export class AiController {
 
         if (isAdmin) {
           this.logger.log('🎬 Admin user, skipping watermark');
+          let proxiedUrl = result.videoUrl;
+          try {
+            const uploaded = await this.videoWatermarkService.uploadOriginalToOSS(result.videoUrl);
+            proxiedUrl = uploaded.url;
+            this.logger.log(
+              `✅ Admin video copied to OSS: ${proxiedUrl?.substring(0, 80)}...`,
+            );
+          } catch (error) {
+            this.logger.warn('⚠️ Admin video OSS copy failed, fallback to raw URL', error as any);
+          }
           return {
             ...result,
+            videoUrl: proxiedUrl,
             videoUrlRaw: result.videoUrl,
-            videoUrlWatermarked: result.videoUrl,
+            videoUrlWatermarked: proxiedUrl,
             watermarkSkipped: true,
           };
         }

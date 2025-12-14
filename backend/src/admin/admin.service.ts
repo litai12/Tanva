@@ -391,4 +391,61 @@ export class AdminService {
       data: { role },
     });
   }
+
+  // ==================== 系统设置 ====================
+
+  /**
+   * 获取所有系统设置
+   */
+  async getAllSettings() {
+    return this.prisma.systemSetting.findMany({
+      orderBy: { key: 'asc' },
+    });
+  }
+
+  /**
+   * 获取单个系统设置
+   */
+  async getSetting(key: string) {
+    return this.prisma.systemSetting.findUnique({
+      where: { key },
+    });
+  }
+
+  /**
+   * 更新或创建系统设置
+   */
+  async upsertSetting(
+    key: string,
+    value: string,
+    updatedBy: string,
+    description?: string,
+    metadata?: Record<string, any>,
+  ) {
+    return this.prisma.systemSetting.upsert({
+      where: { key },
+      update: {
+        value,
+        updatedBy,
+        description: description ?? undefined,
+        metadata: metadata ?? undefined,
+      },
+      create: {
+        key,
+        value,
+        description,
+        metadata,
+        updatedBy,
+      },
+    });
+  }
+
+  /**
+   * 删除系统设置
+   */
+  async deleteSetting(key: string) {
+    return this.prisma.systemSetting.delete({
+      where: { key },
+    });
+  }
 }

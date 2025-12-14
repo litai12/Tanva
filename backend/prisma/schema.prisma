@@ -187,3 +187,16 @@ model InvitationRedemption {
   @@index([codeId])
   @@index([inviteeUserId])
 }
+
+// ==================== 系统设置 ====================
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique      // 设置键名，如 "sora2_provider"
+  value       String                // 设置值
+  description String?               // 设置描述
+  metadata    Json?                 // 额外元数据
+  updatedBy   String?               // 最后更新者ID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

@@ -18,9 +18,10 @@ import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
 import { OssModule } from '../oss/oss.module';
 import { VideoWatermarkService } from './services/video-watermark.service';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
-  imports: [ConfigModule, UsersModule, CreditsModule, OssModule],
+  imports: [ConfigModule, UsersModule, CreditsModule, OssModule, PrismaModule],
   providers: [
     AiService,
     ImageGenerationService,

@@ -360,3 +360,43 @@ export async function getMyApiUsage(params?: {
   const response = await request(`/api/credits/usage?${searchParams}`);
   return response.json();
 }
+
+// ==================== 系统设置 ====================
+
+export interface SystemSetting {
+  id: string;
+  key: string;
+  value: string;
+  description: string | null;
+  metadata: Record<string, any> | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 获取所有系统设置
+export async function getSettings(): Promise<SystemSetting[]> {
+  const response = await request("/api/admin/settings");
+  return response.json();
+}
+
+// 获取单个系统设置
+export async function getSetting(key: string): Promise<SystemSetting> {
+  const response = await request(`/api/admin/settings/${key}`);
+  return response.json();
+}
+
+// 创建或更新系统设置
+export async function upsertSetting(data: {
+  key: string;
+  value: string;
+  description?: string;
+  metadata?: Record<string, any>;
+}): Promise<SystemSetting> {
+  const response = await request("/api/admin/settings", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(data),
+  });
+  return response.json();
+}

@@ -84,14 +84,12 @@ const FloatingHeader: React.FC = () => {
     const {
         gridStyle,
         gridSize,
-        gridDotSize,
         gridColor,
         gridBgColor,
         gridBgEnabled,
         zoomSensitivity,
         setGridStyle,
         setGridSize,
-        setGridDotSize,
         setGridColor,
         setGridBgColor,
         setGridBgEnabled,
@@ -133,7 +131,6 @@ const FloatingHeader: React.FC = () => {
     // 单位/比例功能已移除
     const [showMemoryDebug, setShowMemoryDebug] = useState(false);
     const [gridSizeInput, setGridSizeInput] = useState(String(gridSize));
-    const [gridDotSizeInput, setGridDotSizeInput] = useState(String(gridDotSize));
     const [saveFeedback, setSaveFeedback] = useState<'idle' | 'success' | 'error'>('idle');
     const saveFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasAppliedSavedAppearanceRef = useRef(false);
@@ -231,7 +228,6 @@ const FloatingHeader: React.FC = () => {
                 showGrid: boolean;
                 gridStyle: GridStyle;
                 gridSize: number;
-                gridDotSize: number;
                 gridColor: string;
                 gridBgColor: string;
                 gridBgEnabled: boolean;
@@ -246,10 +242,6 @@ const FloatingHeader: React.FC = () => {
                 setGridSize(saved.gridSize);
                 setGridSizeInput(String(saved.gridSize));
             }
-            if (typeof saved.gridDotSize === 'number' && saved.gridDotSize >= 1 && saved.gridDotSize <= 4) {
-                setGridDotSize(saved.gridDotSize);
-                setGridDotSizeInput(String(saved.gridDotSize));
-            }
             if (typeof saved.gridColor === 'string' && saved.gridColor.startsWith('#')) {
                 setGridColor(saved.gridColor);
             }
@@ -262,7 +254,7 @@ const FloatingHeader: React.FC = () => {
         } catch (error) {
             console.warn('[FloatingHeader] Failed to load saved appearance settings:', error);
         }
-    }, [setShowGrid, setGridStyle, setGridSize, setGridDotSize, setGridColor, setGridBgColor, setGridBgEnabled, setGridSizeInput, setGridDotSizeInput]);
+    }, [setShowGrid, setGridStyle, setGridSize, setGridColor, setGridBgColor, setGridBgEnabled, setGridSizeInput]);
 
     // 清理保存提示计时器
     useEffect(() => () => {
@@ -278,7 +270,6 @@ const FloatingHeader: React.FC = () => {
             showGrid,
             gridStyle,
             gridSize,
-            gridDotSize,
             gridColor,
             gridBgColor,
             gridBgEnabled,
@@ -296,7 +287,7 @@ const FloatingHeader: React.FC = () => {
             }
             saveFeedbackTimerRef.current = setTimeout(() => setSaveFeedback('idle'), 2200);
         }
-    }, [showGrid, gridStyle, gridSize, gridDotSize, gridColor, gridBgColor, gridBgEnabled]);
+    }, [showGrid, gridStyle, gridSize, gridColor, gridBgColor, gridBgEnabled]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('workspace');
     
@@ -304,10 +295,6 @@ const FloatingHeader: React.FC = () => {
     useEffect(() => {
         setGridSizeInput(String(gridSize));
     }, [gridSize]);
-    
-    useEffect(() => {
-        setGridDotSizeInput(String(gridDotSize));
-    }, [gridDotSize]);
 
     useEffect(() => {
         if (!isSettingsOpen) return;
@@ -328,17 +315,11 @@ const FloatingHeader: React.FC = () => {
             document.removeEventListener('keydown', handleKeyDown);
         };
     }, [isSettingsOpen]);
-    
+
     const commitGridSize = () => {
         const n = parseInt(gridSizeInput, 10);
         if (!isNaN(n) && n > 0 && n <= 200) setGridSize(n);
         else setGridSizeInput(String(gridSize));
-    };
-    
-    const commitGridDotSize = () => {
-        const n = parseInt(gridDotSizeInput, 10);
-        if (!isNaN(n) && n >= 1 && n <= 4) setGridDotSize(n);
-        else setGridDotSizeInput(String(gridDotSize));
     };
 
     const clearImageHistory = useImageHistoryStore((state) => state.clearHistory);
@@ -637,8 +618,7 @@ const FloatingHeader: React.FC = () => {
                                 <div className="text-sm font-medium text-slate-700">网格样式</div>
                                 <div className="mt-3 flex flex-wrap gap-2">
                                     {[
-                                        { value: GridStyle.LINES, label: '线条' },
-                                        { value: GridStyle.DOTS, label: '点阵' },
+                                        { value: GridStyle.LINES, label: '网格' },
                                         { value: GridStyle.SOLID, label: '纯色' }
                                     ].map((option) => (
                                         <button
@@ -658,7 +638,7 @@ const FloatingHeader: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="grid gap-3 sm:grid-cols-2">
+                            <div>
                                 <label className="flex flex-col gap-1 text-xs text-slate-500">
                                     <span className="text-xs font-medium text-slate-600">网格间距(px)</span>
                                     <input
@@ -676,25 +656,6 @@ const FloatingHeader: React.FC = () => {
                                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                                     />
                                 </label>
-                                {gridStyle === GridStyle.DOTS && (
-                                    <label className="flex flex-col gap-1 text-xs text-slate-500">
-                                        <span className="text-xs font-medium text-slate-600">点阵尺寸(px)</span>
-                                        <input
-                                            type="number"
-                                            min={1}
-                                            max={4}
-                                            value={gridDotSizeInput}
-                                            onChange={(e) => setGridDotSizeInput(e.target.value)}
-                                            onBlur={commitGridDotSize}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') commitGridDotSize();
-                                                if (e.key === 'Escape') setGridDotSizeInput(String(gridDotSize));
-                                                e.stopPropagation();
-                                            }}
-                                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                                        />
-                                    </label>
-                                )}
                             </div>
                         </div>
 

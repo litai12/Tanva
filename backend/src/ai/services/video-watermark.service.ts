@@ -3,7 +3,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { spawn, execSync } from "child_process";
+import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import * as path from "path";
 import * as fs from "fs";
@@ -160,6 +160,106 @@ export class VideoWatermarkService {
       return { url, key, durationMs: elapsed };
     } finally {
       // 清理临时文件
+      try {
+        if (fs.existsSync(tempFile)) {
+          fs.unlinkSync(tempFile);
+        }
+      } catch (e) {
+        this.logger.warn(`清理临时文件失败: ${tempFile}`);
+      }
+    }
+  }
+
+  /**
+   * 将原始视频无水印上传到 OSS（仅做转存，确保可跨域访问）
+   */
+  async uploadOriginalToOSS(
+    sourceUrl: string,
+    options?: VideoWatermarkOptions
+  ): Promise<{ url: string; key: string; durationMs: number }> {
+    const started = Date.now();
+    const timeoutMs = options?.timeoutMs ?? this.DEFAULT_TIMEOUT;
+    const key =
+      options?.ossKey ||
+      `videos/raw/${this.buildDatePrefix()}/video-${this.safeRandomId()}.mp4`;
+
+    const tempDir = os.tmpdir();
+    const tempFile = path.join(tempDir, `raw-${this.safeRandomId()}.mp4`);
+
+    // 纯复制流（不加水印），保持原视频编码，开启 faststart 方便前端加载
+    const ffArgs = [
+      "-y",
+      "-i",
+      sourceUrl,
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      tempFile,
+    ];
+
+    this.logger.log(`🎥 Start passthrough upload -> temp: ${tempFile}`);
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const ffmpeg = spawn("ffmpeg", ffArgs, {
+          stdio: ["ignore", "ignore", "pipe"],
+        });
+
+        const stderrChunks: Buffer[] = [];
+        ffmpeg.stderr?.on("data", (chunk) => {
+          if (stderrChunks.length < 10) stderrChunks.push(Buffer.from(chunk));
+        });
+
+        const timer = setTimeout(() => {
+          ffmpeg.kill("SIGKILL");
+          reject(new ServiceUnavailableException("ffmpeg timeout"));
+        }, timeoutMs);
+
+        ffmpeg.on("error", (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+
+        ffmpeg.on("close", (code) => {
+          clearTimeout(timer);
+          if (code === 0) {
+            resolve();
+          } else {
+            const stderr = Buffer.concat(stderrChunks).toString("utf8");
+            reject(
+              new ServiceUnavailableException(
+                `ffmpeg exited with code ${code}${
+                  stderr ? `: ${stderr.slice(-400)}` : ""
+                }`
+              )
+            );
+          }
+        });
+      });
+
+      if (!fs.existsSync(tempFile)) {
+        throw new ServiceUnavailableException("ffmpeg 未生成输出文件");
+      }
+
+      this.logger.log(`🎥 Uploading raw video to OSS: ${key}`);
+      const { url } = await this.oss.putStream(
+        key,
+        fs.createReadStream(tempFile),
+        {
+          mime: "video/mp4",
+          timeout: 120000,
+          meta: { uid: 0, pid: 0 },
+          callback: undefined as unknown as OSS.ObjectCallback,
+        }
+      );
+
+      const elapsed = Date.now() - started;
+      this.logger.log(
+        `✅ Video uploaded without watermark: ${key} (${elapsed}ms)`
+      );
+      return { url, key, durationMs: elapsed };
+    } finally {
       try {
         if (fs.existsSync(tempFile)) {
           fs.unlinkSync(tempFile);

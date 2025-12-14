@@ -167,4 +167,40 @@ export class AdminController {
     this.checkAdmin(req);
     return this.creditsService.getAllPricing();
   }
+
+  // ==================== 系统设置 ====================
+
+  @Get('settings')
+  @ApiOperation({ summary: '获取所有系统设置' })
+  async getAllSettings(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.adminService.getAllSettings();
+  }
+
+  @Get('settings/:key')
+  @ApiOperation({ summary: '获取单个系统设置' })
+  async getSetting(@Request() req: AuthenticatedRequest, @Param('key') key: string) {
+    this.checkAdmin(req);
+    const setting = await this.adminService.getSetting(key);
+    if (!setting) {
+      throw new NotFoundException('设置项不存在');
+    }
+    return setting;
+  }
+
+  @Post('settings')
+  @ApiOperation({ summary: '创建或更新系统设置' })
+  async upsertSetting(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: { key: string; value: string; description?: string; metadata?: Record<string, any> },
+  ) {
+    this.checkAdmin(req);
+    return this.adminService.upsertSetting(
+      dto.key,
+      dto.value,
+      req.user.id,
+      dto.description,
+      dto.metadata,
+    );
+  }
 }

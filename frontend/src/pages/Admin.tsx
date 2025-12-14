@@ -15,12 +15,15 @@ import {
   listInvites,
   generateInvites,
   disableInvite,
+  getSettings,
+  upsertSetting,
   type DashboardStats,
   type UserWithCredits,
   type ApiUsageStats,
   type ApiUsageRecord,
   type Pagination,
   type InvitationCode,
+  type SystemSetting,
 } from "@/services/adminApi";
 
 // 统计卡片组件
@@ -886,12 +889,146 @@ function InvitesTab() {
   );
 }
 
+// Sora2 供应商选项
+const SORA2_PROVIDER_OPTIONS = [
+  { value: "auto", label: "自动切换", description: "优先使用极速Sora2，失败后自动切换到普通Sora2" },
+  { value: "v2", label: "极速Sora2", description: "强制使用极速Sora2 (t8star.cn)" },
+  { value: "legacy", label: "普通Sora2", description: "强制使用普通Sora2 (147ai.com)" },
+];
+
+// 系统设置 Tab
+function SettingsTab() {
+  const [settings, setSettings] = useState<SystemSetting[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [sora2Provider, setSora2Provider] = useState("auto");
+
+  const loadSettings = async () => {
+    setLoading(true);
+    try {
+      const result = await getSettings();
+      setSettings(result);
+      // 找到 sora2_provider 设置
+      const sora2Setting = result.find((s) => s.key === "sora2_provider");
+      if (sora2Setting) {
+        setSora2Provider(sora2Setting.value);
+      }
+    } catch (error) {
+      console.error("加载设置失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const handleSaveSora2Provider = async () => {
+    setSaving(true);
+    try {
+      await upsertSetting({
+        key: "sora2_provider",
+        value: sora2Provider,
+        description: "Sora2 视频生成 API 供应商选择",
+      });
+      alert("保存成功");
+      loadSettings();
+    } catch (error: any) {
+      alert(error.message || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <div className='text-center py-8 text-gray-500'>加载中...</div>;
+  }
+
+  return (
+    <div className='space-y-6'>
+      {/* Sora2 供应商设置 */}
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <h3 className='text-lg font-semibold mb-4'>Sora2 视频生成设置</h3>
+        <p className='text-sm text-gray-500 mb-4'>
+          选择视频生成时使用的 API 供应商。自动模式会优先使用极速Sora2，失败后自动切换到普通Sora2。
+        </p>
+        <div className='space-y-3'>
+          {SORA2_PROVIDER_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition ${
+                sora2Provider === option.value
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-gray-200 hover:border-gray-300"
+              }`}
+            >
+              <input
+                type='radio'
+                name='sora2Provider'
+                value={option.value}
+                checked={sora2Provider === option.value}
+                onChange={(e) => setSora2Provider(e.target.value)}
+                className='mt-1'
+              />
+              <div>
+                <div className='font-medium'>{option.label}</div>
+                <div className='text-sm text-gray-500'>{option.description}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div className='mt-4'>
+          <Button onClick={handleSaveSora2Provider} disabled={saving}>
+            {saving ? "保存中..." : "保存设置"}
+          </Button>
+        </div>
+      </div>
+
+      {/* 当前设置列表 */}
+      <div className='bg-white rounded-lg border p-6 shadow-sm'>
+        <h3 className='text-lg font-semibold mb-4'>所有系统设置</h3>
+        {settings.length === 0 ? (
+          <p className='text-gray-500'>暂无设置</p>
+        ) : (
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
+              <tr>
+                <th className='px-4 py-2 text-left'>键名</th>
+                <th className='px-4 py-2 text-left'>值</th>
+                <th className='px-4 py-2 text-left'>描述</th>
+                <th className='px-4 py-2 text-left'>更新时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {settings.map((setting) => (
+                <tr key={setting.id} className='border-t'>
+                  <td className='px-4 py-2 font-mono text-xs'>{setting.key}</td>
+                  <td className='px-4 py-2'>
+                    <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
+                      {setting.value}
+                    </span>
+                  </td>
+                  <td className='px-4 py-2 text-gray-500'>{setting.description || "-"}</td>
+                  <td className='px-4 py-2 text-xs text-gray-400'>
+                    {new Date(setting.updatedAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // 主页面
 export default function Admin() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "users" | "api-stats" | "api-records" | "invites"
+    "dashboard" | "users" | "api-stats" | "api-records" | "invites" | "settings"
   >("dashboard");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -935,6 +1072,7 @@ export default function Admin() {
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
     { key: "invites", label: "邀请码" },
+    { key: "settings", label: "系统设置" },
   ] as const;
 
   return (
@@ -1009,6 +1147,7 @@ export default function Admin() {
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
         {activeTab === "invites" && <InvitesTab />}
+        {activeTab === "settings" && <SettingsTab />}
       </main>
     </div>
   );
