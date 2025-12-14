@@ -12,8 +12,8 @@ import {
   Sparkles,
   EyeOff,
   Wand2,
-  Copy,
-  Box,
+  ArrowRightLeft,
+  Rotate3d,
   Crop,
   ImageUp,
 } from "lucide-react";
@@ -1261,6 +1261,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }}
         >
           <div className='flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
+            {/* 暂时隐藏：添加到AI对话框进行编辑按钮
             <Button
               variant='outline'
               size='sm'
@@ -1271,6 +1272,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             >
               <Sparkles className={sharedIconClass} />
             </Button>
+            */}
 
             <Button
               variant='outline'
@@ -1300,7 +1302,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               {isConvertingTo3D ? (
                 <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
-                <Box className={sharedIconClass} />
+                <Rotate3d className={sharedIconClass} />
               )}
             </Button>
 
@@ -1363,7 +1365,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               title='复制到Flow为Image节点'
               style={sharedButtonStyle}
             >
-              <Copy className={sharedIconClass} />
+              <ArrowRightLeft className={sharedIconClass} />
             </Button>
           </div>
         </div>
