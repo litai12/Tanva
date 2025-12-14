@@ -35,7 +35,8 @@ import {
     Eye,
     EyeOff,
     Code,
-    FolderOpen
+    FolderOpen,
+    Send
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
@@ -98,7 +99,7 @@ const FloatingHeader: React.FC = () => {
     } = useCanvasStore();
 
     // AI 配置
-    const { imageOnly, setImageOnly, aiProvider, setAIProvider } = useAIChatStore();
+    const { imageOnly, setImageOnly, aiProvider, setAIProvider, sendShortcut, setSendShortcut } = useAIChatStore();
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
@@ -467,6 +468,10 @@ const FloatingHeader: React.FC = () => {
         }
         return sliced;
     }, [projects, currentProject?.id]);
+    const sendShortcutOptions = [
+        { value: 'enter' as const, label: '回车发送', description: 'Enter 发送，Shift+Enter 换行' },
+        { value: 'mod-enter' as const, label: 'Ctrl/Cmd + Enter', description: '回车换行，Ctrl/Cmd + Enter 发送' },
+    ];
     const renderSettingsContent = () => {
         switch (activeSettingsSection) {
             case 'workspace':
@@ -770,6 +775,40 @@ const FloatingHeader: React.FC = () => {
                                 onCheckedChange={setImageOnly}
                                 className="h-5 w-9"
                             />
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
+                            <div className="flex items-start gap-2 mb-3">
+                                <Send className="h-4 w-4 text-blue-600" />
+                                <div>
+                                    <div className="text-sm font-medium text-slate-700">发送快捷键</div>
+                                    <div className="text-xs text-slate-500">选择聊天输入框的发送习惯。</div>
+                                </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                {sendShortcutOptions.map((option) => {
+                                    const active = sendShortcut === option.value;
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setSendShortcut(option.value)}
+                                            className={cn(
+                                                "w-full rounded-xl border px-3 py-3 text-left transition-all",
+                                                active
+                                                    ? "border-blue-500 bg-blue-50 shadow-sm"
+                                                    : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40"
+                                            )}
+                                        >
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="text-sm font-medium text-slate-700">{option.label}</div>
+                                                {active && <Check className="h-4 w-4 text-blue-600" />}
+                                            </div>
+                                            <div className="mt-1 text-xs text-slate-500">{option.description}</div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">

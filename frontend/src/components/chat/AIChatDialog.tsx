@@ -288,6 +288,7 @@ const AIChatDialog: React.FC = () => {
     setAIProvider,
     autoModeMultiplier,
     setAutoModeMultiplier,
+    sendShortcut,
     executeMidjourneyAction,
   } = useAIChatStore();
   const focusMode = useUIStore((state) => state.focusMode);
@@ -1752,11 +1753,20 @@ const AIChatDialog: React.FC = () => {
 
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // 发送快捷键：Ctrl/Cmd + Enter；普通 Enter 保留换行
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      handleSend();
-      return;
+    if (e.key === "Enter") {
+      const isModKey = e.ctrlKey || e.metaKey;
+      if (sendShortcut === "enter") {
+        // Enter 直接发送；Shift+Enter 继续换行
+        if (!e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+          return;
+        }
+      } else if (sendShortcut === "mod-enter" && isModKey) {
+        e.preventDefault();
+        handleSend();
+        return;
+      }
     }
     if (e.key === "Escape") {
       hideDialog();
@@ -2131,6 +2141,11 @@ const AIChatDialog: React.FC = () => {
   const _displayTaskCount = pendingTaskCount;
   // 🔥 回复状态背景：仅在任务进行中（生成阶段）时显示，最大化时暂停彩雾
   const hasActiveAura = generatingTaskCount > 0 && !isMaximized;
+
+  const sendShortcutHint =
+    sendShortcut === "enter"
+      ? "快捷键：Enter 发送，Shift+Enter 换行"
+      : "快捷键：Ctrl/Cmd + Enter 发送，Enter 换行";
 
   // 计算拖拽时是否使用自定义位置
   const useDragPosition = showHistory && !isMaximized && dragOffsetX !== null;
@@ -2919,6 +2934,7 @@ const AIChatDialog: React.FC = () => {
                 disabled={!canSend}
                 size='sm'
                 variant='outline'
+                title={sendShortcutHint}
                 className={cn(
                   "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
                   "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",

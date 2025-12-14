@@ -157,6 +157,7 @@ let refreshSessionsTimeout: NodeJS.Timeout | null = null;
 let legacyMigrationInProgress = false;
 
 type AutoModeMultiplier = 1 | 2 | 4 | 8;
+export type SendShortcut = 'enter' | 'mod-enter';
 
 const toISOString = (value: Date | string | number | null | undefined): string => {
   if (value instanceof Date) return value.toISOString();
@@ -1357,6 +1358,7 @@ interface AIChatState {
   manualAIMode: ManualAIMode;
   aiProvider: AIProviderType;  // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
   autoModeMultiplier: AutoModeMultiplier;
+  sendShortcut: SendShortcut;
 
   // 操作方法
   showDialog: () => void;
@@ -1453,6 +1455,7 @@ interface AIChatState {
   setManualAIMode: (mode: ManualAIMode) => void;
   setAIProvider: (provider: AIProviderType) => void;  // 设置AI提供商
   setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
+  setSendShortcut: (shortcut: SendShortcut) => void;
 
   // 重置状态
   resetState: () => void;
@@ -1622,6 +1625,7 @@ export const useAIChatStore = create<AIChatState>()(
   manualAIMode: 'auto',
   aiProvider: 'banana-2.5',  // 默认国内极速版
   autoModeMultiplier: 1,
+  sendShortcut: 'enter',
 
   // 对话框控制
   showDialog: () => set({ isVisible: true }),
@@ -5004,6 +5008,10 @@ export const useAIChatStore = create<AIChatState>()(
     const next = allowed.includes(multiplier) ? multiplier : 1;
     set({ autoModeMultiplier: next });
   },
+  setSendShortcut: (shortcut) => {
+    const next = shortcut === 'enter' ? 'enter' : 'mod-enter';
+    set({ sendShortcut: next });
+  },
 
   // 重置状态
   resetState: () => {
@@ -5088,6 +5096,7 @@ export const useAIChatStore = create<AIChatState>()(
         imageSize: state.imageSize,
         thinkingLevel: state.thinkingLevel,
         autoModeMultiplier: state.autoModeMultiplier,
+        sendShortcut: state.sendShortcut,
       })
     }
   )
