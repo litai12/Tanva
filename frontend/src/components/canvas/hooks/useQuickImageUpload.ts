@@ -103,6 +103,28 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         }
     }, []);
 
+    // 🔥 生成类图片的行排布状态，确保 X4 等并行批次横向排版、批次之间按行下移
+    const generationLayoutRef = useRef<{
+        baseAnchor: { x: number; y: number } | null;
+        nextRow: number;
+        rowAssignments: Map<string, { rowIndex: number; rowSpan: number; columns: number }>;
+    }>({
+        baseAnchor: null,
+        nextRow: 0,
+        rowAssignments: new Map(),
+    });
+
+    const allocateRowForBatch = useCallback((batchKey: string, columns: number, rowsNeeded: number) => {
+        const state = generationLayoutRef.current;
+        let assignment = state.rowAssignments.get(batchKey);
+        if (!assignment) {
+            assignment = { rowIndex: state.nextRow, rowSpan: rowsNeeded, columns };
+            state.rowAssignments.set(batchKey, assignment);
+            state.nextRow += rowsNeeded;
+        }
+        return assignment;
+    }, []);
+
     // ========== 智能排版工具函数 ==========
     
     // 获取画布上所有图像的位置信息（包括正在加载中的）
@@ -182,7 +204,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         expectedWidth: number,
         expectedHeight: number,
         operationType?: string,
-        currentImageId?: string
+        currentImageId?: string,
+        preferHorizontal?: boolean  // 🔥 新增：是否优先横向排列
     ): paper.Point => {
         const spacing = useUIStore.getState().smartPlacementOffset || 778;
         const verticalStep = Math.max(spacing, expectedHeight + 16);
@@ -217,16 +240,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         while (doesOverlap(position) && attempts < maxAttempts) {
             attempts += 1;
 
-            switch (operationType) {
-                case 'edit':
-                case 'blend':
-                    position = position.add(new paper.Point(horizontalStep, 0));
-                    break;
-                case 'generate':
-                case 'manual':
-                default:
-                    position = position.add(new paper.Point(0, verticalStep));
-                    break;
+            // 🔥 如果指定了横向排列优先，或者是 edit/blend 类型，则横向偏移
+            if (preferHorizontal || operationType === 'edit' || operationType === 'blend') {
+                position = position.add(new paper.Point(horizontalStep, 0));
+            } else {
+                // generate/manual 默认向下偏移
+                position = position.add(new paper.Point(0, verticalStep));
             }
         }
 
@@ -239,26 +258,31 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         operationType: string, 
         sourceImageId?: string,
         sourceImages?: string[],
-        currentImageId?: string
+        currentImageId?: string,
+        layoutContext?: {
+            groupId?: string;
+            groupIndex?: number;
+            groupTotal?: number;
+            anchorCenter?: { x: number; y: number } | null;
+            preferHorizontal?: boolean;
+        }
     ) => {
         const getSpacing = () => useUIStore.getState().smartPlacementOffset || 778;
         const existingImages = getAllCanvasImages();
 
+        // 如果画布上没有任何图片，重置行分配状态，避免旧状态干扰
+        if (existingImages.length === 0 && pendingImagesRef.current.length === 0) {
+            generationLayoutRef.current.rowAssignments.clear();
+            generationLayoutRef.current.nextRow = 0;
+            generationLayoutRef.current.baseAnchor = null;
+        }
+
         switch (operationType) {
             case 'generate': {
-                // 生成图：默认向下排列（若未提供smartPosition）
                 const spacing = getSpacing();
-                const genImages = existingImages.filter(img => 
-                    img.operationType === 'generate' || !img.operationType
-                );
-                let index = genImages.length;
-                if (currentImageId) {
-                    const foundIndex = genImages.findIndex(img => img.id === currentImageId);
-                    if (foundIndex >= 0) {
-                        index = foundIndex;
-                    }
-                }
-                // 🔥 如果 currentImageId 包含占位符ID信息，尝试从占位符获取位置
+                const viewCenter = paper.view?.center ?? new paper.Point(0, 0);
+
+                // 如果已有同名占位符，直接复用其位置，避免重复计算导致跳动
                 if (currentImageId && currentImageId.startsWith('ai-placeholder-')) {
                     const placeholder = predictedPlaceholdersRef.current.get(currentImageId);
                     if (placeholder && placeholder.data?.bounds) {
@@ -269,13 +293,60 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         };
                     }
                 }
-                const gpos = { x: 0, y: index * spacing };
-                return gpos;
+
+                const groupId = layoutContext?.groupId;
+                const groupIndex = Math.max(0, layoutContext?.groupIndex ?? 0);
+                const groupTotal = Math.max(1, layoutContext?.groupTotal ?? 1);
+                // X4 等并行模式：一行展示 groupTotal 张（最多 4 张），后续批次自动换行
+                const columns = groupTotal > 1 ? Math.min(4, Math.max(1, groupTotal)) : 1;
+                const rowsNeeded = Math.max(1, Math.ceil(groupTotal / columns));
+                const batchKey = groupId || currentImageId || `generate-${existingImages.length}-${Date.now()}`;
+
+                // 初始化全局锚点：优先使用传入的 groupAnchor/center，其次视口中心
+                if (!generationLayoutRef.current.baseAnchor) {
+                    const anchor = layoutContext?.anchorCenter;
+                    if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
+                        generationLayoutRef.current.baseAnchor = { x: anchor.x, y: anchor.y };
+                    } else {
+                        generationLayoutRef.current.baseAnchor = { x: viewCenter.x, y: viewCenter.y };
+                    }
+                }
+                const anchor = generationLayoutRef.current.baseAnchor ?? { x: viewCenter.x, y: viewCenter.y };
+
+                // 为当前批次分配行号，确保每批次占用独立行
+                const assignment = allocateRowForBatch(batchKey, columns, rowsNeeded);
+                const rowIndex = assignment.rowIndex + Math.floor(groupIndex / columns);
+                const colIndex = Math.min(columns - 1, Math.max(0, groupIndex % columns));
+
+                return {
+                    x: anchor.x + (colIndex - (columns - 1) / 2) * spacing,
+                    y: anchor.y + rowIndex * spacing
+                };
             }
 
             case 'edit': {
-                // 编辑图：基于原图向右偏移
                 const spacing = getSpacing();
+                const groupTotal = Math.max(1, layoutContext?.groupTotal ?? 1);
+                const groupIndex = Math.max(0, layoutContext?.groupIndex ?? 0);
+                const columns = groupTotal > 1 ? Math.min(4, groupTotal) : 1;
+
+                // 并行编辑：按行列排布，锚点优先用传入 anchor，其次源图中心，最后视口中心
+                if (groupTotal > 1) {
+                    const sourceImage = sourceImageId ? findImageById(sourceImageId) : null;
+                    const anchor = layoutContext?.anchorCenter
+                        || (sourceImage ? { x: sourceImage.x, y: sourceImage.y } : null)
+                        || (paper.view?.center ? { x: paper.view.center.x, y: paper.view.center.y } : { x: 0, y: 0 });
+
+                    const rowIndex = Math.floor(groupIndex / columns);
+                    const colIndex = groupIndex % columns;
+
+                    return {
+                        x: anchor.x + (colIndex - (columns - 1) / 2) * spacing,
+                        y: anchor.y + rowIndex * spacing
+                    };
+                }
+
+                // 单张编辑：沿用原逻辑向右偏移源图
                 if (sourceImageId) {
                     const sourceImage = findImageById(sourceImageId);
                     if (sourceImage) {
@@ -308,7 +379,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const defaultPosition = { x: 0, y: 0 };
                 return defaultPosition;
         }
-    }, [getAllCanvasImages, findImageById]);
+    }, [getAllCanvasImages, findImageById, allocateRowForBatch]);
 
     const showPredictedPlaceholder = useCallback((params: {
         placeholderId: string;
@@ -321,6 +392,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         smartPosition?: { x: number; y: number };
         sourceImageId?: string;
         sourceImages?: string[];
+        groupId?: string;
+        groupIndex?: number;
+        groupTotal?: number;
+        preferHorizontal?: boolean;
+        groupAnchor?: { x: number; y: number } | null;
     }) => {
         if (!params?.placeholderId) return;
 
@@ -337,6 +413,14 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const minSize = 48;
         const width = Math.max(params.width || 0, minSize);
         const height = Math.max(params.height || 0, minSize);
+        const preferHorizontal = params.preferHorizontal || (params.groupTotal ?? 1) > 1;
+        const layoutContext = {
+            groupId: params.groupId,
+            groupIndex: params.groupIndex,
+            groupTotal: params.groupTotal,
+            anchorCenter: params.groupAnchor ?? params.center ?? params.smartPosition ?? null,
+            preferHorizontal
+        };
 
         const resolveCenter = (): { x: number; y: number } | null => {
             let base = params.center ?? params.smartPosition ?? null;
@@ -346,7 +430,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     params.operationType || 'generate',
                     params.sourceImageId,
                     params.sourceImages,
-                    params.placeholderId
+                    params.placeholderId,
+                    layoutContext
                 );
                 if (smart && Number.isFinite(smart.x) && Number.isFinite(smart.y)) {
                     base = { x: smart.x, y: smart.y };
@@ -378,7 +463,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 width,
                 height,
                 params.operationType,
-                params.placeholderId
+                params.placeholderId,
+                preferHorizontal
             );
         } catch (e) {
             console.warn('🎯 [QuickUpload] 占位符防碰撞计算失败，使用原始位置', e);
@@ -593,6 +679,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         extraOptions?: {
             videoInfo?: PendingImageEntry['videoInfo'];
             placeholderId?: string;
+            preferHorizontal?: boolean;  // 🔥 新增：是否优先横向排列
         }
     ) => {
         if (!imagePayload) {
@@ -680,6 +767,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
             const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
+            const preferHorizontal = extraOptions?.preferHorizontal ?? false;  // 🔥 获取横向排列偏好
             let targetPosition: paper.Point;
             let pendingEntry: PendingImageEntry | null = null;
 
@@ -711,7 +799,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
                 pendingEntry = registerPending(desiredPoint);
-                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, pendingOperationType, imageId);
+                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, pendingOperationType, imageId, preferHorizontal);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -724,7 +812,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             } else if (placeholderCenter) {
                 pendingEntry = registerPending(placeholderCenter);
-                const adjustedPoint = findNonOverlappingPosition(placeholderCenter, baseWidth, baseHeight, pendingOperationType, imageId);
+                const adjustedPoint = findNonOverlappingPosition(placeholderCenter, baseWidth, baseHeight, pendingOperationType, imageId, preferHorizontal);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -743,7 +831,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     pendingEntry.x = desiredPoint.x;
                     pendingEntry.y = desiredPoint.y;
                 }
-                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, operationType, imageId);
+                const adjustedPoint = findNonOverlappingPosition(desiredPoint, baseWidth, baseHeight, operationType, imageId, preferHorizontal);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -760,7 +848,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     : new paper.Point(0, 0);
                 const centerPoint = new paper.Point(centerSource.x, centerSource.y);
                 pendingEntry = registerPending(centerPoint);
-                const adjustedPoint = findNonOverlappingPosition(centerPoint, baseWidth, baseHeight, 'manual', imageId);
+                const adjustedPoint = findNonOverlappingPosition(centerPoint, baseWidth, baseHeight, 'manual', imageId, preferHorizontal);
                 targetPosition = adjustedPoint;
                 if (pendingEntry) {
                     pendingEntry.x = adjustedPoint.x;
@@ -964,7 +1052,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                             // 使用 expectedWidth 和 expectedHeight，如果没有则使用原始尺寸
                             const widthForPosition = expectedWidth || originalWidth || 768;
                             const heightForPosition = expectedHeight || originalHeight || 768;
-                            const adjustedPoint = findNonOverlappingPosition(desiredPoint, widthForPosition, heightForPosition, operationType, imageId);
+                            const adjustedPoint = findNonOverlappingPosition(desiredPoint, widthForPosition, heightForPosition, operationType, imageId, preferHorizontal);
                             finalPosition = adjustedPoint;
                             logger.upload(`📍 使用智能位置计算: (${adjustedPoint.x.toFixed(1)}, ${adjustedPoint.y.toFixed(1)})`);
                         } catch (error) {

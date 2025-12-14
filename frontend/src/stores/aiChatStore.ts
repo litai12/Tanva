@@ -222,6 +222,20 @@ type PlaceholderSpec = {
    * 预计算的智能位置（如果已算好，可直接用）
    */
   smartPosition?: { x: number; y: number };
+  /**
+   * 并行分组信息，用于在画布上横向排版
+   */
+  groupId?: string;
+  groupIndex?: number;
+  groupTotal?: number;
+  /**
+   * 是否优先横向排版（X4 等并行模式）
+   */
+  preferHorizontal?: boolean;
+  /**
+   * 分组级别的锚点（用于整行对齐）
+   */
+  groupAnchor?: { x: number; y: number } | null;
 };
 
 const parseAspectRatioValue = (ratio?: string | null): number | null => {
@@ -2008,45 +2022,40 @@ export const useAIChatStore = create<AIChatState>()(
 
       // 🔥 检查是否是并行生成的一部分
       const currentMsg = get().messages.find(m => m.id === aiMessageId);
+      const groupId = currentMsg?.groupId;
       const groupIndex = currentMsg?.groupIndex ?? 0;
       const groupTotal = currentMsg?.groupTotal ?? 1;
       const isParallelGeneration = groupTotal > 1;
+      let layoutAnchor: { x: number; y: number } | null = null;
 
       console.log('🎯 [generateImage] 准备显示占位符, cached:', cached, 'groupIndex:', groupIndex, 'groupTotal:', groupTotal);
 
       if (isParallelGeneration) {
         // 🔥 并行生成：根据 groupIndex 计算不同的位置，避免重叠
-        // 第一个图片使用缓存位置，后续图片依次向下偏移
-        if (groupIndex === 0 && cached?.bounds) {
-          center = {
-            x: cached.bounds.x + cached.bounds.width / 2,
-            y: cached.bounds.y + cached.bounds.height / 2 + offset
-          };
-          console.log('🎯 [generateImage] 并行生成第1张，使用缓存图片位置:', center);
+        // X4模式：4张图片横向排列成一行
+        // 基准位置：缓存图片下方或视口中心
+        let baseX: number;
+        let baseY: number;
+
+        if (cached?.bounds) {
+          // 基于缓存图片位置，在其下方开始新的一行
+          baseX = cached.bounds.x + cached.bounds.width / 2;
+          baseY = cached.bounds.y + cached.bounds.height / 2 + offset;
         } else {
-          // 后续图片：基于第一个图片的位置向下偏移
-          // 先尝试获取第一个图片的位置
-          const firstMsg = get().messages.find(m => m.groupId === currentMsg?.groupId && m.groupIndex === 0);
-          if (firstMsg) {
-            const firstPlaceholderId = `ai-placeholder-${firstMsg.id}`;
-            // 尝试从画布上找到第一个占位符的位置
-            // 如果找不到，使用视口中心 + groupIndex * offset
-            const viewCenter = getViewCenter();
-            center = {
-              x: viewCenter?.x ?? 0,
-              y: (viewCenter?.y ?? 0) + (groupIndex * offset)
-            };
-            console.log(`🎯 [generateImage] 并行生成第${groupIndex + 1}张，使用计算位置:`, center);
-          } else {
-            // 如果找不到第一个消息，使用视口中心 + groupIndex * offset
-            const viewCenter = getViewCenter();
-            center = {
-              x: viewCenter?.x ?? 0,
-              y: (viewCenter?.y ?? 0) + (groupIndex * offset)
-            };
-            console.log(`🎯 [generateImage] 并行生成第${groupIndex + 1}张，使用视口中心偏移:`, center);
-          }
+          const viewCenter = getViewCenter();
+          baseX = viewCenter?.x ?? 0;
+          baseY = viewCenter?.y ?? 0;
         }
+
+        layoutAnchor = { x: baseX, y: baseY };
+
+        // 横向排列：每张图片向右偏移 offset
+        // groupIndex: 0, 1, 2, 3 -> 横向排列
+        center = {
+          x: baseX + (groupIndex * offset),
+          y: baseY
+        };
+        console.log(`🎯 [generateImage] 并行生成第${groupIndex + 1}/${groupTotal}张，横向排列位置:`, center);
       } else {
         // 单张生成：使用原有逻辑
         if (cached?.bounds) {
@@ -2054,9 +2063,11 @@ export const useAIChatStore = create<AIChatState>()(
             x: cached.bounds.x + cached.bounds.width / 2,
             y: cached.bounds.y + cached.bounds.height / 2 + offset
           };
+          layoutAnchor = { ...center };
           console.log('🎯 [generateImage] 使用缓存图片位置:', center);
         } else {
           center = getViewCenter();
+          layoutAnchor = center ? { ...center } : null;
           console.log('🎯 [generateImage] 使用视口中心:', center);
         }
       }
@@ -2083,7 +2094,12 @@ export const useAIChatStore = create<AIChatState>()(
         height: size.height,
         operationType: 'generate',
         preferSmartLayout: true,
-        smartPosition
+        smartPosition,
+        groupId,
+        groupIndex,
+        groupTotal,
+        preferHorizontal: isParallelGeneration,
+        groupAnchor: layoutAnchor || undefined
       });
     } catch (error) {
       console.warn('⚠️ 预测占位符生成失败', error);
@@ -2257,7 +2273,7 @@ export const useAIChatStore = create<AIChatState>()(
         set({ lastGeneratedImage: result.data });
 
         // 自动添加到画布中央 - 使用快速上传工具的逻辑
-        const addImageToCanvas = (aiResult: AIImageResult, imageSrc: string) => {
+        const addImageToCanvas = (aiResult: AIImageResult, imageSrc: string, isParallel: boolean = false) => {
           const fileName = `ai_generated_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
           const imagePayload = buildImagePayloadForUpload(imageSrc, fileName);
 
@@ -2273,7 +2289,8 @@ export const useAIChatStore = create<AIChatState>()(
               smartPosition,
               sourceImageId: undefined,
               sourceImages: undefined,
-              placeholderId
+              placeholderId,
+              preferHorizontal: isParallel  // 🔥 并行生成时使用横向排列
             }
           }));
         };
@@ -2281,14 +2298,16 @@ export const useAIChatStore = create<AIChatState>()(
         // 🔥 从消息中获取 groupIndex，为并行生成的图片添加递增延迟，避免并发冲突
         const currentMsg = get().messages.find(m => m.id === aiMessageId);
         const groupIndex = currentMsg?.groupIndex ?? 0;
+        const groupTotal = currentMsg?.groupTotal ?? 1;
+        const isParallel = groupTotal > 1;  // 🔥 判断是否是并行生成
         const baseDelay = 100;
         const perImageDelay = 300; // 每张图片额外延迟 300ms
         const totalDelay = baseDelay + (groupIndex * perImageDelay);
 
         setTimeout(() => {
           if (result.data) {
-            console.log(`✅ [generateImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms)`);
-            addImageToCanvas(result.data, placementImageData);
+            console.log(`✅ [generateImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallel})`);
+            addImageToCanvas(result.data, placementImageData, isParallel);
           }
         }, totalDelay); // 递增延迟，避免并行图片同时添加到画布
 
@@ -2312,6 +2331,46 @@ export const useAIChatStore = create<AIChatState>()(
                 inlineImageData, // 仍然保留 inlineImageData
               });
             }
+
+            // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
+            // 等待画布显示完成（延迟时间 = 画布延迟 + 图片加载时间 + 缓冲）
+            const canvasDisplayDelay = totalDelay + 1000; // 画布延迟 + 1秒缓冲
+            const memoryOptimizationDelay = canvasDisplayDelay + 2000; // 再延迟2秒确保画布已显示
+            
+            setTimeout(() => {
+              const currentState = get();
+              const message = currentState.messages.find(m => m.id === aiMessageId);
+              if (!message) return;
+
+              // 只有在有 thumbnail 和 remoteUrl 的情况下才清空 imageData
+              const hasThumbnail = message.thumbnail && message.thumbnail.length > 0;
+              const hasRemoteUrl = message.imageRemoteUrl && message.imageRemoteUrl.startsWith('http');
+              const imageDataSize = message.imageData?.length || 0;
+              const thumbnailSize = message.thumbnail?.length || 0;
+              
+              // 如果满足条件：有thumbnail和remoteUrl，且imageData明显大于thumbnail
+              if (hasThumbnail && hasRemoteUrl && imageDataSize > thumbnailSize * 2) {
+                const savedKB = ((imageDataSize - thumbnailSize) / 1024).toFixed(2);
+                console.log(`🧹 [内存优化] 清空消息 ${aiMessageId} 的 imageData，保留 thumbnail 和 remoteUrl`, {
+                  imageDataSize: (imageDataSize / 1024).toFixed(2) + 'KB',
+                  thumbnailSize: (thumbnailSize / 1024).toFixed(2) + 'KB',
+                  saved: savedKB + 'KB'
+                });
+                
+                get().updateMessage(aiMessageId, (msg) => ({
+                  ...msg,
+                  imageData: undefined, // 清空完整的 base64，只保留 thumbnail
+                }));
+
+                const context = contextManager.getCurrentContext();
+                if (context) {
+                  const target = context.messages.find((m) => m.id === aiMessageId);
+                  if (target) {
+                    target.imageData = undefined;
+                  }
+                }
+              }
+            }, memoryOptimizationDelay);
           }).catch((error) => {
             console.warn('⚠️ [generateImage] 步骤4失败：上传图片历史记录失败:', error);
           });
@@ -2419,6 +2478,11 @@ export const useAIChatStore = create<AIChatState>()(
 
     const override = options?.override;
     let aiMessageId: string | undefined;
+    const currentMsg = override ? get().messages.find(m => m.id === override.aiMessageId) : null;
+    const groupId = currentMsg?.groupId;
+    const groupIndex = currentMsg?.groupIndex ?? 0;
+    const groupTotal = currentMsg?.groupTotal ?? 1;
+    const isParallelEdit = groupTotal > 1;
 
     if (override) {
       aiMessageId = override.aiMessageId;
@@ -2531,7 +2595,12 @@ export const useAIChatStore = create<AIChatState>()(
           operationType: 'edit',
           preferSmartLayout: true,
           sourceImageId: cached?.imageId,
-          smartPosition: center ? { ...center } : undefined
+          smartPosition: center ? { ...center } : undefined,
+          groupId,
+          groupIndex,
+          groupTotal,
+          preferHorizontal: isParallelEdit,
+          groupAnchor: center ? { ...center } : undefined
         });
       }
     } catch (error) {
@@ -2769,7 +2838,8 @@ export const useAIChatStore = create<AIChatState>()(
               smartPosition,
               sourceImageId: sourceImageId,
               sourceImages: undefined,
-              placeholderId
+              placeholderId,
+              preferHorizontal: isParallelEdit
             }
           }));
         };
@@ -4815,10 +4885,57 @@ export const useAIChatStore = create<AIChatState>()(
       aiMessageId
     };
 
+    // 读取当前模式与素材，决定到底是生成、编辑还是融合
+    const stateSnapshot = get();
+    const manualMode = stateSnapshot.manualAIMode;
+    const sourceImageForEditing = stateSnapshot.sourceImageForEditing;
+    const blendSources = stateSnapshot.sourceImagesForBlending ? [...stateSnapshot.sourceImagesForBlending] : [];
+    const hasBlendSources = blendSources.length >= 2;
+
+    const decideParallelTool = (): 'generate' | 'edit' | 'blend' => {
+      if (manualMode === 'edit') return 'edit';
+      if (manualMode === 'blend') return 'blend';
+
+      // Auto 模式：优先融合，其次编辑，最后生成
+      if (manualMode === 'auto') {
+        if (hasBlendSources) return 'blend';
+        if (sourceImageForEditing) return 'edit';
+        return 'generate';
+      }
+
+      // 其它模式默认仍然走生成
+      return 'generate';
+    };
+
+    const selectedTool = decideParallelTool();
+
     try {
-      // 直接调用 generateImage，跳过工具选择
-      await get().generateImage(input, { override: messageOverride, metrics });
-      logProcessStep(metrics, `parallel generation ${options.groupIndex + 1}/${options.groupTotal} done`);
+      if (selectedTool === 'edit') {
+        const editSource =
+          sourceImageForEditing ||
+          contextManager.getCachedImage()?.imageData;
+
+        if (!editSource) {
+          console.warn('⚠️ [并行编辑] 未找到可编辑的源图，退回生成逻辑');
+          await get().generateImage(input, { override: messageOverride, metrics });
+        } else {
+          await get().editImage(input, editSource, true, { override: messageOverride, metrics });
+        }
+        logProcessStep(metrics, `parallel edit ${options.groupIndex + 1}/${options.groupTotal} done`);
+      } else if (selectedTool === 'blend') {
+        if (!hasBlendSources) {
+          console.warn('⚠️ [并行融合] 源图不足，退回生成逻辑');
+          await get().generateImage(input, { override: messageOverride, metrics });
+        } else {
+          await get().blendImages(input, blendSources, { override: messageOverride, metrics });
+          // 并行融合完成后不立即清空源图，由外层流程统一处理
+        }
+        logProcessStep(metrics, `parallel blend ${options.groupIndex + 1}/${options.groupTotal} done`);
+      } else {
+        // 直接调用 generateImage
+        await get().generateImage(input, { override: messageOverride, metrics });
+        logProcessStep(metrics, `parallel generation ${options.groupIndex + 1}/${options.groupTotal} done`);
+      }
     } catch (error) {
       logProcessStep(metrics, `parallel generation ${options.groupIndex + 1}/${options.groupTotal} error`);
       throw error;

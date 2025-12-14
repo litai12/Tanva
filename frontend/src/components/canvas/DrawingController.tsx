@@ -532,38 +532,40 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // ========== 监听AI生成图片的快速上传触发事件 ==========
   useEffect(() => {
     const handleTriggerQuickUpload = (event: CustomEvent) => {
-      const { 
-        imageData, 
-        fileName, 
+      const {
+        imageData,
+        fileName,
         selectedImageBounds,
         smartPosition,
         operationType,
         sourceImageId,
         sourceImages,
         videoInfo,
-        placeholderId
+        placeholderId,
+        preferHorizontal  // 🔥 新增：是否优先横向排列
       } = event.detail;
-      
-      logger.debug('🎨 [DEBUG] 收到AI图片快速上传触发事件:', { 
-        fileName, 
+
+      logger.debug('🎨 [DEBUG] 收到AI图片快速上传触发事件:', {
+        fileName,
         hasSelectedBounds: !!selectedImageBounds,
         hasSmartPosition: !!smartPosition,
         operationType,
         sourceImageId,
-        sourceImages: sourceImages?.length
+        sourceImages: sourceImages?.length,
+        preferHorizontal
       });
 
       if (imageData && quickImageUpload.handleQuickImageUploaded) {
         // 直接调用快速上传的处理函数，传递智能排版相关参数
         quickImageUpload.handleQuickImageUploaded(
-          imageData, 
-          fileName, 
+          imageData,
+          fileName,
           selectedImageBounds,
           smartPosition,
           operationType,
           sourceImageId,
           sourceImages,
-          { videoInfo, placeholderId }
+          { videoInfo, placeholderId, preferHorizontal }  // 🔥 传递 preferHorizontal
         );
         logger.debug('✅ [DEBUG] 已调用智能排版快速上传处理函数');
       }
@@ -605,12 +607,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
+      const groupId = detail.groupId as string | undefined;
+      const groupIndex = typeof detail.groupIndex === 'number' ? detail.groupIndex : undefined;
+      const groupTotal = typeof detail.groupTotal === 'number' ? detail.groupTotal : undefined;
+      const preferHorizontal = Boolean(detail.preferHorizontal);
+      const groupAnchor = detail.groupAnchor as { x: number; y: number } | undefined;
       const center = detail.center as { x: number; y: number } | undefined;
       const width = detail.width as number | undefined;
       const height = detail.height as number | undefined;
       const operationType = detail.operationType as string | undefined;
+      const layoutAnchor = groupAnchor || center || smartPosition || null;
 
-      console.log('🎯 [DrawingController] 占位符参数:', { center, width, height, operationType });
+      console.log('🎯 [DrawingController] 占位符参数:', { center, width, height, operationType, groupId, groupIndex, groupTotal });
 
       let resolvedCenter = center;
       if ((preferSmartLayout || !resolvedCenter) && typeof quickImageUploadRef.current.calculateSmartPosition === 'function') {
@@ -619,7 +627,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             operationType || 'generate',
             sourceImageId,
             sourceImages,
-            placeholderId
+            placeholderId,
+            {
+              groupId,
+              groupIndex,
+              groupTotal,
+              anchorCenter: layoutAnchor,
+              preferHorizontal
+            }
           );
         if (smart && Number.isFinite(smart.x) && Number.isFinite(smart.y)) {
           resolvedCenter = { x: smart.x, y: smart.y };
@@ -646,7 +661,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         preferSmartLayout,
         smartPosition,
         sourceImageId,
-        sourceImages
+        sourceImages,
+        groupId,
+        groupIndex,
+        groupTotal,
+        preferHorizontal,
+        groupAnchor: layoutAnchor || undefined
       });
     };
 
