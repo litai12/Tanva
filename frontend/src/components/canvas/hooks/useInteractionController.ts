@@ -948,10 +948,10 @@ export const useInteractionController = ({
           const selectedPaths = (latestSelectionTool as any)?.selectedPaths as paper.Path[] | undefined;
           const removedPlaceholders = new Set<paper.Group>();
 
+          // 🔥 不再使用 placeholderGroup 引用，改为向上查找占位符组
           const resolvePlaceholderGroup = (path: paper.Path | null | undefined): paper.Group | null => {
             let node: any = path;
             while (node) {
-              if (node.data?.placeholderGroup) return node.data.placeholderGroup as paper.Group;
               if (node.data?.type === 'image-placeholder' || node.data?.type === '3d-model-placeholder') {
                 return node as paper.Group;
               }

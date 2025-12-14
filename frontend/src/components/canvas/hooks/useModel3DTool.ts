@@ -135,7 +135,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     };
     const attachPlaceholderMeta = (item: any) => {
       if (item) {
-        item.data = { ...(item.data || {}), placeholderGroup: group, placeholderType: 'model3d' };
+        // 🔥 使用 placeholderGroupId 而不是直接引用，避免循环引用导致序列化失败
+        item.data = { ...(item.data || {}), placeholderGroupId: '3d-model-placeholder', placeholderType: 'model3d', isHelper: true };
       }
     };
     [placeholder, buttonGroup, buttonBg, frontFace, topFace, rightFace, text].forEach(attachPlaceholderMeta);

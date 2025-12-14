@@ -133,7 +133,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     };
     const attachPlaceholderMeta = (item: any) => {
       if (item) {
-        item.data = { ...(item.data || {}), placeholderGroup: group, placeholderType: 'image' };
+        // 🔥 使用 placeholderGroupId 而不是直接引用，避免循环引用导致序列化失败
+        item.data = { ...(item.data || {}), placeholderGroupId: 'image-placeholder', placeholderType: 'image', isHelper: true };
       }
     };
     [placeholder, buttonGroup, buttonBg, hLine, vLine, text].forEach(attachPlaceholderMeta);

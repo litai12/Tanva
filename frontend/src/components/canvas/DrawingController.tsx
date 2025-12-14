@@ -2107,7 +2107,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const data = current.data || {};
 
       // 检查是否在占位框内部（占位框的子元素不应该被单独选中）
-      if (data.placeholderGroup || data.placeholderType) {
+      // 🔥 使用 placeholderGroupId 而不是 placeholderGroup 引用
+      if (data.placeholderGroupId || data.placeholderType) {
         // 这是占位框的子元素，不应该被选中
         return null;
       }
@@ -2253,32 +2254,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     if (pathTargets.length > 0) {
       const removedPlaceholders = new Set<paper.Group>();
       pathTargets.forEach((path) => {
-        let placeholderGroup = (path as any)?.data?.placeholderGroup as paper.Group | undefined;
-        if (!placeholderGroup) {
-          // 向上查找父级是否为占位符组
-          let node: any = path;
-          while (node) {
-            if (node.data?.placeholderGroup) {
-              placeholderGroup = node.data.placeholderGroup as paper.Group;
-              break;
-            }
-            if (node.data?.type === 'image-placeholder' || node.data?.type === '3d-model-placeholder') {
-              placeholderGroup = node as paper.Group;
-              break;
-            }
-            node = node.parent;
+        // 🔥 不再使用 placeholderGroup 引用，改为向上查找占位符组
+        let foundPlaceholderGroup: paper.Group | undefined;
+        let node: any = path;
+        while (node) {
+          // 检查是否有 placeholderGroupId（新方式）或直接是占位符类型
+          if (node.data?.type === 'image-placeholder' || node.data?.type === '3d-model-placeholder') {
+            foundPlaceholderGroup = node as paper.Group;
+            break;
           }
+          node = node.parent;
         }
 
-        const target: paper.Item = placeholderGroup || path;
-        if (placeholderGroup) {
-          if (!removedPlaceholders.has(placeholderGroup)) {
+        const target: paper.Item = foundPlaceholderGroup || path;
+        if (foundPlaceholderGroup) {
+          if (!removedPlaceholders.has(foundPlaceholderGroup)) {
             try {
               // 确保删除整个占位框组及其所有子元素
-              placeholderGroup.remove();
+              foundPlaceholderGroup.remove();
               didDelete = true;
             } catch {}
-            removedPlaceholders.add(placeholderGroup);
+            removedPlaceholders.add(foundPlaceholderGroup);
           }
         } else {
           try { target.remove(); didDelete = true; } catch {}

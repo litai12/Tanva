@@ -367,8 +367,9 @@ export const useSelectionTool = ({
       let current: paper.Item | null | undefined = item;
       while (current) {
         const data = current.data || {};
+        // 🔥 使用 placeholderGroupId 而不是 placeholderGroup 引用
         if (
-          data.placeholderGroup ||
+          data.placeholderGroupId ||
           data.placeholderType ||
           data.type === 'image-placeholder' ||
           data.type === '3d-model-placeholder'
@@ -506,25 +507,22 @@ export const useSelectionTool = ({
         return { type: 'selection-box-start', point };
       } else {
         // 检查是否属于占位符组（2D图片或3D模型占位符）
-        let placeholderGroup: paper.Group | null = null;
+        // 🔥 不再使用 placeholderGroup 引用，改为向上查找占位符组
+        let foundPlaceholderGroup: paper.Group | null = null;
         let currentItem: paper.Item = hitResult.item;
 
         // 向上遍历父级查找占位符组
         while (currentItem) {
-          if (currentItem.data?.placeholderGroup) {
-            placeholderGroup = currentItem.data.placeholderGroup as paper.Group;
-            break;
-          }
           if (currentItem.data?.type === 'image-placeholder' || currentItem.data?.type === '3d-model-placeholder') {
-            placeholderGroup = currentItem as paper.Group;
+            foundPlaceholderGroup = currentItem as paper.Group;
             break;
           }
           currentItem = currentItem.parent as paper.Item;
         }
 
-        if (placeholderGroup) {
+        if (foundPlaceholderGroup) {
           // 允许直接选中占位框，便于删除
-          const mainPath = placeholderGroup.children?.find?.(
+          const mainPath = foundPlaceholderGroup.children?.find?.(
             (child: any) => child instanceof paper.Path && !(child as any).data?.uploadHotspotType
           ) as paper.Path | undefined;
 
@@ -534,7 +532,7 @@ export const useSelectionTool = ({
             clearAllSelections();
             handlePathSelect(targetPath);
             setSelectedPaths([targetPath]);
-            logger.debug('选中占位符:', placeholderGroup.data?.type);
+            logger.debug('选中占位符:', foundPlaceholderGroup.data?.type);
             return { type: 'path', path: targetPath };
           }
 

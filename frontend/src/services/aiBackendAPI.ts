@@ -285,6 +285,19 @@ export async function generateImageViaAPI(
     provider: request.aiProvider,
     model: lastResponse?.data?.model || resolveDefaultModel(request.model, request.aiProvider),
   });
+
+  // 如果所有重试结束仍未拿到图片，视为失败，避免前端误以为成功后继续等待占位框
+  if (lastResponse?.success && lastResponse.data && !lastResponse.data.hasImage) {
+    return {
+      success: false,
+      error: {
+        code: 'NO_IMAGE_RETURNED',
+        message: 'Image generation finished without an image payload',
+        timestamp: new Date(),
+      },
+    };
+  }
+
   return lastResponse ?? {
     success: false,
     error: {
