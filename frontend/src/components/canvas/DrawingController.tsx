@@ -56,6 +56,27 @@ const extractLocalImageData = (imageData: unknown): string | null => {
   return null;
 };
 
+// 提取图片的任何可用源（优先 inline 数据，其次远程 URL）
+const extractAnyImageSource = (imageData: unknown): string | null => {
+  if (!imageData || typeof imageData !== 'object') return null;
+  const data = imageData as Record<string, unknown>;
+
+  // 优先使用 inline 数据（base64/blob）
+  const localData = extractLocalImageData(imageData);
+  if (localData) return localData;
+
+  // 其次使用远程 URL
+  const urlCandidates = ['url', 'src', 'remoteUrl'];
+  for (const key of urlCandidates) {
+    const candidate = data[key];
+    if (typeof candidate === 'string' && candidate.length > 0 && candidate.startsWith('http')) {
+      return candidate;
+    }
+  }
+
+  return null;
+};
+
 const isEditableElement = (el: Element | null): boolean => {
   if (!el) return false;
   const tag = el.tagName?.toLowerCase();
@@ -868,15 +889,61 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               hasRemoteUrl: !!remoteUrl
             });
           }
+
+          // 🔥 同步选中图片到AI对话框
+          // 优先使用 inline 数据，其次使用远程 URL
+          const imageSourceForAI = imageDataForCache || remoteUrl;
+          if (addToSelection) {
+            // 多选模式：收集所有选中图片的数据
+            const allSelectedImages: string[] = [];
+            // 先添加已选中的图片
+            for (const instance of imageTool.imageInstances) {
+              if (instance.isSelected && instance.id !== imageId) {
+                const data = extractAnyImageSource(instance.imageData);
+                if (data) allSelectedImages.push(data);
+              }
+            }
+            // 添加当前选中的图片
+            if (imageSourceForAI) allSelectedImages.push(imageSourceForAI);
+            useAIChatStore.getState().setSourceImagesFromCanvas(allSelectedImages);
+          } else {
+            // 单选模式：只设置当前图片
+            if (imageSourceForAI) {
+              useAIChatStore.getState().setSourceImagesFromCanvas([imageSourceForAI]);
+            }
+          }
         }
       } catch (e) {
         console.warn('更新缓存位置失败:', e);
       }
     },
-    onImageMultiSelect: imageTool.handleImageMultiSelect,
+    onImageMultiSelect: (imageIds) => {
+      // 先执行原有多选逻辑
+      imageTool.handleImageMultiSelect(imageIds);
+
+      // 🔥 同步多选图片到AI对话框
+      try {
+        const selectedImages: string[] = [];
+        for (const id of imageIds) {
+          const img = imageTool.imageInstances.find(i => i.id === id);
+          if (img) {
+            const imageData = extractAnyImageSource(img.imageData);
+            if (imageData) selectedImages.push(imageData);
+          }
+        }
+        useAIChatStore.getState().setSourceImagesFromCanvas(selectedImages);
+      } catch (e) {
+        console.warn('同步多选图片到AI对话框失败:', e);
+      }
+    },
     onModel3DSelect: model3DTool.handleModel3DSelect,
     onModel3DMultiSelect: model3DTool.handleModel3DMultiSelect,
-    onImageDeselect: imageTool.handleImageDeselect,
+    onImageDeselect: () => {
+      // 先执行原有取消选择逻辑
+      imageTool.handleImageDeselect();
+      // 🔥 清空AI对话框中的图片
+      useAIChatStore.getState().setSourceImagesFromCanvas([]);
+    },
     onModel3DDeselect: model3DTool.handleModel3DDeselect,
     onTextSelect: (textId, addToSelection) => {
       if (addToSelection) {

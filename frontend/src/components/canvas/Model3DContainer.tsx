@@ -349,6 +349,7 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
     <div
       ref={containerRef}
       data-model-id={modelId}
+      data-model3d-container="true"
       style={{
         position: 'absolute',
         left: screenBounds.x,

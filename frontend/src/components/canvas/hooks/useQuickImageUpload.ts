@@ -534,7 +534,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const barFg = new paper.Path.Rectangle({
             rectangle: new paper.Rectangle(
                 centerPoint.add([-barWidth / 2, barY]),
-                new paper.Size(1, barHeight)
+                new paper.Size(0, barHeight)  // 初始宽度为0，避免显示小圆点
             ),
             radius: barHeight / 2,
             fillColor: mainColor

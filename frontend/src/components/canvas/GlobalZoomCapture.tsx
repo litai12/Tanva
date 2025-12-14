@@ -12,6 +12,12 @@ interface GestureLikeEvent extends Event {
   clientY?: number;
 }
 
+const isEventInsideModel3DContainer = (event: Event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('[data-model3d-container="true"]'));
+};
+
 /**
  * 捕获全局的双指缩放/捏合手势，统一转化为画布缩放百分比。
  * 这样无论手势发生在节点、AI对话框还是其他浮层上，都不会触发浏览器分辨率缩放。
@@ -56,6 +62,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleWheel = (event: WheelEvent) => {
+      if (isEventInsideModel3DContainer(event)) return;
       if (!(event.ctrlKey || event.metaKey)) return;
       const focus = getFocusPoint(event.clientX, event.clientY);
       if (!focus) return;
@@ -67,6 +74,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleGestureStart = (event: GestureLikeEvent) => {
+      if (isEventInsideModel3DContainer(event)) return;
       if (event.scale == null || event.clientX == null || event.clientY == null) return;
       const focus = getFocusPoint(event.clientX, event.clientY);
       if (!focus) return;
@@ -77,6 +85,7 @@ const GlobalZoomCapture = () => {
     };
 
     const handleGestureChange = (event: GestureLikeEvent) => {
+      if (isEventInsideModel3DContainer(event)) return;
       if (gestureStartZoomRef.current == null) return;
       if (event.scale == null || event.clientX == null || event.clientY == null) return;
       const focus = getFocusPoint(event.clientX, event.clientY);

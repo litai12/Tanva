@@ -1392,6 +1392,9 @@ interface AIChatState {
   editImage: (prompt: string, sourceImage: string, showImagePlaceholder?: boolean, options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
   setSourceImageForEditing: (imageData: string | null) => void;
 
+  // 画布选中图片同步到AI对话框
+  setSourceImagesFromCanvas: (images: string[]) => void;
+
   // 多图融合功能
   blendImages: (prompt: string, sourceImages: string[], options?: { override?: MessageOverride; metrics?: ProcessMetrics }) => Promise<void>;
   addImageForBlending: (imageData: string) => void;
@@ -2903,11 +2906,40 @@ export const useAIChatStore = create<AIChatState>()(
 
   setSourceImageForEditing: (imageData: string | null) => {
     set({ sourceImageForEditing: imageData });
-    
+
     // 🔥 立即缓存用户上传的图片
     if (imageData) {
       const imageId = `user_upload_${Date.now()}`;
       contextManager.cacheLatestImage(imageData, imageId, '用户上传的图片');
+    }
+  },
+
+  // 画布选中图片同步到AI对话框
+  setSourceImagesFromCanvas: (images: string[]) => {
+    if (images.length === 0) {
+      // 清空所有源图片
+      set({
+        sourceImageForEditing: null,
+        sourceImagesForBlending: []
+      });
+    } else if (images.length === 1) {
+      // 单张图片：设置为编辑源图
+      set({
+        sourceImageForEditing: images[0],
+        sourceImagesForBlending: []
+      });
+      // 缓存图片
+      const imageId = `canvas_select_${Date.now()}`;
+      contextManager.cacheLatestImage(images[0], imageId, '画布选中的图片');
+    } else {
+      // 多张图片：设置为融合源图
+      set({
+        sourceImageForEditing: null,
+        sourceImagesForBlending: images
+      });
+      // 缓存最后一张图片
+      const imageId = `canvas_select_${Date.now()}`;
+      contextManager.cacheLatestImage(images[images.length - 1], imageId, '画布选中的图片');
     }
   },
 
