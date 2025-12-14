@@ -3239,19 +3239,17 @@ const AIChatDialog: React.FC = () => {
                       {/* AI 消息 - 并行组横向布局 */}
                       {group.aiMessages.length > 0 && (
                         <div className='p-2 text-sm text-black mr-3'>
-                          {/* AI Header - 只显示一次 */}
-                          <div className='flex items-center gap-2 mb-2'>
-                            <img src='/Logo.svg' alt='Tanvas Logo' className='w-4 h-4' />
-                            <span className='text-sm font-bold text-black'>Tanvas</span>
-                            {group.isParallelGroup && (
-                              <span className='text-xs text-gray-400'>
-                                {group.aiMessages.filter(m => m.imageData || m.imageRemoteUrl || m.thumbnail || m.generationStatus?.isGenerating || m.expectsImageOutput).length}/{group.aiMessages[0]?.groupTotal || group.aiMessages.length} 张
-                              </span>
-                            )}
-                          </div>
-
                           {/* 🔥 并行组：横向排列图片 */}
                           {group.isParallelGroup ? (
+                            <>
+                              {/* AI Header - 并行组只显示一次 */}
+                              <div className='flex items-center gap-2 mb-2'>
+                                <img src='/Logo.svg' alt='Tanvas Logo' className='w-4 h-4' />
+                                <span className='text-sm font-bold text-black'>Tanvas</span>
+                                <span className='text-xs text-gray-400'>
+                                  {group.aiMessages.filter(m => m.imageData || m.imageRemoteUrl || m.thumbnail || m.generationStatus?.isGenerating || m.expectsImageOutput).length}/{group.aiMessages[0]?.groupTotal || group.aiMessages.length} 张
+                                </span>
+                              </div>
                             <div className='mt-2'>
                               <div className={cn(
                                 "inline-block rounded-lg p-3",
@@ -3271,6 +3269,7 @@ const AIChatDialog: React.FC = () => {
                                 </div>
                               </div>
                             </div>
+                            </>
                           ) : (
                             /* 单个 AI 消息：保持原有布局 */
                             group.aiMessages.map((message) => {

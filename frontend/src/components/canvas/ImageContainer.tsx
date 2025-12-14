@@ -169,13 +169,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 获取画布状态 - 用于监听画布移动变化
   const { zoom, panX, panY } = useCanvasStore();
-  const toolbarScale = Math.min(zoom || 1, 1); // 按钮最大缩放限制为 100%
 
-  const sharedButtonStyle = undefined;
+  // 工具栏缩放逻辑：>=100% 保持标准大小，<100% 随画布缩放
+  const currentZoom = zoom || 1;
+  const showButtonText = currentZoom >= 1; // 100%及以上显示文字
+  const toolbarScale = currentZoom >= 1 ? 1 : currentZoom; // >=100%固定为1，<100%跟随缩放
 
-  const sharedButtonClass =
-    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center";
-  const sharedIconClass = "w-3.5 h-3.5";
+  const sharedButtonClass = showButtonText
+    ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"
+    : "px-1.5 py-1 h-7 rounded-md bg-transparent text-gray-600 transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center justify-center";
+  const sharedIconClass = "w-3.5 h-3.5 flex-shrink-0";
 
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
@@ -1275,55 +1278,55 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             */}
 
             <Button
-              variant='outline'
+              variant='ghost'
               size='sm'
               disabled={isRemovingBackground}
               className={sharedButtonClass}
               onClick={handleBackgroundRemoval}
               title={isRemovingBackground ? "正在抠图..." : "一键抠图"}
-              style={sharedButtonStyle}
             >
               {isRemovingBackground ? (
                 <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <Wand2 className={sharedIconClass} />
               )}
+              {showButtonText && <span>一键抠图</span>}
             </Button>
 
             <Button
-              variant='outline'
+              variant='ghost'
               size='sm'
               disabled={isConvertingTo3D}
               className={sharedButtonClass}
               onClick={handleConvertTo3D}
               title={isConvertingTo3D ? "正在转换3D..." : "2D转3D"}
-              style={sharedButtonStyle}
             >
               {isConvertingTo3D ? (
                 <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <Rotate3d className={sharedIconClass} />
               )}
+              {showButtonText && <span>2D转3D</span>}
             </Button>
 
             <Button
-              variant='outline'
+              variant='ghost'
               size='sm'
               disabled={isOptimizingHd}
               className={sharedButtonClass}
               onClick={handleOptimizeHdImage}
-              title={isOptimizingHd ? "正在高清放大..." : "高清放大（4K）"}
-              style={sharedButtonStyle}
+              title={isOptimizingHd ? "正在高清放大..." : "高清放大"}
             >
               {isOptimizingHd ? (
                 <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <ImageUp className={sharedIconClass} />
               )}
+              {showButtonText && <span>高清放大</span>}
             </Button>
 
             <Button
-              variant='outline'
+              variant='ghost'
               size='sm'
               disabled={isExpandingImage || showExpandSelector}
               className={sharedButtonClass}
@@ -1333,39 +1336,38 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
                   ? "正在扩图..."
                   : showExpandSelector
                   ? "请选择扩图区域"
-                  : "扩图"
+                  : "图片拓展"
               }
-              style={sharedButtonStyle}
             >
               {isExpandingImage ? (
                 <LoadingSpinner size='sm' className='text-blue-600' />
               ) : (
                 <Crop className={sharedIconClass} />
               )}
+              {showButtonText && <span>图片拓展</span>}
             </Button>
 
             {enableVisibilityToggle && (
               <Button
-                variant='outline'
+                variant='ghost'
                 size='sm'
                 className={sharedButtonClass}
                 onClick={handleToggleVisibility}
                 title='隐藏图层（可在图层面板中恢复）'
-                style={sharedButtonStyle}
               >
                 <EyeOff className={sharedIconClass} />
               </Button>
             )}
 
             <Button
-              variant='outline'
+              variant='ghost'
               size='sm'
               className={sharedButtonClass}
               onClick={handleCreateFlowImageNode}
-              title='复制到Flow为Image节点'
-              style={sharedButtonStyle}
+              title='生成节点'
             >
               <ArrowRightLeft className={sharedIconClass} />
+              {showButtonText && <span>生成节点</span>}
             </Button>
           </div>
         </div>
