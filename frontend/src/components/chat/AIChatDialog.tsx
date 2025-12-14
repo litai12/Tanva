@@ -3229,7 +3229,7 @@ const AIChatDialog: React.FC = () => {
                             <span className='text-sm font-bold text-black'>Tanvas</span>
                             {group.isParallelGroup && (
                               <span className='text-xs text-gray-400'>
-                                {group.aiMessages.length}/{group.aiMessages[0]?.groupTotal || group.aiMessages.length} 张
+                                {group.aiMessages.filter(m => m.imageData || m.imageRemoteUrl || m.thumbnail || m.generationStatus?.isGenerating || m.expectsImageOutput).length}/{group.aiMessages[0]?.groupTotal || group.aiMessages.length} 张
                               </span>
                             )}
                           </div>
@@ -3242,11 +3242,16 @@ const AIChatDialog: React.FC = () => {
                                 "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
                               )}>
                                 <div className='flex flex-wrap gap-2'>
-                                  {group.aiMessages.map((aiMsg) => (
-                                    <div key={aiMsg.id} className='flex-shrink-0'>
-                                      {renderAiMessageImage(aiMsg, true)}
-                                    </div>
-                                  ))}
+                                  {group.aiMessages.map((aiMsg) => {
+                                    const rendered = renderAiMessageImage(aiMsg, true);
+                                    // 🔥 只渲染有内容的消息
+                                    if (!rendered) return null;
+                                    return (
+                                      <div key={aiMsg.id} className='flex-shrink-0'>
+                                        {rendered}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             </div>

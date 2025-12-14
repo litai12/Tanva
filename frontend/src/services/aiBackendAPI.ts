@@ -140,6 +140,18 @@ const mapBackendImageResult = ({
   const metadata: Record<string, any> = {
     ...(data.metadata ?? {}),
   };
+  const remoteUrl =
+    typeof (data as any).imageUrl === 'string'
+      ? (data as any).imageUrl
+      : typeof metadata.imageUrl === 'string'
+        ? metadata.imageUrl
+        : typeof (metadata.midjourney as any)?.imageUrl === 'string'
+          ? (metadata.midjourney as any).imageUrl
+          : undefined;
+
+  if (remoteUrl && !metadata.imageUrl) {
+    metadata.imageUrl = remoteUrl;
+  }
 
   if (!metadata.outputFormat) {
     metadata.outputFormat = outputFormat || 'png';
@@ -152,7 +164,7 @@ const mapBackendImageResult = ({
     prompt,
     model,
     createdAt: new Date(),
-    hasImage: !!data.imageData,
+    hasImage: !!(data.imageData || remoteUrl),
     metadata,
   };
 };

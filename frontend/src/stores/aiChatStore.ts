@@ -477,6 +477,39 @@ const dropLargeInline = (value?: string | null): string | undefined => {
   return compact;
 };
 
+type PlacementAssets = {
+  remoteUrl?: string;
+  thumbnail?: string;
+};
+
+const resolveImageForPlacement = ({
+  inlineData,
+  result,
+  uploadedAssets,
+  fallbackRemote,
+}: {
+  inlineData?: string | null;
+  result?: AIImageResult | null;
+  uploadedAssets?: PlacementAssets;
+  fallbackRemote?: string | null;
+}): string | null => {
+  const inlineCandidate =
+    normalizeInlineImageData(inlineData) ??
+    normalizeInlineImageData(result?.imageData) ??
+    normalizeInlineImageData(uploadedAssets?.thumbnail);
+
+  if (inlineCandidate) {
+    return ensureDataUrl(inlineCandidate);
+  }
+
+  const remoteCandidate =
+    fallbackRemote ||
+    uploadedAssets?.remoteUrl ||
+    getResultImageRemoteUrl(result);
+
+  return remoteCandidate || null;
+};
+
 const migrateMessageImagePayload = async (
   message: ChatMessage,
   projectId: string | null,
@@ -2176,8 +2209,15 @@ export const useAIChatStore = create<AIChatState>()(
         await get().refreshSessions();
         logProcessStep(metrics, 'generateImage history recorded');
 
-        // 如果没有图像，记录详细原因并返回
-        if (!result.data.hasImage) {
+        const placementImageData = resolveImageForPlacement({
+          inlineData: inlineImageData,
+          result: result.data,
+          uploadedAssets,
+          fallbackRemote: imageRemoteUrl ?? null
+        });
+
+        // 如果没有可用的图像源，记录原因并返回
+        if (!placementImageData) {
           removePredictivePlaceholder();
           return;
         }
@@ -2217,15 +2257,7 @@ export const useAIChatStore = create<AIChatState>()(
         }
 
         // 自动添加到画布中央 - 使用快速上传工具的逻辑（仅当有图像时）
-        const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
-          if (!inlineData) {
-            removePredictivePlaceholder();
-            return;
-          }
-
-          // 构建图像数据URL
-          const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
-          const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
+        const addImageToCanvas = (aiResult: AIImageResult, imageSrc: string) => {
           const fileName = `ai_generated_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
           // 优先使用占位框位置；让 quick upload 根据 placeholderId 查找并自适应，避免跳到缓存链条的下一张
@@ -2234,7 +2266,7 @@ export const useAIChatStore = create<AIChatState>()(
           // 直接触发快速上传事件，复用现有的上传逻辑，添加智能排版信息
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
-              imageData: imageDataUrl,
+              imageData: imageSrc,
               fileName: fileName,
               operationType: 'generate',
               smartPosition,
@@ -2248,7 +2280,7 @@ export const useAIChatStore = create<AIChatState>()(
         // 自动添加到画布
         setTimeout(() => {
           if (result.data) {
-            addImageToCanvas(result.data, inlineImageData);
+            addImageToCanvas(result.data, placementImageData);
           }
         }, 100); // 短暂延迟，确保UI更新
 
@@ -2616,21 +2648,20 @@ export const useAIChatStore = create<AIChatState>()(
         await get().refreshSessions();
         logProcessStep(metrics, 'editImage history recorded');
 
-        // 如果没有图像，记录原因并返回
-        if (!result.data.hasImage) {
+        const placementImageData = resolveImageForPlacement({
+          inlineData: inlineImageData,
+          result: result.data,
+          uploadedAssets,
+          fallbackRemote: imageRemoteUrl ?? null
+        });
+
+        if (!placementImageData) {
           removePredictivePlaceholder();
           return;
         }
 
         // 自动添加到画布
-        const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
-          if (!inlineData) {
-            removePredictivePlaceholder();
-            return;
-          }
-          
-          const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
-          const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
+        const addImageToCanvas = (aiResult: AIImageResult, imageSrc: string) => {
           const fileName = `ai_edited_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
           // 🎯 获取当前选中图片的ID和边界信息用于智能排版
@@ -2653,7 +2684,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
-              imageData: imageDataUrl,
+              imageData: imageSrc,
               fileName: fileName,
               selectedImageBounds: selectedImageBounds,  // 保持兼容性
               operationType: 'edit',
@@ -2667,7 +2698,7 @@ export const useAIChatStore = create<AIChatState>()(
 
         setTimeout(() => {
           if (result.data) {
-            addImageToCanvas(result.data, inlineImageData);
+            addImageToCanvas(result.data, placementImageData);
           }
         }, 100);
 
@@ -2967,19 +2998,19 @@ export const useAIChatStore = create<AIChatState>()(
         await get().refreshSessions();
         logProcessStep(metrics, 'blendImages history recorded');
 
-        if (!result.data.hasImage) {
+        const placementImageData = resolveImageForPlacement({
+          inlineData: inlineImageData,
+          result: result.data,
+          uploadedAssets,
+          fallbackRemote: imageRemoteUrl ?? null
+        });
+
+        if (!placementImageData) {
           removePredictivePlaceholder();
           return;
         }
 
-        const addImageToCanvas = (aiResult: AIImageResult, inlineData?: string | null) => {
-          if (!inlineData) {
-            removePredictivePlaceholder();
-            return;
-          }
-          
-          const mimeType = `image/${aiResult.metadata?.outputFormat || 'png'}`;
-          const imageDataUrl = `data:${mimeType};base64,${inlineData}`;
+        const addImageToCanvas = (aiResult: AIImageResult, imageSrc: string) => {
           const fileName = `ai_blended_${prompt.substring(0, 20)}.${aiResult.metadata?.outputFormat || 'png'}`;
 
           // 🎯 获取源图像ID列表用于智能排版
@@ -2995,7 +3026,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
             detail: {
-              imageData: imageDataUrl,
+              imageData: imageSrc,
               fileName: fileName,
               operationType: 'blend',
               // 让 quick upload 根据 placeholderId/源图自动定位，避免跳到缓存链条位置
@@ -3009,7 +3040,7 @@ export const useAIChatStore = create<AIChatState>()(
 
         setTimeout(() => {
           if (result.data) {
-            addImageToCanvas(result.data, inlineImageData);
+            addImageToCanvas(result.data, placementImageData);
           }
         }, 100);
 
@@ -4689,10 +4720,16 @@ export const useAIChatStore = create<AIChatState>()(
     userMessageId: string;
     aiMessageId: string;
   }) => {
-    const { aiMessageId, userMessageId } = options;
+    const { aiMessageId, userMessageId, groupIndex } = options;
     const metrics = createProcessMetrics();
     metrics.messageId = aiMessageId;
     logProcessStep(metrics, `parallel generation ${options.groupIndex + 1}/${options.groupTotal} start`);
+
+    // 🔥 为每个并行任务添加递增的启动延迟，避免占位符位置计算冲突
+    // 第一个立即开始，后续每个延迟 200ms
+    if (groupIndex > 0) {
+      await new Promise(resolve => setTimeout(resolve, groupIndex * 200));
+    }
 
     const messageOverride: MessageOverride = {
       userMessageId,
