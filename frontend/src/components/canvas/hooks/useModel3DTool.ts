@@ -34,6 +34,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
   const [model3DInstances, setModel3DInstances] = useState<Model3DInstance[]>([]);
   const [selectedModel3DIds, setSelectedModel3DIds] = useState<string[]>([]);  // 支持多选
   const cameraChangeTimersRef = useRef<Record<string, number>>({});
+  const [selectedPlaceholderId, setSelectedPlaceholderId] = useState<string | null>(null);  // 占位框选中状态
+  const placeholdersRef = useRef<Map<string, paper.Group>>(new Map());  // 存储所有占位框
 
   // ========== 创建3D模型占位框 ==========
   const create3DModelPlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
@@ -45,8 +47,8 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     const width = Math.abs(rect.width);
     const height = Math.abs(rect.height);
 
-    // 最小尺寸限制（3D模型需要更大的空间）
-    const minSize = 520;
+    // 最小尺寸限制
+    const minSize = 50;
     const finalWidth = Math.max(width, minSize);
     const finalHeight = Math.max(height, minSize);
 
@@ -125,10 +127,14 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       justification: 'center'
     });
 
+    // 生成唯一ID
+    const placeholderId = `3d-model-placeholder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     // 创建组合
     const group = new paper.Group([placeholder, buttonGroup, text]);
     group.data = {
       type: '3d-model-placeholder',
+      placeholderId: placeholderId,
       bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
       isHelper: true,  // 标记为辅助元素，不显示在图层列表中
       placeholderMinSize: minSize
@@ -136,7 +142,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     const attachPlaceholderMeta = (item: any) => {
       if (item) {
         // 🔥 使用 placeholderGroupId 而不是直接引用，避免循环引用导致序列化失败
-        item.data = { ...(item.data || {}), placeholderGroupId: '3d-model-placeholder', placeholderType: 'model3d', isHelper: true };
+        item.data = { ...(item.data || {}), placeholderGroupId: placeholderId, placeholderType: 'model3d', isHelper: true };
       }
     };
     [placeholder, buttonGroup, buttonBg, frontFace, topFace, rightFace, text].forEach(attachPlaceholderMeta);
@@ -148,6 +154,17 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
       setTriggerModel3DUpload(true);
     };
     buttonGroup.onClick = triggerUpload;
+
+    // 点击占位框（非按钮区域）选中占位框
+    placeholder.onClick = () => {
+      setSelectedPlaceholderId(placeholderId);
+      // 更新选中样式
+      placeholder.strokeColor = new paper.Color('#7c3aed');
+      placeholder.strokeWidth = 2;
+    };
+
+    // 存储占位框引用
+    placeholdersRef.current.set(placeholderId, group);
 
     return group;
   }, [ensureDrawingLayer]);
@@ -590,6 +607,48 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     setTriggerModel3DUpload(false);
   }, []);
 
+  // ========== 删除占位框 ==========
+  const deletePlaceholder = useCallback((placeholderId?: string) => {
+    const idToDelete = placeholderId || selectedPlaceholderId;
+    if (!idToDelete) return false;
+
+    const placeholder = placeholdersRef.current.get(idToDelete);
+    if (placeholder) {
+      try {
+        placeholder.remove();
+        placeholdersRef.current.delete(idToDelete);
+        if (selectedPlaceholderId === idToDelete) {
+          setSelectedPlaceholderId(null);
+        }
+        if (currentModel3DPlaceholderRef.current?.data?.placeholderId === idToDelete) {
+          currentModel3DPlaceholderRef.current = null;
+        }
+        paper.view?.update();
+        logger.debug('🗑️ 已删除3D模型占位框:', idToDelete);
+        return true;
+      } catch (e) {
+        console.warn('删除占位框失败:', e);
+      }
+    }
+    return false;
+  }, [selectedPlaceholderId]);
+
+  // ========== 取消选中占位框 ==========
+  const deselectPlaceholder = useCallback(() => {
+    if (selectedPlaceholderId) {
+      const placeholder = placeholdersRef.current.get(selectedPlaceholderId);
+      if (placeholder) {
+        // 恢复默认样式
+        const border = placeholder.children?.[0];
+        if (border instanceof paper.Path) {
+          border.strokeColor = new paper.Color('#8b5cf6');
+          border.strokeWidth = 1;
+        }
+      }
+      setSelectedPlaceholderId(null);
+    }
+  }, [selectedPlaceholderId]);
+
   const hydrateFromSnapshot = useCallback((snapshots: ModelAssetSnapshot[]) => {
     if (!Array.isArray(snapshots) || snapshots.length === 0) {
       setModel3DInstances([]);
@@ -760,6 +819,10 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     // 占位框相关
     create3DModelPlaceholder,
     currentModel3DPlaceholderRef,
+    selectedPlaceholderId,
+    deletePlaceholder,
+    deselectPlaceholder,
+    placeholdersRef,
 
     // 3D模型上传处理
     handleModel3DUploaded,

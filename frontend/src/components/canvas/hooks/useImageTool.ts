@@ -33,6 +33,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   const currentPlaceholderRef = useRef<paper.Group | null>(null);
   const [imageInstances, setImageInstances] = useState<ImageInstance[]>([]);
   const [selectedImageIds, setSelectedImageIds] = useState<string[]>([]);  // 支持多选
+  const [selectedPlaceholderId, setSelectedPlaceholderId] = useState<string | null>(null);  // 占位框选中状态
+  const placeholdersRef = useRef<Map<string, paper.Group>>(new Map());  // 存储所有占位框
 
   // 图片拖拽状态
   const [imageDragState, setImageDragState] = useState<ImageDragState>({
@@ -123,10 +125,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       justification: 'center'
     });
 
+    // 生成唯一ID
+    const placeholderId = `image-placeholder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     // 创建组合
     const group = new paper.Group([placeholder, buttonGroup, text]);
     group.data = {
       type: 'image-placeholder',
+      placeholderId: placeholderId,
       bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
       isHelper: true,  // 标记为辅助元素，不显示在图层列表中
       placeholderMinSize: minSize
@@ -134,7 +140,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     const attachPlaceholderMeta = (item: any) => {
       if (item) {
         // 🔥 使用 placeholderGroupId 而不是直接引用，避免循环引用导致序列化失败
-        item.data = { ...(item.data || {}), placeholderGroupId: 'image-placeholder', placeholderType: 'image', isHelper: true };
+        item.data = { ...(item.data || {}), placeholderGroupId: placeholderId, placeholderType: 'image', isHelper: true };
       }
     };
     [placeholder, buttonGroup, buttonBg, hLine, vLine, text].forEach(attachPlaceholderMeta);
@@ -146,6 +152,17 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       setTriggerImageUpload(true);
     };
     buttonGroup.onClick = triggerUpload;
+
+    // 点击占位框（非按钮区域）选中占位框
+    placeholder.onClick = () => {
+      setSelectedPlaceholderId(placeholderId);
+      // 更新选中样式
+      placeholder.strokeColor = new paper.Color('#2563eb');
+      placeholder.strokeWidth = 2;
+    };
+
+    // 存储占位框引用
+    placeholdersRef.current.set(placeholderId, group);
 
     return group;
   }, [ensureDrawingLayer]);
@@ -755,6 +772,48 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     setTriggerImageUpload(false);
   }, []);
 
+  // ========== 删除占位框 ==========
+  const deletePlaceholder = useCallback((placeholderId?: string) => {
+    const idToDelete = placeholderId || selectedPlaceholderId;
+    if (!idToDelete) return false;
+
+    const placeholder = placeholdersRef.current.get(idToDelete);
+    if (placeholder) {
+      try {
+        placeholder.remove();
+        placeholdersRef.current.delete(idToDelete);
+        if (selectedPlaceholderId === idToDelete) {
+          setSelectedPlaceholderId(null);
+        }
+        if (currentPlaceholderRef.current?.data?.placeholderId === idToDelete) {
+          currentPlaceholderRef.current = null;
+        }
+        paper.view?.update();
+        logger.debug('🗑️ 已删除图片占位框:', idToDelete);
+        return true;
+      } catch (e) {
+        console.warn('删除占位框失败:', e);
+      }
+    }
+    return false;
+  }, [selectedPlaceholderId]);
+
+  // ========== 取消选中占位框 ==========
+  const deselectPlaceholder = useCallback(() => {
+    if (selectedPlaceholderId) {
+      const placeholder = placeholdersRef.current.get(selectedPlaceholderId);
+      if (placeholder) {
+        // 恢复默认样式
+        const border = placeholder.children?.[0];
+        if (border instanceof paper.Path) {
+          border.strokeColor = new paper.Color('#60a5fa');
+          border.strokeWidth = 1;
+        }
+      }
+      setSelectedPlaceholderId(null);
+    }
+  }, [selectedPlaceholderId]);
+
   const hydrateFromSnapshot = useCallback((snapshots: ImageAssetSnapshot[]) => {
     if (!Array.isArray(snapshots) || snapshots.length === 0) {
       setImageInstances([]);
@@ -900,6 +959,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     // 占位框相关
     createImagePlaceholder,
     currentPlaceholderRef,
+    selectedPlaceholderId,
+    deletePlaceholder,
+    deselectPlaceholder,
+    placeholdersRef,
 
     // 图片上传处理
     handleImageUploaded,

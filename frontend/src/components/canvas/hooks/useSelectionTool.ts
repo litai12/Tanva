@@ -363,36 +363,13 @@ export const useSelectionTool = ({
 
   // 检测点击位置的对象类型和具体对象
   const detectClickedObject = useCallback((point: paper.Point) => {
-    const isPlaceholderNode = (item: paper.Item | null | undefined): boolean => {
-      let current: paper.Item | null | undefined = item;
-      while (current) {
-        const data = current.data || {};
-        // 🔥 使用 placeholderGroupId 而不是 placeholderGroup 引用
-        if (
-          data.placeholderGroupId ||
-          data.placeholderType ||
-          data.type === 'image-placeholder' ||
-          data.type === '3d-model-placeholder'
-        ) {
-          return true;
-        }
-        current = current.parent as paper.Item | null | undefined;
-      }
-      return false;
-    };
-
-    // 使用Paper.js的hitTest进行点击检测
+    // 使用Paper.js的hitTest进行点击检测（允许命中占位符，用于选中/删除）
     const hitResult = paper.project.hitTest(point, {
       segments: true,
       stroke: true,
       fill: true,
       tolerance: 5 / zoom // 根据缩放调整容差
     });
-
-    // 占位符元素不可选，视为空白
-    if (hitResult?.item && isPlaceholderNode(hitResult.item)) {
-      return { hitResult: null, imageClicked: null, modelClicked: null };
-    }
 
     // 首先检查是否点击在图片或3D模型区域内
     let imageClicked = null;
@@ -494,88 +471,93 @@ export const useSelectionTool = ({
         logger.upload('选中文本:', textClicked);
       }
       return { type: 'text', id: textClicked };
-    } else if (hitResult && hitResult.item instanceof paper.Path) {
-      // 检查路径是否在网格图层或其他背景图层中，如果是则不选择
-      const path = hitResult.item as paper.Path;
-      const pathLayer = path.layer;
+    } else if (hitResult?.item) {
+      const isPath = hitResult.item instanceof paper.Path;
+      const path = isPath ? (hitResult.item as paper.Path) : null;
+      const pathLayer = path?.layer;
 
       if (pathLayer && (pathLayer.name === "grid" || pathLayer.name === "background")) {
         logger.debug('忽略背景/网格图层中的对象');
-        // 取消所有选择
         clearAllSelections();
-        // 开始选择框拖拽
         startSelectionBox(point);
         return { type: 'selection-box-start', point };
-      } else {
-        // 检查是否属于占位符组（2D图片或3D模型占位符）
-        // 🔥 不再使用 placeholderGroup 引用，改为向上查找占位符组
-        let foundPlaceholderGroup: paper.Group | null = null;
-        let currentItem: paper.Item = hitResult.item;
-
-        // 向上遍历父级查找占位符组
-        while (currentItem) {
-          if (currentItem.data?.type === 'image-placeholder' || currentItem.data?.type === '3d-model-placeholder') {
-            foundPlaceholderGroup = currentItem as paper.Group;
-            break;
-          }
-          currentItem = currentItem.parent as paper.Item;
-        }
-
-        if (foundPlaceholderGroup) {
-          // 允许直接选中占位框，便于删除
-          const mainPath = foundPlaceholderGroup.children?.find?.(
-            (child: any) => child instanceof paper.Path && !(child as any).data?.uploadHotspotType
-          ) as paper.Path | undefined;
-
-          const targetPath = mainPath || (hitResult.item as paper.Path);
-
-          if (targetPath) {
-            clearAllSelections();
-            handlePathSelect(targetPath);
-            setSelectedPaths([targetPath]);
-            logger.debug('选中占位符:', foundPlaceholderGroup.data?.type);
-            return { type: 'path', path: targetPath };
-          }
-
-          // 如果未找到合适的路径，则保持原逻辑，开始选择框
-          clearAllSelections();
-          startSelectionBox(point);
-          return { type: 'selection-box-start', point };
-        } else {
-          // 点击到了有效路径，选择它
-          if (ctrlPressed) {
-            // Ctrl键增量选择路径
-            if (selectedPaths.includes(path)) {
-              // 如果已选中，取消选择
-              path.selected = false;
-              path.fullySelected = false;
-              if ((path as any).originalStrokeWidth) {
-                path.strokeWidth = (path as any).originalStrokeWidth;
-              }
-              setSelectedPaths(prev => prev.filter(p => p !== path));
-            } else {
-              // 添加到选择
-              handlePathSelect(path, true);
-              setSelectedPaths(prev => [...prev, path]);
-            }
-          } else {
-            // 单击：清除其他选择，只选择这个路径
-            const isAlreadySelected =
-              selectedPath === path || selectedPaths.includes(path);
-
-            if (!isAlreadySelected) {
-              clearAllSelections();
-              handlePathSelect(path);
-              setSelectedPaths([path]);
-            } else {
-              handlePathSelect(path, true);
-              setSelectedPaths(prev => prev.includes(path) ? prev : [...prev, path]);
-            }
-          }
-          logger.debug('选中路径:', path);
-          return { type: 'path', path };
-        }
       }
+
+      // 检查是否属于占位符组（2D图片或3D模型占位符）
+      // 🔥 不再使用 placeholderGroup 引用，改为向上查找占位符组
+      let foundPlaceholderGroup: paper.Group | null = null;
+      let currentItem: paper.Item | null = hitResult.item;
+
+      // 向上遍历父级查找占位符组
+      while (currentItem) {
+        if (currentItem.data?.type === 'image-placeholder' || currentItem.data?.type === '3d-model-placeholder') {
+          foundPlaceholderGroup = currentItem as paper.Group;
+          break;
+        }
+        currentItem = currentItem.parent as paper.Item;
+      }
+
+      if (foundPlaceholderGroup) {
+        // 允许直接选中占位框，便于删除
+        const mainPath = foundPlaceholderGroup.children?.find?.(
+          (child: any) => child instanceof paper.Path && !(child as any).data?.uploadHotspotType
+        ) as paper.Path | undefined;
+
+        const targetPath = mainPath || (isPath ? (hitResult.item as paper.Path) : null);
+
+        if (targetPath) {
+          clearAllSelections();
+          handlePathSelect(targetPath);
+          setSelectedPaths([targetPath]);
+          logger.debug('选中占位符:', foundPlaceholderGroup.data?.type);
+          return { type: 'path', path: targetPath };
+        }
+
+        // 如果未找到合适的路径，则保持原逻辑，开始选择框
+        clearAllSelections();
+        startSelectionBox(point);
+        return { type: 'selection-box-start', point };
+      }
+
+      if (path) {
+        // 点击到了有效路径，选择它
+        if (ctrlPressed) {
+          // Ctrl键增量选择路径
+          if (selectedPaths.includes(path)) {
+            // 如果已选中，取消选择
+            path.selected = false;
+            path.fullySelected = false;
+            if ((path as any).originalStrokeWidth) {
+              path.strokeWidth = (path as any).originalStrokeWidth;
+            }
+            setSelectedPaths(prev => prev.filter(p => p !== path));
+          } else {
+            // 添加到选择
+            handlePathSelect(path, true);
+            setSelectedPaths(prev => [...prev, path]);
+          }
+        } else {
+          // 单击：清除其他选择，只选择这个路径
+          const isAlreadySelected =
+            selectedPath === path || selectedPaths.includes(path);
+
+          if (!isAlreadySelected) {
+            clearAllSelections();
+            handlePathSelect(path);
+            setSelectedPaths([path]);
+          } else {
+            handlePathSelect(path, true);
+            setSelectedPaths(prev => prev.includes(path) ? prev : [...prev, path]);
+          }
+        }
+        logger.debug('选中路径:', path);
+        return { type: 'path', path };
+      }
+
+      // 非 Path 类型但命中了元素（例如 PointText），按空白处理，开启选择框
+      clearAllSelections();
+      startSelectionBox(point);
+      return { type: 'selection-box-start', point };
     } else {
       // 点击空白区域，先取消所有选择（包括分组）
       clearAllSelections();

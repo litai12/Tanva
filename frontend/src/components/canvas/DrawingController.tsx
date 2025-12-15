@@ -2389,6 +2389,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       didDelete = true;
     }
 
+    // 删除选中的图片占位框
+    if (imageTool.selectedPlaceholderId) {
+      try {
+        imageTool.deletePlaceholder?.(imageTool.selectedPlaceholderId);
+        didDelete = true;
+      } catch {}
+    }
+
+    // 删除选中的3D模型占位框
+    if (model3DTool.selectedPlaceholderId) {
+      try {
+        model3DTool.deletePlaceholder?.(model3DTool.selectedPlaceholderId);
+        didDelete = true;
+      } catch {}
+    }
+
     if (didDelete) {
       try { paper.view.update(); } catch {}
       try { historyService.commit('delete-selection-contextmenu').catch(() => {}); } catch {}
@@ -2401,8 +2417,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     deselectSimpleText,
     imageTool.handleImageDelete,
     imageTool.selectedImageIds,
+    imageTool.selectedPlaceholderId,
+    imageTool.deletePlaceholder,
     model3DTool.handleModel3DDelete,
     model3DTool.selectedModel3DIds,
+    model3DTool.selectedPlaceholderId,
+    model3DTool.deletePlaceholder,
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
     setSelectedPath,

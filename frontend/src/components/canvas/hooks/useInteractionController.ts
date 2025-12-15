@@ -1018,6 +1018,22 @@ export const useInteractionController = ({
           }
         } catch {}
 
+        // 删除选中的图片占位框
+        try {
+          if (latestImageTool?.selectedPlaceholderId && typeof latestImageTool?.deletePlaceholder === 'function') {
+            latestImageTool.deletePlaceholder(latestImageTool.selectedPlaceholderId);
+            didDelete = true;
+          }
+        } catch {}
+
+        // 删除选中的3D模型占位框
+        try {
+          if (latestModel3DTool?.selectedPlaceholderId && typeof latestModel3DTool?.deletePlaceholder === 'function') {
+            latestModel3DTool.deletePlaceholder(latestModel3DTool.selectedPlaceholderId);
+            didDelete = true;
+          }
+        } catch {}
+
         if (didDelete) {
           event.preventDefault();
           try { paper.view.update(); } catch {}
