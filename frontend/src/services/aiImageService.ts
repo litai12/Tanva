@@ -8,7 +8,7 @@
  * 2. 公开调用 (无需认证): /api/public/ai/generate
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -26,14 +26,14 @@ import type {
   AIError,
   ToolSelectionRequest,
   ToolSelectionResult,
-} from '@/types/ai';
+} from "@/types/ai";
 
 const PUBLIC_ENDPOINT_MAP: Record<string, string> = {
-  '/ai/generate-image': '/generate',
-  '/ai/edit-image': '/edit',
-  '/ai/blend-images': '/blend',
-  '/ai/analyze-image': '/analyze',
-  '/ai/text-chat': '/chat',
+  "/ai/generate-image": "/generate",
+  "/ai/edit-image": "/edit",
+  "/ai/blend-images": "/blend",
+  "/ai/analyze-image": "/analyze",
+  "/ai/text-chat": "/chat",
 };
 
 // 网络错误重试配置
@@ -45,65 +45,85 @@ const REQUEST_TIMEOUT_MS = 180000; // 3分钟超时
 function isRetryableError(error: Error): boolean {
   const message = error.message.toLowerCase();
   const retryablePatterns = [
-    'fetch',
-    'network',
-    'timeout',
-    'econnreset',
-    'etimedout',
-    'enotfound',
-    'econnrefused',
-    'socket',
-    'connection',
-    'aborted',
+    "fetch",
+    "network",
+    "timeout",
+    "econnreset",
+    "etimedout",
+    "enotfound",
+    "econnrefused",
+    "socket",
+    "connection",
+    "aborted",
   ];
-  return retryablePatterns.some(pattern => message.includes(pattern));
+  return retryablePatterns.some((pattern) => message.includes(pattern));
 }
 
 // 延迟函数
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 class AIImageService {
-  private readonly API_BASE = import.meta.env.VITE_API_BASE || '/api';
-  private readonly PUBLIC_API_BASE = '/api/public/ai';
+  // 后端基础地址，统一从 .env 读取；无配置则默认 http://localhost:4000
+  private readonly API_BASE: string;
+  private readonly PUBLIC_API_BASE: string;
+
+  constructor() {
+    const viteEnv =
+      typeof import.meta !== "undefined" && (import.meta as any).env
+        ? (import.meta as any).env
+        : undefined;
+    const base =
+      viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
+        ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+        : "http://localhost:4000";
+    this.API_BASE = `${base}/api`;
+    this.PUBLIC_API_BASE = `${base}/api/public/ai`;
+  }
 
   /**
    * 生成图像 - 使用内部认证 API
    */
-  async generateImage(request: AIImageGenerateRequest): Promise<AIServiceResponse<AIImageResult>> {
+  async generateImage(
+    request: AIImageGenerateRequest
+  ): Promise<AIServiceResponse<AIImageResult>> {
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/generate-image`,
       request,
-      'Image generation'
+      "Image generation"
     );
-    this.logImageResponse('Image generation', response);
+    this.logImageResponse("Image generation", response);
     return response;
   }
 
   /**
    * 编辑图像 - 使用内部认证 API
    */
-  async editImage(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
+  async editImage(
+    request: AIImageEditRequest
+  ): Promise<AIServiceResponse<AIImageResult>> {
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/edit-image`,
       request,
-      'Image editing'
+      "Image editing"
     );
-    this.logImageResponse('Image editing', response);
+    this.logImageResponse("Image editing", response);
     return response;
   }
 
   /**
    * 融合图像 - 使用内部认证 API
    */
-  async blendImages(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
+  async blendImages(
+    request: AIImageBlendRequest
+  ): Promise<AIServiceResponse<AIImageResult>> {
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/blend-images`,
       request,
-      'Image blending'
+      "Image blending"
     );
-    this.logImageResponse('Image blending', response);
+    this.logImageResponse("Image blending", response);
     return response;
   }
 
@@ -112,11 +132,13 @@ class AIImageService {
    * 后端目前返回的数据字段在不同路径下不一致（可能是 text 或 analysis），
    * 这里统一归一化为 AIImageAnalysisResult，避免调用方做额外判断。
    */
-  async analyzeImage(request: AIImageAnalyzeRequest): Promise<AIServiceResponse<AIImageAnalysisResult>> {
+  async analyzeImage(
+    request: AIImageAnalyzeRequest
+  ): Promise<AIServiceResponse<AIImageAnalysisResult>> {
     const response = await this.callAPI<any>(
       `${this.API_BASE}/ai/analyze-image`,
       request,
-      'Image analysis'
+      "Image analysis"
     );
 
     if (!response.success || !response.data) {
@@ -130,21 +152,22 @@ class AIImageService {
     };
 
     const analysisText =
-      typeof raw.analysis === 'string' && raw.analysis.length
+      typeof raw.analysis === "string" && raw.analysis.length
         ? raw.analysis
-        : typeof raw.text === 'string' && raw.text.length
+        : typeof raw.text === "string" && raw.text.length
         ? raw.text
-        : typeof raw.textResponse === 'string' && raw.textResponse.length
+        : typeof raw.textResponse === "string" && raw.textResponse.length
         ? raw.textResponse
-        : typeof raw.result === 'string'
+        : typeof raw.result === "string"
         ? raw.result
-        : '';
+        : "";
 
     return {
       success: true,
       data: {
         analysis: analysisText,
-        confidence: typeof raw.confidence === 'number' ? raw.confidence : undefined,
+        confidence:
+          typeof raw.confidence === "number" ? raw.confidence : undefined,
         tags: Array.isArray(raw.tags) ? raw.tags : [],
       },
     };
@@ -153,21 +176,25 @@ class AIImageService {
   /**
    * 文本对话 - 使用内部认证 API
    */
-  async generateTextResponse(request: AITextChatRequest): Promise<AIServiceResponse<AITextChatResult>> {
+  async generateTextResponse(
+    request: AITextChatRequest
+  ): Promise<AIServiceResponse<AITextChatResult>> {
     return this.callAPI<AITextChatResult>(
       `${this.API_BASE}/ai/text-chat`,
       request,
-      'Text generation'
+      "Text generation"
     );
   }
 
   /**
    * 工具选择 - 使用内部认证 API
    */
-  async selectTool(request: ToolSelectionRequest): Promise<AIServiceResponse<ToolSelectionResult>> {
+  async selectTool(
+    request: ToolSelectionRequest
+  ): Promise<AIServiceResponse<ToolSelectionResult>> {
     // 转换请求格式以匹配后端期望的结构
     const backendRequest = {
-      prompt: request.userInput || request.prompt || '',
+      prompt: request.userInput || request.prompt || "",
       aiProvider: request.aiProvider,
       model: request.model,
       hasImages: request.hasImages,
@@ -180,15 +207,17 @@ class AIImageService {
     const response = await this.callAPI<ToolSelectionResult>(
       `${this.API_BASE}/ai/tool-selection`,
       backendRequest,
-      'Tool selection'
+      "Tool selection"
     );
 
     if (
       !response.success &&
       response.error?.code &&
-      ['HTTP_401', 'HTTP_403', 'PUBLIC_HTTP_401', 'PUBLIC_HTTP_403'].includes(response.error.code)
+      ["HTTP_401", "HTTP_403", "PUBLIC_HTTP_401", "PUBLIC_HTTP_403"].includes(
+        response.error.code
+      )
     ) {
-      console.warn('⚠️ Tool selection fallback triggered due to missing auth');
+      console.warn("⚠️ Tool selection fallback triggered due to missing auth");
       return this.fallbackToolSelection(request, response.error.message);
     }
 
@@ -219,16 +248,19 @@ class AIImageService {
 
     const textResponse =
       data.textResponse ??
-      (typeof (data as any).text === 'string' ? (data as any).text : undefined) ??
-      '';
+      (typeof (data as any).text === "string"
+        ? (data as any).text
+        : undefined) ??
+      "";
 
     const hasImage =
-      typeof data.hasImage === 'boolean'
+      typeof data.hasImage === "boolean"
         ? data.hasImage
-        : typeof data.imageData === 'string' && data.imageData.trim().length > 0;
+        : typeof data.imageData === "string" &&
+          data.imageData.trim().length > 0;
 
     console.log(`🧾 ${operationType} response payload`, {
-      textResponse: textResponse || '(无文本返回)',
+      textResponse: textResponse || "(无文本返回)",
       hasImage,
     });
   }
@@ -247,14 +279,18 @@ class AIImageService {
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
     try {
-      console.log(`🌐 ${operationType}: Calling ${url}${retryCount > 0 ? ` (retry ${retryCount}/${MAX_NETWORK_RETRIES})` : ''}`);
+      console.log(
+        `🌐 ${operationType}: Calling ${url}${
+          retryCount > 0 ? ` (retry ${retryCount}/${MAX_NETWORK_RETRIES})` : ""
+        }`
+      );
 
       const response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        credentials: 'include', // 发送认证 cookie
+        credentials: "include", // 发送认证 cookie
         body: JSON.stringify(request),
         signal: controller.signal,
       });
@@ -262,13 +298,19 @@ class AIImageService {
       clearTimeout(timeoutId);
 
       if (response.status === 401 || response.status === 403) {
-        console.warn(`⚠️ ${operationType}: token expired? attempting refresh...`);
+        console.warn(
+          `⚠️ ${operationType}: token expired? attempting refresh...`
+        );
         const refreshed = await this.refreshSession();
         if (refreshed) {
           return this.callAPI<T>(url, request, `${operationType} (retry)`, 0);
         }
 
-        const fallback = await this.callPublicAPI<T>(url, request, operationType);
+        const fallback = await this.callPublicAPI<T>(
+          url,
+          request,
+          operationType
+        );
         if (fallback) {
           return fallback;
         }
@@ -299,24 +341,42 @@ class AIImageService {
       const err = error instanceof Error ? error : new Error(String(error));
 
       // 检查是否为超时错误
-      const isTimeout = err.name === 'AbortError';
+      const isTimeout = err.name === "AbortError";
       if (isTimeout) {
-        console.warn(`⚠️ ${operationType} timeout after ${REQUEST_TIMEOUT_MS / 1000}s`);
+        console.warn(
+          `⚠️ ${operationType} timeout after ${REQUEST_TIMEOUT_MS / 1000}s`
+        );
       }
 
       // 检查是否可以重试（超时也可重试）
-      if (retryCount < MAX_NETWORK_RETRIES && (isTimeout || isRetryableError(err))) {
-        console.warn(`⚠️ ${operationType} failed: ${isTimeout ? 'timeout' : err.message}, retrying in ${RETRY_DELAY_MS}ms... (${retryCount + 1}/${MAX_NETWORK_RETRIES})`);
+      if (
+        retryCount < MAX_NETWORK_RETRIES &&
+        (isTimeout || isRetryableError(err))
+      ) {
+        console.warn(
+          `⚠️ ${operationType} failed: ${
+            isTimeout ? "timeout" : err.message
+          }, retrying in ${RETRY_DELAY_MS}ms... (${
+            retryCount + 1
+          }/${MAX_NETWORK_RETRIES})`
+        );
         await sleep(RETRY_DELAY_MS);
         return this.callAPI<T>(url, request, operationType, retryCount + 1);
       }
 
-      console.error(`❌ ${operationType} error after ${retryCount} retries:`, error);
+      console.error(
+        `❌ ${operationType} error after ${retryCount} retries:`,
+        error
+      );
       return {
         success: false,
         error: {
-          code: isTimeout ? 'TIMEOUT_ERROR' : 'NETWORK_ERROR',
-          message: isTimeout ? `请求超时 (${REQUEST_TIMEOUT_MS / 1000}秒)` : (error instanceof Error ? error.message : 'Network error'),
+          code: isTimeout ? "TIMEOUT_ERROR" : "NETWORK_ERROR",
+          message: isTimeout
+            ? `请求超时 (${REQUEST_TIMEOUT_MS / 1000}秒)`
+            : error instanceof Error
+            ? error.message
+            : "Network error",
           timestamp: new Date(),
         } as AIError,
       };
@@ -334,18 +394,22 @@ class AIImageService {
     }
 
     try {
-      console.log(`🌐 ${operationType}: falling back to public endpoint ${this.PUBLIC_API_BASE}${publicSuffix}`);
+      console.log(
+        `🌐 ${operationType}: falling back to public endpoint ${this.PUBLIC_API_BASE}${publicSuffix}`
+      );
       const response = await fetch(`${this.PUBLIC_API_BASE}${publicSuffix}`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.warn(`⚠️ ${operationType}: public endpoint failed HTTP ${response.status}`);
+        console.warn(
+          `⚠️ ${operationType}: public endpoint failed HTTP ${response.status}`
+        );
         return {
           success: false,
           error: {
@@ -368,8 +432,8 @@ class AIImageService {
       return {
         success: false,
         error: {
-          code: 'PUBLIC_NETWORK_ERROR',
-          message: error instanceof Error ? error.message : 'Network error',
+          code: "PUBLIC_NETWORK_ERROR",
+          message: error instanceof Error ? error.message : "Network error",
           timestamp: new Date(),
         } as AIError,
       };
@@ -377,7 +441,9 @@ class AIImageService {
   }
 
   private mapToPublicEndpoint(url: string): string | null {
-    const normalized = url.startsWith(this.API_BASE) ? url.slice(this.API_BASE.length) : url;
+    const normalized = url.startsWith(this.API_BASE)
+      ? url.slice(this.API_BASE.length)
+      : url;
     return PUBLIC_ENDPOINT_MAP[normalized] ?? null;
   }
 
@@ -386,7 +452,7 @@ class AIImageService {
     reason?: string
   ): AIServiceResponse<ToolSelectionResult> {
     const available = request.availableTools || [];
-    const prompt = (request.userInput || request.prompt || '').trim();
+    const prompt = (request.userInput || request.prompt || "").trim();
     const lowerPrompt = prompt.toLowerCase();
 
     const prefersImage = this.promptSuggestsImage(lowerPrompt);
@@ -395,15 +461,16 @@ class AIImageService {
     const pick = (tool: string) => (available.includes(tool) ? tool : null);
 
     let selected =
-      ((request.imageCount || 0) > 1 && pick('blendImages')) ||
-      (((request.hasImages || request.hasCachedImage || prefersEdit) && pick('editImage'))) ||
-      ((prefersImage && pick('generateImage'))) ||
-      pick('chatResponse') ||
+      ((request.imageCount || 0) > 1 && pick("blendImages")) ||
+      ((request.hasImages || request.hasCachedImage || prefersEdit) &&
+        pick("editImage")) ||
+      (prefersImage && pick("generateImage")) ||
+      pick("chatResponse") ||
       available[0] ||
-      'chatResponse';
+      "chatResponse";
 
-    if (typeof selected !== 'string') {
-      selected = 'chatResponse';
+    if (typeof selected !== "string") {
+      selected = "chatResponse";
     }
 
     return {
@@ -412,20 +479,42 @@ class AIImageService {
         selectedTool: selected,
         parameters: { prompt },
         confidence: 0.35,
-        reasoning: `Fallback selection used due to missing auth${reason ? `: ${reason}` : ''}`,
+        reasoning: `Fallback selection used due to missing auth${
+          reason ? `: ${reason}` : ""
+        }`,
       },
     };
   }
 
   private promptSuggestsImage(prompt: string): boolean {
     if (!prompt) return false;
-    const keywords = ['image', 'picture', 'photo', 'draw', 'painting', 'render', '生成', '画', '图', '照片'];
+    const keywords = [
+      "image",
+      "picture",
+      "photo",
+      "draw",
+      "painting",
+      "render",
+      "生成",
+      "画",
+      "图",
+      "照片",
+    ];
     return keywords.some((keyword) => prompt.includes(keyword));
   }
 
   private promptSuggestsEdit(prompt: string): boolean {
     if (!prompt) return false;
-    const keywords = ['edit', 'modify', 'adjust', 'remove', '背景', '编辑', '修改', '调整'];
+    const keywords = [
+      "edit",
+      "modify",
+      "adjust",
+      "remove",
+      "背景",
+      "编辑",
+      "修改",
+      "调整",
+    ];
     return keywords.some((keyword) => prompt.includes(keyword));
   }
 
@@ -435,17 +524,17 @@ class AIImageService {
   private async refreshSession(): Promise<boolean> {
     try {
       const res = await fetch(`${this.API_BASE}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
+        method: "POST",
+        credentials: "include",
       });
       if (res.ok) {
-        console.log('🔄 Session refresh succeeded');
+        console.log("🔄 Session refresh succeeded");
         return true;
       }
-      console.warn('Session refresh failed with status', res.status);
+      console.warn("Session refresh failed with status", res.status);
       return false;
     } catch (error) {
-      console.warn('Session refresh threw error:', error);
+      console.warn("Session refresh threw error:", error);
       return false;
     }
   }
@@ -456,8 +545,8 @@ class AIImageService {
   async isAvailable(): Promise<boolean> {
     try {
       const response = await fetch(`${this.API_BASE}/ai/health`, {
-        method: 'GET',
-        credentials: 'include',
+        method: "GET",
+        credentials: "include",
       });
       return response.ok;
     } catch {
@@ -480,10 +569,10 @@ class AIImageService {
   async getAvailableProviders(): Promise<any> {
     try {
       const response = await fetch(`${this.PUBLIC_API_BASE}/providers`);
-      if (!response.ok) throw new Error('Failed to fetch providers');
+      if (!response.ok) throw new Error("Failed to fetch providers");
       return response.json();
     } catch (error) {
-      console.error('Failed to get providers:', error);
+      console.error("Failed to get providers:", error);
       return [];
     }
   }
@@ -491,16 +580,21 @@ class AIImageService {
   /**
    * 生成 Paper.js 代码
    */
-  async generatePaperJSCode(request: AIPaperJSGenerateRequest): Promise<AIServiceResponse<AIPaperJSResult>> {
-    console.log('[AIImageService] Generating Paper.js code:', request.prompt.substring(0, 50));
+  async generatePaperJSCode(
+    request: AIPaperJSGenerateRequest
+  ): Promise<AIServiceResponse<AIPaperJSResult>> {
+    console.log(
+      "[AIImageService] Generating Paper.js code:",
+      request.prompt.substring(0, 50)
+    );
     const response = await this.callAPI<AIPaperJSResult>(
       `${this.API_BASE}/ai/generate-paperjs`,
       request,
-      'Paper.js code generation'
+      "Paper.js code generation"
     );
 
     if (response.success && response.data) {
-      console.log('[AIImageService] Paper.js code generated successfully');
+      console.log("[AIImageService] Paper.js code generated successfully");
     }
 
     return response;
@@ -509,17 +603,24 @@ class AIImageService {
   /**
    * 图像转矢量 - 分析图像并生成 Paper.js 矢量代码
    */
-  async img2Vector(request: AIImg2VectorRequest): Promise<AIServiceResponse<AIImg2VectorResult>> {
-    console.log('[AIImageService] Converting image to vector');
+  async img2Vector(
+    request: AIImg2VectorRequest
+  ): Promise<AIServiceResponse<AIImg2VectorResult>> {
+    console.log("[AIImageService] Converting image to vector");
     const response = await this.callAPI<AIImg2VectorResult>(
       `${this.API_BASE}/ai/img2vector`,
       request,
-      'Image to vector conversion'
+      "Image to vector conversion"
     );
 
     if (response.success && response.data) {
-      console.log('[AIImageService] Image to vector conversion completed successfully');
-      console.log('[AIImageService] Image analysis:', response.data.imageAnalysis.substring(0, 100));
+      console.log(
+        "[AIImageService] Image to vector conversion completed successfully"
+      );
+      console.log(
+        "[AIImageService] Image analysis:",
+        response.data.imageAnalysis.substring(0, 100)
+      );
     }
 
     return response;

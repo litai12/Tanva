@@ -21,11 +21,11 @@ const isMock = viteEnv?.VITE_AUTH_MODE === "mock";
 // 后端基础地址，统一从 .env 中读取：
 // 例如在 .env.development / .env.production 中配置：
 // VITE_API_BASE_URL="https://your-backend-domain.com"
-// 如果不配置，则默认走相对路径 "/api"（配合 Vite 代理一起用）
+// 如果不配置，则默认 http://localhost:4000
 const base =
   viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
     ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
-    : "";
+    : "http://localhost:4000";
 
 // Simple localStorage-based mock helpers
 const LS_USER_KEY = "mock_user";

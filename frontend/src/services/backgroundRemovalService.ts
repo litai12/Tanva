@@ -5,14 +5,24 @@
  * 2. 前端快速处理: 使用@imgly/background-removal库(可选,可不安装)
  */
 
-import { logger } from '@/utils/logger';
+import { logger } from "@/utils/logger";
+
+// 后端基础地址，统一从 .env 中读取；无配置默认 http://localhost:4000
+const viteEnv =
+  typeof import.meta !== "undefined" && (import.meta as any).env
+    ? (import.meta as any).env
+    : undefined;
+const API_BASE =
+  viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
+    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+    : "http://localhost:4000";
 
 export interface BackgroundRemovalResult {
   success: boolean;
   imageData?: string; // base64 PNG with transparency
   error?: string;
   processingTime?: number;
-  method?: 'frontend' | 'backend';
+  method?: "frontend" | "backend";
 }
 
 class BackgroundRemovalService {
@@ -22,7 +32,7 @@ class BackgroundRemovalService {
    * 检查WebGPU支持(用于性能优化)
    */
   private isWebGPUSupported(): boolean {
-    return 'gpu' in navigator;
+    return "gpu" in navigator;
   }
 
   /**
@@ -39,14 +49,16 @@ class BackgroundRemovalService {
 
       if (hasModule) {
         this.isFrontendAvailable = true;
-        logger.info('✅ Frontend background removal module available');
+        logger.info("✅ Frontend background removal module available");
         return true;
       }
     } catch (error) {
       // 静默失败 - 这是正常的,库是可选的
     }
 
-    logger.info('ℹ️ Frontend module not available, using backend API exclusively');
+    logger.info(
+      "ℹ️ Frontend module not available, using backend API exclusively"
+    );
     this.isFrontendAvailable = false;
     return false;
   }
@@ -57,7 +69,7 @@ class BackgroundRemovalService {
   private async testFrontendLoad(): Promise<boolean> {
     try {
       // 这里使用字符串拼接来避免Vite在编译时解析
-      const importStr = '@imgly/background-removal';
+      const importStr = "@imgly/background-removal";
       // 实际不会执行,但这样写Vite不会报错
       logger.debug(`Would load: ${importStr}`);
       return false;
@@ -87,28 +99,33 @@ class BackgroundRemovalService {
    */
   private async removeBackgroundBackend(
     imageData: string,
-    mimeType: string = 'image/png'
+    mimeType: string = "image/png"
   ): Promise<BackgroundRemovalResult> {
     try {
       const startTime = performance.now();
-      logger.info('🌐 Sending request to backend for background removal...');
+      logger.info("🌐 Sending request to backend for background removal...");
 
       // 使用公开 API 端点（无需认证）
-      const response = await fetch('/api/public/ai/remove-background', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          imageData,
-          mimeType,
-          source: 'base64',
-        }),
-      });
+      const response = await fetch(
+        `${API_BASE}/api/public/ai/remove-background`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            imageData,
+            mimeType,
+            source: "base64",
+          }),
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+        throw new Error(
+          errorData.message || errorData.error || `HTTP ${response.status}`
+        );
       }
 
       const result = await response.json();
@@ -123,16 +140,16 @@ class BackgroundRemovalService {
         success: true,
         imageData: result.imageData,
         processingTime,
-        method: 'backend',
+        method: "backend",
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'Backend processing failed';
-      logger.error('❌ Backend background removal failed:', message);
+        error instanceof Error ? error.message : "Backend processing failed";
+      logger.error("❌ Backend background removal failed:", message);
       return {
         success: false,
         error: message,
-        method: 'backend',
+        method: "backend",
       };
     }
   }
@@ -142,7 +159,7 @@ class BackgroundRemovalService {
    */
   async removeBackground(
     imageData: string,
-    mimeType: string = 'image/png',
+    mimeType: string = "image/png",
     preferFrontend: boolean = true
   ): Promise<BackgroundRemovalResult> {
     try {
@@ -156,16 +173,17 @@ class BackgroundRemovalService {
         );
       } else {
         logger.info(
-          `📊 Image size: ${imageSizeKB.toFixed(2)}KB, using backend API (reliable and always available)`
+          `📊 Image size: ${imageSizeKB.toFixed(
+            2
+          )}KB, using backend API (reliable and always available)`
         );
       }
 
       // 目前始终使用后端 - 这是最可靠的方式
       return await this.removeBackgroundBackend(imageData, mimeType);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
-      logger.error('❌ Background removal failed:', message);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      logger.error("❌ Background removal failed:", message);
       return {
         success: false,
         error: message,
@@ -180,15 +198,15 @@ class BackgroundRemovalService {
     try {
       logger.info(`🌐 Removing background from URL: ${url}`);
 
-      const response = await fetch('/api/ai/remove-background', {
-        method: 'POST',
+      const response = await fetch(`${API_BASE}/api/ai/remove-background`, {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        credentials: 'include',
+        credentials: "include",
         body: JSON.stringify({
           imageData: url,
-          source: 'url',
+          source: "url",
         }),
       });
 
@@ -199,17 +217,17 @@ class BackgroundRemovalService {
 
       const result = await response.json();
 
-      logger.info('✅ Background removal from URL completed');
+      logger.info("✅ Background removal from URL completed");
 
       return {
         success: true,
         imageData: result.imageData,
-        method: 'backend',
+        method: "backend",
       };
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'URL processing failed';
-      logger.error('❌ Background removal from URL failed:', message);
+        error instanceof Error ? error.message : "URL processing failed";
+      logger.error("❌ Background removal from URL failed:", message);
       return {
         success: false,
         error: message,
@@ -222,10 +240,13 @@ class BackgroundRemovalService {
    */
   async isAvailable(): Promise<boolean> {
     try {
-      const response = await fetch('/api/ai/background-removal-info', {
-        method: 'GET',
-        credentials: 'include',
-      });
+      const response = await fetch(
+        `${API_BASE}/api/ai/background-removal-info`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
       return response.ok;
     } catch {
       return false;
@@ -237,14 +258,17 @@ class BackgroundRemovalService {
    */
   async getInfo() {
     try {
-      const response = await fetch('/api/ai/background-removal-info', {
-        method: 'GET',
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to fetch info');
+      const response = await fetch(
+        `${API_BASE}/api/ai/background-removal-info`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+      if (!response.ok) throw new Error("Failed to fetch info");
       return response.json();
     } catch (error) {
-      logger.error('Failed to get background removal info:', error);
+      logger.error("Failed to get background removal info:", error);
       return {
         available: false,
         features: [],

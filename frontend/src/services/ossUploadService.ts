@@ -1,4 +1,4 @@
-import { logger } from '@/utils/logger';
+import { logger } from "@/utils/logger";
 
 export type OssUploadOptions = {
   /** 指定上传的子目录，默认为 `uploads/` */
@@ -32,29 +32,29 @@ type PresignResponse = {
 
 function normalizeDir(baseDir: string | undefined, projectId?: string | null) {
   const trimmed = baseDir?.trim();
-  if (trimmed) return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
+  if (trimmed) return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
   if (projectId) return `projects/${projectId}/assets/`;
-  return 'uploads/';
+  return "uploads/";
 }
 
 function inferExtension(fileName?: string, contentType?: string) {
-  if (fileName && fileName.includes('.')) {
-    return fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+  if (fileName && fileName.includes(".")) {
+    return fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
   }
   if (contentType) {
     const map: Record<string, string> = {
-      'image/png': '.png',
-      'image/jpeg': '.jpg',
-      'image/jpg': '.jpg',
-      'image/webp': '.webp',
-      'image/gif': '.gif',
-      'model/gltf-binary': '.glb',
-      'model/gltf+json': '.gltf',
-      'application/json': '.json',
+      "image/png": ".png",
+      "image/jpeg": ".jpg",
+      "image/jpg": ".jpg",
+      "image/webp": ".webp",
+      "image/gif": ".gif",
+      "model/gltf-binary": ".glb",
+      "model/gltf+json": ".gltf",
+      "application/json": ".json",
     };
     if (map[contentType]) return map[contentType];
   }
-  return '';
+  return "";
 }
 
 export function dataURLToBlob(dataURL: string): Blob {
@@ -62,17 +62,17 @@ export function dataURLToBlob(dataURL: string): Blob {
   let normalizedDataURL = dataURL;
 
   // 检测并修复重复前缀：如果 split(',') 后的 raw 部分仍然以 "data:" 开头，说明有重复前缀
-  const firstSplit = dataURL.split(',');
-  if (firstSplit.length >= 2 && firstSplit[1].startsWith('data:')) {
+  const firstSplit = dataURL.split(",");
+  if (firstSplit.length >= 2 && firstSplit[1].startsWith("data:")) {
     // 使用第二个 data URL 部分作为实际数据
-    normalizedDataURL = firstSplit.slice(1).join(',');
-    logger.warn('检测到重复的 data URL 前缀，已自动修复');
+    normalizedDataURL = firstSplit.slice(1).join(",");
+    logger.warn("检测到重复的 data URL 前缀，已自动修复");
   }
 
-  const [meta, raw] = normalizedDataURL.split(',');
-  const isBase64 = meta.includes(';base64');
+  const [meta, raw] = normalizedDataURL.split(",");
+  const isBase64 = meta.includes(";base64");
   const mimeMatch = /data:([^;]+)/.exec(meta);
-  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
   if (isBase64) {
     const binary = atob(raw);
     const len = binary.length;
@@ -85,56 +85,91 @@ export function dataURLToBlob(dataURL: string): Blob {
   return new Blob([decodeURIComponent(raw)], { type: mime });
 }
 
-async function requestPresign(dir: string, maxSize?: number): Promise<PresignResponse> {
-  const res = await fetch('/api/uploads/presign', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+async function requestPresign(
+  dir: string,
+  maxSize?: number
+): Promise<PresignResponse> {
+  // 后端基础地址，统一从 .env 读取；无配置默认 http://localhost:4000
+  const viteEnv =
+    typeof import.meta !== "undefined" && (import.meta as any).env
+      ? (import.meta as any).env
+      : undefined;
+  const API_BASE =
+    viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
+      ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+      : "http://localhost:4000";
+
+  const res = await fetch(`${API_BASE}/api/uploads/presign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ dir, maxSize }),
   });
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data?.error || '获取上传凭证失败');
+    throw new Error(data?.error || "获取上传凭证失败");
   }
   return data as PresignResponse;
 }
 
 function buildKey(dir: string, fileName?: string, extensionHint?: string) {
-  const ext = inferExtension(fileName, undefined) || extensionHint || '';
-  const safeName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const ext = inferExtension(fileName, undefined) || extensionHint || "";
+  const safeName = fileName?.replace(/[^a-zA-Z0-9_.-]/g, "_");
   const timestamp = Date.now();
   const random = Math.random().toString(36).slice(2, 8);
-  const finalName = safeName ? `${timestamp}_${random}_${safeName}` : `${timestamp}_${random}${ext}`;
+  const finalName = safeName
+    ? `${timestamp}_${random}_${safeName}`
+    : `${timestamp}_${random}${ext}`;
   return `${dir}${finalName}`;
 }
 
-export async function uploadToOSS(data: Blob | File, options: OssUploadOptions = {}): Promise<OssUploadResult> {
+export async function uploadToOSS(
+  data: Blob | File,
+  options: OssUploadOptions = {}
+): Promise<OssUploadResult> {
   try {
     const dir = normalizeDir(options.dir, options.projectId);
     const presign = await requestPresign(dir, options.maxSize);
 
-    const extension = inferExtension(options.fileName, options.contentType || (data as File).type);
+    const extension = inferExtension(
+      options.fileName,
+      options.contentType || (data as File).type
+    );
     const key = buildKey(presign.dir || dir, options.fileName, extension);
 
     const formData = new FormData();
-    formData.append('key', key);
-    formData.append('policy', presign.policy);
-    formData.append('OSSAccessKeyId', presign.accessId);
-    formData.append('signature', presign.signature);
-    formData.append('success_action_status', '200');
+    formData.append("key", key);
+    formData.append("policy", presign.policy);
+    formData.append("OSSAccessKeyId", presign.accessId);
+    formData.append("signature", presign.signature);
+    formData.append("success_action_status", "200");
     if (options.contentType) {
-      formData.append('Content-Type', options.contentType);
+      formData.append("Content-Type", options.contentType);
     }
-    formData.append('file', data instanceof File ? data : new File([data], options.fileName || 'upload', { type: options.contentType || (data as File).type || 'application/octet-stream' }));
+    formData.append(
+      "file",
+      data instanceof File
+        ? data
+        : new File([data], options.fileName || "upload", {
+            type:
+              options.contentType ||
+              (data as File).type ||
+              "application/octet-stream",
+          })
+    );
 
     const uploadResp = await fetch(presign.host, {
-      method: 'POST',
+      method: "POST",
       body: formData,
     });
 
     if (!uploadResp.ok) {
       const text = await uploadResp.text();
-      throw new Error(`OSS 上传失败: ${uploadResp.status} ${uploadResp.statusText} ${text || ''}`.trim());
+      throw new Error(
+        `OSS 上传失败: ${uploadResp.status} ${uploadResp.statusText} ${
+          text || ""
+        }`.trim()
+      );
     }
 
     const publicUrl = `${presign.host}/${key}`;
@@ -145,15 +180,17 @@ export async function uploadToOSS(data: Blob | File, options: OssUploadOptions =
       size: data.size,
     };
   } catch (error: any) {
-    logger.error('OSS 上传失败:', error);
+    logger.error("OSS 上传失败:", error);
     return {
       success: false,
-      error: error?.message || 'OSS 上传失败',
+      error: error?.message || "OSS 上传失败",
     };
   }
 }
 
-export async function getImageDimensions(file: File | Blob): Promise<{ width: number; height: number }> {
+export async function getImageDimensions(
+  file: File | Blob
+): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -170,18 +207,21 @@ export async function getImageDimensions(file: File | Blob): Promise<{ width: nu
   });
 }
 
-export async function fileToDataURL(file: File | Blob, mimeType?: string): Promise<string> {
+export async function fileToDataURL(
+  file: File | Blob,
+  mimeType?: string
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result;
-      if (typeof result === 'string') {
+      if (typeof result === "string") {
         resolve(result);
       } else {
-        reject(new Error('文件读取失败'));
+        reject(new Error("文件读取失败"));
       }
     };
-    reader.onerror = () => reject(new Error('文件读取失败'));
+    reader.onerror = () => reject(new Error("文件读取失败"));
     if (file instanceof File && mimeType && file.type !== mimeType) {
       // 直接读取即可，mimeType 信息由 File 自身提供
     }

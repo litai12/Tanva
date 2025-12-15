@@ -24,11 +24,11 @@ const viteEnv =
 // 后端基础地址，统一从 .env 中读取：
 // 例如在 .env.development / .env.production 中配置：
 // VITE_API_BASE_URL="https://your-backend-domain.com"
-// 如果不配置，则默认走相对路径 "/api"（配合 Vite 代理一起用）
+// 如果不配置，则默认 http://localhost:4000
 const base =
   viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
     ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
-    : "";
+    : "http://localhost:4000";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -76,9 +76,7 @@ export const projectApi = {
     });
     return json<{ ok: boolean }>(res);
   },
-  async getContent(
-    id: string
-  ): Promise<{
+  async getContent(id: string): Promise<{
     content: ProjectContentSnapshot;
     version: number;
     updatedAt: string | null;

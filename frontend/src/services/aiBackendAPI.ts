@@ -3,7 +3,7 @@
  * 将前端的本地调用改为调用后端 API
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -17,21 +17,33 @@ import type {
   SupportedAIProvider,
   MidjourneyActionRequest,
   MidjourneyModalRequest,
-} from '@/types/ai';
-import { fetchWithAuth } from './authFetch';
-import { logger } from '@/utils/logger';
+} from "@/types/ai";
+import { fetchWithAuth } from "./authFetch";
+import { logger } from "@/utils/logger";
 
-const API_BASE_URL = '/api';
-const DEFAULT_IMAGE_MODEL = 'gemini-3-pro-image-preview';
-const RUNNINGHUB_IMAGE_MODEL = 'runninghub-su-effect';
-const MIDJOURNEY_IMAGE_MODEL = 'midjourney-fast';
+// 后端基础地址，统一从 .env 读取；无配置则默认 http://localhost:4000
+const viteEnv =
+  typeof import.meta !== "undefined" && (import.meta as any).env
+    ? (import.meta as any).env
+    : undefined;
+const API_BASE_URL =
+  (viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
+    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+    : "http://localhost:4000") + "/api";
+const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
+const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";
+const MIDJOURNEY_IMAGE_MODEL = "midjourney-fast";
 
 const getTimestamp = () =>
-  typeof performance !== 'undefined' && typeof performance.now === 'function'
+  typeof performance !== "undefined" && typeof performance.now === "function"
     ? performance.now()
     : Date.now();
 
-const logApiTiming = (endpoint: string, startTime: number, meta?: Record<string, any>) => {
+const logApiTiming = (
+  endpoint: string,
+  startTime: number,
+  meta?: Record<string, any>
+) => {
   const duration = getTimestamp() - startTime;
   logger.perf(`AI API ${endpoint}`, duration, meta);
 };
@@ -44,37 +56,45 @@ type ImageResponseLogMeta = {
 };
 
 const truncateText = (value: string, maxLength: number = 80) =>
-  typeof value === 'string' && value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+  typeof value === "string" && value.length > maxLength
+    ? `${value.slice(0, maxLength)}...`
+    : value;
 
 const logAIImageResponse = (
   meta: ImageResponseLogMeta,
   payload: { imageData?: string; textResponse?: string }
 ) => {
-  const hasImageData = typeof payload.imageData === 'string' && payload.imageData.trim().length > 0;
+  const hasImageData =
+    typeof payload.imageData === "string" &&
+    payload.imageData.trim().length > 0;
   const textResponse =
-    typeof payload.textResponse === 'string' && payload.textResponse.trim().length > 0
+    typeof payload.textResponse === "string" &&
+    payload.textResponse.trim().length > 0
       ? payload.textResponse
-      : '';
+      : "";
   const logger = hasImageData ? console.log : console.warn;
 
-  logger(`${hasImageData ? '🖼️' : '📝'} [AI API] ${meta.endpoint} 响应摘要`, {
-    provider: meta.provider || 'unknown',
-    model: meta.model || 'unspecified',
-    promptPreview: meta.prompt ? truncateText(meta.prompt, 60) : 'N/A',
+  logger(`${hasImageData ? "🖼️" : "📝"} [AI API] ${meta.endpoint} 响应摘要`, {
+    provider: meta.provider || "unknown",
+    model: meta.model || "unspecified",
+    promptPreview: meta.prompt ? truncateText(meta.prompt, 60) : "N/A",
     hasImageData,
     imageDataLength: payload.imageData?.length || 0,
-    textResponsePreview: textResponse ? truncateText(textResponse, 80) : 'N/A'
+    textResponsePreview: textResponse ? truncateText(textResponse, 80) : "N/A",
   });
 
   console.log(`🧾 [AI API] ${meta.endpoint} 返回详情`, {
-    textResponse: textResponse || '(无文本返回)',
-    hasImage: hasImageData
+    textResponse: textResponse || "(无文本返回)",
+    hasImage: hasImageData,
   });
 };
 
 const generateUUID = () => {
   try {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
       return crypto.randomUUID();
     }
   } catch {
@@ -82,15 +102,18 @@ const generateUUID = () => {
   }
 
   try {
-    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.getRandomValues === "function"
+    ) {
       const bytes = new Uint8Array(16);
       crypto.getRandomValues(bytes);
       bytes[6] = (bytes[6] & 0x0f) | 0x40;
       bytes[8] = (bytes[8] & 0x3f) | 0x80;
-      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'));
-      return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex
-        .slice(8, 10)
-        .join('')}-${hex.slice(10, 16).join('')}`;
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+      return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex
+        .slice(6, 8)
+        .join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
     }
   } catch {
     // ignore and fall back
@@ -115,8 +138,8 @@ const resolveDefaultModel = (
   provider: SupportedAIProvider | undefined
 ): string => {
   if (requestModel) return requestModel;
-  if (provider === 'runninghub') return RUNNINGHUB_IMAGE_MODEL;
-  if (provider === 'midjourney') return MIDJOURNEY_IMAGE_MODEL;
+  if (provider === "runninghub") return RUNNINGHUB_IMAGE_MODEL;
+  if (provider === "midjourney") return MIDJOURNEY_IMAGE_MODEL;
   return DEFAULT_IMAGE_MODEL;
 };
 
@@ -140,31 +163,29 @@ const mapBackendImageResult = ({
   const metadata: Record<string, any> = {
     ...(data.metadata ?? {}),
   };
-  const remoteUrl =
-    typeof (data as any).imageUrl === 'string'
-      ? (data as any).imageUrl
-      : typeof metadata.imageUrl === 'string'
-        ? metadata.imageUrl
-        : typeof (metadata.midjourney as any)?.imageUrl === 'string'
-          ? (metadata.midjourney as any).imageUrl
-          : undefined;
 
-  if (remoteUrl && !metadata.imageUrl) {
-    metadata.imageUrl = remoteUrl;
-  }
+  // 确保 imageData 带 data URI 前缀，避免裸 base64 无法直接展示
+  const normalizedImageData =
+    typeof data.imageData === "string" && data.imageData.trim().length > 0
+      ? data.imageData.startsWith("data:")
+        ? data.imageData
+        : `data:image/${
+            metadata.outputFormat || outputFormat || "png"
+          };base64,${data.imageData}`
+      : undefined;
 
   if (!metadata.outputFormat) {
-    metadata.outputFormat = outputFormat || 'png';
+    metadata.outputFormat = outputFormat || "png";
   }
 
   return {
     id: generateUUID(),
-    imageData: data.imageData,
+    imageData: normalizedImageData,
     textResponse: data.textResponse,
     prompt,
     model,
     createdAt: new Date(),
-    hasImage: !!(data.imageData || remoteUrl),
+    hasImage: !!data.imageData,
     metadata,
   };
 };
@@ -174,9 +195,9 @@ async function performGenerateImageRequest(
 ): Promise<AIServiceResponse<AIImageResult>> {
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-image`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
@@ -195,18 +216,21 @@ async function performGenerateImageRequest(
 
     const data = await response.json();
 
-    const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
+    const resolvedModel = resolveDefaultModel(
+      request.model,
+      request.aiProvider
+    );
 
     logAIImageResponse(
       {
-        endpoint: 'generate-image',
+        endpoint: "generate-image",
         provider: request.aiProvider,
         model: resolvedModel,
-        prompt: request.prompt
+        prompt: request.prompt,
       },
       {
         imageData: data.imageData,
-        textResponse: data.textResponse
+        textResponse: data.textResponse,
       }
     );
 
@@ -217,15 +241,15 @@ async function performGenerateImageRequest(
         data,
         prompt: request.prompt,
         model: resolvedModel,
-        outputFormat: request.outputFormat || 'png',
+        outputFormat: request.outputFormat || "png",
       }),
     };
   } catch (error) {
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
@@ -247,7 +271,7 @@ export async function generateImageViaAPI(
     lastResponse = await performGenerateImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
-      logApiTiming('generate-image', startedAt, {
+      logApiTiming("generate-image", startedAt, {
         success: false,
         attempts,
         provider: request.aiProvider,
@@ -258,7 +282,7 @@ export async function generateImageViaAPI(
     }
 
     if (lastResponse.data.hasImage && lastResponse.data.imageData) {
-      logApiTiming('generate-image', startedAt, {
+      logApiTiming("generate-image", startedAt, {
         success: true,
         attempts,
         provider: request.aiProvider,
@@ -268,44 +292,38 @@ export async function generateImageViaAPI(
     }
 
     if (attempt < MAX_IMAGE_GENERATION_ATTEMPTS) {
-      console.warn('⚠️ Flow generate success but no image returned, auto retrying', {
-        nextAttempt: attempt + 1,
-        maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
-        provider: request.aiProvider,
-        model: request.model,
-        textResponse: lastResponse.data.textResponse,
-      });
+      console.warn(
+        "⚠️ Flow generate success but no image returned, auto retrying",
+        {
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: request.model,
+          textResponse: lastResponse.data.textResponse,
+        }
+      );
       await sleep(NO_IMAGE_RETRY_DELAY_MS);
     }
   }
 
-  logApiTiming('generate-image', startedAt, {
+  logApiTiming("generate-image", startedAt, {
     success: lastResponse?.success ?? false,
     attempts,
     provider: request.aiProvider,
-    model: lastResponse?.data?.model || resolveDefaultModel(request.model, request.aiProvider),
+    model:
+      lastResponse?.data?.model ||
+      resolveDefaultModel(request.model, request.aiProvider),
   });
-
-  // 如果所有重试结束仍未拿到图片，视为失败，避免前端误以为成功后继续等待占位框
-  if (lastResponse?.success && lastResponse.data && !lastResponse.data.hasImage) {
-    return {
+  return (
+    lastResponse ?? {
       success: false,
       error: {
-        code: 'NO_IMAGE_RETURNED',
-        message: 'Image generation finished without an image payload',
+        code: "UNKNOWN_ERROR",
+        message: "Image generation failed without a response",
         timestamp: new Date(),
       },
-    };
-  }
-
-  return lastResponse ?? {
-    success: false,
-    error: {
-      code: 'UNKNOWN_ERROR',
-      message: 'Image generation failed without a response',
-      timestamp: new Date(),
-    },
-  };
+    }
+  );
 }
 
 async function performEditImageRequest(
@@ -313,9 +331,9 @@ async function performEditImageRequest(
 ): Promise<AIServiceResponse<AIImageResult>> {
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/edit-image`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
@@ -334,18 +352,21 @@ async function performEditImageRequest(
 
     const data = await response.json();
 
-    const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
+    const resolvedModel = resolveDefaultModel(
+      request.model,
+      request.aiProvider
+    );
 
     logAIImageResponse(
       {
-        endpoint: 'edit-image',
+        endpoint: "edit-image",
         provider: request.aiProvider,
         model: resolvedModel,
-        prompt: request.prompt
+        prompt: request.prompt,
       },
       {
         imageData: data.imageData,
-        textResponse: data.textResponse
+        textResponse: data.textResponse,
       }
     );
 
@@ -355,15 +376,15 @@ async function performEditImageRequest(
         data,
         prompt: request.prompt,
         model: resolvedModel,
-        outputFormat: request.outputFormat || 'png',
+        outputFormat: request.outputFormat || "png",
       }),
     };
   } catch (error) {
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
@@ -373,7 +394,9 @@ async function performEditImageRequest(
 /**
  * 编辑图像 - 通过后端 API（在缺少图像数据时自动补偿重试）
  */
-export async function editImageViaAPI(request: AIImageEditRequest): Promise<AIServiceResponse<AIImageResult>> {
+export async function editImageViaAPI(
+  request: AIImageEditRequest
+): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
@@ -383,7 +406,7 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
     lastResponse = await performEditImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
-      logApiTiming('edit-image', startedAt, {
+      logApiTiming("edit-image", startedAt, {
         success: false,
         attempts,
         provider: request.aiProvider,
@@ -394,7 +417,7 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
     }
 
     if (lastResponse.data.hasImage && lastResponse.data.imageData) {
-      logApiTiming('edit-image', startedAt, {
+      logApiTiming("edit-image", startedAt, {
         success: true,
         attempts,
         provider: request.aiProvider,
@@ -404,31 +427,38 @@ export async function editImageViaAPI(request: AIImageEditRequest): Promise<AISe
     }
 
     if (attempt < MAX_IMAGE_GENERATION_ATTEMPTS) {
-      console.warn('⚠️ Edit image success but no image returned, auto retrying', {
-        nextAttempt: attempt + 1,
-        maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
-        provider: request.aiProvider,
-        model: request.model,
-        textResponse: lastResponse.data.textResponse,
-      });
+      console.warn(
+        "⚠️ Edit image success but no image returned, auto retrying",
+        {
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: request.model,
+          textResponse: lastResponse.data.textResponse,
+        }
+      );
       await sleep(NO_IMAGE_RETRY_DELAY_MS);
     }
   }
 
-  logApiTiming('edit-image', startedAt, {
+  logApiTiming("edit-image", startedAt, {
     success: lastResponse?.success ?? false,
     attempts,
     provider: request.aiProvider,
-    model: lastResponse?.data?.model || resolveDefaultModel(request.model, request.aiProvider),
+    model:
+      lastResponse?.data?.model ||
+      resolveDefaultModel(request.model, request.aiProvider),
   });
-  return lastResponse ?? {
-    success: false,
-    error: {
-      code: 'UNKNOWN_ERROR',
-      message: 'Image edit failed without a response',
-      timestamp: new Date(),
-    },
-  };
+  return (
+    lastResponse ?? {
+      success: false,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: "Image edit failed without a response",
+        timestamp: new Date(),
+      },
+    }
+  );
 }
 
 async function performBlendImagesRequest(
@@ -436,9 +466,9 @@ async function performBlendImagesRequest(
 ): Promise<AIServiceResponse<AIImageResult>> {
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/blend-images`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
@@ -457,18 +487,21 @@ async function performBlendImagesRequest(
 
     const data = await response.json();
 
-    const resolvedModel = resolveDefaultModel(request.model, request.aiProvider);
+    const resolvedModel = resolveDefaultModel(
+      request.model,
+      request.aiProvider
+    );
 
     logAIImageResponse(
       {
-        endpoint: 'blend-images',
+        endpoint: "blend-images",
         provider: request.aiProvider,
         model: resolvedModel,
-        prompt: request.prompt
+        prompt: request.prompt,
       },
       {
         imageData: data.imageData,
-        textResponse: data.textResponse
+        textResponse: data.textResponse,
       }
     );
 
@@ -478,15 +511,15 @@ async function performBlendImagesRequest(
         data,
         prompt: request.prompt,
         model: resolvedModel,
-        outputFormat: request.outputFormat || 'png',
+        outputFormat: request.outputFormat || "png",
       }),
     };
   } catch (error) {
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
@@ -496,7 +529,9 @@ async function performBlendImagesRequest(
 /**
  * 融合图像 - 通过后端 API（在缺少图像数据时自动补偿重试）
  */
-export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<AIServiceResponse<AIImageResult>> {
+export async function blendImagesViaAPI(
+  request: AIImageBlendRequest
+): Promise<AIServiceResponse<AIImageResult>> {
   const startedAt = getTimestamp();
   let lastResponse: AIServiceResponse<AIImageResult> | undefined;
   let attempts = 0;
@@ -506,7 +541,7 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
     lastResponse = await performBlendImagesRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
-      logApiTiming('blend-images', startedAt, {
+      logApiTiming("blend-images", startedAt, {
         success: false,
         attempts,
         provider: request.aiProvider,
@@ -517,7 +552,7 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
     }
 
     if (lastResponse.data.hasImage && lastResponse.data.imageData) {
-      logApiTiming('blend-images', startedAt, {
+      logApiTiming("blend-images", startedAt, {
         success: true,
         attempts,
         provider: request.aiProvider,
@@ -527,31 +562,38 @@ export async function blendImagesViaAPI(request: AIImageBlendRequest): Promise<A
     }
 
     if (attempt < MAX_IMAGE_GENERATION_ATTEMPTS) {
-      console.warn('⚠️ Blend images success but no image returned, auto retrying', {
-        nextAttempt: attempt + 1,
-        maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
-        provider: request.aiProvider,
-        model: request.model,
-        textResponse: lastResponse.data.textResponse,
-      });
+      console.warn(
+        "⚠️ Blend images success but no image returned, auto retrying",
+        {
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: request.model,
+          textResponse: lastResponse.data.textResponse,
+        }
+      );
       await sleep(NO_IMAGE_RETRY_DELAY_MS);
     }
   }
 
-  logApiTiming('blend-images', startedAt, {
+  logApiTiming("blend-images", startedAt, {
     success: lastResponse?.success ?? false,
     attempts,
     provider: request.aiProvider,
-    model: lastResponse?.data?.model || resolveDefaultModel(request.model, request.aiProvider),
+    model:
+      lastResponse?.data?.model ||
+      resolveDefaultModel(request.model, request.aiProvider),
   });
-  return lastResponse ?? {
-    success: false,
-    error: {
-      code: 'UNKNOWN_ERROR',
-      message: 'Image blend failed without a response',
-      timestamp: new Date(),
-    },
-  };
+  return (
+    lastResponse ?? {
+      success: false,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: "Image blend failed without a response",
+        timestamp: new Date(),
+      },
+    }
+  );
 }
 
 type MidjourneyActionParams = MidjourneyActionRequest & {
@@ -566,17 +608,20 @@ export async function midjourneyActionViaAPI(
   const { displayPrompt, actionLabel, ...payload } = params;
 
   try {
-    const response = await fetchWithAuth(`${API_BASE_URL}/ai/midjourney/action`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/midjourney/action`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming('midjourney-action', startedAt, {
+      logApiTiming("midjourney-action", startedAt, {
         success: false,
         status: response.status,
         action: actionLabel,
@@ -594,7 +639,7 @@ export async function midjourneyActionViaAPI(
     const data = await response.json();
     const mapped = mapBackendImageResult({
       data,
-      prompt: displayPrompt || actionLabel || 'Midjourney 操作',
+      prompt: displayPrompt || actionLabel || "Midjourney 操作",
       model: MIDJOURNEY_IMAGE_MODEL,
     });
 
@@ -603,7 +648,7 @@ export async function midjourneyActionViaAPI(
       actionLabel,
     };
 
-    logApiTiming('midjourney-action', startedAt, {
+    logApiTiming("midjourney-action", startedAt, {
       success: true,
       action: actionLabel,
     });
@@ -613,16 +658,16 @@ export async function midjourneyActionViaAPI(
       data: mapped,
     };
   } catch (error) {
-    logApiTiming('midjourney-action', startedAt, {
+    logApiTiming("midjourney-action", startedAt, {
       success: false,
       action: actionLabel,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
     });
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
@@ -640,17 +685,20 @@ export async function midjourneyModalViaAPI(
   const { displayPrompt, ...payload } = params;
 
   try {
-    const response = await fetchWithAuth(`${API_BASE_URL}/ai/midjourney/modal`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/midjourney/modal`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming('midjourney-modal', startedAt, {
+      logApiTiming("midjourney-modal", startedAt, {
         success: false,
         status: response.status,
       });
@@ -667,11 +715,11 @@ export async function midjourneyModalViaAPI(
     const data = await response.json();
     const mapped = mapBackendImageResult({
       data,
-      prompt: displayPrompt || 'Midjourney 调整',
+      prompt: displayPrompt || "Midjourney 调整",
       model: MIDJOURNEY_IMAGE_MODEL,
     });
 
-    logApiTiming('midjourney-modal', startedAt, {
+    logApiTiming("midjourney-modal", startedAt, {
       success: true,
     });
 
@@ -680,15 +728,15 @@ export async function midjourneyModalViaAPI(
       data: mapped,
     };
   } catch (error) {
-    logApiTiming('midjourney-modal', startedAt, {
+    logApiTiming("midjourney-modal", startedAt, {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
     });
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
@@ -698,20 +746,22 @@ export async function midjourneyModalViaAPI(
 /**
  * 分析图像 - 通过后端 API
  */
-export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promise<AIServiceResponse<AIImageAnalysisResult>> {
+export async function analyzeImageViaAPI(
+  request: AIImageAnalyzeRequest
+): Promise<AIServiceResponse<AIImageAnalysisResult>> {
   const startedAt = getTimestamp();
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/analyze-image`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming('analyze-image', startedAt, {
+      logApiTiming("analyze-image", startedAt, {
         success: false,
         status: response.status,
         provider: request.aiProvider,
@@ -729,11 +779,11 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
 
     const data = await response.json();
 
-    logApiTiming('analyze-image', startedAt, {
+    logApiTiming("analyze-image", startedAt, {
       success: true,
       provider: request.aiProvider,
       model: request.model,
-      textLength: typeof data?.text === 'string' ? data.text.length : undefined,
+      textLength: typeof data?.text === "string" ? data.text.length : undefined,
     });
 
     return {
@@ -745,17 +795,17 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
       },
     };
   } catch (error) {
-    logApiTiming('analyze-image', startedAt, {
+    logApiTiming("analyze-image", startedAt, {
       success: false,
       provider: request.aiProvider,
       model: request.model,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
     });
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
@@ -765,20 +815,22 @@ export async function analyzeImageViaAPI(request: AIImageAnalyzeRequest): Promis
 /**
  * 文本对话 - 通过后端 API
  */
-export async function generateTextResponseViaAPI(request: AITextChatRequest): Promise<AIServiceResponse<AITextChatResult>> {
+export async function generateTextResponseViaAPI(
+  request: AITextChatRequest
+): Promise<AIServiceResponse<AITextChatResult>> {
   const startedAt = getTimestamp();
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/text-chat`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming('text-chat', startedAt, {
+      logApiTiming("text-chat", startedAt, {
         success: false,
         status: response.status,
         provider: request.aiProvider,
@@ -796,33 +848,33 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
 
     const data = await response.json();
 
-    logApiTiming('text-chat', startedAt, {
+    logApiTiming("text-chat", startedAt, {
       success: true,
       provider: request.aiProvider,
-      model: request.model || 'gemini-2.5-flash',
-      textLength: typeof data?.text === 'string' ? data.text.length : undefined,
+      model: request.model || "gemini-2.5-flash",
+      textLength: typeof data?.text === "string" ? data.text.length : undefined,
     });
 
     return {
       success: true,
       data: {
         text: data.text,
-        model: 'gemini-2.5-flash',
+        model: "gemini-2.5-flash",
         webSearchResult: data.webSearchResult || undefined,
       },
     };
   } catch (error) {
-    logApiTiming('text-chat', startedAt, {
+    logApiTiming("text-chat", startedAt, {
       success: false,
       provider: request.aiProvider,
       model: request.model,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
     });
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
@@ -832,11 +884,11 @@ export async function generateTextResponseViaAPI(request: AITextChatRequest): Pr
 export interface VideoGenerationRequest {
   prompt: string;
   referenceImageUrls?: string[];
-  quality?: 'hd' | 'sd';
+  quality?: "hd" | "sd";
   /** 画面比例，仅极速 Sora2 使用。例如 '16:9' | '9:16' */
-  aspectRatio?: '16:9' | '9:16';
+  aspectRatio?: "16:9" | "9:16";
   /** 时长（秒，仅极速 Sora2 使用）。字符串形式以兼容后端 DTO。 */
-  duration?: '10' | '15' | '25';
+  duration?: "10" | "15" | "25";
 }
 
 export interface VideoGenerationResult {
@@ -857,24 +909,26 @@ export async function generateVideoViaAPI(
   const startedAt = getTimestamp();
   try {
     const referenceImageUrls = (request.referenceImageUrls || []).filter(
-      (url): url is string => typeof url === 'string' && url.trim().length > 0
+      (url): url is string => typeof url === "string" && url.trim().length > 0
     );
     const payload: VideoGenerationRequest = {
       ...request,
-      referenceImageUrls: referenceImageUrls.length ? referenceImageUrls : undefined,
+      referenceImageUrls: referenceImageUrls.length
+        ? referenceImageUrls
+        : undefined,
     };
 
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-video`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming('generate-video', startedAt, {
+      logApiTiming("generate-video", startedAt, {
         success: false,
         status: response.status,
         quality: request.quality,
@@ -891,7 +945,7 @@ export async function generateVideoViaAPI(
     }
 
     const data = await response.json();
-    logApiTiming('generate-video', startedAt, {
+    logApiTiming("generate-video", startedAt, {
       success: true,
       quality: request.quality,
       references: referenceImageUrls.length,
@@ -902,17 +956,19 @@ export async function generateVideoViaAPI(
       data,
     };
   } catch (error) {
-    logApiTiming('generate-video', startedAt, {
+    logApiTiming("generate-video", startedAt, {
       success: false,
       quality: request.quality,
-      references: Array.isArray(request.referenceImageUrls) ? request.referenceImageUrls.length : 0,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      references: Array.isArray(request.referenceImageUrls)
+        ? request.referenceImageUrls.length
+        : 0,
+      error: error instanceof Error ? error.message : "Unknown error",
     });
     return {
       success: false,
       error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
         timestamp: new Date(),
       },
     };
