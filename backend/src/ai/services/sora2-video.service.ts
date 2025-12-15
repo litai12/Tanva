@@ -179,11 +179,14 @@ export class Sora2VideoService {
       prompt: options.prompt,
     };
 
-    // 添加参考图片
+    // 添加参考图片：极速Sora2 文档使用 images 数组，支持 URL / base64
     if (options.referenceImageUrls && options.referenceImageUrls.length > 0) {
-      createPayload.image_url = options.referenceImageUrls.filter(
+      const images = options.referenceImageUrls.filter(
         (url) => typeof url === 'string' && url.trim().length > 0,
-      )[0]; // 极速版只支持单张图片
+      );
+      if (images.length > 0) {
+        createPayload.images = images;
+      }
     }
 
     // 画面比例
