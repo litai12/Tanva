@@ -1,16 +1,16 @@
-import React from 'react';
-import { Handle, Position } from 'reactflow';
-import { Send as SendIcon } from 'lucide-react';
-import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
-import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
-import { recordImageHistoryEntry } from '@/services/imageHistoryService';
-import GenerationProgressBar from './GenerationProgressBar';
-import { useProjectContentStore } from '@/stores/projectContentStore';
+import React from "react";
+import { Handle, Position } from "reactflow";
+import { Send as SendIcon } from "lucide-react";
+import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
+import { recordImageHistoryEntry } from "@/services/imageHistoryService";
+import GenerationProgressBar from "./GenerationProgressBar";
+import { useProjectContentStore } from "@/stores/projectContentStore";
 
 type Props = {
   id: string;
   data: {
-    status?: 'idle' | 'running' | 'succeeded' | 'failed';
+    status?: "idle" | "running" | "succeeded" | "failed";
     imageData?: string;
     error?: string;
     referencePrompt?: string;
@@ -20,16 +20,28 @@ type Props = {
   selected?: boolean;
 };
 
-const DEFAULT_REFERENCE_PROMPT = '请参考第二张图的内容';
+const buildImageSrc = (value?: string): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("data:image")) return trimmed;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
+    return trimmed;
+  return `data:image/png;base64,${trimmed}`;
+};
+
+const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
 
 function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
-  const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const src = buildImageSrc(data.imageData);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
-  const [currentImageId, setCurrentImageId] = React.useState<string>('');
-  const borderColor = selected ? '#2563eb' : '#e5e7eb';
-  const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+  const [currentImageId, setCurrentImageId] = React.useState<string>("");
+  const borderColor = selected ? "#2563eb" : "#e5e7eb";
+  const boxShadow = selected
+    ? "0 0 0 2px rgba(37,99,235,0.12)"
+    : "0 1px 2px rgba(0,0,0,0.04)";
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const history = useImageHistoryStore((state) => state.history);
@@ -49,9 +61,9 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
             src: item.src,
             title: item.title,
             timestamp: item.timestamp,
-          }) as ImageItem,
+          } as ImageItem)
       ),
-    [projectHistory],
+    [projectHistory]
   );
 
   const referencePromptValue = data.referencePrompt ?? DEFAULT_REFERENCE_PROMPT;
@@ -65,17 +77,17 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   }, [data, id]);
 
   React.useEffect(() => {
-    if (typeof data.referencePrompt === 'undefined') {
+    if (typeof data.referencePrompt === "undefined") {
       window.dispatchEvent(
-        new CustomEvent('flow:updateNodeData', {
+        new CustomEvent("flow:updateNodeData", {
           detail: { id, patch: { referencePrompt: DEFAULT_REFERENCE_PROMPT } },
-        }),
+        })
       );
     }
   }, [data.referencePrompt, id]);
 
   React.useEffect(() => {
-    if (data.imageData && status === 'succeeded') {
+    if (data.imageData && status === "succeeded") {
       const newImageId = `${id}-${Date.now()}`;
       setCurrentImageId(newImageId);
       void recordImageHistoryEntry({
@@ -83,7 +95,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         base64: data.imageData,
         title: `Generate参考节点 ${new Date().toLocaleTimeString()}`,
         nodeId: id,
-        nodeType: 'generate',
+        nodeType: "generate",
         fileName: `flow_generate_ref_${newImageId}.png`,
         projectId,
       });
@@ -97,32 +109,32 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         setCurrentImageId(imageId);
       }
     },
-    [allImages],
+    [allImages]
   );
 
   React.useEffect(() => {
     if (!preview) return;
     const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPreview(false);
+      if (event.key === "Escape") setPreview(false);
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [preview]);
 
   const onReferencePromptChange = React.useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
       window.dispatchEvent(
-        new CustomEvent('flow:updateNodeData', {
+        new CustomEvent("flow:updateNodeData", {
           detail: { id, patch: { referencePrompt: event.target.value } },
-        }),
+        })
       );
     },
-    [id],
+    [id]
   );
 
   const tooltipStyleBase = React.useMemo(
-    () => ({ position: 'absolute' as const, whiteSpace: 'nowrap' as const }),
-    [],
+    () => ({ position: "absolute" as const, whiteSpace: "nowrap" as const }),
+    []
   );
 
   return (
@@ -130,53 +142,53 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
       style={{
         width: 260,
         padding: 8,
-        background: '#fff',
+        background: "#fff",
         border: `1px solid ${borderColor}`,
         borderRadius: 8,
         boxShadow,
-        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
+        transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
         gap: 6,
       }}
     >
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
         <div style={{ fontWeight: 600 }}>Generate Refer</div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={onRun}
-            disabled={status === 'running'}
+            disabled={status === "running"}
             style={{
               fontSize: 12,
-              padding: '4px 8px',
-              background: status === 'running' ? '#e5e7eb' : '#111827',
-              color: '#fff',
+              padding: "4px 8px",
+              background: status === "running" ? "#e5e7eb" : "#111827",
+              color: "#fff",
               borderRadius: 6,
-              border: 'none',
-              cursor: status === 'running' ? 'not-allowed' : 'pointer',
+              border: "none",
+              cursor: status === "running" ? "not-allowed" : "pointer",
             }}
           >
-            {status === 'running' ? 'Running...' : 'Run'}
+            {status === "running" ? "Running..." : "Run"}
           </button>
           <button
             onClick={onSend}
             disabled={!data.imageData}
-            title={!data.imageData ? '无可发送的图像' : '发送到画布'}
+            title={!data.imageData ? "无可发送的图像" : "发送到画布"}
             style={{
               fontSize: 12,
-              padding: '4px 8px',
-              background: !data.imageData ? '#e5e7eb' : '#111827',
-              color: '#fff',
+              padding: "4px 8px",
+              background: !data.imageData ? "#e5e7eb" : "#111827",
+              color: "#fff",
               borderRadius: 6,
-              border: 'none',
-              cursor: !data.imageData ? 'not-allowed' : 'pointer',
+              border: "none",
+              cursor: !data.imageData ? "not-allowed" : "pointer",
             }}
           >
             <SendIcon size={14} strokeWidth={2} />
@@ -187,119 +199,150 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
       <div
         onDoubleClick={() => src && setPreview(true)}
         style={{
-          width: '100%',
+          width: "100%",
           height: 140,
-          background: '#fff',
+          background: "#fff",
           borderRadius: 6,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-          border: '1px solid #eef0f2',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          border: "1px solid #eef0f2",
         }}
-        title={src ? '双击预览' : undefined}
+        title={src ? "双击预览" : undefined}
       >
         {src ? (
           <img
             src={src}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
+            alt=''
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              background: "#fff",
+            }}
           />
         ) : (
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>等待生成</span>
+          <span style={{ fontSize: 12, color: "#9ca3af" }}>等待生成</span>
         )}
       </div>
 
       <div>
-        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>参考提示词</div>
+        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+          参考提示词
+        </div>
         <textarea
           value={referencePromptValue}
           onChange={onReferencePromptChange}
-          placeholder="请输入参考提示词"
+          placeholder='请输入参考提示词'
           style={{
-            width: '100%',
+            width: "100%",
             minHeight: 70,
-            resize: 'vertical',
+            resize: "vertical",
             fontSize: 12,
             lineHeight: 1.4,
-            padding: '6px 8px',
+            padding: "6px 8px",
             borderRadius: 6,
-            border: '1px solid #d1d5db',
-            background: '#fff',
-            color: '#111827',
-            fontFamily: 'inherit',
+            border: "1px solid #d1d5db",
+            background: "#fff",
+            color: "#111827",
+            fontFamily: "inherit",
           }}
-          disabled={status === 'running'}
+          disabled={status === "running"}
         />
       </div>
 
-      <div style={{ fontSize: 12, color: '#6b7280' }}>Status: {status || 'idle'}</div>
+      <div style={{ fontSize: 12, color: "#6b7280" }}>
+        Status: {status || "idle"}
+      </div>
       <GenerationProgressBar status={status} />
-      {status === 'failed' && error ? (
-        <div style={{ fontSize: 12, color: '#ef4444', whiteSpace: 'pre-wrap' }}>{error}</div>
+      {status === "failed" && error ? (
+        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
+          {error}
+        </div>
       ) : null}
 
       <Handle
-        type="target"
+        type='target'
         position={Position.Left}
-        id="image1"
-        style={{ top: '30%' }}
-        onMouseEnter={() => setHover('image1-in')}
+        id='image1'
+        style={{ top: "30%" }}
+        onMouseEnter={() => setHover("image1-in")}
         onMouseLeave={() => setHover(null)}
       />
       <Handle
-        type="target"
+        type='target'
         position={Position.Left}
-        id="image2"
-        style={{ top: '55%' }}
-        onMouseEnter={() => setHover('image2-in')}
+        id='image2'
+        style={{ top: "55%" }}
+        onMouseEnter={() => setHover("image2-in")}
         onMouseLeave={() => setHover(null)}
       />
       <Handle
-        type="target"
+        type='target'
         position={Position.Left}
-        id="text"
-        style={{ top: '80%' }}
-        onMouseEnter={() => setHover('prompt-in')}
+        id='text'
+        style={{ top: "80%" }}
+        onMouseEnter={() => setHover("prompt-in")}
         onMouseLeave={() => setHover(null)}
       />
       <Handle
-        type="source"
+        type='source'
         position={Position.Right}
-        id="img"
-        style={{ top: '50%' }}
-        onMouseEnter={() => setHover('img-out')}
+        id='img'
+        style={{ top: "50%" }}
+        onMouseEnter={() => setHover("img-out")}
         onMouseLeave={() => setHover(null)}
       />
 
-      {hover === 'image2-in' && (
+      {hover === "image2-in" && (
         <div
-          className="flow-tooltip"
-          style={{ ...tooltipStyleBase, left: -8, top: '55%', transform: 'translate(-100%, -50%)' }}
+          className='flow-tooltip'
+          style={{
+            ...tooltipStyleBase,
+            left: -8,
+            top: "55%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
           image2
         </div>
       )}
-      {hover === 'image1-in' && (
+      {hover === "image1-in" && (
         <div
-          className="flow-tooltip"
-          style={{ ...tooltipStyleBase, left: -8, top: '30%', transform: 'translate(-100%, -50%)' }}
+          className='flow-tooltip'
+          style={{
+            ...tooltipStyleBase,
+            left: -8,
+            top: "30%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
           image1
         </div>
       )}
-      {hover === 'prompt-in' && (
+      {hover === "prompt-in" && (
         <div
-          className="flow-tooltip"
-          style={{ ...tooltipStyleBase, left: -8, top: '80%', transform: 'translate(-100%, -50%)' }}
+          className='flow-tooltip'
+          style={{
+            ...tooltipStyleBase,
+            left: -8,
+            top: "80%",
+            transform: "translate(-100%, -50%)",
+          }}
         >
           prompt
         </div>
       )}
-      {hover === 'img-out' && (
+      {hover === "img-out" && (
         <div
-          className="flow-tooltip"
-          style={{ ...tooltipStyleBase, right: -8, top: '50%', transform: 'translate(100%, -50%)' }}
+          className='flow-tooltip'
+          style={{
+            ...tooltipStyleBase,
+            right: -8,
+            top: "50%",
+            transform: "translate(100%, -50%)",
+          }}
         >
           image
         </div>
@@ -309,10 +352,12 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         isOpen={preview}
         imageSrc={
           allImages.length > 0 && currentImageId
-            ? allImages.find((item) => item.id === currentImageId)?.src || src || ''
-            : src || ''
+            ? allImages.find((item) => item.id === currentImageId)?.src ||
+              src ||
+              ""
+            : src || ""
         }
-        imageTitle="全局图片预览"
+        imageTitle='全局图片预览'
         onClose={() => setPreview(false)}
         imageCollection={allImages}
         currentImageId={currentImageId}

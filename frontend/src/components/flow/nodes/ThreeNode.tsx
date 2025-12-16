@@ -321,7 +321,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const sendToCanvas = () => {
     const img = data.imageData;
     if (!img) return;
-    const dataUrl = `data:image/png;base64,${img}`;
+    const dataUrl = img.trim().startsWith('data:image')
+      ? img
+      : `data:image/png;base64,${img}`;
     const fileName = `three_${Date.now()}.png`;
     window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
       detail: { imageData: dataUrl, fileName, operationType: 'generate' }
@@ -335,7 +337,11 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener('keydown', esc);
   }, [preview]);
 
-  const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const src = data.imageData
+    ? (data.imageData.trim().startsWith('data:image')
+      ? data.imageData
+      : `data:image/png;base64,${data.imageData}`)
+    : undefined;
 
   return (
     <div style={{ width: data.boxW || 280, height: data.boxH || 260, padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative' }}>

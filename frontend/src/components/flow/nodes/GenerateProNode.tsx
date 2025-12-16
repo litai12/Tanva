@@ -36,6 +36,15 @@ type Props = {
   selected?: boolean;
 };
 
+const buildImageSrc = (value?: string): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('data:image')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return `data:image/png;base64,${trimmed}`;
+};
+
 const MIN_IMAGE_WIDTH = 150;
 const MAX_IMAGE_WIDTH = 600;
 const DEFAULT_IMAGE_WIDTH = 296;
@@ -43,7 +52,7 @@ const DEFAULT_IMAGE_WIDTH = 296;
 function GenerateProNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const src = React.useMemo(
-    () => (data.imageData ? `data:image/png;base64,${data.imageData}` : undefined),
+    () => buildImageSrc(data.imageData),
     [data.imageData]
   );
   const [hover, setHover] = React.useState<string | null>(null);
