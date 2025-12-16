@@ -2041,35 +2041,40 @@ const AIChatDialog: React.FC = () => {
 
       // 如果消息有 groupId，找出同组的所有消息
       if (msg.groupId) {
-        const groupMessages = displayMessages.filter(m => m.groupId === msg.groupId);
-        const userMsg = groupMessages.find(m => m.type === 'user') || null;
-        const aiMsgs = groupMessages.filter(m => m.type === 'ai').sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
+        const groupMessages = displayMessages.filter(
+          (m) => m.groupId === msg.groupId
+        );
+        const userMsg = groupMessages.find((m) => m.type === "user") || null;
+        const aiMsgs = groupMessages
+          .filter((m) => m.type === "ai")
+          .sort((a, b) => (a.groupIndex ?? 0) - (b.groupIndex ?? 0));
 
         // 标记所有同组消息为已处理
-        groupMessages.forEach(m => processedIds.add(m.id));
+        groupMessages.forEach((m) => processedIds.add(m.id));
 
         groups.push({
           groupId: msg.groupId,
           userMessage: userMsg,
           aiMessages: aiMsgs,
-          isParallelGroup: aiMsgs.length > 1 || (aiMsgs[0]?.groupTotal ?? 1) > 1
+          isParallelGroup:
+            aiMsgs.length > 1 || (aiMsgs[0]?.groupTotal ?? 1) > 1,
         });
       } else {
         // 单独的消息
         processedIds.add(msg.id);
-        if (msg.type === 'user') {
+        if (msg.type === "user") {
           groups.push({
             groupId: msg.id,
             userMessage: msg,
             aiMessages: [],
-            isParallelGroup: false
+            isParallelGroup: false,
           });
         } else {
           groups.push({
             groupId: msg.id,
             userMessage: null,
             aiMessages: [msg],
-            isParallelGroup: false
+            isParallelGroup: false,
           });
         }
       }
@@ -3155,15 +3160,40 @@ const AIChatDialog: React.FC = () => {
                 {groupedMessages.map((group) => {
                   // 渲染用户消息
                   const userMessage = group.userMessage;
-                  const userResendInfo = userMessage ? getResendInfoFromMessage(userMessage) : null;
-                  const userActionButtons = userMessage ? renderUserMessageActions(userMessage, userResendInfo) : null;
+                  const userResendInfo = userMessage
+                    ? getResendInfoFromMessage(userMessage)
+                    : null;
+                  const userActionButtons = userMessage
+                    ? renderUserMessageActions(userMessage, userResendInfo)
+                    : null;
+
+                  const normalizeDataUrl = (
+                    src?: string | null
+                  ): string | undefined => {
+                    if (!src) return undefined;
+                    const trimmed = src.trim();
+                    if (!trimmed.startsWith("data:image")) return trimmed;
+                    const parts = trimmed.split(",");
+                    if (parts.length >= 3 && parts[1].startsWith("data:")) {
+                      // 处理形如 "data:image/png;base64,data:image/png;base64,AAAA..." 的重复前缀
+                      const meta = parts[0];
+                      const last = parts[parts.length - 1];
+                      return `${meta},${last}`;
+                    }
+                    return trimmed;
+                  };
 
                   // 渲染单个 AI 消息的图片/占位符
-                  const renderAiMessageImage = (message: ChatMessage, isCompact: boolean = false) => {
+                  const renderAiMessageImage = (
+                    message: ChatMessage,
+                    isCompact: boolean = false
+                  ) => {
                     const msgGenerationStatus = message.generationStatus;
-                    const msgExpectsImageOutput = Boolean(message.expectsImageOutput);
+                    const msgExpectsImageOutput = Boolean(
+                      message.expectsImageOutput
+                    );
 
-                    const imageSrc =
+                    const rawImageSrc =
                       message.imageRemoteUrl ||
                       (message.imageData
                         ? message.imageData.startsWith("data:image")
@@ -3176,13 +3206,19 @@ const AIChatDialog: React.FC = () => {
                           : `data:image/png;base64,${message.thumbnail}`
                         : undefined);
 
-                    const imageSize = isCompact ? 'w-28 h-28' : 'w-32 h-32';
+                    const imageSrc = normalizeDataUrl(rawImageSrc);
+
+                    const imageSize = isCompact ? "w-28 h-28" : "w-32 h-32";
 
                     if (imageSrc) {
                       return (
                         <img
                           src={imageSrc}
-                          alt={`AI生成的图像${message.groupIndex !== undefined ? ` ${message.groupIndex + 1}` : ''}`}
+                          alt={`AI生成的图像${
+                            message.groupIndex !== undefined
+                              ? ` ${message.groupIndex + 1}`
+                              : ""
+                          }`}
                           className={`${imageSize} object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -3193,18 +3229,26 @@ const AIChatDialog: React.FC = () => {
                       );
                     }
 
-                    if (msgExpectsImageOutput || msgGenerationStatus?.isGenerating) {
+                    if (
+                      msgExpectsImageOutput ||
+                      msgGenerationStatus?.isGenerating
+                    ) {
                       return (
-                        <div className={`relative ${imageSize} rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden`}>
+                        <div
+                          className={`relative ${imageSize} rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden`}
+                        >
                           <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
                           <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-1 text-xs text-blue-600'>
                             <Loader2 className='w-4 h-4 animate-spin text-blue-500' />
                             <span className='font-medium text-center px-1'>
                               {message.groupIndex !== undefined
-                                ? `${message.groupIndex + 1}/${message.groupTotal || '?'}`
+                                ? `${message.groupIndex + 1}/${
+                                    message.groupTotal || "?"
+                                  }`
                                 : msgGenerationStatus?.stage || "生成中"}
                             </span>
-                            {typeof msgGenerationStatus?.progress === "number" && (
+                            {typeof msgGenerationStatus?.progress ===
+                              "number" && (
                               <span className='text-[10px] text-blue-500'>
                                 {msgGenerationStatus.progress.toFixed(0)}%
                               </span>
@@ -3244,664 +3288,136 @@ const AIChatDialog: React.FC = () => {
                             <>
                               {/* AI Header - 并行组只显示一次 */}
                               <div className='flex items-center gap-2 mb-2'>
-                                <img src='/Logo.svg' alt='Tanvas Logo' className='w-4 h-4' />
-                                <span className='text-sm font-bold text-black'>Tanvas</span>
+                                <img
+                                  src='/Logo.svg'
+                                  alt='Tanvas Logo'
+                                  className='w-4 h-4'
+                                />
+                                <span className='text-sm font-bold text-black'>
+                                  Tanvas
+                                </span>
                                 <span className='text-xs text-gray-400'>
-                                  {group.aiMessages.filter(m => m.imageData || m.imageRemoteUrl || m.thumbnail || m.generationStatus?.isGenerating || m.expectsImageOutput).length}/{group.aiMessages[0]?.groupTotal || group.aiMessages.length} 张
+                                  {
+                                    group.aiMessages.filter(
+                                      (m) =>
+                                        m.imageData ||
+                                        m.imageRemoteUrl ||
+                                        m.thumbnail ||
+                                        m.generationStatus?.isGenerating ||
+                                        m.expectsImageOutput
+                                    ).length
+                                  }
+                                  /
+                                  {group.aiMessages[0]?.groupTotal ||
+                                    group.aiMessages.length}{" "}
+                                  张
                                 </span>
                               </div>
-                            <div className='mt-2'>
-                              <div className={cn(
-                                "inline-block rounded-lg p-3",
-                                "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
-                              )}>
-                                <div className='flex flex-wrap gap-2'>
-                                  {group.aiMessages.map((aiMsg) => {
-                                    const rendered = renderAiMessageImage(aiMsg, true);
-                                    // 🔥 只渲染有内容的消息
-                                    if (!rendered) return null;
-                                    return (
-                                      <div key={aiMsg.id} className='flex-shrink-0'>
-                                        {rendered}
-                                      </div>
-                                    );
-                                  })}
+                              <div className='mt-2'>
+                                <div
+                                  className={cn(
+                                    "inline-block rounded-lg p-3",
+                                    "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
+                                  )}
+                                >
+                                  <div className='flex flex-wrap gap-2'>
+                                    {group.aiMessages.map((aiMsg) => {
+                                      const rendered = renderAiMessageImage(
+                                        aiMsg,
+                                        true
+                                      );
+                                      // 🔥 只渲染有内容的消息
+                                      if (!rendered) return null;
+                                      return (
+                                        <div
+                                          key={aiMsg.id}
+                                          className='flex-shrink-0'
+                                        >
+                                          {rendered}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
                             </>
                           ) : (
                             /* 单个 AI 消息：保持原有布局 */
                             group.aiMessages.map((message) => {
-                  const midjourneyMeta = message.metadata?.midjourney as
-                    | MidjourneyMetadata
-                    | undefined;
-                  const generationStatus = message.generationStatus;
-                  const expectsImageOutput = Boolean(
-                    message.expectsImageOutput
-                  );
-                  const hasGeneratedImage = Boolean(
-                    message.imageData ||
-                      message.imageRemoteUrl ||
-                      message.thumbnail
-                  );
-                  const hasReferenceImages =
-                    Boolean(message.sourceImageData) ||
-                    Boolean(
-                      message.sourceImagesData &&
-                        message.sourceImagesData.length > 0
-                    );
-                  // 视频相关变量
-                  const expectsVideoOutput = Boolean(
-                    message.expectsVideoOutput
-                  );
-                  const hasGeneratedVideo = Boolean(message.videoUrl);
-                  const isAiMessage = message.type === "ai";
-                  const isImageTaskInFlight = Boolean(
-                    isAiMessage &&
-                      generationStatus?.isGenerating &&
-                      (expectsImageOutput ||
-                        hasGeneratedImage ||
-                        hasReferenceImages)
-                  );
-                  const isVideoTaskInFlight = Boolean(
-                    isAiMessage &&
-                      generationStatus?.isGenerating &&
-                      (expectsVideoOutput || hasGeneratedVideo)
-                  );
-                  const showImageLayout =
-                    hasGeneratedImage ||
-                    hasReferenceImages ||
-                    expectsImageOutput ||
-                    isImageTaskInFlight;
-                  const showVideoLayout =
-                    hasGeneratedVideo ||
-                    expectsVideoOutput ||
-                    isVideoTaskInFlight;
-                  const shouldUseVerticalLayout =
-                    isAiMessage &&
-                    (hasGeneratedImage ||
-                      expectsImageOutput ||
-                      isImageTaskInFlight ||
-                      hasGeneratedVideo ||
-                      expectsVideoOutput ||
-                      isVideoTaskInFlight);
-                  const aiHeader = isAiMessage ? (
-                    <div className='flex items-center gap-2 mb-2'>
-                      <img
-                        src='/Logo.svg'
-                        alt='Tanvas Logo'
-                        className='w-4 h-4'
-                      />
-                      <span className='text-sm font-bold text-black'>
-                        Tanvas
-                      </span>
-                      {message.webSearchResult?.hasSearchResults && (
-                        <div className='flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full'>
-                          <MinimalGlobeIcon className='w-3 h-3' />
-                          <span>已联网</span>
-                        </div>
-                      )}
-                    </div>
-                  ) : null;
-                  const aiTextContent = isAiMessage ? (
-                    <div className='text-sm leading-relaxed text-black break-words markdown-content'>
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          p: ({ children }) => (
-                            <p className='mb-1 text-sm'>{children}</p>
-                          ),
-                          ul: ({ children }) => (
-                            <ul className='list-disc list-inside mb-1 ml-2 text-sm'>
-                              {children}
-                            </ul>
-                          ),
-                          ol: ({ children }) => (
-                            <ol className='list-decimal list-inside mb-1 ml-2 text-sm'>
-                              {children}
-                            </ol>
-                          ),
-                          li: ({ children }) => (
-                            <li className='mb-0.5 text-sm'>{children}</li>
-                          ),
-                          h1: ({ children }) => (
-                            <h1 className='text-lg font-bold mb-2 mt-2'>
-                              {children}
-                            </h1>
-                          ),
-                          h2: ({ children }) => (
-                            <h2 className='text-base font-bold mb-1 mt-1'>
-                              {children}
-                            </h2>
-                          ),
-                          h3: ({ children }) => (
-                            <h3 className='text-base font-bold mb-1'>
-                              {children}
-                            </h3>
-                          ),
-                          code: ({ children, ...props }: any) => {
-                            const inline = !(
-                              "className" in props &&
-                              props.className?.includes("language-")
-                            );
-                            return inline ? (
-                              <code className='bg-gray-100 px-1 rounded text-xs'>
-                                {children}
-                              </code>
-                            ) : (
-                              <pre className='bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1'>
-                                <code>{children}</code>
-                              </pre>
-                            );
-                          },
-                          blockquote: ({ children }) => (
-                            <blockquote className='border-l-2 border-gray-300 pl-2 italic text-xs mb-1'>
-                              {children}
-                            </blockquote>
-                          ),
-                          a: ({ href, children }) => (
-                            <a
-                              href={href}
-                              className='text-blue-600 hover:underline'
-                              target='_blank'
-                              rel='noopener noreferrer'
-                            >
-                              {children}
-                            </a>
-                          ),
-                          strong: ({ children }) => (
-                            <strong className='font-semibold'>
-                              {children}
-                            </strong>
-                          ),
-                          em: ({ children }) => (
-                            <em className='italic'>{children}</em>
-                          ),
-                        }}
-                      >
-                        {message.content}
-                      </ReactMarkdown>
-
-                      {message.webSearchResult?.hasSearchResults && (
-                        <div className='mt-2 pt-2 border-t border-gray-100'>
-                          <div className='text-xs text-gray-500 mb-1'>
-                            信息来源：
-                          </div>
-                          <div className='space-y-1'>
-                            {message.webSearchResult.sources
-                              .slice(0, 3)
-                              .map((source: any, idx: number) => (
-                                <div key={idx} className='text-xs'>
-                                  <a
-                                    href={source.url}
-                                    target='_blank'
-                                    rel='noopener noreferrer'
-                                    className='text-blue-600 hover:underline'
-                                    title={source.snippet}
-                                  >
-                                    {source.title}
-                                  </a>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : null;
-                  const resendInfo = getResendInfoFromMessage(message);
-                  const userActionButtons = renderUserMessageActions(
-                    message,
-                    resendInfo
-                  );
-                  return (
-                    <div
-                      key={message.id}
-                      className={cn(
-                        "p-2 transition-colors text-sm",
-                        message.type === "user" && "text-black ml-3 mr-1",
-                        message.type === "ai" && "text-black mr-3",
-                        message.type === "error" &&
-                          "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
-                      )}
-                    >
-                      {/* 🔥 错误显示 - AI 消息级别的错误 */}
-                      {message.type === "ai" &&
-                        message.generationStatus?.error && (
-                          <div className='mb-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700'>
-                            ⚠️ {message.generationStatus.error}
-                          </div>
-                        )}
-
-                      {/* 如果有视频或正在生成视频，显示视频 */}
-                      {showVideoLayout ? (
-                        isAiMessage ? (
-                          <>
-                            {aiHeader}
-                            {aiTextContent}
-                            <div className='mt-3'>
-                              <div className='inline-block rounded-lg p-3 bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass'>
-                                <div className='flex flex-col items-center gap-3'>
-                                  {message.videoUrl ? (
-                                    <>
-                                      <video
-                                        controls
-                                        className='w-full max-w-md rounded-lg border shadow-sm'
-                                        style={{ maxHeight: "400px" }}
-                                        poster={message.videoThumbnail}
-                                      >
-                                        <source
-                                          src={message.videoUrl}
-                                          type='video/mp4'
-                                        />
-                                        您的浏览器不支持 HTML5 video 标签
-                                      </video>
-                                      <div className='flex gap-3 text-xs flex-wrap'>
-                                        {/* 分享/复制 */}
-                                        <button
-                                          onClick={async () => {
-                                            if (!message.videoUrl) return;
-                                            try {
-                                              await navigator.clipboard.writeText(
-                                                message.videoUrl
-                                              );
-                                              console.log(
-                                                "✅ 视频链接已复制，可直接粘贴分享"
-                                              );
-                                              alert("✅ 已复制视频链接");
-                                            } catch (err) {
-                                              console.error(
-                                                "❌ 复制失败:",
-                                                err
-                                              );
-                                              alert("复制失败，请手动复制链接");
-                                            }
-                                          }}
-                                          title='分享链接'
-                                          className='w-9 h-9 rounded-full bg-white text-purple-500 border border-purple-100 flex items-center justify-center shadow-sm hover:bg-purple-50 transition-colors'
-                                        >
-                                          <Share2 className='w-3.5 h-3.5' />
-                                        </button>
-
-                                        {/* 下载视频 */}
-                                        <button
-                                          onClick={async () => {
-                                            try {
-                                              console.log(
-                                                "📥 开始下载视频:",
-                                                message.videoUrl
-                                              );
-
-                                              // 方案 1: 尝试直接 fetch 下载
-                                              try {
-                                                const response = await fetch(
-                                                  message.videoUrl!,
-                                                  {
-                                                    mode: "cors",
-                                                    credentials: "omit",
-                                                  }
-                                                );
-
-                                                if (response.ok) {
-                                                  const blob =
-                                                    await response.blob();
-                                                  const downloadUrl =
-                                                    URL.createObjectURL(blob);
-                                                  const link =
-                                                    document.createElement("a");
-
-                                                  link.href = downloadUrl;
-                                                  link.download = `video-${
-                                                    new Date()
-                                                      .toISOString()
-                                                      .split("T")[0]
-                                                  }.mp4`;
-
-                                                  document.body.appendChild(
-                                                    link
-                                                  );
-                                                  link.click();
-                                                  document.body.removeChild(
-                                                    link
-                                                  );
-
-                                                  setTimeout(() => {
-                                                    URL.revokeObjectURL(
-                                                      downloadUrl
-                                                    );
-                                                  }, 100);
-
-                                                  console.log(
-                                                    "✅ 视频下载成功"
-                                                  );
-                                                  alert("✅ 视频下载成功！");
-                                                  return;
-                                                }
-                                              } catch (fetchError) {
-                                                console.warn(
-                                                  "⚠️ Fetch 下载失败，使用降级方案...",
-                                                  fetchError
-                                                );
-                                              }
-
-                                              // 降级方案: 在新标签页打开（让浏览器处理下载）
-                                              console.log(
-                                                "⚠️ 使用浏览器默认下载"
-                                              );
-                                              const link =
-                                                document.createElement("a");
-                                              link.href = message.videoUrl!;
-                                              link.download = `video-${
-                                                new Date()
-                                                  .toISOString()
-                                                  .split("T")[0]
-                                              }.mp4`;
-                                              document.body.appendChild(link);
-                                              link.click();
-                                              document.body.removeChild(link);
-                                            } catch (error) {
-                                              console.error(
-                                                "❌ 视频下载失败:",
-                                                error
-                                              );
-                                              alert(
-                                                "❌ 下载失败，已尝试复制链接。\n\n" +
-                                                  "您可以在浏览器中新开标签或使用下载工具。"
-                                              );
-                                              try {
-                                                await navigator.clipboard.writeText(
-                                                  message.videoUrl!
-                                                );
-                                              } catch {}
-                                            }
-                                          }}
-                                          title='下载视频'
-                                          className='w-9 h-9 rounded-full bg-white text-blue-500 border border-gray-200 flex items-center justify-center shadow-sm hover:bg-gray-800/10 transition-colors'
-                                        >
-                                          <Download className='w-3.5 h-3.5' />
-                                        </button>
-                                      </div>
-                                      {(message.videoStatus ||
-                                        message.videoTaskId) && (
-                                        <div className='text-[11px] text-gray-500 mt-1 w-full'>
-                                          {message.videoStatus && (
-                                            <span>
-                                              状态: {message.videoStatus}
-                                            </span>
-                                          )}
-                                          {message.videoStatus &&
-                                            message.videoTaskId && (
-                                              <span className='mx-1'>·</span>
-                                            )}
-                                          {message.videoTaskId && (
-                                            <span>
-                                              任务ID: {message.videoTaskId}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <div className='relative w-48 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden'>
-                                      <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
-                                      <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600'>
-                                        <Loader2 className='w-5 h-5 animate-spin text-blue-500' />
-                                        <span className='font-medium'>
-                                          {generationStatus?.stage ||
-                                            "正在生成视频"}
-                                        </span>
-                                        {typeof generationStatus?.progress ===
-                                          "number" && (
-                                          <span className='text-[11px] text-blue-500'>
-                                            {generationStatus.progress.toFixed(
-                                              1
-                                            )}
-                                            %
-                                          </span>
-                                        )}
-                                      </div>
+                              const midjourneyMeta = message.metadata
+                                ?.midjourney as MidjourneyMetadata | undefined;
+                              const generationStatus = message.generationStatus;
+                              const expectsImageOutput = Boolean(
+                                message.expectsImageOutput
+                              );
+                              const hasGeneratedImage = Boolean(
+                                message.imageData ||
+                                  message.imageRemoteUrl ||
+                                  message.thumbnail
+                              );
+                              const hasReferenceImages =
+                                Boolean(message.sourceImageData) ||
+                                Boolean(
+                                  message.sourceImagesData &&
+                                    message.sourceImagesData.length > 0
+                                );
+                              // 视频相关变量
+                              const expectsVideoOutput = Boolean(
+                                message.expectsVideoOutput
+                              );
+                              const hasGeneratedVideo = Boolean(
+                                message.videoUrl
+                              );
+                              const isAiMessage = message.type === "ai";
+                              const isImageTaskInFlight = Boolean(
+                                isAiMessage &&
+                                  generationStatus?.isGenerating &&
+                                  (expectsImageOutput ||
+                                    hasGeneratedImage ||
+                                    hasReferenceImages)
+                              );
+                              const isVideoTaskInFlight = Boolean(
+                                isAiMessage &&
+                                  generationStatus?.isGenerating &&
+                                  (expectsVideoOutput || hasGeneratedVideo)
+                              );
+                              const showImageLayout =
+                                hasGeneratedImage ||
+                                hasReferenceImages ||
+                                expectsImageOutput ||
+                                isImageTaskInFlight;
+                              const showVideoLayout =
+                                hasGeneratedVideo ||
+                                expectsVideoOutput ||
+                                isVideoTaskInFlight;
+                              const shouldUseVerticalLayout =
+                                isAiMessage &&
+                                (hasGeneratedImage ||
+                                  expectsImageOutput ||
+                                  isImageTaskInFlight ||
+                                  hasGeneratedVideo ||
+                                  expectsVideoOutput ||
+                                  isVideoTaskInFlight);
+                              const aiHeader = isAiMessage ? (
+                                <div className='flex items-center gap-2 mb-2'>
+                                  <img
+                                    src='/Logo.svg'
+                                    alt='Tanvas Logo'
+                                    className='w-4 h-4'
+                                  />
+                                  <span className='text-sm font-bold text-black'>
+                                    Tanvas
+                                  </span>
+                                  {message.webSearchResult
+                                    ?.hasSearchResults && (
+                                    <div className='flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full'>
+                                      <MinimalGlobeIcon className='w-3 h-3' />
+                                      <span>已联网</span>
                                     </div>
                                   )}
                                 </div>
-                              </div>
-                            </div>
-                          </>
-                        ) : null
-                      ) : /* 如果有图像、源图像或正在等待图像，使用特殊布局 */
-                      showImageLayout ? (
-                        isAiMessage ? (
-                          <>
-                            {aiHeader}
-                            {aiTextContent}
-                            <div className='mt-3'>
-                              <div
-                                className={cn(
-                                  "inline-block rounded-lg p-3",
-                                  "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
-                                )}
-                              >
-                                {shouldUseVerticalLayout ? (
-                                  <>
-                                    <div className='flex justify-center'>
-                                      {(() => {
-                                        const imageSrc =
-                                          message.imageRemoteUrl ||
-                                          (message.imageData
-                                            ? message.imageData.startsWith(
-                                                "data:image"
-                                              )
-                                              ? message.imageData
-                                              : `data:image/png;base64,${message.imageData}`
-                                            : undefined) ||
-                                          (message.thumbnail
-                                            ? message.thumbnail.startsWith(
-                                                "data:image"
-                                              )
-                                              ? message.thumbnail
-                                              : `data:image/png;base64,${message.thumbnail}`
-                                            : undefined);
-                                        if (imageSrc) {
-                                          return (
-                                            <img
-                                              src={imageSrc}
-                                              alt='AI生成的图像'
-                                              className='w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer'
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleImagePreview(
-                                                  imageSrc,
-                                                  "AI生成的图像"
-                                                );
-                                              }}
-                                              title='点击全屏预览'
-                                            />
-                                          );
-                                        }
-                                        if (!expectsImageOutput) return null;
-                                        return (
-                                          <div className='relative w-32 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden'>
-                                            <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
-                                            <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600'>
-                                              <Loader2 className='w-5 h-5 animate-spin text-blue-500' />
-                                              <span className='font-medium'>
-                                                {generationStatus?.stage ||
-                                                  "正在生成图像"}
-                                              </span>
-                                              {typeof generationStatus?.progress ===
-                                                "number" && (
-                                                <span className='text-[11px] text-blue-500'>
-                                                  {generationStatus.progress.toFixed(
-                                                    1
-                                                  )}
-                                                  %
-                                                </span>
-                                              )}
-                                            </div>
-                                          </div>
-                                        );
-                                      })()}
-                                    </div>
-                                    {midjourneyMeta?.buttons?.length &&
-                                      midjourneyMeta.taskId && (
-                                        <MidjourneyActionButtons
-                                          buttons={
-                                            midjourneyMeta.buttons as MidjourneyButtonInfo[]
-                                          }
-                                          onAction={async (button) => {
-                                            if (!button.customId) return;
-                                            await executeMidjourneyAction({
-                                              parentMessageId: message.id,
-                                              taskId: midjourneyMeta.taskId,
-                                              customId: button.customId,
-                                              buttonLabel: button.label,
-                                              displayPrompt:
-                                                midjourneyMeta.prompt ||
-                                                message.content,
-                                            });
-                                          }}
-                                        />
-                                      )}
-                                  </>
-                                ) : (
-                                  <div className='flex gap-3 items-start'>
-                                    <div className='flex-shrink-0'>
-                                      {message.sourceImageData && (
-                                        <div className='mb-2'>
-                                          <img
-                                            src={message.sourceImageData}
-                                            alt='源图像'
-                                            className='w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleImagePreview(
-                                                message.sourceImageData!,
-                                                "源图像"
-                                              );
-                                            }}
-                                            title='点击全屏预览'
-                                          />
-                                        </div>
-                                      )}
-                                      {message.sourceImagesData &&
-                                        message.sourceImagesData.length > 0 && (
-                                          <div className='mb-2'>
-                                            <div className='grid grid-cols-2 gap-1 max-w-20'>
-                                              {message.sourceImagesData.map(
-                                                (imageData, index) => (
-                                                  <div
-                                                    key={index}
-                                                    className='relative'
-                                                  >
-                                                    <img
-                                                      src={imageData}
-                                                      alt={`融合图像 ${
-                                                        index + 1
-                                                      }`}
-                                                      className='w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleImagePreview(
-                                                          imageData,
-                                                          `融合图像 ${
-                                                            index + 1
-                                                          }`
-                                                        );
-                                                      }}
-                                                      title={`点击全屏预览融合图像 ${
-                                                        index + 1
-                                                      }`}
-                                                    />
-                                                    <div
-                                                      className='absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center'
-                                                      style={{
-                                                        fontSize: "0.6rem",
-                                                      }}
-                                                    >
-                                                      {index + 1}
-                                                    </div>
-                                                  </div>
-                                                )
-                                              )}
-                                            </div>
-                                          </div>
-                                        )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <div
-                            className={cn(
-                              "relative inline-block rounded-lg p-3",
-                              message.type === "user" &&
-                                "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                              message.type !== "user" &&
-                                "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
-                            )}
-                          >
-                            <div className='flex gap-3 items-start'>
-                              {/* 左边：图像 */}
-                              <div className='flex-shrink-0'>
-                                {message.sourceImageData && (
-                                  <div className='mb-2'>
-                                    <img
-                                      src={message.sourceImageData}
-                                      alt='源图像'
-                                      className='w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleImagePreview(
-                                          message.sourceImageData!,
-                                          "源图像"
-                                        );
-                                      }}
-                                      title='点击全屏预览'
-                                    />
-                                  </div>
-                                )}
-                                {message.sourceImagesData &&
-                                  message.sourceImagesData.length > 0 && (
-                                    <div className='mb-2'>
-                                      <div className='grid grid-cols-2 gap-1 max-w-20'>
-                                        {message.sourceImagesData.map(
-                                          (imageData, index) => (
-                                            <div
-                                              key={index}
-                                              className='relative'
-                                            >
-                                              <img
-                                                src={imageData}
-                                                alt={`融合图像 ${index + 1}`}
-                                                className='w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleImagePreview(
-                                                    imageData,
-                                                    `融合图像 ${index + 1}`
-                                                  );
-                                                }}
-                                                title={`点击全屏预览融合图像 ${
-                                                  index + 1
-                                                }`}
-                                              />
-                                              <div
-                                                className='absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center'
-                                                style={{ fontSize: "0.6rem" }}
-                                              >
-                                                {index + 1}
-                                              </div>
-                                            </div>
-                                          )
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                              </div>
-
-                              {/* 右边：文字内容 */}
-                              <div className='flex-1 min-w-0'>
+                              ) : null;
+                              const aiTextContent = isAiMessage ? (
                                 <div className='text-sm leading-relaxed text-black break-words markdown-content'>
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
@@ -3983,113 +3499,756 @@ const AIChatDialog: React.FC = () => {
                                   >
                                     {message.content}
                                   </ReactMarkdown>
+
+                                  {message.webSearchResult
+                                    ?.hasSearchResults && (
+                                    <div className='mt-2 pt-2 border-t border-gray-100'>
+                                      <div className='text-xs text-gray-500 mb-1'>
+                                        信息来源：
+                                      </div>
+                                      <div className='space-y-1'>
+                                        {message.webSearchResult.sources
+                                          .slice(0, 3)
+                                          .map((source: any, idx: number) => (
+                                            <div key={idx} className='text-xs'>
+                                              <a
+                                                href={source.url}
+                                                target='_blank'
+                                                rel='noopener noreferrer'
+                                                className='text-blue-600 hover:underline'
+                                                title={source.snippet}
+                                              >
+                                                {source.title}
+                                              </a>
+                                            </div>
+                                          ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                                {userActionButtons}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      ) : isAiMessage ? (
-                        <>
-                          {aiHeader}
-                          {aiTextContent}
-                        </>
-                      ) : (
-                        <div
-                          className={cn(
-                            "relative text-sm text-black markdown-content leading-relaxed",
-                            message.type === "user" &&
-                              "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
-                          )}
-                        >
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              p: ({ children }) => (
-                                <p className='mb-1 text-sm'>{children}</p>
-                              ),
-                              ul: ({ children }) => (
-                                <ul className='list-disc list-inside mb-1 ml-2 text-sm'>
-                                  {children}
-                                </ul>
-                              ),
-                              ol: ({ children }) => (
-                                <ol className='list-decimal list-inside mb-1 ml-2 text-sm'>
-                                  {children}
-                                </ol>
-                              ),
-                              li: ({ children }) => (
-                                <li className='mb-0.5 text-sm'>{children}</li>
-                              ),
-                              h1: ({ children }) => (
-                                <h1 className='text-base font-bold mb-1 mt-1'>
-                                  {children}
-                                </h1>
-                              ),
-                              h2: ({ children }) => (
-                                <h2 className='text-sm font-bold mb-0.5'>
-                                  {children}
-                                </h2>
-                              ),
-                              h3: ({ children }) => (
-                                <h3 className='text-sm font-bold mb-0.5'>
-                                  {children}
-                                </h3>
-                              ),
-                              code: ({ children, ...props }: any) => {
-                                const inline = !(
-                                  "className" in props &&
-                                  props.className?.includes("language-")
-                                );
-                                return inline ? (
-                                  <code
-                                    className='bg-gray-100 px-0.5 rounded'
-                                    style={{ fontSize: "0.7rem" }}
-                                  >
-                                    {children}
-                                  </code>
-                                ) : (
-                                  <pre
-                                    className='bg-gray-100 p-0.5 rounded overflow-x-auto mb-0.5'
-                                    style={{ fontSize: "0.7rem" }}
-                                  >
-                                    <code>{children}</code>
-                                  </pre>
-                                );
-                              },
-                              blockquote: ({ children }) => (
-                                <blockquote className='border-l-2 border-gray-300 pl-1 italic mb-0.5'>
-                                  {children}
-                                </blockquote>
-                              ),
-                              a: ({ href, children }) => (
-                                <a
-                                  href={href}
-                                  className='text-blue-600 hover:underline'
-                                  target='_blank'
-                                  rel='noopener noreferrer'
+                              ) : null;
+                              const resendInfo =
+                                getResendInfoFromMessage(message);
+                              const userActionButtons =
+                                renderUserMessageActions(message, resendInfo);
+                              return (
+                                <div
+                                  key={message.id}
+                                  className={cn(
+                                    "p-2 transition-colors text-sm",
+                                    message.type === "user" &&
+                                      "text-black ml-3 mr-1",
+                                    message.type === "ai" && "text-black mr-3",
+                                    message.type === "error" &&
+                                      "bg-red-50 text-red-800 mr-1 rounded-lg p-3"
+                                  )}
                                 >
-                                  {children}
-                                </a>
-                              ),
-                              strong: ({ children }) => (
-                                <strong className='font-semibold'>
-                                  {children}
-                                </strong>
-                              ),
-                              em: ({ children }) => (
-                                <em className='italic'>{children}</em>
-                              ),
-                            }}
-                          >
-                            {message.content}
-                          </ReactMarkdown>
-                          {userActionButtons}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                                  {/* 🔥 错误显示 - AI 消息级别的错误 */}
+                                  {message.type === "ai" &&
+                                    message.generationStatus?.error && (
+                                      <div className='mb-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700'>
+                                        ⚠️ {message.generationStatus.error}
+                                      </div>
+                                    )}
+
+                                  {/* 如果有视频或正在生成视频，显示视频 */}
+                                  {showVideoLayout ? (
+                                    isAiMessage ? (
+                                      <>
+                                        {aiHeader}
+                                        {aiTextContent}
+                                        <div className='mt-3'>
+                                          <div className='inline-block rounded-lg p-3 bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass'>
+                                            <div className='flex flex-col items-center gap-3'>
+                                              {message.videoUrl ? (
+                                                <>
+                                                  <video
+                                                    controls
+                                                    className='w-full max-w-md rounded-lg border shadow-sm'
+                                                    style={{
+                                                      maxHeight: "400px",
+                                                    }}
+                                                    poster={
+                                                      message.videoThumbnail
+                                                    }
+                                                  >
+                                                    <source
+                                                      src={message.videoUrl}
+                                                      type='video/mp4'
+                                                    />
+                                                    您的浏览器不支持 HTML5 video
+                                                    标签
+                                                  </video>
+                                                  <div className='flex gap-3 text-xs flex-wrap'>
+                                                    {/* 分享/复制 */}
+                                                    <button
+                                                      onClick={async () => {
+                                                        if (!message.videoUrl)
+                                                          return;
+                                                        try {
+                                                          await navigator.clipboard.writeText(
+                                                            message.videoUrl
+                                                          );
+                                                          console.log(
+                                                            "✅ 视频链接已复制，可直接粘贴分享"
+                                                          );
+                                                          alert(
+                                                            "✅ 已复制视频链接"
+                                                          );
+                                                        } catch (err) {
+                                                          console.error(
+                                                            "❌ 复制失败:",
+                                                            err
+                                                          );
+                                                          alert(
+                                                            "复制失败，请手动复制链接"
+                                                          );
+                                                        }
+                                                      }}
+                                                      title='分享链接'
+                                                      className='w-9 h-9 rounded-full bg-white text-purple-500 border border-purple-100 flex items-center justify-center shadow-sm hover:bg-purple-50 transition-colors'
+                                                    >
+                                                      <Share2 className='w-3.5 h-3.5' />
+                                                    </button>
+
+                                                    {/* 下载视频 */}
+                                                    <button
+                                                      onClick={async () => {
+                                                        try {
+                                                          console.log(
+                                                            "📥 开始下载视频:",
+                                                            message.videoUrl
+                                                          );
+
+                                                          // 方案 1: 尝试直接 fetch 下载
+                                                          try {
+                                                            const response =
+                                                              await fetch(
+                                                                message.videoUrl!,
+                                                                {
+                                                                  mode: "cors",
+                                                                  credentials:
+                                                                    "omit",
+                                                                }
+                                                              );
+
+                                                            if (response.ok) {
+                                                              const blob =
+                                                                await response.blob();
+                                                              const downloadUrl =
+                                                                URL.createObjectURL(
+                                                                  blob
+                                                                );
+                                                              const link =
+                                                                document.createElement(
+                                                                  "a"
+                                                                );
+
+                                                              link.href =
+                                                                downloadUrl;
+                                                              link.download = `video-${
+                                                                new Date()
+                                                                  .toISOString()
+                                                                  .split("T")[0]
+                                                              }.mp4`;
+
+                                                              document.body.appendChild(
+                                                                link
+                                                              );
+                                                              link.click();
+                                                              document.body.removeChild(
+                                                                link
+                                                              );
+
+                                                              setTimeout(() => {
+                                                                URL.revokeObjectURL(
+                                                                  downloadUrl
+                                                                );
+                                                              }, 100);
+
+                                                              console.log(
+                                                                "✅ 视频下载成功"
+                                                              );
+                                                              alert(
+                                                                "✅ 视频下载成功！"
+                                                              );
+                                                              return;
+                                                            }
+                                                          } catch (fetchError) {
+                                                            console.warn(
+                                                              "⚠️ Fetch 下载失败，使用降级方案...",
+                                                              fetchError
+                                                            );
+                                                          }
+
+                                                          // 降级方案: 在新标签页打开（让浏览器处理下载）
+                                                          console.log(
+                                                            "⚠️ 使用浏览器默认下载"
+                                                          );
+                                                          const link =
+                                                            document.createElement(
+                                                              "a"
+                                                            );
+                                                          link.href =
+                                                            message.videoUrl!;
+                                                          link.download = `video-${
+                                                            new Date()
+                                                              .toISOString()
+                                                              .split("T")[0]
+                                                          }.mp4`;
+                                                          document.body.appendChild(
+                                                            link
+                                                          );
+                                                          link.click();
+                                                          document.body.removeChild(
+                                                            link
+                                                          );
+                                                        } catch (error) {
+                                                          console.error(
+                                                            "❌ 视频下载失败:",
+                                                            error
+                                                          );
+                                                          alert(
+                                                            "❌ 下载失败，已尝试复制链接。\n\n" +
+                                                              "您可以在浏览器中新开标签或使用下载工具。"
+                                                          );
+                                                          try {
+                                                            await navigator.clipboard.writeText(
+                                                              message.videoUrl!
+                                                            );
+                                                          } catch {}
+                                                        }
+                                                      }}
+                                                      title='下载视频'
+                                                      className='w-9 h-9 rounded-full bg-white text-blue-500 border border-gray-200 flex items-center justify-center shadow-sm hover:bg-gray-800/10 transition-colors'
+                                                    >
+                                                      <Download className='w-3.5 h-3.5' />
+                                                    </button>
+                                                  </div>
+                                                  {(message.videoStatus ||
+                                                    message.videoTaskId) && (
+                                                    <div className='text-[11px] text-gray-500 mt-1 w-full'>
+                                                      {message.videoStatus && (
+                                                        <span>
+                                                          状态:{" "}
+                                                          {message.videoStatus}
+                                                        </span>
+                                                      )}
+                                                      {message.videoStatus &&
+                                                        message.videoTaskId && (
+                                                          <span className='mx-1'>
+                                                            ·
+                                                          </span>
+                                                        )}
+                                                      {message.videoTaskId && (
+                                                        <span>
+                                                          任务ID:{" "}
+                                                          {message.videoTaskId}
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                </>
+                                              ) : (
+                                                <div className='relative w-48 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden'>
+                                                  <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
+                                                  <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600'>
+                                                    <Loader2 className='w-5 h-5 animate-spin text-blue-500' />
+                                                    <span className='font-medium'>
+                                                      {generationStatus?.stage ||
+                                                        "正在生成视频"}
+                                                    </span>
+                                                    {typeof generationStatus?.progress ===
+                                                      "number" && (
+                                                      <span className='text-[11px] text-blue-500'>
+                                                        {generationStatus.progress.toFixed(
+                                                          1
+                                                        )}
+                                                        %
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </>
+                                    ) : null
+                                  ) : /* 如果有图像、源图像或正在等待图像，使用特殊布局 */
+                                  showImageLayout ? (
+                                    isAiMessage ? (
+                                      <>
+                                        {aiHeader}
+                                        {aiTextContent}
+                                        <div className='mt-3'>
+                                          <div
+                                            className={cn(
+                                              "inline-block rounded-lg p-3",
+                                              "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
+                                            )}
+                                          >
+                                            {shouldUseVerticalLayout ? (
+                                              <>
+                                                <div className='flex justify-center'>
+                                                  {(() => {
+                                                    const imageSrc =
+                                                      message.imageRemoteUrl ||
+                                                      (message.imageData
+                                                        ? message.imageData.startsWith(
+                                                            "data:image"
+                                                          )
+                                                          ? message.imageData
+                                                          : `data:image/png;base64,${message.imageData}`
+                                                        : undefined) ||
+                                                      (message.thumbnail
+                                                        ? message.thumbnail.startsWith(
+                                                            "data:image"
+                                                          )
+                                                          ? message.thumbnail
+                                                          : `data:image/png;base64,${message.thumbnail}`
+                                                        : undefined);
+                                                    if (imageSrc) {
+                                                      return (
+                                                        <img
+                                                          src={imageSrc}
+                                                          alt='AI生成的图像'
+                                                          className='w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer'
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleImagePreview(
+                                                              imageSrc,
+                                                              "AI生成的图像"
+                                                            );
+                                                          }}
+                                                          title='点击全屏预览'
+                                                        />
+                                                      );
+                                                    }
+                                                    if (!expectsImageOutput)
+                                                      return null;
+                                                    return (
+                                                      <div className='relative w-32 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden'>
+                                                        <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
+                                                        <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600'>
+                                                          <Loader2 className='w-5 h-5 animate-spin text-blue-500' />
+                                                          <span className='font-medium'>
+                                                            {generationStatus?.stage ||
+                                                              "正在生成图像"}
+                                                          </span>
+                                                          {typeof generationStatus?.progress ===
+                                                            "number" && (
+                                                            <span className='text-[11px] text-blue-500'>
+                                                              {generationStatus.progress.toFixed(
+                                                                1
+                                                              )}
+                                                              %
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    );
+                                                  })()}
+                                                </div>
+                                                {midjourneyMeta?.buttons
+                                                  ?.length &&
+                                                  midjourneyMeta.taskId && (
+                                                    <MidjourneyActionButtons
+                                                      buttons={
+                                                        midjourneyMeta.buttons as MidjourneyButtonInfo[]
+                                                      }
+                                                      onAction={async (
+                                                        button
+                                                      ) => {
+                                                        if (!button.customId)
+                                                          return;
+                                                        await executeMidjourneyAction(
+                                                          {
+                                                            parentMessageId:
+                                                              message.id,
+                                                            taskId:
+                                                              midjourneyMeta.taskId,
+                                                            customId:
+                                                              button.customId,
+                                                            buttonLabel:
+                                                              button.label,
+                                                            displayPrompt:
+                                                              midjourneyMeta.prompt ||
+                                                              message.content,
+                                                          }
+                                                        );
+                                                      }}
+                                                    />
+                                                  )}
+                                              </>
+                                            ) : (
+                                              <div className='flex gap-3 items-start'>
+                                                <div className='flex-shrink-0'>
+                                                  {message.sourceImageData && (
+                                                    <div className='mb-2'>
+                                                      <img
+                                                        src={
+                                                          message.sourceImageData
+                                                        }
+                                                        alt='源图像'
+                                                        className='w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleImagePreview(
+                                                            message.sourceImageData!,
+                                                            "源图像"
+                                                          );
+                                                        }}
+                                                        title='点击全屏预览'
+                                                      />
+                                                    </div>
+                                                  )}
+                                                  {message.sourceImagesData &&
+                                                    message.sourceImagesData
+                                                      .length > 0 && (
+                                                      <div className='mb-2'>
+                                                        <div className='grid grid-cols-2 gap-1 max-w-20'>
+                                                          {message.sourceImagesData.map(
+                                                            (
+                                                              imageData,
+                                                              index
+                                                            ) => (
+                                                              <div
+                                                                key={index}
+                                                                className='relative'
+                                                              >
+                                                                <img
+                                                                  src={
+                                                                    imageData
+                                                                  }
+                                                                  alt={`融合图像 ${
+                                                                    index + 1
+                                                                  }`}
+                                                                  className='w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                                  onClick={(
+                                                                    e
+                                                                  ) => {
+                                                                    e.stopPropagation();
+                                                                    handleImagePreview(
+                                                                      imageData,
+                                                                      `融合图像 ${
+                                                                        index +
+                                                                        1
+                                                                      }`
+                                                                    );
+                                                                  }}
+                                                                  title={`点击全屏预览融合图像 ${
+                                                                    index + 1
+                                                                  }`}
+                                                                />
+                                                                <div
+                                                                  className='absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center'
+                                                                  style={{
+                                                                    fontSize:
+                                                                      "0.6rem",
+                                                                  }}
+                                                                >
+                                                                  {index + 1}
+                                                                </div>
+                                                              </div>
+                                                            )
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    )}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div
+                                        className={cn(
+                                          "relative inline-block rounded-lg p-3",
+                                          message.type === "user" &&
+                                            "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                                          message.type !== "user" &&
+                                            "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
+                                        )}
+                                      >
+                                        <div className='flex gap-3 items-start'>
+                                          {/* 左边：图像 */}
+                                          <div className='flex-shrink-0'>
+                                            {message.sourceImageData && (
+                                              <div className='mb-2'>
+                                                <img
+                                                  src={message.sourceImageData}
+                                                  alt='源图像'
+                                                  className='w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleImagePreview(
+                                                      message.sourceImageData!,
+                                                      "源图像"
+                                                    );
+                                                  }}
+                                                  title='点击全屏预览'
+                                                />
+                                              </div>
+                                            )}
+                                            {message.sourceImagesData &&
+                                              message.sourceImagesData.length >
+                                                0 && (
+                                                <div className='mb-2'>
+                                                  <div className='grid grid-cols-2 gap-1 max-w-20'>
+                                                    {message.sourceImagesData.map(
+                                                      (imageData, index) => (
+                                                        <div
+                                                          key={index}
+                                                          className='relative'
+                                                        >
+                                                          <img
+                                                            src={imageData}
+                                                            alt={`融合图像 ${
+                                                              index + 1
+                                                            }`}
+                                                            className='w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                            onClick={(e) => {
+                                                              e.stopPropagation();
+                                                              handleImagePreview(
+                                                                imageData,
+                                                                `融合图像 ${
+                                                                  index + 1
+                                                                }`
+                                                              );
+                                                            }}
+                                                            title={`点击全屏预览融合图像 ${
+                                                              index + 1
+                                                            }`}
+                                                          />
+                                                          <div
+                                                            className='absolute -top-0.5 -left-0.5 bg-blue-600 text-white text-xs w-4 h-4 rounded-full font-medium shadow-sm flex items-center justify-center'
+                                                            style={{
+                                                              fontSize:
+                                                                "0.6rem",
+                                                            }}
+                                                          >
+                                                            {index + 1}
+                                                          </div>
+                                                        </div>
+                                                      )
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              )}
+                                          </div>
+
+                                          {/* 右边：文字内容 */}
+                                          <div className='flex-1 min-w-0'>
+                                            <div className='text-sm leading-relaxed text-black break-words markdown-content'>
+                                              <ReactMarkdown
+                                                remarkPlugins={[remarkGfm]}
+                                                components={{
+                                                  p: ({ children }) => (
+                                                    <p className='mb-1 text-sm'>
+                                                      {children}
+                                                    </p>
+                                                  ),
+                                                  ul: ({ children }) => (
+                                                    <ul className='list-disc list-inside mb-1 ml-2 text-sm'>
+                                                      {children}
+                                                    </ul>
+                                                  ),
+                                                  ol: ({ children }) => (
+                                                    <ol className='list-decimal list-inside mb-1 ml-2 text-sm'>
+                                                      {children}
+                                                    </ol>
+                                                  ),
+                                                  li: ({ children }) => (
+                                                    <li className='mb-0.5 text-sm'>
+                                                      {children}
+                                                    </li>
+                                                  ),
+                                                  h1: ({ children }) => (
+                                                    <h1 className='text-lg font-bold mb-2 mt-2'>
+                                                      {children}
+                                                    </h1>
+                                                  ),
+                                                  h2: ({ children }) => (
+                                                    <h2 className='text-base font-bold mb-1 mt-1'>
+                                                      {children}
+                                                    </h2>
+                                                  ),
+                                                  h3: ({ children }) => (
+                                                    <h3 className='text-base font-bold mb-1'>
+                                                      {children}
+                                                    </h3>
+                                                  ),
+                                                  code: ({
+                                                    children,
+                                                    ...props
+                                                  }: any) => {
+                                                    const inline = !(
+                                                      "className" in props &&
+                                                      props.className?.includes(
+                                                        "language-"
+                                                      )
+                                                    );
+                                                    return inline ? (
+                                                      <code className='bg-gray-100 px-1 rounded text-xs'>
+                                                        {children}
+                                                      </code>
+                                                    ) : (
+                                                      <pre className='bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1'>
+                                                        <code>{children}</code>
+                                                      </pre>
+                                                    );
+                                                  },
+                                                  blockquote: ({
+                                                    children,
+                                                  }) => (
+                                                    <blockquote className='border-l-2 border-gray-300 pl-2 italic text-xs mb-1'>
+                                                      {children}
+                                                    </blockquote>
+                                                  ),
+                                                  a: ({ href, children }) => (
+                                                    <a
+                                                      href={href}
+                                                      className='text-blue-600 hover:underline'
+                                                      target='_blank'
+                                                      rel='noopener noreferrer'
+                                                    >
+                                                      {children}
+                                                    </a>
+                                                  ),
+                                                  strong: ({ children }) => (
+                                                    <strong className='font-semibold'>
+                                                      {children}
+                                                    </strong>
+                                                  ),
+                                                  em: ({ children }) => (
+                                                    <em className='italic'>
+                                                      {children}
+                                                    </em>
+                                                  ),
+                                                }}
+                                              >
+                                                {message.content}
+                                              </ReactMarkdown>
+                                            </div>
+                                            {userActionButtons}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )
+                                  ) : isAiMessage ? (
+                                    <>
+                                      {aiHeader}
+                                      {aiTextContent}
+                                    </>
+                                  ) : (
+                                    <div
+                                      className={cn(
+                                        "relative text-sm text-black markdown-content leading-relaxed",
+                                        message.type === "user" &&
+                                          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass rounded-lg p-3 inline-block"
+                                      )}
+                                    >
+                                      <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        components={{
+                                          p: ({ children }) => (
+                                            <p className='mb-1 text-sm'>
+                                              {children}
+                                            </p>
+                                          ),
+                                          ul: ({ children }) => (
+                                            <ul className='list-disc list-inside mb-1 ml-2 text-sm'>
+                                              {children}
+                                            </ul>
+                                          ),
+                                          ol: ({ children }) => (
+                                            <ol className='list-decimal list-inside mb-1 ml-2 text-sm'>
+                                              {children}
+                                            </ol>
+                                          ),
+                                          li: ({ children }) => (
+                                            <li className='mb-0.5 text-sm'>
+                                              {children}
+                                            </li>
+                                          ),
+                                          h1: ({ children }) => (
+                                            <h1 className='text-base font-bold mb-1 mt-1'>
+                                              {children}
+                                            </h1>
+                                          ),
+                                          h2: ({ children }) => (
+                                            <h2 className='text-sm font-bold mb-0.5'>
+                                              {children}
+                                            </h2>
+                                          ),
+                                          h3: ({ children }) => (
+                                            <h3 className='text-sm font-bold mb-0.5'>
+                                              {children}
+                                            </h3>
+                                          ),
+                                          code: ({
+                                            children,
+                                            ...props
+                                          }: any) => {
+                                            const inline = !(
+                                              "className" in props &&
+                                              props.className?.includes(
+                                                "language-"
+                                              )
+                                            );
+                                            return inline ? (
+                                              <code
+                                                className='bg-gray-100 px-0.5 rounded'
+                                                style={{ fontSize: "0.7rem" }}
+                                              >
+                                                {children}
+                                              </code>
+                                            ) : (
+                                              <pre
+                                                className='bg-gray-100 p-0.5 rounded overflow-x-auto mb-0.5'
+                                                style={{ fontSize: "0.7rem" }}
+                                              >
+                                                <code>{children}</code>
+                                              </pre>
+                                            );
+                                          },
+                                          blockquote: ({ children }) => (
+                                            <blockquote className='border-l-2 border-gray-300 pl-1 italic mb-0.5'>
+                                              {children}
+                                            </blockquote>
+                                          ),
+                                          a: ({ href, children }) => (
+                                            <a
+                                              href={href}
+                                              className='text-blue-600 hover:underline'
+                                              target='_blank'
+                                              rel='noopener noreferrer'
+                                            >
+                                              {children}
+                                            </a>
+                                          ),
+                                          strong: ({ children }) => (
+                                            <strong className='font-semibold'>
+                                              {children}
+                                            </strong>
+                                          ),
+                                          em: ({ children }) => (
+                                            <em className='italic'>
+                                              {children}
+                                            </em>
+                                          ),
+                                        }}
+                                      >
+                                        {message.content}
+                                      </ReactMarkdown>
+                                      {userActionButtons}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       )}
