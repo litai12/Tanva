@@ -320,8 +320,6 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error] = useState<string | null>(null);
   const hasCustomCameraRef = useRef<boolean>(!!modelData.camera);
-  const cameraChangeFrameRef = useRef<number | null>(null);
-  const lastCameraEmitRef = useRef(0);
 
   const onCameraChangeRef = useRef(onCameraChange);
   useEffect(() => {
@@ -343,27 +341,10 @@ const Model3DViewer: React.FC<Model3DViewerProps> = ({
 
     lastCameraStateRef.current = cameraState;
 
-    if (!onCameraChangeRef.current) return;
-    if (cameraChangeFrameRef.current)
-      cancelAnimationFrame(cameraChangeFrameRef.current);
-    cameraChangeFrameRef.current = requestAnimationFrame(() => {
-      if (onCameraChangeRef.current) {
-        const now = performance.now();
-        if (now - lastCameraEmitRef.current > 1000 / 15) {
-          // 约15fps推送到外部，降低渲染震动
-          lastCameraEmitRef.current = now;
-          onCameraChangeRef.current(cameraStateRef.current);
-        }
-      }
-      cameraChangeFrameRef.current = null;
-    });
-
-    return () => {
-      if (cameraChangeFrameRef.current) {
-        cancelAnimationFrame(cameraChangeFrameRef.current);
-        cameraChangeFrameRef.current = null;
-      }
-    };
+    // 直接通知外部，不再做额外的节流（CameraController 已经做了节流）
+    if (onCameraChangeRef.current) {
+      onCameraChangeRef.current(cameraState);
+    }
   }, [cameraState]);
 
   const isUpdatingFromExternalRef = useRef(false);
@@ -587,6 +568,8 @@ const CameraController: React.FC<CameraControllerProps> = ({
   const cameraStateRef = useRef<Model3DCameraState>(cameraState);
   const isUpdatingFromPropsRef = useRef(false);
   const lastControlEmitRef = useRef(0);
+  const pendingUpdateRef = useRef<Model3DCameraState | null>(null);
+  const rafIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     cameraStateRef.current = cameraState;
@@ -620,15 +603,34 @@ const CameraController: React.FC<CameraControllerProps> = ({
     applyCameraState(cameraState);
   }, [cameraState, applyCameraState]);
 
-  const controlChangeTimerRef = useRef<number | null>(null);
-
+  // 清理 RAF
   useEffect(() => {
     return () => {
-      if (controlChangeTimerRef.current) {
-        cancelAnimationFrame(controlChangeTimerRef.current);
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
       }
     };
   }, []);
+
+  // 批量更新：只在 RAF 中执行一次状态更新
+  const flushPendingUpdate = useCallback(() => {
+    rafIdRef.current = null;
+    const pending = pendingUpdateRef.current;
+    if (!pending) return;
+
+    pendingUpdateRef.current = null;
+    const currentState = cameraStateRef.current;
+
+    if (!cameraStatesEqual(pending, currentState)) {
+      // 使用低优先级更新，避免阻塞主线程
+      if (typeof React.startTransition === "function") {
+        React.startTransition(() => onStateChange(pending));
+      } else {
+        onStateChange(pending);
+      }
+    }
+  }, [onStateChange]);
 
   const handleControlChange = useCallback(() => {
     // 如果正在从props更新，跳过处理，避免循环
@@ -637,25 +639,7 @@ const CameraController: React.FC<CameraControllerProps> = ({
     const controls = controlsRef.current;
     if (!controls || !enabled) return;
 
-    // 限制同步频率，降低频繁setState导致的卡顿
-    const now = performance.now();
-    const minInterval = 1000 / 24; // 约24fps的状态上报，更平滑且减少抖动
-
-    if (controlChangeTimerRef.current) {
-      cancelAnimationFrame(controlChangeTimerRef.current);
-      controlChangeTimerRef.current = null;
-    }
-
-    if (now - lastControlEmitRef.current < minInterval) {
-      controlChangeTimerRef.current = requestAnimationFrame(() => {
-        controlChangeTimerRef.current = null;
-        handleControlChange();
-      });
-      return;
-    }
-
-    lastControlEmitRef.current = now;
-
+    // 获取当前相机状态
     const cam = controls.object as THREE.PerspectiveCamera;
     const next: Model3DCameraState = {
       position: [cam.position.x, cam.position.y, cam.position.z],
@@ -663,17 +647,32 @@ const CameraController: React.FC<CameraControllerProps> = ({
       up: [cam.up.x, cam.up.y, cam.up.z],
     };
 
-    // 使用ref来避免依赖cameraState导致的无限循环
+    // 限制同步频率：约 10fps 的状态上报，减少 React 重渲染
+    const now = performance.now();
+    const minInterval = 100; // 100ms = 10fps
+
+    if (now - lastControlEmitRef.current < minInterval) {
+      // 存储待更新的状态，等待下一次 RAF 批量处理
+      pendingUpdateRef.current = next;
+      if (!rafIdRef.current) {
+        rafIdRef.current = requestAnimationFrame(flushPendingUpdate);
+      }
+      return;
+    }
+
+    lastControlEmitRef.current = now;
+    pendingUpdateRef.current = null;
+
+    // 直接更新，不需要额外的 RAF
     const currentState = cameraStateRef.current;
     if (!cameraStatesEqual(next, currentState)) {
-      // 使用低优先级更新，避免阻塞主线程
       if (typeof React.startTransition === "function") {
         React.startTransition(() => onStateChange(next));
       } else {
         onStateChange(next);
       }
     }
-  }, [enabled, onStateChange]);
+  }, [enabled, onStateChange, flushPendingUpdate]);
 
   return (
     <OrbitControls
@@ -682,13 +681,13 @@ const CameraController: React.FC<CameraControllerProps> = ({
       enableZoom={true}
       enableRotate={true}
       enableDamping
-      dampingFactor={0.18} // 增加阻尼，使操作更平滑
+      dampingFactor={0.12} // 降低阻尼因子，减少持续的 onChange 触发
       minDistance={0.5}
       maxDistance={50}
       autoRotate={false}
-      rotateSpeed={0.65} // 降低旋转速度，配合阻尼更顺滑
-      zoomSpeed={0.85} // 调低缩放速度，避免突兀
-      panSpeed={0.7} // 平移稍慢，减少抖动感
+      rotateSpeed={0.8} // 稍微提高旋转速度，让操作更直接
+      zoomSpeed={0.9}
+      panSpeed={0.8}
       screenSpacePanning={false} // 在3D空间中平移，而不是屏幕空间
       mouseButtons={{
         LEFT: THREE.MOUSE.ROTATE, // 左键旋转
