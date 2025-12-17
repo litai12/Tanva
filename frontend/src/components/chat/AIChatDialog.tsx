@@ -47,6 +47,8 @@ import {
   Play,
   RotateCcw,
   Pencil,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -323,6 +325,7 @@ const AIChatDialog: React.FC = () => {
   const historyInitialHeightRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const showHistoryRef = useRef(showHistory);
+  const [isHistoryLocked, setIsHistoryLocked] = useState(false);
   // isMaximized 现在从 store 获取
   const isMaximizedRef = useRef(isMaximized);
   const prevIsMaximizedRef = useRef(isMaximized);
@@ -819,6 +822,7 @@ const AIChatDialog: React.FC = () => {
 
   const setHistoryVisibility = useCallback(
     (visible: boolean, manual = false) => {
+      if (visible && isHistoryLocked) return;
       setShowHistory(visible);
       if (manual) {
         setManuallyClosedHistory(!visible);
@@ -826,7 +830,7 @@ const AIChatDialog: React.FC = () => {
         setManuallyClosedHistory(false);
       }
     },
-    [setShowHistory, setManuallyClosedHistory]
+    [isHistoryLocked, setShowHistory, setManuallyClosedHistory]
   );
 
   // 退出最大化时自动收起历史面板，确保还原为紧凑视图
@@ -837,6 +841,53 @@ const AIChatDialog: React.FC = () => {
       setHistoryVisibility(false, false);
     }
   }, [isMaximized, setHistoryVisibility]);
+
+  const setMaximizedSafely = useCallback(
+    (next: boolean) => {
+      if (next && isHistoryLocked) return;
+      setIsMaximized(next);
+    },
+    [isHistoryLocked, setIsMaximized]
+  );
+
+  const toggleMaximize = useCallback(() => {
+    const next = !isMaximizedRef.current;
+    if (next && isHistoryLocked) return;
+    setIsMaximized(next);
+  }, [isHistoryLocked, setIsMaximized]);
+
+  // 上锁后立即收起历史面板并退出最大化
+  useEffect(() => {
+    if (!isHistoryLocked) return;
+    if (showHistory) {
+      setHistoryVisibility(false, true);
+    }
+    if (isMaximized) {
+      setMaximizedSafely(false);
+    }
+  }, [
+    isHistoryLocked,
+    isMaximized,
+    setHistoryVisibility,
+    setMaximizedSafely,
+    showHistory,
+  ]);
+
+  const toggleMaximizeRef = useRef(toggleMaximize);
+  useEffect(() => {
+    toggleMaximizeRef.current = toggleMaximize;
+  }, [toggleMaximize]);
+
+  const handleToggleHistoryLock = useCallback(() => {
+    setIsHistoryLocked((prev) => {
+      const next = !prev;
+      if (next) {
+        setHistoryVisibility(false, true);
+        setMaximizedSafely(false);
+      }
+      return next;
+    });
+  }, [setHistoryVisibility, setMaximizedSafely]);
 
   const handleSessionChange = useCallback(
     async (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -965,6 +1016,7 @@ const AIChatDialog: React.FC = () => {
   const toggleHistory = (manualOrEvent?: boolean | React.SyntheticEvent) => {
     const manual = typeof manualOrEvent === "boolean" ? manualOrEvent : true;
     const next = !showHistory;
+    if (isHistoryLocked && next) return;
     setHistoryVisibility(next, manual);
   };
 
@@ -973,6 +1025,7 @@ const AIChatDialog: React.FC = () => {
   ) => {
     // 如果刚刚拖拽过，不触发点击事件
     if (hasDraggedRef.current) return;
+    if (isHistoryLocked) return;
     if (isMaximized) return;
     const target = event.target as HTMLElement | null;
     if (!target) return;
@@ -1805,11 +1858,10 @@ const AIChatDialog: React.FC = () => {
     const trimmed = optimized.trim();
     if (!trimmed) return;
 
-    setCurrentInput(trimmed);
     setIsPromptPanelOpen(false);
     setAutoOptimizeEnabled(false);
-    await processUserInput(trimmed);
     clearInput();
+    await processUserInput(trimmed);
   };
 
   // 移除源图像
@@ -1826,6 +1878,12 @@ const AIChatDialog: React.FC = () => {
     if (!isVisible) {
       showDialog();
     }
+
+    // 🔥 发送消息时自动展开历史记录面板（非最大化模式下）
+    if (!showHistory && !isMaximized) {
+      setHistoryVisibility(true, false);
+    }
+
     // 🔥 立即增加待处理任务计数（敲击回车的反馈）
     setPendingTaskCount((prev) => prev + 1);
 
@@ -1863,8 +1921,8 @@ const AIChatDialog: React.FC = () => {
       }
     }
 
-    await processUserInput(promptToSend);
     clearInput();
+    await processUserInput(promptToSend);
   };
 
   // 处理键盘事件
@@ -1891,13 +1949,7 @@ const AIChatDialog: React.FC = () => {
 
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value;
-    setCurrentInput(newValue);
-
-    // 🔥 当用户输入内容时，自动展开历史记录面板（非最大化模式下）
-    if (newValue.trim() && !showHistory && !isMaximized && !manuallyClosedHistory) {
-      setHistoryVisibility(true, false);
-    }
+    setCurrentInput(e.target.value);
   };
 
   // 处理图片预览
@@ -1980,7 +2032,7 @@ const AIChatDialog: React.FC = () => {
     )
       return;
     cancelPendingHistoryToggle();
-    setIsMaximized(!isMaximized);
+    toggleMaximize();
   };
 
   // 捕获阶段拦截双击：阻止事件继续到画布，并根据状态触发缩放
@@ -2007,7 +2059,7 @@ const AIChatDialog: React.FC = () => {
       return;
     }
 
-    setIsMaximized(!isMaximized);
+    toggleMaximize();
     suppressHistoryClickRef.current = false;
   };
 
@@ -2032,7 +2084,7 @@ const AIChatDialog: React.FC = () => {
         cancelPendingHistoryToggle();
         ev.stopPropagation();
         ev.preventDefault();
-        setIsMaximized(!isMaximizedRef.current);
+        toggleMaximizeRef.current?.();
       }
 
       // 外部屏蔽：卡片外侧一定范围内，阻止冒泡，防止 Flow 弹出节点面板
@@ -2091,6 +2143,8 @@ const AIChatDialog: React.FC = () => {
           // 顶部区域：历史面板打开且非最大化时显示 move 光标（可拖拽）
           if (showHistory && !isMaximized) {
             cont.style.cursor = "move";
+          } else if (isHistoryLocked) {
+            cont.style.cursor = "not-allowed";
           } else {
             cont.style.cursor = isMaximized ? "zoom-out" : "zoom-in";
           }
@@ -2110,7 +2164,7 @@ const AIChatDialog: React.FC = () => {
     };
     window.addEventListener("mousemove", onMove, true);
     return () => window.removeEventListener("mousemove", onMove, true);
-  }, [isMaximized, showHistory]);
+  }, [isHistoryLocked, isMaximized, showHistory]);
 
   // 捕获阶段拦截双击，避免触发 Flow 节点面板；根据状态决定触发区域
   // 放在 early return 之前，避免 Hook 顺序问题
@@ -2135,7 +2189,7 @@ const AIChatDialog: React.FC = () => {
         cancelPendingHistoryToggle();
         ev.stopPropagation();
         ev.preventDefault();
-        setIsMaximized(!isMaximizedRef.current);
+        toggleMaximizeRef.current?.();
       }
     };
     const el = containerRef.current;
@@ -2391,6 +2445,36 @@ const AIChatDialog: React.FC = () => {
             )}
           />
         )}
+        <button
+          type='button'
+          data-history-ignore-toggle
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleHistoryLock();
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          aria-pressed={isHistoryLocked}
+          title={
+            isHistoryLocked
+              ? "已上锁：禁止展开历史记录或最大化"
+              : "解锁后可展开历史记录或最大化"
+          }
+          className={cn(
+            showHistory || isMaximized
+              ? "absolute top-2 right-2 flex h-6 w-6 cursor-pointer items-center justify-center"
+              : "absolute top-1/2 right-0 translate-x-[32px] -translate-y-1/2 flex h-6 w-6 cursor-pointer items-center justify-center",
+            "text-slate-500 transition-colors duration-200",
+            isHistoryLocked
+              ? "text-slate-900 hover:text-slate-800"
+              : "hover:text-slate-700"
+          )}
+        >
+          {isHistoryLocked ? (
+            <Lock className='h-3.5 w-3.5' />
+          ) : (
+            <Unlock className='h-3.5 w-3.5' />
+          )}
+        </button>
         {/* 🔥 任务计数器徽章 - 右上角（更小尺寸）已关闭 */}
 
         {/* 内容区域 */}
@@ -2446,7 +2530,7 @@ const AIChatDialog: React.FC = () => {
                 if (!t) {
                   e.preventDefault();
                   e.stopPropagation();
-                  setIsMaximized(!isMaximized);
+                  toggleMaximize();
                   return;
                 }
                 const r = t.getBoundingClientRect();
@@ -2457,7 +2541,7 @@ const AIChatDialog: React.FC = () => {
                 if (!insideText) {
                   e.preventDefault();
                   e.stopPropagation();
-                  setIsMaximized(!isMaximized);
+                  toggleMaximize();
                   return;
                 }
                 // 判断是否在"外圈框"区域：靠近边缘的环（阈值 24px）
@@ -2470,7 +2554,7 @@ const AIChatDialog: React.FC = () => {
                 if (edgeDist <= 24) {
                   e.preventDefault();
                   e.stopPropagation();
-                  setIsMaximized(!isMaximized);
+                  toggleMaximize();
                 }
               } catch {}
             }}

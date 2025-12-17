@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, BookOpen } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, LayoutTemplate } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -212,6 +212,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
+  const isSubMenuOpen = isSelectionMenuOpen || isDrawingMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
 
   const { toggleDialog, isVisible: isAIDialogVisible, isMaximized: isAIChatMaximized, setSourceImageForEditing, showDialog } = useAIChatStore();
@@ -380,7 +381,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* Flow 工具开关 */}
       {flowUIEnabled && (
-        <Tooltip>
+        <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
               variant={showFlowPanel ? 'default' : 'outline'}
@@ -405,7 +406,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       {/* 选择工具分组 */}
       <div className="relative" ref={selectionGroupRef}>
         {/* 主按钮 - 显示当前选择模式 */}
-        <Tooltip>
+        <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
               variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
@@ -456,7 +457,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <DashedSelectIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">框选工具</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>框选工具</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -472,7 +473,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <MousePointer2 className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">节点选择工具</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>节点选择工具</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -483,7 +484,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       {/* 绘制工具分组 */}
       <div className="relative" ref={drawingGroupRef}>
         {/* 主按钮 - 显示当前绘制模式 */}
-        <Tooltip>
+        <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
               variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
@@ -539,7 +540,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <FreeDrawIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">自由绘制</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>自由绘制</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -555,7 +556,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <StraightLineIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">绘制直线</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>绘制直线</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -571,7 +572,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <Square className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">绘制矩形</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>绘制矩形</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -587,7 +588,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <CircleIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">绘制圆形</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>绘制圆形</TooltipContent>
                 </Tooltip>
               </div>
 
@@ -646,7 +647,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       </div>
 
       {/* 橡皮擦工具 - 统一画板下仅对绘图生效，节点擦除关闭 */}
-      <Tooltip>
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
             onClick={toggleEraser}
@@ -669,7 +670,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       <div className="flex flex-col items-center gap-2">
         {/* 文字工具 */}
         <div className="relative">
-            <Tooltip>
+            <Tooltip open={isSubMenuOpen ? false : undefined}>
               <TooltipTrigger asChild>
                 <Button
                   variant={drawMode === 'text' ? 'default' : 'outline'}
@@ -722,7 +723,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* 图片/3D/截图 工具 */}
       <>
-          <Tooltip>
+          <Tooltip open={isSubMenuOpen ? false : undefined}>
             <TooltipTrigger asChild>
               <Button
                 variant={drawMode === 'image' ? 'default' : 'outline'}
@@ -741,7 +742,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
           {/* 快速图片上传工具（居中） - 暂时隐藏 */}
           {/* 3D模型工具（仅 Chat 模式） */}
-          <Tooltip>
+          <Tooltip open={isSubMenuOpen ? false : undefined}>
             <TooltipTrigger asChild>
               <Button
                 variant={drawMode === '3d-model' ? 'default' : 'outline'}
@@ -760,7 +761,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
         {/* 截图工具暂时隐藏，后续需要时启用 ENABLE_SCREENSHOT_TOOL */}
         {ENABLE_SCREENSHOT_TOOL && (
-          <Tooltip>
+          <Tooltip open={isSubMenuOpen ? false : undefined}>
             <TooltipTrigger asChild>
               <Button
                 variant={drawMode === 'screenshot' ? 'default' : 'outline'}
@@ -808,7 +809,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       {/* 统一画板：移除 Generate Node 快捷按钮与分隔线 */}
 
       {/* 图层工具 */}
-      <Tooltip>
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
             variant={isLayerPanelOpen ? 'default' : 'outline'}
@@ -826,7 +827,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       </Tooltip>
 
       {/* 模板库按钮 */}
-      <Tooltip>
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
             variant={showTemplatePanel ? 'default' : 'outline'}
@@ -837,7 +838,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             )}
             onClick={handleToggleTemplatePanel}
           >
-            <BookOpen className="w-4 h-4" />
+            <LayoutTemplate className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">公共模板</TooltipContent>
@@ -848,7 +849,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       {onClearCanvas && (
         <div className="flex flex-col items-center gap-2">
           {/* 清理画布按钮 */}
-          <Tooltip>
+          <Tooltip open={isSubMenuOpen ? false : undefined}>
             <TooltipTrigger asChild>
               <Button
                 onClick={() => {
