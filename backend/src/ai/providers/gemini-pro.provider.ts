@@ -116,7 +116,18 @@ export class GeminiProProvider implements IAIProvider {
       throw new Error(`${context} file payload is empty`);
     }
 
-    const trimmed = fileInput.trim();
+    let trimmed = fileInput.trim();
+
+    // 🔥 修复：处理前端错误格式 data:image/xxx;base64,https://...
+    // 前端可能错误地将 URL 包装成 data URL 格式
+    const malformedDataUrlMatch = trimmed.match(/^data:image\/[\w.+-]+;base64,(https?:\/\/.+)$/i);
+    if (malformedDataUrlMatch) {
+      this.logger.warn(`[normalizeFileInput] Detected malformed data URL with embedded HTTP URL for ${context}`);
+      // 对于同步方法，我们无法下载 URL，所以抛出明确的错误
+      throw new Error(
+        `Invalid image format for ${context}: URL was incorrectly wrapped as data URL. Please send either a valid base64 string or use a provider that supports URL fetching.`
+      );
+    }
 
     let sanitized: string;
     let mimeType: string;

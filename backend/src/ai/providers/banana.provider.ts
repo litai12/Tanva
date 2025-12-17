@@ -164,13 +164,28 @@ export class BananaProvider implements IAIProvider {
       throw new Error(`${context} file payload is empty`);
     }
 
-    const trimmed = fileInput.trim();
+    let trimmed = fileInput.trim();
+
+    // 添加调试日志
+    this.logger.debug(`[normalizeFileInputAsync] ${context}: input length=${trimmed.length}, starts with: ${trimmed.substring(0, 80)}...`);
+
+    // 🔥 修复：处理前端错误格式 data:image/xxx;base64,https://...
+    // 前端可能错误地将 URL 包装成 data URL 格式
+    const malformedDataUrlMatch = trimmed.match(/^data:image\/[\w.+-]+;base64,(https?:\/\/.+)$/i);
+    if (malformedDataUrlMatch) {
+      this.logger.warn(`[normalizeFileInputAsync] Detected malformed data URL with embedded HTTP URL, extracting URL...`);
+      trimmed = malformedDataUrlMatch[1];
+    }
 
     // 支持 HTTP/HTTPS URL - 自动下载并转换为 Base64
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      this.logger.debug(`Fetching image from URL for ${context}: ${trimmed.substring(0, 100)}...`);
+      this.logger.log(`[normalizeFileInputAsync] Fetching image from URL for ${context}: ${trimmed.substring(0, 100)}...`);
       try {
-        const response = await fetch(trimmed);
+        const response = await fetch(trimmed, {
+          headers: {
+            'User-Agent': 'Tanva-AI-Backend/1.0',
+          },
+        });
         if (!response.ok) {
           throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
         }
@@ -180,7 +195,7 @@ export class BananaProvider implements IAIProvider {
 
         // 从 content-type 提取 mimeType
         const mimeType = contentType.split(';')[0].trim();
-        this.logger.debug(`Fetched image: ${base64Data.length} chars, mimeType: ${mimeType}`);
+        this.logger.log(`[normalizeFileInputAsync] Fetched image successfully: ${base64Data.length} chars, mimeType: ${mimeType}`);
 
         return {
           data: base64Data,
@@ -188,6 +203,7 @@ export class BananaProvider implements IAIProvider {
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(`[normalizeFileInputAsync] Failed to fetch ${context} image from URL: ${message}`);
         throw new Error(`Failed to fetch ${context} image from URL: ${message}`);
       }
     }
