@@ -22,6 +22,19 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   const [draggedPath, setDraggedPath] = useState<paper.Path | null>(null);
   const [originalBounds, setOriginalBounds] = useState<paper.Rectangle | null>(null);
 
+  const findPlaceholderGroup = useCallback((item?: paper.Item | null): paper.Group | null => {
+    let node: paper.Item | null | undefined = item;
+
+    while (node) {
+      if (node.data?.type === 'image-placeholder' || node.data?.type === '3d-model-placeholder') {
+        return node as paper.Group;
+      }
+      node = node.parent;
+    }
+
+    return null;
+  }, []);
+
   // ========== 控制点检测和拖拽 ==========
 
   // 检测鼠标位置是否在控制点上
@@ -48,7 +61,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
 
   // 开始拖拽控制点
   const startSegmentDrag = useCallback((segment: paper.Segment, startPoint: paper.Point, shiftPressed: boolean = false) => {
-    const placeholderGroup = (segment.path as any)?.data?.placeholderGroup as paper.Group | undefined;
+    const placeholderGroup = findPlaceholderGroup(segment.path);
     if (placeholderGroup) {
       setIsSegmentDragging(true);
       setDraggedSegment(segment);
@@ -73,7 +86,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
       setOriginalBounds(null);
       logger.debug('开始拖拽控制点');
     }
-  }, [isRectanglePath]);
+  }, [findPlaceholderGroup, isRectanglePath]);
 
   // 计算矩形缩放
   const scaleRectangle = useCallback((
@@ -136,7 +149,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   const updateSegmentDrag = useCallback((currentPoint: paper.Point) => {
     if (!isSegmentDragging || !draggedSegment || !dragStartPoint) return;
 
-    const placeholderGroup = (draggedSegment.path as any)?.data?.placeholderGroup as paper.Group | undefined;
+    const placeholderGroup = findPlaceholderGroup(draggedSegment.path);
 
     if (placeholderGroup && originalBounds) {
       const center = originalBounds.center;
@@ -168,7 +181,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     }
     
     logger.debug('更新控制点位置:', currentPoint, { isScaling });
-  }, [isSegmentDragging, draggedSegment, dragStartPoint, isScaling, originalBounds, scaleRectangle]);
+  }, [isSegmentDragging, draggedSegment, dragStartPoint, isScaling, originalBounds, scaleRectangle, findPlaceholderGroup]);
 
   // 结束控制点拖拽
   const finishSegmentDrag = useCallback(() => {
@@ -186,7 +199,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
 
   // 开始拖拽整个路径
   const startPathDrag = useCallback((path: paper.Path, startPoint: paper.Point) => {
-    const placeholderGroup = (path as any)?.data?.placeholderGroup as paper.Group | undefined;
+    const placeholderGroup = findPlaceholderGroup(path);
     if (placeholderGroup) {
       setIsPathDragging(true);
       setDraggedPath(path);
@@ -200,13 +213,13 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     setDraggedPath(path);
     setDragStartPoint(startPoint);
     logger.debug('开始拖拽路径');
-  }, []);
+  }, [findPlaceholderGroup]);
 
   // 更新路径位置
   const updatePathDrag = useCallback((currentPoint: paper.Point) => {
     if (!isPathDragging || !draggedPath || !dragStartPoint) return;
 
-    const placeholderGroup = (draggedPath as any)?.data?.placeholderGroup as paper.Group | undefined;
+    const placeholderGroup = findPlaceholderGroup(draggedPath);
     if (placeholderGroup) {
       const delta = currentPoint.subtract(dragStartPoint);
       placeholderGroup.translate(delta);
@@ -226,7 +239,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     draggedPath.translate(delta);
     setDragStartPoint(currentPoint);
     logger.debug('更新路径位置');
-  }, [isPathDragging, draggedPath, dragStartPoint]);
+  }, [isPathDragging, draggedPath, dragStartPoint, findPlaceholderGroup]);
 
   // 结束路径拖拽
   const finishPathDrag = useCallback(() => {
