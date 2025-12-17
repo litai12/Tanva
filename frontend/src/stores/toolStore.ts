@@ -5,7 +5,7 @@ import { logger } from '@/utils/logger';
 import { createSafeStorage } from './storageUtils';
 
 // 工具类型定义
-export type DrawMode = 'select' | 'pointer' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'quick-image' | '3d-model' | 'screenshot';
+export type DrawMode = 'select' | 'pointer' | 'global-pointer' | 'free' | 'line' | 'rect' | 'circle' | 'polyline' | 'text' | 'image' | 'quick-image' | '3d-model' | 'screenshot';
 
 interface ToolState {
   // 当前激活工具

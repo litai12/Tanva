@@ -23,6 +23,34 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
   const hydrationReadyRef = useRef(false);
 
+  /**
+   * 延迟清理跨项目的运行时状态，避免在请求失败时把界面清空
+   */
+  const clearRuntimeState = () => {
+    try { contextManager.clearImageCache(); } catch {}
+    try { paperSaveService.clearProject(); } catch {}
+    try { (window as any).tanvaImageInstances = []; } catch {}
+    try { (window as any).tanvaModel3DInstances = []; } catch {}
+    try { (window as any).tanvaTextItems = []; } catch {}
+  };
+
+  /**
+   * 带重试的项目内容加载，减少首帧偶发失败导致的“空白”风险
+   */
+  const fetchContentWithRetry = async (targetProjectId: string, attempts = 3, baseDelay = 300) => {
+    let lastError: any = null;
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        return await projectApi.getContent(targetProjectId);
+      } catch (error) {
+        lastError = error;
+        const delay = baseDelay * Math.pow(2, i);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    throw lastError;
+  };
+
   useEffect(() => {
     if (!projectId) {
       paperSaveService.cancelPending();
@@ -44,24 +72,18 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     let cancelled = false;
     hydrationReadyRef.current = false;
     paperSaveService.cancelPending();
-    // 切换项目时清理跨项目的缓存/历史，避免“隐藏图片信息继承”
-    try { contextManager.clearImageCache(); } catch {}
-    // 不再清空图片历史，避免切换文件导致历史丢失
-    // try { useImageHistoryStore.getState().clearHistory(); } catch {}
-    // 立即清空当前画布，避免在新建空项目时残留旧图像
-    try { paperSaveService.clearProject(); } catch {}
-    try { (window as any).tanvaImageInstances = []; } catch {}
-    try { (window as any).tanvaModel3DInstances = []; } catch {}
-    try { (window as any).tanvaTextItems = []; } catch {}
-    if (useProjectContentStore.getState().projectId !== projectId) {
-      setProject(projectId);
-    }
-    try { useAIChatStore.getState().resetSessions(); } catch {}
 
     (async () => {
       try {
-        const data = await projectApi.getContent(projectId);
+        const data = await fetchContentWithRetry(projectId);
         if (cancelled) return;
+
+        // 仅在成功拿到数据后再切换项目与清理运行时，避免请求失败时页面空白
+        if (useProjectContentStore.getState().projectId !== projectId) {
+          setProject(projectId);
+        }
+        clearRuntimeState();
+        try { useAIChatStore.getState().resetSessions(); } catch {}
 
         hydrate(data.content, data.version, data.updatedAt ?? null);
         try {

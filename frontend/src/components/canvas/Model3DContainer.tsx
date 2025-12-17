@@ -172,14 +172,16 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
   const actionIconClass = 'w-4 h-4 text-slate-600';
 
   // 处理wheel事件，防止3D缩放时影响画布缩放
+  const isCanvasSelectionMode = drawMode === 'select' || drawMode === 'global-pointer';
+
   const handleWheel = useCallback((e: WheelEvent) => {
-    if (isSelected && drawMode === 'select') {
+    if (isSelected && isCanvasSelectionMode) {
       // 当3D模型被选中且在select模式时，阻止wheel事件传播到画布
       // 允许OrbitControls处理缩放
       e.stopPropagation();
       e.preventDefault();
     }
-  }, [isSelected, drawMode]);
+  }, [isSelected, isCanvasSelectionMode]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -359,14 +361,14 @@ const Model3DContainer: React.FC<Model3DContainerProps> = ({
         zIndex: isSelected ? 6 : 5,
         cursor: isDragging ? 'grabbing' : 'default',
         userSelect: 'none',
-        pointerEvents: (drawMode === 'select' && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
+        pointerEvents: (isCanvasSelectionMode && !isSelectionDragging) || isSelected ? 'auto' : 'none', // 选择框拖拽时也让鼠标事件穿透
         display: visible ? 'block' : 'none' // 根据visible属性控制显示/隐藏
       }}
       onMouseDown={handleMouseDown}
       onContextMenu={(e) => {
         // 在3D canvas上右键时，阻止默认上下文菜单，让OrbitControls处理
         const target = e.target as HTMLElement;
-        if (target.tagName === 'CANVAS' && isSelected && drawMode === 'select') {
+        if (target.tagName === 'CANVAS' && isSelected && isCanvasSelectionMode) {
           e.preventDefault();
         }
       }}

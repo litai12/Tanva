@@ -60,6 +60,7 @@ interface ImageTool {
   setImageDragState: (state: ImageDragState) => void;
   setImageResizeState: (state: ImageResizeState) => void;
   handleImageMove: (id: string, position: { x: number; y: number }, skipPaperUpdate?: boolean) => void;
+  handleImageMoveBatch?: (positions: Record<string, { x: number; y: number }>, options?: { updateView?: boolean }) => void;
   handleImageResize: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
   createImagePlaceholder: (start: paper.Point, end: paper.Point) => void;
   // 可选：由图片工具暴露的选中集与删除方法
@@ -209,7 +210,7 @@ export const useInteractionController = ({
 
   const isSelectionLikeMode = useCallback(() => {
     const mode = drawModeRef.current;
-    return mode === 'select' || mode === 'pointer';
+    return mode === 'select' || mode === 'pointer' || mode === 'global-pointer';
   }, []);
 
   const collectSelectedPaths = useCallback(() => {
@@ -310,6 +311,18 @@ export const useInteractionController = ({
     }
   }, [canvasRef, isSelectionLikeMode]);
 
+  // 阻止框选过程中触发的滚轮事件导致画布意外平移/缩放
+  useEffect(() => {
+    const blockWheelDuringSelection = (event: WheelEvent) => {
+      if (selectionToolRef.current?.isSelectionDragging) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener('wheel', blockWheelDuringSelection, { capture: true, passive: false });
+    return () => window.removeEventListener('wheel', blockWheelDuringSelection, { capture: true });
+  }, []);
+
   // ========== 鼠标按下事件处理 ==========
   const handleMouseDown = useCallback((event: MouseEvent) => {
     if (event.button !== 0) return; // 只响应左键点击
@@ -349,7 +362,7 @@ export const useInteractionController = ({
     const point = clientToProject(canvas, event.clientX, event.clientY);
 
     // ========== 选择模式处理 ==========
-    if (currentDrawMode === 'select') {
+    if (currentDrawMode === 'select' || currentDrawMode === 'global-pointer') {
       // 橡皮擦模式下，不允许激活选择框功能
       if (isEraserActive) {
         logger.debug('🧹 橡皮擦模式下，跳过选择框激活');
@@ -739,7 +752,7 @@ export const useInteractionController = ({
     }
 
     // ========== 选择模式处理 ==========
-    if (currentDrawMode === 'select') {
+    if (currentDrawMode === 'select' || currentDrawMode === 'global-pointer') {
       const pathGroupDragState = groupPathDragRef.current;
       if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
         applyGroupPathDrag(point, 'path');
@@ -767,17 +780,24 @@ export const useInteractionController = ({
           : [latestImageTool.imageDragState.dragImageId];
         const groupStart = latestImageTool.imageDragState.groupStartBounds || {};
 
+        const batchPositions: Record<string, { x: number; y: number }> = {};
         groupIds.forEach((id) => {
           const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
           if (!start) {
             return;
           }
-          const newPosition = {
+          batchPositions[id] = {
             x: start.x + deltaX,
             y: start.y + deltaY,
           };
-          latestImageTool.handleImageMove(id, newPosition, false);
         });
+
+        if (latestImageTool.handleImageMoveBatch) {
+          latestImageTool.handleImageMoveBatch(batchPositions);
+        } else {
+          Object.entries(batchPositions).forEach(([id, pos]) => latestImageTool.handleImageMove(id, pos, true));
+          try { paper.view.update(); } catch {}
+        }
 
         applyGroupPathDrag(point, 'image');
         return;
@@ -865,7 +885,7 @@ export const useInteractionController = ({
     }
 
     // ========== 选择模式处理 ==========
-    if (currentDrawMode === 'select') {
+    if (currentDrawMode === 'select' || currentDrawMode === 'global-pointer') {
       // 处理路径编辑结束
       const pathEditResult = latestPathEditor.handlePathEditInteraction(
         clientToProject(canvas, event.clientX, event.clientY),

@@ -266,3 +266,51 @@ input[type="text"],
   box-shadow: 0 0 0 2px #2563eb inset !important;
   border-radius: 8px;
 }
+
+/* 统一句柄尺寸/交互（全部节点） */
+.tanva-flow-overlay .react-flow__handle {
+  position: absolute; /* keep default positioning */
+  border-radius: 999px;
+  outline: none;
+}
+
+/* 放大不可见热区，不改变视觉尺寸 */
+.tanva-flow-overlay .react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 16px;
+  pointer-events: auto;
+}
+
+.tanva-flow-overlay .react-flow__handle:hover::after,
+.tanva-flow-overlay .react-flow__handle:focus-visible::after {
+  box-shadow: 0 0 0 10px rgba(15, 23, 42, 0.06);
+}
+
+/* 句柄颜色按连接类型（非 Beta 节点） */
+.tanva-flow-overlay
+  .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-generatePro4)
+  .react-flow__handle[data-handleid^="text"],
+.tanva-flow-overlay
+  .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-generatePro4)
+  .react-flow__handle[data-handleid^="prompt"] {
+  background: #facc15 !important; /* prompt/text -> yellow */
+  border-color: #eab308 !important;
+}
+
+.tanva-flow-overlay
+  .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-generatePro4)
+  .react-flow__handle[data-handleid="img"],
+.tanva-flow-overlay
+  .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-generatePro4)
+  .react-flow__handle[data-handleid^="img"],
+.tanva-flow-overlay
+  .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-generatePro4)
+  .react-flow__handle[data-handleid^="image"],
+.tanva-flow-overlay
+  .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-generatePro4)
+  .react-flow__handle[data-handleid="refer"] {
+  background: #22c55e !important; /* image/refer -> green */
+  border-color: #16a34a !important;
+}

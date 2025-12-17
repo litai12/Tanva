@@ -603,7 +603,7 @@ const buildImagePayloadForUpload = (
   fileName: string
 ): string | StoredImageAsset => {
   if (!imageSrc) return imageSrc;
-  let trimmed = imageSrc.trim();
+  const trimmed = imageSrc.trim();
 
   // 直接传递可用的 Blob URL
   if (/^blob:/i.test(trimmed)) {
@@ -2677,7 +2677,7 @@ export const useAIChatStore = create<AIChatState>()(
                 );
 
                 // 优先使用占位框位置；让 quick upload 根据 placeholderId 查找并自适应
-                let smartPosition: { x: number; y: number } | undefined =
+                const smartPosition: { x: number; y: number } | undefined =
                   undefined;
 
                 // 直接触发快速上传事件，复用现有的上传逻辑，添加智能排版信息
@@ -3346,7 +3346,7 @@ export const useAIChatStore = create<AIChatState>()(
                 }
 
                 // 让 quick upload 根据 placeholderId/选中图自动定位，避免硬编码向右偏移导致跳位
-                let smartPosition: { x: number; y: number } | undefined =
+                const smartPosition: { x: number; y: number } | undefined =
                   undefined;
 
                 window.dispatchEvent(

@@ -4,12 +4,15 @@
   border-radius: 22px;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(circle at 15% 20%, rgba(59, 130, 246, 0.36), transparent 55%),
-    radial-gradient(circle at 85% 10%, rgba(167, 139, 250, 0.32), transparent 50%),
-    radial-gradient(circle at 10% 85%, rgba(248, 113, 113, 0.34), transparent 55%),
-    radial-gradient(circle at 85% 80%, rgba(251, 191, 36, 0.38), transparent 55%);
+  /* 让彩雾主要停留在边缘，避免覆盖文字区域 */
+  background: radial-gradient(circle at 18% 22%, rgba(59, 130, 246, 0.34), transparent 40%),
+    radial-gradient(circle at 82% 18%, rgba(167, 139, 250, 0.3), transparent 38%),
+    radial-gradient(circle at 12% 82%, rgba(248, 113, 113, 0.32), transparent 42%),
+    radial-gradient(circle at 82% 78%, rgba(251, 191, 36, 0.34), transparent 42%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent 0%, transparent 50%, rgba(0, 0, 0, 0.75) 70%, #000 88%);
+  mask-image: radial-gradient(ellipse at 50% 50%, transparent 0%, transparent 50%, rgba(0, 0, 0, 0.75) 70%, #000 88%);
   background-blend-mode: screen;
-  filter: blur(26px) saturate(1.15) hue-rotate(0deg);
+  filter: blur(22px) saturate(1.12) hue-rotate(0deg);
   opacity: 0;
   transform: scale(0.94);
   transition: opacity 0.5s ease, transform 0.5s ease, filter 0.5s ease;

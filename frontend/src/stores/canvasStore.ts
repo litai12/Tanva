@@ -5,6 +5,34 @@ import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
 import { createSafeStorage } from './storageUtils';
 
+// 视口持久化：使用独立存储，降低高频写入对主 store 的影响
+const VIEWPORT_STORAGE_KEY = 'canvas-viewport-v1';
+type ViewportSnapshot = { panX: number; panY: number; zoom: number };
+
+const readViewportSnapshot = (): ViewportSnapshot | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const storage = createSafeStorage({ storageName: 'canvas-viewport' });
+    const raw = storage.getItem(VIEWPORT_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      Number.isFinite(parsed.panX) &&
+      Number.isFinite(parsed.panY) &&
+      Number.isFinite(parsed.zoom)
+    ) {
+      return { panX: parsed.panX, panY: parsed.panY, zoom: parsed.zoom };
+    }
+  } catch (e) {
+    console.warn('读取视口缓存失败，使用默认值:', e);
+  }
+  return null;
+};
+
+const initialViewport = readViewportSnapshot();
+
 // 网格样式枚举
 export const GridStyle = {
   LINES: 'lines',    // 线条网格
@@ -80,11 +108,12 @@ export const useCanvasStore = create<CanvasState>()(
       gridColor: '#000000',
       gridBgColor: '#f7f7f7',
       gridBgEnabled: false,
-      zoom: 1.0,
-      panX: 0,
-      panY: 0,
+      zoom: initialViewport?.zoom ?? 1.0,
+      panX: initialViewport?.panX ?? 0,
+      panY: initialViewport?.panY ?? 0,
       isHydrated: false,
-      hasInitialCenterApplied: false,
+      // 如果视口有缓存，视为已初始化过居中逻辑，避免覆盖用户视角
+      hasInitialCenterApplied: !!initialViewport,
       
       // 交互状态初始值
       isDragging: false,    // 默认未拖拽
@@ -190,6 +219,50 @@ if (typeof window !== 'undefined' && 'persist' in useCanvasStore) {
     }
     useCanvasStore.setState({ isHydrated: true });
   });
+}
+
+// 持久化视口状态（pan/zoom），避免刷新后视角重置
+if (typeof window !== 'undefined') {
+  const viewportStorage = createSafeStorage({ storageName: 'canvas-viewport' });
+  let lastSnapshot: ViewportSnapshot | null = initialViewport ?? null;
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const schedulePersist = (snapshot: ViewportSnapshot) => {
+    // 避免无意义写入
+    if (
+      lastSnapshot &&
+      lastSnapshot.panX === snapshot.panX &&
+      lastSnapshot.panY === snapshot.panY &&
+      lastSnapshot.zoom === snapshot.zoom
+    ) {
+      return;
+    }
+
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+    }
+
+    persistTimer = setTimeout(() => {
+      try {
+        viewportStorage.setItem(
+          VIEWPORT_STORAGE_KEY,
+          JSON.stringify({
+            panX: snapshot.panX,
+            panY: snapshot.panY,
+            zoom: snapshot.zoom,
+          })
+        );
+        lastSnapshot = snapshot;
+      } catch (e) {
+        console.warn('写入视口缓存失败:', e);
+      }
+    }, 150);
+  };
+
+  useCanvasStore.subscribe(
+    (state) => ({ panX: state.panX, panY: state.panY, zoom: state.zoom }),
+    (viewport) => schedulePersist(viewport)
+  );
 }
 
 // 性能优化：导出常用的选择器

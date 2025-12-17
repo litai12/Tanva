@@ -525,7 +525,7 @@ function FlowInner() {
 
   // 获取当前工具模式
   const drawMode = useToolStore((state) => state.drawMode);
-  const isPointerMode = drawMode === 'pointer';
+  const isPointerMode = drawMode === 'pointer' || drawMode === 'global-pointer';
 
   const onNodesChangeWithHistory = React.useCallback((changes: any) => {
     onNodesChange(changes);
@@ -1229,11 +1229,43 @@ function FlowInner() {
     return false;
   }, []);
 
+  // 将任意屏幕坐标居中到视口
+  const recenterTo = React.useCallback((clientX: number, clientY: number) => {
+    const store = useCanvasStore.getState();
+    const canvas = (paper?.view?.element as HTMLCanvasElement | undefined) || null;
+    const rect = canvas?.getBoundingClientRect() || containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const zoom = store.zoom || 1;
+    const sx = (clientX - rect.left) * dpr;
+    const sy = (clientY - rect.top) * dpr;
+    const worldX = sx / zoom - store.panX;
+    const worldY = sy / zoom - store.panY;
+    const centerSx = (rect.width * dpr) / 2;
+    const centerSy = (rect.height * dpr) / 2;
+    store.setPan(centerSx / zoom - worldX, centerSy / zoom - worldY);
+  }, []);
+
   // 中键拖拽以平移 Flow 视口，阻止浏览器的自动滚动
   const middleDragRef = React.useRef<{ dragging: boolean; lastX: number; lastY: number }>({
     dragging: false,
     lastX: 0,
     lastY: 0,
+  });
+  const clickPanRef = React.useRef<{
+    dragging: boolean;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    moved: boolean;
+  }>({
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    moved: false,
   });
   React.useEffect(() => {
     const container = containerRef.current;
@@ -1287,6 +1319,90 @@ function FlowInner() {
       stopDrag();
     };
   }, [allowNativeScroll]);
+
+  // 左键点击/拖动空白区域：单击居中，按住拖动平移
+  React.useEffect(() => {
+    if (!isPointerMode) return;
+
+    const stopPan = () => {
+      if (!clickPanRef.current.dragging) return;
+      clickPanRef.current.dragging = false;
+      clickPanRef.current.moved = false;
+      clickPanRef.current.lastX = 0;
+      clickPanRef.current.lastY = 0;
+      const container = containerRef.current;
+      if (container) container.style.cursor = '';
+      try { useCanvasStore.getState().setDragging(false); } catch {}
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      if (allowNativeScroll(event.target)) return;
+
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
+
+      clickPanRef.current.dragging = true;
+      clickPanRef.current.moved = false;
+      clickPanRef.current.startX = event.clientX;
+      clickPanRef.current.startY = event.clientY;
+      clickPanRef.current.lastX = event.clientX;
+      clickPanRef.current.lastY = event.clientY;
+
+      if (container) container.style.cursor = 'grabbing';
+
+      // 单击时立即将点击点移到视图中心
+      recenterTo(event.clientX, event.clientY);
+      try { useCanvasStore.getState().setDragging(true); } catch {}
+    };
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!clickPanRef.current.dragging) return;
+      const dx = event.clientX - clickPanRef.current.lastX;
+      const dy = event.clientY - clickPanRef.current.lastY;
+      if (!clickPanRef.current.moved) {
+        const totalDx = event.clientX - clickPanRef.current.startX;
+        const totalDy = event.clientY - clickPanRef.current.startY;
+        if (Math.hypot(totalDx, totalDy) > 2) {
+          clickPanRef.current.moved = true;
+        }
+      }
+      if (dx === 0 && dy === 0) return;
+
+      clickPanRef.current.lastX = event.clientX;
+      clickPanRef.current.lastY = event.clientY;
+
+      const store = useCanvasStore.getState();
+      const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+      const zoom = store.zoom || 1;
+      const worldDeltaX = (dx * dpr) / zoom;
+      const worldDeltaY = (dy * dpr) / zoom;
+      store.setPan(store.panX + worldDeltaX, store.panY + worldDeltaY);
+    };
+
+    const handleMouseUp = () => {
+      if (clickPanRef.current.dragging) {
+        stopPan();
+      }
+    };
+
+    const handleWindowBlur = () => stopPan();
+
+    window.addEventListener('mousedown', handleMouseDown, true);
+    window.addEventListener('mousemove', handleMouseMove, true);
+    window.addEventListener('mouseup', handleMouseUp, true);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown, true);
+      window.removeEventListener('mousemove', handleMouseMove, true);
+      window.removeEventListener('mouseup', handleMouseUp, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      stopPan();
+    };
+  }, [isPointerMode, allowNativeScroll, recenterTo]);
 
   const handleWheelCapture = React.useCallback((event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;

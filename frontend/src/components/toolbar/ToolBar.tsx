@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, LayoutTemplate } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, MousePointerClick, Code, LayoutTemplate } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -212,9 +212,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
-  const selectionMenuEnabled = false; // 暂时隐藏选择次级菜单
+  const selectionMenuEnabled = true; // 展开选择工具次级菜单，便于选择不同选择模式
   const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
+  const isSelectionMode = drawMode === 'select' || drawMode === 'pointer' || drawMode === 'global-pointer';
+  const isGlobalPointer = drawMode === 'global-pointer';
 
   const { toggleDialog, isVisible: isAIDialogVisible, isMaximized: isAIChatMaximized, setSourceImageForEditing, showDialog } = useAIChatStore();
 
@@ -233,10 +235,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
   // 自动关闭选择菜单：当不在选择模式时
   React.useEffect(() => {
-    if (drawMode !== 'select' && drawMode !== 'pointer') {
+    if (!isSelectionMode) {
       setSelectionMenuOpen(false);
     }
-  }, [drawMode]);
+  }, [drawMode, isSelectionMode]);
 
   // 自动关闭绘制菜单：当离开绘制相关模式或启用橡皮擦时
   React.useEffect(() => {
@@ -412,14 +414,14 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
-              variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
+              variant={isSelectionMode ? "default" : "outline"}
               size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
+              getActiveButtonStyle(isSelectionMode)
             )}
             onClick={() => {
-                if (drawMode !== 'select' && drawMode !== 'pointer') {
+                if (!isSelectionMode) {
                   setDrawMode('select');
                   logger.tool('工具栏主按钮：切换到框选工具');
                   selectionMenuEnabled && setSelectionMenuOpen(true);
@@ -433,12 +435,19 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           >
             {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
             {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
+            {drawMode === 'global-pointer' && <MousePointerClick className="w-4 h-4" />}
             {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
-              {drawMode !== 'select' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
+              {!isSelectionMode && <DashedSelectIcon className="w-4 h-4" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {drawMode === 'select' ? '框选工具' : drawMode === 'pointer' ? '节点选择工具' : '点击切换到框选工具'}
+            {drawMode === 'select'
+              ? '框选工具'
+              : drawMode === 'pointer'
+              ? 'Flow 节点选择'
+              : isGlobalPointer
+              ? '顶层鼠标（Flow + Canvas）'
+              : '点击切换到框选工具'}
           </TooltipContent>
         </Tooltip>
 
@@ -480,6 +489,22 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                   </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={12}>节点选择工具</TooltipContent>
                 </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'global-pointer' ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'global-pointer')
+                      )}
+                      onClick={() => setDrawMode('global-pointer')}
+                    >
+                      <MousePointerClick className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={12}>顶层鼠标（Flow + Canvas）</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -492,11 +517,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
-              variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
+              variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'global-pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
               size="sm"
               className={cn(
                 "p-0 h-8 w-8 rounded-full",
-                getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
+                getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'global-pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
               )}
               onClick={() => {
                 const isDrawingMode = drawingModes.includes(drawMode as typeof drawingModes[number]);
@@ -515,11 +540,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               {drawMode === 'rect' && <Square className="w-4 h-4" />}
               {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
               {/* 如果是选择模式或独立工具模式，显示默认的自由绘制图标但为非激活状态 */}
-              {(drawMode === 'select' || drawMode === 'pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
+              {(drawMode === 'select' || drawMode === 'pointer' || drawMode === 'global-pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
+            {drawMode === 'select' || drawMode === 'pointer' || drawMode === 'global-pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
               ? '点击切换到自由绘制工具'
               : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`}
           </TooltipContent>

@@ -35,6 +35,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   const [selectedImageIds, setSelectedImageIds] = useState<string[]>([]);  // 支持多选
   const [selectedPlaceholderId, setSelectedPlaceholderId] = useState<string | null>(null);  // 占位框选中状态
   const placeholdersRef = useRef<Map<string, paper.Group>>(new Map());  // 存储所有占位框
+  const imageGroupCacheRef = useRef<Map<string, paper.Group>>(new Map()); // 缓存图片Group，减少遍历
 
   // 图片拖拽状态
   const [imageDragState, setImageDragState] = useState<ImageDragState>({
@@ -301,6 +302,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       imageId: imageId,
       isHelper: false
     };
+    imageGroupCacheRef.current.set(imageId, imageGroup);
 
     // 创建图片实例
     const newImageInstance: ImageInstance = {
@@ -453,11 +455,16 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const isSelected = selectedIds.includes(img.id);
 
       // 控制选择框和控制点的可见性
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === img.id
-        )
-      )[0];
+      const imageGroup =
+        imageGroupCacheRef.current.get(img.id) ||
+        paper.project.layers.flatMap(layer =>
+          layer.children.filter(child =>
+            child.data?.type === 'image' && child.data?.imageId === img.id
+          )
+        )[0];
+      if (imageGroup instanceof paper.Group) {
+        imageGroupCacheRef.current.set(img.id, imageGroup);
+      }
 
       if (imageGroup instanceof paper.Group) {
         imageGroup.children.forEach(child => {
@@ -529,99 +536,140 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   }, [eventHandlers.onImageDeselect, updateImageSelectionVisuals]);
 
   // ========== 图片移动 ==========
-  const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
-    setImageInstances(prev => prev.map(img => {
-      if (img.id === imageId) {
-        // 只有在不跳过Paper.js更新时才更新Paper.js元素
-        // 这避免了在拖拽过程中的重复更新
-        if (!skipPaperUpdate) {
-          const imageGroup = paper.project.layers.flatMap(layer =>
-            layer.children.filter(child =>
-              child.data?.type === 'image' && child.data?.imageId === imageId
-            )
-          )[0];
+  const resolveImageGroup = useCallback((imageId: string): paper.Group | null => {
+    const cached = imageGroupCacheRef.current.get(imageId);
+    if (cached && !(cached as any).removed) {
+      return cached;
+    }
+    const found = paper.project.layers.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0] as paper.Group | undefined;
+    if (found) {
+      imageGroupCacheRef.current.set(imageId, found);
+      return found;
+    }
+    return null;
+  }, []);
 
-          if (imageGroup instanceof paper.Group) {
-            // 获取实际的Raster对象来获取真实尺寸
-            const raster = imageGroup.children.find(child => child instanceof paper.Raster);
-            const actualBounds = raster ? raster.bounds : null;
+  const updateImageGroupPosition = useCallback((
+    imageId: string,
+    newPosition: { x: number; y: number }
+  ): { width: number; height: number } | null => {
+    const imageGroup = resolveImageGroup(imageId);
+    if (!(imageGroup instanceof paper.Group)) return null;
 
-            if (actualBounds) {
-              // 使用实际的图片尺寸而不是React状态中的尺寸
-              const actualWidth = actualBounds.width;
-              const actualHeight = actualBounds.height;
+    const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster | undefined;
+    if (!raster || !raster.bounds) return null;
+    const actualBounds = raster.bounds;
+    const actualWidth = actualBounds.width;
+    const actualHeight = actualBounds.height;
 
-              // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
-              imageGroup.children.forEach(child => {
-                if (child instanceof paper.Raster) {
-                  // 保持原始尺寸，只改变位置
-                  const newCenter = new paper.Point(
-                    newPosition.x + actualWidth / 2,
-                    newPosition.y + actualHeight / 2
-                  );
-                  child.position = newCenter;
-                } else if (child.data?.isSelectionBorder) {
-                  // 设置选择框的绝对位置和尺寸（使用实际图片尺寸）
-                  child.bounds = new paper.Rectangle(
-                    newPosition.x,
-                    newPosition.y,
-                    actualWidth,
-                    actualHeight
-                  );
-                } else if (child.data?.type === 'image-selection-area') {
-                  // 更新选择区域的bounds（关键！用于点击检测）
-                  child.bounds = new paper.Rectangle(
-                    newPosition.x,
-                    newPosition.y,
-                    actualWidth,
-                    actualHeight
-                  );
-                } else if (child.data?.isResizeHandle) {
-                  // 重新定位控制点到绝对位置（使用实际图片尺寸）
-                  const direction = child.data.direction;
-                  let handlePosition;
+    const newCenter = new paper.Point(
+      newPosition.x + actualWidth / 2,
+      newPosition.y + actualHeight / 2
+    );
+    raster.position = newCenter;
 
-                  switch (direction) {
-                    case 'nw':
-                      handlePosition = [newPosition.x, newPosition.y];
-                      break;
-                    case 'ne':
-                      handlePosition = [newPosition.x + actualWidth, newPosition.y];
-                      break;
-                    case 'sw':
-                      handlePosition = [newPosition.x, newPosition.y + actualHeight];
-                      break;
-                    case 'se':
-                      handlePosition = [newPosition.x + actualWidth, newPosition.y + actualHeight];
-                      break;
-                    default:
-                      handlePosition = [newPosition.x, newPosition.y];
-                  }
+    imageGroup.children.forEach(child => {
+      if (child.data?.isSelectionBorder) {
+        child.bounds = new paper.Rectangle(
+          newPosition.x,
+          newPosition.y,
+          actualWidth,
+          actualHeight
+        );
+      } else if (child.data?.type === 'image-selection-area') {
+        child.bounds = new paper.Rectangle(
+          newPosition.x,
+          newPosition.y,
+          actualWidth,
+          actualHeight
+        );
+      } else if (child.data?.isResizeHandle) {
+        const direction = child.data.direction;
+        let handlePosition;
 
-                  child.position = new paper.Point(handlePosition[0], handlePosition[1]);
-                }
-              });
-
-              paper.view.update();
-            }
-          }
+        switch (direction) {
+          case 'nw':
+            handlePosition = [newPosition.x, newPosition.y];
+            break;
+          case 'ne':
+            handlePosition = [newPosition.x + actualWidth, newPosition.y];
+            break;
+          case 'sw':
+            handlePosition = [newPosition.x, newPosition.y + actualHeight];
+            break;
+          case 'se':
+            handlePosition = [newPosition.x + actualWidth, newPosition.y + actualHeight];
+            break;
+          default:
+            handlePosition = [newPosition.x, newPosition.y];
         }
 
-        return {
-          ...img,
-          bounds: {
-            ...img.bounds,
-            x: newPosition.x,
-            y: newPosition.y
-          }
-        };
+        child.position = new paper.Point(handlePosition[0], handlePosition[1]);
       }
-      return img;
+    });
+
+    return { width: actualWidth, height: actualHeight };
+  }, [resolveImageGroup]);
+
+  const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
+    const moved = updateImageGroupPosition(imageId, newPosition);
+    if (!skipPaperUpdate && moved) {
+      try { paper.view.update(); } catch {}
+    }
+
+    setImageInstances(prev => prev.map(img => {
+      if (img.id !== imageId) return img;
+      return {
+        ...img,
+        bounds: {
+          ...img.bounds,
+          x: newPosition.x,
+          y: newPosition.y
+        }
+      };
     }));
     eventHandlers.onImageMove?.(imageId, newPosition);
-  }, [eventHandlers.onImageMove]);
+  }, [eventHandlers.onImageMove, updateImageGroupPosition]);
 
-  // 直接更新，避免复杂的节流逻辑
+  const handleImageMoveBatch = useCallback((
+    positions: Record<string, { x: number; y: number }>,
+    options?: { updateView?: boolean }
+  ) => {
+    const updatedPositions: Record<string, { x: number; y: number }> = {};
+    Object.entries(positions).forEach(([id, pos]) => {
+      const moved = updateImageGroupPosition(id, pos);
+      if (moved) {
+        updatedPositions[id] = pos;
+      }
+    });
+
+    if (options?.updateView !== false && Object.keys(updatedPositions).length > 0) {
+      try { paper.view.update(); } catch {}
+    }
+
+    if (Object.keys(updatedPositions).length === 0) return;
+
+    setImageInstances(prev => prev.map(img => {
+      const nextPos = updatedPositions[img.id];
+      if (!nextPos) return img;
+      return {
+        ...img,
+        bounds: {
+          ...img.bounds,
+          x: nextPos.x,
+          y: nextPos.y
+        }
+      };
+    }));
+
+    if (eventHandlers.onImageMove) {
+      Object.entries(updatedPositions).forEach(([id, pos]) => eventHandlers.onImageMove?.(id, pos));
+    }
+  }, [eventHandlers.onImageMove, updateImageGroupPosition, setImageInstances]);
 
   // ========== 图片调整大小 ==========
   const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
@@ -748,6 +796,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       logger.debug('🗑️ 已从状态中移除图片，剩余图片数量:', filtered.length);
       return filtered;
     });
+    imageGroupCacheRef.current.delete(imageId);
 
     // 如果删除的是当前选中的图片，清除选中状态
     if (selectedImageIds.includes(imageId)) {
@@ -976,6 +1025,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 图片移动和调整大小
     handleImageMove,
+    handleImageMoveBatch,
     handleImageResize,
     handleImageDelete,
 

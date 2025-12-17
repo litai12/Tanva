@@ -102,8 +102,8 @@ const PROVIDER_MODE_OPTIONS: Partial<
   midjourney: BASE_MANUAL_MODE_OPTIONS,
 };
 
-// 彩色光晕特效开关（默认关闭，后续需要再开启）
-const ENABLE_CHAT_AURA = false;
+// 彩色光晕特效开关（已开启，锁定/紧凑状态下也会在生成时呈现彩雾）
+const ENABLE_CHAT_AURA = true;
 
 const MinimalGlobeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg
