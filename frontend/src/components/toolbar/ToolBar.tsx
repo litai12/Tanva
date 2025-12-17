@@ -212,7 +212,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
-  const isSubMenuOpen = isSelectionMenuOpen || isDrawingMenuOpen;
+  const selectionMenuEnabled = false; // 暂时隐藏选择次级菜单
+  const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
 
   const { toggleDialog, isVisible: isAIDialogVisible, isMaximized: isAIChatMaximized, setSourceImageForEditing, showDialog } = useAIChatStore();
@@ -249,12 +250,14 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
 
-      if (
-        isSelectionMenuOpen &&
-        selectionGroupRef.current &&
-        !selectionGroupRef.current.contains(target)
-      ) {
-        setSelectionMenuOpen(false);
+      if (selectionMenuEnabled) {
+        if (
+          isSelectionMenuOpen &&
+          selectionGroupRef.current &&
+          !selectionGroupRef.current.contains(target)
+        ) {
+          setSelectionMenuOpen(false);
+        }
       }
 
       if (
@@ -411,24 +414,26 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <Button
               variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
               size="sm"
-              className={cn(
-                "p-0 h-8 w-8 rounded-full",
-                getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
-              )}
-              onClick={() => {
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
+            )}
+            onClick={() => {
                 if (drawMode !== 'select' && drawMode !== 'pointer') {
                   setDrawMode('select');
                   logger.tool('工具栏主按钮：切换到框选工具');
-                  setSelectionMenuOpen(true);
-                } else {
+                  selectionMenuEnabled && setSelectionMenuOpen(true);
+                } else if (selectionMenuEnabled) {
                   setSelectionMenuOpen((prev) => !prev);
+                } else if (drawMode !== 'select') {
+                  setDrawMode('select');
                 }
                 setDrawingMenuOpen(false);
-              }}
-            >
-              {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
-              {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
-              {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
+            }}
+          >
+            {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
+            {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
+            {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
               {drawMode !== 'select' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
             </Button>
           </TooltipTrigger>
@@ -438,7 +443,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         </Tooltip>
 
         {/* 选择次级菜单：点击展开显示 */}
-        {isSelectionMenuOpen && (
+        {selectionMenuEnabled && isSelectionMenuOpen && (
           <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
             <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-[999px] bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 选择工具按钮组 */}

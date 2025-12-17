@@ -3,14 +3,15 @@
  * 协调所有鼠标事件处理，管理不同工具间的交互
  */
 
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
-import { clientToProject } from '@/utils/paperCoords';
+import { clientToProject, getDpr } from '@/utils/paperCoords';
 import { historyService } from '@/services/historyService';
 import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
+import { useCanvasStore } from '@/stores';
 
 // 导入其他hook的类型
 interface SelectionTool {
@@ -93,6 +94,11 @@ interface GroupPathDragState {
   hasMoved: boolean;
 }
 
+interface SpacePanDragState {
+  startScreen: { x: number; y: number };
+  startPan: { x: number; y: number };
+}
+
 const isPaperItemRemoved = (item: paper.Item | null | undefined): boolean => {
   if (!item) return true;
   const removedFlag = (item as { removed?: unknown }).removed;
@@ -134,6 +140,8 @@ export const useInteractionController = ({
 
   // 拖拽检测相关常量
   const DRAG_THRESHOLD = 3; // 3像素的拖拽阈值
+  const isSpacePressedRef = useRef(false);
+  const spacePanDragRef = useRef<SpacePanDragState | null>(null);
   const groupPathDragRef = useRef<GroupPathDragState>({
     active: false,
     mode: null,
@@ -198,6 +206,11 @@ export const useInteractionController = ({
   useEffect(() => {
     setDrawModeRef.current = setDrawMode;
   }, [setDrawMode]);
+
+  const isSelectionLikeMode = useCallback(() => {
+    const mode = drawModeRef.current;
+    return mode === 'select' || mode === 'pointer';
+  }, []);
 
   const collectSelectedPaths = useCallback(() => {
     const latestSelectionTool = selectionToolRef.current;
@@ -283,6 +296,20 @@ export const useInteractionController = ({
     });
   }, []);
 
+  const stopSpacePan = useCallback(() => {
+    if (spacePanDragRef.current) {
+      spacePanDragRef.current = null;
+      try { useCanvasStore.getState().setDragging(false); } catch {}
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (isSpacePressedRef.current && isSelectionLikeMode()) {
+      canvas.style.cursor = 'grab';
+    } else {
+      canvas.style.cursor = 'default';
+    }
+  }, [canvasRef, isSelectionLikeMode]);
+
   // ========== 鼠标按下事件处理 ==========
   const handleMouseDown = useCallback((event: MouseEvent) => {
     if (event.button !== 0) return; // 只响应左键点击
@@ -300,6 +327,21 @@ export const useInteractionController = ({
     const isEraserActive = isEraserRef.current;
 
     if (!currentDrawMode || !latestSelectionTool || !latestImageTool || !latestPathEditor || !latestDrawingTools || !latestSimpleTextTool) {
+      return;
+    }
+
+    if (isSelectionLikeMode() && isSpacePressedRef.current) {
+      const rect = canvas.getBoundingClientRect();
+      const { panX, panY, setDragging } = useCanvasStore.getState();
+      spacePanDragRef.current = {
+        startScreen: { x: event.clientX - rect.left, y: event.clientY - rect.top },
+        startPan: { x: panX, y: panY }
+      };
+      try { setDragging(true); } catch {}
+      canvas.style.cursor = 'grabbing';
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
       return;
     }
 
@@ -507,7 +549,7 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = true;
-  }, [canvasRef, beginGroupPathDrag]);
+  }, [canvasRef, beginGroupPathDrag, isSelectionLikeMode]);
 
   // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
   function updateCursorStyle(point: paper.Point, canvas: HTMLCanvasElement) {
@@ -515,6 +557,12 @@ export const useInteractionController = ({
     const latestImageTool = imageToolRef.current;
     const latestSelectionTool = selectionToolRef.current;
     const latestPathEditor = pathEditorRef.current;
+
+    // 空格抓手优先：仅在选择/指针模式下生效
+    if (isSelectionLikeMode() && isSpacePressedRef.current) {
+      canvas.style.cursor = spacePanDragRef.current ? 'grabbing' : 'grab';
+      return;
+    }
 
     const hoverHit = paper.project.hitTest(point, {
       fill: true,
@@ -674,6 +722,22 @@ export const useInteractionController = ({
 
     const point = clientToProject(canvas, event.clientX, event.clientY);
 
+    if (spacePanDragRef.current) {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = getDpr();
+      const currentZoom = Math.max(zoomRef.current ?? 1, 0.0001);
+      const deltaX = (event.clientX - rect.left - spacePanDragRef.current.startScreen.x) * dpr;
+      const deltaY = (event.clientY - rect.top - spacePanDragRef.current.startScreen.y) * dpr;
+      const worldDeltaX = deltaX / currentZoom;
+      const worldDeltaY = deltaY / currentZoom;
+      try {
+        const { setPan } = useCanvasStore.getState();
+        setPan(spacePanDragRef.current.startPan.x + worldDeltaX, spacePanDragRef.current.startPan.y + worldDeltaY);
+      } catch {}
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+
     // ========== 选择模式处理 ==========
     if (currentDrawMode === 'select') {
       const pathGroupDragState = groupPathDragRef.current;
@@ -795,6 +859,11 @@ export const useInteractionController = ({
       return;
     }
 
+    if (spacePanDragRef.current) {
+      stopSpacePan();
+      return;
+    }
+
     // ========== 选择模式处理 ==========
     if (currentDrawMode === 'select') {
       // 处理路径编辑结束
@@ -903,7 +972,7 @@ export const useInteractionController = ({
     }
 
     latestDrawingTools.isDrawingRef.current = false;
-  }, [canvasRef, resetGroupPathDrag]);
+  }, [canvasRef, resetGroupPathDrag, stopSpacePan]);
 
   // ========== 事件监听器绑定 ==========
   useEffect(() => {
@@ -921,6 +990,16 @@ export const useInteractionController = ({
       // 输入框/可编辑区域不拦截
       const active = document.activeElement as Element | null;
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
+
+      if (!isEditable && isSelectionLikeMode() && (event.code === 'Space' || event.key === ' ')) {
+        isSpacePressedRef.current = true;
+        const canvasEl = canvasRef.current;
+        if (canvasEl && !spacePanDragRef.current) {
+          canvasEl.style.cursor = 'grab';
+        }
+        event.preventDefault();
+        return;
+      }
 
       // 文本工具优先处理（无论当前是什么模式，只要有选中的文本）
       if (latestSimpleTextTool) {
@@ -1042,6 +1121,13 @@ export const useInteractionController = ({
       }
     };
 
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space' || event.key === ' ') {
+        isSpacePressedRef.current = false;
+        stopSpacePan();
+      }
+    };
+
     // 双击事件处理
     const handleDoubleClick = (event: MouseEvent) => {
       const point = clientToProject(canvas, event.clientX, event.clientY);
@@ -1102,6 +1188,7 @@ export const useInteractionController = ({
     
     // 键盘事件需要绑定到document，因为canvas无法获取焦点
     document.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('keyup', handleKeyUp, true);
 
     return () => {
       // 清理事件监听器
@@ -1111,8 +1198,9 @@ export const useInteractionController = ({
       window.removeEventListener('mouseup', handleMouseUp, { capture: true });
       window.removeEventListener('mouseleave', handleMouseUp, { capture: true });
       document.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('keyup', handleKeyUp, true);
     };
-  }, [handleMouseDown, handleMouseMove, handleMouseUp]);
+  }, [handleMouseDown, handleMouseMove, handleMouseUp, stopSpacePan, isSelectionLikeMode]);
 
   return {
     // 主要事件处理器

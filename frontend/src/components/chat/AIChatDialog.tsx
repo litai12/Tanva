@@ -318,6 +318,8 @@ const AIChatDialog: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const ensureInputVisibleRafRef = useRef<number | null>(null);
+  const collapseHandleRef = useRef<HTMLButtonElement | null>(null);
+  const lockButtonRef = useRef<HTMLButtonElement | null>(null);
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -855,6 +857,12 @@ const AIChatDialog: React.FC = () => {
     if (next && isHistoryLocked) return;
     setIsMaximized(next);
   }, [isHistoryLocked, setIsMaximized]);
+
+  const handleCollapseToCompact = useCallback(() => {
+    if (!showHistory) return;
+    setHistoryVisibility(false, true);
+    setMaximizedSafely(false);
+  }, [setHistoryVisibility, setMaximizedSafely, showHistory]);
 
   // 上锁后立即收起历史面板并退出最大化
   useEffect(() => {
@@ -2116,15 +2124,24 @@ const AIChatDialog: React.FC = () => {
       const insideCard =
         x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
       const target = ev.target as HTMLElement;
+      const isLockButton = lockButtonRef.current?.contains(target);
       const interactive = !!target?.closest(
         'textarea, input, button, a, img, [role="textbox"], [contenteditable="true"], [data-history-ignore-toggle]'
       );
+      const handleRect = collapseHandleRef.current?.getBoundingClientRect();
+      const isInCollapseHandle =
+        !!handleRect &&
+        x >= handleRect.left &&
+        x <= handleRect.right &&
+        y >= handleRect.top &&
+        y <= handleRect.bottom;
 
       // 顶部边缘调整高度区域（8px）
       const isInResizeZone =
         showHistory &&
         !isMaximized &&
         !interactive &&
+        !isInCollapseHandle &&
         y >= r.top - 4 &&
         y <= r.top + 8 &&
         x >= r.left &&
@@ -2138,6 +2155,13 @@ const AIChatDialog: React.FC = () => {
         // 顶部边缘：显示调整高度光标
         cont.style.cursor = "ns-resize";
         setHoverToggleZone(false);
+      } else if (isInCollapseHandle) {
+        cont.style.cursor =
+          showHistory && !isMaximized ? "zoom-out" : "zoom-in";
+        setHoverToggleZone(true);
+      } else if (isLockButton) {
+        cont.style.cursor = "";
+        setHoverToggleZone(true);
       } else if (insideCard && !interactive) {
         if (isInTopEdge) {
           // 顶部区域：历史面板打开且非最大化时显示 move 光标（可拖拽）
@@ -2148,15 +2172,11 @@ const AIChatDialog: React.FC = () => {
           } else {
             cont.style.cursor = isMaximized ? "zoom-out" : "zoom-in";
           }
-          setHoverToggleZone(true);
         } else if (showHistory || isMaximized) {
           // 非顶部区域：历史面板展开或最大化时显示缩放光标
           cont.style.cursor = isMaximized ? "zoom-out" : "zoom-in";
-          setHoverToggleZone(true);
-        } else {
-          cont.style.cursor = "";
-          setHoverToggleZone(false);
         }
+        setHoverToggleZone(true);
       } else {
         cont.style.cursor = "";
         setHoverToggleZone(false);
@@ -2322,6 +2342,8 @@ const AIChatDialog: React.FC = () => {
         ? "calc(100vh - 300px)"
         : "320px"
       : undefined;
+  const shouldShowLockButton =
+    !(showHistory && !isMaximized) && hoverToggleZone;
 
   // 🔥 计算正在进行的生成任务数量
   const generatingTaskCount = messages.filter(
@@ -2419,11 +2441,30 @@ const AIChatDialog: React.FC = () => {
         onDoubleClickCapture={handleDoubleClickCapture}
       >
         {showHistoryHoverIndicator && (
-          <div
+          <button
+            type='button'
+            ref={collapseHandleRef}
             className={cn(
-              "pointer-events-none absolute left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-150"
+              "absolute left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-150 focus:outline-none",
+              "pointer-events-none group-hover:pointer-events-auto",
+              showHistory ? "cursor-zoom-out" : "cursor-zoom-in"
             )}
             style={{ top: historyHoverIndicatorOffset }}
+            onMouseDown={(e) => {
+              // 避免触发拖拽/调整高度
+              e.stopPropagation();
+              e.preventDefault();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (showHistory) {
+                handleCollapseToCompact();
+              } else {
+                setHistoryVisibility(true, true);
+              }
+            }}
+            title='点击收起或展开 AI 对话'
+            aria-label='点击收起或展开 AI 对话'
           >
             <div
               className={cn(
@@ -2431,7 +2472,7 @@ const AIChatDialog: React.FC = () => {
                 historyHoverIndicatorExpanded ? "opacity-90" : "opacity-80"
               )}
             />
-          </div>
+          </button>
         )}
         {showAura && (
           <div
@@ -2445,36 +2486,37 @@ const AIChatDialog: React.FC = () => {
             )}
           />
         )}
-        <button
-          type='button'
-          data-history-ignore-toggle
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToggleHistoryLock();
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          aria-pressed={isHistoryLocked}
-          title={
-            isHistoryLocked
-              ? "已上锁：禁止展开历史记录或最大化"
-              : "解锁后可展开历史记录或最大化"
-          }
-          className={cn(
-            showHistory || isMaximized
-              ? "absolute top-2 right-2 flex h-6 w-6 cursor-pointer items-center justify-center"
-              : "absolute top-1/2 right-0 translate-x-[32px] -translate-y-1/2 flex h-6 w-6 cursor-pointer items-center justify-center",
-            "text-slate-500 transition-colors duration-200",
-            isHistoryLocked
-              ? "text-slate-900 hover:text-slate-800"
-              : "hover:text-slate-700"
-          )}
-        >
-          {isHistoryLocked ? (
-            <Lock className='h-3.5 w-3.5' />
-          ) : (
-            <Unlock className='h-3.5 w-3.5' />
-          )}
-        </button>
+        {shouldShowLockButton && (
+          <button
+            type='button'
+            data-history-ignore-toggle
+            ref={lockButtonRef}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleHistoryLock();
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            aria-pressed={isHistoryLocked}
+            title={
+              isHistoryLocked
+                ? "已上锁：禁止展开历史记录或最大化"
+                : "解锁后可展开历史记录或最大化"
+            }
+            className={cn(
+              "absolute left-1/2 bottom-[-1px] -translate-x-1/2 flex h-5 w-5 cursor-pointer items-center justify-center",
+              "text-slate-400 opacity-70 hover:opacity-100 transition-colors duration-200",
+              isHistoryLocked
+                ? "text-slate-500 hover:text-slate-600"
+                : "hover:text-slate-500"
+            )}
+          >
+            {isHistoryLocked ? (
+              <Lock className='h-3 w-3' />
+            ) : (
+              <Unlock className='h-3 w-3' />
+            )}
+          </button>
+        )}
         {/* 🔥 任务计数器徽章 - 右上角（更小尺寸）已关闭 */}
 
         {/* 内容区域 */}
