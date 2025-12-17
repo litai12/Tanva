@@ -1891,7 +1891,13 @@ const AIChatDialog: React.FC = () => {
 
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setCurrentInput(e.target.value);
+    const newValue = e.target.value;
+    setCurrentInput(newValue);
+
+    // 🔥 当用户输入内容时，自动展开历史记录面板（非最大化模式下）
+    if (newValue.trim() && !showHistory && !isMaximized && !manuallyClosedHistory) {
+      setHistoryVisibility(true, false);
+    }
   };
 
   // 处理图片预览

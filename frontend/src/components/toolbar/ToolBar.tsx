@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, BookOpen } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
@@ -352,6 +353,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   //（保留原有逻辑，放到增量effect前已处理）
 
   return (
+    <TooltipProvider delayDuration={0} skipDelayDuration={0}>
     <div
       className={cn(
         "fixed top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass z-[1000] transition-all duration-[50ms] ease-out",
@@ -378,18 +380,24 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* Flow 工具开关 */}
       {flowUIEnabled && (
-        <Button
-          variant={showFlowPanel ? 'default' : 'outline'}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(showFlowPanel)
-          )}
-          onClick={toggleFlowPanel}
-          title={showFlowPanel ? '关闭 Flow 面板' : '打开 Flow 面板'}
-        >
-          <GitBranch className="w-4 h-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={showFlowPanel ? 'default' : 'outline'}
+              size="sm"
+              className={cn(
+                "p-0 h-8 w-8 rounded-full",
+                getActiveButtonStyle(showFlowPanel)
+              )}
+              onClick={toggleFlowPanel}
+            >
+              <GitBranch className="w-4 h-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {showFlowPanel ? '关闭 Flow 面板' : '打开 Flow 面板'}
+          </TooltipContent>
+        </Tooltip>
       )}
 
       {/* 预留：若需在主工具栏控制网格背景颜色，可在此恢复控件 */}
@@ -397,32 +405,36 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       {/* 选择工具分组 */}
       <div className="relative" ref={selectionGroupRef}>
         {/* 主按钮 - 显示当前选择模式 */}
-        <Button
-          variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
-          )}
-          onClick={() => {
-            if (drawMode !== 'select' && drawMode !== 'pointer') {
-              setDrawMode('select');
-              logger.tool('工具栏主按钮：切换到框选工具');
-              setSelectionMenuOpen(true);
-            } else {
-              setSelectionMenuOpen((prev) => !prev);
-            }
-            setDrawingMenuOpen(false);
-          }}
-          title={
-            drawMode === 'select' ? '框选工具' : drawMode === 'pointer' ? '节点选择工具' : '点击切换到框选工具'
-          }
-        >
-          {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
-          {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
-          {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
-          {drawMode !== 'select' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
+              size="sm"
+              className={cn(
+                "p-0 h-8 w-8 rounded-full",
+                getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
+              )}
+              onClick={() => {
+                if (drawMode !== 'select' && drawMode !== 'pointer') {
+                  setDrawMode('select');
+                  logger.tool('工具栏主按钮：切换到框选工具');
+                  setSelectionMenuOpen(true);
+                } else {
+                  setSelectionMenuOpen((prev) => !prev);
+                }
+                setDrawingMenuOpen(false);
+              }}
+            >
+              {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
+              {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
+              {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
+              {drawMode !== 'select' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {drawMode === 'select' ? '框选工具' : drawMode === 'pointer' ? '节点选择工具' : '点击切换到框选工具'}
+          </TooltipContent>
+        </Tooltip>
 
         {/* 选择次级菜单：点击展开显示 */}
         {isSelectionMenuOpen && (
@@ -430,30 +442,38 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-[999px] bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 选择工具按钮组 */}
               <div className="flex flex-col gap-1">
-                <Button
-                  variant={drawMode === 'select' ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    "p-0 h-8 w-8 rounded-full",
-                    getSubPanelButtonStyle(drawMode === 'select')
-                  )}
-                  onClick={() => setDrawMode('select')}
-                  title="框选工具"
-                >
-                  <DashedSelectIcon className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={drawMode === 'pointer' ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    "p-0 h-8 w-8 rounded-full",
-                    getSubPanelButtonStyle(drawMode === 'pointer')
-                  )}
-                  onClick={() => setDrawMode('pointer')}
-                  title="节点选择工具"
-                >
-                  <MousePointer2 className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'select' ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'select')
+                      )}
+                      onClick={() => setDrawMode('select')}
+                    >
+                      <DashedSelectIcon className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">框选工具</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'pointer' ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'pointer')
+                      )}
+                      onClick={() => setDrawMode('pointer')}
+                    >
+                      <MousePointer2 className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">节点选择工具</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -463,37 +483,41 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       {/* 绘制工具分组 */}
       <div className="relative" ref={drawingGroupRef}>
         {/* 主按钮 - 显示当前绘制模式 */}
-        <Button
-          variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
-          )}
-          onClick={() => {
-            const isDrawingMode = drawingModes.includes(drawMode as typeof drawingModes[number]);
-            if (!isDrawingMode || isEraser) {
-              setDrawMode('free');
-              logger.tool('工具栏主按钮：切换到绘线工具');
-              setDrawingMenuOpen(true);
-            } else {
-              setDrawingMenuOpen((prev) => !prev);
-            }
-            setSelectionMenuOpen(false);
-          }}
-          title={
-            drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
+              size="sm"
+              className={cn(
+                "p-0 h-8 w-8 rounded-full",
+                getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
+              )}
+              onClick={() => {
+                const isDrawingMode = drawingModes.includes(drawMode as typeof drawingModes[number]);
+                if (!isDrawingMode || isEraser) {
+                  setDrawMode('free');
+                  logger.tool('工具栏主按钮：切换到绘线工具');
+                  setDrawingMenuOpen(true);
+                } else {
+                  setDrawingMenuOpen((prev) => !prev);
+                }
+                setSelectionMenuOpen(false);
+              }}
+            >
+              {drawMode === 'free' && <FreeDrawIcon className="w-4 h-4" />}
+              {drawMode === 'line' && <StraightLineIcon className="w-4 h-4" />}
+              {drawMode === 'rect' && <Square className="w-4 h-4" />}
+              {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
+              {/* 如果是选择模式或独立工具模式，显示默认的自由绘制图标但为非激活状态 */}
+              {(drawMode === 'select' || drawMode === 'pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
               ? '点击切换到自由绘制工具'
-              : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`
-          }
-        >
-          {drawMode === 'free' && <FreeDrawIcon className="w-4 h-4" />}
-          {drawMode === 'line' && <StraightLineIcon className="w-4 h-4" />}
-          {drawMode === 'rect' && <Square className="w-4 h-4" />}
-          {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
-          {/* 如果是选择模式或独立工具模式，显示默认的自由绘制图标但为非激活状态 */}
-          {(drawMode === 'select' || drawMode === 'pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
-        </Button>
+              : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`}
+          </TooltipContent>
+        </Tooltip>
 
         {/* 绘制次级菜单：点击展开显示 */}
         {isDrawingMenuOpen && !isEraser && (
@@ -501,54 +525,70 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-[999px] bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
               {/* 绘图工具按钮组 */}
               <div className="flex flex-col gap-1">
-                <Button
-                  variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    "p-0 h-8 w-8 rounded-full",
-                    getSubPanelButtonStyle(drawMode === 'free' && !isEraser)
-                  )}
-                  onClick={() => setDrawMode('free')}
-                  title="自由绘制"
-                >
-                  <FreeDrawIcon className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    "p-0 h-8 w-8 rounded-full",
-                    getSubPanelButtonStyle(drawMode === 'line' && !isEraser)
-                  )}
-                  onClick={() => setDrawMode('line')}
-                  title="绘制直线"
-                >
-                  <StraightLineIcon className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    "p-0 h-8 w-8 rounded-full",
-                    getSubPanelButtonStyle(drawMode === 'rect' && !isEraser)
-                  )}
-                  onClick={() => setDrawMode('rect')}
-                  title="绘制矩形"
-                >
-                  <Square className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    "p-0 h-8 w-8 rounded-full",
-                    getSubPanelButtonStyle(drawMode === 'circle' && !isEraser)
-                  )}
-                  onClick={() => setDrawMode('circle')}
-                  title="绘制圆形"
-                >
-                  <CircleIcon className="w-4 h-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'free' && !isEraser ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'free' && !isEraser)
+                      )}
+                      onClick={() => setDrawMode('free')}
+                    >
+                      <FreeDrawIcon className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">自由绘制</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'line' && !isEraser ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'line' && !isEraser)
+                      )}
+                      onClick={() => setDrawMode('line')}
+                    >
+                      <StraightLineIcon className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">绘制直线</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'rect' && !isEraser ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'rect' && !isEraser)
+                      )}
+                      onClick={() => setDrawMode('rect')}
+                    >
+                      <Square className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">绘制矩形</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'circle' && !isEraser ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'circle' && !isEraser)
+                      )}
+                      onClick={() => setDrawMode('circle')}
+                    >
+                      <CircleIcon className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">绘制圆形</TooltipContent>
+                </Tooltip>
               </div>
 
               <Separator orientation="horizontal" className="w-6" />
@@ -606,38 +646,50 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       </div>
 
       {/* 橡皮擦工具 - 统一画板下仅对绘图生效，节点擦除关闭 */}
-      <Button
-        onClick={toggleEraser}
-        variant={isEraser ? "default" : "outline"}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(isEraser)
-        )}
-        title={isEraser ? "切换到画笔" : "切换到橡皮擦"}
-      >
-        <Eraser className="w-4 h-4" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            onClick={toggleEraser}
+            variant={isEraser ? "default" : "outline"}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(isEraser)
+            )}
+          >
+            <Eraser className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {isEraser ? "切换到画笔" : "切换到橡皮擦"}
+        </TooltipContent>
+      </Tooltip>
 
       {/* 独立工具按钮 */}
       <div className="flex flex-col items-center gap-2">
         {/* 文字工具 */}
         <div className="relative">
-            <Button
-              variant={drawMode === 'text' ? 'default' : 'outline'}
-              size="sm"
-              className={cn(
-                "p-0 h-8 w-8 rounded-full",
-                getActiveButtonStyle(drawMode === 'text')
-              )}
-              onClick={() => {
-                setDrawMode('text');
-                logger.tool('工具栏：切换到文字工具');
-              }}
-              title="文本工具 - 点击空白处创建文本"
-            >
-              <Type className="w-4 h-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={drawMode === 'text' ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    "p-0 h-8 w-8 rounded-full",
+                    getActiveButtonStyle(drawMode === 'text')
+                  )}
+                  onClick={() => {
+                    setDrawMode('text');
+                    logger.tool('工具栏：切换到文字工具');
+                  }}
+                >
+                  <Type className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                文本工具 - 点击空白处创建文本
+              </TooltipContent>
+            </Tooltip>
 
             {/* 文本样式面板 - 当文本工具激活时显示 */}
             {drawMode === 'text' && (
@@ -670,48 +722,60 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       {/* 图片/3D/截图 工具 */}
       <>
-          <Button
-            variant={drawMode === 'image' ? 'default' : 'outline'}
-            size="sm"
-            className={cn(
-              "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(drawMode === 'image')
-            )}
-            onClick={() => setDrawMode('image')}
-            title="添加图片"
-          >
-            <Image className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={drawMode === 'image' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  "p-0 h-8 w-8 rounded-full",
+                  getActiveButtonStyle(drawMode === 'image')
+                )}
+                onClick={() => setDrawMode('image')}
+              >
+                <Image className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">添加图片</TooltipContent>
+          </Tooltip>
 
           {/* 快速图片上传工具（居中） - 暂时隐藏 */}
           {/* 3D模型工具（仅 Chat 模式） */}
-          <Button
-          variant={drawMode === '3d-model' ? 'default' : 'outline'}
-          size="sm"
-          className={cn(
-            "p-0 h-8 w-8 rounded-full",
-            getActiveButtonStyle(drawMode === '3d-model')
-          )}
-          onClick={() => setDrawMode('3d-model')}
-          title="添加3D模型"
-        >
-          <Box className="w-4 h-4" />
-        </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={drawMode === '3d-model' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  "p-0 h-8 w-8 rounded-full",
+                  getActiveButtonStyle(drawMode === '3d-model')
+                )}
+                onClick={() => setDrawMode('3d-model')}
+              >
+                <Box className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">添加3D模型</TooltipContent>
+          </Tooltip>
 
         {/* 截图工具暂时隐藏，后续需要时启用 ENABLE_SCREENSHOT_TOOL */}
         {ENABLE_SCREENSHOT_TOOL && (
-          <Button
-            variant={drawMode === 'screenshot' ? 'default' : 'outline'}
-            size="sm"
-            className={cn(
-              "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(drawMode === 'screenshot')
-            )}
-            onClick={() => setDrawMode('screenshot')}
-            title="AI截图 - 自动包含所有元素，同时下载和传入AI对话框"
-          >
-            <Camera className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={drawMode === 'screenshot' ? 'default' : 'outline'}
+                size="sm"
+                className={cn(
+                  "p-0 h-8 w-8 rounded-full",
+                  getActiveButtonStyle(drawMode === 'screenshot')
+                )}
+                onClick={() => setDrawMode('screenshot')}
+              >
+                <Camera className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">AI截图 - 自动包含所有元素</TooltipContent>
+          </Tooltip>
         )}
 
       </>
@@ -744,56 +808,69 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       {/* 统一画板：移除 Generate Node 快捷按钮与分隔线 */}
 
       {/* 图层工具 */}
-      <Button
-        variant={isLayerPanelOpen ? 'default' : 'outline'}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(isLayerPanelOpen)
-        )}
-        onClick={toggleLayerPanel}
-        title="图层面板"
-      >
-        <Layers className="w-4 h-4" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={isLayerPanelOpen ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(isLayerPanelOpen)
+            )}
+            onClick={toggleLayerPanel}
+          >
+            <Layers className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">图层面板</TooltipContent>
+      </Tooltip>
 
       {/* 模板库按钮 */}
-      <Button
-        variant={showTemplatePanel ? 'default' : 'outline'}
-        size="sm"
-        className={cn(
-          "p-0 h-8 w-8 rounded-full",
-          getActiveButtonStyle(showTemplatePanel)
-        )}
-        onClick={handleToggleTemplatePanel}
-        title="公共模板"
-      >
-        <BookOpen className="w-4 h-4" />
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={showTemplatePanel ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(showTemplatePanel)
+            )}
+            onClick={handleToggleTemplatePanel}
+          >
+            <BookOpen className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">公共模板</TooltipContent>
+      </Tooltip>
 
 
       {/* 工具按钮 */}
       {onClearCanvas && (
         <div className="flex flex-col items-center gap-2">
           {/* 清理画布按钮 */}
-          <Button
-            onClick={() => {
-              if (window.confirm('确定要清空画布吗？此操作将删除所有图元，不可撤销。')) {
-                onClearCanvas();
-              }
-            }}
-            variant="outline"
-            size="sm"
-            className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
-            title="清空画布 (清除所有图元)"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={() => {
+                  if (window.confirm('确定要清空画布吗？此操作将删除所有图元，不可撤销。')) {
+                    onClearCanvas();
+                  }
+                }}
+                variant="outline"
+                size="sm"
+                className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">清空画布</TooltipContent>
+          </Tooltip>
           {/* Paper.js 沙盒开关已移至设置面板的高级选项中 */}
           {/* 专注模式按钮已移至独立组件 FocusModeButton */}
         </div>
       )}
     </div>
+    </TooltipProvider>
   );
 };
 
