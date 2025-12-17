@@ -120,8 +120,8 @@ type Sora2VideoHistoryItem = {
   createdAt: string;
 };
 
-type AddPanelTab = 'nodes' | 'templates' | 'personal';
-const ALL_ADD_TABS: AddPanelTab[] = ['nodes', 'templates', 'personal'];
+type AddPanelTab = 'nodes' | 'beta' | 'custom' | 'templates' | 'personal';
+const ALL_ADD_TABS: AddPanelTab[] = ['nodes', 'beta', 'custom', 'templates', 'personal'];
 
 const getStoredAddPanelTab = (): AddPanelTab => {
   if (typeof window === 'undefined') {
@@ -129,12 +129,13 @@ const getStoredAddPanelTab = (): AddPanelTab => {
   }
   try {
     const saved = window.localStorage.getItem(ADD_PANEL_TAB_STORAGE_KEY);
-    return saved === 'templates' || saved === 'personal' || saved === 'nodes' ? saved : 'nodes';
+    return saved === 'templates' || saved === 'personal' || saved === 'nodes' || saved === 'beta' || saved === 'custom' ? saved : 'nodes';
   } catch {
     return 'nodes';
   }
 };
 
+// 普通节点列表（不包含 Beta 节点）
 const NODE_PALETTE_ITEMS = [
   { key: 'textPrompt', zh: '提示词节点', en: 'Prompt Node' },
   { key: 'textChat', zh: '纯文本交互节点', en: 'Text Chat Node' },
@@ -143,14 +144,18 @@ const NODE_PALETTE_ITEMS = [
   { key: 'analysis', zh: '图像分析节点', en: 'Analysis Node' },
   { key: 'image', zh: '图片节点', en: 'Image Node' },
   { key: 'generate', zh: '生成节点', en: 'Generate Node' },
-  { key: 'generatePro', zh: '专业生成节点', en: 'Generate Pro', badge: 'Beta' },
-  { key: 'generatePro4', zh: '四图专业生成节点', en: 'Generate Pro 4', badge: 'Beta' },
   { key: 'generateRef', zh: '参考图生成节点', en: 'Generate Refer' },
   { key: 'generate4', zh: '生成多张图片节点', en: 'Multi Generate' },
   { key: 'three', zh: '三维节点', en: '3D Node' },
   { key: 'sora2Video', zh: '视频生成节点', en: 'Sora2 Video' },
   { key: 'camera', zh: '截图节点', en: 'Shot Node' },
   { key: 'storyboardSplit', zh: '分镜拆分节点', en: 'Storyboard Split' },
+];
+
+// Beta 节点列表（实验性功能）
+const BETA_NODE_ITEMS = [
+  { key: 'generatePro', zh: '专业生成节点', en: 'Generate Pro', badge: 'Beta' },
+  { key: 'generatePro4', zh: '四图专业生成节点', en: 'Generate Pro 4', badge: 'Beta' },
 ];
 
 const nodePaletteButtonStyle: React.CSSProperties = {
@@ -1343,7 +1348,7 @@ function FlowInner() {
     const last = lastPaneClickRef.current;
     lastPaneClickRef.current = { t: now, x, y };
     if (last && (now - last.t) < 200 && Math.hypot(last.x - x, last.y - y) < 10) {
-      if (isBlankArea(x, y)) openAddPanelAt(x, y, { tab: 'nodes', allowedTabs: ['nodes'] });
+      if (isBlankArea(x, y)) openAddPanelAt(x, y, { tab: 'nodes', allowedTabs: ['nodes', 'beta', 'custom'] });
     } else if (!isPointerMode) {
       // 单击空白区域时，取消所有节点的选择（pointer 模式下不自动取消选择）
       setNodes((prev: any[]) => prev.map((node) => ({ ...node, selected: false })));
@@ -1472,7 +1477,7 @@ function FlowInner() {
         if (isBlankArea(x, y)) {
           e.stopPropagation();
           e.preventDefault();
-          openAddPanelAt(x, y, { tab: 'nodes', allowedTabs: ['nodes'] });
+          openAddPanelAt(x, y, { tab: 'nodes', allowedTabs: ['nodes', 'beta', 'custom'] });
         }
         // 重置记录，避免连续三次点击被识别为两次双击
         lastGlobalClickRef.current = null;
@@ -2637,7 +2642,7 @@ function FlowInner() {
   }, [addPanel.visible]);
 
   const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY, { tab: 'nodes', allowedTabs: ['nodes'] });
+    if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY, { tab: 'nodes', allowedTabs: ['nodes', 'beta', 'custom'] });
   }, [openAddPanelAt, isBlankArea]);
 
   const commitEdgeLabelValue = React.useCallback((edgeId: string, value: string) => {
@@ -2907,15 +2912,15 @@ function FlowInner() {
             }}>
               <div style={{ display: 'flex', gap: 2 }}>
                 {allowedAddTabs.includes('nodes') && (
-                  <button 
-                    onClick={() => setAddTabWithMemory('nodes', allowedAddTabs)} 
-                    style={{ 
-                      padding: '10px 18px 14px', 
+                  <button
+                    onClick={() => setAddTabWithMemory('nodes', allowedAddTabs)}
+                    style={{
+                      padding: '10px 18px 14px',
                       fontSize: 13,
                       fontWeight: addTab === 'nodes' ? 600 : 500,
-                      borderRadius: '24px 24px 0 0', 
+                      borderRadius: '24px 24px 0 0',
                       border: 'none',
-                      background: addTab === 'nodes' ? '#fff' : 'transparent', 
+                      background: addTab === 'nodes' ? '#fff' : 'transparent',
                       color: addTab === 'nodes' ? '#111827' : '#374151',
                       marginBottom: -2,
                       transition: 'all 0.15s ease',
@@ -2923,6 +2928,44 @@ function FlowInner() {
                     }}
                   >
                     节点
+                  </button>
+                )}
+                {allowedAddTabs.includes('beta') && (
+                  <button
+                    onClick={() => setAddTabWithMemory('beta', allowedAddTabs)}
+                    style={{
+                      padding: '10px 18px 14px',
+                      fontSize: 13,
+                      fontWeight: addTab === 'beta' ? 600 : 500,
+                      borderRadius: '24px 24px 0 0',
+                      border: 'none',
+                      background: addTab === 'beta' ? '#fff' : 'transparent',
+                      color: addTab === 'beta' ? '#111827' : '#374151',
+                      marginBottom: -2,
+                      transition: 'all 0.15s ease',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Beta节点
+                  </button>
+                )}
+                {allowedAddTabs.includes('custom') && (
+                  <button
+                    onClick={() => setAddTabWithMemory('custom', allowedAddTabs)}
+                    style={{
+                      padding: '10px 18px 14px',
+                      fontSize: 13,
+                      fontWeight: addTab === 'custom' ? 600 : 500,
+                      borderRadius: '24px 24px 0 0',
+                      border: 'none',
+                      background: addTab === 'custom' ? '#fff' : 'transparent',
+                      color: addTab === 'custom' ? '#111827' : '#374151',
+                      marginBottom: -2,
+                      transition: 'all 0.15s ease',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    定制化节点
                   </button>
                 )}
                 {allowedAddTabs.includes('templates') && (
@@ -2966,13 +3009,13 @@ function FlowInner() {
               </div>
             </div>
             {addTab === 'nodes' ? (
-              <div style={{ 
+              <div style={{
                 height: 'min(70vh, 640px)',
                 overflowY: 'auto',
                 overflowX: 'hidden',
                 paddingTop: 8
               }}>
-                <div style={{ 
+                <div style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                   gap: 12,
@@ -2987,6 +3030,56 @@ function FlowInner() {
                       onClick={() => createNodeAtWorldCenter(item.key, addPanel.world)}
                     />
                   ))}
+                </div>
+              </div>
+            ) : addTab === 'beta' ? (
+              <div style={{ height: 'min(70vh, 640px)', overflowY: 'auto', overflowX: 'hidden', padding: '12px 18px 18px' }}>
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>Beta 节点</div>
+                  <div style={{ fontSize: 13, color: '#6b7280', marginTop: 6 }}>实验性功能节点</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                  {BETA_NODE_ITEMS.map((item) => (
+                    <NodePaletteButton
+                      key={item.key}
+                      zh={item.zh}
+                      en={item.en}
+                      badge={item.badge}
+                      onClick={() => createNodeAtWorldCenter(item.key, addPanel.world)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : addTab === 'custom' ? (
+              <div style={{
+                height: 'min(70vh, 640px)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 40
+              }}>
+                <div style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: '50%',
+                  background: '#f3f4f6',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16
+                }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <path d="M17.5 14v7" />
+                    <path d="M14 17.5h7" />
+                  </svg>
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#374151', marginBottom: 8 }}>定制化节点</div>
+                <div style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
+                  为您量身定制的专属节点，敬请期待
                 </div>
               </div>
             ) : addTab === 'templates' ? (

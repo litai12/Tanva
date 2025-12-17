@@ -168,10 +168,17 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     setShowTemplatePanel,
   } = useUIStore();
 
+  // 用于防止事件循环的标志
+  const isTogglingFromButtonRef = React.useRef(false);
+
   // 监听外部关闭模板面板（点击空白、ESC等）
+  // 只在非按钮触发时同步状态
   React.useEffect(() => {
     const handler = (event: Event) => {
+      // 如果是按钮触发的，跳过，避免循环
+      if (isTogglingFromButtonRef.current) return;
       const detail = (event as CustomEvent<any>)?.detail || {};
+      // 只在面板关闭时同步状态（外部关闭，如点击空白、ESC）
       if (!detail.visible) {
         setShowTemplatePanel(false);
       }
@@ -186,7 +193,19 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       ? { visible: true, tab: 'templates', scope: 'public', allowedTabs: ['templates', 'personal'] }
       : { visible: false };
     try { window.dispatchEvent(new CustomEvent('flow:set-template-panel', { detail })); } catch {}
+    // 延迟重置标志，确保事件处理完成
+    if (isTogglingFromButtonRef.current) {
+      setTimeout(() => {
+        isTogglingFromButtonRef.current = false;
+      }, 100);
+    }
   }, [showTemplatePanel]);
+
+  // 包装 toggleTemplatePanel，设置标志防止循环
+  const handleToggleTemplatePanel = React.useCallback(() => {
+    isTogglingFromButtonRef.current = true;
+    toggleTemplatePanel();
+  }, [toggleTemplatePanel]);
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
@@ -746,7 +765,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           "p-0 h-8 w-8 rounded-full",
           getActiveButtonStyle(showTemplatePanel)
         )}
-        onClick={toggleTemplatePanel}
+        onClick={handleToggleTemplatePanel}
         title="公共模板"
       >
         <BookOpen className="w-4 h-4" />
