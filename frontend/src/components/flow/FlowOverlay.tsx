@@ -1283,7 +1283,7 @@ function FlowInner() {
     };
   }, [allowNativeScroll]);
 
-  const handleWheelCapture = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+  const handleWheelCapture = React.useCallback((event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
     if (allowNativeScroll(event.target)) return;
 
@@ -1325,6 +1325,16 @@ function FlowInner() {
     const worldDeltaY = (-event.deltaY * dpr) / zoom;
     store.setPan(store.panX + worldDeltaX, store.panY + worldDeltaY);
   }, [allowNativeScroll]);
+
+  React.useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const listener = (event: WheelEvent) => handleWheelCapture(event);
+    container.addEventListener('wheel', listener, { capture: true, passive: false });
+    return () => {
+      container.removeEventListener('wheel', listener, { capture: true });
+    };
+  }, [handleWheelCapture]);
 
   const onPaneClick = React.useCallback((event: React.MouseEvent) => {
     // 基于两次快速点击判定双击（ReactFlow Pane 无原生 onDoubleClick 回调）
@@ -2796,7 +2806,6 @@ function FlowInner() {
       ref={containerRef}
       className={`tanva-flow-overlay absolute inset-0 ${isPointerMode ? 'pointer-mode' : ''}`}
       onDoubleClick={handleContainerDoubleClick}
-      onWheelCapture={handleWheelCapture}
       onPointerDownCapture={() => clipboardService.setActiveZone('flow')}
     >
       {FlowToolbar}

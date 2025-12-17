@@ -159,12 +159,38 @@ export class BananaProvider implements IAIProvider {
     return 'image/png';
   }
 
-  private normalizeFileInput(fileInput: string, context: string): { data: string; mimeType: string } {
+  private async normalizeFileInputAsync(fileInput: string, context: string): Promise<{ data: string; mimeType: string }> {
     if (!fileInput || fileInput.trim().length === 0) {
       throw new Error(`${context} file payload is empty`);
     }
 
     const trimmed = fileInput.trim();
+
+    // 支持 HTTP/HTTPS URL - 自动下载并转换为 Base64
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      this.logger.debug(`Fetching image from URL for ${context}: ${trimmed.substring(0, 100)}...`);
+      try {
+        const response = await fetch(trimmed);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+        }
+        const contentType = response.headers.get('content-type') || 'image/png';
+        const arrayBuffer = await response.arrayBuffer();
+        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+        // 从 content-type 提取 mimeType
+        const mimeType = contentType.split(';')[0].trim();
+        this.logger.debug(`Fetched image: ${base64Data.length} chars, mimeType: ${mimeType}`);
+
+        return {
+          data: base64Data,
+          mimeType,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to fetch ${context} image from URL: ${message}`);
+      }
+    }
 
     // 支持 data:image/* 和 data:application/pdf 格式
     if (trimmed.startsWith('data:image/') || trimmed.startsWith('data:application/pdf')) {
@@ -188,7 +214,7 @@ export class BananaProvider implements IAIProvider {
 
     if (!base64Regex.test(sanitized)) {
       throw new Error(
-        `Unsupported ${context} file format. Expected a base64 string or data URL.`
+        `Unsupported ${context} file format. Expected a base64 string, data URL, or HTTP URL.`
       );
     }
 
@@ -198,10 +224,6 @@ export class BananaProvider implements IAIProvider {
     };
   }
 
-  // 保持向后兼容的别名方法
-  private normalizeImageInput(imageInput: string, context: string): { data: string; mimeType: string } {
-    return this.normalizeFileInput(imageInput, context);
-  }
 
   private async withRetry<T>(
     operation: () => Promise<T>,
@@ -522,7 +544,8 @@ export class BananaProvider implements IAIProvider {
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(`Editing image with prompt: ${request.prompt.substring(0, 50)}...`);
 
-    const { data: imageData, mimeType } = this.normalizeImageInput(request.sourceImage, 'edit');
+    // 使用异步版本支持 HTTP URL
+    const { data: imageData, mimeType } = await this.normalizeFileInputAsync(request.sourceImage, 'edit');
     const originalModel = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
     let currentModel = originalModel;
     let usedFallback = false;
@@ -636,10 +659,12 @@ export class BananaProvider implements IAIProvider {
       `Blending ${request.sourceImages.length} images with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
-    const normalizedImages = request.sourceImages.map((imageData, index) => {
-      const normalized = this.normalizeImageInput(imageData, `blend source #${index + 1}`);
-      return normalized;
-    });
+    // 使用异步版本支持 HTTP URL
+    const normalizedImages = await Promise.all(
+      request.sourceImages.map((imageData, index) =>
+        this.normalizeFileInputAsync(imageData, `blend source #${index + 1}`)
+      )
+    );
 
     const imageParts = normalizedImages.map((image) => ({
       inlineData: {
@@ -752,7 +777,8 @@ export class BananaProvider implements IAIProvider {
     this.logger.log(`🔍 Analyzing file with Banana (147) API...`);
 
     try {
-      const { data: fileData, mimeType } = this.normalizeFileInput(request.sourceImage, 'analysis');
+      // 使用异步版本支持 HTTP URL
+      const { data: fileData, mimeType } = await this.normalizeFileInputAsync(request.sourceImage, 'analysis');
       // 🔥 使用 gemini-3-pro-image-preview 进行文件分析
       const model = this.normalizeModelName(request.model || 'gemini-3-pro-image-preview');
       this.logger.log(`📊 Using model: ${model}, mimeType: ${mimeType}`);
@@ -1082,7 +1108,8 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
     this.logger.log('🖼️ Converting image to vector with Banana (147) API...');
 
     try {
-      const { data: sourceData, mimeType } = this.normalizeFileInput(request.sourceImage, 'analysis');
+      // 使用异步版本支持 HTTP URL
+      const { data: sourceData, mimeType } = await this.normalizeFileInputAsync(request.sourceImage, 'analysis');
       const originalModel = this.normalizeModelName(request.model || 'gemini-3-pro-preview');
       let currentModel = originalModel;
       let usedFallback = false;
