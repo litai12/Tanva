@@ -207,7 +207,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         currentImageId?: string,
         preferHorizontal?: boolean  // 🔥 新增：是否优先横向排列
     ): paper.Point => {
-        const spacing = useUIStore.getState().smartPlacementOffset || 778;
+        const spacing = useUIStore.getState().smartPlacementOffset || 522;
         const verticalStep = Math.max(spacing, expectedHeight + 16);
         const horizontalStep = Math.max(spacing, expectedWidth + 16);
         const maxAttempts = 50;
@@ -267,7 +267,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             preferHorizontal?: boolean;
         }
     ) => {
-        const getSpacing = () => useUIStore.getState().smartPlacementOffset || 778;
+        const getSpacing = () => useUIStore.getState().smartPlacementOffset || 522;
         const existingImages = getAllCanvasImages();
 
         // 如果画布上没有任何图片，重置行分配状态，避免旧状态干扰
@@ -763,7 +763,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             }
             const placeholderBounds = placeholder?.data?.bounds;
             const imageId = placeholderId || asset.id || `quick_image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const defaultExpectedSize = 768;
+            const defaultExpectedSize = 512;
             const expectedWidth = placeholderBounds?.width ?? defaultExpectedSize;
             const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
@@ -1050,8 +1050,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                             const calculated = calculateSmartPosition(operationType, sourceImageId, sourceImages, imageId);
                             const desiredPoint = new paper.Point(calculated.x, calculated.y);
                             // 使用 expectedWidth 和 expectedHeight，如果没有则使用原始尺寸
-                            const widthForPosition = expectedWidth || originalWidth || 768;
-                            const heightForPosition = expectedHeight || originalHeight || 768;
+                            const widthForPosition = expectedWidth || originalWidth || 512;
+                            const heightForPosition = expectedHeight || originalHeight || 512;
                             const adjustedPoint = findNonOverlappingPosition(desiredPoint, widthForPosition, heightForPosition, operationType, imageId, preferHorizontal);
                             finalPosition = adjustedPoint;
                             logger.upload(`📍 使用智能位置计算: (${adjustedPoint.x.toFixed(1)}, ${adjustedPoint.y.toFixed(1)})`);
@@ -1066,7 +1066,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     
                     if (!useOriginalSize) {
                     // 标准模式：限制最大显示尺寸，但保持原始长宽比
-                    const maxSize = 768;
+                    const maxSize = 512;
                     if (originalWidth > maxSize || originalHeight > maxSize) {
                         // 保持原始长宽比，按最大边缩放
                         if (originalWidth > originalHeight) {

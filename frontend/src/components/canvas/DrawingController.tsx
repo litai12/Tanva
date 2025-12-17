@@ -31,7 +31,7 @@ import { useQuickImageUpload } from './hooks/useQuickImageUpload';
 import { useSimpleTextTool } from './hooks/useSimpleTextTool';
 import SimpleTextEditor from './SimpleTextEditor';
 import TextSelectionOverlay from './TextSelectionOverlay';
-import type { DrawingContext } from '@/types/canvas';
+import type { DrawingContext, ImageInstance } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { historyService } from '@/services/historyService';
 import type { Model3DData } from '@/services/model3DUploadService';
@@ -289,18 +289,47 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     zoom,
   };
 
+  // 内存优化：使用 ref 存储实例数组，避免大型闭包
+  const imageInstancesRef = useRef<ImageInstance[]>([]);
+
   // ========== 初始化图片工具Hook ==========
   const imageTool = useImageTool({
     context: drawingContext,
     canvasRef,
     eventHandlers: {
       onImageSelect: (imageId) => logger.debug('图片选中:', imageId),
-      onImageDeselect: () => logger.debug('取消图片选择')
+      onImageDeselect: () => logger.debug('取消图片选择'),
+      onImageDelete: (imageId) => {
+        try {
+          // 尝试找到被删除的实例，提取其源数据用于同步到AI对话框
+          const instance = imageInstancesRef.current.find((img) => img.id === imageId);
+          const imageSourceForAI = instance ? extractAnyImageSource(instance.imageData) : null;
+          if (!imageSourceForAI) return;
+
+          const aiStore = useAIChatStore.getState();
+
+          // 若当前编辑/分析源图就是这张，被删除后清空
+          if (aiStore.sourceImageForEditing === imageSourceForAI) {
+            aiStore.setSourceImageForEditing(null);
+          }
+          if (aiStore.sourceImageForAnalysis === imageSourceForAI) {
+            aiStore.setSourceImageForAnalysis(null);
+          }
+
+          // 从多图融合列表中移除被删除的画布图片
+          const blendIndex = aiStore.sourceImagesForBlending.findIndex(
+            (img) => img === imageSourceForAI
+          );
+          if (blendIndex >= 0) {
+            aiStore.removeImageFromBlending(blendIndex);
+          }
+        } catch (error) {
+          console.warn('同步删除图片到AI对话框失败:', error);
+        }
+      }
     }
   });
 
-  // 内存优化：使用 ref 存储实例数组，避免大型闭包
-  const imageInstancesRef = useRef(imageTool.imageInstances);
   imageInstancesRef.current = imageTool.imageInstances;
 
   // ========== 初始化快速图片上传Hook ==========
@@ -1471,10 +1500,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const handleGroupCapture = useCallback(() => {
     void executeGroupCapture({ sendToDialog: false });
-  }, [executeGroupCapture]);
-
-  const handleGroupCaptureAndSendToDialog = useCallback(() => {
-    void executeGroupCapture({ sendToDialog: true });
   }, [executeGroupCapture]);
 
   const handleModelCapture = useCallback(async (modelId: string) => {
@@ -3186,7 +3211,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           bounds={groupScreenBounds}
           selectedCount={groupSelectionCount}
           onCapture={handleGroupCapture}
-          onSendToDialog={handleGroupCaptureAndSendToDialog}
           isCapturing={isGroupCapturePending}
         />
       )}

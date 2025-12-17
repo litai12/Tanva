@@ -2307,9 +2307,9 @@ const AIChatDialog: React.FC = () => {
           ? "top-2 left-2 right-2 bottom-2 z-[9999]" // 最大化：接近全屏，最高 z-index 确保在所有元素之上
           : "z-50",
         !isMaximized && showHistory
-          ? "top-4 bottom-4 max-w-[590px] w-[590px] px-4" // 展开模式：右侧全高，固定宽度（刚好容纳4张图）
+          ? "top-4 bottom-4 max-w-[600px] w-[600px] px-4" // 展开模式：右侧全高，固定宽度（刚好容纳4张图）
           : !isMaximized
-          ? "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-[590px] px-4" // 紧凑模式：底部居中
+          ? "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-[600px] px-4" // 紧凑模式：底部居中
           : "",
         !isDragging && !isResizing && "duration-300",
         (isDragging || isResizing) && "duration-0",
@@ -3165,7 +3165,7 @@ const AIChatDialog: React.FC = () => {
               ref={historyRef}
               data-history-ignore-toggle
               className={cn(
-                "mb-2 overflow-y-auto custom-scrollbar order-1",
+                "mb-2 overflow-y-auto scrollbar-hidden order-1",
                 hasImagePreview ? "mt-2" : "-mt-1",
                 isMaximized
                   ? "max-h-screen"
@@ -3187,9 +3187,9 @@ const AIChatDialog: React.FC = () => {
                   ? undefined
                   : "320px",
                 minHeight: customHeight ? "100px" : historyPanelMinHeight,
-                // 强制细滚动条
-                scrollbarWidth: "thin",
-                scrollbarColor: "rgba(156, 163, 175, 0.4) transparent",
+                // 隐藏滚动条
+                scrollbarWidth: "none",
+                msOverflowStyle: "none",
               }}
               onClick={(e) => e.stopPropagation()}
             >

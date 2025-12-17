@@ -223,7 +223,7 @@ const RUNNINGHUB_WEBAPP_ID = import.meta.env?.VITE_RUNNINGHUB_WEBAPP_ID;
 const RUNNINGHUB_WEBHOOK_URL = import.meta.env?.VITE_RUNNINGHUB_WEBHOOK_URL;
 const ENABLE_VIDEO_CANVAS_PLACEMENT = false;
 const VIDEO_FETCH_TIMEOUT_MS = 60000;
-const DEFAULT_PLACEHOLDER_EDGE = 768;
+const DEFAULT_PLACEHOLDER_EDGE = 512;
 const MIN_PLACEHOLDER_EDGE = 96;
 const INLINE_MEDIA_LIMIT = 150_000; // ~150KB string; guard against oversized base64 persisting in memory/localStorage
 
@@ -1041,7 +1041,7 @@ const computeVideoSmartPosition = (): { x: number; y: number } | undefined => {
   try {
     const cached = contextManager.getCachedImage();
     if (cached?.bounds) {
-      const offset = useUIStore.getState().smartPlacementOffset || 778;
+      const offset = useUIStore.getState().smartPlacementOffset || 522;
       return {
         x: cached.bounds.x + cached.bounds.width / 2,
         y: cached.bounds.y + cached.bounds.height / 2 + offset,
@@ -2369,7 +2369,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             const cached = contextManager.getCachedImage();
-            const offset = useUIStore.getState().smartPlacementOffset || 778;
+            const offset = useUIStore.getState().smartPlacementOffset || 522;
             let center: { x: number; y: number } | null = null;
 
             // 🔥 检查是否是并行生成的一部分
@@ -3032,7 +3032,7 @@ export const useAIChatStore = create<AIChatState>()(
             } catch {}
 
             const cached = contextManager.getCachedImage();
-            const offset = useUIStore.getState().smartPlacementOffset || 778;
+            const offset = useUIStore.getState().smartPlacementOffset || 522;
             let center: { x: number; y: number } | null = null;
 
             if (cached?.bounds) {
@@ -3586,7 +3586,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             const cached = contextManager.getCachedImage();
-            const offset = useUIStore.getState().smartPlacementOffset || 778;
+            const offset = useUIStore.getState().smartPlacementOffset || 522;
             let center: { x: number; y: number } | null = null;
 
             if (cached?.bounds) {

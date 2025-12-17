@@ -18,7 +18,7 @@ interface UIState {
   showTemplatePanel: boolean; // 模板库面板
 
   // 智能落位配置
-  smartPlacementOffset: number; // px，默认 778
+  smartPlacementOffset: number; // px，默认 522
 
   // 操作方法
   toggleLibraryPanel: () => void;
@@ -52,18 +52,11 @@ const initialOffset = (() => {
   if (typeof window !== 'undefined') {
     try {
       const val = localStorage.getItem('tanva-smart-offset');
-      const migrated = localStorage.getItem('tanva-offset-migrated');
-      // 一次性迁移：旧默认值 522 → 新默认值 778
-      if (!migrated && val === '522') {
-        localStorage.setItem('tanva-smart-offset', '778');
-        localStorage.setItem('tanva-offset-migrated', '1');
-        return 778;
-      }
       const n = val ? parseInt(val, 10) : NaN;
       if (!isNaN(n) && n > 0 && n < 10000) return n;
     } catch {}
   }
-  return 778; // 新默认偏移
+  return 522; // 默认偏移
 })();
 
 const persistedUIPreferences = (() => {

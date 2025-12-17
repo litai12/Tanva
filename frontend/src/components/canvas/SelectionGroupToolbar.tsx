@@ -48,16 +48,18 @@ const SelectionGroupToolbar: React.FC<SelectionGroupToolbarProps> = ({
           <Camera className="w-4 h-4" />
           {isCapturing ? '处理中...' : '照相机'}
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1"
-          onClick={onSendToDialog}
-          disabled={isCapturing}
-        >
-          <Send className="w-4 h-4" />
-          {isCapturing ? '处理中...' : '发送到对话框'}
-        </Button>
+        {onSendToDialog && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={onSendToDialog}
+            disabled={isCapturing}
+          >
+            <Send className="w-4 h-4" />
+            {isCapturing ? '处理中...' : '发送到对话框'}
+          </Button>
+        )}
       </div>
     </div>
   );
