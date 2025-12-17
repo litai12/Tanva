@@ -45,6 +45,8 @@ import {
   Copy,
   FileText,
   Play,
+  RotateCcw,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -290,6 +292,10 @@ const AIChatDialog: React.FC = () => {
     setAutoModeMultiplier,
     sendShortcut,
     executeMidjourneyAction,
+    // 直接调用的图像处理方法（用于重新发送）
+    editImage,
+    blendImages,
+    analyzeImage,
   } = useAIChatStore();
   const focusMode = useUIStore((state) => state.focusMode);
 
@@ -1388,13 +1394,98 @@ const AIChatDialog: React.FC = () => {
       requestAnimationFrame(() => {
         textareaRef.current?.focus();
       });
-      showToast("已将内容填回输入框，请手动发送");
+      showToast("已将内容填回输入框，可编辑后发送");
     },
     [
       addImageForBlending,
       clearImagesForBlending,
       handleResendFromInfo,
       setCurrentInput,
+      setSourceImageForAnalysis,
+      setSourceImageForEditing,
+      showToast,
+    ]
+  );
+
+  // 直接重新发送消息（不填入输入框，直接请求AI，内部处理图片数据但不显示在UI上）
+  const handleDirectResend = useCallback(
+    async (message: ChatMessage, resendInfo: ResendInfo | null) => {
+      if (generationStatus.isGenerating) {
+        showToast("正在生成中，请稍候", "error");
+        return;
+      }
+
+      // 准备发送的内容
+      const rawContent = (message.content || "").trim();
+      if (!rawContent) {
+        showToast("没有可发送的内容", "error");
+        return;
+      }
+
+      // 🔥 立即增加待处理任务计数
+      setPendingTaskCount((prev) => prev + 1);
+
+      // 🔥 清空所有 UI 状态中的源图像，确保不会在对话框上方显示图片
+      clearImagesForBlending();
+      setSourceImageForEditing(null);
+      setSourceImageForAnalysis(null);
+
+      try {
+        // 根据 resendInfo 或消息内容判断类型，直接调用相应方法
+        if (resendInfo) {
+          if (resendInfo.type === "edit" && resendInfo.sourceImage) {
+            // 编辑图像：直接调用 editImage，不设置 UI 状态
+            await editImage(resendInfo.prompt, resendInfo.sourceImage, false);
+            showToast("已重新发送");
+            return;
+          } else if (resendInfo.type === "blend" && resendInfo.sourceImages?.length >= 2) {
+            // 融合图像：直接调用 blendImages，不设置 UI 状态
+            await blendImages(resendInfo.prompt, resendInfo.sourceImages);
+            showToast("已重新发送");
+            return;
+          }
+        }
+
+        // 检查消息中的图片数据
+        if (message.sourceImagesData && message.sourceImagesData.length >= 2) {
+          // 融合图像
+          const blendPrompt = extractPromptFromContent(rawContent, "融合图像") || rawContent;
+          await blendImages(blendPrompt, message.sourceImagesData);
+          showToast("已重新发送");
+          return;
+        }
+
+        if (message.sourceImageData) {
+          if (rawContent.startsWith("分析图片")) {
+            // 分析图像
+            const analyzePrompt = rawContent.replace(/^分析图片[：:]\s*/, "").trim() || rawContent;
+            await analyzeImage(analyzePrompt, message.sourceImageData);
+            showToast("已重新发送");
+            return;
+          } else {
+            // 编辑图像
+            const editPrompt = extractPromptFromContent(rawContent, "编辑图像") || rawContent;
+            await editImage(editPrompt, message.sourceImageData, false);
+            showToast("已重新发送");
+            return;
+          }
+        }
+
+        // 没有图片数据，发送纯文本
+        await processUserInput(rawContent);
+        showToast("已重新发送");
+      } catch (error) {
+        console.error("重新发送失败:", error);
+        showToast("重新发送失败", "error");
+      }
+    },
+    [
+      analyzeImage,
+      blendImages,
+      clearImagesForBlending,
+      editImage,
+      generationStatus.isGenerating,
+      processUserInput,
       setSourceImageForAnalysis,
       setSourceImageForEditing,
       showToast,
@@ -1409,14 +1500,15 @@ const AIChatDialog: React.FC = () => {
     const hasText = Boolean(
       message.content && message.content.trim().length > 0
     );
+    const isGenerating = generationStatus.isGenerating;
     return (
-      <div className='mt-2 flex items-center justify-end gap-2 text-[11px] text-gray-500'>
+      <div className='mt-1.5 flex items-center justify-start gap-1'>
         <button
           type='button'
           disabled={!hasText}
           className={cn(
-            "inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-transparent px-2.5 py-1 font-medium text-gray-700 transition-colors hover:bg-gray-50/50",
-            !hasText && "opacity-60 cursor-not-allowed hover:bg-transparent"
+            "p-1.5 rounded-md text-black transition-colors hover:bg-gray-100/50",
+            !hasText && "opacity-40 cursor-not-allowed hover:bg-transparent"
           )}
           onClick={(event) => {
             event.stopPropagation();
@@ -1424,22 +1516,43 @@ const AIChatDialog: React.FC = () => {
               void handleCopyMessage(message);
             }
           }}
-          title={hasText ? "复制这条消息内容" : "暂无可复制的文本"}
+          title={hasText ? "复制" : "暂无可复制的文本"}
         >
           <Copy className='h-3.5 w-3.5' />
-          <span>复制</span>
         </button>
         <button
           type='button'
-          className='inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-transparent px-2.5 py-1 font-medium text-gray-700 transition-colors hover:bg-gray-50/50'
+          disabled={!hasText || isGenerating}
+          className={cn(
+            "p-1.5 rounded-md text-black transition-colors hover:bg-gray-100/50",
+            (!hasText || isGenerating) && "opacity-40 cursor-not-allowed hover:bg-transparent"
+          )}
           onClick={(event) => {
             event.stopPropagation();
-            handleResendMessage(message, resendInfo);
+            if (hasText && !isGenerating) {
+              void handleDirectResend(message, resendInfo);
+            }
           }}
-          title='将内容重新填入输入框'
+          title={isGenerating ? "正在生成中" : "重新发送"}
         >
-          <History className='h-3.5 w-3.5' />
-          <span>重新发送</span>
+          <RotateCcw className='h-3.5 w-3.5' />
+        </button>
+        <button
+          type='button'
+          disabled={!hasText}
+          className={cn(
+            "p-1.5 rounded-md text-black transition-colors hover:bg-gray-100/50",
+            !hasText && "opacity-40 cursor-not-allowed hover:bg-transparent"
+          )}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hasText) {
+              handleResendMessage(message, resendInfo);
+            }
+          }}
+          title='重新编辑'
+        >
+          <Pencil className='h-3.5 w-3.5' />
         </button>
       </div>
     );
