@@ -100,6 +100,9 @@ const PROVIDER_MODE_OPTIONS: Partial<
   midjourney: BASE_MANUAL_MODE_OPTIONS,
 };
 
+// 彩色光晕特效开关（默认关闭，后续需要再开启）
+const ENABLE_CHAT_AURA = false;
+
 const MinimalGlobeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg
     viewBox='0 0 24 24'
@@ -2200,10 +2203,20 @@ const AIChatDialog: React.FC = () => {
   const generatingTaskCountForAura = messages.filter(
     (msg) => msg.type === "ai" && msg.generationStatus?.isGenerating
   ).length;
-  const hasActiveAuraForEffect = generatingTaskCountForAura > 0 && !isMaximized;
+  const hasActiveAuraForEffect =
+    ENABLE_CHAT_AURA && generatingTaskCountForAura > 0 && !isMaximized;
 
   // 控制彩雾挂载/卸载，避免静止状态出现
   useEffect(() => {
+    if (!ENABLE_CHAT_AURA) {
+      if (auraTimerRef.current) {
+        window.clearTimeout(auraTimerRef.current);
+        auraTimerRef.current = null;
+      }
+      setShowAura(false);
+      return;
+    }
+
     if (hasActiveAuraForEffect) {
       if (auraTimerRef.current) {
         window.clearTimeout(auraTimerRef.current);
@@ -2258,7 +2271,8 @@ const AIChatDialog: React.FC = () => {
   // 🔥 显示计数 = pendingTaskCount（包括未开始和生成中的任务）
   const _displayTaskCount = pendingTaskCount;
   // 🔥 回复状态背景：仅在任务进行中（生成阶段）时显示，最大化时暂停彩雾
-  const hasActiveAura = generatingTaskCount > 0 && !isMaximized;
+  const hasActiveAura =
+    ENABLE_CHAT_AURA && generatingTaskCount > 0 && !isMaximized;
 
   const sendShortcutHint =
     sendShortcut === "enter"
@@ -3348,11 +3362,10 @@ const AIChatDialog: React.FC = () => {
                     ) {
                       return (
                         <div
-                          className={`relative ${imageSize} rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden`}
+                          className={`ai-image-placeholder ${imageSize}`}
                         >
-                          <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
-                          <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-1 text-xs text-blue-600'>
-                            <Loader2 className='w-4 h-4 animate-spin text-blue-500' />
+                          <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-1 text-xs text-slate-500'>
+                            <Loader2 className='w-4 h-4 animate-spin text-slate-400' />
                             <span className='font-medium text-center px-1'>
                               {message.groupIndex !== undefined
                                 ? `${message.groupIndex + 1}/${
@@ -3362,7 +3375,7 @@ const AIChatDialog: React.FC = () => {
                             </span>
                             {typeof msgGenerationStatus?.progress ===
                               "number" && (
-                              <span className='text-[10px] text-blue-500'>
+                              <span className='text-[10px] text-slate-400'>
                                 {msgGenerationStatus.progress.toFixed(0)}%
                               </span>
                             )}
@@ -3863,17 +3876,16 @@ const AIChatDialog: React.FC = () => {
                                                   )}
                                                 </>
                                               ) : (
-                                                <div className='relative w-48 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden'>
-                                                  <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
-                                                  <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600'>
-                                                    <Loader2 className='w-5 h-5 animate-spin text-blue-500' />
+                                                <div className='ai-image-placeholder w-48 h-32'>
+                                                  <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-slate-500'>
+                                                    <Loader2 className='w-5 h-5 animate-spin text-slate-400' />
                                                     <span className='font-medium'>
                                                       {generationStatus?.stage ||
                                                         "正在生成视频"}
                                                     </span>
                                                     {typeof generationStatus?.progress ===
                                                       "number" && (
-                                                      <span className='text-[11px] text-blue-500'>
+                                                      <span className='text-[11px] text-slate-400'>
                                                         {generationStatus.progress.toFixed(
                                                           1
                                                         )}
@@ -3941,17 +3953,16 @@ const AIChatDialog: React.FC = () => {
                                                     if (!expectsImageOutput)
                                                       return null;
                                                     return (
-                                                      <div className='relative w-32 h-32 rounded-lg border border-dashed border-blue-200 bg-blue-50/60 overflow-hidden'>
-                                                        <div className='absolute inset-0 bg-gradient-to-br from-blue-100/80 via-white to-blue-50/80 animate-pulse' />
-                                                        <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-blue-600'>
-                                                          <Loader2 className='w-5 h-5 animate-spin text-blue-500' />
+                                                      <div className='ai-image-placeholder w-32 h-32'>
+                                                        <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-slate-500'>
+                                                          <Loader2 className='w-5 h-5 animate-spin text-slate-400' />
                                                           <span className='font-medium'>
                                                             {generationStatus?.stage ||
                                                               "正在生成图像"}
                                                           </span>
                                                           {typeof generationStatus?.progress ===
                                                             "number" && (
-                                                            <span className='text-[11px] text-blue-500'>
+                                                            <span className='text-[11px] text-slate-400'>
                                                               {generationStatus.progress.toFixed(
                                                                 1
                                                               )}

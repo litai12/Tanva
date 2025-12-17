@@ -60,3 +60,37 @@
     opacity: 0.9;
   }
 }
+
+/* 图像生成占位框样式 */
+.ai-image-placeholder {
+  position: relative;
+  border-radius: 0.5rem;
+  border: 1px dashed rgba(100, 116, 139, 0.4);
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.25) 0%, rgba(203, 213, 225, 0.35) 50%, rgba(148, 163, 184, 0.25) 100%);
+  overflow: hidden;
+}
+
+.ai-image-placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.6) 20%,
+    rgba(255, 255, 255, 0.9) 50%,
+    rgba(255, 255, 255, 0.6) 80%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: shimmerSweep 2s ease-in-out infinite;
+}
+
+@keyframes shimmerSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}

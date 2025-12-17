@@ -5585,10 +5585,6 @@ export const useAIChatStore = create<AIChatState>()(
         // 智能工具选择功能 - 统一入口（支持并行生成）
         processUserInput: async (input: string) => {
           const state = get();
-          const multiplier = state.autoModeMultiplier;
-
-          // 🔥 移除全局锁定检查，允许并行生成
-          // if (state.generationStatus.isGenerating) return;
 
           // 🧠 确保有活跃的会话并同步状态
           let sessionId =
@@ -5609,12 +5605,92 @@ export const useAIChatStore = create<AIChatState>()(
 
           get().refreshSessions();
 
-          // 🔥 不再设置全局生成状态，而是直接执行处理流程
-          // 每个消息会有自己的生成状态
+          // 🔥 第一步：先进行工具选择，判断用户意图
+          // 只有确定是图片相关操作后，才应用 multiplier
+          const manualMode = state.manualAIMode;
+          const manualToolMap: Record<ManualAIMode, AvailableTool | null> = {
+            auto: null,
+            text: "chatResponse",
+            generate: "generateImage",
+            edit: "editImage",
+            blend: "blendImages",
+            analyze: "analyzeImage",
+            video: "generateVideo",
+            vector: "generatePaperJS",
+          };
 
-          // 🔥 根据 multiplier 决定是单次还是并行生成
+          let selectedTool: AvailableTool | null = null;
+
+          // 如果是手动模式，直接使用对应工具
+          if (manualMode !== "auto") {
+            selectedTool = manualToolMap[manualMode];
+          } else {
+            // Auto 模式：先检查 PDF，再调用 AI 判断
+            if (state.sourcePdfForAnalysis) {
+              selectedTool = "analyzePdf";
+            } else {
+              // 调用 AI 进行工具选择
+              const cachedImage = contextManager.getCachedImage();
+              let explicitImageCount = 0;
+              if (state.sourceImagesForBlending.length > 0) {
+                explicitImageCount += state.sourceImagesForBlending.length;
+              }
+              if (state.sourceImageForEditing) {
+                explicitImageCount += 1;
+              }
+              if (state.sourceImageForAnalysis) {
+                explicitImageCount += 1;
+              }
+              const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
+              const toolSelectionContext = contextManager.buildContextPrompt(input);
+
+              const toolSelectionRequest = {
+                userInput: input,
+                hasImages: totalImageCount > 0,
+                imageCount: explicitImageCount,
+                hasCachedImage: !!cachedImage,
+                availableTools: [
+                  "generateImage",
+                  "editImage",
+                  "blendImages",
+                  "analyzeImage",
+                  "chatResponse",
+                  "generateVideo",
+                  "generatePaperJS",
+                ],
+                aiProvider: state.aiProvider,
+                context: toolSelectionContext,
+              };
+
+              try {
+                const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+                if (toolSelectionResult.success && toolSelectionResult.data) {
+                  selectedTool = toolSelectionResult.data.selectedTool as AvailableTool;
+                  console.log(`🎯 [工具选择] AI 选择了: ${selectedTool}`);
+                } else {
+                  console.warn("⚠️ 工具选择失败，默认使用 chatResponse");
+                  selectedTool = "chatResponse";
+                }
+              } catch (error) {
+                console.error("❌ 工具选择异常:", error);
+                selectedTool = "chatResponse";
+              }
+            }
+          }
+
+          // 🔥 第二步：根据选择的工具决定是否应用 multiplier
+          // 只有图片生成相关工具才支持并行生成
+          const imageGenerationTools: AvailableTool[] = ["generateImage", "editImage", "blendImages"];
+          const isImageGenerationTool = selectedTool && imageGenerationTools.includes(selectedTool);
+
+          const multiplier: AutoModeMultiplier =
+            isImageGenerationTool ? state.autoModeMultiplier : 1;
+
+          console.log(`🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}`);
+
+          // 🔥 第三步：根据 multiplier 决定是单次还是并行执行
           if (multiplier === 1) {
-            // 单次生成 - 原有逻辑
+            // 单次执行 - 使用完整的 executeProcessFlow（会跳过重复的工具选择）
             try {
               await get().executeProcessFlow(input, false);
             } catch (error) {
@@ -5649,12 +5725,12 @@ export const useAIChatStore = create<AIChatState>()(
               console.error("❌ 智能处理异常:", error);
             }
           } else {
-            // 🔥 并行生成 - 根据 multiplier 同时发起多个请求
+            // 🔥 并行生成 - 只有图片相关工具才会走到这里
             const groupId = `group-${Date.now()}-${Math.random()
               .toString(36)
               .slice(2, 6)}`;
             console.log(
-              `🚀 [并行生成] 开始并行生成 ${multiplier} 张图片，groupId: ${groupId}`
+              `🚀 [并行生成] 开始并行生成 ${multiplier} 张图片，groupId: ${groupId}, 工具: ${selectedTool}`
             );
 
             // 🔥 先创建用户消息，避免竞态条件
