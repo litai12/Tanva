@@ -288,6 +288,13 @@ input[type="text"],
   box-shadow: 0 0 0 10px rgba(15, 23, 42, 0.06);
 }
 
+/* 连接时的可视放大（拖拽接入/有效目标） */
+.tanva-flow-overlay .react-flow__handle-connecting::after,
+.tanva-flow-overlay .react-flow__handle-valid::after,
+.tanva-flow-overlay .react-flow__handle-connecting-target::after {
+  box-shadow: 0 0 0 12px rgba(15, 23, 42, 0.08);
+}
+
 /* 句柄颜色按连接类型（非 Beta 节点） */
 .tanva-flow-overlay
   .react-flow__node:not(.react-flow__node-generatePro):not(.react-flow__node-generatePro4)
