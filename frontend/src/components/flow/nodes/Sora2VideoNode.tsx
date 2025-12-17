@@ -51,15 +51,40 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
   const user = useAuthStore((state) => state.user);
   const isAdmin = user?.role === 'admin';
+  const sanitizeMediaUrl = React.useCallback((url?: string | null) => {
+    if (!url || typeof url !== 'string') return undefined;
+    const trimmed = url.trim();
+    if (!trimmed) return undefined;
+    // 处理被 Markdown 包裹的格式，例如 "https://xxx.webp](https://xxx.webp"
+    const markdownSplit = trimmed.split('](');
+    const candidate = markdownSplit.length > 1 ? markdownSplit[0] : trimmed;
+    // 进一步去除空格后附带的内容
+    const spaceIdx = candidate.indexOf(' ');
+    return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
+  }, []);
+  const sanitizedVideoUrl = React.useMemo(
+    () => sanitizeMediaUrl(data.videoUrl),
+    [data.videoUrl, sanitizeMediaUrl]
+  );
+  const sanitizedThumbnail = React.useMemo(
+    () => sanitizeMediaUrl(data.thumbnail),
+    [data.thumbnail, sanitizeMediaUrl]
+  );
   const cacheBustedVideoUrl = React.useMemo(() => {
-    if (!data.videoUrl) return undefined;
+    if (!sanitizedVideoUrl) return undefined;
     const version = Number(data.videoVersion || 0);
-    const separator = data.videoUrl.includes('?') ? '&' : '?';
-    return `${data.videoUrl}${separator}v=${version}&_ts=${Date.now()}`;
-  }, [data.videoUrl, data.videoVersion]);
+    const separator = sanitizedVideoUrl.includes('?') ? '&' : '?';
+    return `${sanitizedVideoUrl}${separator}v=${version}&_ts=${Date.now()}`;
+  }, [sanitizedVideoUrl, data.videoVersion]);
+
+  const handleMediaError = React.useCallback(() => {
+    window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
+      detail: { id, patch: { thumbnail: undefined, videoUrl: undefined } }
+    }));
+  }, [id]);
 
   React.useEffect(() => {
-    if (!videoRef.current || !data.videoUrl) return;
+    if (!videoRef.current || !sanitizedVideoUrl) return;
     try {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
@@ -67,7 +92,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     } catch (error) {
       console.warn('无法重置视频播放器', error);
     }
-  }, [cacheBustedVideoUrl, data.videoUrl]);
+  }, [cacheBustedVideoUrl, sanitizedVideoUrl]);
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
@@ -288,14 +313,14 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
       background: '#000'
     };
 
-    if (data.videoUrl) {
-      const videoSrc = cacheBustedVideoUrl || data.videoUrl;
+    if (sanitizedVideoUrl) {
+      const videoSrc = cacheBustedVideoUrl || sanitizedVideoUrl;
       return (
         <video
           key={`${videoSrc}-${data.videoVersion || 0}`}
           ref={videoRef}
           controls
-          poster={data.thumbnail}
+          poster={sanitizedThumbnail}
           style={commonMediaStyle}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
@@ -306,16 +331,17 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           onPointerDownCapture={handleMediaPointerDown}
           onMouseDownCapture={handleMediaPointerDown}
           onTouchStartCapture={handleMediaTouchStart}
+          onError={handleMediaError}
         >
           <source src={videoSrc} type="video/mp4" />
           您的浏览器不支持 video 标签
         </video>
       );
     }
-    if (data.thumbnail) {
+    if (sanitizedThumbnail) {
       return (
         <img
-          src={data.thumbnail}
+          src={sanitizedThumbnail}
           alt="video thumbnail"
           style={commonMediaStyle}
           onLoad={(e) => {
@@ -327,6 +353,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
           onPointerDownCapture={handleMediaPointerDown}
           onMouseDownCapture={handleMediaPointerDown}
           onTouchStartCapture={handleMediaTouchStart}
+          onError={handleMediaError}
         />
       );
     }
