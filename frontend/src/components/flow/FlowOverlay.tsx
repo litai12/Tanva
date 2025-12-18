@@ -526,6 +526,7 @@ function FlowInner() {
   // 获取当前工具模式
   const drawMode = useToolStore((state) => state.drawMode);
   const isPointerMode = drawMode === 'pointer' || drawMode === 'global-pointer';
+  const isFlowOnlyPointer = drawMode === 'pointer'; // 仅 Flow 指针模式（不包含顶层指针）
 
   const onNodesChangeWithHistory = React.useCallback((changes: any) => {
     onNodesChange(changes);
@@ -1322,7 +1323,7 @@ function FlowInner() {
 
   // 左键点击/拖动空白区域：单击居中，按住拖动平移
   React.useEffect(() => {
-    if (!isPointerMode) return;
+    if (!isFlowOnlyPointer) return;
 
     const stopPan = () => {
       if (!clickPanRef.current.dragging) return;
@@ -1402,7 +1403,7 @@ function FlowInner() {
       window.removeEventListener('blur', handleWindowBlur);
       stopPan();
     };
-  }, [isPointerMode, allowNativeScroll, recenterTo]);
+  }, [isFlowOnlyPointer, allowNativeScroll, recenterTo]);
 
   const handleWheelCapture = React.useCallback((event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
@@ -2925,7 +2926,7 @@ function FlowInner() {
   return (
     <div
       ref={containerRef}
-      className={`tanva-flow-overlay absolute inset-0 ${isPointerMode ? 'pointer-mode' : ''}`}
+      className={`tanva-flow-overlay absolute inset-0 ${isFlowOnlyPointer ? 'pointer-mode' : ''}`}
       onDoubleClick={handleContainerDoubleClick}
       onPointerDownCapture={() => clipboardService.setActiveZone('flow')}
     >
