@@ -753,8 +753,9 @@ export const useInteractionController = ({
       const currentZoom = Math.max(zoomRef.current ?? 1, 0.0001);
       const deltaX = (event.clientX - rect.left - spacePanDragRef.current.startScreen.x) * dpr;
       const deltaY = (event.clientY - rect.top - spacePanDragRef.current.startScreen.y) * dpr;
-      const worldDeltaX = -deltaX / currentZoom;
-      const worldDeltaY = -deltaY / currentZoom;
+      // 使画布跟随鼠标移动方向（鼠标向右拖，画布内容向右移动）
+      const worldDeltaX = deltaX / currentZoom;
+      const worldDeltaY = deltaY / currentZoom;
       try {
         const { setPan } = useCanvasStore.getState();
         setPan(spacePanDragRef.current.startPan.x + worldDeltaX, spacePanDragRef.current.startPan.y + worldDeltaY);

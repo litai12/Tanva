@@ -212,7 +212,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
-  const selectionMenuEnabled = false; // 暂时隐藏选择次级菜单，仅保留框选工具
+  const selectionMenuEnabled = true; // 启用选择次级菜单
   const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
   const isSelectionMode = drawMode === 'select' || drawMode === 'pointer' || drawMode === 'global-pointer';
@@ -850,13 +850,15 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
-            variant={showTemplatePanel ? 'default' : 'outline'}
+            variant="outline"
             size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(showTemplatePanel)
+              inactiveButtonStyle
             )}
-            onClick={handleToggleTemplatePanel}
+            onClick={() => {
+              alert('敬请期待');
+            }}
           >
             <LayoutTemplate className="w-4 h-4" />
           </Button>

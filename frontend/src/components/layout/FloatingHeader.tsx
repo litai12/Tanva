@@ -505,7 +505,7 @@ const FloatingHeader: React.FC = () => {
                                     className="h-7 px-2 text-xs text-gray-800 hover:text-gray-900 hover:bg-gray-800/10"
                                     onClick={() => {
                                         setIsSettingsOpen(false);
-                                        navigate('/my-credits');
+                                        window.open('/my-credits', '_blank');
                                     }}
                                 >
                                     详情
