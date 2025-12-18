@@ -22,6 +22,7 @@ import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { ossUploadService, dataURLToBlob } from "@/services/ossUploadService";
 import { createSafeStorage } from "@/stores/storageUtils";
+import { useAITaskStore } from "@/stores/aiTaskStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
@@ -2305,6 +2306,8 @@ export const useAIChatStore = create<AIChatState>()(
 
           const override = options?.override;
           let aiMessageId: string | undefined;
+          const taskStore = useAITaskStore.getState();
+          let taskId: string | null = null;
 
           if (override) {
             aiMessageId = override.aiMessageId;
@@ -4438,6 +4441,8 @@ export const useAIChatStore = create<AIChatState>()(
 
           const override = options?.override;
           let aiMessageId: string | undefined;
+          const taskStore = useAITaskStore.getState();
+          let taskId: string | null = null;
 
           if (override) {
             aiMessageId = override.aiMessageId;
@@ -4484,6 +4489,17 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
           logProcessStep(metrics, "generateTextResponse message prepared");
+
+          // 记录任务，便于切页/刷新后恢复状态
+          taskId = taskStore.startTask({
+            id: `chat-${aiMessageId}`,
+            kind: "chat",
+            payload: {
+              aiMessageId,
+              prompt,
+              mode: "text",
+            },
+          });
 
           try {
             // 🔥 使用消息级别的进度更新
@@ -4534,6 +4550,14 @@ export const useAIChatStore = create<AIChatState>()(
                 ),
               }));
 
+              if (taskId) {
+                taskStore.finishTask(taskId, {
+                  aiMessageId,
+                  type: "text",
+                  provider: state.aiProvider,
+                });
+              }
+
               // 同步到 contextManager
               const context = contextManager.getCurrentContext();
               if (context) {
@@ -4567,6 +4591,10 @@ export const useAIChatStore = create<AIChatState>()(
             });
 
             console.error("❌ 文本生成失败:", errorMessage);
+
+            if (taskId) {
+              taskStore.failTask(taskId, errorMessage);
+            }
             logProcessStep(metrics, "generateTextResponse failed");
           }
         },

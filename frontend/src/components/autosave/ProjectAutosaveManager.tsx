@@ -80,7 +80,6 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       if (useProjectContentStore.getState().projectId !== null) {
         setProject(null);
       }
-      try { useAIChatStore.getState().resetSessions(); } catch {}
       try { contextManager.clearImageCache(); } catch {}
       // 不再清空图片历史，保留跨文件的历史记录
       // try { useImageHistoryStore.getState().clearHistory(); } catch {}
@@ -107,8 +106,6 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         }
         clearAutoRefreshFlag(projectId);
         clearRuntimeState();
-        try { useAIChatStore.getState().resetSessions(); } catch {}
-
         hydrate(data.content, data.version, data.updatedAt ?? null);
         try {
           const chatStore = useAIChatStore.getState();
@@ -117,7 +114,8 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           if (sessions.length > 0) {
             chatStore.hydratePersistedSessions(sessions, activeSessionId, { markProjectDirty: false });
           } else {
-            chatStore.resetSessions();
+            // 保留现有会话，避免切页返回后对话丢失
+            chatStore.refreshSessions({ markProjectDirty: false });
           }
         } catch (error) {
           console.error('❌ 同步聊天会话失败:', error);

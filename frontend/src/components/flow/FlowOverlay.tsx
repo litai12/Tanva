@@ -42,10 +42,13 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
 import { useAIChatStore, getImageModelForProvider, uploadImageToOSS, requestSora2VideoGeneration, DEFAULT_SORA2_VIDEO_QUALITY } from '@/stores/aiChatStore';
 import type { Sora2VideoQuality } from '@/stores/aiChatStore';
+import { useAITaskStore } from '@/stores/aiTaskStore';
+import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
 import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI } from '@/services/aiBackendAPI';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -522,6 +525,7 @@ function FlowInner() {
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
   );
+  const imageHistoryStore = useImageHistoryStore();
 
   // 获取当前工具模式
   const drawMode = useToolStore((state) => state.drawMode);
@@ -2008,6 +2012,57 @@ function FlowInner() {
     if (!node) return;
 
     const currentEdges = rf.getEdges();
+    const taskStore = useAITaskStore.getState();
+    let taskId: string | null = null;
+
+    const markTaskStart = (
+      kind: "flow-image" | "flow-video",
+      payload: Record<string, unknown>
+    ) => {
+      taskId = taskStore.startTask({
+        id: `flow-${nodeId}-${Date.now()}`,
+        kind,
+        payload: {
+          ...payload,
+          nodeId,
+          nodeType: node.type,
+        },
+      });
+    };
+    const markTaskSuccess = (result?: Record<string, unknown>) => {
+      if (!taskId) return;
+      taskStore.finishTask(taskId, {
+        nodeId,
+        nodeType: node.type,
+        ...result,
+      });
+    };
+    const markTaskFail = (error?: string) => {
+      if (!taskId) return;
+      taskStore.failTask(taskId, error);
+    };
+
+    const persistImagesToHistory = async (images: string[], baseName: string) => {
+      if (!images.length) return;
+      const projectId = useProjectContentStore.getState().projectId;
+      for (let i = 0; i < images.length; i += 1) {
+        const img = images[i];
+        if (!img) continue;
+        try {
+          await recordImageHistoryEntry({
+            id: `${baseName}-${i}-${Date.now()}`,
+            base64: img,
+            title: `Flow节点 ${nodeId}`,
+            nodeId,
+            nodeType: node.type,
+            fileName: `${baseName}_${i + 1}.png`,
+            projectId,
+          });
+        } catch (err) {
+          console.warn("[Flow] 记录图片历史失败", err);
+        }
+      }
+    };
 
     const resolveImageData = (edge: Edge): string | undefined => {
       const srcNode = rf.getNode(edge.source);
@@ -2048,10 +2103,12 @@ function FlowInner() {
       const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
       if (!hasText) {
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
+        markTaskFail('缺少 TextPrompt 输入');
         return;
       }
       if (!promptText) {
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
+        markTaskFail('提示词为空');
         return;
       }
 
@@ -2083,6 +2140,7 @@ function FlowInner() {
             const uploaded = await uploadImageToOSS(dataUrl, projectId);
             if (!uploaded) {
               setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '参考图上传失败' } } : n));
+              markTaskFail('参考图上传失败');
               return;
             }
             referenceImageUrls.push(uploaded);
@@ -2090,12 +2148,20 @@ function FlowInner() {
         } catch (error) {
           const msg = error instanceof Error ? error.message : '参考图上传失败';
           setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+          markTaskFail(msg);
           return;
         }
       }
 
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
       const videoQuality = (node.data as any)?.videoQuality === 'sd' ? 'sd' : DEFAULT_SORA2_VIDEO_QUALITY;
+      markTaskStart('flow-video', {
+        prompt: finalPromptText,
+        quality: videoQuality,
+        aspectRatio: aspectRatioForAPI,
+        durationSeconds: durationSecondsForAPI,
+        referenceCount: referenceImageUrls.length,
+      });
 
       // 仅将受支持的取值传给后端（避免非法值导致请求失败）
       const aspectRatioForAPI =
@@ -2159,6 +2225,11 @@ function FlowInner() {
             }
           };
         }));
+        markTaskSuccess({
+          videoUrl: videoResult.videoUrl,
+          thumbnail: videoResult.thumbnailUrl,
+          taskId: videoResult.taskId,
+        });
       } catch (error) {
         console.warn('❌ [Flow] Sora2 video request failed', {
           nodeId,
@@ -2166,6 +2237,7 @@ function FlowInner() {
         });
         const msg = error instanceof Error ? error.message : '视频生成失败';
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+        markTaskFail(msg);
       }
       return;
     }
@@ -2182,6 +2254,7 @@ function FlowInner() {
 
     const failWithMessage = (message: string) => {
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: message } } : n));
+      markTaskFail(message);
     };
 
     let prompt = '';
@@ -2257,6 +2330,15 @@ function FlowInner() {
       const raw = (node.data as any)?.aspectRatio;
       return typeof raw === 'string' && raw.trim().length ? raw.trim() as AIImageGenerateRequest['aspectRatio'] : undefined;
     })();
+
+    markTaskStart('flow-image', {
+      prompt,
+      aspectRatio: aspectRatioValue,
+      hasImages: imageDatas.length,
+      aiProvider,
+      model: imageModel,
+      imageSize,
+    });
 
     if (node.type === 'generate4') {
       const total = Math.max(1, Math.min(4, Number((node.data as any)?.count) || 4));
@@ -2345,6 +2427,7 @@ function FlowInner() {
       }
 
       const hasAny = produced.filter(Boolean).length > 0;
+      const imageCount = produced.filter(Boolean).length;
       setNodes(ns => ns.map(n => n.id === nodeId ? {
         ...n,
         data: {
@@ -2354,6 +2437,12 @@ function FlowInner() {
           images: [...produced],
         }
       } : n));
+      void persistImagesToHistory(produced.filter(Boolean), `flow-${nodeId}-gen4`);
+      if (hasAny) {
+        markTaskSuccess({ mode: 'generate4', imageCount, images: [...produced] });
+      } else {
+        markTaskFail('全部生成失败');
+      }
       return;
     }
 
@@ -2447,7 +2536,8 @@ function FlowInner() {
         })
       );
 
-      const hasAny = produced.filter(Boolean).length > 0;
+      const successCount = produced.filter(Boolean).length;
+      const hasAny = successCount > 0;
       const errorMsg = errors.length > 0 ? errors.join('; ') : '全部生成失败';
       setNodes(ns => ns.map(n => n.id === nodeId ? {
         ...n,
@@ -2458,6 +2548,12 @@ function FlowInner() {
           images: [...produced],
         }
       } : n));
+      void persistImagesToHistory(produced.filter(Boolean), `flow-${nodeId}-genPro4`);
+      if (hasAny) {
+        markTaskSuccess({ mode: 'generatePro4', imageCount: successCount, errors, images: [...produced] });
+      } else {
+        markTaskFail(errorMsg);
+      }
       return;
     }
 
@@ -2500,6 +2596,7 @@ function FlowInner() {
       if (!result.success || !result.data) {
         const msg = result.error?.message || '执行失败';
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+        markTaskFail(msg);
         return;
       }
 
@@ -2527,12 +2624,110 @@ function FlowInner() {
             return n;
           }));
         }
+        void persistImagesToHistory([imgBase64], `flow-${nodeId}-single`);
       }
+      markTaskSuccess({ mode: 'generate-single', imageCount: imgBase64 ? 1 : 0, images: imgBase64 ? [imgBase64] : [] });
     } catch (err: any) {
       const msg = err?.message || String(err);
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+      markTaskFail(msg);
     }
   }, [aiProvider, imageModel, rf, setNodes, appendSora2History]);
+
+  // 挂载时尽力恢复节点的运行/结果状态，防止切页返回后用户看不到结果
+  React.useEffect(() => {
+    const projectId = useProjectContentStore.getState().projectId;
+    const tasks = useAITaskStore.getState().tasks;
+    const history = imageHistoryStore.history || [];
+
+    const findLatestImagesForNode = (nodeId: string): string[] => {
+      const entries = history
+        .filter(
+          (item) =>
+            item &&
+            item.nodeId === nodeId &&
+            (projectId ? item.projectId === projectId : true)
+        )
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      if (!entries.length) return [];
+      return entries
+        .slice(0, 4)
+        .map(
+          (item) =>
+            item.src ||
+            (item as any).base64 ||
+            (item as any).imageData ||
+            (item as any).thumbnail ||
+            ''
+        )
+        .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    };
+
+    setNodes((ns) =>
+      ns.map((n) => {
+        if (
+          n.type !== 'generate' &&
+          n.type !== 'generate4' &&
+          n.type !== 'generateRef' &&
+          n.type !== 'generatePro' &&
+          n.type !== 'generatePro4'
+        ) {
+          return n;
+        }
+
+        const relatedTasks = Object.values(tasks).filter(
+          (t) =>
+            (t.kind === 'flow-image' || t.kind === 'flow-video') &&
+            (t.payload as any)?.nodeId === n.id
+        );
+        const pendingTask = relatedTasks.find((t) => t.status === 'running');
+        if (pendingTask) {
+          return {
+            ...n,
+            data: { ...(n.data as any), status: 'running', error: undefined },
+          };
+        }
+
+        // 先用任务结果回填（任务里带有图片 base64）
+        const finishedTask = relatedTasks.find((t) => t.status === 'succeeded');
+        const taskImages =
+          (finishedTask?.result as any)?.images ||
+          (finishedTask?.result as any)?.imageData ||
+          [];
+        const imagesFromTask = Array.isArray(taskImages)
+          ? taskImages.filter((v) => typeof v === 'string' && v.length > 0)
+          : [];
+
+        const latestImages = imagesFromTask.length
+          ? imagesFromTask
+          : findLatestImagesForNode(n.id);
+
+        if (!latestImages.length) return n;
+
+        if (n.type === 'generate4' || n.type === 'generatePro4') {
+          return {
+            ...n,
+            data: {
+              ...(n.data as any),
+              status: 'succeeded',
+              images: latestImages.slice(0, 4),
+              error: undefined,
+            },
+          };
+        }
+
+        return {
+          ...n,
+          data: {
+            ...(n.data as any),
+            status: 'succeeded',
+            imageData: latestImages[0],
+            error: undefined,
+          },
+        };
+      })
+    );
+  }, [imageHistoryStore.history, setNodes]);
 
   // 定义稳定的onSend回调
   const onSendHandler = React.useCallback((id: string) => {
