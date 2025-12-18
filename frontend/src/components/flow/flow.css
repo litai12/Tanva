@@ -267,6 +267,23 @@ input[type="text"],
   border-radius: 8px;
 }
 
+.tanva-flow-overlay.global-pointer-mode {
+  cursor: default !important;
+}
+
+.tanva-flow-overlay.global-pointer-mode .react-flow__pane {
+  pointer-events: none !important;
+  cursor: default !important;
+}
+
+.tanva-flow-overlay.global-pointer-mode .react-flow__node {
+  cursor: pointer !important;
+}
+
+.tanva-flow-overlay.global-pointer-mode .react-flow__background {
+  pointer-events: none !important;
+}
+
 /* 统一句柄尺寸/交互（全部节点） */
 .tanva-flow-overlay .react-flow__handle {
   position: absolute; /* keep default positioning */

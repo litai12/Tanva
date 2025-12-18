@@ -637,7 +637,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
   const handleImageMoveBatch = useCallback((
     positions: Record<string, { x: number; y: number }>,
-    options?: { updateView?: boolean }
+    options?: { updateView?: boolean; commitState?: boolean; notify?: boolean }
   ) => {
     const updatedPositions: Record<string, { x: number; y: number }> = {};
     Object.entries(positions).forEach(([id, pos]) => {
@@ -653,20 +653,24 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     if (Object.keys(updatedPositions).length === 0) return;
 
-    setImageInstances(prev => prev.map(img => {
-      const nextPos = updatedPositions[img.id];
-      if (!nextPos) return img;
-      return {
-        ...img,
-        bounds: {
-          ...img.bounds,
-          x: nextPos.x,
-          y: nextPos.y
-        }
-      };
-    }));
+    const shouldCommitState = options?.commitState !== false;
+    if (shouldCommitState) {
+      setImageInstances(prev => prev.map(img => {
+        const nextPos = updatedPositions[img.id];
+        if (!nextPos) return img;
+        return {
+          ...img,
+          bounds: {
+            ...img.bounds,
+            x: nextPos.x,
+            y: nextPos.y
+          }
+        };
+      }));
+    }
 
-    if (eventHandlers.onImageMove) {
+    const shouldNotify = options?.notify !== false;
+    if (shouldNotify && eventHandlers.onImageMove) {
       Object.entries(updatedPositions).forEach(([id, pos]) => eventHandlers.onImageMove?.(id, pos));
     }
   }, [eventHandlers.onImageMove, updateImageGroupPosition, setImageInstances]);

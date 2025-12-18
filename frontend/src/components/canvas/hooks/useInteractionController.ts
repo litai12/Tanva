@@ -60,7 +60,10 @@ interface ImageTool {
   setImageDragState: (state: ImageDragState) => void;
   setImageResizeState: (state: ImageResizeState) => void;
   handleImageMove: (id: string, position: { x: number; y: number }, skipPaperUpdate?: boolean) => void;
-  handleImageMoveBatch?: (positions: Record<string, { x: number; y: number }>, options?: { updateView?: boolean }) => void;
+  handleImageMoveBatch?: (
+    positions: Record<string, { x: number; y: number }>,
+    options?: { updateView?: boolean; commitState?: boolean; notify?: boolean }
+  ) => void;
   handleImageResize: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
   createImagePlaceholder: (start: paper.Point, end: paper.Point) => void;
   // 可选：由图片工具暴露的选中集与删除方法
@@ -150,6 +153,9 @@ export const useInteractionController = ({
     paths: [],
     hasMoved: false
   });
+  const imageDragRafRef = useRef<number | null>(null);
+  const pendingImageDragPositionsRef = useRef<Record<string, { x: number; y: number }> | null>(null);
+  const lastImageDragPositionsRef = useRef<Record<string, { x: number; y: number }> | null>(null);
 
   // Refs to always read the latest tool states inside global event handlers
   const selectionToolRef = useRef(selectionTool);
@@ -741,8 +747,8 @@ export const useInteractionController = ({
       const currentZoom = Math.max(zoomRef.current ?? 1, 0.0001);
       const deltaX = (event.clientX - rect.left - spacePanDragRef.current.startScreen.x) * dpr;
       const deltaY = (event.clientY - rect.top - spacePanDragRef.current.startScreen.y) * dpr;
-      const worldDeltaX = deltaX / currentZoom;
-      const worldDeltaY = deltaY / currentZoom;
+      const worldDeltaX = -deltaX / currentZoom;
+      const worldDeltaY = -deltaY / currentZoom;
       try {
         const { setPan } = useCanvasStore.getState();
         setPan(spacePanDragRef.current.startPan.x + worldDeltaX, spacePanDragRef.current.startPan.y + worldDeltaY);
@@ -792,11 +798,24 @@ export const useInteractionController = ({
           };
         });
 
-        if (latestImageTool.handleImageMoveBatch) {
-          latestImageTool.handleImageMoveBatch(batchPositions);
-        } else {
-          Object.entries(batchPositions).forEach(([id, pos]) => latestImageTool.handleImageMove(id, pos, true));
-          try { paper.view.update(); } catch {}
+        pendingImageDragPositionsRef.current = batchPositions;
+        if (imageDragRafRef.current === null) {
+          imageDragRafRef.current = requestAnimationFrame(() => {
+            imageDragRafRef.current = null;
+            const pending = pendingImageDragPositionsRef.current;
+            pendingImageDragPositionsRef.current = null;
+            if (!pending) return;
+            lastImageDragPositionsRef.current = pending;
+
+            const tool = imageToolRef.current;
+            if (!tool) return;
+            if (tool.handleImageMoveBatch) {
+              tool.handleImageMoveBatch(pending, { commitState: true, notify: false });
+            } else {
+              Object.entries(pending).forEach(([id, pos]) => tool.handleImageMove(id, pos, true));
+              try { paper.view.update(); } catch {}
+            }
+          });
         }
 
         applyGroupPathDrag(point, 'image');
@@ -909,6 +928,28 @@ export const useInteractionController = ({
 
       // 处理图像拖拽结束
       if (latestImageTool.imageDragState.isImageDragging) {
+        if (imageDragRafRef.current !== null) {
+          cancelAnimationFrame(imageDragRafRef.current);
+          imageDragRafRef.current = null;
+        }
+        const pending = pendingImageDragPositionsRef.current;
+        pendingImageDragPositionsRef.current = null;
+        if (pending) {
+          if (latestImageTool.handleImageMoveBatch) {
+            latestImageTool.handleImageMoveBatch(pending, { commitState: true, notify: false });
+          } else {
+            Object.entries(pending).forEach(([id, pos]) => latestImageTool.handleImageMove(id, pos, true));
+            try { paper.view.update(); } catch {}
+          }
+          lastImageDragPositionsRef.current = pending;
+        }
+
+        const finalPositions = lastImageDragPositionsRef.current;
+        lastImageDragPositionsRef.current = null;
+        if (finalPositions && latestImageTool.handleImageMoveBatch) {
+          latestImageTool.handleImageMoveBatch(finalPositions, { updateView: false, commitState: true });
+        }
+
         latestImageTool.setImageDragState({
           isImageDragging: false,
           dragImageId: null,
@@ -1219,6 +1260,12 @@ export const useInteractionController = ({
       window.removeEventListener('mouseleave', handleMouseUp, { capture: true });
       document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('keyup', handleKeyUp, true);
+      if (imageDragRafRef.current !== null) {
+        cancelAnimationFrame(imageDragRafRef.current);
+        imageDragRafRef.current = null;
+      }
+      pendingImageDragPositionsRef.current = null;
+      lastImageDragPositionsRef.current = null;
     };
   }, [handleMouseDown, handleMouseMove, handleMouseUp, stopSpacePan, isSelectionLikeMode]);
 

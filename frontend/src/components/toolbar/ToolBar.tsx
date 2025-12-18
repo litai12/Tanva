@@ -212,11 +212,10 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
-  const selectionMenuEnabled = true; // 展开选择工具次级菜单，便于选择不同选择模式
+  const selectionMenuEnabled = false; // 暂时隐藏选择次级菜单，仅保留框选工具
   const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
   const isSelectionMode = drawMode === 'select' || drawMode === 'pointer' || drawMode === 'global-pointer';
-  const isGlobalPointer = drawMode === 'global-pointer';
 
   const { toggleDialog, isVisible: isAIDialogVisible, isMaximized: isAIChatMaximized, setSourceImageForEditing, showDialog } = useAIChatStore();
 
@@ -239,6 +238,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       setSelectionMenuOpen(false);
     }
   }, [drawMode, isSelectionMode]);
+
+  React.useEffect(() => {
+    if (!selectionMenuEnabled && (drawMode === 'pointer' || drawMode === 'global-pointer')) {
+      setDrawMode('select');
+    }
+  }, [drawMode, selectionMenuEnabled, setDrawMode]);
 
   // 自动关闭绘制菜单：当离开绘制相关模式或启用橡皮擦时
   React.useEffect(() => {
@@ -421,33 +426,18 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               getActiveButtonStyle(isSelectionMode)
             )}
             onClick={() => {
-                if (!isSelectionMode) {
+                if (drawMode !== 'select') {
                   setDrawMode('select');
                   logger.tool('工具栏主按钮：切换到框选工具');
-                  selectionMenuEnabled && setSelectionMenuOpen(true);
-                } else if (selectionMenuEnabled) {
-                  setSelectionMenuOpen((prev) => !prev);
-                } else if (drawMode !== 'select') {
-                  setDrawMode('select');
                 }
                 setDrawingMenuOpen(false);
             }}
           >
-            {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
-            {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
-            {drawMode === 'global-pointer' && <MousePointerClick className="w-4 h-4" />}
-            {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
-              {!isSelectionMode && <DashedSelectIcon className="w-4 h-4" />}
+            <DashedSelectIcon className="w-4 h-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {drawMode === 'select'
-              ? '框选工具'
-              : drawMode === 'pointer'
-              ? 'Flow 节点选择'
-              : isGlobalPointer
-              ? '顶层鼠标（Flow + Canvas）'
-              : '点击切换到框选工具'}
+            框选工具
           </TooltipContent>
         </Tooltip>
 

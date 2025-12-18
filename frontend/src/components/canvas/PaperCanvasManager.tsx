@@ -37,6 +37,55 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       paper.view.onMouseUp = null;
     }
 
+    // 统一限制 paper.view.update 最大刷新率（~60fps），避免高刷新屏幕或高频事件导致过度刷新
+    const installViewUpdateLimiter = () => {
+      const view = paper.view as any;
+      if (!view || view.__tanvaUpdateLimited) return;
+      const originalUpdate = view.update?.bind(view);
+      if (typeof originalUpdate !== 'function') return;
+
+      const FRAME_INTERVAL = 1000 / 60; // 约 16.7ms
+      let lastUpdateTime = 0;
+      let rafId: number | null = null;
+      let pending = false;
+
+      const run = (timestamp: number) => {
+        rafId = null;
+        // 如果时间未到阈值，再排一次 rAF，确保上限 60fps
+        if (timestamp - lastUpdateTime < FRAME_INTERVAL) {
+          rafId = requestAnimationFrame(run);
+          return;
+        }
+        lastUpdateTime = timestamp;
+        pending = false;
+        try {
+          originalUpdate();
+        } catch {}
+      };
+
+      view.update = () => {
+        const now = performance.now();
+        // 距离上次超过阈值：立即执行一次，保持单次调用的即时性
+        if (!pending && now - lastUpdateTime >= FRAME_INTERVAL) {
+          lastUpdateTime = now;
+          try { originalUpdate(); } catch {}
+          return;
+        }
+        // 已有排队则直接复用
+        if (pending) return;
+        pending = true;
+        if (rafId === null) {
+          rafId = requestAnimationFrame(run);
+        }
+      };
+
+      // 暴露原始更新接口，必要时可强制同步刷新
+      view.updateImmediate = originalUpdate;
+      view.__tanvaUpdateLimited = true;
+    };
+
+    installViewUpdateLimiter();
+
     let isInitialized = false;
     
     const resizeCanvas = () => {

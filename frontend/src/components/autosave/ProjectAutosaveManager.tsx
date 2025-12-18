@@ -51,6 +51,29 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     throw lastError;
   };
 
+  /**
+   * 加载失败时自动刷新一次（同一项目同一标签页仅触发一次）
+   */
+  const autoRefreshOnceOnFailure = (targetProjectId: string): boolean => {
+    if (typeof window === 'undefined') return false;
+    const key = `tanva_autoreload_fail_${targetProjectId}`;
+    try {
+      if (window.sessionStorage.getItem(key)) return false;
+      window.sessionStorage.setItem(key, '1');
+      window.setTimeout(() => window.location.reload(), 300);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const clearAutoRefreshFlag = (targetProjectId: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.removeItem(`tanva_autoreload_fail_${targetProjectId}`);
+    } catch {}
+  };
+
   useEffect(() => {
     if (!projectId) {
       paperSaveService.cancelPending();
@@ -82,6 +105,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         if (useProjectContentStore.getState().projectId !== projectId) {
           setProject(projectId);
         }
+        clearAutoRefreshFlag(projectId);
         clearRuntimeState();
         try { useAIChatStore.getState().resetSessions(); } catch {}
 
@@ -161,7 +185,13 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         if (cancelled) return;
         // 不再用空内容覆盖当前画布，避免“闪一下又消失”
         const msg = err?.message || '加载项目内容失败';
-        setError(msg);
+        if (typeof msg === 'string' && msg.includes('项目不存在')) {
+          setError(msg);
+        } else if (autoRefreshOnceOnFailure(projectId)) {
+          return;
+        } else {
+          setError(msg);
+        }
 
         // 若后端提示项目不存在，做容错处理：
         // - 清理无效的 projectId URL 参数

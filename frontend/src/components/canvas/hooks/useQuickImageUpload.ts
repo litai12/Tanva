@@ -672,6 +672,38 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         });
 
         paper.view.update();
+
+        // 🎯 自动将视角平移到占位框位置，确保用户能看到正在生成的图片
+        try {
+            const viewBounds = paper.view.bounds;
+            const placeholderBounds = new paper.Rectangle(
+                centerPoint.x - halfW,
+                centerPoint.y - halfH,
+                width,
+                height
+            );
+
+            // 检查占位框是否在当前视口内
+            const isInView = viewBounds && viewBounds.intersects(placeholderBounds);
+
+            if (!isInView) {
+                // 占位框不在视口内，自动平移视角到占位框中心
+                const { zoom: currentZoom, setPan } = useCanvasStore.getState();
+                const viewSize = paper.view.viewSize;
+                const screenCenterX = viewSize.width / 2;
+                const screenCenterY = viewSize.height / 2;
+
+                // 计算需要的平移量，使占位框中心位于屏幕中心
+                const desiredPanX = (screenCenterX / currentZoom) - centerPoint.x;
+                const desiredPanY = (screenCenterY / currentZoom) - centerPoint.y;
+
+                setPan(desiredPanX, desiredPanY);
+                logger.debug(`🎯 自动聚焦视角到占位框: (${centerPoint.x.toFixed(1)}, ${centerPoint.y.toFixed(1)})`);
+            }
+        } catch (e) {
+            // 忽略自动聚焦错误，不影响主流程
+            console.warn('自动聚焦视角失败:', e);
+        }
     }, [calculateSmartPosition, ensureDrawingLayer, findNonOverlappingPosition, removePredictedPlaceholder, upsertPendingImage]);
 
     // ========== 查找画布中的图片占位框 ==========

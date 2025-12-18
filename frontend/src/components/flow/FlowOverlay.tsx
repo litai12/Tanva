@@ -1230,7 +1230,7 @@ function FlowInner() {
     return false;
   }, []);
 
-  // 将任意屏幕坐标居中到视口
+  // 将任意屏幕坐标居中到视口（Flow/Canvas 共用 pan/zoom）
   const recenterTo = React.useCallback((clientX: number, clientY: number) => {
     const store = useCanvasStore.getState();
     const canvas = (paper?.view?.element as HTMLCanvasElement | undefined) || null;
@@ -1321,7 +1321,7 @@ function FlowInner() {
     };
   }, [allowNativeScroll]);
 
-  // 左键点击/拖动空白区域：单击居中，按住拖动平移
+  // 左键拖动平移；双击居中（在单独的双击处理里）
   React.useEffect(() => {
     if (!isFlowOnlyPointer) return;
 
@@ -1352,10 +1352,7 @@ function FlowInner() {
       clickPanRef.current.lastX = event.clientX;
       clickPanRef.current.lastY = event.clientY;
 
-      if (container) container.style.cursor = 'grabbing';
-
-      // 单击时立即将点击点移到视图中心
-      recenterTo(event.clientX, event.clientY);
+      container.style.cursor = 'grabbing';
       try { useCanvasStore.getState().setDragging(true); } catch {}
     };
 
@@ -1368,6 +1365,11 @@ function FlowInner() {
         const totalDy = event.clientY - clickPanRef.current.startY;
         if (Math.hypot(totalDx, totalDy) > 2) {
           clickPanRef.current.moved = true;
+        } else {
+          // 未达阈值时仅更新基准，避免微小抖动触发平移
+          clickPanRef.current.lastX = event.clientX;
+          clickPanRef.current.lastY = event.clientY;
+          return;
         }
       }
       if (dx === 0 && dy === 0) return;
@@ -1378,8 +1380,8 @@ function FlowInner() {
       const store = useCanvasStore.getState();
       const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
       const zoom = store.zoom || 1;
-      const worldDeltaX = (dx * dpr) / zoom;
-      const worldDeltaY = (dy * dpr) / zoom;
+      const worldDeltaX = (-dx * dpr) / zoom;
+      const worldDeltaY = (-dy * dpr) / zoom;
       store.setPan(store.panX + worldDeltaX, store.panY + worldDeltaY);
     };
 
@@ -1403,7 +1405,7 @@ function FlowInner() {
       window.removeEventListener('blur', handleWindowBlur);
       stopPan();
     };
-  }, [isFlowOnlyPointer, allowNativeScroll, recenterTo]);
+  }, [isFlowOnlyPointer, allowNativeScroll]);
 
   const handleWheelCapture = React.useCallback((event: WheelEvent | React.WheelEvent<HTMLDivElement>) => {
     if (!containerRef.current) return;
@@ -2759,8 +2761,18 @@ function FlowInner() {
   }, [addPanel.visible]);
 
   const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isBlankArea(e.clientX, e.clientY)) openAddPanelAt(e.clientX, e.clientY, { tab: 'nodes', allowedTabs: ['nodes', 'beta', 'custom'] });
-  }, [openAddPanelAt, isBlankArea]);
+    if (allowNativeScroll(e.target)) return;
+
+    // 在 pointer 模式下，双击即居中
+    if (isFlowOnlyPointer) {
+      recenterTo(e.clientX, e.clientY);
+      return;
+    }
+
+    if (isBlankArea(e.clientX, e.clientY)) {
+      openAddPanelAt(e.clientX, e.clientY, { tab: 'nodes', allowedTabs: ['nodes', 'beta', 'custom'] });
+    }
+  }, [allowNativeScroll, isFlowOnlyPointer, recenterTo, openAddPanelAt, isBlankArea]);
 
   const commitEdgeLabelValue = React.useCallback((edgeId: string, value: string) => {
     const trimmed = value.trim();
@@ -2926,7 +2938,7 @@ function FlowInner() {
   return (
     <div
       ref={containerRef}
-      className={`tanva-flow-overlay absolute inset-0 ${isFlowOnlyPointer ? 'pointer-mode' : ''}`}
+      className={`tanva-flow-overlay absolute inset-0 ${isFlowOnlyPointer ? 'pointer-mode' : ''} ${drawMode === 'global-pointer' ? 'global-pointer-mode' : ''}`}
       onDoubleClick={handleContainerDoubleClick}
       onPointerDownCapture={() => clipboardService.setActiveZone('flow')}
     >
@@ -2956,8 +2968,8 @@ function FlowInner() {
         zoomOnScroll={false}
         zoomOnPinch={false}
         zoomOnDoubleClick={false}
-        selectionOnDrag={isPointerMode}
-        selectNodesOnDrag={!isPointerMode}
+        selectionOnDrag={isFlowOnlyPointer}
+        selectNodesOnDrag={!isFlowOnlyPointer}
         nodesDraggable={true}
         nodesConnectable={!isPointerMode}
         multiSelectionKeyCode={isPointerMode ? null : ['Meta', 'Control']}
