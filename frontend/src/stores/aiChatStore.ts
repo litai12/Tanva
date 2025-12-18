@@ -5344,6 +5344,10 @@ export const useAIChatStore = create<AIChatState>()(
             // 📄 检测是否有 PDF 文件需要分析
             if (state.sourcePdfForAnalysis) {
               selectedTool = "analyzePdf";
+            } else if (state.sourceImagesForBlending.length >= 2) {
+              // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
+              selectedTool = "blendImages";
+              logProcessStep(metrics, "multi-image detected, using blendImages");
             } else {
               // 完全靠 AI 来判断工具选择，包括矢量图生成
               logProcessStep(metrics, "tool selection start");
