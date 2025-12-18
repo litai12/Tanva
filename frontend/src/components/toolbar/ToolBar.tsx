@@ -212,7 +212,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
-  const selectionMenuEnabled = true; // 启用选择次级菜单
+  const selectionMenuEnabled = false; // 统一选择模式：select 可同时选择 Canvas 元素和 Flow 节点，无需次级菜单
   const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
   const isSelectionMode = drawMode === 'select' || drawMode === 'pointer' || drawMode === 'global-pointer';
@@ -426,9 +426,9 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               getActiveButtonStyle(isSelectionMode)
             )}
             onClick={() => {
-                if (drawMode !== 'select') {
+                if (!isSelectionMode) {
                   setDrawMode('select');
-                  logger.tool('工具栏主按钮：切换到框选工具');
+                  logger.tool('工具栏主按钮：切换到选择工具');
                 }
                 setDrawingMenuOpen(false);
             }}
@@ -437,7 +437,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            框选工具
+            选择工具
           </TooltipContent>
         </Tooltip>
 

@@ -1979,6 +1979,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const active = document.activeElement as Element | null;
         if (isEditableElement(active) || editingTextId) return;
 
+        // 若当前剪贴板激活区为 Flow，且事件不是从画布冒泡上来，则让 Flow 处理
+        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        const canvas = canvasRef.current;
+        const fromCanvas = !!canvas && path.includes(canvas);
+        const zone = clipboardService.getZone();
+        if (zone !== 'canvas' && !fromCanvas) return;
+
         const handled = handleCanvasCopy();
         if (!handled) return;
 
@@ -2031,7 +2038,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       if (isEditable || editingTextId) return;
 
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const canvas = canvasRef.current;
+      const fromCanvas = !!canvas && path.includes(canvas);
+      const zone = clipboardService.getZone();
+
       if (isCopy) {
+        if (zone !== 'canvas' && !fromCanvas) return;
         const handled = handleCanvasCopy();
         if (handled) {
           // 继续让浏览器触发原生 copy 事件以写入系统剪贴板
@@ -2040,6 +2053,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       if (isPaste) {
+        if (zone !== 'canvas' && !fromCanvas) return;
         const handled = handleCanvasPaste();
         if (handled) {
           event.preventDefault();

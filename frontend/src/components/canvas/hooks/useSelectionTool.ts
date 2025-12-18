@@ -205,10 +205,20 @@ export const useSelectionTool = ({
       selectionBoxRef.current = null;
     }
 
-    // 先清除所有之前的选择
+    // 先清除所有之前的选择（包括节点）
     onImageDeselect();
     onModel3DDeselect();
     onTextDeselect?.();
+    
+    // 清除 React Flow 节点选择
+    try {
+      const tanvaFlow = (window as any).tanvaFlow;
+      if (tanvaFlow?.deselectAllNodes) {
+        tanvaFlow.deselectAllNodes();
+      }
+    } catch (error) {
+      console.warn('清除节点选择失败:', error);
+    }
 
     // 创建选择区域
     const selectionRect = new paper.Rectangle(selectionStartPoint, endPoint);
@@ -218,6 +228,7 @@ export const useSelectionTool = ({
     const selectedImages: string[] = [];
     const selectedModels: string[] = [];
     const selectedTexts: string[] = [];
+    const selectedNodeIds: string[] = [];
 
     // 检查图片实例是否与选择框相交
     for (const image of imageInstances) {
@@ -320,6 +331,44 @@ export const useSelectionTool = ({
     // 路径已经在上面处理过了
     totalSelected += selectedPathsInBox.length;
 
+    // 检查并选择 React Flow 节点
+    try {
+      const tanvaFlow = (window as any).tanvaFlow;
+      if (tanvaFlow?.selectNodesInBox && paper.view) {
+        // 将 Paper.js 坐标转换为屏幕坐标（相对于视口的坐标）
+        const dpr = window.devicePixelRatio || 1;
+        const topLeftView = paper.view.projectToView(selectionStartPoint);
+        const bottomRightView = paper.view.projectToView(endPoint);
+        
+        // 确保坐标顺序正确
+        const viewX = Math.min(topLeftView.x, bottomRightView.x) / dpr;
+        const viewY = Math.min(topLeftView.y, bottomRightView.y) / dpr;
+        const viewWidth = Math.abs(bottomRightView.x - topLeftView.x) / dpr;
+        const viewHeight = Math.abs(bottomRightView.y - topLeftView.y) / dpr;
+        
+        // 获取画布元素的位置，转换为全局屏幕坐标
+        const canvas = paper.view.element as HTMLCanvasElement;
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          const screenRect = {
+            x: viewX + rect.left,
+            y: viewY + rect.top,
+            width: viewWidth,
+            height: viewHeight
+          };
+          
+          const nodeIds = tanvaFlow.selectNodesInBox(screenRect);
+          selectedNodeIds.push(...nodeIds);
+          if (nodeIds.length > 0) {
+            logger.upload(`选择框选中${nodeIds.length}个节点: ${nodeIds.join(', ')}`);
+            totalSelected += nodeIds.length;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('选择节点失败:', error);
+    }
+
     // 输出总计
     if (totalSelected > 0) {
       logger.debug(`框选完成：总共选中 ${totalSelected} 个元素`);
@@ -354,6 +403,16 @@ export const useSelectionTool = ({
     onModel3DDeselect();
     onImageDeselect();
     onTextDeselect?.();
+    
+    // 清除 React Flow 节点选择
+    try {
+      const tanvaFlow = (window as any).tanvaFlow;
+      if (tanvaFlow?.deselectAllNodes) {
+        tanvaFlow.deselectAllNodes();
+      }
+    } catch (error) {
+      console.warn('清除节点选择失败:', error);
+    }
 
     // 强制更新Paper.js视图，确保所有视觉状态同步
     paper.view.update();

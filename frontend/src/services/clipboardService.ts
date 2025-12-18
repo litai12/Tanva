@@ -31,34 +31,35 @@ export interface FlowClipboardData {
   origin: { x: number; y: number };
 }
 
-type ClipboardPayload =
-  | { type: 'canvas'; data: CanvasClipboardData; timestamp: number }
-  | { type: 'flow'; data: FlowClipboardData; timestamp: number };
-
 class ClipboardService {
-  private payload: ClipboardPayload | null = null;
+  private canvasPayload: { data: CanvasClipboardData; timestamp: number } | null = null;
+  private flowPayload: { data: FlowClipboardData; timestamp: number } | null = null;
   private activeZone: ClipboardZone | null = null;
 
   setCanvasData(data: CanvasClipboardData) {
-    this.payload = { type: 'canvas', data, timestamp: Date.now() };
+    this.canvasPayload = { data, timestamp: Date.now() };
     this.activeZone = 'canvas';
   }
 
   setFlowData(data: FlowClipboardData) {
-    this.payload = { type: 'flow', data, timestamp: Date.now() };
+    this.flowPayload = { data, timestamp: Date.now() };
     this.activeZone = 'flow';
   }
 
   getCanvasData(): CanvasClipboardData | null {
-    return this.payload?.type === 'canvas' ? this.payload.data : null;
+    return this.canvasPayload?.data ?? null;
   }
 
   getFlowData(): FlowClipboardData | null {
-    return this.payload?.type === 'flow' ? this.payload.data : null;
+    return this.flowPayload?.data ?? null;
   }
 
   getZone(): ClipboardZone | null {
-    return this.activeZone ?? (this.payload?.type ?? null);
+    if (this.activeZone) return this.activeZone;
+    const canvasTs = this.canvasPayload?.timestamp ?? 0;
+    const flowTs = this.flowPayload?.timestamp ?? 0;
+    if (!canvasTs && !flowTs) return null;
+    return canvasTs >= flowTs ? 'canvas' : 'flow';
   }
 
   setActiveZone(zone: ClipboardZone | null) {
@@ -66,7 +67,8 @@ class ClipboardService {
   }
 
   clear() {
-    this.payload = null;
+    this.canvasPayload = null;
+    this.flowPayload = null;
     this.activeZone = null;
   }
 }

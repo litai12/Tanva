@@ -738,18 +738,17 @@ function FlowInner() {
 
       const anySelected = rf.getNodes().some((n: any) => n.selected);
       const canPasteFlow = !!clipboardService.getFlowData();
-
-      // 若当前处于画布激活，但 Flow 有选中/可粘贴，则切换到 Flow
-      if ((isCopy && anySelected) || (isPaste && canPasteFlow)) {
-        clipboardService.setActiveZone('flow');
-      } else if (clipboardService.getZone() !== 'flow') {
-        return;
-      }
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const fromFlowOverlay = path.some((el) =>
+        el instanceof Element && el.classList?.contains('tanva-flow-overlay')
+      );
+      const currentZone = clipboardService.getZone();
 
       if (isCopy) {
+        if (!anySelected) return;
+        clipboardService.setActiveZone('flow');
         const handled = handleCopyFlow();
         if (handled) {
-          clipboardService.setActiveZone('flow');
           event.preventDefault();
           event.stopPropagation();
         }
@@ -757,6 +756,12 @@ function FlowInner() {
       }
 
       if (isPaste) {
+        // 仅在 Flow 区域或当前 zone 为 Flow 时切换，避免抢占画布粘贴图片
+        if (fromFlowOverlay || currentZone === 'flow') {
+          clipboardService.setActiveZone('flow');
+        } else {
+          return;
+        }
         // 粘贴逻辑改为在 clipboard/paste 事件中处理，以便检测剪贴板里是否有图片
         return;
       }
@@ -2829,10 +2834,93 @@ function FlowInner() {
           return true;
         }
         return false;
-      }
+      },
+      // 暴露 React Flow 实例，用于框选工具选择节点
+      selectNodesInBox: (screenRect: { x: number; y: number; width: number; height: number }) => {
+        try {
+          const allNodes = rf.getNodes();
+          const selectedNodeIds: string[] = [];
+          
+          // 获取 Flow 容器的位置
+          const container = containerRef.current;
+          if (!container) return [];
+          
+          // 将屏幕坐标转换为相对于 Flow 容器的坐标
+          const containerRect = container.getBoundingClientRect();
+          const relativeX = screenRect.x - containerRect.left;
+          const relativeY = screenRect.y - containerRect.top;
+          
+          // 将屏幕坐标的选择框转换为 Flow 坐标
+          const topLeft = rf.screenToFlowPosition({ x: relativeX, y: relativeY });
+          const bottomRight = rf.screenToFlowPosition({ 
+            x: relativeX + screenRect.width, 
+            y: relativeY + screenRect.height 
+          });
+          
+          // 确保坐标顺序正确
+          const minX = Math.min(topLeft.x, bottomRight.x);
+          const maxX = Math.max(topLeft.x, bottomRight.x);
+          const minY = Math.min(topLeft.y, bottomRight.y);
+          const maxY = Math.max(topLeft.y, bottomRight.y);
+          
+          // 检查每个节点是否在选择框内
+          for (const node of allNodes) {
+            const nodeX = node.position?.x ?? 0;
+            const nodeY = node.position?.y ?? 0;
+            
+            // 获取节点的实际大小，优先使用 data 中的 boxW/boxH，然后是 width/height
+            // 这些值在节点渲染后应该总是存在的
+            const nodeWidth = node.data?.boxW ?? node.width ?? 150;
+            const nodeHeight = node.data?.boxH ?? node.height ?? 100;
+            
+            // 计算节点的边界（在 Flow 坐标系中）
+            const nodeLeft = nodeX;
+            const nodeRight = nodeX + nodeWidth;
+            const nodeTop = nodeY;
+            const nodeBottom = nodeY + nodeHeight;
+            
+            // 检查节点是否与选择框相交（只要有任何重叠就选中）
+            // 这样可以选中被选择框包围的节点，或者与选择框有重叠的节点
+            // 使用宽松的相交检测，只要节点与选择框有任何重叠就选中
+            const isIntersecting = (
+              nodeLeft < maxX &&
+              nodeRight > minX &&
+              nodeTop < maxY &&
+              nodeBottom > minY
+            );
+            
+            if (isIntersecting) {
+              selectedNodeIds.push(node.id);
+            }
+          }
+          
+          // 更新节点选择状态
+          if (selectedNodeIds.length > 0) {
+            setNodes((prevNodes) =>
+              prevNodes.map((node) => ({
+                ...node,
+                selected: selectedNodeIds.includes(node.id),
+              }))
+            );
+          }
+          
+          return selectedNodeIds;
+        } catch (error) {
+          console.warn('选择节点失败:', error);
+          return [];
+        }
+      },
+      // 取消选择所有节点
+      deselectAllNodes: () => {
+        setNodes((prevNodes) =>
+          prevNodes.map((node) => ({ ...node, selected: false }))
+        );
+      },
+      // 暴露 React Flow 实例（用于坐标转换等）
+      rf: rf
     };
     return () => { delete (window as any).tanvaFlow; };
-  }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
+  }, [setNodes, setEdges, isValidConnection, canAcceptConnection, rf, containerRef]);
 
   const addAtCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generate4' | 'generateRef' | 'analysis') => {
     const rect = containerRef.current?.getBoundingClientRect();
