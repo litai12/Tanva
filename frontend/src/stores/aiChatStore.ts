@@ -5324,6 +5324,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 根据手动模式或AI选择工具
           const manualMode = state.manualAIMode;
+          const hasBlendSources = state.sourceImagesForBlending.length >= 2;
           const manualToolMap: Record<ManualAIMode, AvailableTool | null> = {
             auto: null,
             text: "chatResponse",
@@ -5338,16 +5339,19 @@ export const useAIChatStore = create<AIChatState>()(
           let selectedTool: AvailableTool | null = null;
           let parameters: { prompt: string } = { prompt: input };
 
-          if (manualMode !== "auto") {
+          if (hasBlendSources) {
+            // 🖼️ 多图强制使用融合模式，避免 AI 或手动模式误选 editImage
+            selectedTool = "blendImages";
+            logProcessStep(
+              metrics,
+              "multi-image detected, force using blendImages"
+            );
+          } else if (manualMode !== "auto") {
             selectedTool = manualToolMap[manualMode];
           } else {
             // 📄 检测是否有 PDF 文件需要分析
             if (state.sourcePdfForAnalysis) {
               selectedTool = "analyzePdf";
-            } else if (state.sourceImagesForBlending.length >= 2) {
-              // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
-              selectedTool = "blendImages";
-              logProcessStep(metrics, "multi-image detected, using blendImages");
             } else {
               // 完全靠 AI 来判断工具选择，包括矢量图生成
               logProcessStep(metrics, "tool selection start");
@@ -5640,6 +5644,7 @@ export const useAIChatStore = create<AIChatState>()(
           // 🔥 第一步：先进行工具选择，判断用户意图
           // 只有确定是图片相关操作后，才应用 multiplier
           const manualMode = state.manualAIMode;
+          const hasBlendSources = state.sourceImagesForBlending.length >= 2;
           const manualToolMap: Record<ManualAIMode, AvailableTool | null> = {
             auto: null,
             text: "chatResponse",
@@ -5653,8 +5658,12 @@ export const useAIChatStore = create<AIChatState>()(
 
           let selectedTool: AvailableTool | null = null;
 
-          // 如果是手动模式，直接使用对应工具
-          if (manualMode !== "auto") {
+          // 多图时强制融合优先级最高，避免被手动模式或 AI 判断覆盖
+          if (hasBlendSources) {
+            selectedTool = "blendImages";
+            console.log("🎯 [工具选择] 多图上传，跳过模型判断，直接使用 blendImages");
+          } else if (manualMode !== "auto") {
+            // 如果是手动模式，直接使用对应工具
             selectedTool = manualToolMap[manualMode];
           } else {
             // Auto 模式：先检查 PDF，再调用 AI 判断
@@ -5887,12 +5896,13 @@ export const useAIChatStore = create<AIChatState>()(
           const hasBlendSources = blendSources.length >= 2;
 
           const decideParallelTool = (): "generate" | "edit" | "blend" => {
-            if (manualMode === "edit") return "edit";
+            // 多图场景优先融合，避免被手动模式覆盖
+            if (hasBlendSources) return "blend";
             if (manualMode === "blend") return "blend";
+            if (manualMode === "edit") return "edit";
 
-            // Auto 模式：优先融合，其次编辑，最后生成
+            // Auto 模式：其次编辑，最后生成
             if (manualMode === "auto") {
-              if (hasBlendSources) return "blend";
               if (sourceImageForEditing) return "edit";
               return "generate";
             }

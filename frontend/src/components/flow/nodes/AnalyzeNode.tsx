@@ -175,13 +175,29 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>Analysis Prompt</div>
         <textarea
+          className="nodrag nopan nowheel"
           value={promptInput}
           onChange={onPromptChange}
+          onWheelCapture={(event) => {
+            event.stopPropagation();
+            if (event.nativeEvent?.stopImmediatePropagation) {
+              event.nativeEvent.stopImmediatePropagation();
+            }
+          }}
+          onPointerDownCapture={(event) => {
+            event.stopPropagation();
+            if (event.nativeEvent?.stopImmediatePropagation) {
+              event.nativeEvent.stopImmediatePropagation();
+            }
+          }}
+          onMouseDownCapture={(event) => {
+            event.stopPropagation();
+          }}
           placeholder="Enter prompt for analysis"
           style={{
             width: '100%',
             minHeight: 70,
-            resize: 'vertical',
+            resize: 'none',
             fontSize: 12,
             lineHeight: 1.4,
             padding: '6px 8px',

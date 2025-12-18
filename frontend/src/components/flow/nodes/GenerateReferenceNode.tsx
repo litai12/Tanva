@@ -76,6 +76,13 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
+  const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
+    event.stopPropagation();
+    const nativeEvent = (event as React.SyntheticEvent<any, Event>)
+      .nativeEvent as Event & { stopImmediatePropagation?: () => void };
+    nativeEvent.stopImmediatePropagation?.();
+  }, []);
+
   React.useEffect(() => {
     if (typeof data.referencePrompt === "undefined") {
       window.dispatchEvent(
@@ -232,8 +239,24 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           参考提示词
         </div>
         <textarea
+          className="nodrag nopan nowheel"
           value={referencePromptValue}
           onChange={onReferencePromptChange}
+          onWheelCapture={(event) => {
+            event.stopPropagation();
+            if (event.nativeEvent?.stopImmediatePropagation) {
+              event.nativeEvent.stopImmediatePropagation();
+            }
+          }}
+          onPointerDownCapture={(event) => {
+            event.stopPropagation();
+            if (event.nativeEvent?.stopImmediatePropagation) {
+              event.nativeEvent.stopImmediatePropagation();
+            }
+          }}
+          onMouseDownCapture={(event) => {
+            event.stopPropagation();
+          }}
           placeholder='请输入参考提示词'
           style={{
             width: "100%",

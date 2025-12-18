@@ -291,12 +291,55 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     const handler = (event: BeforeUnloadEvent) => {
       if (!dirty) return;
       event.preventDefault();
-       
+
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
+
+  // 页面隐藏时（切换标签页、跳转详情页等）立即保存未保存的更改
+  useEffect(() => {
+    if (!projectId) return undefined;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== 'hidden') return;
+
+      const store = useProjectContentStore.getState();
+      if (!store.dirty || store.saving) return;
+
+      console.log('📤 页面隐藏，触发自动保存...');
+      try {
+        // 先同步 Paper.js 内容到 store
+        await paperSaveService.saveImmediately();
+
+        // 再保存到后端
+        const currentStore = useProjectContentStore.getState();
+        if (currentStore.projectId === projectId && currentStore.dirty && currentStore.content) {
+          currentStore.setSaving(true);
+          try {
+            const result = await projectApi.saveContent(projectId, {
+              content: currentStore.content,
+              version: currentStore.version,
+            });
+            currentStore.markSaved(result.version, result.updatedAt ?? new Date().toISOString());
+            saveMonitor.push(projectId, 'visibility_save_success', { version: result.version });
+            console.log('✅ 页面隐藏保存成功');
+          } catch (err) {
+            console.warn('❌ 页面隐藏保存失败:', err);
+            saveMonitor.push(projectId, 'visibility_save_error', { error: (err as Error)?.message });
+          } finally {
+            useProjectContentStore.getState().setSaving(false);
+          }
+        }
+      } catch (err) {
+        console.warn('❌ 页面隐藏保存失败:', err);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [projectId]);
 
   useProjectAutosave(projectId);
 
