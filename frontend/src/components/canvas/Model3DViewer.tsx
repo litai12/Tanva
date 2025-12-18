@@ -685,6 +685,11 @@ const CameraController: React.FC<CameraControllerProps> = ({
     }
   }, [enabled, onStateChange, flushPendingUpdate]);
 
+  const handleControlStart = useCallback(() => {
+    // 开始控制时重置时间戳，确保第一次变化能立即响应
+    lastControlEmitRef.current = 0;
+  }, []);
+
   const handleControlEnd = useCallback(() => {
     const pending = pendingUpdateRef.current || latestControlStateRef.current;
     pendingUpdateRef.current = null;

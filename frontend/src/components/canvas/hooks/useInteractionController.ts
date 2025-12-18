@@ -69,6 +69,9 @@ interface ImageTool {
   // 可选：由图片工具暴露的选中集与删除方法
   selectedImageIds?: string[];
   handleImageDelete?: (id: string) => void;
+  // 占位框相关
+  selectedPlaceholderId?: string | null;
+  deletePlaceholder?: (id: string) => void;
 }
 
 interface Model3DTool {
@@ -77,6 +80,9 @@ interface Model3DTool {
   // 可选：若后续支持按键删除3D模型
   selectedModel3DIds?: string[];
   handleModel3DDelete?: (id: string) => void;
+  // 占位框相关
+  selectedPlaceholderId?: string | null;
+  deletePlaceholder?: (id: string) => void;
 }
 
 interface SimpleTextTool {
@@ -810,7 +816,7 @@ export const useInteractionController = ({
             const tool = imageToolRef.current;
             if (!tool) return;
             if (tool.handleImageMoveBatch) {
-              tool.handleImageMoveBatch(pending, { commitState: true, notify: false });
+              tool.handleImageMoveBatch(pending, { commitState: false, notify: false });
             } else {
               Object.entries(pending).forEach(([id, pos]) => tool.handleImageMove(id, pos, true));
               try { paper.view.update(); } catch {}
@@ -936,7 +942,7 @@ export const useInteractionController = ({
         pendingImageDragPositionsRef.current = null;
         if (pending) {
           if (latestImageTool.handleImageMoveBatch) {
-            latestImageTool.handleImageMoveBatch(pending, { commitState: true, notify: false });
+            latestImageTool.handleImageMoveBatch(pending, { commitState: false, notify: false });
           } else {
             Object.entries(pending).forEach(([id, pos]) => latestImageTool.handleImageMove(id, pos, true));
             try { paper.view.update(); } catch {}

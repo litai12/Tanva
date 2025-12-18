@@ -156,6 +156,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   showIndividualTools = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const imageGroupRef = useRef<paper.Group | null>(null);
   const enableVisibilityToggle = false; // Temporarily hide layer visibility control
 
   // 获取AI聊天状态
@@ -267,6 +268,21 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 从Paper.js获取实时坐标 - 使用 ref 避免依赖变化
   const getRealTimePaperBounds = useCallback(() => {
     try {
+      const cachedGroup = imageGroupRef.current;
+      if (cachedGroup && !(cachedGroup as any).removed) {
+        const cachedRaster = cachedGroup.children.find(
+          (child) => child instanceof paper.Raster
+        ) as paper.Raster;
+        if (cachedRaster && cachedRaster.bounds && isFinite(cachedRaster.bounds.x)) {
+          return {
+            x: Math.round(cachedRaster.bounds.x * 100) / 100,
+            y: Math.round(cachedRaster.bounds.y * 100) / 100,
+            width: Math.round(cachedRaster.bounds.width * 100) / 100,
+            height: Math.round(cachedRaster.bounds.height * 100) / 100,
+          };
+        }
+      }
+
       // 首先尝试从所有图层中查找图片对象
       const imageGroup = paper.project?.layers?.flatMap((layer) =>
         layer.children.filter(
@@ -276,6 +292,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       )[0];
 
       if (imageGroup instanceof paper.Group) {
+        imageGroupRef.current = imageGroup;
         const raster = imageGroup.children.find(
           (child) => child instanceof paper.Raster
         ) as paper.Raster;
@@ -332,11 +349,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const currentBounds = realTimeBoundsRef.current;
 
       // 检查坐标是否发生变化 - 使用 ref 获取最新值
+      const threshold = 0.1;
       const hasChanged =
-        Math.abs(paperBounds.x - currentBounds.x) > 0.5 ||
-        Math.abs(paperBounds.y - currentBounds.y) > 0.5 ||
-        Math.abs(paperBounds.width - currentBounds.width) > 0.5 ||
-        Math.abs(paperBounds.height - currentBounds.height) > 0.5;
+        Math.abs(paperBounds.x - currentBounds.x) > threshold ||
+        Math.abs(paperBounds.y - currentBounds.y) > threshold ||
+        Math.abs(paperBounds.width - currentBounds.width) > threshold ||
+        Math.abs(paperBounds.height - currentBounds.height) > threshold;
 
       if (hasChanged) {
         setRealTimeBounds(paperBounds);

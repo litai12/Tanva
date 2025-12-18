@@ -13,11 +13,21 @@ type ViewportSnapshot = { panX: number; panY: number; zoom: number };
 const getViewportStorageKey = (projectId?: string | null) =>
   `${VIEWPORT_STORAGE_PREFIX}:${projectId || 'global'}`;
 
+// 从 localStorage 直接读取保存的 projectId（不依赖 projectStore 的状态）
+const getSavedProjectId = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem('current_project_id');
+  } catch {
+    return null;
+  }
+};
+
 const readViewportSnapshot = (projectId?: string | null): ViewportSnapshot | null => {
   if (typeof window === 'undefined') return null;
   try {
-    const storage = createSafeStorage({ storageName: 'canvas-viewport' });
-    const raw = storage.getItem(getViewportStorageKey(projectId));
+    // 直接使用 localStorage 同步读取，避免 StateStorage 的 Promise 类型问题
+    const raw = localStorage.getItem(getViewportStorageKey(projectId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (
@@ -35,7 +45,8 @@ const readViewportSnapshot = (projectId?: string | null): ViewportSnapshot | nul
   return null;
 };
 
-const initialProjectId = typeof window !== 'undefined' ? useProjectStore.getState().currentProjectId : null;
+// 直接从 localStorage 读取 projectId，避免依赖 projectStore 的 hydration 状态
+const initialProjectId = getSavedProjectId();
 const initialViewport = readViewportSnapshot(initialProjectId);
 
 // 网格样式枚举
@@ -273,22 +284,25 @@ if (typeof window !== 'undefined') {
 
   // 监听项目切换：加载对应项目的视角并覆盖当前视角
   try {
-    useProjectStore.subscribe(
-      (state) => state.currentProjectId,
-      (projectId) => {
-        currentProjectId = projectId;
-        const snapshot = readViewportSnapshot(projectId) ?? readViewportSnapshot(null);
-        if (snapshot) {
-          useCanvasStore.setState({
-            panX: snapshot.panX,
-            panY: snapshot.panY,
-            zoom: snapshot.zoom,
-            hasInitialCenterApplied: true,
-          });
-          lastSnapshot = snapshot;
-        }
+    let prevProjectId = currentProjectId;
+    useProjectStore.subscribe((state) => {
+      const projectId = state.currentProjectId;
+      // 只在 projectId 真正变化时才处理
+      if (projectId === prevProjectId) return;
+      prevProjectId = projectId;
+      currentProjectId = projectId;
+
+      const snapshot = readViewportSnapshot(projectId) ?? readViewportSnapshot(null);
+      if (snapshot) {
+        useCanvasStore.setState({
+          panX: snapshot.panX,
+          panY: snapshot.panY,
+          zoom: snapshot.zoom,
+          hasInitialCenterApplied: true,
+        });
+        lastSnapshot = snapshot;
       }
-    );
+    });
   } catch (e) {
     console.warn('项目切换时读取视口失败:', e);
   }
