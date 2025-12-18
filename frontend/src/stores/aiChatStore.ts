@@ -5669,8 +5669,10 @@ export const useAIChatStore = create<AIChatState>()(
               if (state.sourceImageForAnalysis) {
                 explicitImageCount += 1;
               }
-              const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
-              const toolSelectionContext = contextManager.buildContextPrompt(input);
+              const totalImageCount =
+                explicitImageCount + (cachedImage ? 1 : 0);
+              const toolSelectionContext =
+                contextManager.buildContextPrompt(input);
 
               const toolSelectionRequest = {
                 userInput: input,
@@ -5691,9 +5693,12 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               try {
-                const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+                const toolSelectionResult = await aiImageService.selectTool(
+                  toolSelectionRequest
+                );
                 if (toolSelectionResult.success && toolSelectionResult.data) {
-                  selectedTool = toolSelectionResult.data.selectedTool as AvailableTool;
+                  selectedTool = toolSelectionResult.data
+                    .selectedTool as AvailableTool;
                   console.log(`🎯 [工具选择] AI 选择了: ${selectedTool}`);
                 } else {
                   console.warn("⚠️ 工具选择失败，默认使用 chatResponse");
@@ -5708,13 +5713,21 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 🔥 第二步：根据选择的工具决定是否应用 multiplier
           // 只有图片生成相关工具才支持并行生成
-          const imageGenerationTools: AvailableTool[] = ["generateImage", "editImage", "blendImages"];
-          const isImageGenerationTool = selectedTool && imageGenerationTools.includes(selectedTool);
+          const imageGenerationTools: AvailableTool[] = [
+            "generateImage",
+            "editImage",
+            "blendImages",
+          ];
+          const isImageGenerationTool =
+            selectedTool && imageGenerationTools.includes(selectedTool);
 
-          const multiplier: AutoModeMultiplier =
-            isImageGenerationTool ? state.autoModeMultiplier : 1;
+          const multiplier: AutoModeMultiplier = isImageGenerationTool
+            ? state.autoModeMultiplier
+            : 1;
 
-          console.log(`🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}`);
+          console.log(
+            `🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}`
+          );
 
           // 🔥 第三步：根据 multiplier 决定是单次还是并行执行
           if (multiplier === 1) {
