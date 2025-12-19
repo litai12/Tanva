@@ -1,6 +1,11 @@
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
-import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
+import type {
+  ImageAssetSnapshot,
+  ModelAssetSnapshot,
+  TextAssetSnapshot,
+  FlowGraphSnapshot,
+} from '@/types/project';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
 import { saveMonitor } from '@/utils/saveMonitor';
@@ -197,6 +202,49 @@ class PaperSaveService {
     return assets;
   }
 
+  /**
+   * 将 Flow 图里的 Image 节点内联图片上传到远程，并替换为可长期访问的 URL
+   */
+  private async ensureFlowImageSources(
+    flow: FlowGraphSnapshot | undefined,
+    projectId: string | null
+  ): Promise<{ flow?: FlowGraphSnapshot; uploaded: number }> {
+    if (!flow?.nodes?.length) return { flow, uploaded: 0 };
+
+    const nodes = flow.nodes.map((node) => ({
+      ...node,
+      data: { ...(node.data || {}) },
+    }));
+
+    let uploaded = 0;
+
+    for (const node of nodes) {
+      if (node.type !== 'image') continue;
+      const data: any = node.data || {};
+      const raw = typeof data.imageData === 'string' ? data.imageData.trim() : '';
+      const hasRemote = raw.startsWith('http://') || raw.startsWith('https://');
+      if (!raw || hasRemote) continue;
+
+      const dataUrl = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
+      try {
+        const upload = await imageUploadService.uploadImageDataUrl(dataUrl, {
+          projectId: projectId ?? undefined,
+          dir: projectId ? `projects/${projectId}/flow-images/` : 'uploads/flow-images/',
+          fileName: data.imageName || data.label ? `${(data.imageName || data.label).toString().slice(0, 40)}.png` : `flow_${node.id}.png`,
+        });
+        if (upload.success && upload.asset?.url) {
+          data.imageRemoteUrl = upload.asset.url;
+          data.imageData = upload.asset.url;
+          uploaded += 1;
+        }
+      } catch (error) {
+        console.warn('上传 Flow 图片失败:', error);
+      }
+    }
+
+    return { flow: { ...flow, nodes }, uploaded };
+  }
+
   private normalizeLayerId(name?: string | undefined | null): string | null {
     if (!name) return null;
     if (name.startsWith('layer_')) return name.replace('layer_', '');
@@ -210,6 +258,12 @@ class PaperSaveService {
 
     try {
       const instances = (window as any)?.tanvaImageInstances as any[] | undefined;
+      console.log('📸 [gatherAssets] tanvaImageInstances:', {
+        exists: !!(window as any)?.tanvaImageInstances,
+        isArray: Array.isArray(instances),
+        length: instances?.length ?? 0,
+        ids: instances?.map((i: any) => i?.id) ?? []
+      });
       if (Array.isArray(instances)) {
         instances.forEach((instance) => {
           const data = instance?.imageData;
@@ -469,6 +523,33 @@ class PaperSaveService {
       });
       toRemove.forEach(l => l.remove());
 
+      // ⚠️ Raster 图片加载是异步的：importJSON 后首帧可能还没加载完成
+      // 若没有在 onLoad 时触发 view.update，会出现“刷新后不显示，交互一下才出现”
+      try {
+        const projectAny = paper.project as any;
+        const rasters: paper.Raster[] = typeof projectAny.getItems === 'function'
+          ? (projectAny.getItems({ class: paper.Raster }) as paper.Raster[])
+          : [];
+
+        rasters.forEach((raster) => {
+          const prevOnLoad = raster.onLoad;
+          const prevOnError = (raster as any).onError;
+
+          raster.onLoad = () => {
+            try { prevOnLoad?.(); } catch {}
+            try { (paper.view as any)?.update?.(); } catch {}
+          };
+
+          (raster as any).onError = (...args: any[]) => {
+            try { prevOnError?.(...args); } catch {}
+          };
+
+          if ((raster as any).loaded) {
+            try { (paper.view as any)?.update?.(); } catch {}
+          }
+        });
+      } catch {}
+
       console.log('✅ Paper.js项目反序列化成功');
       // 延迟触发事件，确保 Paper.js 完全初始化
       setTimeout(() => {
@@ -655,6 +736,10 @@ class PaperSaveService {
       const sanitizedAssets = this.sanitizeAssets(gatheredAssets);
       const normalizedAssets = await this.ensureRemoteAssets(sanitizedAssets);
       const hasPendingImages = normalizedAssets.images.some((img) => img.pendingUpload);
+      const flowNormalization = await this.ensureFlowImageSources(
+        contentStore.content?.flow,
+        contentStore.projectId
+      );
 
       if (hasPendingImages) {
         try {
@@ -704,12 +789,22 @@ class PaperSaveService {
         console.log('💾 Paper.js项目异常，但仍保存其他项目内容...');
       }
 
-      contentStore.updatePartial({
+      const partialUpdate = {
         paperJson: paperJson || undefined,
         meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
         assets: normalizedAssets,
         updatedAt: new Date().toISOString()
-      }, { markDirty: true });
+      };
+
+      if (flowNormalization.flow) {
+        partialUpdate.flow = flowNormalization.flow;
+      }
+
+      if (flowNormalization.uploaded > 0) {
+        console.log(`📤 已为 Flow 节点补全 ${flowNormalization.uploaded} 张图片的远程链接`);
+      }
+
+      contentStore.updatePartial(partialUpdate, { markDirty: true });
 
     } catch (error) {
       console.error('❌ 更新Paper.js内容失败:', error);

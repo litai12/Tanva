@@ -1244,8 +1244,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     sourceImages: sourceImages
                 };
 
-                // 添加到全局图片实例管理（如果有的话）
-                if ((window as any).tanvaImageInstances) {
+                // 添加到全局图片实例管理
+                // 确保全局数组已初始化
+                if (!(window as any).tanvaImageInstances) {
+                    (window as any).tanvaImageInstances = [];
+                }
+
                 const newImageInstance = {
                     id: imageId,
                     imageData: {
@@ -1258,23 +1262,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         width: raster.bounds.width,
                         height: raster.bounds.height,
                         contentType: asset.contentType,
-                        },
-                        bounds: {
-                            x: raster.bounds.x,
-                            y: raster.bounds.y,
-                            width: raster.bounds.width,
-                            height: raster.bounds.height
-                        },
-                        isSelected: false,
-                        visible: true,
-                        layerId: paper.project.activeLayer.name
-                    };
+                    },
+                    bounds: {
+                        x: raster.bounds.x,
+                        y: raster.bounds.y,
+                        width: raster.bounds.width,
+                        height: raster.bounds.height
+                    },
+                    isSelected: false,
+                    visible: true,
+                    layerId: paper.project.activeLayer.name
+                };
 
-                    // 触发图片实例更新事件
-                    window.dispatchEvent(new CustomEvent('quickImageAdded', {
-                        detail: newImageInstance
-                    }));
-                }
+                // 触发图片实例更新事件
+                window.dispatchEvent(new CustomEvent('quickImageAdded', {
+                    detail: newImageInstance
+                }));
 
                 // 记录历史，优先使用 OSS 链接，便于刷新后从云端恢复
                 try {

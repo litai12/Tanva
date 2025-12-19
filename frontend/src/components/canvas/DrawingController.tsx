@@ -1176,31 +1176,54 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const alreadyHydrated = typeof window !== 'undefined' && (window as any)[hydratedFlagKey];
     if (alreadyHydrated) return;
 
-    // 如果已经从 paperJson 恢复过内容，则这次也不需要 snapshot 回填
+    // 检查是否有资产需要恢复
+    const hasAssetsToRestore =
+      (projectAssets.images?.length ?? 0) > 0 ||
+      (projectAssets.models?.length ?? 0) > 0 ||
+      (projectAssets.texts?.length ?? 0) > 0;
+
+    // 如果已经从 paperJson 恢复过内容，但没有资产需要恢复，则跳过
     const restoredFromPaper = typeof window !== 'undefined' && (window as any).tanvaPaperRestored;
-    if (restoredFromPaper) {
-      logger.debug('🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复');
+    if (restoredFromPaper && !hasAssetsToRestore) {
+      logger.debug('🛑 检测到已从 paperJson 恢复且无资产需要回填，跳过');
       try { (window as any).tanvaPaperRestored = false; } catch {}
-      // 视为已回填一次，避免后续空场景再次触发
       try { (window as any)[hydratedFlagKey] = true; } catch {}
       return;
+    }
+
+    // 如果从 paperJson 恢复了，但有资产需要恢复，仍然需要执行 hydrateFromSnapshot
+    if (restoredFromPaper && hasAssetsToRestore) {
+      logger.debug('📦 从 paperJson 恢复后，继续恢复资产快照（图片/模型/文本）');
+      try { (window as any).tanvaPaperRestored = false; } catch {}
     }
 
     const hasExisting =
       imageTool.imageInstances.length > 0 ||
       model3DTool.model3DInstances.length > 0 ||
       simpleTextTool.textItems.length > 0;
-    if (hasExisting) return;
+    if (hasExisting) {
+      logger.debug('ℹ️ 已存在实例，跳过资产回填');
+      try { (window as any)[hydratedFlagKey] = true; } catch {}
+      return;
+    }
 
     try {
+      logger.debug('📦 开始恢复资产快照:', {
+        images: projectAssets.images?.length ?? 0,
+        models: projectAssets.models?.length ?? 0,
+        texts: projectAssets.texts?.length ?? 0,
+      });
       if (projectAssets.images?.length) {
         imageTool.hydrateFromSnapshot(projectAssets.images);
+        logger.debug('✅ 图片资产恢复完成');
       }
       if (projectAssets.models?.length) {
         model3DTool.hydrateFromSnapshot(projectAssets.models);
+        logger.debug('✅ 3D模型资产恢复完成');
       }
       if (projectAssets.texts?.length) {
         simpleTextTool.hydrateFromSnapshot(projectAssets.texts);
+        logger.debug('✅ 文本资产恢复完成');
       }
       // 标记为已回填
       try { (window as any)[hydratedFlagKey] = true; } catch {}

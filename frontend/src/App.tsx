@@ -7,6 +7,8 @@ import ProjectAutosaveManager from '@/components/autosave/ProjectAutosaveManager
 import SaveDebugPanel from '@/components/autosave/SaveDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
+import { useProjectContentStore } from '@/stores/projectContentStore';
+import AppLoadingOverlay from '@/components/layout/AppLoadingOverlay';
 
 const App: React.FC = () => {
   const [showPromptDemo, setShowPromptDemo] = useState<boolean>(() => {
@@ -30,6 +32,11 @@ const App: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const paramProjectId = searchParams.get('projectId');
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
+  const projectLoading = useProjectStore((state) => state.loading);
+  const projectError = useProjectStore((state) => state.error);
+  const contentHydrated = useProjectContentStore((state) => state.hydrated);
+  const hydratedProjectId = useProjectContentStore((state) => state.projectId);
+  const contentError = useProjectContentStore((state) => state.lastError);
 
   // 记录上一次打开的项目ID，避免重复打开
   const lastOpenedProjectIdRef = useRef<string | null>(null);
@@ -92,6 +99,30 @@ const App: React.FC = () => {
     setSearchParams(next, { replace: true });
   }, [currentProjectId, paramProjectId, setSearchParams]);
 
+  const loadingState = useMemo(() => {
+    if (projectLoading) {
+      return {
+        title: '正在加载项目',
+        description: '刷新后需要几秒钟恢复工作区，请稍候...',
+      };
+    }
+    if (projectId && (hydratedProjectId !== projectId || !contentHydrated)) {
+      return {
+        title: '正在恢复画布内容',
+        description: '图片节点、图层与对话会话正在就位',
+      };
+    }
+    return null;
+  }, [projectLoading, projectId, hydratedProjectId, contentHydrated]);
+
+  const loadError = projectError || contentError;
+
+  const handleReload = () => {
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+    }
+  };
+
   // 条件渲染放在所有 Hooks 之后
   if (showPromptDemo) {
     return <PromptOptimizerDemo />;
@@ -107,6 +138,13 @@ const App: React.FC = () => {
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
       <SaveDebugPanel />
+      <AppLoadingOverlay
+        visible={Boolean(loadingState) || Boolean(loadError)}
+        title={loadError ? '加载失败' : loadingState?.title || '正在加载'}
+        description={loadError || loadingState?.description}
+        status={loadError ? 'error' : 'loading'}
+        onRetry={loadError ? handleReload : undefined}
+      />
     </div>
   );
 };
