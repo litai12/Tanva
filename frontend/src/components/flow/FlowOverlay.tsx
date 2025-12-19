@@ -2835,61 +2835,126 @@ function FlowInner() {
         }
         return false;
       },
-      // 暴露 React Flow 实例，用于框选工具选择节点
+      // 按屏幕坐标点命中节点：只要任意点落在节点矩形内，就选中对应节点
+      selectNodesByScreenPoints: (screenPoints: Array<{ x: number; y: number }>) => {
+        try {
+          const container = containerRef.current;
+          if (!container || !Array.isArray(screenPoints) || screenPoints.length === 0) return [];
+
+          const containerRect = container.getBoundingClientRect();
+          const flowPoints = screenPoints.map((pt) =>
+            rf.screenToFlowPosition({
+              x: pt.x - containerRect.left,
+              y: pt.y - containerRect.top,
+            })
+          );
+
+          const allNodes = rf.getNodes();
+          const hitIds = new Set<string>();
+          const tolerance = 0.1;
+
+          for (const fp of flowPoints) {
+            for (const node of allNodes) {
+              const nodeX = node.position?.x ?? 0;
+              const nodeY = node.position?.y ?? 0;
+              const nodeWidth = node.data?.boxW ?? node.width ?? 150;
+              const nodeHeight = node.data?.boxH ?? node.height ?? 100;
+
+              const inside =
+                fp.x >= (nodeX - tolerance) &&
+                fp.x <= (nodeX + nodeWidth + tolerance) &&
+                fp.y >= (nodeY - tolerance) &&
+                fp.y <= (nodeY + nodeHeight + tolerance);
+
+              if (inside) {
+                hitIds.add(node.id);
+              }
+            }
+          }
+
+          const ids = Array.from(hitIds);
+          if (ids.length > 0) {
+            setNodes((prevNodes) =>
+              prevNodes.map((node) => ({
+                ...node,
+                selected: ids.includes(node.id),
+              }))
+            );
+          }
+
+          return ids;
+        } catch (error) {
+          console.warn('选择节点失败:', error);
+          return [];
+        }
+      },
+      // 框选工具选择节点
       selectNodesInBox: (screenRect: { x: number; y: number; width: number; height: number }) => {
         try {
-          const allNodes = rf.getNodes();
-          const selectedNodeIds: string[] = [];
-          
-          // 获取 Flow 容器的位置
           const container = containerRef.current;
           if (!container) return [];
           
-          // 将屏幕坐标转换为相对于 Flow 容器的坐标
+          const allNodes = rf.getNodes();
+          const selectedNodeIds: string[] = [];
+          
+          // 获取容器位置
           const containerRect = container.getBoundingClientRect();
+          
+          // 将屏幕坐标转换为相对于容器的坐标
           const relativeX = screenRect.x - containerRect.left;
           const relativeY = screenRect.y - containerRect.top;
+          const relativeRight = relativeX + screenRect.width;
+          const relativeBottom = relativeY + screenRect.height;
           
-          // 将屏幕坐标的选择框转换为 Flow 坐标
+          // 转换为 Flow 坐标
           const topLeft = rf.screenToFlowPosition({ x: relativeX, y: relativeY });
-          const bottomRight = rf.screenToFlowPosition({ 
-            x: relativeX + screenRect.width, 
-            y: relativeY + screenRect.height 
-          });
+          const bottomRight = rf.screenToFlowPosition({ x: relativeRight, y: relativeBottom });
           
-          // 确保坐标顺序正确
-          const minX = Math.min(topLeft.x, bottomRight.x);
-          const maxX = Math.max(topLeft.x, bottomRight.x);
-          const minY = Math.min(topLeft.y, bottomRight.y);
-          const maxY = Math.max(topLeft.y, bottomRight.y);
+          // 计算选择框边界（确保顺序正确）
+          const boxMinX = Math.min(topLeft.x, bottomRight.x);
+          const boxMaxX = Math.max(topLeft.x, bottomRight.x);
+          const boxMinY = Math.min(topLeft.y, bottomRight.y);
+          const boxMaxY = Math.max(topLeft.y, bottomRight.y);
           
-          // 检查每个节点是否在选择框内
+          // 添加小的容差，处理坐标转换的精度问题
+          const tolerance = 0.1;
+          
+          // 检查每个节点
           for (const node of allNodes) {
             const nodeX = node.position?.x ?? 0;
             const nodeY = node.position?.y ?? 0;
             
-            // 获取节点的实际大小，优先使用 data 中的 boxW/boxH，然后是 width/height
-            // 这些值在节点渲染后应该总是存在的
+            // 获取节点大小
             const nodeWidth = node.data?.boxW ?? node.width ?? 150;
             const nodeHeight = node.data?.boxH ?? node.height ?? 100;
             
-            // 计算节点的边界（在 Flow 坐标系中）
+            // 计算节点边界
             const nodeLeft = nodeX;
             const nodeRight = nodeX + nodeWidth;
             const nodeTop = nodeY;
             const nodeBottom = nodeY + nodeHeight;
             
-            // 检查节点是否与选择框相交（只要有任何重叠就选中）
-            // 这样可以选中被选择框包围的节点，或者与选择框有重叠的节点
-            // 使用宽松的相交检测，只要节点与选择框有任何重叠就选中
+            // 选中规则：部分重叠、节点被完全包围、选择框完全落在节点内
             const isIntersecting = (
-              nodeLeft < maxX &&
-              nodeRight > minX &&
-              nodeTop < maxY &&
-              nodeBottom > minY
+              (nodeLeft - tolerance) < (boxMaxX + tolerance) &&
+              (nodeRight + tolerance) > (boxMinX - tolerance) &&
+              (nodeTop - tolerance) < (boxMaxY + tolerance) &&
+              (nodeBottom + tolerance) > (boxMinY - tolerance)
+            );
+            const selectionContainsNode = (
+              (nodeLeft + tolerance) >= (boxMinX - tolerance) &&
+              (nodeRight - tolerance) <= (boxMaxX + tolerance) &&
+              (nodeTop + tolerance) >= (boxMinY - tolerance) &&
+              (nodeBottom - tolerance) <= (boxMaxY + tolerance)
+            );
+            const nodeContainsSelection = (
+              (boxMinX + tolerance) >= (nodeLeft - tolerance) &&
+              (boxMaxX - tolerance) <= (nodeRight + tolerance) &&
+              (boxMinY + tolerance) >= (nodeTop - tolerance) &&
+              (boxMaxY - tolerance) <= (nodeBottom + tolerance)
             );
             
-            if (isIntersecting) {
+            if (isIntersecting || selectionContainsNode || nodeContainsSelection) {
               selectedNodeIds.push(node.id);
             }
           }
@@ -2915,9 +2980,7 @@ function FlowInner() {
         setNodes((prevNodes) =>
           prevNodes.map((node) => ({ ...node, selected: false }))
         );
-      },
-      // 暴露 React Flow 实例（用于坐标转换等）
-      rf: rf
+      }
     };
     return () => { delete (window as any).tanvaFlow; };
   }, [setNodes, setEdges, isValidConnection, canAcceptConnection, rf, containerRef]);

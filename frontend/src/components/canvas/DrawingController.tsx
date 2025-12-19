@@ -1146,6 +1146,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 直接同步执行，但使用稳定的函数引用
     try {
+      // 重置首帧资产回填标记，确保每个项目都会重新触发一次初始回填
+      try { (window as any).__tanva_initial_assets_hydrated__ = false; } catch {}
+
       // 清空图片实例
       imageTool.setImageInstances([]);
       imageTool.setSelectedImageIds([]);

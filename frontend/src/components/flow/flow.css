@@ -344,8 +344,6 @@ input[type="text"],
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node,
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node *,
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge,
-body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge *,
-body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle,
-body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle * {
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle {
   pointer-events: none !important;
 }

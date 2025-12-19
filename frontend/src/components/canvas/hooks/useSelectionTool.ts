@@ -224,11 +224,52 @@ export const useSelectionTool = ({
     const selectionRect = new paper.Rectangle(selectionStartPoint, endPoint);
     const selectedPathsInBox: paper.Path[] = [];
 
+    // 优先判定 Flow 节点：使用矩形相交检测，选择框与节点有任何重叠即选中
+    let flowSelectedIds: string[] = [];
+    try {
+      const tanvaFlow = (window as any).tanvaFlow;
+      if (tanvaFlow?.selectNodesInBox && paper.view) {
+        const dpr = window.devicePixelRatio || 1;
+        const canvas = paper.view.element as HTMLCanvasElement | undefined;
+        const canvasRect = canvas?.getBoundingClientRect();
+        if (canvas && canvasRect) {
+          // 将选择框的两个角点转换为屏幕坐标
+          const topLeftView = paper.view.projectToView(selectionRect.topLeft);
+          const bottomRightView = paper.view.projectToView(selectionRect.bottomRight);
+
+          // 转换为屏幕坐标（考虑 canvas 位置和 dpr）
+          const screenRect = {
+            x: Math.min(topLeftView.x, bottomRightView.x) / dpr + canvasRect.left,
+            y: Math.min(topLeftView.y, bottomRightView.y) / dpr + canvasRect.top,
+            width: Math.abs(bottomRightView.x - topLeftView.x) / dpr,
+            height: Math.abs(bottomRightView.y - topLeftView.y) / dpr,
+          };
+
+          const nodeIds = tanvaFlow.selectNodesInBox(screenRect);
+          if (Array.isArray(nodeIds) && nodeIds.length > 0) {
+            flowSelectedIds = nodeIds;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Flow 节点判定失败:', error);
+      logger.debug('Flow 节点判定失败详情:', error);
+    }
+
+    // 如果命中 Flow 节点，则优先选择节点，不再选择图片/模型/文本/路径
+    if (flowSelectedIds.length > 0) {
+      logger.debug(`框选优先 Flow：选中 ${flowSelectedIds.length} 个节点`);
+      setSelectedPaths([]);
+      setSelectedPath(null);
+      setIsSelectionDragging(false);
+      setSelectionStartPoint(null);
+      return;
+    }
+
     // 收集要选择的对象
     const selectedImages: string[] = [];
     const selectedModels: string[] = [];
     const selectedTexts: string[] = [];
-    const selectedNodeIds: string[] = [];
 
     // 检查图片实例是否与选择框相交
     for (const image of imageInstances) {
@@ -330,44 +371,6 @@ export const useSelectionTool = ({
 
     // 路径已经在上面处理过了
     totalSelected += selectedPathsInBox.length;
-
-    // 检查并选择 React Flow 节点
-    try {
-      const tanvaFlow = (window as any).tanvaFlow;
-      if (tanvaFlow?.selectNodesInBox && paper.view) {
-        // 将 Paper.js 坐标转换为屏幕坐标（相对于视口的坐标）
-        const dpr = window.devicePixelRatio || 1;
-        const topLeftView = paper.view.projectToView(selectionStartPoint);
-        const bottomRightView = paper.view.projectToView(endPoint);
-        
-        // 确保坐标顺序正确
-        const viewX = Math.min(topLeftView.x, bottomRightView.x) / dpr;
-        const viewY = Math.min(topLeftView.y, bottomRightView.y) / dpr;
-        const viewWidth = Math.abs(bottomRightView.x - topLeftView.x) / dpr;
-        const viewHeight = Math.abs(bottomRightView.y - topLeftView.y) / dpr;
-        
-        // 获取画布元素的位置，转换为全局屏幕坐标
-        const canvas = paper.view.element as HTMLCanvasElement;
-        if (canvas) {
-          const rect = canvas.getBoundingClientRect();
-          const screenRect = {
-            x: viewX + rect.left,
-            y: viewY + rect.top,
-            width: viewWidth,
-            height: viewHeight
-          };
-          
-          const nodeIds = tanvaFlow.selectNodesInBox(screenRect);
-          selectedNodeIds.push(...nodeIds);
-          if (nodeIds.length > 0) {
-            logger.upload(`选择框选中${nodeIds.length}个节点: ${nodeIds.join(', ')}`);
-            totalSelected += nodeIds.length;
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('选择节点失败:', error);
-    }
 
     // 输出总计
     if (totalSelected > 0) {

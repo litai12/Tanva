@@ -505,7 +505,12 @@ export const useInteractionController = ({
       // 这样框选拖拽时不会被 Flow 节点打断
       if (selectionResult?.type === 'selection-box-start') {
         document.body.classList.add('tanva-selection-dragging');
-        logger.debug('🔲 开始框选，禁用 Flow 节点事件');
+        // 直接设置 Flow overlay 的 pointer-events，确保框选不被打断
+        const flowOverlay = document.querySelector('.tanva-flow-overlay') as HTMLElement;
+        if (flowOverlay) {
+          flowOverlay.style.pointerEvents = 'none';
+        }
+        logger.debug('🔲 开始框选，禁用 Flow 层事件');
       }
 
       // 如果点击了图片且准备拖拽
@@ -901,12 +906,6 @@ export const useInteractionController = ({
     if (!canvas) return;
     const currentDrawMode = drawModeRef.current;
     const latestSelectionTool = selectionToolRef.current;
-    
-    // 安全机制：如果框选状态异常，确保清理 CSS 类
-    if (!latestSelectionTool?.isSelectionDragging && document.body.classList.contains('tanva-selection-dragging')) {
-      document.body.classList.remove('tanva-selection-dragging');
-      logger.debug('🔲 清理异常的框选状态');
-    }
     const latestPathEditor = pathEditorRef.current;
     const latestImageTool = imageToolRef.current;
     const latestDrawingTools = drawingToolsRef.current;
@@ -1004,7 +1003,12 @@ export const useInteractionController = ({
         latestSelectionTool.finishSelectionBox(point);
         // 移除框选时禁用 Flow 节点事件的 CSS 类
         document.body.classList.remove('tanva-selection-dragging');
-        logger.debug('🔲 框选结束，恢复 Flow 节点事件');
+        // 恢复 Flow overlay 的 pointer-events
+        const flowOverlay = document.querySelector('.tanva-flow-overlay') as HTMLElement;
+        if (flowOverlay) {
+          flowOverlay.style.pointerEvents = '';
+        }
+        logger.debug('🔲 框选结束，恢复 Flow 层事件');
         return;
       }
     }
