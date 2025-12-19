@@ -5,6 +5,7 @@ import type {
   ModelAssetSnapshot,
   TextAssetSnapshot,
   FlowGraphSnapshot,
+  ProjectContentSnapshot,
 } from '@/types/project';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
@@ -12,9 +13,9 @@ import { saveMonitor } from '@/utils/saveMonitor';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
-  // 优化：增加保存延迟和间隔，减少内存峰值
-  private readonly SAVE_DELAY = 500; // 增加到500ms，更好地收敛多次触发
-  private readonly MIN_SAVE_INTERVAL = 2000; // 增加到2秒，减少频繁序列化
+  // 🔥 优化：大幅增加保存延迟和间隔，减少频繁保存
+  private readonly SAVE_DELAY = 2000; // 增加到2秒，更好地收敛多次触发
+  private readonly MIN_SAVE_INTERVAL = 5000; // 增加到5秒，减少频繁序列化
   private isInitialized = false;
   private scheduledForProjectId: string | null = null;
   private lastSaveTimestamp = 0;
@@ -211,10 +212,17 @@ class PaperSaveService {
   ): Promise<{ flow?: FlowGraphSnapshot; uploaded: number }> {
     if (!flow?.nodes?.length) return { flow, uploaded: 0 };
 
-    const nodes = flow.nodes.map((node) => ({
+    const nodes = flow.nodes.map((node) => {
+      const nodeData = { ...(node.data || {}) };
+      // 🔥 修复：确保保存时不会将 running 状态写回，避免页面加载时进度条重新跑
+      if (nodeData.status === 'running') {
+        nodeData.status = 'idle';
+      }
+      return {
       ...node,
-      data: { ...(node.data || {}) },
-    }));
+        data: nodeData,
+      };
+    });
 
     let uploaded = 0;
 
@@ -789,7 +797,7 @@ class PaperSaveService {
         console.log('💾 Paper.js项目异常，但仍保存其他项目内容...');
       }
 
-      const partialUpdate = {
+      const partialUpdate: Partial<ProjectContentSnapshot> = {
         paperJson: paperJson || undefined,
         meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
         assets: normalizedAssets,

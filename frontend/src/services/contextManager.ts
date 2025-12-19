@@ -298,21 +298,18 @@ class ContextManager implements IContextManager {
    * 创建新会话
    */
   createSession(name?: string): string {
-    // 先执行清理，确保不超出限制
-    this.enforceSessionLimit();
-
-    // 检查是否已有活跃的会话
+    // 🔥 修复：如果已经有活跃的会话，直接返回现有会话，不创建新会话
+    // 这样可以避免在图片上传到画板时创建新会话
     if (this.currentSessionId && this.contexts.has(this.currentSessionId)) {
       const existingContext = this.contexts.get(this.currentSessionId);
       if (existingContext) {
-        // 如果会话是最近30秒内创建的，认为是重复初始化，返回现有会话
-        const sessionAge = Date.now() - existingContext.startTime.getTime();
-        if (sessionAge < 30000) {  // 30秒内
-          console.log('🧠 返回现有会话上下文:', this.currentSessionId, '(防止重复创建)');
-          return this.currentSessionId;
-        }
+        console.log('🧠 返回现有会话上下文:', this.currentSessionId, '(避免重复创建)');
+        return this.currentSessionId;
       }
     }
+
+    // 先执行清理，确保不超出限制
+    this.enforceSessionLimit();
 
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const context: ConversationContext = {

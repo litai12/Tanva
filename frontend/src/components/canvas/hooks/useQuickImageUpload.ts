@@ -783,7 +783,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     pendingUpload: false,
                 };
             } else {
-                // 如果是 base64 data URL，执行上传流程
+                // 🔥 关键修复：如果是 base64 data URL，必须先上传到OSS，不允许直接使用base64
                 const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
                 const uploadResult = await imageUploadService.uploadImageDataUrl(imagePayload, {
                     projectId,
@@ -791,19 +791,23 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     fileName,
                 });
                 if (uploadResult.success && uploadResult.asset) {
-                    asset = { ...uploadResult.asset, src: uploadResult.asset.url, localDataUrl: imagePayload };
+                    // 上传成功，使用OSS URL，清除base64
+                    asset = { 
+                        ...uploadResult.asset, 
+                        src: uploadResult.asset.url, 
+                        url: uploadResult.asset.url,
+                        localDataUrl: undefined,  // 🔥 清除base64，只使用OSS URL
+                        pendingUpload: false 
+                    };
                     fileName = asset.fileName || fileName;
                 } else {
+                    // 🔥 上传失败，不允许使用base64作为fallback，直接报错
                     const errMsg = uploadResult.error || '图片上传失败';
-                    logger.error('快速上传图片失败:', errMsg);
-                    asset = {
-                        id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                        url: imagePayload,
-                        src: imagePayload,
-                        fileName: fileName,
-                        pendingUpload: true,
-                        localDataUrl: imagePayload,
-                    };
+                    logger.error('❌ [handleQuickImageUploaded] 图片上传到OSS失败，不允许使用base64:', errMsg);
+                    if (extraOptions?.placeholderId) {
+                        removePredictedPlaceholder(extraOptions.placeholderId);
+                    }
+                    throw new Error(`图片上传失败: ${errMsg}`);
                 }
             }
         } else {

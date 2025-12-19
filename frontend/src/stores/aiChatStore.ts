@@ -6042,6 +6042,15 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 🧠 上下文管理方法实现
         initializeContext: () => {
+          // 🔥 修复：如果已经初始化过会话，直接返回，避免重复初始化导致创建新会话
+          if (hasHydratedSessions) {
+            const currentSessionId = contextManager.getCurrentSessionId();
+            if (currentSessionId) {
+              console.log('🧠 上下文已初始化，使用现有会话:', currentSessionId);
+              return;
+            }
+          }
+
           if (!hasHydratedSessions) {
             const stored = readSessionsFromLocalStorage();
             if (stored && stored.sessions.length > 0) {
@@ -6050,6 +6059,8 @@ export const useAIChatStore = create<AIChatState>()(
                 stored.activeSessionId,
                 { markProjectDirty: false }
               );
+              hasHydratedSessions = true;
+              return;
             }
           }
 

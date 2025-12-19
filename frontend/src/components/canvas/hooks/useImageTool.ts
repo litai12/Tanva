@@ -3,12 +3,12 @@
  * 处理图片上传、占位框创建、图片实例管理、选择、移动和调整大小等功能
  */
 
-import { useCallback, useRef, useState } from 'react';
-import paper from 'paper';
-import { logger } from '@/utils/logger';
-import { historyService } from '@/services/historyService';
-import { paperSaveService } from '@/services/paperSaveService';
-import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
+import { useCallback, useRef, useState } from "react";
+import paper from "paper";
+import { logger } from "@/utils/logger";
+import { historyService } from "@/services/historyService";
+import { paperSaveService } from "@/services/paperSaveService";
+import { ensureImageGroupStructure } from "@/utils/paperImageGroup";
 import type {
   ImageInstance,
   ImageDragState,
@@ -16,9 +16,11 @@ import type {
   ImageToolEventHandlers,
   DrawingContext,
   StoredImageAsset,
-} from '@/types/canvas';
-import type { ImageAssetSnapshot } from '@/types/project';
-import { useLayerStore } from '@/stores/layerStore';
+} from "@/types/canvas";
+import type { ImageAssetSnapshot } from "@/types/project";
+import { useLayerStore } from "@/stores/layerStore";
+import { imageUploadService } from "@/services/imageUploadService";
+import { useProjectContentStore } from "@/stores/projectContentStore";
 
 interface UseImageToolProps {
   context: DrawingContext;
@@ -26,16 +28,22 @@ interface UseImageToolProps {
   eventHandlers?: ImageToolEventHandlers;
 }
 
-export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImageToolProps) => {
+export const useImageTool = ({
+  context,
+  canvasRef,
+  eventHandlers = {},
+}: UseImageToolProps) => {
   const { ensureDrawingLayer, zoom } = context;
 
   // 图片相关状态
   const [triggerImageUpload, setTriggerImageUpload] = useState(false);
   const currentPlaceholderRef = useRef<paper.Group | null>(null);
   const [imageInstances, setImageInstances] = useState<ImageInstance[]>([]);
-  const [selectedImageIds, setSelectedImageIds] = useState<string[]>([]);  // 支持多选
-  const [selectedPlaceholderId, setSelectedPlaceholderId] = useState<string | null>(null);  // 占位框选中状态
-  const placeholdersRef = useRef<Map<string, paper.Group>>(new Map());  // 存储所有占位框
+  const [selectedImageIds, setSelectedImageIds] = useState<string[]>([]); // 支持多选
+  const [selectedPlaceholderId, setSelectedPlaceholderId] = useState<
+    string | null
+  >(null); // 占位框选中状态
+  const placeholdersRef = useRef<Map<string, paper.Group>>(new Map()); // 存储所有占位框
   const imageGroupCacheRef = useRef<Map<string, paper.Group>>(new Map()); // 缓存图片Group，减少遍历
 
   // 图片拖拽状态
@@ -58,383 +66,431 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   });
 
   // ========== 创建图片占位框 ==========
-  const createImagePlaceholder = useCallback((startPoint: paper.Point, endPoint: paper.Point) => {
-    ensureDrawingLayer();
+  const createImagePlaceholder = useCallback(
+    (startPoint: paper.Point, endPoint: paper.Point) => {
+      ensureDrawingLayer();
 
-    // 计算占位框矩形
-    const rect = new paper.Rectangle(startPoint, endPoint);
-    const center = rect.center;
-    const width = Math.abs(rect.width);
-    const height = Math.abs(rect.height);
+      // 计算占位框矩形
+      const rect = new paper.Rectangle(startPoint, endPoint);
+      const center = rect.center;
+      const width = Math.abs(rect.width);
+      const height = Math.abs(rect.height);
 
-    // 最小尺寸限制
-    const minSize = 50;
-    const finalWidth = Math.max(width, minSize);
-    const finalHeight = Math.max(height, minSize);
+      // 最小尺寸限制
+      const minSize = 50;
+      const finalWidth = Math.max(width, minSize);
+      const finalHeight = Math.max(height, minSize);
 
-    // 创建占位框边框（虚线矩形）
-    const placeholder = new paper.Path.Rectangle({
-      rectangle: new paper.Rectangle(center.subtract([finalWidth / 2, finalHeight / 2]), [finalWidth, finalHeight]),
-      strokeColor: new paper.Color('#60a5fa'), // 更柔和的蓝色边框
-      strokeWidth: 1,
-      dashArray: [8, 6],
-      fillColor: new paper.Color(0.94, 0.97, 1, 0.8) // 淡蓝色半透明背景
-    });
+      // 创建占位框边框（虚线矩形）
+      const placeholder = new paper.Path.Rectangle({
+        rectangle: new paper.Rectangle(
+          center.subtract([finalWidth / 2, finalHeight / 2]),
+          [finalWidth, finalHeight]
+        ),
+        strokeColor: new paper.Color("#60a5fa"), // 更柔和的蓝色边框
+        strokeWidth: 1,
+        dashArray: [8, 6],
+        fillColor: new paper.Color(0.94, 0.97, 1, 0.8), // 淡蓝色半透明背景
+      });
 
-    // 创建上传按钮背景（圆角矩形）
-    const buttonSize = Math.min(finalWidth * 0.5, finalHeight * 0.25, 120);
-    const buttonHeight = Math.min(40, finalHeight * 0.2);
+      // 创建上传按钮背景（圆角矩形）
+      const buttonSize = Math.min(finalWidth * 0.5, finalHeight * 0.25, 120);
+      const buttonHeight = Math.min(40, finalHeight * 0.2);
 
-    // 创建按钮背景
-    const buttonBg = new paper.Path.Rectangle({
-      rectangle: new paper.Rectangle(center.subtract([buttonSize / 2, buttonHeight / 2]), [buttonSize, buttonHeight]),
-      fillColor: new paper.Color('#3b82f6'), // 更现代的蓝色
-      strokeColor: new paper.Color('#2563eb'), // 深蓝色边框
-      strokeWidth: 1
-    });
+      // 创建按钮背景
+      const buttonBg = new paper.Path.Rectangle({
+        rectangle: new paper.Rectangle(
+          center.subtract([buttonSize / 2, buttonHeight / 2]),
+          [buttonSize, buttonHeight]
+        ),
+        fillColor: new paper.Color("#3b82f6"), // 更现代的蓝色
+        strokeColor: new paper.Color("#2563eb"), // 深蓝色边框
+        strokeWidth: 1,
+      });
 
-    // 创建"+"图标（更粗更圆润）
-    const iconSize = Math.min(14, buttonHeight * 0.35);
-    const hLine = new paper.Path.Line({
-      from: center.subtract([iconSize / 2, 0]),
-      to: center.add([iconSize / 2, 0]),
-      strokeColor: new paper.Color('#fff'),
-      strokeWidth: 3,
-      strokeCap: 'round'
-    });
-    const vLine = new paper.Path.Line({
-      from: center.subtract([0, iconSize / 2]),
-      to: center.add([0, iconSize / 2]),
-      strokeColor: new paper.Color('#fff'),
-      strokeWidth: 3,
-      strokeCap: 'round'
-    });
+      // 创建"+"图标（更粗更圆润）
+      const iconSize = Math.min(14, buttonHeight * 0.35);
+      const hLine = new paper.Path.Line({
+        from: center.subtract([iconSize / 2, 0]),
+        to: center.add([iconSize / 2, 0]),
+        strokeColor: new paper.Color("#fff"),
+        strokeWidth: 3,
+        strokeCap: "round",
+      });
+      const vLine = new paper.Path.Line({
+        from: center.subtract([0, iconSize / 2]),
+        to: center.add([0, iconSize / 2]),
+        strokeColor: new paper.Color("#fff"),
+        strokeWidth: 3,
+        strokeCap: "round",
+      });
 
-    // 上传按钮组合，单独承载点击事件
-    const buttonGroup = new paper.Group([buttonBg, hLine, vLine]);
-    buttonGroup.data = {
-      uploadHotspotType: 'image'
-    };
+      // 上传按钮组合，单独承载点击事件
+      const buttonGroup = new paper.Group([buttonBg, hLine, vLine]);
+      buttonGroup.data = {
+        uploadHotspotType: "image",
+      };
 
-    // 创建提示文字 - 调整位置，在按钮下方留出适当间距
-    const textY = Math.round(center.y + buttonHeight / 2 + 20); // 对齐到像素边界
-    const fontSize = Math.round(Math.min(14, finalWidth * 0.06, finalHeight * 0.08)); // 确保字体大小为整数
-    const text = new paper.PointText({
-      point: new paper.Point(Math.round(center.x), textY),
-      content: '点击上传图片',
-      fontSize: fontSize,
-      fillColor: new paper.Color('#1e40af'), // 深蓝色文字，与按钮呼应
-      justification: 'center'
-    });
+      // 创建提示文字 - 调整位置，在按钮下方留出适当间距
+      const textY = Math.round(center.y + buttonHeight / 2 + 20); // 对齐到像素边界
+      const fontSize = Math.round(
+        Math.min(14, finalWidth * 0.06, finalHeight * 0.08)
+      ); // 确保字体大小为整数
+      const text = new paper.PointText({
+        point: new paper.Point(Math.round(center.x), textY),
+        content: "点击上传图片",
+        fontSize: fontSize,
+        fillColor: new paper.Color("#1e40af"), // 深蓝色文字，与按钮呼应
+        justification: "center",
+      });
 
-    // 生成唯一ID
-    const placeholderId = `image-placeholder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // 生成唯一ID
+      const placeholderId = `image-placeholder_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
 
-    // 创建组合
-    const group = new paper.Group([placeholder, buttonGroup, text]);
-    group.data = {
-      type: 'image-placeholder',
-      placeholderId: placeholderId,
-      bounds: { x: center.x - finalWidth / 2, y: center.y - finalHeight / 2, width: finalWidth, height: finalHeight },
-      isHelper: true,  // 标记为辅助元素，不显示在图层列表中
-      placeholderMinSize: minSize
-    };
-    const attachPlaceholderMeta = (item: any) => {
-      if (item) {
-        // 🔥 使用 placeholderGroupId 而不是直接引用，避免循环引用导致序列化失败
-        item.data = { ...(item.data || {}), placeholderGroupId: placeholderId, placeholderType: 'image', isHelper: true };
-      }
-    };
-    [placeholder, buttonGroup, buttonBg, hLine, vLine, text].forEach(attachPlaceholderMeta);
+      // 创建组合
+      const group = new paper.Group([placeholder, buttonGroup, text]);
+      group.data = {
+        type: "image-placeholder",
+        placeholderId: placeholderId,
+        bounds: {
+          x: center.x - finalWidth / 2,
+          y: center.y - finalHeight / 2,
+          width: finalWidth,
+          height: finalHeight,
+        },
+        isHelper: true, // 标记为辅助元素，不显示在图层列表中
+        placeholderMinSize: minSize,
+      };
+      const attachPlaceholderMeta = (item: any) => {
+        if (item) {
+          // 🔥 使用 placeholderGroupId 而不是直接引用，避免循环引用导致序列化失败
+          item.data = {
+            ...(item.data || {}),
+            placeholderGroupId: placeholderId,
+            placeholderType: "image",
+            isHelper: true,
+          };
+        }
+      };
+      [placeholder, buttonGroup, buttonBg, hLine, vLine, text].forEach(
+        attachPlaceholderMeta
+      );
 
-    // 仅按钮区域触发上传
-    const triggerUpload = () => {
-      logger.upload('📸 点击图片上传按钮，触发上传');
-      currentPlaceholderRef.current = group;
-      setTriggerImageUpload(true);
-    };
-    buttonGroup.onClick = triggerUpload;
+      // 仅按钮区域触发上传
+      const triggerUpload = () => {
+        logger.upload("📸 点击图片上传按钮，触发上传");
+        currentPlaceholderRef.current = group;
+        setTriggerImageUpload(true);
+      };
+      buttonGroup.onClick = triggerUpload;
 
-    // 点击占位框（非按钮区域）选中占位框
-    placeholder.onClick = () => {
-      setSelectedPlaceholderId(placeholderId);
-      // 更新选中样式
-      placeholder.strokeColor = new paper.Color('#2563eb');
-      placeholder.strokeWidth = 2;
-    };
+      // 点击占位框（非按钮区域）选中占位框
+      placeholder.onClick = () => {
+        setSelectedPlaceholderId(placeholderId);
+        // 更新选中样式
+        placeholder.strokeColor = new paper.Color("#2563eb");
+        placeholder.strokeWidth = 2;
+      };
 
-    // 存储占位框引用
-    placeholdersRef.current.set(placeholderId, group);
+      // 存储占位框引用
+      placeholdersRef.current.set(placeholderId, group);
 
-    return group;
-  }, [ensureDrawingLayer]);
+      return group;
+    },
+    [ensureDrawingLayer]
+  );
 
   // ========== 处理图片上传成功 ==========
-  const handleImageUploaded = useCallback((asset: StoredImageAsset) => {
-    const placeholder = currentPlaceholderRef.current;
-    if (!placeholder || !placeholder.data?.bounds) {
-      logger.error('没有找到图片占位框');
-      return;
-    }
+  const handleImageUploaded = useCallback(
+    (asset: StoredImageAsset) => {
+      const placeholder = currentPlaceholderRef.current;
+      if (!placeholder || !placeholder.data?.bounds) {
+        logger.error("没有找到图片占位框");
+        return;
+      }
 
-    if (!asset || !asset.url) {
-      logger.error('无有效图片资源');
-      return;
-    }
+      if (!asset || !asset.url) {
+        logger.error("无有效图片资源");
+        return;
+      }
 
-    logger.upload('✅ 图片上传成功，创建图片实例');
+      logger.upload("✅ 图片上传成功，创建图片实例");
 
-    const paperBounds = placeholder.data.bounds;
-    const imageId = asset.id || `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const paperBounds = placeholder.data.bounds;
+      const imageId =
+        asset.id ||
+        `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    logger.upload('📍 图片使用Paper.js坐标:', paperBounds);
+      logger.upload("📍 图片使用Paper.js坐标:", paperBounds);
 
-    // 在Paper.js中创建图片的代表组
-    ensureDrawingLayer();
+      // 在Paper.js中创建图片的代表组
+      ensureDrawingLayer();
 
-    // 创建Paper.js的Raster对象来显示图片
-    const raster = new paper.Raster();
-    (raster as any).crossOrigin = 'anonymous';
+      // 创建Paper.js的Raster对象来显示图片
+      const raster = new paper.Raster();
+      (raster as any).crossOrigin = "anonymous";
 
-    // 等待图片加载完成后设置位置
-    raster.onLoad = () => {
-      // 存储原始尺寸信息
-      const originalWidth = raster.width;
-      const originalHeight = raster.height;
-      const aspectRatio = originalWidth / originalHeight;
+      // 等待图片加载完成后设置位置
+      raster.onLoad = () => {
+        // 存储原始尺寸信息
+        const originalWidth = raster.width;
+        const originalHeight = raster.height;
+        const aspectRatio = originalWidth / originalHeight;
 
-      raster.data = {
-        originalWidth: originalWidth,
-        originalHeight: originalHeight,
-        aspectRatio: aspectRatio
-      };
+        raster.data = {
+          originalWidth: originalWidth,
+          originalHeight: originalHeight,
+          aspectRatio: aspectRatio,
+        };
 
-      // 检查是否启用原始尺寸模式
-      const useOriginalSize = localStorage.getItem('tanva-use-original-size') === 'true';
-      let finalBounds;
+        // 检查是否启用原始尺寸模式
+        const useOriginalSize =
+          localStorage.getItem("tanva-use-original-size") === "true";
+        let finalBounds;
 
-      if (useOriginalSize) {
-        // 原始尺寸模式：使用图片的真实像素尺寸，以占位框中心为基准
-        const centerX = paperBounds.x + paperBounds.width / 2;
-        const centerY = paperBounds.y + paperBounds.height / 2;
-
-        finalBounds = new paper.Rectangle(
-          centerX - originalWidth / 2,
-          centerY - originalHeight / 2,
-          originalWidth,
-          originalHeight
-        );
-      } else {
-        // 标准模式：根据占位框和图片比例，计算保持比例的实际大小
-        const boxAspectRatio = paperBounds.width / paperBounds.height;
-
-        if (aspectRatio > boxAspectRatio) {
-          // 图片更宽，以宽度为准
-          const newWidth = paperBounds.width;
-          const newHeight = newWidth / aspectRatio;
-          const yOffset = (paperBounds.height - newHeight) / 2;
+        if (useOriginalSize) {
+          // 原始尺寸模式：使用图片的真实像素尺寸，以占位框中心为基准
+          const centerX = paperBounds.x + paperBounds.width / 2;
+          const centerY = paperBounds.y + paperBounds.height / 2;
 
           finalBounds = new paper.Rectangle(
-            paperBounds.x,
-            paperBounds.y + yOffset,
-            newWidth,
-            newHeight
+            centerX - originalWidth / 2,
+            centerY - originalHeight / 2,
+            originalWidth,
+            originalHeight
           );
         } else {
-          // 图片更高，以高度为准
-          const newHeight = paperBounds.height;
-          const newWidth = newHeight * aspectRatio;
-          const xOffset = (paperBounds.width - newWidth) / 2;
+          // 标准模式：根据占位框和图片比例，计算保持比例的实际大小
+          const boxAspectRatio = paperBounds.width / paperBounds.height;
 
-          finalBounds = new paper.Rectangle(
-            paperBounds.x + xOffset,
-            paperBounds.y,
-            newWidth,
-            newHeight
-          );
-        }
-      }
+          if (aspectRatio > boxAspectRatio) {
+            // 图片更宽，以宽度为准
+            const newWidth = paperBounds.width;
+            const newHeight = newWidth / aspectRatio;
+            const yOffset = (paperBounds.height - newHeight) / 2;
 
-      // 设置图片边界（保持比例）
-      raster.bounds = finalBounds;
+            finalBounds = new paper.Rectangle(
+              paperBounds.x,
+              paperBounds.y + yOffset,
+              newWidth,
+              newHeight
+            );
+          } else {
+            // 图片更高，以高度为准
+            const newHeight = paperBounds.height;
+            const newWidth = newHeight * aspectRatio;
+            const xOffset = (paperBounds.width - newWidth) / 2;
 
-      // 添加选择框和控制点
-      addImageSelectionElements(raster, finalBounds, imageId);
-
-      // 更新React状态中的bounds为实际尺寸
-      setImageInstances(prev => prev.map(img =>
-        img.id === imageId ? {
-          ...img,
-          bounds: {
-            x: finalBounds.x,
-            y: finalBounds.y,
-            width: finalBounds.width,
-            height: finalBounds.height
-          },
-          imageData: {
-            ...img.imageData,
-            url: asset.url,
-            src: asset.url,
-            key: asset.key || img.imageData.key,
-            fileName: asset.fileName || img.imageData.fileName,
-            width: originalWidth,
-            height: originalHeight,
-            contentType: asset.contentType || img.imageData.contentType,
-            pendingUpload: asset.pendingUpload,
-            localDataUrl: asset.localDataUrl,
+            finalBounds = new paper.Rectangle(
+              paperBounds.x + xOffset,
+              paperBounds.y,
+              newWidth,
+              newHeight
+            );
           }
-        } : img
-      ));
+        }
 
-      paper.view.update();
-    };
+        // 设置图片边界（保持比例）
+        raster.bounds = finalBounds;
 
-    raster.onError = (error: unknown) => {
-      logger.error('图片加载失败', error);
-    };
+        // 添加选择框和控制点
+        addImageSelectionElements(raster, finalBounds, imageId);
 
-    // 在监听器绑定后再设置资源，确保跨域标记和回调生效
-    raster.source = asset.url;
+        // 更新React状态中的bounds为实际尺寸
+        setImageInstances((prev) =>
+          prev.map((img) =>
+            img.id === imageId
+              ? {
+                  ...img,
+                  bounds: {
+                    x: finalBounds.x,
+                    y: finalBounds.y,
+                    width: finalBounds.width,
+                    height: finalBounds.height,
+                  },
+                  imageData: {
+                    ...img.imageData,
+                    url: asset.url,
+                    src: asset.url,
+                    key: asset.key || img.imageData.key,
+                    fileName: asset.fileName || img.imageData.fileName,
+                    width: originalWidth,
+                    height: originalHeight,
+                    contentType: asset.contentType || img.imageData.contentType,
+                    pendingUpload: asset.pendingUpload,
+                    localDataUrl: asset.localDataUrl,
+                  },
+                }
+              : img
+          )
+        );
 
-    // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
-    const imageGroup = new paper.Group([raster]);
-    imageGroup.data = {
-      type: 'image',
-      imageId: imageId,
-      isHelper: false
-    };
-    imageGroupCacheRef.current.set(imageId, imageGroup);
+        paper.view.update();
+      };
 
-    // 创建图片实例
-    const newImageInstance: ImageInstance = {
-      id: imageId,
-      imageData: {
+      raster.onError = (error: unknown) => {
+        logger.error("图片加载失败", error);
+      };
+
+      // 在监听器绑定后再设置资源，确保跨域标记和回调生效
+      raster.source = asset.url;
+
+      // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
+      const imageGroup = new paper.Group([raster]);
+      imageGroup.data = {
+        type: "image",
+        imageId: imageId,
+        isHelper: false,
+      };
+      imageGroupCacheRef.current.set(imageId, imageGroup);
+
+      // 创建图片实例
+      const newImageInstance: ImageInstance = {
         id: imageId,
-        url: asset.url,
-        src: asset.url,
-        key: asset.key,
-        fileName: asset.fileName,
-        width: asset.width,
-        height: asset.height,
-        contentType: asset.contentType,
-        pendingUpload: asset.pendingUpload,
-        localDataUrl: asset.localDataUrl,
-      },
-      bounds: {
-        x: paperBounds.x,
-        y: paperBounds.y,
-        width: paperBounds.width,
-        height: paperBounds.height
-      },
-      isSelected: false,  // 默认不选中，避免显示选择框
-      visible: true,
-      layerId: paper.project.activeLayer.name
-    };
+        imageData: {
+          id: imageId,
+          url: asset.url,
+          src: asset.url,
+          key: asset.key,
+          fileName: asset.fileName,
+          width: asset.width,
+          height: asset.height,
+          contentType: asset.contentType,
+          pendingUpload: asset.pendingUpload,
+          localDataUrl: asset.localDataUrl,
+        },
+        bounds: {
+          x: paperBounds.x,
+          y: paperBounds.y,
+          width: paperBounds.width,
+          height: paperBounds.height,
+        },
+        isSelected: false, // 默认不选中，避免显示选择框
+        visible: true,
+        layerId: paper.project.activeLayer.name,
+      };
 
-    setImageInstances(prev => [...prev, newImageInstance]);
-    // 不默认选中，让用户需要时再点击选择
-    // setSelectedImageId(imageId);
-    // eventHandlers.onImageSelect?.(imageId);
+      setImageInstances((prev) => [...prev, newImageInstance]);
+      // 不默认选中，让用户需要时再点击选择
+      // setSelectedImageId(imageId);
+      // eventHandlers.onImageSelect?.(imageId);
 
-    // 清理占位框
-    placeholder.remove();
-    currentPlaceholderRef.current = null;
+      // 清理占位框
+      placeholder.remove();
+      currentPlaceholderRef.current = null;
 
-    logger.upload('🖼️ 图片实例创建完成:', imageId);
-  }, [ensureDrawingLayer, eventHandlers.onImageSelect]);
+      logger.upload("🖼️ 图片实例创建完成:", imageId);
+    },
+    [ensureDrawingLayer, eventHandlers.onImageSelect]
+  );
 
   // ========== 添加图片选择元素 ==========
-  const addImageSelectionElements = useCallback((raster: paper.Raster, bounds: paper.Rectangle, imageId: string) => {
-    const parentGroup = raster.parent;
-    if (!(parentGroup instanceof paper.Group)) return;
+  const addImageSelectionElements = useCallback(
+    (raster: paper.Raster, bounds: paper.Rectangle, imageId: string) => {
+      const parentGroup = raster.parent;
+      if (!(parentGroup instanceof paper.Group)) return;
 
-    // 添加选择框（默认隐藏）
-    const selectionBorder = new paper.Path.Rectangle({
-      rectangle: bounds,
-      strokeColor: new paper.Color('#3b82f6'),
-      strokeWidth: 1,
-      fillColor: null,
-      selected: false,
-      visible: false  // 默认隐藏选择框
-    });
-    selectionBorder.data = {
-      isSelectionBorder: true,
-      isHelper: true  // 标记为辅助元素
-    };
-    parentGroup.addChild(selectionBorder);
-
-    // 添加四个角的调整控制点
-    const handleSize = 12;
-    const handleColor = new paper.Color('#3b82f6');
-
-    // 创建调整控制点
-    const handles = [
-      { direction: 'nw', position: [bounds.left, bounds.top] },
-      { direction: 'ne', position: [bounds.right, bounds.top] },
-      { direction: 'sw', position: [bounds.left, bounds.bottom] },
-      { direction: 'se', position: [bounds.right, bounds.bottom] }
-    ];
-
-    handles.forEach(({ direction, position }) => {
-                    const handle = new paper.Path.Rectangle({
-                        point: [position[0] - handleSize / 2, position[1] - handleSize / 2],
-                        size: [handleSize, handleSize],
-                        fillColor: 'white',  // 改为白色填充（空心效果）
-                        strokeColor: handleColor,  // 蓝色边框
-                        strokeWidth: 1,  // 增加边框宽度让空心效果更明显
-                        selected: false,
-                        visible: false  // 默认隐藏控制点
-                      });
-      handle.data = {
-        isResizeHandle: true,
-        direction,
-        imageId,
-        isHelper: true  // 标记为辅助元素
+      // 添加选择框（默认隐藏）
+      const selectionBorder = new paper.Path.Rectangle({
+        rectangle: bounds,
+        strokeColor: new paper.Color("#3b82f6"),
+        strokeWidth: 1,
+        fillColor: null,
+        selected: false,
+        visible: false, // 默认隐藏选择框
+      });
+      selectionBorder.data = {
+        isSelectionBorder: true,
+        isHelper: true, // 标记为辅助元素
       };
-      parentGroup.addChild(handle);
-    });
-  }, []);
+      parentGroup.addChild(selectionBorder);
+
+      // 添加四个角的调整控制点
+      const handleSize = 12;
+      const handleColor = new paper.Color("#3b82f6");
+
+      // 创建调整控制点
+      const handles = [
+        { direction: "nw", position: [bounds.left, bounds.top] },
+        { direction: "ne", position: [bounds.right, bounds.top] },
+        { direction: "sw", position: [bounds.left, bounds.bottom] },
+        { direction: "se", position: [bounds.right, bounds.bottom] },
+      ];
+
+      handles.forEach(({ direction, position }) => {
+        const handle = new paper.Path.Rectangle({
+          point: [position[0] - handleSize / 2, position[1] - handleSize / 2],
+          size: [handleSize, handleSize],
+          fillColor: "white", // 改为白色填充（空心效果）
+          strokeColor: handleColor, // 蓝色边框
+          strokeWidth: 1, // 增加边框宽度让空心效果更明显
+          selected: false,
+          visible: false, // 默认隐藏控制点
+        });
+        handle.data = {
+          isResizeHandle: true,
+          direction,
+          imageId,
+          isHelper: true, // 标记为辅助元素
+        };
+        parentGroup.addChild(handle);
+      });
+    },
+    []
+  );
 
   // ========== 获取图像的base64数据 ==========
-  const getImageDataForEditing = useCallback((imageId: string): string | null => {
-    const imageInstance = imageInstances.find(img => img.id === imageId);
-    if (!imageInstance) return null;
+  const getImageDataForEditing = useCallback(
+    (imageId: string): string | null => {
+      const imageInstance = imageInstances.find((img) => img.id === imageId);
+      if (!imageInstance) return null;
 
-    try {
-      // 🎯 优先使用原始图片数据（高质量）
-      // 这样可以避免canvas缩放导致的质量损失
-      const primarySrc = imageInstance.imageData?.url || imageInstance.imageData?.src;
-      if (primarySrc) {
-        return primarySrc;
+      try {
+        // 🎯 优先使用原始图片数据（高质量）
+        // 这样可以避免canvas缩放导致的质量损失
+        const primarySrc =
+          imageInstance.imageData?.url || imageInstance.imageData?.src;
+        if (primarySrc) {
+          return primarySrc;
+        }
+
+        // 备用方案：从Paper.js获取（已缩放，可能质量较低）
+        console.warn(
+          "⚠️ AI编辑：未找到原始图片数据，使用canvas数据（可能已缩放）"
+        );
+        const imageGroup = paper.project.layers.flatMap((layer) =>
+          layer.children.filter(
+            (child) =>
+              child.data?.type === "image" && child.data?.imageId === imageId
+          )
+        )[0];
+
+        if (!imageGroup) return null;
+
+        const raster = imageGroup.children.find(
+          (child) => child instanceof paper.Raster
+        ) as paper.Raster;
+        if (!raster || !raster.canvas) return null;
+
+        // 将canvas转换为base64（已缩放，可能质量较低）
+        return raster.canvas.toDataURL("image/png");
+      } catch (error) {
+        console.error("获取图像数据失败:", error);
+        return null;
       }
-
-      // 备用方案：从Paper.js获取（已缩放，可能质量较低）
-      console.warn('⚠️ AI编辑：未找到原始图片数据，使用canvas数据（可能已缩放）');
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === imageId
-        )
-      )[0];
-
-      if (!imageGroup) return null;
-
-      const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
-      if (!raster || !raster.canvas) return null;
-
-      // 将canvas转换为base64（已缩放，可能质量较低）
-      return raster.canvas.toDataURL('image/png');
-    } catch (error) {
-      console.error('获取图像数据失败:', error);
-      return null;
-    }
-  }, [imageInstances]);
+    },
+    [imageInstances]
+  );
 
   // 检查图层是否可见
   const isLayerVisible = useCallback((imageId: string) => {
     // 找到对应的Paper.js图层组
-    const imageGroup = paper.project.layers.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageId
+    const imageGroup = paper.project.layers.flatMap((layer) =>
+      layer.children.filter(
+        (child) =>
+          child.data?.type === "image" && child.data?.imageId === imageId
       )
     )[0];
 
@@ -452,83 +508,96 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   // ========== 图片选择/取消选择 ==========
   // 更新图片选择视觉效果
   const updateImageSelectionVisuals = useCallback((selectedIds: string[]) => {
-    setImageInstances(prev => prev.map(img => {
-      const isSelected = selectedIds.includes(img.id);
+    setImageInstances((prev) =>
+      prev.map((img) => {
+        const isSelected = selectedIds.includes(img.id);
 
-      // 控制选择框和控制点的可见性
-      const imageGroup =
-        imageGroupCacheRef.current.get(img.id) ||
-        paper.project.layers.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId === img.id
-          )
-        )[0];
-      if (imageGroup instanceof paper.Group) {
-        imageGroupCacheRef.current.set(img.id, imageGroup);
-      }
+        // 控制选择框和控制点的可见性
+        const imageGroup =
+          imageGroupCacheRef.current.get(img.id) ||
+          paper.project.layers.flatMap((layer) =>
+            layer.children.filter(
+              (child) =>
+                child.data?.type === "image" && child.data?.imageId === img.id
+            )
+          )[0];
+        if (imageGroup instanceof paper.Group) {
+          imageGroupCacheRef.current.set(img.id, imageGroup);
+        }
 
-      if (imageGroup instanceof paper.Group) {
-        imageGroup.children.forEach(child => {
-          if (child.data?.isSelectionBorder || child.data?.isResizeHandle) {
-            child.visible = isSelected;
-          }
-        });
-      }
+        if (imageGroup instanceof paper.Group) {
+          imageGroup.children.forEach((child) => {
+            if (child.data?.isSelectionBorder || child.data?.isResizeHandle) {
+              child.visible = isSelected;
+            }
+          });
+        }
 
-      return {
-        ...img,
-        isSelected
-      };
-    }));
+        return {
+          ...img,
+          isSelected,
+        };
+      })
+    );
     paper.view.update();
   }, []);
 
-  const handleImageSelect = useCallback((imageId: string, addToSelection: boolean = false) => {
-    // 检查图层是否可见，只有可见的图层才能被选中
-    if (!isLayerVisible(imageId)) {
-      logger.debug('图层不可见，无法选中图片:', imageId);
-      return;
-    }
+  const handleImageSelect = useCallback(
+    (imageId: string, addToSelection: boolean = false) => {
+      // 检查图层是否可见，只有可见的图层才能被选中
+      if (!isLayerVisible(imageId)) {
+        logger.debug("图层不可见，无法选中图片:", imageId);
+        return;
+      }
 
-    // 更新选择状态
-    if (addToSelection) {
-      // 增量选择模式
-      setSelectedImageIds(prev => {
-        if (prev.includes(imageId)) {
-          // 如果已选中，则取消选择
-          const newIds = prev.filter(id => id !== imageId);
-          updateImageSelectionVisuals(newIds);
-          return newIds;
-        } else {
-          // 否则添加到选择
-          const newIds = [...prev, imageId];
-          updateImageSelectionVisuals(newIds);
-          return newIds;
-        }
-      });
-    } else {
-      // 单选模式
-      setSelectedImageIds([imageId]);
-      updateImageSelectionVisuals([imageId]);
-    }
-    
-    eventHandlers.onImageSelect?.(imageId);
-  }, [eventHandlers.onImageSelect, isLayerVisible, updateImageSelectionVisuals]);
+      // 更新选择状态
+      if (addToSelection) {
+        // 增量选择模式
+        setSelectedImageIds((prev) => {
+          if (prev.includes(imageId)) {
+            // 如果已选中，则取消选择
+            const newIds = prev.filter((id) => id !== imageId);
+            updateImageSelectionVisuals(newIds);
+            return newIds;
+          } else {
+            // 否则添加到选择
+            const newIds = [...prev, imageId];
+            updateImageSelectionVisuals(newIds);
+            return newIds;
+          }
+        });
+      } else {
+        // 单选模式
+        setSelectedImageIds([imageId]);
+        updateImageSelectionVisuals([imageId]);
+      }
+
+      eventHandlers.onImageSelect?.(imageId);
+    },
+    [eventHandlers.onImageSelect, isLayerVisible, updateImageSelectionVisuals]
+  );
 
   // 批量选择图片
-  const handleImageMultiSelect = useCallback((imageIds: string[]) => {
-    // 过滤出可见图层的图片
-    const visibleImageIds = imageIds.filter(id => isLayerVisible(id));
-    
-    logger.upload(`批量选中图片: ${visibleImageIds.join(', ')}`);
-    setSelectedImageIds(visibleImageIds);
-    updateImageSelectionVisuals(visibleImageIds);
-    
-    // 触发批量选择事件
-    if (eventHandlers.onImageMultiSelect) {
-      eventHandlers.onImageMultiSelect(visibleImageIds);
-    }
-  }, [eventHandlers.onImageMultiSelect, isLayerVisible, updateImageSelectionVisuals]);
+  const handleImageMultiSelect = useCallback(
+    (imageIds: string[]) => {
+      // 过滤出可见图层的图片
+      const visibleImageIds = imageIds.filter((id) => isLayerVisible(id));
+
+      logger.upload(`批量选中图片: ${visibleImageIds.join(", ")}`);
+      setSelectedImageIds(visibleImageIds);
+      updateImageSelectionVisuals(visibleImageIds);
+
+      // 触发批量选择事件
+      if (eventHandlers.onImageMultiSelect) {
+        eventHandlers.onImageMultiSelect(visibleImageIds);
+      }
+    },
+    [
+      eventHandlers.onImageMultiSelect,
+      isLayerVisible,
+      updateImageSelectionVisuals,
+    ]
+  );
 
   const handleImageDeselect = useCallback(() => {
     setSelectedImageIds([]);
@@ -537,287 +606,377 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   }, [eventHandlers.onImageDeselect, updateImageSelectionVisuals]);
 
   // ========== 图片移动 ==========
-  const resolveImageGroup = useCallback((imageId: string): paper.Group | null => {
-    const cached = imageGroupCacheRef.current.get(imageId);
-    if (cached && !(cached as any).removed) {
-      return cached;
-    }
-    const found = paper.project.layers.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageId
-      )
-    )[0] as paper.Group | undefined;
-    if (found) {
-      imageGroupCacheRef.current.set(imageId, found);
-      return found;
-    }
-    return null;
-  }, []);
-
-  const updateImageGroupPosition = useCallback((
-    imageId: string,
-    newPosition: { x: number; y: number }
-  ): { width: number; height: number } | null => {
-    const imageGroup = resolveImageGroup(imageId);
-    if (!(imageGroup instanceof paper.Group)) return null;
-
-    const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster | undefined;
-    if (!raster || !raster.bounds) return null;
-    const actualBounds = raster.bounds;
-    const actualWidth = actualBounds.width;
-    const actualHeight = actualBounds.height;
-
-    const newCenter = new paper.Point(
-      newPosition.x + actualWidth / 2,
-      newPosition.y + actualHeight / 2
-    );
-    raster.position = newCenter;
-
-    imageGroup.children.forEach(child => {
-      if (child.data?.isSelectionBorder) {
-        child.bounds = new paper.Rectangle(
-          newPosition.x,
-          newPosition.y,
-          actualWidth,
-          actualHeight
-        );
-      } else if (child.data?.type === 'image-selection-area') {
-        child.bounds = new paper.Rectangle(
-          newPosition.x,
-          newPosition.y,
-          actualWidth,
-          actualHeight
-        );
-      } else if (child.data?.isResizeHandle) {
-        const direction = child.data.direction;
-        let handlePosition;
-
-        switch (direction) {
-          case 'nw':
-            handlePosition = [newPosition.x, newPosition.y];
-            break;
-          case 'ne':
-            handlePosition = [newPosition.x + actualWidth, newPosition.y];
-            break;
-          case 'sw':
-            handlePosition = [newPosition.x, newPosition.y + actualHeight];
-            break;
-          case 'se':
-            handlePosition = [newPosition.x + actualWidth, newPosition.y + actualHeight];
-            break;
-          default:
-            handlePosition = [newPosition.x, newPosition.y];
-        }
-
-        child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+  const resolveImageGroup = useCallback(
+    (imageId: string): paper.Group | null => {
+      const cached = imageGroupCacheRef.current.get(imageId);
+      if (cached && !(cached as any).removed) {
+        return cached;
       }
-    });
-
-    return { width: actualWidth, height: actualHeight };
-  }, [resolveImageGroup]);
-
-  const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
-    const moved = updateImageGroupPosition(imageId, newPosition);
-    if (!skipPaperUpdate && moved) {
-      try { paper.view.update(); } catch {}
-    }
-
-    setImageInstances(prev => prev.map(img => {
-      if (img.id !== imageId) return img;
-      return {
-        ...img,
-        bounds: {
-          ...img.bounds,
-          x: newPosition.x,
-          y: newPosition.y
-        }
-      };
-    }));
-    eventHandlers.onImageMove?.(imageId, newPosition);
-  }, [eventHandlers.onImageMove, updateImageGroupPosition]);
-
-  const handleImageMoveBatch = useCallback((
-    positions: Record<string, { x: number; y: number }>,
-    options?: { updateView?: boolean; commitState?: boolean; notify?: boolean }
-  ) => {
-    const updatedPositions: Record<string, { x: number; y: number }> = {};
-    Object.entries(positions).forEach(([id, pos]) => {
-      const moved = updateImageGroupPosition(id, pos);
-      if (moved) {
-        updatedPositions[id] = pos;
+      const found = paper.project.layers.flatMap((layer) =>
+        layer.children.filter(
+          (child) =>
+            child.data?.type === "image" && child.data?.imageId === imageId
+        )
+      )[0] as paper.Group | undefined;
+      if (found) {
+        imageGroupCacheRef.current.set(imageId, found);
+        return found;
       }
-    });
+      return null;
+    },
+    []
+  );
 
-    if (options?.updateView !== false && Object.keys(updatedPositions).length > 0) {
-      try { paper.view.update(); } catch {}
-    }
+  const updateImageGroupPosition = useCallback(
+    (
+      imageId: string,
+      newPosition: { x: number; y: number }
+    ): { width: number; height: number } | null => {
+      const imageGroup = resolveImageGroup(imageId);
+      if (!(imageGroup instanceof paper.Group)) return null;
 
-    if (Object.keys(updatedPositions).length === 0) return;
+      const raster = imageGroup.children.find(
+        (child) => child instanceof paper.Raster
+      ) as paper.Raster | undefined;
+      if (!raster || !raster.bounds) return null;
+      const actualBounds = raster.bounds;
+      const actualWidth = actualBounds.width;
+      const actualHeight = actualBounds.height;
 
-    const shouldCommitState = options?.commitState !== false;
-    if (shouldCommitState) {
-      setImageInstances(prev => prev.map(img => {
-        const nextPos = updatedPositions[img.id];
-        if (!nextPos) return img;
-        return {
-          ...img,
-          bounds: {
-            ...img.bounds,
-            x: nextPos.x,
-            y: nextPos.y
-          }
-        };
-      }));
-    }
+      const newCenter = new paper.Point(
+        newPosition.x + actualWidth / 2,
+        newPosition.y + actualHeight / 2
+      );
+      raster.position = newCenter;
 
-    const shouldNotify = options?.notify !== false;
-    if (shouldNotify && eventHandlers.onImageMove) {
-      Object.entries(updatedPositions).forEach(([id, pos]) => eventHandlers.onImageMove?.(id, pos));
-    }
-  }, [eventHandlers.onImageMove, updateImageGroupPosition, setImageInstances]);
-
-  // ========== 图片调整大小 ==========
-  const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
-    // 立即更新Paper.js对象，不等待React状态
-    const imageGroup = paper.project.layers.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageId
-      )
-    )[0];
-
-    if (imageGroup instanceof paper.Group) {
-      // 找到图片Raster元素并调整大小和位置
-      const raster = imageGroup.children.find(child => child instanceof paper.Raster);
-      if (raster && raster.data?.originalWidth && raster.data?.originalHeight) {
-        // 计算缩放比例，保持图片质量
-        const scaleX = newBounds.width / raster.data.originalWidth;
-        const scaleY = newBounds.height / raster.data.originalHeight;
-
-        // 直接设置bounds，避免scale操作的闪烁
-        raster.bounds = new paper.Rectangle(
-          newBounds.x,
-          newBounds.y,
-          newBounds.width,
-          newBounds.height
-        );
-      }
-
-      // 更新选择框、选择区域和控制点
-      imageGroup.children.forEach(child => {
+      imageGroup.children.forEach((child) => {
         if (child.data?.isSelectionBorder) {
           child.bounds = new paper.Rectangle(
-            newBounds.x,
-            newBounds.y,
-            newBounds.width,
-            newBounds.height
+            newPosition.x,
+            newPosition.y,
+            actualWidth,
+            actualHeight
           );
-        } else if (child.data?.type === 'image-selection-area') {
-          // 更新选择区域的bounds（关键！用于点击检测）
+        } else if (child.data?.type === "image-selection-area") {
           child.bounds = new paper.Rectangle(
-            newBounds.x,
-            newBounds.y,
-            newBounds.width,
-            newBounds.height
+            newPosition.x,
+            newPosition.y,
+            actualWidth,
+            actualHeight
           );
         } else if (child.data?.isResizeHandle) {
-          // 重新定位控制点
           const direction = child.data.direction;
           let handlePosition;
 
           switch (direction) {
-            case 'nw':
-              handlePosition = [newBounds.x, newBounds.y];
+            case "nw":
+              handlePosition = [newPosition.x, newPosition.y];
               break;
-            case 'ne':
-              handlePosition = [newBounds.x + newBounds.width, newBounds.y];
+            case "ne":
+              handlePosition = [newPosition.x + actualWidth, newPosition.y];
               break;
-            case 'sw':
-              handlePosition = [newBounds.x, newBounds.y + newBounds.height];
+            case "sw":
+              handlePosition = [newPosition.x, newPosition.y + actualHeight];
               break;
-            case 'se':
-              handlePosition = [newBounds.x + newBounds.width, newBounds.y + newBounds.height];
+            case "se":
+              handlePosition = [
+                newPosition.x + actualWidth,
+                newPosition.y + actualHeight,
+              ];
               break;
             default:
-              handlePosition = [newBounds.x, newBounds.y];
+              handlePosition = [newPosition.x, newPosition.y];
           }
 
-          child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+          child.position = new paper.Point(
+            handlePosition[0],
+            handlePosition[1]
+          );
         }
       });
-    }
 
-    // 简化React状态更新
-    setImageInstances(prev => prev.map(img => {
-      if (img.id === imageId) {
-        return { ...img, bounds: newBounds };
+      return { width: actualWidth, height: actualHeight };
+    },
+    [resolveImageGroup]
+  );
+
+  const handleImageMove = useCallback(
+    (
+      imageId: string,
+      newPosition: { x: number; y: number },
+      skipPaperUpdate = false
+    ) => {
+      const moved = updateImageGroupPosition(imageId, newPosition);
+      if (!skipPaperUpdate && moved) {
+        try {
+          paper.view.update();
+        } catch {}
       }
-      return img;
-    }));
-    eventHandlers.onImageResize?.(imageId, newBounds);
-    try { paperSaveService.triggerAutoSave(); } catch {}
-  }, [eventHandlers.onImageResize]);
+
+      // 🔥 修复：使用 moved 返回的 width 和 height，确保状态一致性
+      setImageInstances((prev) =>
+        prev.map((img) => {
+          if (img.id !== imageId) return img;
+          return {
+            ...img,
+            bounds: {
+              ...img.bounds,
+              x: newPosition.x,
+              y: newPosition.y,
+              width: moved?.width ?? img.bounds.width,
+              height: moved?.height ?? img.bounds.height,
+            },
+          };
+        })
+      );
+      eventHandlers.onImageMove?.(imageId, newPosition);
+    },
+    [eventHandlers.onImageMove, updateImageGroupPosition]
+  );
+
+  const handleImageMoveBatch = useCallback(
+    (
+      positions: Record<string, { x: number; y: number }>,
+      options?: {
+        updateView?: boolean;
+        commitState?: boolean;
+        notify?: boolean;
+      }
+    ) => {
+      const updatedPositions: Record<string, { x: number; y: number }> = {};
+      const updatedDimensions: Record<string, { width: number; height: number }> = {};
+      
+      // 🔥 修复：同时记录位置和尺寸，确保状态一致性
+      Object.entries(positions).forEach(([id, pos]) => {
+        const moved = updateImageGroupPosition(id, pos);
+        if (moved) {
+          updatedPositions[id] = pos;
+          updatedDimensions[id] = { width: moved.width, height: moved.height };
+        }
+      });
+
+      if (
+        options?.updateView !== false &&
+        Object.keys(updatedPositions).length > 0
+      ) {
+        try {
+          paper.view.update();
+        } catch {}
+      }
+
+      if (Object.keys(updatedPositions).length === 0) return;
+
+      const shouldCommitState = options?.commitState !== false;
+      if (shouldCommitState) {
+        setImageInstances((prev) =>
+          prev.map((img) => {
+            const nextPos = updatedPositions[img.id];
+            const nextDim = updatedDimensions[img.id];
+            if (!nextPos) return img;
+            return {
+              ...img,
+              bounds: {
+                ...img.bounds,
+                x: nextPos.x,
+                y: nextPos.y,
+                width: nextDim?.width ?? img.bounds.width,
+                height: nextDim?.height ?? img.bounds.height,
+              },
+            };
+          })
+        );
+      }
+
+      const shouldNotify = options?.notify !== false;
+      if (shouldNotify && eventHandlers.onImageMove) {
+        Object.entries(updatedPositions).forEach(([id, pos]) =>
+          eventHandlers.onImageMove?.(id, pos)
+        );
+      }
+    },
+    [eventHandlers.onImageMove, updateImageGroupPosition, setImageInstances]
+  );
+
+  // ========== 图片调整大小 ==========
+  const handleImageResize = useCallback(
+    (
+      imageId: string,
+      newBounds: { x: number; y: number; width: number; height: number }
+    ) => {
+      // 立即更新Paper.js对象，不等待React状态
+      const imageGroup = paper.project.layers.flatMap((layer) =>
+        layer.children.filter(
+          (child) =>
+            child.data?.type === "image" && child.data?.imageId === imageId
+        )
+      )[0];
+
+      if (imageGroup instanceof paper.Group) {
+        // 找到图片Raster元素并调整大小和位置
+        const raster = imageGroup.children.find(
+          (child) => child instanceof paper.Raster
+        );
+        if (
+          raster &&
+          raster.data?.originalWidth &&
+          raster.data?.originalHeight
+        ) {
+          // 计算缩放比例，保持图片质量
+          const scaleX = newBounds.width / raster.data.originalWidth;
+          const scaleY = newBounds.height / raster.data.originalHeight;
+
+          // 直接设置bounds，避免scale操作的闪烁
+          raster.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
+        }
+
+        // 更新选择框、选择区域和控制点
+        imageGroup.children.forEach((child) => {
+          if (child.data?.isSelectionBorder) {
+            child.bounds = new paper.Rectangle(
+              newBounds.x,
+              newBounds.y,
+              newBounds.width,
+              newBounds.height
+            );
+          } else if (child.data?.type === "image-selection-area") {
+            // 更新选择区域的bounds（关键！用于点击检测）
+            child.bounds = new paper.Rectangle(
+              newBounds.x,
+              newBounds.y,
+              newBounds.width,
+              newBounds.height
+            );
+          } else if (child.data?.isResizeHandle) {
+            // 重新定位控制点
+            const direction = child.data.direction;
+            let handlePosition;
+
+            switch (direction) {
+              case "nw":
+                handlePosition = [newBounds.x, newBounds.y];
+                break;
+              case "ne":
+                handlePosition = [newBounds.x + newBounds.width, newBounds.y];
+                break;
+              case "sw":
+                handlePosition = [newBounds.x, newBounds.y + newBounds.height];
+                break;
+              case "se":
+                handlePosition = [
+                  newBounds.x + newBounds.width,
+                  newBounds.y + newBounds.height,
+                ];
+                break;
+              default:
+                handlePosition = [newBounds.x, newBounds.y];
+            }
+
+            child.position = new paper.Point(
+              handlePosition[0],
+              handlePosition[1]
+            );
+          }
+        });
+      }
+
+      // 简化React状态更新
+      setImageInstances((prev) =>
+        prev.map((img) => {
+          if (img.id === imageId) {
+            return { ...img, bounds: newBounds };
+          }
+          return img;
+        })
+      );
+      eventHandlers.onImageResize?.(imageId, newBounds);
+      try {
+        paperSaveService.triggerAutoSave();
+      } catch {}
+    },
+    [eventHandlers.onImageResize]
+  );
 
   // ========== 图片删除 ==========
-  const handleImageDelete = useCallback((imageId: string) => {
-    logger.debug('🗑️ 开始删除图片:', imageId);
+  const handleImageDelete = useCallback(
+    (imageId: string) => {
+      logger.debug("🗑️ 开始删除图片:", imageId);
 
-    // 从Paper.js中移除图片对象（深度清理，防止残留）
-    try {
-      if (paper && paper.project) {
-        const matches = paper.project.getItems({
-          match: (item: any) => {
-            const d = item?.data || {};
-            const isImageGroup = d.type === 'image' && d.imageId === imageId;
-            const isRasterWithId = (item instanceof paper.Raster) && (d.imageId === imageId);
-            return isImageGroup || isRasterWithId;
-          }
-        }) as paper.Item[];
+      // 从Paper.js中移除图片对象（深度清理，防止残留）
+      try {
+        if (paper && paper.project) {
+          const matches = paper.project.getItems({
+            match: (item: any) => {
+              const d = item?.data || {};
+              const isImageGroup = d.type === "image" && d.imageId === imageId;
+              const isRasterWithId =
+                item instanceof paper.Raster && d.imageId === imageId;
+              return isImageGroup || isRasterWithId;
+            },
+          }) as paper.Item[];
 
-        if (matches.length > 0) {
-          matches.forEach((item) => {
-            let target: any = item;
-            while (target && !(target instanceof paper.Layer)) {
-              if (target?.data?.type === 'image' && target?.data?.imageId === imageId) {
-                try { target.remove(); } catch {}
-                return;
+          if (matches.length > 0) {
+            matches.forEach((item) => {
+              let target: any = item;
+              while (target && !(target instanceof paper.Layer)) {
+                if (
+                  target?.data?.type === "image" &&
+                  target?.data?.imageId === imageId
+                ) {
+                  try {
+                    target.remove();
+                  } catch {}
+                  return;
+                }
+                target = target.parent;
               }
-              target = target.parent;
-            }
-            try { item.remove(); } catch {}
-          });
-          try { paper.view.update(); } catch {}
-          logger.debug('🗑️ 已从Paper.js中移除图片（深度清理）');
-        } else {
-          console.warn('未找到需要删除的图片对象，可能已被移除');
+              try {
+                item.remove();
+              } catch {}
+            });
+            try {
+              paper.view.update();
+            } catch {}
+            logger.debug("🗑️ 已从Paper.js中移除图片（深度清理）");
+          } else {
+            console.warn("未找到需要删除的图片对象，可能已被移除");
+          }
         }
+      } catch (e) {
+        console.warn("删除Paper对象时出错:", e);
       }
-    } catch (e) {
-      console.warn('删除Paper对象时出错:', e);
-    }
 
-    // 从React状态中移除图片
-    setImageInstances(prev => {
-      const filtered = prev.filter(img => img.id !== imageId);
-      logger.debug('🗑️ 已从状态中移除图片，剩余图片数量:', filtered.length);
-      return filtered;
-    });
-    imageGroupCacheRef.current.delete(imageId);
+      // 从React状态中移除图片
+      setImageInstances((prev) => {
+        const filtered = prev.filter((img) => img.id !== imageId);
+        logger.debug("🗑️ 已从状态中移除图片，剩余图片数量:", filtered.length);
+        return filtered;
+      });
+      imageGroupCacheRef.current.delete(imageId);
 
-    // 如果删除的是当前选中的图片，清除选中状态
-    if (selectedImageIds.includes(imageId)) {
-      setSelectedImageIds(prev => prev.filter(id => id !== imageId));
-      logger.debug('🗑️ 已清除选中状态');
-    }
+      // 如果删除的是当前选中的图片，清除选中状态
+      if (selectedImageIds.includes(imageId)) {
+        setSelectedImageIds((prev) => prev.filter((id) => id !== imageId));
+        logger.debug("🗑️ 已清除选中状态");
+      }
 
-    // 调用删除回调
-    eventHandlers.onImageDelete?.(imageId);
-    try { paperSaveService.triggerAutoSave(); } catch {}
-    historyService.commit('delete-image').catch(() => {});
-  }, [selectedImageIds[0], eventHandlers.onImageDelete]);
+      // 调用删除回调
+      eventHandlers.onImageDelete?.(imageId);
+      try {
+        paperSaveService.triggerAutoSave();
+      } catch {}
+      historyService.commit("delete-image").catch(() => {});
+    },
+    [selectedImageIds[0], eventHandlers.onImageDelete]
+  );
 
   // ========== 图片上传错误处理 ==========
   const handleImageUploadError = useCallback((error: string) => {
-    logger.error('图片上传失败:', error);
+    logger.error("图片上传失败:", error);
     currentPlaceholderRef.current = null;
   }, []);
 
@@ -827,30 +986,35 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   }, []);
 
   // ========== 删除占位框 ==========
-  const deletePlaceholder = useCallback((placeholderId?: string) => {
-    const idToDelete = placeholderId || selectedPlaceholderId;
-    if (!idToDelete) return false;
+  const deletePlaceholder = useCallback(
+    (placeholderId?: string) => {
+      const idToDelete = placeholderId || selectedPlaceholderId;
+      if (!idToDelete) return false;
 
-    const placeholder = placeholdersRef.current.get(idToDelete);
-    if (placeholder) {
-      try {
-        placeholder.remove();
-        placeholdersRef.current.delete(idToDelete);
-        if (selectedPlaceholderId === idToDelete) {
-          setSelectedPlaceholderId(null);
+      const placeholder = placeholdersRef.current.get(idToDelete);
+      if (placeholder) {
+        try {
+          placeholder.remove();
+          placeholdersRef.current.delete(idToDelete);
+          if (selectedPlaceholderId === idToDelete) {
+            setSelectedPlaceholderId(null);
+          }
+          if (
+            currentPlaceholderRef.current?.data?.placeholderId === idToDelete
+          ) {
+            currentPlaceholderRef.current = null;
+          }
+          paper.view?.update();
+          logger.debug("🗑️ 已删除图片占位框:", idToDelete);
+          return true;
+        } catch (e) {
+          console.warn("删除占位框失败:", e);
         }
-        if (currentPlaceholderRef.current?.data?.placeholderId === idToDelete) {
-          currentPlaceholderRef.current = null;
-        }
-        paper.view?.update();
-        logger.debug('🗑️ 已删除图片占位框:', idToDelete);
-        return true;
-      } catch (e) {
-        console.warn('删除占位框失败:', e);
       }
-    }
-    return false;
-  }, [selectedPlaceholderId]);
+      return false;
+    },
+    [selectedPlaceholderId]
+  );
 
   // ========== 取消选中占位框 ==========
   const deselectPlaceholder = useCallback(() => {
@@ -860,7 +1024,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         // 恢复默认样式
         const border = placeholder.children?.[0];
         if (border instanceof paper.Path) {
-          border.strokeColor = new paper.Color('#60a5fa');
+          border.strokeColor = new paper.Color("#60a5fa");
           border.strokeWidth = 1;
         }
       }
@@ -868,91 +1032,265 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
   }, [selectedPlaceholderId]);
 
-  const hydrateFromSnapshot = useCallback((snapshots: ImageAssetSnapshot[]) => {
-    if (!Array.isArray(snapshots) || snapshots.length === 0) {
-      setImageInstances([]);
-      setSelectedImageIds([]);
-      return;
-    }
-
-    // 检查 Paper.js 中是否已经存在这些图片（从 paperJson 恢复的）
-    const existingPaperImages = new Map<string, paper.Item>();
-    try {
-      if (paper && paper.project) {
-        (paper.project.layers || []).forEach((layer: any) => {
-          const children = layer?.children || [];
-          children.forEach((child: any) => {
-            if (child?.data?.type === 'image' && child?.data?.imageId) {
-              existingPaperImages.set(child.data.imageId, child);
-            }
-          });
-        });
+  const hydrateFromSnapshot = useCallback(
+    async (snapshots: ImageAssetSnapshot[]) => {
+      if (!Array.isArray(snapshots) || snapshots.length === 0) {
+        // 🔥 修复：如果传入的快照为空，只在当前没有图片实例时才清空，避免意外清除用户已添加的图片
+        // 这可能是由于加载时机或状态同步问题导致的，但此处不应主动清除用户图片
+        if (imageInstances.length > 0) {
+          console.warn('⚠️ [hydrateFromSnapshot] 快照为空，但存在活跃的图片实例，跳过清空操作以避免丢失。' +
+            '这可能是由于加载时机或状态同步问题导致的，但此处不应主动清除用户图片。');
+          return;
+        }
+        setImageInstances([]);
+        setSelectedImageIds([]);
+        return;
       }
-    } catch {}
 
-    console.log('📦 [hydrateFromSnapshot] 检测到已存在的 Paper.js 图片:', existingPaperImages.size);
+      // 🔥 关键修复：在水合前，将任何 base64 / dataURL 图片上传到 OSS，统一替换为远程 URL
+      const projectId = useProjectContentStore.getState().projectId ?? null;
+      const normalizedSnapshots: ImageAssetSnapshot[] = [];
 
-    setImageInstances([]);
-    setSelectedImageIds([]);
-
-    const newInstances: any[] = [];
-
-    snapshots.forEach((snap) => {
-      const resolvedUrl = snap?.url || snap?.localDataUrl || snap?.src;
-      if (!snap || !resolvedUrl || !snap.bounds) return;
-
-      // 检查 Paper.js 中是否已经存在这个图片
-      const existingPaperItem = existingPaperImages.get(snap.id);
-
-      if (existingPaperItem) {
-        // 图片已经在 Paper.js 中存在（从 paperJson 恢复的），只需要创建 React 状态
-        console.log('✅ [hydrateFromSnapshot] 复用已存在的 Paper.js 图片:', snap.id);
-
-        // 获取实际的 bounds，并重新加载图片源
-        let actualBounds = snap.bounds;
-        let groupForCache: paper.Group | null = null;
-        try {
-          const raster = existingPaperItem instanceof paper.Group
-            ? existingPaperItem.children.find((c: any) => c instanceof paper.Raster) as paper.Raster | undefined
-            : (existingPaperItem instanceof paper.Raster ? existingPaperItem : undefined);
-          const existingGroup = existingPaperItem instanceof paper.Group
-            ? existingPaperItem
-            : (raster?.parent instanceof paper.Group ? raster.parent : null);
-
-          if (raster) {
-            const imageSource = resolvedUrl;
-            const savedBounds = raster.bounds && raster.bounds.width > 0 && raster.bounds.height > 0
-              ? raster.bounds.clone()
-              : new paper.Rectangle(snap.bounds.x, snap.bounds.y, snap.bounds.width, snap.bounds.height);
-            const currentSource = typeof raster.source === 'string' ? raster.source : '';
-            const fallbackSource = snap.localDataUrl && snap.localDataUrl !== imageSource ? snap.localDataUrl : null;
-
-            const applyStructureAndUpdate = () => {
-              if (savedBounds) {
-                try { raster.bounds = savedBounds; } catch {}
+      for (const snap of snapshots) {
+        if (!snap) continue;
+        const primarySource =
+          snap.url || snap.src || snap.localDataUrl || null;
+        if (
+          primarySource &&
+          typeof primarySource === "string" &&
+          primarySource.startsWith("data:image")
+        ) {
+          try {
+            const upload = await imageUploadService.uploadImageDataUrl(
+              primarySource,
+              {
+                projectId: projectId || undefined,
+                dir: projectId
+                  ? `projects/${projectId}/images/`
+                  : "uploads/images/",
+                fileName:
+                  snap.fileName ||
+                  `canvas_${snap.id || Date.now().toString()}.png`,
               }
-
-              const { group: ensuredGroup } = ensureImageGroupStructure({
-                raster,
-                imageId: snap.id,
-                group: existingGroup,
-                bounds: savedBounds,
-                ensureSelectionArea: true,
-                metadata: {
-                  originalWidth: raster.data?.originalWidth ?? snap.width,
-                  originalHeight: raster.data?.originalHeight ?? snap.height,
-                  fileName: raster.data?.fileName ?? snap.fileName,
-                  uploadMethod: raster.data?.uploadMethod,
-                  aspectRatio: raster.data?.aspectRatio ?? (savedBounds?.height ? savedBounds.width / savedBounds.height : undefined),
-                  remoteUrl: raster.data?.remoteUrl ?? (snap.url?.startsWith('http') ? snap.url : undefined),
-                },
+            );
+            if (upload.success && upload.asset?.url) {
+              console.log(
+                "✅ [hydrateFromSnapshot] 已将 base64 图片上传到 OSS:",
+                snap.id,
+                upload.asset.url
+              );
+              normalizedSnapshots.push({
+                ...snap,
+                url: upload.asset.url,
+                src: upload.asset.url,
+                localDataUrl: undefined,
+                pendingUpload: false,
               });
+              continue;
+            }
+          } catch (e) {
+            console.error(
+              "❌ [hydrateFromSnapshot] 上传 base64 图片到 OSS 失败:",
+              snap.id,
+              e
+            );
+          }
+        }
+        normalizedSnapshots.push(snap);
+      }
 
-              if (ensuredGroup) {
-                imageGroupCacheRef.current.set(snap.id, ensuredGroup);
-                groupForCache = ensuredGroup;
-              } else if (existingGroup instanceof paper.Group) {
-                groupForCache = existingGroup;
+      // 检查 Paper.js 中是否已经存在这些图片（从 paperJson 恢复的）
+      const existingPaperImages = new Map<string, paper.Item>();
+      try {
+        if (paper && paper.project) {
+          (paper.project.layers || []).forEach((layer: any) => {
+            const children = layer?.children || [];
+            children.forEach((child: any) => {
+              if (child?.data?.type === "image" && child?.data?.imageId) {
+                existingPaperImages.set(child.data.imageId, child);
+              }
+            });
+          });
+        }
+      } catch {}
+
+      console.log(
+        "📦 [hydrateFromSnapshot] 检测到已存在的 Paper.js 图片:",
+        existingPaperImages.size,
+        "当前图片实例数量:",
+        imageInstances.length
+      );
+
+      // 🔥 修复：只在确实需要重建时才清空，避免在上传过程中清空图片
+      // 如果当前有图片实例但快照中没有，可能是正在上传中，不应该清空
+      const shouldClear =
+        imageInstances.length === 0 ||
+        normalizedSnapshots.some((snap) =>
+          imageInstances.some((img) => img.id === snap.id)
+        );
+      
+      if (shouldClear) {
+        setImageInstances([]);
+        setSelectedImageIds([]);
+      } else {
+        console.warn('⚠️ [hydrateFromSnapshot] 检测到当前有图片实例但快照中没有匹配项，' +
+          '可能是正在上传中，跳过清空操作以避免丢失。');
+      }
+
+      const newInstances: any[] = [];
+
+      normalizedSnapshots.forEach((snap) => {
+        const resolvedUrl = snap?.url || snap?.src;
+        if (!snap || !resolvedUrl || !snap.bounds) return;
+
+        // 检查 Paper.js 中是否已经存在这个图片
+        const existingPaperItem = existingPaperImages.get(snap.id);
+
+        if (existingPaperItem) {
+          // 图片已经在 Paper.js 中存在（从 paperJson 恢复的），只需要创建 React 状态
+          console.log(
+            "✅ [hydrateFromSnapshot] 复用已存在的 Paper.js 图片:",
+            snap.id
+          );
+
+          // 获取实际的 bounds，并重新加载图片源
+          let actualBounds = snap.bounds;
+          let groupForCache: paper.Group | null = null;
+          try {
+            const raster =
+              existingPaperItem instanceof paper.Group
+                ? (existingPaperItem.children.find(
+                    (c: any) => c instanceof paper.Raster
+                  ) as paper.Raster | undefined)
+                : existingPaperItem instanceof paper.Raster
+                ? existingPaperItem
+                : undefined;
+            const existingGroup =
+              existingPaperItem instanceof paper.Group
+                ? existingPaperItem
+                : raster?.parent instanceof paper.Group
+                ? raster.parent
+                : null;
+
+            if (raster) {
+              const imageSource = resolvedUrl;
+              const savedBounds =
+                raster.bounds &&
+                raster.bounds.width > 0 &&
+                raster.bounds.height > 0
+                  ? raster.bounds.clone()
+                  : new paper.Rectangle(
+                      snap.bounds.x,
+                      snap.bounds.y,
+                      snap.bounds.width,
+                      snap.bounds.height
+                    );
+              const currentSource =
+                typeof raster.source === "string" ? raster.source : "";
+              const fallbackSource =
+                snap.localDataUrl && snap.localDataUrl !== imageSource
+                  ? snap.localDataUrl
+                  : null;
+
+              const applyStructureAndUpdate = () => {
+                if (savedBounds) {
+                  try {
+                    raster.bounds = savedBounds;
+                  } catch {}
+                }
+
+                const { group: ensuredGroup } = ensureImageGroupStructure({
+                  raster,
+                  imageId: snap.id,
+                  group: existingGroup,
+                  bounds: savedBounds,
+                  ensureSelectionArea: true,
+                  metadata: {
+                    originalWidth: raster.data?.originalWidth ?? snap.width,
+                    originalHeight: raster.data?.originalHeight ?? snap.height,
+                    fileName: raster.data?.fileName ?? snap.fileName,
+                    uploadMethod: raster.data?.uploadMethod,
+                    aspectRatio:
+                      raster.data?.aspectRatio ??
+                      (savedBounds?.height
+                        ? savedBounds.width / savedBounds.height
+                        : undefined),
+                    remoteUrl:
+                      raster.data?.remoteUrl ??
+                      (snap.url?.startsWith("http") ? snap.url : undefined),
+                  },
+                });
+
+                if (ensuredGroup) {
+                  imageGroupCacheRef.current.set(snap.id, ensuredGroup);
+                  groupForCache = ensuredGroup;
+                } else if (existingGroup instanceof paper.Group) {
+                  groupForCache = existingGroup;
+                }
+
+                if (raster.bounds) {
+                  actualBounds = {
+                    x: raster.bounds.x,
+                    y: raster.bounds.y,
+                    width: raster.bounds.width,
+                    height: raster.bounds.height,
+                  };
+                }
+
+                try {
+                  paper.view?.update();
+                } catch {}
+              };
+
+              // 设置跨域属性
+              (raster as any).crossOrigin = "anonymous";
+
+              const alreadyLoaded = (raster as any).loaded === true;
+              const shouldReload =
+                !!imageSource &&
+                (!alreadyLoaded || imageSource !== currentSource);
+
+              if (shouldReload) {
+                // 先绑定回调再设置 source，避免缓存命中导致 onLoad 丢失（会出现“刷新后不显示，点一下才出现”）
+                const previousOnLoad = raster.onLoad;
+                const previousOnError = (raster as any).onError;
+
+                raster.onLoad = () => {
+                  try {
+                    previousOnLoad?.();
+                  } catch {}
+                  console.log(
+                    "✅ [hydrateFromSnapshot] 图片加载完成:",
+                    snap.id
+                  );
+                  applyStructureAndUpdate();
+                };
+
+                raster.onError = (...args: any[]) => {
+                  try {
+                    previousOnError?.(...args);
+                  } catch {}
+                  console.error(
+                    "❌ [hydrateFromSnapshot] 图片加载失败:",
+                    snap.id,
+                    imageSource?.substring(0, 100)
+                  );
+                  if (fallbackSource && fallbackSource !== raster.source) {
+                    console.warn(
+                      "➡️ [hydrateFromSnapshot] 使用本地副本回退加载"
+                    );
+                    raster.source = fallbackSource;
+                  }
+                };
+
+                console.log(
+                  "🔄 [hydrateFromSnapshot] 重新加载图片源:",
+                  imageSource?.substring(0, 100)
+                );
+                raster.source = imageSource;
+              } else {
+                // 源一致且已加载，直接恢复结构并刷新，避免重复重载导致短暂空白
+                applyStructureAndUpdate();
               }
 
               if (raster.bounds) {
@@ -963,208 +1301,201 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                   height: raster.bounds.height,
                 };
               }
-
-              try { paper.view?.update(); } catch {}
-            };
-
-            // 设置跨域属性
-            (raster as any).crossOrigin = 'anonymous';
-
-            const alreadyLoaded = (raster as any).loaded === true;
-            const shouldReload = !!imageSource && (!alreadyLoaded || imageSource !== currentSource);
-
-            if (shouldReload) {
-              // 先绑定回调再设置 source，避免缓存命中导致 onLoad 丢失（会出现“刷新后不显示，点一下才出现”）
-              const previousOnLoad = raster.onLoad;
-              const previousOnError = (raster as any).onError;
-
-              raster.onLoad = () => {
-                try { previousOnLoad?.(); } catch {}
-                console.log('✅ [hydrateFromSnapshot] 图片加载完成:', snap.id);
-                applyStructureAndUpdate();
-              };
-
-              raster.onError = (...args: any[]) => {
-                try { previousOnError?.(...args); } catch {}
-                console.error('❌ [hydrateFromSnapshot] 图片加载失败:', snap.id, imageSource?.substring(0, 100));
-                if (fallbackSource && fallbackSource !== raster.source) {
-                  console.warn('➡️ [hydrateFromSnapshot] 使用本地副本回退加载');
-                  raster.source = fallbackSource;
-                }
-              };
-
-              console.log('🔄 [hydrateFromSnapshot] 重新加载图片源:', imageSource?.substring(0, 100));
-              raster.source = imageSource;
-            } else {
-              // 源一致且已加载，直接恢复结构并刷新，避免重复重载导致短暂空白
-              applyStructureAndUpdate();
             }
-
-            if (raster.bounds) {
-              actualBounds = {
-                x: raster.bounds.x,
-                y: raster.bounds.y,
-                width: raster.bounds.width,
-                height: raster.bounds.height,
-              };
+            if (!groupForCache && existingGroup instanceof paper.Group) {
+              groupForCache = existingGroup;
+            } else if (
+              !groupForCache &&
+              existingPaperItem instanceof paper.Group
+            ) {
+              groupForCache = existingPaperItem;
             }
+          } catch (e) {
+            console.warn("获取/设置 Raster bounds 失败:", e);
           }
-          if (!groupForCache && existingGroup instanceof paper.Group) {
-            groupForCache = existingGroup;
-          } else if (!groupForCache && existingPaperItem instanceof paper.Group) {
-            groupForCache = existingPaperItem;
-          }
-        } catch (e) {
-          console.warn('获取/设置 Raster bounds 失败:', e);
-        }
 
-        // 直接创建 React 状态，不重新创建 Paper.js 对象
-        newInstances.push({
-          id: snap.id,
-          imageData: {
+          // 直接创建 React 状态，不重新创建 Paper.js 对象
+          newInstances.push({
             id: snap.id,
-            url: resolvedUrl,
-            src: resolvedUrl,
-            key: snap.key,
-            fileName: snap.fileName,
-            width: snap.width,
-            height: snap.height,
-            contentType: snap.contentType,
-            pendingUpload: snap.pendingUpload,
-            localDataUrl: snap.localDataUrl,
-          },
-          bounds: actualBounds,
-          isSelected: false,
-          visible: true,
-          layerId: snap.layerId,
-        });
-
-        // 更新缓存（优先使用 ensureImageGroupStructure 返回的分组）
-        if (!imageGroupCacheRef.current.has(snap.id) && groupForCache) {
-          imageGroupCacheRef.current.set(snap.id, groupForCache);
-        }
-      } else {
-        // Paper.js 中不存在，需要创建新的图片
-        console.log('🆕 [hydrateFromSnapshot] 创建新的 Paper.js 图片:', snap.id);
-
-        if (snap.layerId) {
-          try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
-        }
-        const start = new paper.Point(snap.bounds.x, snap.bounds.y);
-        const end = new paper.Point(snap.bounds.x + snap.bounds.width, snap.bounds.y + snap.bounds.height);
-        const placeholder = createImagePlaceholder(start, end);
-        if (placeholder) {
-          currentPlaceholderRef.current = placeholder;
-          handleImageUploaded({
-            id: snap.id,
-            url: resolvedUrl,
-            src: resolvedUrl,
-            key: snap.key,
-            fileName: snap.fileName,
-            width: snap.width,
-            height: snap.height,
-            contentType: snap.contentType,
-            pendingUpload: snap.pendingUpload,
-            localDataUrl: snap.localDataUrl ?? resolvedUrl,
+            imageData: {
+              id: snap.id,
+              url: resolvedUrl,
+              src: resolvedUrl,
+              key: snap.key,
+              fileName: snap.fileName,
+              width: snap.width,
+              height: snap.height,
+              contentType: snap.contentType,
+              pendingUpload: snap.pendingUpload,
+              localDataUrl: snap.localDataUrl,
+            },
+            bounds: actualBounds,
+            isSelected: false,
+            visible: true,
+            layerId: snap.layerId,
           });
+
+          // 更新缓存（优先使用 ensureImageGroupStructure 返回的分组）
+          if (!imageGroupCacheRef.current.has(snap.id) && groupForCache) {
+            imageGroupCacheRef.current.set(snap.id, groupForCache);
+          }
+        } else {
+          // Paper.js 中不存在，需要创建新的图片
+          console.log(
+            "🆕 [hydrateFromSnapshot] 创建新的 Paper.js 图片:",
+            snap.id
+          );
+
+          if (snap.layerId) {
+            try {
+              useLayerStore.getState().activateLayer(snap.layerId);
+            } catch {}
+          }
+          const start = new paper.Point(snap.bounds.x, snap.bounds.y);
+          const end = new paper.Point(
+            snap.bounds.x + snap.bounds.width,
+            snap.bounds.y + snap.bounds.height
+          );
+          const placeholder = createImagePlaceholder(start, end);
+          if (placeholder) {
+            currentPlaceholderRef.current = placeholder;
+            handleImageUploaded({
+              id: snap.id,
+              url: resolvedUrl,
+              src: resolvedUrl,
+              key: snap.key,
+              fileName: snap.fileName,
+              width: snap.width,
+              height: snap.height,
+              contentType: snap.contentType,
+              pendingUpload: snap.pendingUpload,
+              localDataUrl: snap.localDataUrl ?? resolvedUrl,
+            });
+          }
         }
+      });
+
+      // 如果有复用的图片，直接设置状态
+      if (newInstances.length > 0) {
+        setImageInstances((prev) => [...prev, ...newInstances]);
       }
-    });
 
-    // 如果有复用的图片，直接设置状态
-    if (newInstances.length > 0) {
-      setImageInstances(prev => [...prev, ...newInstances]);
-    }
+      // 更新已有实例的元数据
+      setImageInstances((prev) =>
+        prev.map((img) => {
+          const snap = snapshots.find((s) => s.id === img.id);
+          if (!snap) return img;
+          return {
+            ...img,
+            layerId: snap.layerId ?? img.layerId,
+            bounds: {
+              x: snap.bounds.x,
+              y: snap.bounds.y,
+              width: snap.bounds.width,
+              height: snap.bounds.height,
+            },
+            imageData: {
+              ...img.imageData,
+              url: snap.url ?? img.imageData.url ?? snap.localDataUrl,
+              src: snap.url ?? snap.localDataUrl ?? img.imageData.src,
+              key: snap.key ?? img.imageData.key,
+              fileName: snap.fileName ?? img.imageData.fileName,
+              width: snap.width ?? img.imageData.width,
+              height: snap.height ?? img.imageData.height,
+              contentType: snap.contentType ?? img.imageData.contentType,
+              pendingUpload: snap.pendingUpload ?? img.imageData.pendingUpload,
+              localDataUrl: snap.localDataUrl ?? img.imageData.localDataUrl,
+            },
+          };
+        })
+      );
 
-    // 更新已有实例的元数据
-    setImageInstances(prev => prev.map((img) => {
-      const snap = snapshots.find((s) => s.id === img.id);
-      if (!snap) return img;
-      return {
-        ...img,
-        layerId: snap.layerId ?? img.layerId,
-        bounds: {
-          x: snap.bounds.x,
-          y: snap.bounds.y,
-          width: snap.bounds.width,
-          height: snap.bounds.height,
-        },
-        imageData: {
-          ...img.imageData,
-          url: snap.url ?? img.imageData.url ?? snap.localDataUrl,
-          src: snap.url ?? snap.localDataUrl ?? img.imageData.src,
-          key: snap.key ?? img.imageData.key,
-          fileName: snap.fileName ?? img.imageData.fileName,
-          width: snap.width ?? img.imageData.width,
-          height: snap.height ?? img.imageData.height,
-          contentType: snap.contentType ?? img.imageData.contentType,
-          pendingUpload: snap.pendingUpload ?? img.imageData.pendingUpload,
-          localDataUrl: snap.localDataUrl ?? img.imageData.localDataUrl,
-        },
-      };
-    }));
+      // 触发一次刷新，避免导入/回填后首帧未绘制
+      try {
+        paper.view?.update();
+      } catch {}
+      try {
+        requestAnimationFrame(() => {
+          try {
+            paper.view?.update();
+          } catch {}
+        });
+      } catch {}
+    },
+    [
+      createImagePlaceholder,
+      handleImageUploaded,
+      setImageInstances,
+      setSelectedImageIds,
+    ]
+  );
 
-    // 触发一次刷新，避免导入/回填后首帧未绘制
-    try { paper.view?.update(); } catch {}
-    try { requestAnimationFrame(() => { try { paper.view?.update(); } catch {} }); } catch {}
-  }, [createImagePlaceholder, handleImageUploaded, setImageInstances, setSelectedImageIds]);
+  const createImageFromSnapshot = useCallback(
+    (
+      snapshot: ImageAssetSnapshot,
+      options?: {
+        offset?: { x: number; y: number };
+        idOverride?: string;
+      }
+    ) => {
+      if (!snapshot) return null;
 
-  const createImageFromSnapshot = useCallback((
-    snapshot: ImageAssetSnapshot,
-    options?: {
-      offset?: { x: number; y: number };
-      idOverride?: string;
-    }
-  ) => {
-    if (!snapshot) return null;
+      const source = snapshot.localDataUrl || snapshot.src || snapshot.url;
+      if (!source) {
+        console.warn("复制的图片缺少有效的资源地址，无法粘贴");
+        return null;
+      }
 
-    const source = snapshot.localDataUrl || snapshot.src || snapshot.url;
-    if (!source) {
-      console.warn('复制的图片缺少有效的资源地址，无法粘贴');
-      return null;
-    }
+      const offsetX = options?.offset?.x ?? 0;
+      const offsetY = options?.offset?.y ?? 0;
+      const imageId =
+        options?.idOverride ||
+        `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const offsetX = options?.offset?.x ?? 0;
-    const offsetY = options?.offset?.y ?? 0;
-    const imageId = options?.idOverride || `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      if (snapshot.layerId) {
+        try {
+          useLayerStore.getState().activateLayer(snapshot.layerId);
+        } catch {}
+      }
 
-    if (snapshot.layerId) {
-      try { useLayerStore.getState().activateLayer(snapshot.layerId); } catch {}
-    }
+      const start = new paper.Point(
+        snapshot.bounds.x + offsetX,
+        snapshot.bounds.y + offsetY
+      );
+      const end = new paper.Point(
+        snapshot.bounds.x + snapshot.bounds.width + offsetX,
+        snapshot.bounds.y + snapshot.bounds.height + offsetY
+      );
 
-    const start = new paper.Point(snapshot.bounds.x + offsetX, snapshot.bounds.y + offsetY);
-    const end = new paper.Point(
-      snapshot.bounds.x + snapshot.bounds.width + offsetX,
-      snapshot.bounds.y + snapshot.bounds.height + offsetY
-    );
+      const placeholder = createImagePlaceholder(start, end);
+      if (!placeholder) return null;
 
-    const placeholder = createImagePlaceholder(start, end);
-    if (!placeholder) return null;
+      currentPlaceholderRef.current = placeholder;
 
-    currentPlaceholderRef.current = placeholder;
+      const asset = {
+        id: imageId,
+        url: source,
+        src: source,
+        key: snapshot.key,
+        fileName: snapshot.fileName,
+        width: snapshot.width ?? snapshot.bounds.width,
+        height: snapshot.height ?? snapshot.bounds.height,
+        contentType: snapshot.contentType,
+        pendingUpload: snapshot.pendingUpload,
+        localDataUrl: snapshot.localDataUrl,
+      } as StoredImageAsset;
 
-    const asset = {
-      id: imageId,
-      url: source,
-      src: source,
-      key: snapshot.key,
-      fileName: snapshot.fileName,
-      width: snapshot.width ?? snapshot.bounds.width,
-      height: snapshot.height ?? snapshot.bounds.height,
-      contentType: snapshot.contentType,
-      pendingUpload: snapshot.pendingUpload,
-      localDataUrl: snapshot.localDataUrl,
-    } as StoredImageAsset;
-
-    handleImageUploaded(asset);
-    return imageId;
-  }, [createImagePlaceholder, handleImageUploaded]);
+      handleImageUploaded(asset);
+      return imageId;
+    },
+    [createImagePlaceholder, handleImageUploaded]
+  );
 
   return {
     // 状态
     imageInstances,
-    selectedImageIds,  // 多选状态
-    selectedImageId: selectedImageIds[0] || null,  // 向下兼容单选
+    selectedImageIds, // 多选状态
+    selectedImageId: selectedImageIds[0] || null, // 向下兼容单选
     triggerImageUpload,
     imageDragState,
     imageResizeState,
@@ -1184,7 +1515,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 图片选择
     handleImageSelect,
-    handleImageMultiSelect,  // 批量选择
+    handleImageMultiSelect, // 批量选择
     handleImageDeselect,
 
     // 图片移动和调整大小
@@ -1195,7 +1526,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 状态设置器（用于外部直接控制）
     setImageInstances,
-    setSelectedImageIds,  // 设置多选状态
+    setSelectedImageIds, // 设置多选状态
     setTriggerImageUpload,
     setImageDragState,
     setImageResizeState,

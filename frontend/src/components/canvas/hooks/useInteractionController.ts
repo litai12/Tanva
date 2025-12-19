@@ -161,7 +161,6 @@ export const useInteractionController = ({
   });
   const imageDragRafRef = useRef<number | null>(null);
   const pendingImageDragPositionsRef = useRef<Record<string, { x: number; y: number }> | null>(null);
-  const lastImageDragPositionsRef = useRef<Record<string, { x: number; y: number }> | null>(null);
 
   // Refs to always read the latest tool states inside global event handlers
   const selectionToolRef = useRef(selectionTool);
@@ -857,7 +856,6 @@ export const useInteractionController = ({
             const pending = pendingImageDragPositionsRef.current;
             pendingImageDragPositionsRef.current = null;
             if (!pending) return;
-            lastImageDragPositionsRef.current = pending;
 
             const tool = imageToolRef.current;
             if (!tool) return;
@@ -984,22 +982,19 @@ export const useInteractionController = ({
           cancelAnimationFrame(imageDragRafRef.current);
           imageDragRafRef.current = null;
         }
-        const pending = pendingImageDragPositionsRef.current;
+        
+        // 🔥 修复：只使用 pending 中的最终位置进行一次更新，避免位置回跳
+        const finalPositions = pendingImageDragPositionsRef.current;
         pendingImageDragPositionsRef.current = null;
-        if (pending) {
+        
+        if (finalPositions) {
+          // 直接使用最终位置更新，只更新一次
           if (latestImageTool.handleImageMoveBatch) {
-            latestImageTool.handleImageMoveBatch(pending, { commitState: false, notify: false });
+            latestImageTool.handleImageMoveBatch(finalPositions, { updateView: true, commitState: true });
           } else {
-            Object.entries(pending).forEach(([id, pos]) => latestImageTool.handleImageMove(id, pos, true));
+            Object.entries(finalPositions).forEach(([id, pos]) => latestImageTool.handleImageMove(id, pos, true));
             try { paper.view.update(); } catch {}
           }
-          lastImageDragPositionsRef.current = pending;
-        }
-
-        const finalPositions = lastImageDragPositionsRef.current;
-        lastImageDragPositionsRef.current = null;
-        if (finalPositions && latestImageTool.handleImageMoveBatch) {
-          latestImageTool.handleImageMoveBatch(finalPositions, { updateView: false, commitState: true });
         }
 
         latestImageTool.setImageDragState({
@@ -1328,7 +1323,6 @@ export const useInteractionController = ({
       }
       restoreFlowPointerEvents();
       pendingImageDragPositionsRef.current = null;
-      lastImageDragPositionsRef.current = null;
     };
   }, [handleMouseDown, handleMouseMove, handleMouseUp, restoreFlowPointerEvents, stopSpacePan, isSelectionLikeMode]);
 

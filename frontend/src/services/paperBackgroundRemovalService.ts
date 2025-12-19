@@ -5,6 +5,8 @@
 
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { imageUploadService } from './imageUploadService';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 export interface PaperBackgroundRemovalOptions {
   x?: number;
@@ -22,15 +24,33 @@ class PaperBackgroundRemovalService {
    * @param options 放置选项
    * @returns 创建的Raster对象
    */
-  static addTransparentImageToCanvas(
+  static async addTransparentImageToCanvas(
     imageDataUrl: string,
     options: PaperBackgroundRemovalOptions = {}
-  ): paper.Raster {
+  ): Promise<paper.Raster> {
     try {
       logger.info('🎨 Adding transparent image to Paper.js canvas');
 
-      // 创建Raster对象
-      const raster = new paper.Raster(imageDataUrl);
+      // 🔥 关键修复：先上传到OSS获取URL，再创建Raster
+      logger.info('📤 [paperBackgroundRemovalService] 开始上传图片到OSS...');
+      const fileName = options.name ? `${options.name}.png` : `removed-bg-${Date.now()}.png`;
+      const projectId = useProjectContentStore.getState().projectId;
+      
+      const uploadResult = await imageUploadService.uploadImageDataUrl(imageDataUrl, {
+        fileName,
+        projectId: projectId || undefined,
+      });
+      
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        logger.error('❌ [paperBackgroundRemovalService] 图片上传到OSS失败:', uploadResult.error);
+        throw new Error(uploadResult.error || '图片上传失败');
+      }
+      
+      const ossUrl = uploadResult.asset.url;
+      logger.info('✅ [paperBackgroundRemovalService] 图片已上传到OSS:', ossUrl);
+
+      // 创建Raster对象（使用OSS URL）
+      const raster = new paper.Raster(ossUrl);
 
       // 设置位置
       if (options.x !== undefined && options.y !== undefined) {
@@ -78,12 +98,12 @@ class PaperBackgroundRemovalService {
    * @param scale 缩放比例(可选)
    * @returns Raster对象
    */
-  static addImageAtPoint(
+  static async addImageAtPoint(
     imageDataUrl: string,
     atPoint?: paper.Point,
     scale?: number
-  ): paper.Raster {
-    const raster = this.addTransparentImageToCanvas(imageDataUrl, {
+  ): Promise<paper.Raster> {
+    const raster = await this.addTransparentImageToCanvas(imageDataUrl, {
       x: atPoint?.x,
       y: atPoint?.y,
       name: `transparent-image-${Date.now()}`,
@@ -104,20 +124,40 @@ class PaperBackgroundRemovalService {
    * @param groupName 组名称
    * @returns Group对象
    */
-  static addMultipleImagesAsGroup(
+  static async addMultipleImagesAsGroup(
     imageDataUrls: string[],
     positions?: paper.Point[],
     groupName?: string
-  ): paper.Group {
+  ): Promise<paper.Group> {
     try {
       logger.info(`🎨 Creating group with ${imageDataUrls.length} images`);
 
       const group = new paper.Group();
       group.name = groupName || `removed-bg-group-${Date.now()}`;
 
-      imageDataUrls.forEach((url, index) => {
+      // 🔥 关键修复：先上传所有图片到OSS
+      const projectId = useProjectContentStore.getState().projectId;
+      const uploadPromises = imageDataUrls.map(async (dataUrl, index) => {
+        const fileName = `removed-bg-${Date.now()}-${index}.png`;
+        const uploadResult = await imageUploadService.uploadImageDataUrl(dataUrl, {
+          fileName,
+          projectId: projectId || undefined,
+        });
+        
+        if (!uploadResult.success || !uploadResult.asset?.url) {
+          logger.error(`❌ [paperBackgroundRemovalService] 图片 ${index} 上传失败:`, uploadResult.error);
+          throw new Error(uploadResult.error || `图片 ${index} 上传失败`);
+        }
+        
+        return uploadResult.asset.url;
+      });
+      
+      const ossUrls = await Promise.all(uploadPromises);
+      logger.info(`✅ [paperBackgroundRemovalService] 所有图片已上传到OSS`);
+
+      ossUrls.forEach((ossUrl, index) => {
         const point = positions?.[index] || paper.view.center;
-        const raster = new paper.Raster(url);
+        const raster = new paper.Raster(ossUrl);
         raster.position = point;
         raster.name = `image-${index}`;
         group.addChild(raster);
