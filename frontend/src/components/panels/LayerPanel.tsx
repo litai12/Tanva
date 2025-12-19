@@ -55,6 +55,7 @@ const LayerPanel: React.FC = () => {
     const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-gray-800 rounded-full pointer-events-none', []);
     // 缓存缩略图
     const thumbCache = useRef<Record<string, { dataUrl: string; timestamp: number }>>({});
+    const lastThumbRefreshRef = useRef(0);
 
     // 预测图元重排序后的实际位置，用于指示线显示
     const predictItemInsertPosition = (sourceItemId: string, targetItemId: string, placeAbove: boolean) => {
@@ -240,6 +241,15 @@ const LayerPanel: React.FC = () => {
         setLayerItems(newLayerItems);
     };
 
+    const refreshThumbs = (force = false) => {
+        const now = Date.now();
+        // 防止频繁重建缩略图导致卡顿
+        if (!force && now - lastThumbRefreshRef.current < 300) return;
+        lastThumbRefreshRef.current = now;
+        thumbCache.current = {};
+        setRefreshTrigger(prev => prev + 1);
+    };
+
     // 监听 Paper.js 的变化
     useEffect(() => {
         if (!paper.project || !showLayerPanel) return;
@@ -251,7 +261,7 @@ const LayerPanel: React.FC = () => {
             const now = Date.now();
             if (now - lastUpdateTime > throttleDelay) {
                 updateAllLayerItems();
-                setRefreshTrigger(prev => prev + 1);
+                refreshThumbs();
                 lastUpdateTime = now;
             }
         };
@@ -261,16 +271,10 @@ const LayerPanel: React.FC = () => {
 
         // 初始扫描
         updateAllLayerItems();
-
-        // 设置定期更新，但频率降低
-        const updateInterval = setInterval(() => {
-            updateAllLayerItems();
-            setRefreshTrigger(prev => prev + 1);
-        }, 500); // 每500ms检查一次，减少性能开销
+        refreshThumbs(true); // 首次打开面板时强制刷新一次缩略图
 
         return () => {
             paper.project.off('change', handleChange);
-            clearInterval(updateInterval);
         };
     }, [showLayerPanel, layers]);
 
@@ -613,19 +617,6 @@ const LayerPanel: React.FC = () => {
 
         return null;
     };
-
-    // 定期刷新缩略图
-    useEffect(() => {
-        if (!showLayerPanel) return;
-
-        const interval = setInterval(() => {
-            // 清空缓存并触发重新渲染
-            thumbCache.current = {};
-            setRefreshTrigger(prev => prev + 1);
-        }, 500); // 每500ms刷新一次，更及时
-
-        return () => clearInterval(interval);
-    }, [showLayerPanel]);
 
     const toggleLayerExpanded = (layerId: string) => {
         setExpandedLayers(prev => {

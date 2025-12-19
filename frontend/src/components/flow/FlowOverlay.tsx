@@ -804,15 +804,31 @@ function FlowInner() {
     return () => window.removeEventListener('paste', handlePaste);
   }, [handlePasteFlow]);
 
+  // 记录上一次的 projectId，用于检测项目切换
+  const prevProjectIdRef = React.useRef<string | null>(null);
+
   // 当项目内容的 flow 变化时，水合到 ReactFlow
   React.useEffect(() => {
     if (!projectId || !hydrated) return;
     if (nodeDraggingRef.current) return; // 拖拽过程中不从store覆盖本地状态，避免闪烁
+
+    // 检测项目切换：如果是新项目，先清空再水合
+    const isProjectSwitch = prevProjectIdRef.current !== null && prevProjectIdRef.current !== projectId;
+    if (isProjectSwitch) {
+      setNodes([]);
+      setEdges([]);
+    }
+    prevProjectIdRef.current = projectId;
+
     const ns = contentFlow?.nodes || [];
     const es = contentFlow?.edges || [];
     hydratingFromStoreRef.current = true;
     const nextNodes = tplNodesToRfNodes(ns);
     setNodes((prev) => {
+      // 如果是项目切换，直接使用新节点
+      if (isProjectSwitch || prev.length === 0) {
+        return nextNodes as RFNode[];
+      }
       const prevMap = new Map((prev as RFNode[]).map((node) => [node.id, node]));
       return nextNodes.map((node) => {
         const prevNode = prevMap.get(node.id);
@@ -832,11 +848,6 @@ function FlowInner() {
     try { lastSyncedJSONRef.current = JSON.stringify({ n: ns, e: es }); } catch { lastSyncedJSONRef.current = null; }
     Promise.resolve().then(() => { hydratingFromStoreRef.current = false; });
   }, [projectId, hydrated, contentFlow, setNodes, setEdges, tplNodesToRfNodes, tplEdgesToRfEdges]);
-
-  // 切换项目时先清空，避免跨项目残留
-  React.useEffect(() => {
-    setNodes([]); setEdges([]);
-  }, [projectId, setNodes, setEdges]);
 
   // 将 ReactFlow 的更改写回项目内容（触发自动保存）
   const scheduleCommit = React.useCallback((nodesSnapshot: TemplateNode[], edgesSnapshot: TemplateEdge[]) => {
