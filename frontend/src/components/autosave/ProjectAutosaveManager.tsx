@@ -10,6 +10,7 @@ import { saveMonitor } from '@/utils/saveMonitor';
 import { useProjectStore } from '@/stores/projectStore';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import paper from 'paper';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -94,6 +95,20 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     let cancelled = false;
     hydrationReadyRef.current = false;
     paperSaveService.cancelPending();
+    try { (window as any).tanvaPaperRestored = false; } catch {}
+
+    const hasUserContent = () => {
+      try {
+        if (!paper?.project?.layers) return false;
+        return paper.project.layers.some((layer: any) => {
+          const name = layer?.name || '';
+          if (name === 'grid' || name === 'background' || name === 'scalebar') return false;
+          return (layer?.children?.length || 0) > 0;
+        });
+      } catch {
+        return false;
+      }
+    };
 
     (async () => {
       try {
@@ -133,26 +148,35 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
         // 恢复Paper.js绘制内容（等待 Paper 初始化）
         if (data.content?.paperJson) {
-          const attempt = async () => {
+          const attempt = async (label: string) => {
             const ok = paperSaveService.deserializePaperProject(data.content!.paperJson!);
-            if (ok) {
+            if (!ok) {
+              return false;
+            }
+
+            const hasContent = hasUserContent();
+            if (hasContent) {
               console.log('✅ Paper.js绘制内容恢复成功');
               saveMonitor.push(projectId, 'hydrate_success', {
                 paperJsonLen: (data.content as any)?.paperJson?.length || 0,
               });
               try { (window as any).tanvaPaperRestored = true; } catch {}
+              return true;
             }
-            return ok;
+
+            console.warn('⚠️ Paper.js 已反序列化但未检测到用户内容，准备重试...', { attempt: label });
+            try { (window as any).tanvaPaperRestored = false; } catch {}
+            return false;
           };
 
           // 先尝试一次
-          const restored = await attempt();
+          const restored = await attempt('initial');
           
           if (!restored) {
             // 监听全局 paper-ready 事件再试
             await new Promise<void>((resolve) => {
               const handler = async () => {
-                const ok = await attempt();
+                const ok = await attempt('paper-ready');
                 if (ok) {
                   window.removeEventListener('paper-ready', handler as EventListener);
                   resolve();
@@ -162,9 +186,13 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
               // 超时兜底
               setTimeout(() => {
                 window.removeEventListener('paper-ready', handler as EventListener);
-                attempt().then(() => resolve());
+                attempt('timeout').then(() => resolve());
               }, 500);
             });
+
+            if (!hasUserContent()) {
+              console.warn('⚠️ 反序列化后仍未检测到有效内容，画布将依赖资产快照回填');
+            }
           }
         }
 

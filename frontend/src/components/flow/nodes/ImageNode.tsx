@@ -89,6 +89,8 @@ type Props = {
   id: string;
   data: {
     imageData?: string;
+    imageRemoteUrl?: string;
+    imageUrl?: string;
     label?: string;
     boxW?: number;
     boxH?: number;
@@ -114,7 +116,13 @@ const MAX_IMAGE_NAME_LENGTH = 28;
 function ImageNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-  const src = buildImageSrc(data.imageData);
+  const rawSrc = (() => {
+    if (typeof data.imageData === "string" && data.imageData.trim()) return data.imageData;
+    if (typeof (data as any).imageRemoteUrl === "string" && (data as any).imageRemoteUrl.trim()) return (data as any).imageRemoteUrl;
+    if (typeof (data as any).imageUrl === "string" && (data as any).imageUrl.trim()) return (data as any).imageUrl;
+    return undefined;
+  })();
+  const src = buildImageSrc(rawSrc);
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);

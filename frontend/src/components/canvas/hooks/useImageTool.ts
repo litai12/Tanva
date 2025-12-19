@@ -8,6 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
+import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import type {
   ImageInstance,
   ImageDragState,
@@ -874,53 +875,208 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return;
     }
 
-    // 为了避免重复，先清理当前 Paper.js 里的图片分组（data.type === 'image'）
+    // 检查 Paper.js 中是否已经存在这些图片（从 paperJson 恢复的）
+    const existingPaperImages = new Map<string, paper.Item>();
     try {
       if (paper && paper.project) {
-        const toRemove: paper.Item[] = [];
         (paper.project.layers || []).forEach((layer: any) => {
           const children = layer?.children || [];
           children.forEach((child: any) => {
-            if (child?.data?.type === 'image') {
-              toRemove.push(child);
+            if (child?.data?.type === 'image' && child?.data?.imageId) {
+              existingPaperImages.set(child.data.imageId, child);
             }
           });
-        });
-        toRemove.forEach((item) => {
-          try { item.remove(); } catch {}
         });
       }
     } catch {}
 
+    console.log('📦 [hydrateFromSnapshot] 检测到已存在的 Paper.js 图片:', existingPaperImages.size);
+
     setImageInstances([]);
     setSelectedImageIds([]);
 
+    const newInstances: any[] = [];
+
     snapshots.forEach((snap) => {
-      const resolvedUrl = snap?.url || snap?.localDataUrl;
+      const resolvedUrl = snap?.url || snap?.localDataUrl || snap?.src;
       if (!snap || !resolvedUrl || !snap.bounds) return;
-      if (snap.layerId) {
-        try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
-      }
-      const start = new paper.Point(snap.bounds.x, snap.bounds.y);
-      const end = new paper.Point(snap.bounds.x + snap.bounds.width, snap.bounds.y + snap.bounds.height);
-      const placeholder = createImagePlaceholder(start, end);
-      if (placeholder) {
-        currentPlaceholderRef.current = placeholder;
-        handleImageUploaded({
+
+      // 检查 Paper.js 中是否已经存在这个图片
+      const existingPaperItem = existingPaperImages.get(snap.id);
+
+      if (existingPaperItem) {
+        // 图片已经在 Paper.js 中存在（从 paperJson 恢复的），只需要创建 React 状态
+        console.log('✅ [hydrateFromSnapshot] 复用已存在的 Paper.js 图片:', snap.id);
+
+        // 获取实际的 bounds，并重新加载图片源
+        let actualBounds = snap.bounds;
+        let groupForCache: paper.Group | null = null;
+        try {
+          const raster = existingPaperItem instanceof paper.Group
+            ? existingPaperItem.children.find((c: any) => c instanceof paper.Raster) as paper.Raster | undefined
+            : (existingPaperItem instanceof paper.Raster ? existingPaperItem : undefined);
+          const existingGroup = existingPaperItem instanceof paper.Group
+            ? existingPaperItem
+            : (raster?.parent instanceof paper.Group ? raster.parent : null);
+
+          if (raster) {
+            const imageSource = resolvedUrl;
+            const savedBounds = raster.bounds && raster.bounds.width > 0 && raster.bounds.height > 0
+              ? raster.bounds.clone()
+              : new paper.Rectangle(snap.bounds.x, snap.bounds.y, snap.bounds.width, snap.bounds.height);
+            const currentSource = typeof raster.source === 'string' ? raster.source : '';
+            const fallbackSource = snap.localDataUrl && snap.localDataUrl !== imageSource ? snap.localDataUrl : null;
+
+            const applyStructureAndUpdate = () => {
+              if (savedBounds) {
+                try { raster.bounds = savedBounds; } catch {}
+              }
+
+              const { group: ensuredGroup } = ensureImageGroupStructure({
+                raster,
+                imageId: snap.id,
+                group: existingGroup,
+                bounds: savedBounds,
+                ensureSelectionArea: true,
+                metadata: {
+                  originalWidth: raster.data?.originalWidth ?? snap.width,
+                  originalHeight: raster.data?.originalHeight ?? snap.height,
+                  fileName: raster.data?.fileName ?? snap.fileName,
+                  uploadMethod: raster.data?.uploadMethod,
+                  aspectRatio: raster.data?.aspectRatio ?? (savedBounds?.height ? savedBounds.width / savedBounds.height : undefined),
+                  remoteUrl: raster.data?.remoteUrl ?? (snap.url?.startsWith('http') ? snap.url : undefined),
+                },
+              });
+
+              if (ensuredGroup) {
+                imageGroupCacheRef.current.set(snap.id, ensuredGroup);
+                groupForCache = ensuredGroup;
+              } else if (existingGroup instanceof paper.Group) {
+                groupForCache = existingGroup;
+              }
+
+              if (raster.bounds) {
+                actualBounds = {
+                  x: raster.bounds.x,
+                  y: raster.bounds.y,
+                  width: raster.bounds.width,
+                  height: raster.bounds.height,
+                };
+              }
+
+              try { paper.view?.update(); } catch {}
+            };
+
+            // 设置跨域属性
+            (raster as any).crossOrigin = 'anonymous';
+
+            const alreadyLoaded = (raster as any).loaded === true;
+            const shouldReload = !!imageSource && (!alreadyLoaded || imageSource !== currentSource);
+
+            if (shouldReload) {
+              // 先绑定回调再设置 source，避免缓存命中导致 onLoad 丢失（会出现“刷新后不显示，点一下才出现”）
+              const previousOnLoad = raster.onLoad;
+              const previousOnError = (raster as any).onError;
+
+              raster.onLoad = () => {
+                try { previousOnLoad?.(); } catch {}
+                console.log('✅ [hydrateFromSnapshot] 图片加载完成:', snap.id);
+                applyStructureAndUpdate();
+              };
+
+              raster.onError = (...args: any[]) => {
+                try { previousOnError?.(...args); } catch {}
+                console.error('❌ [hydrateFromSnapshot] 图片加载失败:', snap.id, imageSource?.substring(0, 100));
+                if (fallbackSource && fallbackSource !== raster.source) {
+                  console.warn('➡️ [hydrateFromSnapshot] 使用本地副本回退加载');
+                  raster.source = fallbackSource;
+                }
+              };
+
+              console.log('🔄 [hydrateFromSnapshot] 重新加载图片源:', imageSource?.substring(0, 100));
+              raster.source = imageSource;
+            } else {
+              // 源一致且已加载，直接恢复结构并刷新，避免重复重载导致短暂空白
+              applyStructureAndUpdate();
+            }
+
+            if (raster.bounds) {
+              actualBounds = {
+                x: raster.bounds.x,
+                y: raster.bounds.y,
+                width: raster.bounds.width,
+                height: raster.bounds.height,
+              };
+            }
+          }
+          if (!groupForCache && existingGroup instanceof paper.Group) {
+            groupForCache = existingGroup;
+          } else if (!groupForCache && existingPaperItem instanceof paper.Group) {
+            groupForCache = existingPaperItem;
+          }
+        } catch (e) {
+          console.warn('获取/设置 Raster bounds 失败:', e);
+        }
+
+        // 直接创建 React 状态，不重新创建 Paper.js 对象
+        newInstances.push({
           id: snap.id,
-          url: resolvedUrl,
-          src: resolvedUrl,
-          key: snap.key,
-          fileName: snap.fileName,
-          width: snap.width,
-          height: snap.height,
-          contentType: snap.contentType,
-          pendingUpload: snap.pendingUpload,
-          localDataUrl: snap.localDataUrl ?? resolvedUrl,
+          imageData: {
+            id: snap.id,
+            url: resolvedUrl,
+            src: resolvedUrl,
+            key: snap.key,
+            fileName: snap.fileName,
+            width: snap.width,
+            height: snap.height,
+            contentType: snap.contentType,
+            pendingUpload: snap.pendingUpload,
+            localDataUrl: snap.localDataUrl,
+          },
+          bounds: actualBounds,
+          isSelected: false,
+          visible: true,
+          layerId: snap.layerId,
         });
+
+        // 更新缓存（优先使用 ensureImageGroupStructure 返回的分组）
+        if (!imageGroupCacheRef.current.has(snap.id) && groupForCache) {
+          imageGroupCacheRef.current.set(snap.id, groupForCache);
+        }
+      } else {
+        // Paper.js 中不存在，需要创建新的图片
+        console.log('🆕 [hydrateFromSnapshot] 创建新的 Paper.js 图片:', snap.id);
+
+        if (snap.layerId) {
+          try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
+        }
+        const start = new paper.Point(snap.bounds.x, snap.bounds.y);
+        const end = new paper.Point(snap.bounds.x + snap.bounds.width, snap.bounds.y + snap.bounds.height);
+        const placeholder = createImagePlaceholder(start, end);
+        if (placeholder) {
+          currentPlaceholderRef.current = placeholder;
+          handleImageUploaded({
+            id: snap.id,
+            url: resolvedUrl,
+            src: resolvedUrl,
+            key: snap.key,
+            fileName: snap.fileName,
+            width: snap.width,
+            height: snap.height,
+            contentType: snap.contentType,
+            pendingUpload: snap.pendingUpload,
+            localDataUrl: snap.localDataUrl ?? resolvedUrl,
+          });
+        }
       }
     });
 
+    // 如果有复用的图片，直接设置状态
+    if (newInstances.length > 0) {
+      setImageInstances(prev => [...prev, ...newInstances]);
+    }
+
+    // 更新已有实例的元数据
     setImageInstances(prev => prev.map((img) => {
       const snap = snapshots.find((s) => s.id === img.id);
       if (!snap) return img;
@@ -947,6 +1103,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         },
       };
     }));
+
+    // 触发一次刷新，避免导入/回填后首帧未绘制
+    try { paper.view?.update(); } catch {}
+    try { requestAnimationFrame(() => { try { paper.view?.update(); } catch {} }); } catch {}
   }, [createImagePlaceholder, handleImageUploaded, setImageInstances, setSelectedImageIds]);
 
   const createImageFromSnapshot = useCallback((
