@@ -340,10 +340,14 @@ input[type="text"],
 }
 
 /* ==================== 框选时禁用 Flow 节点事件 ==================== */
-/* 当 Canvas 正在框选时，禁用 Flow 节点的 pointer-events，避免框选被打断 */
+/* 当 Canvas 正在框选/绘制时，禁用 Flow 节点的 pointer-events，避免操作被打断 */
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node,
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node *,
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge,
-body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle {
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle,
+body.tanva-canvas-drawing .tanva-flow-overlay .react-flow__node,
+body.tanva-canvas-drawing .tanva-flow-overlay .react-flow__node *,
+body.tanva-canvas-drawing .tanva-flow-overlay .react-flow__edge,
+body.tanva-canvas-drawing .tanva-flow-overlay .react-flow__handle {
   pointer-events: none !important;
 }

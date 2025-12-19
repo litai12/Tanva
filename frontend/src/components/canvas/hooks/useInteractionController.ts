@@ -220,6 +220,28 @@ export const useInteractionController = ({
     setDrawModeRef.current = setDrawMode;
   }, [setDrawMode]);
 
+  // 在画布绘制/拖拽时临时屏蔽 Flow 节点的指针事件，避免经过节点输入框时中断
+  const flowPointerBlockedRef = useRef(false);
+  const disableFlowPointerEvents = useCallback(() => {
+    if (flowPointerBlockedRef.current) return;
+    flowPointerBlockedRef.current = true;
+    document.body.classList.add('tanva-canvas-drawing');
+    const flowOverlay = document.querySelector('.tanva-flow-overlay') as HTMLElement | null;
+    if (flowOverlay) {
+      flowOverlay.style.pointerEvents = 'none';
+    }
+  }, []);
+
+  const restoreFlowPointerEvents = useCallback(() => {
+    if (!flowPointerBlockedRef.current) return;
+    flowPointerBlockedRef.current = false;
+    document.body.classList.remove('tanva-canvas-drawing');
+    const flowOverlay = document.querySelector('.tanva-flow-overlay') as HTMLElement | null;
+    if (flowOverlay) {
+      flowOverlay.style.pointerEvents = '';
+    }
+  }, []);
+
   const isSelectionLikeMode = useCallback(() => {
     const mode = drawModeRef.current;
     return mode === 'select' || mode === 'pointer' || mode === 'global-pointer';
@@ -559,8 +581,11 @@ export const useInteractionController = ({
     // ========== 绘图模式处理 ==========
     logger.drawing(`开始绘制: 模式=${currentDrawMode}, 坐标=(${point.x.toFixed(1)}, ${point.y.toFixed(1)}), 橡皮擦=${isEraserActive}`);
 
+    let drawingActivated = false;
+
     if (currentDrawMode === 'free') {
       latestDrawingTools.startFreeDraw(point);
+      drawingActivated = true;
     } else if (currentDrawMode === 'line') {
       // 直线绘制模式：第一次点击开始，第二次点击完成
       if (!latestDrawingTools.pathRef.current || !(latestDrawingTools.pathRef.current as any).startPoint) {
@@ -568,25 +593,33 @@ export const useInteractionController = ({
       } else {
         latestDrawingTools.finishLineDraw(point);
       }
+      drawingActivated = true;
     } else if (currentDrawMode === 'rect') {
       latestDrawingTools.startRectDraw(point);
+      drawingActivated = true;
     } else if (currentDrawMode === 'circle') {
       latestDrawingTools.startCircleDraw(point);
+      drawingActivated = true;
     } else if (currentDrawMode === 'image') {
       latestDrawingTools.startImageDraw(point);
+      drawingActivated = true;
     } else if (currentDrawMode === 'quick-image') {
       // 快速图片上传模式不需要绘制占位框，直接触发上传
       return;
     } else if (currentDrawMode === '3d-model') {
       latestDrawingTools.start3DModelDraw(point);
+      drawingActivated = true;
     } else if (currentDrawMode === 'text') {
       // 文本工具处理，传递当前工具模式
       latestSimpleTextTool.handleCanvasClick(point, event as any, currentDrawMode);
       return; // 文本工具不需要设置 isDrawingRef
     }
 
-    latestDrawingTools.isDrawingRef.current = true;
-  }, [canvasRef, beginGroupPathDrag, isSelectionLikeMode]);
+    if (drawingActivated) {
+      disableFlowPointerEvents();
+      latestDrawingTools.isDrawingRef.current = true;
+    }
+  }, [canvasRef, beginGroupPathDrag, disableFlowPointerEvents, isSelectionLikeMode]);
 
   // 更新鼠标光标样式（需在 handleMouseMove 之前定义，避免临时死区）
   function updateCursorStyle(point: paper.Point, canvas: HTMLCanvasElement) {
@@ -1026,6 +1059,7 @@ export const useInteractionController = ({
 
       if (waitingForSecondClick) {
         logger.debug('🟦 直线模式：首击抬起，保持起点等待第二次点击');
+        restoreFlowPointerEvents();
         return;
       }
     }
@@ -1059,8 +1093,9 @@ export const useInteractionController = ({
       historyService.commit(`finish-${String(currentDrawMode)}`).catch(() => {});
     }
 
+    restoreFlowPointerEvents();
     latestDrawingTools.isDrawingRef.current = false;
-  }, [canvasRef, resetGroupPathDrag, stopSpacePan]);
+  }, [canvasRef, resetGroupPathDrag, restoreFlowPointerEvents, stopSpacePan]);
 
   // ========== 事件监听器绑定 ==========
   useEffect(() => {
@@ -1291,10 +1326,11 @@ export const useInteractionController = ({
         cancelAnimationFrame(imageDragRafRef.current);
         imageDragRafRef.current = null;
       }
+      restoreFlowPointerEvents();
       pendingImageDragPositionsRef.current = null;
       lastImageDragPositionsRef.current = null;
     };
-  }, [handleMouseDown, handleMouseMove, handleMouseUp, stopSpacePan, isSelectionLikeMode]);
+  }, [handleMouseDown, handleMouseMove, handleMouseUp, restoreFlowPointerEvents, stopSpacePan, isSelectionLikeMode]);
 
   return {
     // 主要事件处理器
