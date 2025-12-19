@@ -498,8 +498,18 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   useEffect(() => {
     const handler = () => {
       isInitializedRef.current = false;
+      // 清理旧的 gridLayer 引用，因为 clearProject 可能已经清空了它的子元素
+      // 这样下次 createGrid 会重新验证图层有效性
+      if (gridLayerRef.current) {
+        gridLayerRef.current = null;
+      }
+      // 清理坐标轴引用
+      axisPathsRef.current = { xAxis: null, yAxis: null };
       // 使用 ref 获取最新值，避免闭包过期
-      setTimeout(() => createGridRef.current(gridSizeRef.current), 0);
+      // 使用 requestAnimationFrame 确保在 Paper.js 视图更新后再重绘网格
+      requestAnimationFrame(() => {
+        setTimeout(() => createGridRef.current(gridSizeRef.current), 0);
+      });
     };
     window.addEventListener('paper-project-changed', handler as any);
     window.addEventListener('paper-ready', handler as any);

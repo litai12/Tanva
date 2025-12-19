@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { useLayerStore } from '@/stores/layerStore';
@@ -22,6 +22,35 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     markInitialCenterApplied 
   } = useCanvasStore();
 
+  const pendingViewUpdateRafRef = useRef<number | null>(null);
+  const requestViewUpdate = useCallback(() => {
+    try {
+      if (!paper?.view) return;
+      if (pendingViewUpdateRafRef.current !== null) return;
+
+      if (typeof requestAnimationFrame !== 'function') {
+        (paper.view as any)?.update?.();
+        return;
+      }
+
+      pendingViewUpdateRafRef.current = requestAnimationFrame(() => {
+        pendingViewUpdateRafRef.current = null;
+        try { (paper.view as any)?.update?.(); } catch {}
+      });
+    } catch {}
+  }, []);
+
+  const applyViewTransformFromStore = useCallback(() => {
+    try {
+      if (!paper?.view) return;
+      const state = useCanvasStore.getState();
+      const z = Math.max(state.zoom ?? 1, 0.0001);
+      const tx = (state.panX ?? 0) * z;
+      const ty = (state.panY ?? 0) * z;
+      paper.view.matrix = new paper.Matrix(z, 0, 0, z, tx, ty);
+    } catch {}
+  }, []);
+
   // Paper.js 初始化和画布尺寸管理
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -38,7 +67,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     }
 
     let isInitialized = false;
-    
+
     const resizeCanvas = () => {
       const parent = canvas.parentElement;
       if (parent) {
@@ -46,22 +75,30 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         const pixelRatio = window.devicePixelRatio || 1;
         const displayWidth = parent.clientWidth;
         const displayHeight = parent.clientHeight;
-        
+
         // 设置画布的实际尺寸（考虑设备像素比）
         canvas.width = displayWidth * pixelRatio;
         canvas.height = displayHeight * pixelRatio;
-        
+
         // 设置画布的显示尺寸
         canvas.style.width = displayWidth + 'px';
         canvas.style.height = displayHeight + 'px';
-        
+
         // 更新Paper.js视图尺寸（使用实际像素尺寸，与 canvas.width/height 一致）
-        // Paper 会基于此尺寸进行变换；事件→视图坐标需自行考虑 devicePixelRatio
-        if (paper.view && paper.view.viewSize) {
-          (paper.view.viewSize as any).width = canvas.width;
-          (paper.view.viewSize as any).height = canvas.height;
+        // 通过 setter 更新可确保 Paper.js 标记需要重绘
+        if (paper.view) {
+          try {
+            paper.view.viewSize = new paper.Size(canvas.width, canvas.height);
+          } catch {
+            try {
+              if ((paper.view as any).viewSize) {
+                (paper.view.viewSize as any).width = canvas.width;
+                (paper.view.viewSize as any).height = canvas.height;
+              }
+            } catch {}
+          }
         }
-        
+
         // 初始化时，只有在没有保存的视口状态时才将坐标轴移动到画布中心
         if (!isInitialized) {
           const { panX: savedPanX, panY: savedPanY, zoom: savedZoom } = useCanvasStore.getState();
@@ -91,21 +128,14 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
             console.warn('ensureActiveLayer failed during Paper init:', e);
           }
         } else {
-          // 应用视口变换
-          applyViewTransform();
+          // ⚠️ 这里不能使用闭包里的 zoom/pan：项目切换/选中图片会触发 resize，
+          // 若用旧值会把 view.matrix 重置，导致"图片位置跳变/网格消失直到交互"
+          applyViewTransformFromStore();
         }
-      }
-    };
 
-    // 应用视口变换 - 使用Paper.js默认左上角坐标系
-    const applyViewTransform = () => {
-      // 视口变换：screen = zoom * (world + pan)
-      // 我们的 pan 存储在“世界坐标”单位中，因此需要乘以 zoom 才能作为视图平移
-      // 等价于在矩阵中使用缩放与已缩放平移量
-      const tx = panX * zoom;
-      const ty = panY * zoom;
-      const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
-      paper.view.matrix = matrix;
+        // resize 会清空 canvas 位图；强制请求一次重绘，避免状态延迟到交互才刷新
+        requestViewUpdate();
+      }
     };
 
     // 初始化画布
@@ -121,20 +151,47 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     window.addEventListener('resize', handleResize);
 
     // 监听父元素尺寸变化（更可靠）
+    // 记录上一次的父元素尺寸，避免不必要的 resize 处理
+    let lastParentWidth = canvas.parentElement?.clientWidth ?? 0;
+    let lastParentHeight = canvas.parentElement?.clientHeight ?? 0;
+
     let ro: ResizeObserver | null = null;
     if (canvas.parentElement && 'ResizeObserver' in window) {
-      ro = new ResizeObserver(() => resizeCanvas());
+      ro = new ResizeObserver((entries) => {
+        // 检查尺寸是否真正变化
+        // 这可以防止点击图片时因工具栏出现等 DOM 变化触发的不必要的 resize
+        const entry = entries[0];
+        if (entry) {
+          const newWidth = entry.contentRect.width;
+          const newHeight = entry.contentRect.height;
+
+          // 只有当尺寸真正变化时才调用 resizeCanvas
+          if (Math.abs(newWidth - lastParentWidth) > 1 || Math.abs(newHeight - lastParentHeight) > 1) {
+            lastParentWidth = newWidth;
+            lastParentHeight = newHeight;
+            resizeCanvas();
+          }
+        }
+      });
       ro.observe(canvas.parentElement);
     }
 
     return () => {
+      if (pendingViewUpdateRafRef.current !== null) {
+        try {
+          if (typeof cancelAnimationFrame === 'function') {
+            cancelAnimationFrame(pendingViewUpdateRafRef.current);
+          }
+        } catch {}
+        pendingViewUpdateRafRef.current = null;
+      }
       window.removeEventListener('resize', handleResize);
       if (ro) {
         try { ro.disconnect(); } catch {}
         ro = null;
       }
     };
-  }, [canvasRef, setPan, onInitialized]);
+  }, [canvasRef, setPan, onInitialized, applyViewTransformFromStore, requestViewUpdate]);
 
   useEffect(() => {
     if (!isHydrated || hasInitialCenterApplied) {
@@ -188,8 +245,11 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
       const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
       (paper.view as any).matrix = matrix;
     } catch {}
+
+    // 保险：部分场景下矩阵更新不会立刻触发重绘（或被 resize 覆盖）
+    requestViewUpdate();
   
-  }, [zoom, panX, panY, canvasRef]);
+  }, [zoom, panX, panY, canvasRef, requestViewUpdate]);
 
   return null; // 这个组件不渲染任何DOM
 };

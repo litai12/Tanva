@@ -469,6 +469,40 @@ class PaperSaveService {
       });
       toRemove.forEach(l => l.remove());
 
+      // ⚠️ Raster 图片加载是异步的：importJSON 后首帧可能还没加载完成
+      // 若没有在 onLoad 时触发 view.update，会出现“刷新/切换项目后不显示，交互一下才出现”
+      try {
+        const projectAny = paper.project as any;
+        const rasters: paper.Raster[] = typeof projectAny.getItems === 'function'
+          ? (projectAny.getItems({ class: paper.Raster }) as paper.Raster[])
+          : [];
+
+        rasters.forEach((raster) => {
+          const prevOnLoad = raster.onLoad;
+          const prevOnError = (raster as any).onError;
+
+          raster.onLoad = () => {
+            try { prevOnLoad?.(); } catch {}
+            try { (paper.view as any)?.update?.(); } catch {}
+          };
+
+          (raster as any).onError = (...args: any[]) => {
+            try { prevOnError?.(...args); } catch {}
+          };
+
+          if ((raster as any).loaded) {
+            try { (paper.view as any)?.update?.(); } catch {}
+          }
+        });
+
+        // 兜底：下一帧再补一次，覆盖缓存/时序竞争
+        try {
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => { try { (paper.view as any)?.update?.(); } catch {} });
+          }
+        } catch {}
+      } catch {}
+
       console.log('✅ Paper.js项目反序列化成功');
       // 延迟触发事件，确保 Paper.js 完全初始化
       setTimeout(() => {
