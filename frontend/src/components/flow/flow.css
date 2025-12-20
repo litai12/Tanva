@@ -318,6 +318,19 @@ body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node *,
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge,
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge *,
 body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle,
-body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle * {
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle::after {
+  pointer-events: none !important;
+}
+
+/* ==================== 拖拽时禁用 Flow 节点事件 ==================== */
+/* 当 Canvas 正在拖拽图片时，禁用 Flow 节点的 pointer-events，避免经过节点时被打断 */
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__edge *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle *,
+body.tanva-canvas-dragging .tanva-flow-overlay .react-flow__handle::after {
   pointer-events: none !important;
 }

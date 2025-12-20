@@ -509,6 +509,8 @@ export const useInteractionController = ({
             groupImageIds: selectedIds,
             groupStartBounds: boundsMap,
           });
+          // 拖拽图片时禁用 Flow 节点事件，避免经过节点时被打断
+          document.body.classList.add('tanva-canvas-dragging');
           beginGroupPathDrag(point, 'image');
         }
       }
@@ -910,6 +912,8 @@ export const useInteractionController = ({
           groupImageIds: undefined,
           groupStartBounds: undefined,
         });
+        // 移除拖拽时禁用 Flow 节点事件的 CSS 类
+        document.body.classList.remove('tanva-canvas-dragging');
         resetGroupPathDrag();
         historyService.commit('move-image').catch(() => {});
         try { paperSaveService.triggerAutoSave('move-image'); } catch {}
