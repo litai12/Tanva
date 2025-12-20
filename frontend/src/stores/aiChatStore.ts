@@ -5303,6 +5303,10 @@ export const useAIChatStore = create<AIChatState>()(
             // 📄 检测是否有 PDF 文件需要分析
             if (state.sourcePdfForAnalysis) {
               selectedTool = "analyzePdf";
+            } else if (state.sourceImagesForBlending.length >= 2) {
+              // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
+              selectedTool = "blendImages";
+              logProcessStep(metrics, "multi-image detected, using blendImages");
             } else {
               // 完全靠 AI 来判断工具选择，包括矢量图生成
               logProcessStep(metrics, "tool selection start");
@@ -5615,6 +5619,10 @@ export const useAIChatStore = create<AIChatState>()(
             // Auto 模式：先检查 PDF，再调用 AI 判断
             if (state.sourcePdfForAnalysis) {
               selectedTool = "analyzePdf";
+            } else if (state.sourceImagesForBlending.length >= 2) {
+              // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
+              selectedTool = "blendImages";
+              console.log("🎯 [工具选择] 检测到多图输入，强制使用融合模式");
             } else {
               // 调用 AI 进行工具选择
               const cachedImage = contextManager.getCachedImage();
