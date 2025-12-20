@@ -337,6 +337,9 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
         </div>
       </div>
 
+      {/* 分隔线 */}
+      <div style={{ height: 1, background: '#e5e7eb', marginBottom: 16 }} />
+
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
         {TYPE_TABS.map((tab) => {
           const isActive = tab.value === activeType;

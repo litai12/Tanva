@@ -548,6 +548,9 @@ const LibraryPanel: React.FC = () => {
           <h2 className="text-lg font-semibold text-gray-800">库</h2>
         </div>
 
+        {/* 分隔线 */}
+        <div className="mx-4 h-px bg-gray-200" />
+
         {/* 隐藏的文件输入 */}
         <input
           ref={fileInputRef}

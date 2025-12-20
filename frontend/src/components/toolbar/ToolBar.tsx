@@ -935,7 +935,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <TooltipContent side="right">个人库</TooltipContent>
       </Tooltip>
 
-
       {/* 工具按钮 */}
       {onClearCanvas && (
         <div className="flex flex-col items-center gap-2">

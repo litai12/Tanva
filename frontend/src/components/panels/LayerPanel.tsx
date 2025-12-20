@@ -981,18 +981,8 @@ const LayerPanel: React.FC = () => {
                 </Button>
             </div>
 
-            {/* 工具栏 */}
-            <div className="p-3">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start gap-2"
-                    onClick={() => createLayer(undefined, true)}
-                >
-                    <Plus className="h-4 w-4" />
-                    新建图层
-                </Button>
-            </div>
+            {/* 分隔线 */}
+            <div className="mx-4 h-px bg-gray-200" />
 
             {/* 图层列表 */}
             <div className="flex-1 overflow-y-auto pb-12">
@@ -1527,6 +1517,15 @@ const LayerPanel: React.FC = () => {
                             </div>
                         );
                     })}
+
+                    {/* 新建图层按钮 */}
+                    <div
+                        className="flex items-center justify-center p-2 rounded-lg border border-dashed border-gray-300 hover:bg-gray-50 hover:border-gray-400 cursor-pointer transition-colors"
+                        onClick={() => createLayer(undefined, true)}
+                        title="新建图层"
+                    >
+                        <Plus className="h-5 w-5 text-gray-400" />
+                    </div>
 
                     {indicatorY !== null && (
                         <div className={indicatorClass} style={{ top: indicatorY }} />
