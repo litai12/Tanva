@@ -733,18 +733,17 @@ function FlowInner() {
 
       const anySelected = rf.getNodes().some((n: any) => n.selected);
       const canPasteFlow = !!clipboardService.getFlowData();
-
-      // 若当前处于画布激活，但 Flow 有选中/可粘贴，则切换到 Flow
-      if ((isCopy && anySelected) || (isPaste && canPasteFlow)) {
-        clipboardService.setActiveZone('flow');
-      } else if (clipboardService.getZone() !== 'flow') {
-        return;
-      }
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const fromFlowOverlay = path.some((el) =>
+        el instanceof Element && el.classList?.contains('tanva-flow-overlay')
+      );
+      const currentZone = clipboardService.getZone();
 
       if (isCopy) {
+        if (!anySelected) return;
+        clipboardService.setActiveZone('flow');
         const handled = handleCopyFlow();
         if (handled) {
-          clipboardService.setActiveZone('flow');
           event.preventDefault();
           event.stopPropagation();
         }
@@ -752,6 +751,12 @@ function FlowInner() {
       }
 
       if (isPaste) {
+        // 仅在 Flow 区域或当前 zone 为 Flow 时切换，避免抢占画布粘贴图片
+        if (fromFlowOverlay || currentZone === 'flow') {
+          clipboardService.setActiveZone('flow');
+        } else {
+          return;
+        }
         // 粘贴逻辑改为在 clipboard/paste 事件中处理，以便检测剪贴板里是否有图片
         return;
       }

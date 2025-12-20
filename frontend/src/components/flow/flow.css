@@ -294,3 +294,14 @@ input[type="text"],
 .tanva-flow-overlay .react-flow__handle-connecting-target::after {
   box-shadow: 0 0 0 12px rgba(15, 23, 42, 0.08);
 }
+
+/* ==================== 框选时禁用 Flow 节点事件 ==================== */
+/* 当 Canvas 正在框选时，禁用 Flow 节点的 pointer-events，避免框选被打断 */
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__node *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__edge *,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle,
+body.tanva-selection-dragging .tanva-flow-overlay .react-flow__handle * {
+  pointer-events: none !important;
+}
