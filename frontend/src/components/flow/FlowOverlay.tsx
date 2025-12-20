@@ -75,6 +75,10 @@ const createEdgeLabelEditorState = (): EdgeLabelEditorState => ({
 const ensureDataUrl = (imageData: string): string =>
   imageData.startsWith('data:image') ? imageData : `data:image/png;base64,${imageData}`;
 
+const FLOW_CLIPBOARD_MIME = 'application/x-tanva-flow';
+const FLOW_CLIPBOARD_FALLBACK_TEXT = 'Tanva flow selection';
+const FLOW_CLIPBOARD_TYPE = 'tanva-flow';
+
 const nodeTypes = {
   textPrompt: TextPromptNode,
   textChat: TextChatNode,
@@ -613,6 +617,7 @@ function FlowInner() {
   // 获取当前工具模式
   const drawMode = useToolStore((state) => state.drawMode);
   const isPointerMode = drawMode === 'pointer';
+  const isMarqueeMode = drawMode === 'marquee';
 
   const onNodesChangeWithHistory = React.useCallback((changes: any) => {
     onNodesChange(changes);
@@ -805,6 +810,52 @@ function FlowInner() {
     return true;
   }, [sanitizeNodeData, setEdges, setNodes]);
 
+  // Flow 复制：写入系统剪贴板（覆盖系统截图内容），以便粘贴时能优先恢复节点而非图片
+  React.useEffect(() => {
+    const handleCopyEvent = (event: ClipboardEvent) => {
+      try {
+        const active = document.activeElement as Element | null;
+        const tagName = active?.tagName?.toLowerCase();
+        const isEditable = !!active && (tagName === 'input' || tagName === 'textarea' || (active as any).isContentEditable);
+        if (isEditable) return;
+
+        // 仅在 Flow 区域或当前 zone 为 Flow 时接管 copy，避免影响画布复制
+        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        const fromFlowOverlay = path.some((el) =>
+          el instanceof Element && el.classList?.contains('tanva-flow-overlay')
+        );
+        const zone = clipboardService.getZone();
+        if (zone !== 'flow' && !fromFlowOverlay) return;
+
+        const handled = handleCopyFlow();
+        if (!handled) return;
+
+        const payload = clipboardService.getFlowData();
+        if (!payload) return;
+
+        const serialized = JSON.stringify({
+          type: FLOW_CLIPBOARD_TYPE,
+          version: 1,
+          data: payload,
+        });
+
+        if (event.clipboardData) {
+          event.clipboardData.setData(FLOW_CLIPBOARD_MIME, serialized);
+          event.clipboardData.setData('application/json', serialized);
+          event.clipboardData.setData('text/plain', FLOW_CLIPBOARD_FALLBACK_TEXT);
+          event.preventDefault();
+        } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          void navigator.clipboard.writeText(serialized).catch(() => {});
+        }
+      } catch (error) {
+        console.warn('复制 Flow 到系统剪贴板失败', error);
+      }
+    };
+
+    window.addEventListener('copy', handleCopyEvent);
+    return () => window.removeEventListener('copy', handleCopyEvent);
+  }, [handleCopyFlow]);
+
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -829,11 +880,8 @@ function FlowInner() {
       if (isCopy) {
         if (!anySelected) return;
         clipboardService.setActiveZone('flow');
-        const handled = handleCopyFlow();
-        if (handled) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
+        // 让浏览器触发原生 copy 事件（由上面的 copy 监听器写入系统剪贴板）
+        handleCopyFlow();
         return;
       }
 
@@ -866,10 +914,33 @@ function FlowInner() {
       if (isEditable) return;
 
       if (clipboardService.getZone() !== 'flow') return;
+      const clipboardData = event.clipboardData;
+
+      // 先尝试解析系统剪贴板中的 Flow 数据（支持跨页面/跨实例粘贴）
+      const rawFlowData =
+        clipboardData?.getData(FLOW_CLIPBOARD_MIME) ||
+        clipboardData?.getData('application/json');
+      if (rawFlowData) {
+        try {
+          const parsed = JSON.parse(rawFlowData);
+          const flowPayload =
+            parsed?.type === FLOW_CLIPBOARD_TYPE ? parsed.data : (parsed?.nodes && parsed?.edges ? parsed : null);
+          if (flowPayload) {
+            clipboardService.setFlowData(flowPayload);
+            const handled = handlePasteFlow();
+            if (handled) {
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+          }
+        } catch {}
+      }
+
       const payload = clipboardService.getFlowData();
       if (!payload || !Array.isArray(payload.nodes) || payload.nodes.length === 0) return;
 
-      const items = event.clipboardData?.items;
+      const items = clipboardData?.items;
       const hasFileOrImage = items ? Array.from(items).some((item) =>
         item && (item.kind === 'file' || (typeof item.type === 'string' && item.type.startsWith('image/')))
       ) : false;
@@ -2981,7 +3052,7 @@ function FlowInner() {
   return (
     <div
       ref={containerRef}
-      className={`tanva-flow-overlay absolute inset-0 ${isPointerMode ? 'pointer-mode' : ''}`}
+      className={`tanva-flow-overlay absolute inset-0 ${isPointerMode ? 'pointer-mode' : ''} ${isMarqueeMode ? 'marquee-mode' : ''}`}
       onDoubleClick={handleContainerDoubleClick}
       onPointerDownCapture={() => clipboardService.setActiveZone('flow')}
     >
@@ -3160,16 +3231,17 @@ function FlowInner() {
                     模板
                   </button>
                 )}
-                {allowedAddTabs.includes('personal') && (
-                  <button 
-                    onClick={() => setAddTabWithMemory('personal', allowedAddTabs)} 
-                    style={{ 
-                      padding: '10px 18px 14px', 
+                {/* 个人库标签已移至独立按钮，此处隐藏 */}
+                {false && allowedAddTabs.includes('personal') && (
+                  <button
+                    onClick={() => setAddTabWithMemory('personal', allowedAddTabs)}
+                    style={{
+                      padding: '10px 18px 14px',
                       fontSize: 13,
                       fontWeight: addTab === 'personal' ? 600 : 500,
-                      borderRadius: '24px 24px 0 0', 
+                      borderRadius: '24px 24px 0 0',
                       border: 'none',
-                      background: addTab === 'personal' ? '#fff' : 'transparent', 
+                      background: addTab === 'personal' ? '#fff' : 'transparent',
                       color: addTab === 'personal' ? '#111827' : '#374151',
                       marginBottom: -2,
                       transition: 'all 0.15s ease',

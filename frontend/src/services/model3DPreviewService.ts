@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { logger } from "@/utils/logger";
+import { uploadToOSS, dataURLToBlob } from "./ossUploadService";
 
 export interface Model3DPreviewOptions {
   width?: number;
@@ -198,6 +199,40 @@ async function generatePreviewFromUrl(
   return task;
 }
 
+/**
+ * 生成 3D 模型预览图并上传到 OSS，返回 OSS URL
+ * 用于持久化存储预览图，避免 localStorage 配额问题
+ */
+async function generatePreviewAndUpload(
+  url: string,
+  options: Model3DPreviewOptions = {}
+): Promise<string | null> {
+  const dataUrl = await generatePreviewFromUrl(url, options);
+  if (!dataUrl) {
+    return null;
+  }
+
+  try {
+    const blob = dataURLToBlob(dataUrl);
+    const fileName = `preview_${Date.now()}.png`;
+    const result = await uploadToOSS(blob, {
+      dir: 'uploads/personal-library/previews/',
+      fileName,
+      contentType: 'image/png',
+    });
+
+    if (result.success && result.url) {
+      return result.url;
+    }
+    logger.warn('上传 3D 预览图到 OSS 失败:', result.error);
+    return null;
+  } catch (error) {
+    logger.warn('上传 3D 预览图失败:', error);
+    return null;
+  }
+}
+
 export const model3DPreviewService = {
   generatePreviewFromUrl,
+  generatePreviewAndUpload,
 };

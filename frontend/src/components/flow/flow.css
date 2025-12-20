@@ -267,6 +267,23 @@ input[type="text"],
   border-radius: 8px;
 }
 
+/* Marquee 纯框选模式：禁用 Flow 图谱交互，避免阻挡画布框选 */
+.tanva-flow-overlay.marquee-mode .react-flow__node,
+.tanva-flow-overlay.marquee-mode .react-flow__node *,
+.tanva-flow-overlay.marquee-mode .react-flow__edge,
+.tanva-flow-overlay.marquee-mode .react-flow__edge *,
+.tanva-flow-overlay.marquee-mode .react-flow__handle,
+.tanva-flow-overlay.marquee-mode .react-flow__handle *,
+.tanva-flow-overlay.marquee-mode .react-flow__handle::after,
+.tanva-flow-overlay.marquee-mode .react-flow__controls,
+.tanva-flow-overlay.marquee-mode .react-flow__controls *,
+.tanva-flow-overlay.marquee-mode .react-flow__minimap,
+.tanva-flow-overlay.marquee-mode .react-flow__minimap *,
+.tanva-flow-overlay.marquee-mode .react-flow__node-resizer,
+.tanva-flow-overlay.marquee-mode .react-flow__node-resizer-handle {
+  pointer-events: none !important;
+}
+
 /* 统一句柄尺寸/交互（全部节点） */
 .tanva-flow-overlay .react-flow__handle {
   position: absolute; /* keep default positioning */

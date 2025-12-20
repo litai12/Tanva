@@ -18,9 +18,16 @@ interface SelectionTool {
   isSelectionDragging: boolean;
   selectedPath: paper.Path | null;
   selectedPaths: paper.Path[];
+  startSelectionBox: (point: paper.Point) => void;
   handleSelectionClick: (point: paper.Point, multiSelect?: boolean) => any;
   updateSelectionBox: (point: paper.Point) => void;
-  finishSelectionBox: (point: paper.Point) => void;
+  finishSelectionBox: (point: paper.Point, options?: {
+    selectFlowNodes?: boolean;
+    selectPaths?: boolean;
+    selectImages?: boolean;
+    selectModels?: boolean;
+    selectTexts?: boolean;
+  }) => void;
 }
 
 interface PathEditor {
@@ -106,6 +113,11 @@ const isPaperItemRemoved = (item: paper.Item | null | undefined): boolean => {
     return removedFlag;
   }
   return typeof item.isInserted === 'function' ? !item.isInserted() : false;
+};
+
+// 辅助函数：检查是否为 Raster 对象（兼容生产环境，instanceof 在压缩后可能失效）
+const isRasterItem = (item: paper.Item): boolean => {
+  return item.className === 'Raster' || item instanceof paper.Raster;
 };
 
 interface UseInteractionControllerProps {
@@ -209,7 +221,7 @@ export const useInteractionController = ({
 
   const isSelectionLikeMode = useCallback(() => {
     const mode = drawModeRef.current;
-    return mode === 'select' || mode === 'pointer';
+    return mode === 'select' || mode === 'marquee' || mode === 'pointer';
   }, []);
 
   const collectSelectedPaths = useCallback(() => {
@@ -349,7 +361,7 @@ export const useInteractionController = ({
     const point = clientToProject(canvas, event.clientX, event.clientY);
 
     // ========== 选择模式处理 ==========
-    if (currentDrawMode === 'select') {
+    if (currentDrawMode === 'select' || currentDrawMode === 'marquee') {
       // 橡皮擦模式下，不允许激活选择框功能
       if (isEraserActive) {
         logger.debug('🧹 橡皮擦模式下，跳过选择框激活');
@@ -449,7 +461,8 @@ export const useInteractionController = ({
 
         if (imageGroup) {
           // 获取实际的图片边界（Raster的边界），而不是整个组的边界
-          const raster = imageGroup.children.find(child => child instanceof paper.Raster);
+          // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
+          const raster = imageGroup.children.find(child => isRasterItem(child));
           const actualBounds = raster ? raster.bounds.clone() : imageGroup.bounds.clone();
 
           latestImageTool.setImageResizeState({
@@ -748,7 +761,7 @@ export const useInteractionController = ({
     }
 
     // ========== 选择模式处理 ==========
-    if (currentDrawMode === 'select') {
+    if (currentDrawMode === 'select' || currentDrawMode === 'marquee') {
       const pathGroupDragState = groupPathDragRef.current;
       if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
         applyGroupPathDrag(point, 'path');
@@ -811,6 +824,9 @@ export const useInteractionController = ({
 
       // 更新鼠标光标样式
       updateCursorStyle(point, canvas);
+      if (currentDrawMode === 'marquee' && canvas.style.cursor === 'default') {
+        canvas.style.cursor = 'crosshair';
+      }
       return;
     }
 
@@ -880,7 +896,7 @@ export const useInteractionController = ({
     }
 
     // ========== 选择模式处理 ==========
-    if (currentDrawMode === 'select') {
+    if (currentDrawMode === 'select' || currentDrawMode === 'marquee') {
       // 处理路径编辑结束
       const pathEditResult = latestPathEditor.handlePathEditInteraction(
         clientToProject(canvas, event.clientX, event.clientY),
@@ -937,7 +953,11 @@ export const useInteractionController = ({
       // 处理选择框完成
       if (latestSelectionTool.isSelectionDragging) {
         const point = clientToProject(canvas, event.clientX, event.clientY);
-        latestSelectionTool.finishSelectionBox(point);
+        if (currentDrawMode === 'marquee') {
+          latestSelectionTool.finishSelectionBox(point, { selectFlowNodes: false });
+        } else {
+          latestSelectionTool.finishSelectionBox(point);
+        }
         // 移除框选时禁用 Flow 节点事件的 CSS 类
         document.body.classList.remove('tanva-selection-dragging');
         logger.debug('🔲 框选结束，恢复 Flow 节点事件');

@@ -141,6 +141,14 @@ export const useSelectionTool = ({
 
   // ========== 选择框功能 ==========
 
+  type SelectionBoxOptions = {
+    selectFlowNodes?: boolean;
+    selectPaths?: boolean;
+    selectImages?: boolean;
+    selectModels?: boolean;
+    selectTexts?: boolean;
+  };
+
   // 检查图层是否可见
   const isLayerVisible = useCallback((imageId: string) => {
     // 找到对应的Paper.js图层组
@@ -196,8 +204,13 @@ export const useSelectionTool = ({
   }, [isSelectionDragging, selectionStartPoint]);
 
   // 完成选择框并选择框内对象
-  const finishSelectionBox = useCallback((endPoint: paper.Point) => {
+  const finishSelectionBox = useCallback((endPoint: paper.Point, options?: SelectionBoxOptions) => {
     if (!isSelectionDragging || !selectionStartPoint) return;
+    const selectFlowNodes = options?.selectFlowNodes !== false;
+    const selectPaths = options?.selectPaths !== false;
+    const selectImages = options?.selectImages !== false;
+    const selectModels = options?.selectModels !== false;
+    const selectTexts = options?.selectTexts !== false;
 
     // 清除选择框
     if (selectionBoxRef.current) {
@@ -231,52 +244,60 @@ export const useSelectionTool = ({
     const selectedNodeIds: string[] = [];
 
     // 检查图片实例是否与选择框相交
-    for (const image of imageInstances) {
-      const imageBounds = new paper.Rectangle(image.bounds.x, image.bounds.y, image.bounds.width, image.bounds.height);
-      if (selectionRect.intersects(imageBounds)) {
-        // 检查图层是否可见，只有可见的图层才能被选中
-        if (isLayerVisible(image.id)) {
-          selectedImages.push(image.id);
-          logger.upload('选择框收集图片:', image.id);
-        } else {
-          logger.debug('选择框：图层不可见，跳过选择:', image.id);
-        }
-      }
-    }
-
-    // 检查3D模型实例是否与选择框相交
-    for (const model of model3DInstances) {
-      const modelBounds = new paper.Rectangle(model.bounds.x, model.bounds.y, model.bounds.width, model.bounds.height);
-      if (selectionRect.intersects(modelBounds)) {
-        selectedModels.push(model.id);
-        logger.upload('选择框收集3D模型:', model.id);
-      }
-    }
-
-    // 检查文本实例是否与选择框相交
-    for (const textItem of textItems) {
-      if (textItem.paperText && textItem.paperText.bounds) {
-        const textBounds = textItem.paperText.bounds;
-        if (selectionRect.intersects(textBounds)) {
-          if (!selectedTexts.includes(textItem.id)) {
-            selectedTexts.push(textItem.id);
-            logger.upload('选择框收集文本:', textItem.id);
+    if (selectImages) {
+      for (const image of imageInstances) {
+        const imageBounds = new paper.Rectangle(image.bounds.x, image.bounds.y, image.bounds.width, image.bounds.height);
+        if (selectionRect.intersects(imageBounds)) {
+          // 检查图层是否可见，只有可见的图层才能被选中
+          if (isLayerVisible(image.id)) {
+            selectedImages.push(image.id);
+            logger.upload('选择框收集图片:', image.id);
+          } else {
+            logger.debug('选择框：图层不可见，跳过选择:', image.id);
           }
         }
       }
     }
 
-    // 遍历所有图层中的所有路径（排除特殊图层）
-    paper.project.layers.forEach(layer => {
-      // 跳过网格和背景图层
-      if (layer.name === 'grid' || layer.name === 'background') return;
-      
-      layer.children.forEach((item) => {
-        if (!item || !item.bounds) return;
-        if (!selectionRect.contains(item.bounds)) return;
-        collectPathsFromItem(item, selectedPathsInBox);
+    // 检查3D模型实例是否与选择框相交
+    if (selectModels) {
+      for (const model of model3DInstances) {
+        const modelBounds = new paper.Rectangle(model.bounds.x, model.bounds.y, model.bounds.width, model.bounds.height);
+        if (selectionRect.intersects(modelBounds)) {
+          selectedModels.push(model.id);
+          logger.upload('选择框收集3D模型:', model.id);
+        }
+      }
+    }
+
+    // 检查文本实例是否与选择框相交
+    if (selectTexts) {
+      for (const textItem of textItems) {
+        if (textItem.paperText && textItem.paperText.bounds) {
+          const textBounds = textItem.paperText.bounds;
+          if (selectionRect.intersects(textBounds)) {
+            if (!selectedTexts.includes(textItem.id)) {
+              selectedTexts.push(textItem.id);
+              logger.upload('选择框收集文本:', textItem.id);
+            }
+          }
+        }
+      }
+    }
+
+    if (selectPaths) {
+      // 遍历所有图层中的所有路径（排除特殊图层）
+      paper.project.layers.forEach(layer => {
+        // 跳过网格和背景图层
+        if (layer.name === 'grid' || layer.name === 'background') return;
+
+        layer.children.forEach((item) => {
+          if (!item || !item.bounds) return;
+          if (!selectionRect.contains(item.bounds)) return;
+          collectPathsFromItem(item, selectedPathsInBox);
+        });
       });
-    });
+    }
 
     // 更新路径选择状态
     // 清除之前的路径选择
@@ -287,18 +308,20 @@ export const useSelectionTool = ({
       }
     });
 
-    // 如果有新的路径被选中
-    if (selectedPathsInBox.length > 0) {
-      // 选择框内的所有路径，启用编辑模式
-      selectedPathsInBox.forEach(path => {
-        path.selected = true;
-        path.fullySelected = true; // 显示所有控制点
-        if (!(path as any).originalStrokeWidth) {
-          (path as any).originalStrokeWidth = path.strokeWidth;
-        }
-        path.strokeWidth = (path as any).originalStrokeWidth + 1;
-      });
-      logger.debug(`选择了${selectedPathsInBox.length}个路径`);
+    if (selectPaths) {
+      // 如果有新的路径被选中
+      if (selectedPathsInBox.length > 0) {
+        // 选择框内的所有路径，启用编辑模式
+        selectedPathsInBox.forEach(path => {
+          path.selected = true;
+          path.fullySelected = true; // 显示所有控制点
+          if (!(path as any).originalStrokeWidth) {
+            (path as any).originalStrokeWidth = path.strokeWidth;
+          }
+          path.strokeWidth = (path as any).originalStrokeWidth + 1;
+        });
+        logger.debug(`选择了${selectedPathsInBox.length}个路径`);
+      }
     }
 
     setSelectedPaths(selectedPathsInBox);
@@ -328,45 +351,49 @@ export const useSelectionTool = ({
       totalSelected += selectedTexts.length;
     }
 
-    // 路径已经在上面处理过了
-    totalSelected += selectedPathsInBox.length;
+    if (selectPaths) {
+      // 路径已经在上面处理过了
+      totalSelected += selectedPathsInBox.length;
+    }
 
-    // 检查并选择 React Flow 节点
-    try {
-      const tanvaFlow = (window as any).tanvaFlow;
-      if (tanvaFlow?.selectNodesInBox && paper.view) {
-        // 将 Paper.js 坐标转换为屏幕坐标（相对于视口的坐标）
-        const dpr = window.devicePixelRatio || 1;
-        const topLeftView = paper.view.projectToView(selectionStartPoint);
-        const bottomRightView = paper.view.projectToView(endPoint);
+    if (selectFlowNodes) {
+      // 检查并选择 React Flow 节点
+      try {
+        const tanvaFlow = (window as any).tanvaFlow;
+        if (tanvaFlow?.selectNodesInBox && paper.view) {
+          // 将 Paper.js 坐标转换为屏幕坐标（相对于视口的坐标）
+          const dpr = window.devicePixelRatio || 1;
+          const topLeftView = paper.view.projectToView(selectionStartPoint);
+          const bottomRightView = paper.view.projectToView(endPoint);
 
-        // 确保坐标顺序正确
-        const viewX = Math.min(topLeftView.x, bottomRightView.x) / dpr;
-        const viewY = Math.min(topLeftView.y, bottomRightView.y) / dpr;
-        const viewWidth = Math.abs(bottomRightView.x - topLeftView.x) / dpr;
-        const viewHeight = Math.abs(bottomRightView.y - topLeftView.y) / dpr;
+          // 确保坐标顺序正确
+          const viewX = Math.min(topLeftView.x, bottomRightView.x) / dpr;
+          const viewY = Math.min(topLeftView.y, bottomRightView.y) / dpr;
+          const viewWidth = Math.abs(bottomRightView.x - topLeftView.x) / dpr;
+          const viewHeight = Math.abs(bottomRightView.y - topLeftView.y) / dpr;
 
-        // 获取画布元素的位置，转换为全局屏幕坐标
-        const canvas = paper.view.element as HTMLCanvasElement;
-        if (canvas) {
-          const rect = canvas.getBoundingClientRect();
-          const screenRect = {
-            x: viewX + rect.left,
-            y: viewY + rect.top,
-            width: viewWidth,
-            height: viewHeight
-          };
+          // 获取画布元素的位置，转换为全局屏幕坐标
+          const canvas = paper.view.element as HTMLCanvasElement;
+          if (canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const screenRect = {
+              x: viewX + rect.left,
+              y: viewY + rect.top,
+              width: viewWidth,
+              height: viewHeight
+            };
 
-          const nodeIds = tanvaFlow.selectNodesInBox(screenRect);
-          selectedNodeIds.push(...nodeIds);
-          if (nodeIds.length > 0) {
-            logger.upload(`选择框选中${nodeIds.length}个节点: ${nodeIds.join(', ')}`);
-            totalSelected += nodeIds.length;
+            const nodeIds = tanvaFlow.selectNodesInBox(screenRect);
+            selectedNodeIds.push(...nodeIds);
+            if (nodeIds.length > 0) {
+              logger.upload(`选择框选中${nodeIds.length}个节点: ${nodeIds.join(', ')}`);
+              totalSelected += nodeIds.length;
+            }
           }
         }
+      } catch (error) {
+        console.warn('选择节点失败:', error);
       }
-    } catch (error) {
-      console.warn('选择节点失败:', error);
     }
 
     // 输出总计

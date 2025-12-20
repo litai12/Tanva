@@ -528,6 +528,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     eventHandlers.onImageDeselect?.();
   }, [eventHandlers.onImageDeselect, updateImageSelectionVisuals]);
 
+  // 辅助函数：检查是否为 Raster 对象（兼容生产环境）
+  const isRasterItem = useCallback((item: paper.Item): boolean => {
+    return item.className === 'Raster' || item instanceof paper.Raster;
+  }, []);
+
   // ========== 图片移动 ==========
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
     setImageInstances(prev => prev.map(img => {
@@ -543,7 +548,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
           if (imageGroup instanceof paper.Group) {
             // 获取实际的Raster对象来获取真实尺寸
-            const raster = imageGroup.children.find(child => child instanceof paper.Raster);
+            // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
+            const raster = imageGroup.children.find(child => isRasterItem(child));
             const actualBounds = raster ? raster.bounds : null;
 
             if (actualBounds) {
@@ -553,7 +559,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
               // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
               imageGroup.children.forEach(child => {
-                if (child instanceof paper.Raster) {
+                if (isRasterItem(child)) {
                   // 保持原始尺寸，只改变位置
                   const newCenter = new paper.Point(
                     newPosition.x + actualWidth / 2,
@@ -619,7 +625,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageMove?.(imageId, newPosition);
-  }, [eventHandlers.onImageMove]);
+  }, [eventHandlers.onImageMove, isRasterItem]);
 
   // 直接更新，避免复杂的节流逻辑
 
@@ -634,12 +640,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     if (imageGroup instanceof paper.Group) {
       // 找到图片Raster元素并调整大小和位置
-      const raster = imageGroup.children.find(child => child instanceof paper.Raster);
+      // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
+      const raster = imageGroup.children.find(child => isRasterItem(child));
       if (raster && raster.data?.originalWidth && raster.data?.originalHeight) {
-        // 计算缩放比例，保持图片质量
-        const scaleX = newBounds.width / raster.data.originalWidth;
-        const scaleY = newBounds.height / raster.data.originalHeight;
-
         // 直接设置bounds，避免scale操作的闪烁
         raster.bounds = new paper.Rectangle(
           newBounds.x,
@@ -702,7 +705,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }));
     eventHandlers.onImageResize?.(imageId, newBounds);
     try { paperSaveService.triggerAutoSave(); } catch {}
-  }, [eventHandlers.onImageResize]);
+  }, [eventHandlers.onImageResize, isRasterItem]);
 
   // ========== 图片删除 ==========
   const handleImageDelete = useCallback((imageId: string) => {

@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSafeStorage } from './storageUtils';
 
+const SMART_PLACEMENT_OFFSET = 522;
+
 interface UIState {
   // 面板显示状态
   showLibraryPanel: boolean;
@@ -18,7 +20,7 @@ interface UIState {
   showTemplatePanel: boolean; // 模板库面板
 
   // 智能落位配置
-  smartPlacementOffset: number; // px，默认 522
+  smartPlacementOffset: number; // px，固定 522
 
   // 操作方法
   toggleLibraryPanel: () => void;
@@ -48,17 +50,6 @@ interface UIState {
   setShowTemplatePanel: (show: boolean) => void;
 }
 
-const initialOffset = (() => {
-  if (typeof window !== 'undefined') {
-    try {
-      const val = localStorage.getItem('tanva-smart-offset');
-      const n = val ? parseInt(val, 10) : NaN;
-      if (!isNaN(n) && n > 0 && n < 10000) return n;
-    } catch {}
-  }
-  return 522; // 默认偏移
-})();
-
 const persistedUIPreferences = (() => {
   if (typeof window === 'undefined') return null;
   try {
@@ -78,7 +69,6 @@ const persistedUIPreferences = (() => {
       mode,
       flowEraserActive,
       focusMode,
-      smartPlacementOffset,
       showSandboxPanel,
     } = state as Partial<UIState>;
     return {
@@ -92,7 +82,6 @@ const persistedUIPreferences = (() => {
       mode,
       flowEraserActive,
       focusMode,
-      smartPlacementOffset,
       showSandboxPanel,
     };
   } catch (error) {
@@ -117,7 +106,7 @@ export const useUIStore = create<UIState>()(
       focusMode: persistedUIPreferences?.focusMode ?? false,
       showSandboxPanel: persistedUIPreferences?.showSandboxPanel ?? false,
       showTemplatePanel: false, // 模板面板默认关闭，不持久化
-      smartPlacementOffset: persistedUIPreferences?.smartPlacementOffset ?? initialOffset,
+      smartPlacementOffset: SMART_PLACEMENT_OFFSET,
 
       // 切换方法
       toggleLibraryPanel: () => set((state) => ({ showLibraryPanel: !state.showLibraryPanel })),
@@ -144,15 +133,15 @@ export const useUIStore = create<UIState>()(
       setShowFlowPanel: (show) => set({ showFlowPanel: show }),
       setShowSandboxPanel: (show) => set({ showSandboxPanel: show }),
       setShowTemplatePanel: (show) => set({ showTemplatePanel: show }),
-      setSmartPlacementOffset: (offset) => set(() => {
-        const v = Math.max(16, Math.min(4096, Math.round(offset)));
-        try { if (typeof window !== 'undefined') localStorage.setItem('tanva-smart-offset', String(v)); } catch {}
-        return { smartPlacementOffset: v } as Partial<UIState>;
-      }),
+      setSmartPlacementOffset: () => set(() => ({ smartPlacementOffset: SMART_PLACEMENT_OFFSET })),
     }),
     {
       name: 'ui-preferences',
       storage: createJSONStorage<Partial<UIState>>(() => createSafeStorage({ storageName: 'ui-preferences' })),
+      merge: (persistedState, currentState) => {
+        const safePersisted = persistedState && typeof persistedState === 'object' ? (persistedState as Partial<UIState>) : {};
+        return { ...currentState, ...safePersisted, smartPlacementOffset: SMART_PLACEMENT_OFFSET };
+      },
       partialize: (state) => ({
         showLibraryPanel: state.showLibraryPanel,
         showLayerPanel: state.showLayerPanel,
@@ -164,7 +153,6 @@ export const useUIStore = create<UIState>()(
         mode: state.mode,
         flowEraserActive: state.flowEraserActive,
         focusMode: state.focusMode,
-        smartPlacementOffset: state.smartPlacementOffset,
         showSandboxPanel: state.showSandboxPanel,
       }) as Partial<UIState>,
     }

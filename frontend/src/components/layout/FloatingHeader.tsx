@@ -74,7 +74,6 @@ const FloatingHeader: React.FC = () => {
         showGrid,
         showLayerPanel,
         smartPlacementOffset,
-        setSmartPlacementOffset,
         toggleLibraryPanel,
         toggleGrid,
         setShowGrid,
@@ -382,21 +381,6 @@ const FloatingHeader: React.FC = () => {
         } catch (e) {
             console.error('清空画布失败:', e);
             alert('清空画布失败，请稍后重试');
-        }
-    };
-
-    // 智能落位偏移：本地草稿，失焦或回车时提交
-    const [offsetInput, setOffsetInput] = useState(String(smartPlacementOffset));
-    useEffect(() => {
-        setOffsetInput(String(smartPlacementOffset));
-    }, [smartPlacementOffset]);
-
-    const commitOffset = () => {
-        const n = parseInt(offsetInput, 10);
-        if (!isNaN(n)) {
-            setSmartPlacementOffset(n);
-        } else {
-            setOffsetInput(String(smartPlacementOffset));
         }
     };
 
@@ -973,7 +957,7 @@ const FloatingHeader: React.FC = () => {
                         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
                             <div className="mb-2 text-sm font-medium text-slate-700">智能落位偏移</div>
                             <div className="text-xs text-slate-500 mb-4">
-                                调整自动排布节点时的默认间距，单位为像素。
+                                自动排布节点时的默认间距（固定值）。
                             </div>
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                                 <input
@@ -981,17 +965,11 @@ const FloatingHeader: React.FC = () => {
                                     min={16}
                                     max={4096}
                                     inputMode="numeric"
-                                    value={offsetInput}
-                                    onChange={(e) => setOffsetInput(e.target.value)}
-                                    onBlur={commitOffset}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') commitOffset();
-                                        if (e.key === 'Escape') setOffsetInput(String(smartPlacementOffset));
-                                        e.stopPropagation();
-                                    }}
-                                    className="w-full sm:w-32 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                                    value={smartPlacementOffset}
+                                    disabled
+                                    className="w-full sm:w-32 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
                                 />
-                                <span className="text-xs text-slate-500">推荐 64 ~ 256</span>
+                                <span className="text-xs text-slate-500">固定 522</span>
                             </div>
                         </div>
                     </div>

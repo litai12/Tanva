@@ -705,7 +705,7 @@ export class ImageGenerationService {
     );
 
     const client = this.getClient(request.customApiKey);
-    const model = request.model || 'gemini-2.0-flash';
+    const model = request.model || 'gemini-2.5-flash';
 
     // 根据文件类型生成不同的提示词
     const isPdf = sourceMimeType === 'application/pdf';
@@ -790,7 +790,7 @@ export class ImageGenerationService {
     this.logger.log(`Generating text response for prompt: ${request.prompt.substring(0, 50)}...`);
 
     const client = this.getClient(request.customApiKey);
-    const model = request.model || 'gemini-2.0-flash';
+    const model = request.model || 'gemini-2.5-flash';
     const finalPrompt = `Please respond in Chinese:\n\n${request.prompt}`;
 
     const startTime = Date.now();

@@ -59,11 +59,19 @@ export class OssService {
     return { key, url: this.publicUrl(key) };
   }
 
-  async putJSON(key: string, data: unknown) {
+  async putJSON(
+    key: string,
+    data: unknown,
+    options?: { acl?: 'private' | 'public-read' | 'public-read-write' }
+  ) {
     try {
       const client = this.client();
       const body = Buffer.from(JSON.stringify(data));
-      await client.put(key, body, { headers: { 'Content-Type': 'application/json' } });
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (options?.acl) {
+        headers['x-oss-object-acl'] = options.acl;
+      }
+      await client.put(key, body, { headers });
       console.log(`OSS putJSON success: ${key}`);
       return key;
     } catch (error: any) {

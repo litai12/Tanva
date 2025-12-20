@@ -974,7 +974,7 @@ export class BananaProvider implements IAIProvider {
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log('🎯 Selecting tool with Banana (147) API using gemini-2.0-flash...');
+    this.logger.log('🎯 Selecting tool with Banana (147) API using gemini-2.5-flash...');
 
     try {
       const maxAttempts = 3;
@@ -1013,7 +1013,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
         try {
           // 使用与基础版完全相同的调用方式：两条独立的 contents
           const result = await this.makeRequest(
-            'gemini-2.0-flash',
+            'gemini-2.5-flash',
             [
               { text: systemPrompt },
               { text: `用户输入: ${request.prompt}` },
@@ -1108,7 +1108,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
     return {
       name: 'Banana API',
       version: '1.0',
-      supportedModels: ['gemini-3-pro-image-preview', 'gemini-2.0-flash'],
+      supportedModels: ['gemini-3-pro-image-preview', 'gemini-2.5-flash'],
     };
   }
 

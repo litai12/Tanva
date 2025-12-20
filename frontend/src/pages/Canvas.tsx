@@ -8,6 +8,7 @@ import ToolBar from '@/components/toolbar/ToolBar';
 import FocusModeButton from '@/components/canvas/FocusModeButton';
 import DrawingController from '@/components/canvas/DrawingController';
 import LayerPanel from '@/components/panels/LayerPanel';
+import LibraryPanel from '@/components/panels/LibraryPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import CodeSandboxPanel from '@/components/sandbox/CodeSandboxPanel';
@@ -98,6 +99,9 @@ const Canvas: React.FC = () => {
 
             {/* 图层面板 - 始终显示，用户可以控制其可见性 */}
             <LayerPanel />
+
+            {/* 个人库面板 - 从右侧展开 */}
+            <LibraryPanel />
 
             {/* AI对话框 - 专注模式时由组件自行隐藏 */}
             <AIChatDialog />

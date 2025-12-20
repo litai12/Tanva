@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, LayoutTemplate } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, LayoutTemplate, FolderOpen } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -44,9 +44,24 @@ const DashedSelectIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const MarqueeSelectIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+    <rect x="3" y="3" width="10" height="10" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2 2" fill="none" />
+    <path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+  </svg>
+);
+
 const CircleIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
     <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" fill="none" />
+  </svg>
+);
+
+// 添加节点图标 - 圆角矩形内有加号
+const AddNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+    <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+    <path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 
@@ -167,6 +182,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     showTemplatePanel,
     toggleTemplatePanel,
     setShowTemplatePanel,
+    showLibraryPanel,
+    toggleLibraryPanel,
   } = useUIStore();
 
   // 用于防止事件循环的标志
@@ -212,7 +229,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
-  const selectionMenuEnabled = false; // 暂时隐藏选择次级菜单
+  const selectionMenuEnabled = true;
   const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
 
@@ -233,7 +250,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
   // 自动关闭选择菜单：当不在选择模式时
   React.useEffect(() => {
-    if (drawMode !== 'select' && drawMode !== 'pointer') {
+    if (drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer') {
       setSelectionMenuOpen(false);
     }
   }, [drawMode]);
@@ -412,14 +429,14 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
-              variant={drawMode === 'select' || drawMode === 'pointer' ? "default" : "outline"}
+              variant={drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer' ? "default" : "outline"}
               size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(drawMode === 'select' || drawMode === 'pointer')
+              getActiveButtonStyle(drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer')
             )}
             onClick={() => {
-                if (drawMode !== 'select' && drawMode !== 'pointer') {
+                if (drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer') {
                   setDrawMode('select');
                   logger.tool('工具栏主按钮：切换到框选工具');
                   selectionMenuEnabled && setSelectionMenuOpen(true);
@@ -432,13 +449,20 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             }}
           >
             {drawMode === 'select' && <DashedSelectIcon className="w-4 h-4" />}
+            {drawMode === 'marquee' && <MarqueeSelectIcon className="w-4 h-4" />}
             {drawMode === 'pointer' && <MousePointer2 className="w-4 h-4" />}
             {/* 如果不是选择模式，显示默认的框选图标但为非激活状态 */}
-              {drawMode !== 'select' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
+              {drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer' && <DashedSelectIcon className="w-4 h-4" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {drawMode === 'select' ? '框选工具' : drawMode === 'pointer' ? '节点选择工具' : '点击切换到框选工具'}
+            {drawMode === 'select'
+              ? '复合选择'
+              : drawMode === 'marquee'
+                ? '纯框选（不含节点）'
+                : drawMode === 'pointer'
+                  ? '节点选择工具'
+                  : '点击切换到复合选择'}
           </TooltipContent>
         </Tooltip>
 
@@ -462,7 +486,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <DashedSelectIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>框选工具</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>复合选择</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -480,6 +504,22 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                   </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={12}>节点选择工具</TooltipContent>
                 </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'marquee' ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'marquee')
+                      )}
+                      onClick={() => setDrawMode('marquee')}
+                    >
+                      <MarqueeSelectIcon className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={12}>纯框选（不含节点）</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -492,11 +532,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <Tooltip open={isSubMenuOpen ? false : undefined}>
           <TooltipTrigger asChild>
             <Button
-              variant={drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
+              variant={drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser ? "default" : "outline"}
               size="sm"
               className={cn(
                 "p-0 h-8 w-8 rounded-full",
-                getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
+                getActiveButtonStyle(drawMode !== 'select' && drawMode !== 'marquee' && drawMode !== 'pointer' && drawMode !== 'text' && drawMode !== 'image' && drawMode !== '3d-model' && drawMode !== 'screenshot' && !isEraser)
               )}
               onClick={() => {
                 const isDrawingMode = drawingModes.includes(drawMode as typeof drawingModes[number]);
@@ -515,11 +555,11 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               {drawMode === 'rect' && <Square className="w-4 h-4" />}
               {drawMode === 'circle' && <CircleIcon className="w-4 h-4" />}
               {/* 如果是选择模式或独立工具模式，显示默认的自由绘制图标但为非激活状态 */}
-              {(drawMode === 'select' || drawMode === 'pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
+              {(drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'text' || drawMode === 'screenshot' || drawMode === 'polyline') && <FreeDrawIcon className="w-4 h-4" />}
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">
-            {drawMode === 'select' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
+            {drawMode === 'select' || drawMode === 'marquee' || drawMode === 'pointer' || isEraser || drawMode === 'text' || drawMode === 'image' || drawMode === '3d-model' || drawMode === 'screenshot'
               ? '点击切换到自由绘制工具'
               : `当前工具：${drawMode === 'free' ? '自由绘制' : drawMode === 'line' ? '直线' : drawMode === 'rect' ? '矩形' : drawMode === 'circle' ? '圆形' : drawMode === 'polyline' ? '多段线' : drawMode}`}
           </TooltipContent>
@@ -811,7 +851,53 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
       <Separator orientation="horizontal" className="w-6" />
 
-      {/* 统一画板：移除 Generate Node 快捷按钮与分隔线 */}
+      {/* 节点面板按钮 - 在画面中心打开节点面板 */}
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              inactiveButtonStyle
+            )}
+            onClick={() => {
+              // 在画面中心打开节点面板
+              const centerX = window.innerWidth / 2;
+              const centerY = window.innerHeight / 2;
+              window.dispatchEvent(new CustomEvent('flow:set-template-panel', {
+                detail: {
+                  visible: true,
+                  tab: 'nodes',
+                  allowedTabs: ['nodes', 'beta', 'custom'],
+                  screen: { x: centerX, y: centerY }
+                }
+              }));
+            }}
+          >
+            <AddNodeIcon className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">添加节点</TooltipContent>
+      </Tooltip>
+
+      {/* 模板库按钮 */}
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
+        <TooltipTrigger asChild>
+          <Button
+            variant={showTemplatePanel ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(showTemplatePanel)
+            )}
+            onClick={handleToggleTemplatePanel}
+          >
+            <LayoutTemplate className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">公共模板</TooltipContent>
+      </Tooltip>
 
       {/* 图层工具 */}
       <Tooltip open={isSubMenuOpen ? false : undefined}>
@@ -831,22 +917,22 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         <TooltipContent side="right">图层面板</TooltipContent>
       </Tooltip>
 
-      {/* 模板库按钮 */}
+      {/* 个人库按钮 */}
       <Tooltip open={isSubMenuOpen ? false : undefined}>
         <TooltipTrigger asChild>
           <Button
-            variant={showTemplatePanel ? 'default' : 'outline'}
+            variant={showLibraryPanel ? 'default' : 'outline'}
             size="sm"
             className={cn(
               "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(showTemplatePanel)
+              getActiveButtonStyle(showLibraryPanel)
             )}
-            onClick={handleToggleTemplatePanel}
+            onClick={toggleLibraryPanel}
           >
-            <LayoutTemplate className="w-4 h-4" />
+            <FolderOpen className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">公共模板</TooltipContent>
+        <TooltipContent side="right">个人库</TooltipContent>
       </Tooltip>
 
 

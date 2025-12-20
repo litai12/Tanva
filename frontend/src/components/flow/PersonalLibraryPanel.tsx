@@ -4,6 +4,7 @@ import './PersonalLibraryPanel.css';
 import { imageUploadService } from '@/services/imageUploadService';
 import { model3DUploadService, type Model3DData } from '@/services/model3DUploadService';
 import { model3DPreviewService } from '@/services/model3DPreviewService';
+import { personalLibraryApi } from '@/services/personalLibraryApi';
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -40,6 +41,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
   const removeAsset = usePersonalLibraryStore((state) => state.removeAsset);
   const updateAsset = usePersonalLibraryStore((state) => state.updateAsset);
+  const mergeAssets = usePersonalLibraryStore((state) => state.mergeAssets);
   const allAssets = usePersonalLibraryStore((state) => state.assets);
   const assets = React.useMemo(
     () => allAssets.filter((item) => item.type === activeType),
@@ -49,9 +51,38 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
   const handleModelThumbnailUpdate = React.useCallback(
     (assetId: string, thumbnail: string) => {
       updateAsset(assetId, { thumbnail });
+      const current = usePersonalLibraryStore.getState().assets.find((item) => item.id === assetId);
+      if (current) {
+        void personalLibraryApi
+          .upsert({ ...(current as any), thumbnail, updatedAt: Date.now() })
+          .catch((error) => {
+            console.warn('[PersonalLibrary] 同步 3D 缩略图到后端失败:', error);
+          });
+      }
     },
     [updateAsset]
   );
+
+  // 进入面板时从后端拉取个人库，避免仅依赖 localStorage
+  React.useEffect(() => {
+    let cancelled = false;
+    void personalLibraryApi
+      .list()
+      .then((remoteAssets) => {
+        if (cancelled) return;
+        if (Array.isArray(remoteAssets) && remoteAssets.length) {
+          mergeAssets(remoteAssets);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn('[PersonalLibrary] 拉取个人库失败:', error);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mergeAssets]);
 
   const accept = activeType === '2d' ? 'image/png,image/jpeg,image/jpg,image/gif,image/webp' : '.glb,.gltf';
   const uploadLabel = activeType === '2d' ? '上传图片' : '上传 3D 模型';
@@ -82,6 +113,9 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
         updatedAt: Date.now(),
       };
       addAsset(imageAsset);
+      void personalLibraryApi.upsert(imageAsset).catch((error) => {
+        console.warn('[PersonalLibrary] 同步图片资源到后端失败:', error);
+      });
     },
     [addAsset]
   );
@@ -108,7 +142,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
       addAsset(modelAsset);
       if (asset.url) {
         void model3DPreviewService
-          .generatePreviewFromUrl(asset.url)
+          .generatePreviewAndUpload(asset.url)
           .then((thumbnail) => {
             if (thumbnail) {
               handleModelThumbnailUpdate(id, thumbnail);
@@ -118,6 +152,9 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
             console.warn('[PersonalLibrary] 3D 预览生成失败:', error);
           });
       }
+      void personalLibraryApi.upsert(modelAsset).catch((error) => {
+        console.warn('[PersonalLibrary] 同步 3D 资源到后端失败:', error);
+      });
     },
     [addAsset, handleModelThumbnailUpdate]
   );
@@ -174,6 +211,9 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
       return;
     }
     removeAsset(asset.id);
+    void personalLibraryApi.remove(asset.id).catch((error) => {
+      console.warn('[PersonalLibrary] 删除个人库资源失败:', error);
+    });
   };
 
   const readDataUrl = async (url: string): Promise<string | null> => {
@@ -556,15 +596,15 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({ asset, onThumbnai
     setIsLoading(true);
     setHasFailed(false);
     model3DPreviewService
-      .generatePreviewFromUrl(asset.url)
-      .then((dataUrl) => {
+      .generatePreviewAndUpload(asset.url)
+      .then((thumbnailUrl) => {
         if (cancelled) return;
-        if (!dataUrl) {
+        if (!thumbnailUrl) {
           setHasFailed(true);
           return;
         }
-        setPreviewSrc(dataUrl);
-        onThumbnailReady(asset.id, dataUrl);
+        setPreviewSrc(thumbnailUrl);
+        onThumbnailReady(asset.id, thumbnailUrl);
       })
       .catch((error) => {
         if (cancelled) return;

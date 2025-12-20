@@ -40,6 +40,8 @@ type PersonalLibraryUpdate = Partial<Omit<PersonalLibraryAsset, 'type'>>;
 
 export interface PersonalLibraryStore {
   assets: PersonalLibraryAsset[];
+  setAssets: (assets: PersonalLibraryAsset[]) => void;
+  mergeAssets: (assets: PersonalLibraryAsset[]) => void;
   addAsset: (asset: PersonalLibraryAsset) => void;
   updateAsset: (id: string, patch: PersonalLibraryUpdate) => void;
   removeAsset: (id: string) => void;
@@ -57,18 +59,61 @@ export const createPersonalAssetId = (prefix = 'asset'): string => {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 };
 
+const isHeavyInlineString = (value: unknown): boolean => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return true;
+  // 兜底：避免把大块 base64 字符串写进 localStorage
+  if (trimmed.length > 4096 && !/^https?:\/\//i.test(trimmed)) return true;
+  return false;
+};
+
+const normalizeTimestamps = (asset: PersonalLibraryAsset): PersonalLibraryAsset => ({
+  ...asset,
+  createdAt: asset.createdAt ?? Date.now(),
+  updatedAt: asset.updatedAt ?? Date.now(),
+});
+
+const mergeById = (
+  existing: PersonalLibraryAsset[],
+  incoming: PersonalLibraryAsset[]
+): PersonalLibraryAsset[] => {
+  const map = new Map<string, PersonalLibraryAsset>();
+  existing.forEach((asset) => map.set(asset.id, asset));
+  incoming.forEach((asset) => {
+    const next = normalizeTimestamps(asset);
+    const prev = map.get(next.id);
+    if (!prev) {
+      map.set(next.id, next);
+      return;
+    }
+    map.set(next.id, {
+      ...prev,
+      ...next,
+      createdAt: prev.createdAt ?? next.createdAt,
+      updatedAt: Math.max(prev.updatedAt ?? 0, next.updatedAt ?? 0),
+    });
+  });
+  return sortByUpdatedAt(Array.from(map.values()));
+};
+
 export const usePersonalLibraryStore = create<PersonalLibraryStore>()(
   subscribeWithSelector(
     persist(
       (set, get) => ({
         assets: [],
+        setAssets: (assets) =>
+          set(() => ({
+            assets: sortByUpdatedAt(assets.map(normalizeTimestamps)),
+          })),
+        mergeAssets: (assets) =>
+          set((state) => ({
+            assets: mergeById(state.assets, assets),
+          })),
         addAsset: (asset) =>
           set((state) => {
-            const nextAsset: PersonalLibraryAsset = {
-              ...asset,
-              createdAt: asset.createdAt ?? Date.now(),
-              updatedAt: asset.updatedAt ?? Date.now(),
-            };
+            const nextAsset = normalizeTimestamps(asset);
             const without = state.assets.filter((item) => item.id !== nextAsset.id);
             return {
               assets: sortByUpdatedAt([nextAsset, ...without]),
@@ -101,7 +146,23 @@ export const usePersonalLibraryStore = create<PersonalLibraryStore>()(
           createSafeStorage({ storageName: 'personal-library' })
         ),
         partialize: (state) => ({
-          assets: state.assets,
+          assets: state.assets
+            .map((asset) => {
+              const next: any = { ...asset };
+              if (isHeavyInlineString(next.thumbnail)) {
+                delete next.thumbnail;
+              }
+              // data/blob URL 刷新后不可用且可能很大，避免持久化无效引用
+              if (
+                typeof next.url === 'string' &&
+                isHeavyInlineString(next.url) &&
+                !/^https?:\/\//i.test(next.url.trim())
+              ) {
+                return null;
+              }
+              return next as PersonalLibraryAsset;
+            })
+            .filter(Boolean) as PersonalLibraryAsset[],
         }),
       }
     )
