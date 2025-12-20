@@ -1008,20 +1008,23 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 let finalPosition = targetPosition;
                 let placeholder = null;
 
-                // 🎯 优先使用传递的选中图片边界，其次查找占位框
-                let targetBounds = selectedImageBounds;
-                if (!targetBounds) {
+                // 🎯 优先使用占位符，只有在没有占位符时才回退到选中图片边界
+                let targetBounds = null;
+                let boundsSource: 'placeholder' | 'selected' | null = null;
+
+                if (placeholderId) {
                     console.log(`🔍 [raster.onLoad] 查找占位符: ${placeholderId}`);
                     placeholder = findImagePlaceholder(placeholderId);
                     if (placeholder && placeholder.data?.bounds) {
                         targetBounds = placeholder.data.bounds;
+                        boundsSource = 'placeholder';
                         console.log(`✅ [raster.onLoad] 找到占位符，bounds:`, targetBounds);
-                    } else if (placeholderId) {
-                        // 🔥 如果占位符未找到，尝试从 predictedPlaceholdersRef 直接获取
+                    } else {
                         const placeholderFromRef = predictedPlaceholdersRef.current.get(placeholderId);
                         if (placeholderFromRef && placeholderFromRef.data?.bounds) {
                             placeholder = placeholderFromRef;
                             targetBounds = placeholderFromRef.data.bounds;
+                            boundsSource = 'placeholder';
                             console.log(`✅ [raster.onLoad] 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`, targetBounds);
                             logger.upload(`🎯 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`);
                         } else {
@@ -1031,8 +1034,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     }
                 }
 
+                if (!targetBounds && selectedImageBounds) {
+                    targetBounds = selectedImageBounds;
+                    boundsSource = 'selected';
+                }
+
                 if (targetBounds) {
-                    const sourceType = selectedImageBounds ? '选中图片边界' : '占位框';
+                    const sourceType = boundsSource === 'selected' ? '选中图片边界' : '占位框';
                     logger.upload(`🎯 发现${sourceType}，使用边界尺寸进行自适应`);
 
                     // 计算目标边界的中心点和尺寸
@@ -1261,7 +1269,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     // 忽略历史记录错误
                 }
 
-                const positionInfo = selectedImageBounds ? '选中图片位置' : (placeholder ? '占位框位置' : '坐标原点');
+                const positionInfo = boundsSource === 'selected'
+                    ? '选中图片位置'
+                    : (placeholder ? '占位框位置' : '坐标原点');
                 logger.upload(`✅ 快速上传成功：图片已添加到${positionInfo} - ${fileName || 'uploaded-image'}`);
                 try { historyService.commit('add-image').catch(() => {}); } catch {}
 

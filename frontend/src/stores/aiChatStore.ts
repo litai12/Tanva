@@ -2424,8 +2424,8 @@ export const useAIChatStore = create<AIChatState>()(
               // 单张生成：使用原有逻辑
               if (cached?.bounds) {
                 center = {
-                  x: cached.bounds.x + cached.bounds.width / 2,
-                  y: cached.bounds.y + cached.bounds.height / 2 + offset,
+                  x: cached.bounds.x + cached.bounds.width / 2 + offset,
+                  y: cached.bounds.y + cached.bounds.height / 2,
                 };
                 layoutAnchor = { ...center };
                 console.log("🎯 [generateImage] 使用缓存图片位置:", center);
@@ -3476,27 +3476,14 @@ export const useAIChatStore = create<AIChatState>()(
               sourceImageForEditing: singleImage,
               sourceImagesForBlending: [],
             });
-            // 缓存图片
-            const imageId = `canvas_select_${Date.now()}`;
-            contextManager.cacheLatestImage(
-              singleImage,
-              imageId,
-              "画布选中的图片"
-            );
+            // 🔥 不再调用 cacheLatestImage，避免覆盖 DrawingController 设置的带 bounds 的缓存
           } else {
             // 多张图片：设置为融合源图
             set({
               sourceImageForEditing: null,
               sourceImagesForBlending: normalizedImages,
             });
-            // 缓存最后一张图片
-            const imageId = `canvas_select_${Date.now()}`;
-            const lastImage = normalizedImages[normalizedImages.length - 1];
-            contextManager.cacheLatestImage(
-              lastImage,
-              imageId,
-              "画布选中的图片"
-            );
+            // 🔥 不再调用 cacheLatestImage，避免覆盖 DrawingController 设置的带 bounds 的缓存
           }
         },
 

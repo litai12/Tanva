@@ -103,7 +103,7 @@ const PROVIDER_MODE_OPTIONS: Partial<
 };
 
 // 彩色光晕特效开关（默认关闭，后续需要再开启）
-const ENABLE_CHAT_AURA = false;
+const ENABLE_CHAT_AURA = true;
 
 const MinimalGlobeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <svg
@@ -1996,6 +1996,12 @@ const AIChatDialog: React.FC = () => {
     }
   };
 
+  const shouldHidePlaceholder =
+    pendingTaskCount > 0 ||
+    messages.some(
+      (msg) => msg.type === "ai" && msg.generationStatus?.isGenerating
+    );
+
   const shouldToggleByDblClick = (
     clientX: number,
     clientY: number,
@@ -2723,7 +2729,7 @@ const AIChatDialog: React.FC = () => {
                 onFocus={scheduleEnsureInputVisible}
                 onClick={scheduleEnsureInputVisible}
                 onKeyUp={scheduleEnsureInputVisible}
-                placeholder={getSmartPlaceholder()}
+                placeholder={shouldHidePlaceholder ? "" : getSmartPlaceholder()}
                 disabled={false}
                 className={cn(
                   "resize-none px-4 pb-12 min-h-[80px] max-h-[200px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
@@ -2767,11 +2773,6 @@ const AIChatDialog: React.FC = () => {
                     );
                   })}
                 </div>
-                {!isDomesticProvider && (
-                  <span className='text-[11px] px-2 py-1 rounded-full border border-slate-200 bg-white/90 text-slate-500'>
-                    国际版在设置中启用
-                  </span>
-                )}
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
