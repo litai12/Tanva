@@ -18,7 +18,7 @@ const readViewportSnapshot = (projectId?: string | null): ViewportSnapshot | nul
   try {
     const storage = createSafeStorage({ storageName: 'canvas-viewport' });
     const raw = storage.getItem(getViewportStorageKey(projectId));
-    if (!raw) return null;
+    if (typeof raw !== 'string' || !raw) return null;
     const parsed = JSON.parse(raw);
     if (
       typeof parsed === 'object' &&
@@ -272,22 +272,21 @@ if (typeof window !== 'undefined') {
 
   // 监听项目切换：加载对应项目的视角并覆盖当前视角
   try {
-    useProjectStore.subscribe(
-      (state) => state.currentProjectId,
-      (projectId) => {
-        currentProjectId = projectId;
-        const snapshot = readViewportSnapshot(projectId) ?? readViewportSnapshot(null);
-        if (snapshot) {
-          useCanvasStore.setState({
-            panX: snapshot.panX,
-            panY: snapshot.panY,
-            zoom: snapshot.zoom,
-            hasInitialCenterApplied: true,
-          });
-          lastSnapshot = snapshot;
-        }
+    useProjectStore.subscribe((state, prevState) => {
+      if (state.currentProjectId === prevState.currentProjectId) return;
+
+      currentProjectId = state.currentProjectId;
+      const snapshot = readViewportSnapshot(state.currentProjectId) ?? readViewportSnapshot(null);
+      if (snapshot) {
+        useCanvasStore.setState({
+          panX: snapshot.panX,
+          panY: snapshot.panY,
+          zoom: snapshot.zoom,
+          hasInitialCenterApplied: true,
+        });
+        lastSnapshot = snapshot;
       }
-    );
+    });
   } catch (e) {
     console.warn('项目切换时读取视口失败:', e);
   }

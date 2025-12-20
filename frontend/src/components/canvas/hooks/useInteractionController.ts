@@ -79,6 +79,9 @@ interface ImageTool {
   // 可选：由图片工具暴露的选中集与删除方法
   selectedImageIds?: string[];
   handleImageDelete?: (id: string) => void;
+  // 可选：占位框管理（用于 Delete 键删除占位框）
+  selectedPlaceholderId?: string | null;
+  deletePlaceholder?: (placeholderId?: string) => boolean;
 }
 
 interface Model3DTool {
@@ -87,6 +90,9 @@ interface Model3DTool {
   // 可选：若后续支持按键删除3D模型
   selectedModel3DIds?: string[];
   handleModel3DDelete?: (id: string) => void;
+  // 可选：占位框管理（用于 Delete 键删除占位框）
+  selectedPlaceholderId?: string | null;
+  deletePlaceholder?: (placeholderId?: string) => boolean;
 }
 
 interface SimpleTextTool {
@@ -161,6 +167,7 @@ export const useInteractionController = ({
   const DRAG_THRESHOLD = 3; // 3像素的拖拽阈值
   const isSpacePressedRef = useRef(false);
   const spacePanDragRef = useRef<SpacePanDragState | null>(null);
+  const imageDragMovedRef = useRef(false);
   const groupPathDragRef = useRef<GroupPathDragState>({
     active: false,
     mode: null,
@@ -504,10 +511,14 @@ export const useInteractionController = ({
       }
 
       // 如果点击了图片且准备拖拽
+      // 🔥 修复：移除 isSelected 检查，因为 handleSelectionClick 已经处理了选中逻辑
+      // 第一次点击图片时，isSelected 还是 false（状态更新是异步的），导致无法拖拽
       if (selectionResult?.type === 'image') {
         const clickedImage = latestImageTool.imageInstances.find(img => img.id === selectionResult.id);
-        if (clickedImage?.isSelected) {
-          const selectedIds = Array.isArray(latestImageTool.selectedImageIds) && latestImageTool.selectedImageIds.length > 0
+        if (clickedImage) {
+          // 判断是否已有多选：如果当前图片在已选中列表中，使用已选中列表；否则只拖拽当前图片
+          const wasAlreadySelected = clickedImage.isSelected;
+          const selectedIds = wasAlreadySelected && Array.isArray(latestImageTool.selectedImageIds) && latestImageTool.selectedImageIds.length > 0
             ? (latestImageTool.selectedImageIds.includes(selectionResult.id)
                 ? latestImageTool.selectedImageIds
                 : [selectionResult.id])
@@ -521,6 +532,7 @@ export const useInteractionController = ({
             }
           });
 
+          imageDragMovedRef.current = false;
           latestImageTool.setImageDragState({
             isImageDragging: true,
             dragImageId: selectionResult.id,
@@ -790,6 +802,14 @@ export const useInteractionController = ({
       ) {
         const deltaX = point.x - latestImageTool.imageDragState.imageDragStartPoint.x;
         const deltaY = point.y - latestImageTool.imageDragState.imageDragStartPoint.y;
+        const currentZoom = Math.max(zoomRef.current ?? 1, 0.0001);
+        const threshold = DRAG_THRESHOLD / currentZoom;
+        if (!imageDragMovedRef.current) {
+          if (Math.abs(deltaX) < threshold && Math.abs(deltaY) < threshold) {
+            return;
+          }
+          imageDragMovedRef.current = true;
+        }
 
         const groupIds = latestImageTool.imageDragState.groupImageIds?.length
           ? latestImageTool.imageDragState.groupImageIds
@@ -927,6 +947,8 @@ export const useInteractionController = ({
 
       // 处理图像拖拽结束
       if (latestImageTool.imageDragState.isImageDragging) {
+        const didMove = imageDragMovedRef.current;
+        imageDragMovedRef.current = false;
         latestImageTool.setImageDragState({
           isImageDragging: false,
           dragImageId: null,
@@ -938,8 +960,10 @@ export const useInteractionController = ({
         // 移除拖拽时禁用 Flow 节点事件的 CSS 类
         document.body.classList.remove('tanva-canvas-dragging');
         resetGroupPathDrag();
-        historyService.commit('move-image').catch(() => {});
-        try { paperSaveService.triggerAutoSave('move-image'); } catch {}
+        if (didMove) {
+          historyService.commit('move-image').catch(() => {});
+          try { paperSaveService.triggerAutoSave('move-image'); } catch {}
+        }
         return;
       }
 

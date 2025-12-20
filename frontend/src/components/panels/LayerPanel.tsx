@@ -113,25 +113,46 @@ const LayerPanel: React.FC = () => {
         if (!paper.project) return [];
 
         const layer = paper.project.layers.find(l => l.name === `layer_${layerId}`);
-        if (!layer) return [];
+        if (!layer) {
+            console.log(`🔍 [scanLayerItems] 未找到图层: layer_${layerId}`);
+            return [];
+        }
 
         const items: LayerItemData[] = [];
 
+        // 🔍 调试：输出过滤前的所有子元素
+        console.log(`🔍 [scanLayerItems] 图层 ${layerId} 总子元素数量: ${layer.children.length}`);
+        layer.children.forEach((item, idx) => {
+            console.log(`🔍 [scanLayerItems] 子元素[${idx}]: className=${item.className}, data.type=${item.data?.type}, data.isHelper=${item.data?.isHelper}, data.imageId=${item.data?.imageId}`);
+        });
+
         // 获取所有非辅助元素，并反转顺序
         // Paper.js中后面的元素渲染在上方，所以我们需要反转来匹配图层面板的顺序
-        const validItems = layer.children.filter(item =>
-            !item.data?.isHelper &&
-            item.data?.type !== 'grid' &&
-            item.data?.type !== 'scalebar'
-        ).reverse();
+        const validItems = layer.children.filter(item => {
+            const isHelper = item.data?.isHelper;
+            const isGrid = item.data?.type === 'grid';
+            const isScalebar = item.data?.type === 'scalebar';
+            // 🔥 修复：图片组的 isHelper 应该是 false，但如果未定义也应该通过
+            // 只有明确设置为 true 的才过滤掉
+            const shouldFilter = isHelper === true || isGrid || isScalebar;
+            console.log(`🔍 [scanLayerItems] 过滤检查: className=${item.className}, isHelper=${isHelper}, shouldFilter=${shouldFilter}`);
+            return !shouldFilter;
+        }).reverse();
+
+        console.log(`🔍 [scanLayerItems] 图层 ${layerId} 有效元素数量: ${validItems.length}`);
 
         validItems.forEach((item, index) => {
             let type: LayerItemData['type'] = 'path';
             let name = '未命名图元';
 
-            // 确定图元类型
-            if (item instanceof paper.Path) {
-                if (item instanceof paper.Path.Circle) {
+            // 🔍 调试：输出每个元素的信息
+            const isGroup = item.className === 'Group' || item instanceof paper.Group;
+            const isPath = item.className === 'Path' || item instanceof paper.Path;
+            console.log(`🔍 [scanLayerItems] 元素[${index}]: className=${item.className}, isGroup=${isGroup}, isPath=${isPath}, data.type=${item.data?.type}`);
+
+            // 确定图元类型 - 使用 className 检查以兼容生产环境
+            if (isPath) {
+                if (item instanceof paper.Path.Circle || item.className === 'Path' && (item as any)._class === 'Circle') {
                     type = 'circle';
                 } else if (item instanceof paper.Path.Rectangle) {
                     type = 'rectangle';
@@ -140,9 +161,10 @@ const LayerPanel: React.FC = () => {
                 } else {
                     type = 'path';
                 }
-            } else if (item instanceof paper.Group) {
+            } else if (isGroup) {
                 if (item.data?.type === 'image') {
                     type = 'image';
+                    console.log(`🔍 [scanLayerItems] 识别为图片: ${item.data?.imageId}`);
                 } else if (item.data?.type === '3d-model') {
                     type = 'model3d';
                 } else if (item.data?.type === 'image-placeholder') {
@@ -234,8 +256,17 @@ const LayerPanel: React.FC = () => {
     // 更新所有图层的图元
     const updateAllLayerItems = () => {
         const newLayerItems: Record<string, LayerItemData[]> = {};
+
+        // 🔍 调试：输出图层 store 和 Paper.js 图层的对比
+        console.log('🔍 [LayerPanel] 图层 store layers:', layers.map(l => ({ id: l.id, name: l.name })));
+        if (paper.project) {
+            console.log('🔍 [LayerPanel] Paper.js layers:', paper.project.layers.map(l => ({ name: l.name, childrenCount: l.children?.length || 0 })));
+        }
+
         layers.forEach(layer => {
-            newLayerItems[layer.id] = scanLayerItems(layer.id);
+            const items = scanLayerItems(layer.id);
+            console.log(`🔍 [LayerPanel] 扫描图层 ${layer.id} (${layer.name}), 找到 ${items.length} 个图元`);
+            newLayerItems[layer.id] = items;
         });
         setLayerItems(newLayerItems);
     };

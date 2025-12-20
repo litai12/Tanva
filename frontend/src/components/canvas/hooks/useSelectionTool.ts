@@ -545,15 +545,29 @@ export const useSelectionTool = ({
     let imageClicked = null;
     let modelClicked = null;
 
+    // 🔍 调试：输出点击坐标和图片实例信息
+    console.log('🔍 detectClickedObject - 点击坐标:', { x: point.x, y: point.y });
+    console.log('🔍 detectClickedObject - 图片实例数量:', imageInstances.length);
+
     // 检查图片实例 - 反向遍历以选择最上层的图片
     for (let i = imageInstances.length - 1; i >= 0; i--) {
       const image = imageInstances[i];
-      if (point.x >= image.bounds.x &&
+      // 🔍 调试：输出每个图片的 bounds
+      console.log(`🔍 图片[${i}] id=${image.id}, bounds:`, image.bounds);
+
+      const inBounds = point.x >= image.bounds.x &&
         point.x <= image.bounds.x + image.bounds.width &&
         point.y >= image.bounds.y &&
-        point.y <= image.bounds.y + image.bounds.height) {
+        point.y <= image.bounds.y + image.bounds.height;
+
+      console.log(`🔍 图片[${i}] 点击在范围内:`, inBounds);
+
+      if (inBounds) {
         // 检查图层是否可见，只有可见的图层才能被选中
-        if (isLayerVisible(image.id)) {
+        const layerVisible = isLayerVisible(image.id);
+        console.log(`🔍 图片[${i}] 图层可见:`, layerVisible);
+
+        if (layerVisible) {
           imageClicked = image.id;
           break;
         } else {

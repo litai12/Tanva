@@ -678,8 +678,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               await insertSvgAssetToCanvas(parsed, { x: projectPoint.x, y: projectPoint.y });
               return;
             }
+            // 🔥 修复：处理从资源库拖拽的 2D 图片
+            if (parsed?.type === '2d' && parsed?.url) {
+              event.preventDefault();
+              event.stopPropagation();
+              console.log('🖼️ 从资源库拖拽 2D 图片:', parsed);
+              await uploadImageToCanvas?.(parsed.url, parsed.fileName || parsed.name, undefined, { x: projectPoint.x, y: projectPoint.y }, 'manual');
+              return;
+            }
           } catch (error) {
-            console.warn('解析拖拽 SVG 数据失败:', error);
+            console.warn('解析拖拽资源数据失败:', error);
           }
         }
         const imageFiles = Array.from(dt.files || []).filter((file) => file.type && file.type.startsWith('image/'));
@@ -1334,6 +1342,131 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try { (window as any).tanvaPaperRestored = false; } catch {}
       // 视为已回填一次，避免后续空场景再次触发
       try { (window as any)[hydratedFlagKey] = true; } catch {}
+
+      // paperJson 恢复只会还原 Paper 场景，不会重建图片/3D/文本的运行时实例。
+      // 若不补齐 imageTool.imageInstances，选择/拖拽会退化为“框选矩形”，表现为图片拖不动。
+      try {
+        if (imageTool.imageInstances.length === 0) {
+          const imageSnapshots: ImageAssetSnapshot[] = Array.isArray(projectAssets.images) ? projectAssets.images : [];
+          const snapshotMap = new Map<string, ImageAssetSnapshot>();
+          imageSnapshots.forEach((snap) => {
+            if (snap?.id) snapshotMap.set(snap.id, snap);
+          });
+
+          const restoredImageGroups = paper.project.layers.flatMap((layer) =>
+            (layer.children || []).filter((child: any) => child?.data?.type === 'image' && child?.data?.imageId)
+          ) as paper.Item[];
+
+          const reconstructed: ImageInstance[] = [];
+          restoredImageGroups.forEach((item) => {
+            const imageId = (item as any)?.data?.imageId as string | undefined;
+            if (!imageId) return;
+
+            const snapshot = snapshotMap.get(imageId);
+            const group = item instanceof paper.Group ? item : null;
+            const raster = group
+              ? ((group.children || []).find(
+                  (child: any) => child && (child.className === 'Raster' || child instanceof paper.Raster)
+                ) as paper.Raster | undefined)
+              : item instanceof paper.Raster
+                ? (item as paper.Raster)
+                : undefined;
+
+            const resolvedBounds = (() => {
+              const paperBounds = (raster as any)?.bounds || (item as any)?.bounds;
+              if (paperBounds && paperBounds.width > 0 && paperBounds.height > 0) {
+                return paperBounds as paper.Rectangle;
+              }
+              if (snapshot?.bounds) {
+                return new paper.Rectangle(
+                  snapshot.bounds.x,
+                  snapshot.bounds.y,
+                  snapshot.bounds.width,
+                  snapshot.bounds.height
+                );
+              }
+              return paperBounds as paper.Rectangle | undefined;
+            })();
+
+            if (!resolvedBounds) return;
+
+            // 反序列化时会清理 isHelper 元素，这里补齐图片组的命中/选择结构（边框、拖拽热区、缩放手柄等）
+            if (group && raster) {
+              try {
+                ensureImageGroupStructure({
+                  raster,
+                  imageId,
+                  group,
+                  bounds: resolvedBounds,
+                  ensureImageRect: true,
+                  ensureSelectionArea: true,
+                  metadata: {
+                    fileName: snapshot?.fileName,
+                    uploadMethod: (snapshot as any)?.uploadMethod,
+                    originalWidth: snapshot?.width,
+                    originalHeight: snapshot?.height,
+                    aspectRatio:
+                      snapshot?.width && snapshot?.height ? snapshot.width / snapshot.height : undefined,
+                    remoteUrl: snapshot?.url,
+                  },
+                });
+              } catch (error) {
+                console.warn('重建图片组结构失败:', error);
+              }
+            } else if (raster) {
+              // 至少保证 raster.data 上有 imageId，便于后续命中检测/预览逻辑工作
+              try {
+                raster.data = { ...(raster.data || {}), type: 'image', imageId };
+              } catch {}
+            }
+
+            const source =
+              snapshot?.url ||
+              snapshot?.src ||
+              snapshot?.localDataUrl ||
+              (typeof (raster as any)?.source === 'string' ? (raster as any).source : null);
+
+            if (!source) return;
+
+            const layerName = (item as any)?.layer?.name;
+            const derivedLayerId =
+              typeof layerName === 'string' && layerName.startsWith('layer_') ? layerName.replace('layer_', '') : undefined;
+
+            reconstructed.push({
+              id: imageId,
+              imageData: {
+                id: imageId,
+                url: source,
+                src: source,
+                key: snapshot?.key,
+                fileName: snapshot?.fileName,
+                width: snapshot?.width,
+                height: snapshot?.height,
+                contentType: snapshot?.contentType,
+                pendingUpload: snapshot?.pendingUpload,
+                localDataUrl: snapshot?.localDataUrl,
+              },
+              bounds: {
+                x: resolvedBounds.x,
+                y: resolvedBounds.y,
+                width: resolvedBounds.width,
+                height: resolvedBounds.height,
+              },
+              isSelected: false,
+              visible: item.visible !== false,
+              layerId: snapshot?.layerId ?? derivedLayerId,
+            });
+          });
+
+          if (reconstructed.length > 0) {
+            imageTool.setImageInstances(reconstructed);
+            imageTool.setSelectedImageIds([]);
+            try { paper.view.update(); } catch {}
+          }
+        }
+      } catch (error) {
+        console.warn('paperJson 恢复后重建图片实例失败:', error);
+      }
       return;
     }
 
@@ -3126,26 +3259,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         if (!paper || !paper.project) return;
 
+        console.log('🔄 rebuildFromPaper 开始执行...');
+
         const imageInstances: any[] = [];
         const textInstances: any[] = [];
         const model3DInstances: any[] = [];
 
         // 扫描所有图层
         (paper.project.layers || []).forEach((layer: any) => {
+          console.log(`🔍 扫描图层: ${layer?.name || '未命名'}, 子元素数量: ${layer?.children?.length || 0}`);
           const children = layer?.children || [];
           children.forEach((item: any) => {
+            // 🔍 调试：输出每个元素的信息
+            console.log(`  📦 元素: className=${item?.className}, type=${item?.data?.type}, imageId=${item?.data?.imageId}`);
+
             // ========== 处理图片 ==========
             let imageGroup: any | null = null;
             if (item?.data?.type === 'image' && item?.data?.imageId) {
               imageGroup = item;
+              console.log(`    ✅ 识别为图片组 (type=image): ${item?.data?.imageId}`);
             } else if (item?.className === 'Raster' || item instanceof (paper as any).Raster) {
               // 兼容只有 Raster 的情况
+              console.log(`    🖼️ 发现 Raster 元素`);
               imageGroup = item.parent && item.parent.className === 'Group' ? item.parent : null;
               if (imageGroup && !(imageGroup.data && imageGroup.data.type === 'image')) {
                 // 为旧内容补上标记
                 if (!imageGroup.data) imageGroup.data = {};
                 imageGroup.data.type = 'image';
                 imageGroup.data.imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+                console.log(`    ✅ 为 Raster 补充标记: ${imageGroup.data.imageId}`);
               }
             }
 
