@@ -4,6 +4,39 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
 import { createSafeStorage } from './storageUtils';
+import { useProjectStore } from './projectStore';
+
+// 视口持久化：使用独立存储，降低高频写入对主 store 的影响
+const VIEWPORT_STORAGE_PREFIX = 'canvas-viewport-v1';
+type ViewportSnapshot = { panX: number; panY: number; zoom: number };
+
+const getViewportStorageKey = (projectId?: string | null) =>
+  `${VIEWPORT_STORAGE_PREFIX}:${projectId || 'global'}`;
+
+const readViewportSnapshot = (projectId?: string | null): ViewportSnapshot | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const storage = createSafeStorage({ storageName: 'canvas-viewport' });
+    const raw = storage.getItem(getViewportStorageKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof parsed.panX === 'number' &&
+      typeof parsed.panY === 'number' &&
+      typeof parsed.zoom === 'number'
+    ) {
+      return parsed as ViewportSnapshot;
+    }
+  } catch (e) {
+    console.warn('读取视口快照失败:', e);
+  }
+  return null;
+};
+
+const initialProjectId = typeof window !== 'undefined' ? useProjectStore.getState().currentProjectId : null;
+const initialViewport = readViewportSnapshot(initialProjectId);
 
 // 网格样式枚举
 export const GridStyle = {
@@ -80,11 +113,11 @@ export const useCanvasStore = create<CanvasState>()(
       gridColor: '#000000',
       gridBgColor: '#f7f7f7',
       gridBgEnabled: false,
-      zoom: 1.0,
-      panX: 0,
-      panY: 0,
+      zoom: initialViewport?.zoom ?? 1.0,
+      panX: initialViewport?.panX ?? 0,
+      panY: initialViewport?.panY ?? 0,
       isHydrated: false,
-      hasInitialCenterApplied: false,
+      hasInitialCenterApplied: !!initialViewport,
       
       // 交互状态初始值
       isDragging: false,    // 默认未拖拽
@@ -190,6 +223,74 @@ if (typeof window !== 'undefined' && 'persist' in useCanvasStore) {
     }
     useCanvasStore.setState({ isHydrated: true });
   });
+}
+
+// 视口状态按项目持久化
+if (typeof window !== 'undefined') {
+  const viewportStorage = createSafeStorage({ storageName: 'canvas-viewport' });
+  let lastSnapshot: ViewportSnapshot | null = initialViewport ?? null;
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let currentProjectId = initialProjectId;
+
+  const schedulePersist = (snapshot: ViewportSnapshot) => {
+    // 避免无意义写入
+    if (
+      lastSnapshot &&
+      lastSnapshot.panX === snapshot.panX &&
+      lastSnapshot.panY === snapshot.panY &&
+      lastSnapshot.zoom === snapshot.zoom
+    ) {
+      return;
+    }
+
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+    }
+
+    persistTimer = setTimeout(() => {
+      try {
+        viewportStorage.setItem(
+          getViewportStorageKey(currentProjectId),
+          JSON.stringify({
+            panX: snapshot.panX,
+            panY: snapshot.panY,
+            zoom: snapshot.zoom,
+          })
+        );
+        lastSnapshot = snapshot;
+      } catch (e) {
+        console.warn('持久化视口状态失败:', e);
+      }
+    }, 150);
+  };
+
+  // 监听视口变化，持久化
+  useCanvasStore.subscribe(
+    (state) => ({ panX: state.panX, panY: state.panY, zoom: state.zoom }),
+    (viewport) => schedulePersist(viewport)
+  );
+
+  // 监听项目切换：加载对应项目的视角并覆盖当前视角
+  try {
+    useProjectStore.subscribe(
+      (state) => state.currentProjectId,
+      (projectId) => {
+        currentProjectId = projectId;
+        const snapshot = readViewportSnapshot(projectId) ?? readViewportSnapshot(null);
+        if (snapshot) {
+          useCanvasStore.setState({
+            panX: snapshot.panX,
+            panY: snapshot.panY,
+            zoom: snapshot.zoom,
+            hasInitialCenterApplied: true,
+          });
+          lastSnapshot = snapshot;
+        }
+      }
+    );
+  } catch (e) {
+    console.warn('项目切换时读取视口失败:', e);
+  }
 }
 
 // 性能优化：导出常用的选择器
