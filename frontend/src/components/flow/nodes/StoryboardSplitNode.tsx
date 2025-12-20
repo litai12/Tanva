@@ -19,22 +19,73 @@ const MIN_OUTPUT_COUNT = 1;
 const MAX_OUTPUT_COUNT = 50;
 const DEFAULT_OUTPUT_COUNT = 9;
 
+// 中文数字映射
+const CHINESE_NUM_MAP: Record<string, number> = {
+  '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+  '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+  '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15,
+  '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20,
+  '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24, '二十五': 25,
+  '二十六': 26, '二十七': 27, '二十八': 28, '二十九': 29, '三十': 30,
+  '三十一': 31, '三十二': 32, '三十三': 33, '三十四': 34, '三十五': 35,
+  '三十六': 36, '三十七': 37, '三十八': 38, '三十九': 39, '四十': 40,
+  '四十一': 41, '四十二': 42, '四十三': 43, '四十四': 44, '四十五': 45,
+  '四十六': 46, '四十七': 47, '四十八': 48, '四十九': 49, '五十': 50,
+};
+
 /**
- * 分镜脚本解析器 - 只识别 |**XX**| 和 | **XX** | 格式
- * 例如：|**1**|, |**01**|, | **1** |, | **01** |
+ * 分镜脚本解析器 - 支持多种格式，按优先级匹配
+ *
+ * 优先级1: "分镜一"、"分镜二" 等中文数字格式
+ * 优先级2: "分镜1"、"分镜2" 等阿拉伯数字格式
+ * 优先级3: 大标题 "# 分镜" 或 "## 分镜" 后跟数字
+ * 优先级4: Markdown 表格格式 |**1**| 或 | **1** |
  */
 function parseStoryboardScript(text: string): string[] {
   if (!text || !text.trim()) return [];
 
-  // 匹配 Markdown 表格格式 |**XX**| 或 | **XX** |（支持1-99，含或不含空格）
-  const mdPattern = /\|\s?\*\*(\d{1,2})\*\*\s?\|/g;
-  const mdMatches = [...text.matchAll(mdPattern)];
-
-  if (mdMatches.length === 0) {
-    return []; // 没找到任何分镜格式，返回空
+  // 优先级1: 分镜+中文数字（分镜一、分镜二...分镜五十）
+  const chineseNumPattern = /分镜(一|二|三|四|五|六|七|八|九|十|十一|十二|十三|十四|十五|十六|十七|十八|十九|二十|二十一|二十二|二十三|二十四|二十五|二十六|二十七|二十八|二十九|三十|三十一|三十二|三十三|三十四|三十五|三十六|三十七|三十八|三十九|四十|四十一|四十二|四十三|四十四|四十五|四十六|四十七|四十八|四十九|五十)/g;
+  const chineseMatches = [...text.matchAll(chineseNumPattern)];
+  if (chineseMatches.length >= 2) {
+    // 按中文数字排序
+    const sorted = chineseMatches.sort((a, b) => {
+      const numA = CHINESE_NUM_MAP[a[1]] || 0;
+      const numB = CHINESE_NUM_MAP[b[1]] || 0;
+      return (a.index! + numA * 0.001) - (b.index! + numB * 0.001);
+    });
+    return extractSegmentsByMatches(text, sorted);
   }
 
-  return extractSegmentsByMatches(text, mdMatches);
+  // 优先级2: 分镜+阿拉伯数字（分镜1、分镜2...）
+  const arabicPattern = /分镜\s*(\d{1,2})/g;
+  const arabicMatches = [...text.matchAll(arabicPattern)];
+  if (arabicMatches.length >= 2) {
+    return extractSegmentsByMatches(text, arabicMatches);
+  }
+
+  // 优先级3: Markdown 标题格式（# 分镜1、## 分镜 2、### 分镜一）
+  const headingPattern = /^#{1,6}\s*分镜\s*(\d{1,2}|一|二|三|四|五|六|七|八|九|十|十一|十二|十三|十四|十五|十六|十七|十八|十九|二十|二十一|二十二|二十三|二十四|二十五|二十六|二十七|二十八|二十九|三十|三十一|三十二|三十三|三十四|三十五|三十六|三十七|三十八|三十九|四十|四十一|四十二|四十三|四十四|四十五|四十六|四十七|四十八|四十九|五十)/gm;
+  const headingMatches = [...text.matchAll(headingPattern)];
+  if (headingMatches.length >= 2) {
+    return extractSegmentsByMatches(text, headingMatches);
+  }
+
+  // 优先级4: Markdown 表格格式 |**XX**| 或 | **XX** |（支持1-99，含或不含空格）
+  const mdPattern = /\|\s?\*\*(\d{1,2})\*\*\s?\|/g;
+  const mdMatches = [...text.matchAll(mdPattern)];
+  if (mdMatches.length >= 2) {
+    return extractSegmentsByMatches(text, mdMatches);
+  }
+
+  // 优先级5: 纯数字编号格式（行首 "1."、"2." 等）
+  const numberedPattern = /^(\d{1,2})\.\s/gm;
+  const numberedMatches = [...text.matchAll(numberedPattern)];
+  if (numberedMatches.length >= 2) {
+    return extractSegmentsByMatches(text, numberedMatches);
+  }
+
+  return []; // 没找到任何分镜格式，返回空
 }
 
 function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): string[] {
