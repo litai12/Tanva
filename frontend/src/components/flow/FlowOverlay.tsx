@@ -12,7 +12,11 @@ import ReactFlow, {
   useNodesState,
   useReactFlow,
   type Edge,
-  type Node
+  type Node,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
+  type EdgeProps
 } from 'reactflow';
 import { ReactFlowProvider } from 'reactflow';
 import { useCanvasStore } from '@/stores';
@@ -87,6 +91,89 @@ const nodeTypes = {
   analysis: AnalysisNode,
   sora2Video: Sora2VideoNode,
   storyboardSplit: StoryboardSplitNode,
+};
+
+// 自定义边组件 - 选中时在终点显示删除按钮
+function CustomEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  selected,
+  style,
+  markerEnd,
+  data,
+}: EdgeProps) {
+  const { setEdges } = useReactFlow();
+
+  const [edgePath] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const handleDelete = React.useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    setEdges((edges) => edges.filter((e) => e.id !== id));
+  }, [id, setEdges]);
+
+  return (
+    <>
+      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+      {selected && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              left: targetX + 4,
+              top: targetY,
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'all',
+              zIndex: 10000,
+            }}
+            className="nodrag nopan"
+          >
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={handleDelete}
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: '50%',
+                background: '#ef4444',
+                border: '2px solid #fff',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                fontSize: 14,
+                fontWeight: 'bold',
+                lineHeight: 0,
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                position: 'relative',
+                zIndex: 10000,
+                padding: 0,
+              }}
+              title="删除连线"
+            >
+              <span style={{ marginTop: -2 }}>−</span>
+            </button>
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const edgeTypes = {
+  default: CustomEdge,
 };
 
 const DEFAULT_REFERENCE_PROMPT = '请参考第二张图的内容';
@@ -2919,6 +3006,7 @@ function FlowInner() {
 
         isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView={false}
         panOnDrag={!isPointerMode}
         zoomOnScroll={false}

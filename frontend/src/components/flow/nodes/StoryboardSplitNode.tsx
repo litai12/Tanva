@@ -270,6 +270,73 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   const boxW = data.boxW || 320;
   const boxH = data.boxH || 400;
 
+  // 一键生成 Prompt 节点并连接
+  const handleGeneratePromptNodes = React.useCallback(() => {
+    if (segments.length === 0) return;
+
+    const currentNode = rf.getNode(id);
+    if (!currentNode) return;
+
+    const nodeX = currentNode.position.x;
+    const nodeY = currentNode.position.y;
+    const nodeWidth = boxW;
+    const promptNodeWidth = 280;
+    const promptNodeHeight = 200;
+    const gapX = 100; // 水平间距
+    const gapY = 20;  // 垂直间距
+
+    const startX = nodeX + nodeWidth + gapX;
+    const count = Math.min(segments.length, outputCount);
+
+    // 计算总高度，使 Prompt 节点垂直居中对齐
+    const totalHeight = count * promptNodeHeight + (count - 1) * gapY;
+    const startY = nodeY + (boxH - totalHeight) / 2;
+
+    const newNodes: Array<{
+      id: string;
+      type: string;
+      position: { x: number; y: number };
+      data: { text: string; title: string; boxW: number; boxH: number };
+    }> = [];
+
+    const newEdges: Array<{
+      id: string;
+      source: string;
+      sourceHandle: string;
+      target: string;
+      targetHandle: string;
+    }> = [];
+
+    for (let i = 0; i < count; i++) {
+      const promptNodeId = `prompt-${id}-${i + 1}-${Date.now()}`;
+      const y = startY + i * (promptNodeHeight + gapY);
+
+      newNodes.push({
+        id: promptNodeId,
+        type: 'textPrompt',
+        position: { x: startX, y },
+        data: {
+          text: segments[i] || '',
+          title: `分镜 ${i + 1}`,
+          boxW: promptNodeWidth,
+          boxH: promptNodeHeight,
+        },
+      });
+
+      newEdges.push({
+        id: `edge-${id}-${promptNodeId}`,
+        source: id,
+        sourceHandle: `prompt${i + 1}`,
+        target: promptNodeId,
+        targetHandle: 'text',
+      });
+    }
+
+    // 批量添加节点和边
+    rf.setNodes((nodes) => [...nodes, ...newNodes]);
+    rf.setEdges((edges) => [...edges, ...newEdges]);
+  }, [rf, id, segments, outputCount, boxW, boxH]);
+
   return (
     <div style={{
       width: boxW,
@@ -302,20 +369,39 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div style={{ fontWeight: 600 }}>Split</div>
-        <button
-          onClick={handleSplit}
-          style={{
-            fontSize: 12,
-            padding: '4px 10px',
-            background: '#111827',
-            color: '#fff',
-            borderRadius: 6,
-            border: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          Split
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            onClick={handleGeneratePromptNodes}
+            disabled={segments.length === 0}
+            style={{
+              fontSize: 12,
+              padding: '4px 10px',
+              background: segments.length > 0 ? '#059669' : '#9ca3af',
+              color: '#fff',
+              borderRadius: 6,
+              border: 'none',
+              cursor: segments.length > 0 ? 'pointer' : 'not-allowed',
+              opacity: segments.length > 0 ? 1 : 0.6,
+            }}
+            title="一键生成 Prompt 节点并连接"
+          >
+            生成节点
+          </button>
+          <button
+            onClick={handleSplit}
+            style={{
+              fontSize: 12,
+              padding: '4px 10px',
+              background: '#111827',
+              color: '#fff',
+              borderRadius: 6,
+              border: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            Split
+          </button>
+        </div>
       </div>
 
       {/* 输出数量配置 */}
