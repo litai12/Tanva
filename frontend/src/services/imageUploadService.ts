@@ -26,11 +26,12 @@ const SUPPORTED_IMAGE_TYPES = [
   'image/jpg',
   'image/gif',
   'image/webp',
+  'image/svg+xml',
 ];
 
 function validateImageFile(file: File, options?: ImageUploadOptions): string | null {
   if (!SUPPORTED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
-    return '不支持的图片格式，请选择 PNG、JPG、JPEG、GIF 或 WebP 图片';
+    return '不支持的图片格式，请选择 PNG、JPG、JPEG、GIF、WebP 或 SVG 图片';
   }
   const limit = options?.maxFileSize ?? 10 * 1024 * 1024;
   if (file.size > limit) {
@@ -46,7 +47,18 @@ async function uploadImageFile(file: File, options: ImageUploadOptions = {}): Pr
   }
 
   try {
-    const { width, height } = await getImageDimensions(file);
+    // SVG 文件可能无法通过 Image 获取尺寸，使用默认值
+    let width: number | undefined;
+    let height: number | undefined;
+    try {
+      const dims = await getImageDimensions(file);
+      width = dims.width;
+      height = dims.height;
+    } catch {
+      // SVG 或其他格式可能无法获取尺寸，忽略错误
+      logger.debug('无法获取图片尺寸，可能是 SVG 文件');
+    }
+
     const uploadResult = await uploadToOSS(file, {
       ...options,
       fileName: options.fileName || file.name,

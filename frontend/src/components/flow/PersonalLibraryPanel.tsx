@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Image as ImageIcon, Trash2, Upload, Box, Send } from 'lucide-react';
+import { Download, Image as ImageIcon, Trash2, Upload, Box, Send, FileCode } from 'lucide-react';
 import './PersonalLibraryPanel.css';
 import { imageUploadService } from '@/services/imageUploadService';
 import { model3DUploadService, type Model3DData } from '@/services/model3DUploadService';
@@ -12,12 +12,14 @@ import {
   type PersonalLibraryAsset,
   type PersonalImageAsset,
   type PersonalModelAsset,
+  type PersonalSvgAsset,
 } from '@/stores/personalLibraryStore';
 import type { StoredImageAsset } from '@/types/canvas';
 
 const TYPE_TABS: Array<{ value: PersonalAssetType; label: string }> = [
   { value: '2d', label: '2D 图库' },
   { value: '3d', label: '3D 模型' },
+  { value: 'svg', label: 'SVG 线条' },
 ];
 
 interface PersonalLibraryPanelProps {
@@ -84,8 +86,9 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
     };
   }, [mergeAssets]);
 
-  const accept = activeType === '2d' ? 'image/png,image/jpeg,image/jpg,image/gif,image/webp' : '.glb,.gltf';
-  const uploadLabel = activeType === '2d' ? '上传图片' : '上传 3D 模型';
+  const accept = activeType === '2d' ? 'image/png,image/jpeg,image/jpg,image/gif,image/webp' : activeType === '3d' ? '.glb,.gltf' : '';
+  const uploadLabel = activeType === '2d' ? '上传图片' : activeType === '3d' ? '上传 3D 模型' : '';
+  const showUploadButton = activeType !== 'svg';
 
   const resetFileInput = () => {
     if (fileInputRef.current) {
@@ -294,6 +297,34 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
       );
       window.dispatchEvent(new CustomEvent('toast', { detail: { message: '3D 模型已发送到画板', type: 'success' } }));
     }
+
+    if (asset.type === 'svg') {
+      // SVG 作为图片发送到画布
+      const svgAsset = asset as PersonalSvgAsset;
+      const displayFileName = svgAsset.fileName || `${svgAsset.name}.svg`;
+
+      // 直接使用远程 URL，不需要转换为 dataUrl
+      const payload: StoredImageAsset = {
+        id: svgAsset.id,
+        url: svgAsset.url,
+        src: svgAsset.url,
+        fileName: displayFileName,
+        width: svgAsset.width,
+        height: svgAsset.height,
+        contentType: 'image/svg+xml',
+      };
+
+      window.dispatchEvent(
+        new CustomEvent('triggerQuickImageUpload', {
+          detail: {
+            imageData: payload,
+            fileName: displayFileName,
+            operationType: 'manual',
+          },
+        })
+      );
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 已发送到画板', type: 'success' } }));
+    }
   };
 
   return (
@@ -306,27 +337,29 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={triggerUpload}
-            disabled={isUploading}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 14px',
-              borderRadius: 999,
-              border: '1px solid #c7d2fe',
-              background: isUploading ? '#e0e7ff' : '#eef2ff',
-              color: '#4338ca',
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: isUploading ? 'not-allowed' : 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <Upload size={16} strokeWidth={2} />
-            {isUploading ? '上传中…' : uploadLabel}
-          </button>
+          {showUploadButton && (
+            <button
+              onClick={triggerUpload}
+              disabled={isUploading}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 14px',
+                borderRadius: 999,
+                border: '1px solid #c7d2fe',
+                background: isUploading ? '#e0e7ff' : '#eef2ff',
+                color: '#4338ca',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: isUploading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Upload size={16} strokeWidth={2} />
+              {isUploading ? '上传中…' : uploadLabel}
+            </button>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -378,9 +411,13 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
           }}
         >
           <div style={{ fontSize: 16, fontWeight: 600 }}>
-            {activeType === '2d' ? '暂未上传图片' : '暂未上传 3D 模型'}
+            {activeType === '2d' ? '暂未上传图片' : activeType === '3d' ? '暂未上传 3D 模型' : '暂无 SVG 线条'}
           </div>
-          <div style={{ fontSize: 13, marginTop: 8 }}>点击右上角上传按钮即可添加资源</div>
+          <div style={{ fontSize: 13, marginTop: 8 }}>
+            {activeType === 'svg'
+              ? '在画布上选中线条后，右键选择「添加到库」即可保存'
+              : '点击右上角上传按钮即可添加资源'}
+          </div>
         </div>
       ) : (
         <div
@@ -394,6 +431,8 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
         >
           {assets.map((asset) => {
             const is2d = asset.type === '2d';
+            const isSvg = asset.type === 'svg';
+            const is3d = asset.type === '3d';
             return (
               <div
                 key={asset.id}
@@ -416,14 +455,14 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                     flex: '0 0 44%',
                     borderRadius: 10,
                     overflow: 'hidden',
-                    background: is2d ? '#f3f4f6' : '#0f172a',
+                    background: is2d || isSvg ? '#f3f4f6' : '#0f172a',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     height: '100%',
                   }}
                 >
-                  {is2d ? (
+                  {(is2d || isSvg) ? (
                     <img
                       src={asset.thumbnail || asset.url}
                       alt={asset.name}
@@ -478,6 +517,10 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                         ? `${(asset as PersonalImageAsset).width ?? '-'} × ${(
                             asset as PersonalImageAsset
                           ).height ?? '-'}`
+                        : isSvg
+                        ? `${(asset as PersonalSvgAsset).width ?? '-'} × ${(
+                            asset as PersonalSvgAsset
+                          ).height ?? '-'}`
                         : (asset as PersonalModelAsset).format?.toUpperCase()}
                       {' · '}
                       {formatSize(asset.fileSize)}
@@ -522,7 +565,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                     </button>
                   </div>
                 </div>
-                {!is2d && (
+                {is3d && (
                   <div
                     style={{
                       position: 'absolute',
@@ -561,7 +604,28 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                     }}
                   >
                     <ImageIcon size={12} />
-                    2D
+                    IMG
+                  </div>
+                )}
+                {isSvg && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 12,
+                      left: 12,
+                      background: 'rgba(255,255,255,0.85)',
+                      color: '#0f172a',
+                      borderRadius: 999,
+                      padding: '2px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <FileCode size={12} />
+                    SVG
                   </div>
                 )}
               </div>

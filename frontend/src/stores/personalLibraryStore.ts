@@ -3,7 +3,7 @@ import { createJSONStorage, persist, subscribeWithSelector } from 'zustand/middl
 import { createSafeStorage } from './storageUtils';
 import type { Model3DFormat, Model3DCameraState } from '@/services/model3DUploadService';
 
-export type PersonalAssetType = '2d' | '3d';
+export type PersonalAssetType = '2d' | '3d' | 'svg';
 
 export interface PersonalLibraryBase {
   id: string;
@@ -34,7 +34,15 @@ export interface PersonalModelAsset extends PersonalLibraryBase {
   camera?: Model3DCameraState;
 }
 
-export type PersonalLibraryAsset = PersonalImageAsset | PersonalModelAsset;
+export interface PersonalSvgAsset extends PersonalLibraryBase {
+  type: 'svg';
+  width?: number;
+  height?: number;
+  /** 原始SVG内容（用于编辑） */
+  svgContent?: string;
+}
+
+export type PersonalLibraryAsset = PersonalImageAsset | PersonalModelAsset | PersonalSvgAsset;
 
 type PersonalLibraryUpdate = Partial<Omit<PersonalLibraryAsset, 'type'>>;
 

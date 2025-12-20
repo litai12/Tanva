@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import paper from 'paper';
-import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Download, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ClipboardPaste, Copy, Download, Trash2, FolderPlus } from 'lucide-react';
 import { useToolStore, useCanvasStore, useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -38,6 +38,9 @@ import type { Model3DData } from '@/services/model3DUploadService';
 import { clientToProject } from '@/utils/paperCoords';
 import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
 import { applyCursorForDrawMode } from '@/utils/cursorStyles';
+import { usePersonalLibraryStore, createPersonalAssetId, type PersonalSvgAsset } from '@/stores/personalLibraryStore';
+import { personalLibraryApi } from '@/services/personalLibraryApi';
+import { imageUploadService } from '@/services/imageUploadService';
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
@@ -2205,6 +2208,128 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [imageTool.imageInstances, imageTool.getImageDataForEditing]);
 
+  // 添加选中的路径到个人库（转换为SVG）
+  const addAsset = usePersonalLibraryStore((state) => state.addAsset);
+
+  const handleAddPathsToLibrary = useCallback(async () => {
+    // 收集所有选中的路径
+    const pathsToExport: paper.Path[] = [];
+    if (selectionTool.selectedPath) {
+      pathsToExport.push(selectionTool.selectedPath);
+    }
+    if (Array.isArray(selectionTool.selectedPaths)) {
+      selectionTool.selectedPaths.forEach((path) => {
+        if (path && !pathsToExport.includes(path)) {
+          pathsToExport.push(path);
+        }
+      });
+    }
+
+    if (pathsToExport.length === 0) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '没有选中的线条路径', type: 'warning' }
+      }));
+      return;
+    }
+
+    try {
+      // 计算所有路径的边界
+      let combinedBounds: paper.Rectangle | null = null;
+      for (const path of pathsToExport) {
+        if (path.bounds) {
+          if (!combinedBounds) {
+            combinedBounds = path.bounds.clone();
+          } else {
+            combinedBounds = combinedBounds.unite(path.bounds);
+          }
+        }
+      }
+
+      if (!combinedBounds) {
+        throw new Error('无法计算路径边界');
+      }
+
+      // 添加一些padding
+      const padding = 10;
+      const width = Math.ceil(combinedBounds.width + padding * 2);
+      const height = Math.ceil(combinedBounds.height + padding * 2);
+      const offsetX = combinedBounds.x - padding;
+      const offsetY = combinedBounds.y - padding;
+
+      // 生成SVG内容
+      const svgPaths = pathsToExport.map((path) => {
+        // 克隆路径并调整位置
+        const clonedPath = path.clone({ insert: false });
+        clonedPath.translate(new paper.Point(-offsetX, -offsetY));
+
+        // 获取路径的SVG表示
+        const pathData = clonedPath.pathData;
+        const strokeColor = path.strokeColor ? path.strokeColor.toCSS(true) : '#000000';
+        const strokeWidth = path.data?.originalStrokeWidth ?? path.strokeWidth ?? 2;
+        const fillColor = path.fillColor ? path.fillColor.toCSS(true) : 'none';
+
+        clonedPath.remove();
+
+        return `<path d="${pathData}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      }).join('\n  ');
+
+      const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  ${svgPaths}
+</svg>`;
+
+      // 将SVG转换为Blob并上传
+      const svgBlob = new Blob([svgContent], { type: 'image/svg+xml' });
+      const svgFile = new File([svgBlob], `path_${Date.now()}.svg`, { type: 'image/svg+xml' });
+
+      // 上传SVG文件
+      const uploadResult = await imageUploadService.uploadImageFile(svgFile, {
+        dir: 'uploads/personal-library/svg/',
+      });
+
+      if (!uploadResult.success || !uploadResult.asset) {
+        throw new Error(uploadResult.error || 'SVG上传失败');
+      }
+
+      // 创建个人库资产
+      const assetId = createPersonalAssetId('plsvg');
+      const now = Date.now();
+      const svgAsset: PersonalSvgAsset = {
+        id: assetId,
+        type: 'svg',
+        name: `线条 ${new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`,
+        url: uploadResult.asset.url,
+        thumbnail: uploadResult.asset.url,
+        fileName: svgFile.name,
+        fileSize: svgFile.size,
+        contentType: 'image/svg+xml',
+        width,
+        height,
+        svgContent,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // 添加到本地store
+      addAsset(svgAsset);
+
+      // 同步到后端
+      void personalLibraryApi.upsert(svgAsset).catch((error) => {
+        console.warn('[PersonalLibrary] 同步SVG资源到后端失败:', error);
+      });
+
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '已添加到个人库', type: 'success' }
+      }));
+
+      logger.debug('SVG已添加到个人库:', { assetId, width, height, pathCount: pathsToExport.length });
+    } catch (error) {
+      console.error('添加到库失败:', error);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '添加到库失败，请重试', type: 'error' }
+      }));
+    }
+  }, [selectionTool.selectedPath, selectionTool.selectedPaths, addAsset]);
+
   const resolveContextTarget = useCallback((event: MouseEvent): HitTestTarget => {
     const canvas = canvasRef.current;
     if (!canvas || !paper?.project) return null;
@@ -2532,6 +2657,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       );
     }
 
+    // 当选中路径时，显示"添加到库"选项
+    const hasSelectedPaths = !!(selectionTool.selectedPath || (selectionTool.selectedPaths && selectionTool.selectedPaths.length > 0));
+    if (contextMenuState.type === 'path' || hasSelectedPaths) {
+      items.push({
+        label: '添加到库',
+        icon: <FolderPlus className="w-4 h-4" />,
+        onClick: () => { void handleAddPathsToLibrary(); },
+        disabled: !hasSelectedPaths,
+      });
+    }
+
     items.push({
       label: '删除',
       icon: <Trash2 className="w-4 h-4" />,
@@ -2550,6 +2686,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     handleImageLayerMoveUp,
     handleModelLayerMoveDown,
     handleModelLayerMoveUp,
+    handleAddPathsToLibrary,
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
     hasSelection,
   ]);
 

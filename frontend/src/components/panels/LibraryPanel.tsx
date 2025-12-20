@@ -13,6 +13,7 @@ import {
   type PersonalLibraryAsset,
   type PersonalImageAsset,
   type PersonalModelAsset,
+  type PersonalSvgAsset,
 } from '@/stores/personalLibraryStore';
 import type { StoredImageAsset } from '@/types/canvas';
 
@@ -277,6 +278,40 @@ const LibraryPanel: React.FC = () => {
       );
       window.dispatchEvent(new CustomEvent('toast', { detail: { message: '3D 模型已发送到画板', type: 'success' } }));
     }
+
+    if (asset.type === 'svg') {
+      // SVG 作为图片发送到画布
+      const svgAsset = asset as PersonalSvgAsset;
+      const displayFileName = svgAsset.fileName || `${svgAsset.name}.svg`;
+
+      console.log('[LibraryPanel] 发送 SVG 到画布:', {
+        id: svgAsset.id,
+        url: svgAsset.url,
+        width: svgAsset.width,
+        height: svgAsset.height,
+      });
+
+      const payload: StoredImageAsset = {
+        id: svgAsset.id,
+        url: svgAsset.url,
+        src: svgAsset.url,
+        fileName: displayFileName,
+        width: svgAsset.width,
+        height: svgAsset.height,
+        contentType: 'image/svg+xml',
+      };
+
+      window.dispatchEvent(
+        new CustomEvent('triggerQuickImageUpload', {
+          detail: {
+            imageData: payload,
+            fileName: displayFileName,
+            operationType: 'manual',
+          },
+        })
+      );
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 已发送到画板', type: 'success' } }));
+    }
   };
 
   const handleClose = () => {
@@ -427,7 +462,7 @@ const LibraryPanel: React.FC = () => {
         >
           {/* 预览图 */}
           <div className="w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
-            {selectedAsset.type === '2d' ? (
+            {(selectedAsset.type === '2d' || selectedAsset.type === 'svg') ? (
               <img
                 src={selectedAsset.thumbnail || selectedAsset.url}
                 alt={selectedAsset.name}
@@ -465,11 +500,11 @@ const LibraryPanel: React.FC = () => {
             </div>
 
             {/* 尺寸/格式 */}
-            {selectedAsset.type === '2d' ? (
+            {(selectedAsset.type === '2d' || selectedAsset.type === 'svg') ? (
               <div>
                 <div className="text-xs text-gray-500">尺寸</div>
                 <div className="text-sm text-gray-700">
-                  {(selectedAsset as PersonalImageAsset).width ?? '-'} × {(selectedAsset as PersonalImageAsset).height ?? '-'}
+                  {(selectedAsset as PersonalImageAsset | PersonalSvgAsset).width ?? '-'} × {(selectedAsset as PersonalImageAsset | PersonalSvgAsset).height ?? '-'}
                 </div>
               </div>
             ) : (
@@ -566,7 +601,7 @@ const LibraryPanel: React.FC = () => {
             <div className="grid grid-cols-3 gap-2">
               {/* 资源列表 */}
               {allAssets.map((asset) => {
-                const is2d = asset.type === '2d';
+                const is2dOrSvg = asset.type === '2d' || asset.type === 'svg';
                 const isSelected = selectedAsset?.id === asset.id;
                 const typeLabel = asset.type === '2d' ? 'IMG' : asset.type === '3d' ? '3D' : 'SVG';
 
@@ -581,7 +616,7 @@ const LibraryPanel: React.FC = () => {
                     onClick={(e) => handleAssetClick(asset, e)}
                     onDragStart={(e) => handleDragStart(asset, e)}
                   >
-                    {is2d ? (
+                    {is2dOrSvg ? (
                       <img
                         src={asset.thumbnail || asset.url}
                         alt={asset.name}
