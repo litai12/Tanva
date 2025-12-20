@@ -2520,10 +2520,90 @@ function FlowInner() {
           return true;
         }
         return false;
-      }
+      },
+      // 暴露 React Flow 实例，用于框选工具选择节点
+      selectNodesInBox: (screenRect: { x: number; y: number; width: number; height: number }) => {
+        try {
+          const allNodes = rf.getNodes();
+          const selectedNodeIds: string[] = [];
+
+          // 获取 Flow 容器的位置
+          const container = containerRef.current;
+          if (!container) return [];
+
+          // 将屏幕坐标转换为相对于 Flow 容器的坐标
+          const containerRect = container.getBoundingClientRect();
+          const relativeX = screenRect.x - containerRect.left;
+          const relativeY = screenRect.y - containerRect.top;
+
+          // 将屏幕坐标的选择框转换为 Flow 坐标
+          const topLeft = rf.screenToFlowPosition({ x: relativeX, y: relativeY });
+          const bottomRight = rf.screenToFlowPosition({
+            x: relativeX + screenRect.width,
+            y: relativeY + screenRect.height
+          });
+
+          // 确保坐标顺序正确
+          const minX = Math.min(topLeft.x, bottomRight.x);
+          const maxX = Math.max(topLeft.x, bottomRight.x);
+          const minY = Math.min(topLeft.y, bottomRight.y);
+          const maxY = Math.max(topLeft.y, bottomRight.y);
+
+          // 检查每个节点是否在选择框内
+          for (const node of allNodes) {
+            const nodeX = node.position?.x ?? 0;
+            const nodeY = node.position?.y ?? 0;
+
+            // 获取节点的实际大小
+            const nodeWidth = node.data?.boxW ?? node.width ?? 150;
+            const nodeHeight = node.data?.boxH ?? node.height ?? 100;
+
+            // 计算节点的边界
+            const nodeLeft = nodeX;
+            const nodeRight = nodeX + nodeWidth;
+            const nodeTop = nodeY;
+            const nodeBottom = nodeY + nodeHeight;
+
+            // 检查节点是否与选择框相交
+            const isIntersecting = (
+              nodeLeft < maxX &&
+              nodeRight > minX &&
+              nodeTop < maxY &&
+              nodeBottom > minY
+            );
+
+            if (isIntersecting) {
+              selectedNodeIds.push(node.id);
+            }
+          }
+
+          // 更新节点选择状态
+          if (selectedNodeIds.length > 0) {
+            setNodes((prevNodes) =>
+              prevNodes.map((node) => ({
+                ...node,
+                selected: selectedNodeIds.includes(node.id),
+              }))
+            );
+          }
+
+          return selectedNodeIds;
+        } catch (error) {
+          console.warn('选择节点失败:', error);
+          return [];
+        }
+      },
+      // 取消选择所有节点
+      deselectAllNodes: () => {
+        setNodes((prevNodes) =>
+          prevNodes.map((node) => ({ ...node, selected: false }))
+        );
+      },
+      // 暴露 React Flow 实例
+      rf: rf
     };
     return () => { delete (window as any).tanvaFlow; };
-  }, [setNodes, setEdges, isValidConnection, canAcceptConnection]);
+  }, [setNodes, setEdges, isValidConnection, canAcceptConnection, rf]);
 
   const addAtCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generate4' | 'generateRef' | 'analysis') => {
     const rect = containerRef.current?.getBoundingClientRect();
