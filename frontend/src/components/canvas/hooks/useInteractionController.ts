@@ -28,6 +28,13 @@ interface SelectionTool {
     selectModels?: boolean;
     selectTexts?: boolean;
   }) => void;
+  selectAll?: (options?: {
+    selectFlowNodes?: boolean;
+    selectPaths?: boolean;
+    selectImages?: boolean;
+    selectModels?: boolean;
+    selectTexts?: boolean;
+  }) => void;
 }
 
 interface PathEditor {
@@ -1039,6 +1046,19 @@ export const useInteractionController = ({
         }
         event.preventDefault();
         return;
+      }
+
+      // Ctrl+A / Cmd+A 全选（仅复合选择模式）
+      if (!isEditable && currentDrawMode === 'select') {
+        const key = event.key?.toLowerCase?.() || '';
+        if (key === 'a' && (event.ctrlKey || event.metaKey)) {
+          if (typeof latestSelectionTool?.selectAll === 'function') {
+            latestSelectionTool.selectAll();
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+        }
       }
 
       // 文本工具优先处理（无论当前是什么模式，只要有选中的文本）

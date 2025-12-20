@@ -2751,6 +2751,12 @@ function FlowInner() {
           return [];
         }
       },
+      // 选择所有节点
+      selectAllNodes: () => {
+        setNodes((prevNodes) =>
+          prevNodes.map((node) => ({ ...node, selected: true }))
+        );
+      },
       // 取消选择所有节点
       deselectAllNodes: () => {
         setNodes((prevNodes) =>

@@ -685,6 +685,16 @@ const CameraController: React.FC<CameraControllerProps> = ({
     }
   }, [enabled, onStateChange, flushPendingUpdate]);
 
+  const handleControlStart = useCallback(() => {
+    // 交互开始时，清理上一轮节流残留，避免将过期状态写回
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    pendingUpdateRef.current = null;
+    lastControlEmitRef.current = 0;
+  }, []);
+
   const handleControlEnd = useCallback(() => {
     const pending = pendingUpdateRef.current || latestControlStateRef.current;
     pendingUpdateRef.current = null;

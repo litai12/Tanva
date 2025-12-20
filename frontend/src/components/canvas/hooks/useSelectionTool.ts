@@ -445,6 +445,90 @@ export const useSelectionTool = ({
     paper.view.update();
   }, [selectedPaths, handlePathDeselect, onModel3DDeselect, onImageDeselect, onTextDeselect]);
 
+  // ========== 全选 ==========
+  const selectAll = useCallback((options?: SelectionBoxOptions) => {
+    const selectFlowNodes = options?.selectFlowNodes !== false;
+    const selectPaths = options?.selectPaths !== false;
+    const selectImages = options?.selectImages !== false;
+    const selectModels = options?.selectModels !== false;
+    const selectTexts = options?.selectTexts !== false;
+
+    // 先清理所有选择，避免视觉状态残留
+    clearAllSelections();
+
+    // 选择所有路径
+    if (selectPaths && paper.project) {
+      const allPaths: paper.Path[] = [];
+      paper.project.layers.forEach((layer) => {
+        if (!layer.visible) return;
+        if (layer.name === 'grid' || layer.name === 'background') return;
+        layer.children.forEach((item) => collectPathsFromItem(item, allPaths));
+      });
+
+      const uniquePaths = Array.from(new Set(allPaths));
+      uniquePaths.forEach((path) => {
+        try {
+          path.selected = true;
+          path.fullySelected = true;
+          if (!(path as any).originalStrokeWidth) {
+            (path as any).originalStrokeWidth = path.strokeWidth;
+          }
+          path.strokeWidth = (path as any).originalStrokeWidth + 1;
+        } catch {}
+      });
+
+      setSelectedPaths(uniquePaths);
+      setSelectedPath(null);
+    }
+
+    // 选择所有图片
+    if (selectImages && imageInstances.length > 0) {
+      try {
+        onImageMultiSelect(imageInstances.map((img) => img.id));
+      } catch {}
+    }
+
+    // 选择所有3D模型
+    if (selectModels && model3DInstances.length > 0) {
+      try {
+        onModel3DMultiSelect(model3DInstances.map((m) => m.id));
+      } catch {}
+    }
+
+    // 选择所有文本
+    if (selectTexts && onTextMultiSelect && textItems.length > 0) {
+      try {
+        const textIds = textItems
+          .filter((t) => t.paperText && t.paperText.layer?.visible !== false)
+          .map((t) => t.id);
+        if (textIds.length > 0) onTextMultiSelect(textIds);
+      } catch {}
+    }
+
+    // 选择所有 Flow 节点（复合选择模式）
+    if (selectFlowNodes) {
+      try {
+        const tanvaFlow = (window as any).tanvaFlow;
+        if (tanvaFlow?.selectAllNodes) {
+          tanvaFlow.selectAllNodes();
+        }
+      } catch (error) {
+        console.warn('全选节点失败:', error);
+      }
+    }
+
+    try { paper.view.update(); } catch {}
+  }, [
+    clearAllSelections,
+    collectPathsFromItem,
+    imageInstances,
+    model3DInstances,
+    onImageMultiSelect,
+    onModel3DMultiSelect,
+    onTextMultiSelect,
+    textItems,
+  ]);
+
   // ========== 点击检测功能 ==========
 
   // 检测点击位置的对象类型和具体对象
@@ -687,6 +771,7 @@ export const useSelectionTool = ({
 
     // 通用功能
     clearAllSelections,
+    selectAll,
     detectClickedObject,
     handleSelectionClick,
 
