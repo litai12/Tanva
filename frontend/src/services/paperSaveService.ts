@@ -14,6 +14,7 @@ class PaperSaveService {
   private scheduledForProjectId: string | null = null;
   private lastSaveTimestamp = 0;
   private pendingSaveReason: string | null = null;
+  private rasterLoadHooked = new WeakSet<object>();
 
   private isRemoteUrl(value?: string | null): boolean {
     if (typeof value !== 'string') return false;
@@ -410,6 +411,42 @@ class PaperSaveService {
     }
   }
 
+  private ensureRasterLoadUpdates() {
+    try {
+      if (!this.isPaperProjectReady()) return;
+
+      const project = paper.project as any;
+      const rasterClass = (paper as any).Raster;
+      if (!project?.getItems || !rasterClass) return;
+
+      const rasters = project.getItems({ class: rasterClass }) as any[];
+      if (!Array.isArray(rasters) || rasters.length === 0) return;
+
+      rasters.forEach((raster) => {
+        if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
+        if (this.rasterLoadHooked.has(raster)) return;
+        this.rasterLoadHooked.add(raster);
+
+        const previousOnLoad = raster.onLoad;
+        raster.onLoad = function (...args: any[]) {
+          if (typeof previousOnLoad === 'function') {
+            try {
+              previousOnLoad.apply(this, args);
+            } catch (error) {
+              console.warn('执行原始 Raster onLoad 失败:', error);
+            }
+          }
+
+          try {
+            paper.view?.update();
+          } catch {}
+        };
+      });
+    } catch (error) {
+      console.warn('[PaperSaveService] 挂接 Raster onLoad 更新失败:', error);
+    }
+  }
+
   /**
    * 序列化当前Paper.js项目为JSON字符串
    */
@@ -468,6 +505,10 @@ class PaperSaveService {
         } catch {}
       });
       toRemove.forEach(l => l.remove());
+
+      // Raster 图片是异步加载的：在“冷启动/首次刷新”时，importJSON 后立刻 update 往往赶不上图片解码，
+      // 需要为所有 Raster 挂接 onLoad → view.update，避免出现“首次刷新图片不显示、二次刷新才正常”的现象。
+      this.ensureRasterLoadUpdates();
 
       console.log('✅ Paper.js项目反序列化成功');
       // 延迟触发事件，确保 Paper.js 完全初始化
