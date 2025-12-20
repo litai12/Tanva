@@ -10,6 +10,9 @@ NestJS backend with Fastify adapter. Provides authentication (cookie-based JWT),
   - `SORA2_API_KEY`：Sora 提供的 API Key（必填）
   - `SORA2_API_ENDPOINT`：可选，默认 `https://api1.147ai.com`
   - `SORA2_HD_MODEL` / `SORA2_SD_MODEL`：可选，覆盖默认模型名称
+- 配置 VEO 视频服务相关环境变量：
+  - `VEO_API_KEY`：VEO 提供的 API Key（必填；也可复用 `BANANA_API_KEY` / `SORA2_API_KEY`）
+  - `VEO_API_ENDPOINT`：可选，默认 `https://api1.147ai.com`
 
 ## Install & Run
 

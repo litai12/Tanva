@@ -22,12 +22,26 @@ export interface VeoVideoResult {
 @Injectable()
 export class VeoVideoService {
   private readonly logger = new Logger(VeoVideoService.name);
-  private readonly apiBaseUrl = 'https://api1.147ai.com';
-  private readonly apiKey: string;
+  private readonly apiBaseUrl: string;
+  private readonly apiKey: string | null;
 
   constructor(private readonly configService: ConfigService) {
-    // 使用提供的 API Key
-    this.apiKey = 'sk-y1lMqSFC3O9GcOu2sMdx8FG16YBeoFbZKLXaOjWfxJCRzErl';
+    this.apiBaseUrl =
+      (
+        this.configService.get<string>('VEO_API_ENDPOINT') ??
+        this.configService.get<string>('VEO_API_BASE_URL') ??
+        'https://api1.147ai.com'
+      ).replace(/\/$/, '');
+
+    this.apiKey =
+      this.configService.get<string>('VEO_API_KEY') ??
+      this.configService.get<string>('BANANA_API_KEY') ??
+      this.configService.get<string>('SORA2_API_KEY') ??
+      null;
+
+    if (!this.apiKey) {
+      this.logger.warn('VEO API key not configured. Set VEO_API_KEY (or BANANA_API_KEY / SORA2_API_KEY).');
+    }
   }
 
   /**
@@ -42,6 +56,13 @@ export class VeoVideoService {
     const messages = this.buildMessages(prompt, model, referenceImageUrl);
 
     try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'VEO API key not configured on the server (VEO_API_KEY).',
+        };
+      }
+
       const response = await fetch(`${this.apiBaseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -91,6 +112,13 @@ export class VeoVideoService {
     const messages = this.buildMessages(prompt, model, referenceImageUrl);
 
     try {
+      if (!this.apiKey) {
+        return {
+          success: false,
+          error: 'VEO API key not configured on the server (VEO_API_KEY).',
+        };
+      }
+
       const response = await fetch(`${this.apiBaseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {

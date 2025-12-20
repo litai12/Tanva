@@ -40,7 +40,9 @@ import { CreditsService } from '../credits/credits.service';
 import { ServiceType } from '../credits/credits.config';
 import { ApiResponseStatus } from '../credits/dto/credits.dto';
 import { GenerateVideoDto } from './dto/video-generation.dto';
+import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from './dto/veo-video.dto';
 import { Sora2VideoService } from './services/sora2-video.service';
+import { VeoVideoService } from './services/veo-video.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
 
@@ -77,6 +79,7 @@ export class AiController {
     private readonly creditsService: CreditsService,
     private readonly sora2VideoService: Sora2VideoService,
     private readonly videoWatermarkService: VideoWatermarkService,
+    private readonly veoVideoService: VeoVideoService,
   ) {}
 
   /**
@@ -1048,5 +1051,42 @@ export class AiController {
         },
       };
     }, undefined, undefined, skipCredits);
+  }
+
+  /**
+   * VEO 视频生成 - 获取可用模型列表
+   */
+  @Get('veo/models')
+  async getVeoModels(): Promise<VeoModelsResponseDto[]> {
+    this.logger.log('📋 VEO models list requested');
+    return this.veoVideoService.getAvailableModels();
+  }
+
+  /**
+   * VEO 视频生成
+   * - veo3-fast: 文字快速生成视频
+   * - veo3-pro: 文字生成高质量视频（不支持垫图）
+   * - veo3-pro-frames: 图片+文字生成视频（支持垫图）
+   */
+  @Post('veo/generate')
+  async generateVeoVideo(@Body() dto: VeoGenerateVideoDto, @Req() req: any): Promise<VeoVideoResponseDto> {
+    this.logger.log(`🎬 VEO video generation request: model=${dto.model}, prompt=${dto.prompt.substring(0, 50)}...`);
+
+    // 验证：veo3-pro-frames 需要图片，其他模式不需要
+    if (dto.model === 'veo3-pro-frames' && !dto.referenceImageUrl) {
+      throw new BadRequestException('veo3-pro-frames 模式需要提供 referenceImageUrl 参数');
+    }
+
+    if (dto.model !== 'veo3-pro-frames' && dto.referenceImageUrl) {
+      this.logger.warn(`Model ${dto.model} does not support image input, ignoring referenceImageUrl`);
+    }
+
+    const result = await this.veoVideoService.generateVideo({
+      prompt: dto.prompt,
+      model: dto.model,
+      referenceImageUrl: dto.model === 'veo3-pro-frames' ? dto.referenceImageUrl : undefined,
+    });
+
+    return result;
   }
 }

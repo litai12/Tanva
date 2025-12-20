@@ -10,6 +10,8 @@ import {
 } from '../ai/providers/ai-provider.interface';
 import { BackgroundRemovalService } from '../ai/services/background-removal.service';
 import { RemoveBackgroundDto } from '../ai/dto/background-removal.dto';
+import { VeoVideoService } from '../ai/services/veo-video.service';
+import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from '../ai/dto/veo-video.dto';
 
 /**
  * 公开 AI API 控制器
@@ -24,6 +26,7 @@ export class AiPublicController {
   constructor(
     private readonly aiPublicService: AiPublicService,
     private readonly backgroundRemoval: BackgroundRemovalService,
+    private readonly veoVideoService: VeoVideoService,
   ) {}
 
   @Post('generate')
@@ -202,5 +205,67 @@ export class AiPublicController {
       message: 'Background removal service is accessible',
       timestamp: new Date().toISOString(),
     };
+  }
+
+  // ==================== VEO 视频生成 ====================
+
+  @Get('veo/models')
+  @ApiOperation({
+    summary: '获取 VEO 可用模型',
+    description: '获取 VEO 视频生成可用的模型列表。无需身份认证。',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '返回可用模型列表',
+  })
+  async getVeoModels(): Promise<VeoModelsResponseDto[]> {
+    this.logger.log('📋 [PUBLIC] VEO models list requested');
+    return this.veoVideoService.getAvailableModels();
+  }
+
+  @Post('veo/generate')
+  @ApiOperation({
+    summary: 'VEO 视频生成',
+    description: `
+      使用 VEO 生成视频。无需身份认证。
+      - veo3-fast: 文字快速生成视频
+      - veo3-pro: 文字生成高质量视频（不支持垫图）
+      - veo3-pro-frames: 图片+文字生成视频（支持垫图）
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '视频生成结果',
+    schema: {
+      example: {
+        success: true,
+        taskId: 'veo3-pro:xxx',
+        videoUrl: 'https://...',
+        downloadUrl: 'https://...',
+      },
+    },
+  })
+  async generateVeoVideo(@Body() dto: VeoGenerateVideoDto): Promise<VeoVideoResponseDto> {
+    this.logger.log(`🎬 [PUBLIC] VEO video generation: model=${dto.model}, prompt=${dto.prompt.substring(0, 50)}...`);
+
+    // 验证：veo3-pro-frames 需要图片
+    if (dto.model === 'veo3-pro-frames' && !dto.referenceImageUrl) {
+      return {
+        success: false,
+        error: 'veo3-pro-frames 模式需要提供 referenceImageUrl 参数',
+      };
+    }
+
+    if (dto.model !== 'veo3-pro-frames' && dto.referenceImageUrl) {
+      this.logger.warn(`Model ${dto.model} does not support image input, ignoring referenceImageUrl`);
+    }
+
+    const result = await this.veoVideoService.generateVideo({
+      prompt: dto.prompt,
+      model: dto.model,
+      referenceImageUrl: dto.model === 'veo3-pro-frames' ? dto.referenceImageUrl : undefined,
+    });
+
+    return result;
   }
 }

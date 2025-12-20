@@ -94,8 +94,8 @@ async function bootstrap() {
   
   // 动态检查 origin，允许 trycloudflare.com 的所有子域名（用于内网穿透）
   const originCallback = (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
-    // 如果没有 origin（如同源请求），允许
-    if (!origin) {
+    // 如果没有 origin（如同源请求）或 file://（origin 为 "null"），允许
+    if (!origin || origin === 'null') {
       callback(null, true);
       return;
     }

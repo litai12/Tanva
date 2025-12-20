@@ -1,5 +1,7 @@
 # 图生视频（chat格式）
 
+> Base URL：`https://api1.147ai.com`（端点：`POST /v1/chat/completions`，`Authorization: Bearer <API_KEY>`）
+
 ## OpenAPI Specification
 
 ```yaml
