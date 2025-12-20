@@ -38,7 +38,7 @@ import type { Model3DData } from '@/services/model3DUploadService';
 import { clientToProject } from '@/utils/paperCoords';
 import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
 import { applyCursorForDrawMode } from '@/utils/cursorStyles';
-import { usePersonalLibraryStore, createPersonalAssetId, type PersonalSvgAsset } from '@/stores/personalLibraryStore';
+import { usePersonalLibraryStore, createPersonalAssetId, type PersonalImageAsset, type PersonalSvgAsset } from '@/stores/personalLibraryStore';
 import { personalLibraryApi } from '@/services/personalLibraryApi';
 import { imageUploadService } from '@/services/imageUploadService';
 
@@ -97,6 +97,37 @@ const fileToDataURL = (file: File): Promise<string> => {
   });
 };
 
+const normalizeImageFileName = (fileNameCandidate: unknown, contentTypeCandidate: unknown): string => {
+  const candidate =
+    typeof fileNameCandidate === 'string' && fileNameCandidate.trim().length > 0 ? fileNameCandidate.trim() : '';
+  const contentType =
+    typeof contentTypeCandidate === 'string' && contentTypeCandidate.trim().length > 0 ? contentTypeCandidate.trim() : '';
+
+  const extFromType = (() => {
+    const lower = contentType.toLowerCase();
+    if (lower.includes('image/png')) return '.png';
+    if (lower.includes('image/jpeg') || lower.includes('image/jpg')) return '.jpg';
+    if (lower.includes('image/webp')) return '.webp';
+    if (lower.includes('image/gif')) return '.gif';
+    if (lower.includes('image/svg+xml')) return '.svg';
+    return '';
+  })();
+
+  const hasExt = /\.[a-z0-9]+$/i.test(candidate);
+  if (candidate) {
+    if (hasExt) {
+      if (extFromType && !candidate.toLowerCase().endsWith(extFromType)) {
+        return candidate.replace(/\.[a-z0-9]+$/i, extFromType);
+      }
+      return candidate;
+    }
+    return extFromType ? `${candidate}${extFromType}` : `${candidate}.png`;
+  }
+
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+  return `image_${timestamp}${extFromType || '.png'}`;
+};
+
 const seemsImageUrl = (text: string): boolean => {
   if (!text || !/^https?:\/\//i.test(text)) return false;
   if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(text)) return true;
@@ -125,6 +156,14 @@ const fetchImagePayload = async (url: string): Promise<string> => {
     // ignore fetch errors and fall back to raw URL
   }
   return payload;
+};
+
+const looksLikeSvgMarkup = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('<svg')) return true;
+  if (trimmed.startsWith('<?xml') && trimmed.includes('<svg')) return true;
+  return trimmed.includes('<svg');
 };
 
 const CANVAS_CLIPBOARD_MIME = 'application/x-tanva-canvas';
@@ -253,7 +292,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   }, []);
 
   // 确保绘图图层存在并激活
-  const ensureDrawingLayer = () => {
+  const ensureDrawingLayer = useCallback(() => {
     // 首先检查 Paper.js 项目状态
     if (!paper || !paper.project || !paper.view) {
       console.warn('⚠️ Paper.js项目未初始化，尝试恢复...');
@@ -284,7 +323,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return null;
       }
     }
-  };
+  }, []);
 
   // ========== 初始化绘图上下文 ==========
   const drawingContext: DrawingContext = {
@@ -508,6 +547,92 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return () => window.removeEventListener('paste', handlePaste);
   }, [uploadImageToCanvas]);
 
+  const fetchSvgText = useCallback(async (url: string): Promise<string | null> => {
+    const tryFetch = async (init?: RequestInit) => {
+      try {
+        const res = await fetch(url, init);
+        if (!res.ok) return null;
+        const text = await res.text();
+        return looksLikeSvgMarkup(text) ? text : null;
+      } catch {
+        return null;
+      }
+    };
+
+    return (
+      (await tryFetch({ mode: 'cors', credentials: 'include' })) ||
+      (await tryFetch({ mode: 'cors' })) ||
+      (await tryFetch())
+    );
+  }, []);
+
+  const resolveSvgContent = useCallback(async (asset: any): Promise<string | null> => {
+    const inline = typeof asset?.svgContent === 'string' ? asset.svgContent.trim() : '';
+    if (inline) return inline;
+
+    const id = typeof asset?.id === 'string' ? asset.id : '';
+    if (id) {
+      const stored = usePersonalLibraryStore
+        .getState()
+        .assets.find((item) => item.type === 'svg' && item.id === id) as PersonalSvgAsset | undefined;
+      const storedSvg = typeof stored?.svgContent === 'string' ? stored.svgContent.trim() : '';
+      if (storedSvg) return storedSvg;
+    }
+
+    const url = typeof asset?.url === 'string' ? asset.url.trim() : '';
+    if (url) {
+      return await fetchSvgText(url);
+    }
+
+    return null;
+  }, [fetchSvgText]);
+
+  const insertSvgAssetToCanvas = useCallback(async (asset: any, position?: { x: number; y: number }) => {
+    if (!paper?.project || !paper?.view) return;
+    const svgContent = await resolveSvgContent(asset);
+    if (!svgContent) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 内容为空或无法读取', type: 'error' } }));
+      return;
+    }
+
+    ensureDrawingLayer();
+    try {
+      useLayerStore.getState().ensureActiveLayer();
+    } catch {}
+
+    const targetPoint = position
+      ? new paper.Point(position.x, position.y)
+      : paper.view?.center
+        ? new paper.Point(paper.view.center.x, paper.view.center.y)
+        : new paper.Point(0, 0);
+
+    try {
+      const imported = paper.project.importSVG(svgContent, {
+        insert: false,
+        expandShapes: true,
+        applyMatrix: true,
+      }) as paper.Item;
+
+      paper.project.activeLayer.addChild(imported);
+      imported.position = targetPoint;
+      try { imported.bringToFront(); } catch {}
+
+      try {
+        const paths = imported.getItems({ class: paper.Path } as any) as paper.Path[];
+        paths.forEach((path) => {
+          const strokeWidth = path.strokeWidth ?? 1;
+          path.data = { ...(path.data || {}), originalStrokeWidth: strokeWidth };
+        });
+      } catch {}
+
+      paper.view.update();
+      paperSaveService.triggerAutoSave();
+    } catch (error) {
+      console.warn('导入 SVG 失败:', error);
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 导入失败', type: 'error' } }));
+    }
+  }, [ensureDrawingLayer, resolveSvgContent]);
+
   // ========== 拖拽图片到画布 ==========
   useEffect(() => {
     const isEventInsideCanvas = (event: DragEvent) => {
@@ -543,6 +668,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (!dt) return;
 
         const projectPoint = clientToProject(canvas, event.clientX, event.clientY);
+        const tanvaAssetData = dt.getData('application/x-tanva-asset');
+        if (tanvaAssetData) {
+          try {
+            const parsed = JSON.parse(tanvaAssetData);
+            if (parsed?.type === 'svg' && parsed?.url) {
+              event.preventDefault();
+              event.stopPropagation();
+              await insertSvgAssetToCanvas(parsed, { x: projectPoint.x, y: projectPoint.y });
+              return;
+            }
+          } catch (error) {
+            console.warn('解析拖拽 SVG 数据失败:', error);
+          }
+        }
         const imageFiles = Array.from(dt.files || []).filter((file) => file.type && file.type.startsWith('image/'));
 
         if (imageFiles.length > 0) {
@@ -580,7 +719,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [canvasRef, uploadImageToCanvas]);
+  }, [canvasRef, insertSvgAssetToCanvas, uploadImageToCanvas]);
+
+  useEffect(() => {
+    const handleInsertSvg = (event: CustomEvent) => {
+      const detail = event.detail as any;
+      const asset = detail?.asset;
+      if (!asset) return;
+      void insertSvgAssetToCanvas(asset, detail?.position);
+    };
+
+    window.addEventListener('canvas:insert-svg', handleInsertSvg as EventListener);
+    return () => window.removeEventListener('canvas:insert-svg', handleInsertSvg as EventListener);
+  }, [insertSvgAssetToCanvas]);
 
   // ========== 监听AI生成图片的快速上传触发事件 ==========
   useEffect(() => {
@@ -2211,6 +2362,110 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 添加选中的路径到个人库（转换为SVG）
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
 
+  const handleAddImageToLibrary = useCallback(async (imageId: string) => {
+    const instance = imageTool.imageInstances.find((img) => img.id === imageId);
+    if (!instance) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '未找到图像，无法添加到库', type: 'error' }
+      }));
+      return;
+    }
+
+    const source = extractAnyImageSource(instance.imageData);
+    if (!source) {
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '无法获取图像数据，无法添加到库', type: 'error' }
+      }));
+      return;
+    }
+
+    try {
+      let uploadedUrl: string | null = null;
+      let uploadedMeta: { width?: number; height?: number; fileName?: string; contentType?: string } | null = null;
+      let fileSize: number | undefined;
+
+      try {
+        let credentials: RequestCredentials | undefined;
+        if (source.startsWith('http')) {
+          try {
+            const origin = new URL(source).origin;
+            credentials = origin === window.location.origin ? 'include' : 'omit';
+          } catch {
+            credentials = 'omit';
+          }
+        }
+
+        const response = await fetch(source, credentials ? { credentials } : undefined);
+        if (response.ok) {
+          const blob = await response.blob();
+          const fileName = normalizeImageFileName(
+            instance.imageData?.fileName,
+            blob.type || instance.imageData?.contentType
+          );
+          const file = new File([blob], fileName, {
+            type: blob.type || instance.imageData?.contentType || 'image/png',
+          });
+          fileSize = file.size;
+          const uploadResult = await imageUploadService.uploadImageFile(file, {
+            dir: 'uploads/personal-library/images/',
+          });
+          if (uploadResult.success && uploadResult.asset?.url) {
+            uploadedUrl = uploadResult.asset.url;
+            uploadedMeta = {
+              width: uploadResult.asset.width,
+              height: uploadResult.asset.height,
+              fileName: uploadResult.asset.fileName ?? file.name,
+              contentType: uploadResult.asset.contentType ?? file.type,
+            };
+          }
+        }
+      } catch (error) {
+        logger.debug('图片发送到库：上传失败，尝试降级为直接引用URL', error);
+      }
+
+      // 兜底：上传失败时，若已有远程 URL，直接用原 URL
+      const finalUrl = uploadedUrl || (source.startsWith('http') ? source : null);
+      if (!finalUrl) {
+        throw new Error('无法获得可持久化的图像地址');
+      }
+
+      const assetId = createPersonalAssetId('pl2d');
+      const now = Date.now();
+      const fileName = normalizeImageFileName(
+        uploadedMeta?.fileName || instance.imageData?.fileName,
+        uploadedMeta?.contentType || instance.imageData?.contentType
+      );
+      const imageAsset: PersonalImageAsset = {
+        id: assetId,
+        type: '2d',
+        name: fileName.replace(/\.[^/.]+$/, '') || '未命名图片',
+        url: finalUrl,
+        thumbnail: finalUrl,
+        width: uploadedMeta?.width ?? instance.imageData?.width,
+        height: uploadedMeta?.height ?? instance.imageData?.height,
+        fileName,
+        fileSize,
+        contentType: uploadedMeta?.contentType ?? instance.imageData?.contentType,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      addAsset(imageAsset);
+      void personalLibraryApi.upsert(imageAsset).catch((error) => {
+        console.warn('[PersonalLibrary] 同步图片资源到后端失败:', error);
+      });
+
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '已添加到个人库', type: 'success' }
+      }));
+    } catch (error) {
+      console.error('添加到库失败:', error);
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '添加到库失败，请重试', type: 'error' }
+      }));
+    }
+  }, [addAsset, imageTool.imageInstances]);
+
   const handleAddPathsToLibrary = useCallback(async () => {
     // 收集所有选中的路径
     const pathsToExport: paper.Path[] = [];
@@ -2631,6 +2886,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           onClick: () => handleDownloadImage(targetId),
         },
         {
+          label: '添加到库',
+          icon: <FolderPlus className="w-4 h-4" />,
+          onClick: () => { void handleAddImageToLibrary(targetId); },
+        },
+        {
           label: '上移一层',
           icon: <ArrowUp className="w-4 h-4" />,
           onClick: () => handleImageLayerMoveUp(targetId),
@@ -2680,6 +2940,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     contextMenuState,
     handleCanvasCopy,
     handleCanvasPaste,
+    handleAddImageToLibrary,
     handleDeleteSelection,
     handleDownloadImage,
     handleImageLayerMoveDown,

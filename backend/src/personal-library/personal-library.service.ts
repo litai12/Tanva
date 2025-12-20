@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OssService } from '../oss/oss.service';
 
-export type PersonalLibraryAssetType = '2d' | '3d';
+export type PersonalLibraryAssetType = '2d' | '3d' | 'svg';
 
 export type PersonalLibraryAsset = {
   id: string;
@@ -16,6 +16,8 @@ export type PersonalLibraryAsset = {
   updatedAt: number;
   width?: number;
   height?: number;
+  // SVG specific
+  svgContent?: string;
   // 3D specific
   format?: string;
   key?: string;
@@ -46,6 +48,7 @@ const ALLOWED_KEYS: Array<keyof PersonalLibraryAsset> = [
   'updatedAt',
   'width',
   'height',
+  'svgContent',
   'format',
   'key',
   'path',
@@ -70,7 +73,7 @@ function toNonEmptyString(value: unknown): string | undefined {
 }
 
 function isAssetType(value: unknown): value is PersonalLibraryAssetType {
-  return value === '2d' || value === '3d';
+  return value === '2d' || value === '3d' || value === 'svg';
 }
 
 @Injectable()
@@ -88,7 +91,7 @@ export class PersonalLibraryService {
     const name = toNonEmptyString(input.name) || '未命名资源';
 
     if (!id) throw new BadRequestException('asset.id 不能为空');
-    if (!isAssetType(typeRaw)) throw new BadRequestException('asset.type 必须为 2d 或 3d');
+    if (!isAssetType(typeRaw)) throw new BadRequestException('asset.type 必须为 2d、3d 或 svg');
     if (!url) throw new BadRequestException('asset.url 不能为空');
 
     const base: PersonalLibraryAsset = {

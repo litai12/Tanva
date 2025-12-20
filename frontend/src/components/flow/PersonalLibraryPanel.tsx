@@ -299,27 +299,22 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
     }
 
     if (asset.type === 'svg') {
-      // SVG 作为图片发送到画布
       const svgAsset = asset as PersonalSvgAsset;
       const displayFileName = svgAsset.fileName || `${svgAsset.name}.svg`;
 
-      // 直接使用远程 URL，不需要转换为 dataUrl
-      const payload: StoredImageAsset = {
-        id: svgAsset.id,
-        url: svgAsset.url,
-        src: svgAsset.url,
-        fileName: displayFileName,
-        width: svgAsset.width,
-        height: svgAsset.height,
-        contentType: 'image/svg+xml',
-      };
-
       window.dispatchEvent(
-        new CustomEvent('triggerQuickImageUpload', {
+        new CustomEvent('canvas:insert-svg', {
           detail: {
-            imageData: payload,
             fileName: displayFileName,
-            operationType: 'manual',
+            asset: {
+              id: svgAsset.id,
+              url: svgAsset.url,
+              svgContent: svgAsset.svgContent,
+              width: svgAsset.width,
+              height: svgAsset.height,
+              name: svgAsset.name,
+              fileName: displayFileName,
+            },
           },
         })
       );

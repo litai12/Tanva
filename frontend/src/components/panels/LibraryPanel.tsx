@@ -280,33 +280,22 @@ const LibraryPanel: React.FC = () => {
     }
 
     if (asset.type === 'svg') {
-      // SVG 作为图片发送到画布
       const svgAsset = asset as PersonalSvgAsset;
       const displayFileName = svgAsset.fileName || `${svgAsset.name}.svg`;
 
-      console.log('[LibraryPanel] 发送 SVG 到画布:', {
-        id: svgAsset.id,
-        url: svgAsset.url,
-        width: svgAsset.width,
-        height: svgAsset.height,
-      });
-
-      const payload: StoredImageAsset = {
-        id: svgAsset.id,
-        url: svgAsset.url,
-        src: svgAsset.url,
-        fileName: displayFileName,
-        width: svgAsset.width,
-        height: svgAsset.height,
-        contentType: 'image/svg+xml',
-      };
-
       window.dispatchEvent(
-        new CustomEvent('triggerQuickImageUpload', {
+        new CustomEvent('canvas:insert-svg', {
           detail: {
-            imageData: payload,
             fileName: displayFileName,
-            operationType: 'manual',
+            asset: {
+              id: svgAsset.id,
+              url: svgAsset.url,
+              svgContent: svgAsset.svgContent,
+              width: svgAsset.width,
+              height: svgAsset.height,
+              name: svgAsset.name,
+              fileName: displayFileName,
+            },
           },
         })
       );
@@ -357,6 +346,20 @@ const LibraryPanel: React.FC = () => {
         camera: modelAsset.camera,
         fileSize: modelAsset.fileSize,
         updatedAt: modelAsset.updatedAt,
+      }));
+    } else if (asset.type === 'svg') {
+      const svgAsset = asset as PersonalSvgAsset;
+      event.dataTransfer.setData('text/uri-list', svgAsset.url);
+      event.dataTransfer.setData('text/plain', svgAsset.url);
+      event.dataTransfer.setData('application/x-tanva-asset', JSON.stringify({
+        type: 'svg',
+        id: svgAsset.id,
+        url: svgAsset.url,
+        name: svgAsset.name,
+        fileName: svgAsset.fileName,
+        width: svgAsset.width,
+        height: svgAsset.height,
+        svgContent: svgAsset.svgContent,
       }));
     }
     event.dataTransfer.effectAllowed = 'copy';

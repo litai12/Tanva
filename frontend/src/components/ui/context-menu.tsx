@@ -47,7 +47,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ items, x, y, onClose }) => {
     return createPortal(
         <div
             ref={menuRef}
-            className="fixed z-[9999] bg-glass-light backdrop-blur-md rounded-xl shadow-glass border border-glass py-1 min-w-[140px]"
+            className="fixed z-[9999] bg-white rounded-xl shadow-lg border border-slate-200 py-1 min-w-[140px]"
             style={{
                 left: x,
                 top: y,
@@ -59,7 +59,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ items, x, y, onClose }) => {
                     className={`w-[calc(100%-0.5rem)] mx-1 my-0.5 text-left px-3 py-2 text-sm flex items-center gap-2 rounded-lg transition-colors ${
                         item.disabled
                             ? 'opacity-45 cursor-not-allowed'
-                            : 'cursor-pointer hover:bg-slate-100/80'
+                            : 'cursor-pointer hover:bg-slate-100'
                     }`}
                     onClick={() => {
                         if (!item.disabled) {
