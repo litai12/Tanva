@@ -300,6 +300,7 @@ input[type="text"],
 
 /* Image 类型句柄 - 黄色 */
 .tanva-flow-overlay .react-flow__handle[data-handleid="img"],
+.tanva-flow-overlay .react-flow__handle[data-handleid="image"],
 .tanva-flow-overlay .react-flow__handle[data-handleid="image1"],
 .tanva-flow-overlay .react-flow__handle[data-handleid="image2"],
 .tanva-flow-overlay .react-flow__handle[data-handleid="refer"] {

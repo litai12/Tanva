@@ -33,7 +33,7 @@ import aiImageService from "@/services/aiImageService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
-import { isRaster } from "@/utils/paperCoords";
+import { isGroup, isRaster } from "@/utils/paperCoords";
 
 const HD_UPSCALE_RESOLUTION: "4k" = "4k";
 const EXPAND_PRESET_PROMPT = "帮我扩展这张图的内容，填充周边空白区域";
@@ -276,7 +276,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         )
       )[0];
 
-      if (imageGroup instanceof paper.Group) {
+      if (isGroup(imageGroup)) {
         const raster = imageGroup.children.find(
           (child) => isRaster(child)
         ) as paper.Raster;

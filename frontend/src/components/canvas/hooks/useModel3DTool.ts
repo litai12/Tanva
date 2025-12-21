@@ -8,6 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { paperSaveService } from '@/services/paperSaveService';
 import { historyService } from '@/services/historyService';
+import { isGroup } from '@/utils/paperCoords';
 import type { 
   Model3DInstance, 
   Model3DToolEventHandlers,
@@ -354,7 +355,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           )
         )[0];
 
-        if (modelGroup instanceof paper.Group) {
+        if (isGroup(modelGroup)) {
           const deltaX = newPosition.x - model.bounds.x;
           const deltaY = newPosition.y - model.bounds.y;
 
@@ -416,7 +417,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
           )
         )[0];
 
-        if (modelGroup instanceof paper.Group && modelGroup.children.length > 0) {
+        if (isGroup(modelGroup) && modelGroup.children.length > 0) {
           // 更新组的边界
           const rect = new paper.Rectangle(
             newBounds.x,

@@ -8,7 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
-import { isRaster } from '@/utils/paperCoords';
+import { isGroup, isRaster } from '@/utils/paperCoords';
 import type {
   ImageInstance,
   ImageDragState,
@@ -344,7 +344,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   // ========== 添加图片选择元素 ==========
   const addImageSelectionElements = useCallback((raster: paper.Raster, bounds: paper.Rectangle, imageId: string) => {
     const parentGroup = raster.parent;
-    if (!(parentGroup instanceof paper.Group)) return;
+    if (!isGroup(parentGroup)) return;
 
     // 添加选择框（默认隐藏）
     const selectionBorder = new paper.Path.Rectangle({
@@ -436,7 +436,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       )
     )[0];
 
-    if (imageGroup instanceof paper.Group) {
+    if (isGroup(imageGroup) || isRaster(imageGroup)) {
       // 获取图片所在的图层
       const currentLayer = imageGroup.layer;
       if (currentLayer) {
@@ -460,7 +460,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         )
       )[0];
 
-      if (imageGroup instanceof paper.Group) {
+      if (isGroup(imageGroup)) {
         imageGroup.children.forEach(child => {
           if (child.data?.isSelectionBorder || child.data?.isResizeHandle) {
             child.visible = isSelected;
@@ -547,11 +547,11 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             )
           )[0];
 
-          if (imageGroup instanceof paper.Group) {
+          if (isGroup(imageGroup)) {
             // 获取实际的Raster对象来获取真实尺寸
             // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
             const raster = imageGroup.children.find(child => isRasterItem(child));
-            const actualBounds = raster ? raster.bounds : null;
+            const actualBounds = raster ? raster.bounds : imageGroup.bounds;
 
             if (actualBounds) {
               // 使用实际的图片尺寸而不是React状态中的尺寸
@@ -561,12 +561,13 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
               // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
               imageGroup.children.forEach(child => {
                 if (isRasterItem(child)) {
-                  // 保持原始尺寸，只改变位置
-                  const newCenter = new paper.Point(
-                    newPosition.x + actualWidth / 2,
-                    newPosition.y + actualHeight / 2
+                  // 使用 bounds 而不是 position，避免云端环境下 position 设置不生效的问题
+                  child.bounds = new paper.Rectangle(
+                    newPosition.x,
+                    newPosition.y,
+                    actualWidth,
+                    actualHeight
                   );
-                  child.position = newCenter;
                 } else if (child.data?.isSelectionBorder) {
                   // 设置选择框的绝对位置和尺寸（使用实际图片尺寸）
                   child.bounds = new paper.Rectangle(
@@ -611,6 +612,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
               paper.view.update();
             }
+          } else if (isRaster(imageGroup)) {
+            const actualWidth = imageGroup.bounds.width;
+            const actualHeight = imageGroup.bounds.height;
+            imageGroup.position = new paper.Point(
+              newPosition.x + actualWidth / 2,
+              newPosition.y + actualHeight / 2
+            );
+            try { paper.view.update(); } catch {}
           }
         }
 
@@ -639,7 +648,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       )
     )[0];
 
-    if (imageGroup instanceof paper.Group) {
+    if (isGroup(imageGroup)) {
       // 找到图片Raster元素并调整大小和位置
       // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
       const raster = imageGroup.children.find(child => isRasterItem(child));
@@ -695,6 +704,15 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           child.position = new paper.Point(handlePosition[0], handlePosition[1]);
         }
       });
+      try { paper.view.update(); } catch {}
+    } else if (isRaster(imageGroup)) {
+      imageGroup.bounds = new paper.Rectangle(
+        newBounds.x,
+        newBounds.y,
+        newBounds.width,
+        newBounds.height
+      );
+      try { paper.view.update(); } catch {}
     }
 
     // 简化React状态更新
