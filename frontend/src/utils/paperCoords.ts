@@ -38,3 +38,39 @@ export function projectRectToClient(canvas: HTMLCanvasElement, rectInProject: pa
   const br = projectToClient(canvas, rectInProject.bottomRight);
   return { left: tl.x, top: tl.y, width: br.x - tl.x, height: br.y - tl.y };
 }
+
+/**
+ * 检查 Paper.js Item 是否为 Raster 类型
+ * 兼容生产环境代码压缩后 instanceof 失效的问题
+ */
+export function isRaster(item: paper.Item | null | undefined): item is paper.Raster {
+  if (!item) return false;
+  return item.className === 'Raster' || item instanceof paper.Raster;
+}
+
+/**
+ * 检查 Paper.js Item 是否为 Path 类型
+ * 兼容生产环境代码压缩后 instanceof 失效的问题
+ */
+export function isPath(item: paper.Item | null | undefined): item is paper.Path {
+  if (!item) return false;
+  return item.className === 'Path' || item instanceof paper.Path;
+}
+
+/**
+ * 检查 Paper.js Item 是否为 PointText 类型
+ * 兼容生产环境代码压缩后 instanceof 失效的问题
+ */
+export function isPointText(item: paper.Item | null | undefined): item is paper.PointText {
+  if (!item) return false;
+  return item.className === 'PointText' || item instanceof paper.PointText;
+}
+
+/**
+ * 检查 Paper.js Item 是否为 Group 类型
+ * 兼容生产环境代码压缩后 instanceof 失效的问题
+ */
+export function isGroup(item: paper.Item | null | undefined): item is paper.Group {
+  if (!item) return false;
+  return item.className === 'Group' || item instanceof paper.Group;
+}

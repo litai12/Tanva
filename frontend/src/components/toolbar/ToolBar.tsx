@@ -10,6 +10,7 @@ import { useAIChatStore } from '@/stores/aiChatStore';
 import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
+import { isRaster } from '@/utils/paperCoords';
 
 const ENABLE_SCREENSHOT_TOOL = false;
 
@@ -352,7 +353,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         )[0];
 
         if (imageGroup) {
-          const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+          const raster = imageGroup.children.find(child => isRaster(child)) as paper.Raster;
           if (raster && raster.canvas) {
             const imageData = raster.canvas.toDataURL('image/png');
             setSourceImageForEditing(imageData);

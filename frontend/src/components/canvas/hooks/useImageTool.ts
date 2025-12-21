@@ -8,6 +8,7 @@ import paper from 'paper';
 import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
+import { isRaster } from '@/utils/paperCoords';
 import type {
   ImageInstance,
   ImageDragState,
@@ -415,7 +416,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
       if (!imageGroup) return null;
 
-      const raster = imageGroup.children.find(child => child instanceof paper.Raster) as paper.Raster;
+      const raster = imageGroup.children.find(child => isRaster(child)) as paper.Raster;
       if (!raster || !raster.canvas) return null;
 
       // 将canvas转换为base64（已缩放，可能质量较低）
@@ -718,7 +719,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           match: (item: any) => {
             const d = item?.data || {};
             const isImageGroup = d.type === 'image' && d.imageId === imageId;
-            const isRasterWithId = (item instanceof paper.Raster) && (d.imageId === imageId);
+            const isRasterWithId = isRaster(item) && (d.imageId === imageId);
             return isImageGroup || isRasterWithId;
           }
         }) as paper.Item[];

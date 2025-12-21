@@ -4,6 +4,7 @@
  */
 
 import paper from 'paper';
+import { isRaster, isPath, isPointText } from '@/utils/paperCoords';
 import type { ImageInstance, Model3DInstance } from '@/types/canvas';
 
 export interface Bounds {
@@ -238,12 +239,12 @@ export class BoundsCalculator {
         // 组：不直接使用组的边界，逐个遍历可见子项，避免隐形子项扩大边界
         for (const child of item.children) visit(child);
       } else if (
-        item instanceof paper.Path ||
-        item instanceof paper.Raster ||
-        item instanceof paper.PointText
+        isPath(item) ||
+        isRaster(item) ||
+        isPointText(item)
       ) {
         // 对 Path，如既无描边也无填充，视为不可见
-        if (item instanceof paper.Path) {
+        if (isPath(item)) {
           const hasStroke = !!(item as any).strokeColor && (item as any).strokeWidth !== 0;
           const hasFill = !!(item as any).fillColor;
           if (!hasStroke && !hasFill) return;
@@ -323,7 +324,7 @@ export class BoundsCalculator {
         }
       } else if (child instanceof paper.Group) {
         this.collectGroupBounds(child, allBounds);
-      } else if (child instanceof paper.Raster && !child.data?.isHelper) {
+      } else if (isRaster(child) && !child.data?.isHelper) {
         if (child.bounds && this.isValidBounds(child.bounds)) {
           allBounds.push({
             x: child.bounds.x,

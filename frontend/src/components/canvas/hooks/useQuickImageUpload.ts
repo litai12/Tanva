@@ -11,6 +11,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { imageUploadService } from '@/services/imageUploadService';
+import { isRaster } from '@/utils/paperCoords';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
 
 interface UseQuickImageUploadProps {
@@ -153,9 +154,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
                         if (item instanceof paper.Group) {
                             // 从组中找到Raster对象
-                            raster = item.children.find(child => child instanceof paper.Raster) as paper.Raster;
+                            raster = item.children.find(child => isRaster(child)) as paper.Raster;
                             bounds = raster?.bounds || item.bounds;
-                        } else if (item instanceof paper.Raster) {
+                        } else if (isRaster(item)) {
                             raster = item;
                             bounds = item.bounds;
                         }

@@ -33,6 +33,7 @@ import aiImageService from "@/services/aiImageService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
+import { isRaster } from "@/utils/paperCoords";
 
 const HD_UPSCALE_RESOLUTION: "4k" = "4k";
 const EXPAND_PRESET_PROMPT = "帮我扩展这张图的内容，填充周边空白区域";
@@ -277,7 +278,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       if (imageGroup instanceof paper.Group) {
         const raster = imageGroup.children.find(
-          (child) => child instanceof paper.Raster
+          (child) => isRaster(child)
         ) as paper.Raster;
         if (raster && raster.bounds && isFinite(raster.bounds.x)) {
           // 获取实际的边界信息，确保数值有效
@@ -448,7 +449,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
     if (imageGroup) {
       const raster = imageGroup.children.find(
-        (child) => child instanceof paper.Raster
+        (child) => isRaster(child)
       ) as paper.Raster;
       if (raster && raster.canvas) {
         const canvasData = raster.canvas.toDataURL("image/png");
@@ -721,7 +722,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           let rasterSource: string | null = null;
           if (imageGroup) {
             const raster = imageGroup.children.find(
-              (child) => child instanceof paper.Raster
+              (child) => isRaster(child)
             ) as paper.Raster | undefined;
             if (raster && raster.source) {
               rasterSource =

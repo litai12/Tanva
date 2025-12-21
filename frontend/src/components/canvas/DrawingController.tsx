@@ -16,6 +16,7 @@ import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
+import { isRaster } from '@/utils/paperCoords';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
 import ContextMenu from '@/components/ui/context-menu';
 
@@ -1366,9 +1367,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             const group = item instanceof paper.Group ? item : null;
             const raster = group
               ? ((group.children || []).find(
-                  (child: any) => child && (child.className === 'Raster' || child instanceof paper.Raster)
+                  (child: any) => child && isRaster(child)
                 ) as paper.Raster | undefined)
-              : item instanceof paper.Raster
+              : isRaster(item)
                 ? (item as paper.Raster)
                 : undefined;
 

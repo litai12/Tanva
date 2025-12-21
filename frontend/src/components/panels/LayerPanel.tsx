@@ -8,6 +8,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import ContextMenu from '../ui/context-menu';
+import { isRaster } from '@/utils/paperCoords';
 
 interface LayerItemData {
     id: string;
@@ -754,7 +755,7 @@ const LayerPanel: React.FC = () => {
 
         try {
             // 找到图像的Raster对象
-            const raster = item.paperItem.children?.find(child => child instanceof paper.Raster) as paper.Raster;
+            const raster = item.paperItem.children?.find(child => isRaster(child)) as paper.Raster;
             if (raster && raster.canvas) {
                 const imageData = raster.canvas.toDataURL('image/png');
                 setSourceImageForEditing(imageData);
