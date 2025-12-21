@@ -209,6 +209,7 @@ type Sora2VideoHistoryItem = {
   prompt: string;
   quality: Sora2VideoQuality;
   createdAt: string;
+  elapsedSeconds?: number;
 };
 
 type AddPanelTab = 'nodes' | 'beta' | 'custom' | 'templates' | 'personal';
@@ -2119,6 +2120,7 @@ function FlowInner() {
         .slice(0, SORA2_MAX_REFERENCE_IMAGES);
       const referenceImages = collectImages(imageEdges);
 
+      const generationStartMs = Date.now();
       const referenceImageUrls: string[] = [];
       if (referenceImages.length) {
         try {
@@ -2181,6 +2183,7 @@ function FlowInner() {
           if (n.id !== nodeId) return n;
           const previousData = (n.data as any) || {};
           const nextThumbnail = videoResult.thumbnailUrl || previousData.thumbnail;
+          const elapsedSeconds = Math.max(1, Math.round((Date.now() - generationStartMs) / 1000));
           const historyEntry: Sora2VideoHistoryItem = {
             id: `sora2-history-${Date.now()}`,
             videoUrl: videoResult.videoUrl,
@@ -2188,6 +2191,7 @@ function FlowInner() {
             prompt: finalPromptText,
             quality: videoQuality,
             createdAt: new Date().toISOString(),
+            elapsedSeconds,
           };
           return {
             ...n,
@@ -2887,7 +2891,8 @@ function FlowInner() {
     const left = rect ? rect.width / 2 : window.innerWidth / 2;
     const top = rect ? rect.height / 2 : window.innerHeight / 2;
     // 始终在视窗（容器）中心显示：用 translate(-50%, -50%) 校正为居中
-    return { position: 'absolute', left, top, transform: 'translate(-50%, -50%)', zIndex: 20 } as React.CSSProperties;
+    // z-index 设为 100，确保在 AI 对话框（z-50）之上
+    return { position: 'absolute', left, top, transform: 'translate(-50%, -50%)', zIndex: 100 } as React.CSSProperties;
   }, [addPanel.visible]);
 
   const handleContainerDoubleClick = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {

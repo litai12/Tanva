@@ -291,8 +291,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isSelectionMenuOpen, isDrawingMenuOpen]);
 
-  // 专注模式或 AI 对话框最大化时隐藏工具栏
-  if (focusMode || isAIChatMaximized) {
+  // AI 对话框最大化时隐藏工具栏（专注模式下保留工具栏）
+  if (isAIChatMaximized) {
     return null;
   }
 

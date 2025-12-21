@@ -31,6 +31,7 @@ type Sora2VideoHistoryItem = {
   prompt: string;
   quality: Sora2VideoQuality;
   createdAt: string;
+  elapsedSeconds?: number;
 };
 
 type DownloadFeedback = {
@@ -751,11 +752,18 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: '#475569' }}>
-                  <span>#{index + 1} · {item.quality.toUpperCase()} · {formatHistoryTime(item.createdAt)}</span>
+                  <span>
+                    #{index + 1} · {item.quality.toUpperCase()} · {formatHistoryTime(item.createdAt)}
+                  </span>
                   {isActive && (
                     <span style={{ fontSize: 10, color: '#1d4ed8', fontWeight: 600 }}>当前</span>
                   )}
                 </div>
+                {typeof item.elapsedSeconds === 'number' && (
+                  <div style={{ fontSize: 11, color: '#475569' }}>
+                    耗时 {item.elapsedSeconds}s
+                  </div>
+                )}
                 <div style={{ fontSize: 11, color: '#0f172a' }}>
                   {truncatePrompt(item.prompt)}
                 </div>

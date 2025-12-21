@@ -100,6 +100,8 @@ export const useSelectionTool = ({
 
   // 选择路径并启用编辑模式
   const handlePathSelect = useCallback((path: paper.Path, preserveExisting: boolean = false) => {
+    const isImageGroupBlock = path?.data?.type === 'image-group';
+
     // 取消之前选中的路径
     if (!preserveExisting && selectedPath && selectedPath !== path) {
       selectedPath.selected = false;
@@ -108,6 +110,17 @@ export const useSelectionTool = ({
       if ((selectedPath as any).originalStrokeWidth) {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
       }
+    }
+
+    if (isImageGroupBlock) {
+      // 图片组块：允许命中/拖拽，但不显示 Paper.js 默认蓝色选择框/控制点
+      try {
+        path.selected = false;
+        path.fullySelected = false;
+      } catch {}
+      setSelectedPath(path);
+      logger.debug('选择图片组块（无控制框）:', path);
+      return;
     }
 
     // 选中新路径并启用编辑模式
@@ -128,10 +141,11 @@ export const useSelectionTool = ({
   // 取消路径选择
   const handlePathDeselect = useCallback(() => {
     if (selectedPath) {
+      const isImageGroupBlock = selectedPath?.data?.type === 'image-group';
       selectedPath.selected = false;
       selectedPath.fullySelected = false;
       // 恢复原始线宽
-      if ((selectedPath as any).originalStrokeWidth) {
+      if (!isImageGroupBlock && (selectedPath as any).originalStrokeWidth) {
         selectedPath.strokeWidth = (selectedPath as any).originalStrokeWidth;
       }
       setSelectedPath(null);

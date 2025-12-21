@@ -14,6 +14,7 @@ import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { logger } from '@/utils/logger';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
+import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import { isRaster } from '@/utils/paperCoords';
@@ -1642,11 +1643,69 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return Array.from(set);
   }, [selectionTool.selectedPath, selectionTool.selectedPaths, selectedTextItems]);
 
+  const selectedGroupBlocks = useMemo(() => {
+    const items: paper.Path[] = [];
+    const push = (path: paper.Path | null | undefined) => {
+      if (!path) return;
+      if (path.data?.type !== 'image-group') return;
+      items.push(path);
+    };
+    push(selectionTool.selectedPath);
+    (selectionTool.selectedPaths ?? []).forEach(push);
+    const uniq = new Map<number, paper.Path>();
+    items.forEach((item) => uniq.set(item.id, item));
+    return Array.from(uniq.values());
+  }, [selectionTool.selectedPath, selectionTool.selectedPaths]);
+
+  const selectedNonGroupPaths = useMemo(() => {
+    const items: paper.Path[] = [];
+    const push = (path: paper.Path | null | undefined) => {
+      if (!path) return;
+      if (path.data?.type === 'image-group') return;
+      items.push(path);
+    };
+    push(selectionTool.selectedPath);
+    (selectionTool.selectedPaths ?? []).forEach(push);
+    const uniq = new Map<number, paper.Path>();
+    items.forEach((item) => uniq.set(item.id, item));
+    return Array.from(uniq.values());
+  }, [selectionTool.selectedPath, selectionTool.selectedPaths]);
+
+  const selectedGroupImageIds = useMemo(() => {
+    const ids = new Set<string>();
+    selectedGroupBlocks.forEach((block) => {
+      const raw = (block.data as any)?.imageIds;
+      if (!Array.isArray(raw)) return;
+      raw.forEach((id) => {
+        if (typeof id === 'string' && id.trim()) ids.add(id.trim());
+      });
+    });
+    return Array.from(ids);
+  }, [selectedGroupBlocks]);
+
+  const groupableImageIds = useMemo(() => {
+    const ids = new Set<string>();
+    (imageTool.selectedImageIds ?? []).forEach((id) => {
+      if (typeof id === 'string' && id.trim()) ids.add(id.trim());
+    });
+    selectedGroupImageIds.forEach((id) => ids.add(id));
+    return Array.from(ids);
+  }, [imageTool.selectedImageIds, selectedGroupImageIds]);
+
   const groupSelectionCount = selectedImageInstances.length + selectedModelInstances.length + selectedPaperItems.length;
   const isGroupSelection = groupSelectionCount >= 2;
+  const showSelectionGroupToolbar =
+    isGroupSelection || (selectedGroupBlocks.length === 1 && groupSelectionCount === 1);
+  const canGroupImages =
+    groupSelectionCount >= 2 &&
+    groupableImageIds.length >= 2 &&
+    selectedModelInstances.length === 0 &&
+    selectedTextItems.length === 0 &&
+    selectedNonGroupPaths.length === 0;
+  const canUngroupImages = selectedGroupBlocks.length > 0;
 
   const groupPaperBounds = useMemo(() => {
-    if (!isGroupSelection) return null;
+    if (!showSelectionGroupToolbar) return null;
     const bounds = BoundsCalculator.calculateSelectionBounds(
       selectedImageInstances,
       selectedModelInstances,
@@ -1655,7 +1714,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     );
     if (bounds.isEmpty) return null;
     return bounds;
-  }, [isGroupSelection, selectedImageInstances, selectedModelInstances, selectedPaperItems]);
+  }, [showSelectionGroupToolbar, selectedImageInstances, selectedModelInstances, selectedPaperItems]);
 
   const paperRectToScreen = useCallback((rect: { x: number; y: number; width: number; height: number } | null) => {
     if (!rect || !paper.view) return null;
@@ -1695,14 +1754,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   }, []);
 
   const executeGroupCapture = useCallback(async (options?: { sendToDialog?: boolean }) => {
-    if (!isGroupSelection || !groupPaperBounds) return;
+    const hasCaptureTarget = isGroupSelection || selectedGroupBlocks.length > 0;
+    if (!hasCaptureTarget || !groupPaperBounds) return;
     if (isGroupCapturePending) return;
     setIsGroupCapturePending(true);
     const sendToDialog = options?.sendToDialog ?? false;
     try {
+      const captureImageIds = Array.from(
+        new Set([...(imageTool.selectedImageIds ?? []), ...selectedGroupImageIds])
+      );
+      const capturePaperItems = selectedPaperItems.filter(
+        (item) => (item as any)?.data?.type !== 'image-group'
+      );
       const selection = {
-        paperItems: selectedPaperItems,
-        imageIds: [...(imageTool.selectedImageIds ?? [])],
+        paperItems: capturePaperItems,
+        imageIds: captureImageIds,
         modelIds: [...(model3DTool.selectedModel3DIds ?? [])],
       };
       const result = await AutoScreenshotService.captureAutoScreenshot(
@@ -1773,6 +1839,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [
     isGroupSelection,
+    selectedGroupBlocks.length,
+    selectedGroupImageIds,
     groupPaperBounds,
     isGroupCapturePending,
     imageTool.imageInstances,
@@ -1787,8 +1855,82 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   ]);
 
   const handleGroupCapture = useCallback(() => {
+    if (selectedGroupBlocks.length > 0 && selectedGroupImageIds.length > 0) {
+      try {
+        handleImageMultiSelect([
+          ...new Set([...(imageTool.selectedImageIds ?? []), ...selectedGroupImageIds]),
+        ]);
+      } catch {}
+    }
     void executeGroupCapture({ sendToDialog: false });
-  }, [executeGroupCapture]);
+  }, [
+    executeGroupCapture,
+    handleImageMultiSelect,
+    imageTool.selectedImageIds,
+    selectedGroupBlocks.length,
+    selectedGroupImageIds,
+  ]);
+
+  const handleGroupImages = useCallback(() => {
+    if (!canGroupImages) return;
+    const imageIds = [...groupableImageIds];
+    const { block, reason } = createImageGroupBlock(imageIds);
+
+    if (!block) {
+      const message =
+        reason === 'different-layers'
+          ? '当前选中的图片不在同一图层，无法组合'
+          : reason === 'missing-images'
+            ? '部分图片未找到，无法组合'
+            : '组合失败，请重试';
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message, type: 'error' } }));
+      return;
+    }
+
+    try {
+      selectionTool.clearAllSelections();
+    } catch {}
+
+    // 合并模式：如果这次组合包含旧的组块，移除它们（避免嵌套/重复组块）
+    try {
+      selectedGroupBlocks.forEach((old) => {
+        try { old.remove(); } catch {}
+      });
+    } catch {}
+
+    try {
+      block.selected = false;
+      block.fullySelected = false;
+    } catch {}
+
+    try {
+      selectionTool.setSelectedPath(block);
+      selectionTool.setSelectedPaths([]);
+    } catch {}
+
+    try { paper.view.update(); } catch {}
+    historyService.commit('group-images').catch(() => {});
+    try { paperSaveService.triggerAutoSave('group-images'); } catch {}
+  }, [
+    canGroupImages,
+    groupableImageIds,
+    selectedGroupBlocks,
+    selectionTool,
+  ]);
+
+  const handleUngroupImages = useCallback(() => {
+    if (!selectedGroupBlocks.length) return;
+    try {
+      const blocks = [...selectedGroupBlocks];
+      selectionTool.clearAllSelections();
+      blocks.forEach((block) => {
+        try { block.remove(); } catch {}
+      });
+      try { paper.view.update(); } catch {}
+      historyService.commit('ungroup-images').catch(() => {});
+      try { paperSaveService.triggerAutoSave('ungroup-images'); } catch {}
+    } catch {}
+  }, [selectedGroupBlocks, selectionTool]);
 
   const handleModelCapture = useCallback(async (modelId: string) => {
     let abort = false;
@@ -3763,11 +3905,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         );
       })}
 
-      {isGroupSelection && groupScreenBounds && (
+      {showSelectionGroupToolbar && groupScreenBounds && (
         <SelectionGroupToolbar
           bounds={groupScreenBounds}
           selectedCount={groupSelectionCount}
           onCapture={handleGroupCapture}
+          onGroupImages={handleGroupImages}
+          canGroupImages={canGroupImages}
+          onUngroupImages={handleUngroupImages}
+          canUngroupImages={canUngroupImages}
           isCapturing={isGroupCapturePending}
         />
       )}

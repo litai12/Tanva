@@ -57,9 +57,15 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         
         // 更新Paper.js视图尺寸（使用实际像素尺寸，与 canvas.width/height 一致）
         // Paper 会基于此尺寸进行变换；事件→视图坐标需自行考虑 devicePixelRatio
-        if (paper.view && paper.view.viewSize) {
-          (paper.view.viewSize as any).width = canvas.width;
-          (paper.view.viewSize as any).height = canvas.height;
+        if (paper.view) {
+          try {
+            paper.view.viewSize = new paper.Size(canvas.width, canvas.height);
+          } catch {
+            try {
+              (paper.view.viewSize as any).width = canvas.width;
+              (paper.view.viewSize as any).height = canvas.height;
+            } catch {}
+          }
         }
         
         // 初始化时，只有在没有保存的视口状态时才将坐标轴移动到画布中心
@@ -100,11 +106,11 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
     // 应用视口变换 - 使用Paper.js默认左上角坐标系
     const applyViewTransform = () => {
       // 视口变换：screen = zoom * (world + pan)
-      // 我们的 pan 存储在“世界坐标”单位中，因此需要乘以 zoom 才能作为视图平移
-      // 等价于在矩阵中使用缩放与已缩放平移量
-      const tx = panX * zoom;
-      const ty = panY * zoom;
-      const matrix = new paper.Matrix(zoom, 0, 0, zoom, tx, ty);
+      // 注意：resize 回调可能在 zoom/pan 变化后触发，因此这里必须读取最新值，避免闭包过期。
+      const { zoom: currentZoom, panX: currentPanX, panY: currentPanY } = useCanvasStore.getState();
+      const tx = currentPanX * currentZoom;
+      const ty = currentPanY * currentZoom;
+      const matrix = new paper.Matrix(currentZoom, 0, 0, currentZoom, tx, ty);
       paper.view.matrix = matrix;
     };
 

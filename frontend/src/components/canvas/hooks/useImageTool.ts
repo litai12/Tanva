@@ -9,6 +9,7 @@ import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
+import { syncImageGroupBlocksForImageIds } from '@/utils/paperImageGroupBlock';
 import type {
   ImageInstance,
   ImageDragState,
@@ -610,6 +611,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                 }
               });
 
+              try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
               paper.view.update();
             }
           } else if (isRaster(imageGroup)) {
@@ -619,6 +621,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
               newPosition.x + actualWidth / 2,
               newPosition.y + actualHeight / 2
             );
+            try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
             try { paper.view.update(); } catch {}
           }
         }
@@ -704,6 +707,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           child.position = new paper.Point(handlePosition[0], handlePosition[1]);
         }
       });
+      try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
       try { paper.view.update(); } catch {}
     } else if (isRaster(imageGroup)) {
       imageGroup.bounds = new paper.Rectangle(
@@ -712,6 +716,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         newBounds.width,
         newBounds.height
       );
+      try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
       try { paper.view.update(); } catch {}
     }
 
@@ -754,6 +759,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
             }
             try { item.remove(); } catch {}
           });
+          try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
           try { paper.view.update(); } catch {}
           logger.debug('🗑️ 已从Paper.js中移除图片（深度清理）');
         } else {

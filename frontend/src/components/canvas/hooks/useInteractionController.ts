@@ -111,6 +111,11 @@ interface GroupPathDragState {
   mode: GroupPathDragMode | null;
   startPoint: paper.Point | null;
   paths: Array<{ path: paper.Path; startPosition: paper.Point }>;
+  groupBlocks: Array<{
+    block: paper.Path;
+    imageIds: string[];
+    startBounds: Record<string, { x: number; y: number }>;
+  }>;
   hasMoved: boolean;
 }
 
@@ -173,6 +178,7 @@ export const useInteractionController = ({
     mode: null,
     startPoint: null,
     paths: [],
+    groupBlocks: [],
     hasMoved: false
   });
 
@@ -261,6 +267,7 @@ export const useInteractionController = ({
       mode: null,
       startPoint: null,
       paths: [],
+      groupBlocks: [],
       hasMoved: false
     };
   }, []);
@@ -278,17 +285,42 @@ export const useInteractionController = ({
     }
 
     const start = startPoint.clone ? startPoint.clone() : new paper.Point(startPoint.x, startPoint.y);
-    const entries = selected
-      .map((path) => {
-        if (!path || isPaperItemRemoved(path)) return null;
-        const position = path.position;
-        if (!position) return null;
-        const startPosition = position.clone ? position.clone() : new paper.Point(position.x, position.y);
-        return { path, startPosition };
-      })
-      .filter((entry): entry is { path: paper.Path; startPosition: paper.Point } => !!entry);
+    const pathEntries: Array<{ path: paper.Path; startPosition: paper.Point }> = [];
+    const groupBlocks: Array<{
+      block: paper.Path;
+      imageIds: string[];
+      startBounds: Record<string, { x: number; y: number }>;
+    }> = [];
 
-    if (!entries.length) {
+    const imageInstanceMap = new Map(
+      (imageToolRef.current?.imageInstances ?? []).map((img: any) => [String(img.id), img])
+    );
+
+    selected.forEach((path) => {
+      if (!path || isPaperItemRemoved(path)) return;
+      if (path.data?.type === 'image-group') {
+        // 在图片拖拽模式下，组块由图片移动驱动，不需要加入路径拖拽队列
+        if (mode === 'image') return;
+        const rawIds = (path.data as any)?.imageIds;
+        const imageIds = Array.isArray(rawIds) ? rawIds.filter((id) => typeof id === 'string') : [];
+        if (imageIds.length === 0) return;
+        const startBounds: Record<string, { x: number; y: number }> = {};
+        imageIds.forEach((id) => {
+          const inst = imageInstanceMap.get(id);
+          if (inst?.bounds) startBounds[id] = { x: inst.bounds.x, y: inst.bounds.y };
+        });
+        if (Object.keys(startBounds).length === 0) return;
+        groupBlocks.push({ block: path, imageIds, startBounds });
+        return;
+      }
+
+      const position = path.position;
+      if (!position) return;
+      const startPosition = position.clone ? position.clone() : new paper.Point(position.x, position.y);
+      pathEntries.push({ path, startPosition });
+    });
+
+    if (!pathEntries.length && !groupBlocks.length) {
       resetGroupPathDrag();
       return false;
     }
@@ -297,7 +329,8 @@ export const useInteractionController = ({
       active: true,
       mode,
       startPoint: start,
-      paths: entries,
+      paths: pathEntries,
+      groupBlocks,
       hasMoved: false
     };
     return true;
@@ -320,6 +353,20 @@ export const useInteractionController = ({
       const newPosition = new paper.Point(startPosition.x + deltaX, startPosition.y + deltaY);
       path.position = newPosition;
     });
+
+    // 组块：拖拽时移动其内部图片，由图片位置驱动组块更新，避免组块与图片脱节
+    const latestImageTool = imageToolRef.current;
+    if (latestImageTool?.handleImageMove) {
+      state.groupBlocks.forEach((entry) => {
+        const startBounds = entry.startBounds || {};
+        Object.keys(startBounds).forEach((imageId) => {
+          const start = startBounds[imageId];
+          if (!start) return;
+          const newPosition = { x: start.x + deltaX, y: start.y + deltaY };
+          try { latestImageTool.handleImageMove(imageId, newPosition, false); } catch {}
+        });
+      });
+    }
   }, []);
 
   const stopSpacePan = useCallback(() => {
@@ -492,7 +539,9 @@ export const useInteractionController = ({
 
       // 处理路径编辑交互
       const shiftPressed = event.shiftKey;
-      if (!hasMultiplePathSelection) {
+      const selectedPathForEdit = latestSelectionTool.selectedPath;
+      const isImageGroupBlockSelected = selectedPathForEdit?.data?.type === 'image-group';
+      if (!hasMultiplePathSelection && !isImageGroupBlockSelected) {
         const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousedown', shiftPressed);
         if (pathEditResult) {
           return; // 路径编辑处理了这个事件
@@ -518,11 +567,34 @@ export const useInteractionController = ({
         if (clickedImage) {
           // 判断是否已有多选：如果当前图片在已选中列表中，使用已选中列表；否则只拖拽当前图片
           const wasAlreadySelected = clickedImage.isSelected;
-          const selectedIds = wasAlreadySelected && Array.isArray(latestImageTool.selectedImageIds) && latestImageTool.selectedImageIds.length > 0
-            ? (latestImageTool.selectedImageIds.includes(selectionResult.id)
-                ? latestImageTool.selectedImageIds
-                : [selectionResult.id])
+          const shouldDragExistingSelection =
+            wasAlreadySelected &&
+            Array.isArray(latestImageTool.selectedImageIds) &&
+            latestImageTool.selectedImageIds.length > 0 &&
+            latestImageTool.selectedImageIds.includes(selectionResult.id);
+
+          const baseSelectedIds = shouldDragExistingSelection
+            ? latestImageTool.selectedImageIds!
             : [selectionResult.id];
+
+          // 若复合选择中包含图片组块，则拖拽时需要把组内图片一并移动
+          const groupImageIds: string[] = [];
+          if (shouldDragExistingSelection) {
+            previouslySelectedPaths.forEach((path) => {
+              if (path?.data?.type !== 'image-group') return;
+              const raw = (path.data as any)?.imageIds;
+              if (Array.isArray(raw)) {
+                raw.forEach((id) => {
+                  if (typeof id === 'string') groupImageIds.push(id);
+                });
+              }
+            });
+          }
+
+          const dragIdsSet = new Set<string>();
+          baseSelectedIds.forEach((id) => dragIdsSet.add(id));
+          groupImageIds.forEach((id) => dragIdsSet.add(id));
+          const selectedIds = Array.from(dragIdsSet);
 
           const boundsMap: Record<string, { x: number; y: number }> = {};
           selectedIds.forEach((id) => {
@@ -543,12 +615,70 @@ export const useInteractionController = ({
           });
           // 拖拽图片时禁用 Flow 节点事件，避免经过节点时被打断
           document.body.classList.add('tanva-canvas-dragging');
-          beginGroupPathDrag(point, 'image');
+          if (shouldDragExistingSelection) {
+            beginGroupPathDrag(point, 'image');
+          }
         }
       }
 
       if (selectionResult?.type === 'path') {
         const pathWasSelected = previouslySelectedPaths.has(selectionResult.path);
+
+        if (selectionResult.path?.data?.type === 'image-group') {
+          const rawIds = (selectionResult.path.data as any)?.imageIds;
+          const candidateIds = Array.isArray(rawIds) ? rawIds.filter((id) => typeof id === 'string') : [];
+          if (candidateIds.length > 0) {
+            const instanceMap = new Map((latestImageTool.imageInstances || []).map((img) => [img.id, img]));
+
+            const dragIdSet = new Set<string>();
+            // 组内图片
+            candidateIds.forEach((id) => {
+              if (instanceMap.has(id)) dragIdSet.add(id);
+            });
+
+            // 若组块本来就在选中集里，则把复合选择中其它图片/其它组块的图片也并入拖拽
+            if (pathWasSelected) {
+              (latestImageTool.selectedImageIds || []).forEach((id) => {
+                if (typeof id === 'string' && instanceMap.has(id)) dragIdSet.add(id);
+              });
+              previouslySelectedPaths.forEach((path) => {
+                if (path?.data?.type !== 'image-group') return;
+                const raw = (path.data as any)?.imageIds;
+                if (!Array.isArray(raw)) return;
+                raw.forEach((id) => {
+                  if (typeof id === 'string' && instanceMap.has(id)) dragIdSet.add(id);
+                });
+              });
+            }
+
+            const groupIds = Array.from(dragIdSet);
+            const boundsMap: Record<string, { x: number; y: number }> = {};
+            groupIds.forEach((id) => {
+              const inst = instanceMap.get(id);
+              if (inst) boundsMap[id] = { x: inst.bounds.x, y: inst.bounds.y };
+            });
+
+            const firstId = groupIds[0];
+            const first = firstId ? instanceMap.get(firstId) : null;
+            if (first && firstId) {
+              imageDragMovedRef.current = false;
+              latestImageTool.setImageDragState({
+                isImageDragging: true,
+                dragImageId: firstId,
+                imageDragStartPoint: point,
+                imageDragStartBounds: { x: first.bounds.x, y: first.bounds.y },
+                groupImageIds: groupIds,
+                groupStartBounds: boundsMap,
+              });
+              document.body.classList.add('tanva-canvas-dragging');
+              if (pathWasSelected) {
+                beginGroupPathDrag(point, 'image');
+              }
+              return;
+            }
+          }
+        }
+
         if (pathWasSelected && hasMultiplePathSelection && !ctrlPressed) {
           beginGroupPathDrag(point, 'path');
         }
