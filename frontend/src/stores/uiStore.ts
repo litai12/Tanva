@@ -18,6 +18,7 @@ interface UIState {
   focusMode: boolean; // 专注模式 - 仅隐藏顶部导航栏和 AI 对话框
   showSandboxPanel: boolean; // Paper.js 沙盒面板
   showTemplatePanel: boolean; // 模板库面板
+  showDebugPanel: boolean; // 调试面板
 
   // 智能落位配置
   smartPlacementOffset: number; // px，固定 522
@@ -37,6 +38,7 @@ interface UIState {
   toggleFocusMode: () => void;
   toggleSandboxPanel: () => void;
   toggleTemplatePanel: () => void;
+  toggleDebugPanel: () => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -48,6 +50,7 @@ interface UIState {
   setSmartPlacementOffset: (offset: number) => void;
   setShowSandboxPanel: (show: boolean) => void;
   setShowTemplatePanel: (show: boolean) => void;
+  setShowDebugPanel: (show: boolean) => void;
 }
 
 const persistedUIPreferences = (() => {
@@ -70,6 +73,7 @@ const persistedUIPreferences = (() => {
       flowEraserActive,
       focusMode,
       showSandboxPanel,
+      showDebugPanel,
     } = state as Partial<UIState>;
     return {
       showLibraryPanel,
@@ -83,6 +87,7 @@ const persistedUIPreferences = (() => {
       flowEraserActive,
       focusMode,
       showSandboxPanel,
+      showDebugPanel,
     };
   } catch (error) {
     console.warn('[uiStore] Failed to parse persisted ui-preferences, using defaults.', error);
@@ -106,6 +111,7 @@ export const useUIStore = create<UIState>()(
       focusMode: persistedUIPreferences?.focusMode ?? false,
       showSandboxPanel: persistedUIPreferences?.showSandboxPanel ?? false,
       showTemplatePanel: false, // 模板面板默认关闭，不持久化
+      showDebugPanel: persistedUIPreferences?.showDebugPanel ?? false, // 调试面板默认关闭
       smartPlacementOffset: SMART_PLACEMENT_OFFSET,
 
       // 切换方法
@@ -123,6 +129,7 @@ export const useUIStore = create<UIState>()(
       toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
       toggleSandboxPanel: () => set((state) => ({ showSandboxPanel: !state.showSandboxPanel })),
       toggleTemplatePanel: () => set((state) => ({ showTemplatePanel: !state.showTemplatePanel })),
+      toggleDebugPanel: () => set((state) => ({ showDebugPanel: !state.showDebugPanel })),
 
       // 设置方法
       setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
@@ -133,6 +140,7 @@ export const useUIStore = create<UIState>()(
       setShowFlowPanel: (show) => set({ showFlowPanel: show }),
       setShowSandboxPanel: (show) => set({ showSandboxPanel: show }),
       setShowTemplatePanel: (show) => set({ showTemplatePanel: show }),
+      setShowDebugPanel: (show) => set({ showDebugPanel: show }),
       setSmartPlacementOffset: () => set(() => ({ smartPlacementOffset: SMART_PLACEMENT_OFFSET })),
     }),
     {
@@ -154,6 +162,7 @@ export const useUIStore = create<UIState>()(
         flowEraserActive: state.flowEraserActive,
         focusMode: state.focusMode,
         showSandboxPanel: state.showSandboxPanel,
+        showDebugPanel: state.showDebugPanel,
       }) as Partial<UIState>,
     }
   )

@@ -587,7 +587,7 @@ class ContextManager implements IContextManager {
     }
     
     // 🖼️ 图像缓存信息 - 简化信息
-    if (context.cachedImages.latest) {
+    if (context.cachedImages.latest || context.cachedImages.latestRemoteUrl) {
       contextPrompt += `\n当前缓存图像: ${context.cachedImages.latestId || 'unknown'}\n`;
       // 简化生成提示信息
       const promptPreview = context.cachedImages.latestPrompt && context.cachedImages.latestPrompt.length > 50 
@@ -606,7 +606,7 @@ class ContextManager implements IContextManager {
     
     // 🖼️ 特殊处理图像编辑意图 - 简化检测
     const isImageEditIntent = this.detectImageEditIntent(userInput);
-    if (isImageEditIntent && context.cachedImages.latest) {
+    if (isImageEditIntent && (context.cachedImages.latest || context.cachedImages.latestRemoteUrl)) {
       contextPrompt += `\n注意：可能需要编辑缓存图像。`;
     }
     
@@ -819,30 +819,33 @@ class ContextManager implements IContextManager {
 
     const previous = this.ensureCachedImages(context);
 
-    // 内存优化：如果有 remoteUrl，优先使用它，不存储 base64
+    // 内存优化：如果有 remoteUrl，优先使用它，但仍允许缓存小尺寸预览图（用于面板预览与 fallback）
     const hasRemoteUrl = options?.remoteUrl && options.remoteUrl.startsWith('http');
     const normalizedRemoteUrl = options?.remoteUrl ?? previous.latestRemoteUrl ?? null;
 
-    // 只在没有 remoteUrl 的情况下才考虑存储 imageData
-    // 并且限制大小（超过 5MB 的 base64 不存储）
+    // 始终尝试缓存 imageData（常为缩略图/预览），但限制大小，并避免把 http(s) URL 当作 imageData 存储
     let normalizedImageData: string | null = null;
-    if (!hasRemoteUrl) {
-      const candidateData = typeof imageData === 'string' && imageData.length > 0
+    const candidateData =
+      typeof imageData === 'string' && imageData.length > 0
         ? imageData
         : previous.latest;
+    const candidateLooksRemote =
+      typeof candidateData === 'string' && /^https?:\/\//i.test(candidateData);
 
+    if (candidateData && !candidateLooksRemote) {
       // 内存优化：如果数据是 base64 且超过阈值，不存储
-      if (candidateData && isBase64Data(candidateData)) {
+      if (isBase64Data(candidateData)) {
         if (candidateData.length > MEMORY_OPTIMIZATION.maxImageCacheSize) {
-          console.log('⚠️ [ContextManager] 跳过大型 base64 缓存，等待远程 URL', {
-            size: (candidateData.length / 1024 / 1024).toFixed(2) + 'MB'
+          console.log('⚠️ [ContextManager] 跳过大型 base64 缓存（过大）', {
+            size: (candidateData.length / 1024 / 1024).toFixed(2) + 'MB',
+            hasRemoteUrl: !!normalizedRemoteUrl
           });
-          // 保留之前的 remoteUrl（如果有的话）
           normalizedImageData = null;
         } else {
           normalizedImageData = candidateData;
         }
       } else {
+        // data:image 或 blob: 等轻量引用允许存储（remoteUrl 单独存）
         normalizedImageData = candidateData;
       }
     }
@@ -906,7 +909,7 @@ class ContextManager implements IContextManager {
   /**
    * 🖼️ 获取缓存的图像信息
    */
-  getCachedImage(): { imageData: string; imageId: string; prompt: string; bounds?: { x: number; y: number; width: number; height: number } | null; layerId?: string | null; remoteUrl?: string | null } | null {
+  getCachedImage(): { imageData: string | null; imageId: string; prompt: string; bounds?: { x: number; y: number; width: number; height: number } | null; layerId?: string | null; remoteUrl?: string | null } | null {
     const context = this.getCurrentContext();
     if (!context) {
       console.log('🔍 getCachedImage: 没有活跃的上下文');
@@ -914,10 +917,12 @@ class ContextManager implements IContextManager {
     }
     const cachedImages = this.ensureCachedImages(context);
 
-    if (!cachedImages.latest || !cachedImages.latestId || !cachedImages.latestPrompt) {
+    const hasAnyImage = !!(cachedImages.latest || cachedImages.latestRemoteUrl);
+    if (!hasAnyImage || !cachedImages.latestId || !cachedImages.latestPrompt) {
       console.log('🔍 getCachedImage: 缓存数据不完整', {
         sessionId: context.sessionId,
         hasImageData: !!cachedImages.latest,
+        hasRemoteUrl: !!cachedImages.latestRemoteUrl,
         hasImageId: !!cachedImages.latestId,
         hasPrompt: !!cachedImages.latestPrompt
       });
@@ -925,7 +930,7 @@ class ContextManager implements IContextManager {
     }
 
     const result = {
-      imageData: cachedImages.latest,
+      imageData: cachedImages.latest ?? null,
       imageId: cachedImages.latestId,
       prompt: cachedImages.latestPrompt,
       bounds: cachedImages.latestBounds ?? null,
@@ -951,7 +956,7 @@ class ContextManager implements IContextManager {
    */
   detectImageEditIntent(input: string): boolean {
     const context = this.getCurrentContext();
-    if (!context || !context.cachedImages.latest) return false;
+    if (!context || (!context.cachedImages.latest && !context.cachedImages.latestRemoteUrl)) return false;
     
     const editKeywords = [
       '编辑', '修改', '改变', '调整', '优化', '改进', '让它', '改成', '变成',

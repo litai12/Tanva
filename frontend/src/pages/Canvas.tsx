@@ -110,7 +110,7 @@ const Canvas: React.FC = () => {
             <CodeSandboxPanel />
 
             {/* 调试面板：显示缓存图像信息 */}
-            <CachedImageDebug />
+            {/* <CachedImageDebug /> */}
         </div>
     );
 };

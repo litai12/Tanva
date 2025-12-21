@@ -40,7 +40,7 @@ const SORA2_V2_VIDEO_MODELS: Record<VideoQuality, string> = {
 };
 const SORA2_V2_POLL_INTERVAL_MS = 5000;
 const SORA2_V2_POLL_MAX_ATTEMPTS = 120;
-const SORA2_V2_FAILED_STATUSES = ['failed', 'error', 'cancelled'];
+const SORA2_V2_FAILED_STATUSES = ['failed', 'error', 'cancelled', 'FAILURE'];
 const SORA2_V2_FETCH_TIMEOUT_MS = 60000;
 
 interface Sora2ResolvedMedia {

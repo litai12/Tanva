@@ -187,7 +187,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 });
             }
         } catch (error) {
-            console.error('获取画布图像时出错:', error);
+            logger.error('获取画布图像时出错:', error);
         }
 
         return images;
@@ -448,7 +448,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         const baseCenter = resolveCenter();
         if (!baseCenter) {
-            console.warn('🎯 [QuickUpload] 占位符缺少中心点');
+            logger.upload('[QuickUpload] 占位符缺少中心点');
             return;
         }
 
@@ -468,7 +468,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 preferHorizontal
             );
         } catch (e) {
-            console.warn('🎯 [QuickUpload] 占位符防碰撞计算失败，使用原始位置', e);
+            logger.upload('[QuickUpload] 占位符防碰撞计算失败，使用原始位置', e);
         }
 
         // ========== Agent 风格占位符 - 内部动效设计 ==========
@@ -703,7 +703,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             }
         } catch (e) {
             // 忽略自动聚焦错误，不影响主流程
-            console.warn('自动聚焦视角失败:', e);
+            logger.debug('自动聚焦视角失败:', e);
         }
     }, [calculateSmartPosition, ensureDrawingLayer, findNonOverlappingPosition, removePredictedPlaceholder, upsertPendingImage]);
 
@@ -713,13 +713,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             if (placeholderId) {
                 const existing = predictedPlaceholdersRef.current.get(placeholderId);
                 if (existing) {
-                    console.log(`✅ [findImagePlaceholder] 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`);
+                    logger.upload(`✅ [findImagePlaceholder] 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`);
                     return existing;
                 }
             }
 
             if (!paper.project) {
-                console.warn(`⚠️ [findImagePlaceholder] Paper.js 项目未初始化，placeholderId: ${placeholderId}`);
+                logger.upload(`⚠️ [findImagePlaceholder] Paper.js 项目未初始化，placeholderId: ${placeholderId}`);
                 return null;
             }
 
@@ -728,7 +728,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 for (const item of layer.children) {
                     if (item.data?.type === 'image-placeholder' && item.data?.bounds) {
                         if (!placeholderId || item.data?.placeholderId === placeholderId) {
-                            console.log(`✅ [findImagePlaceholder] 从图层中找到占位符: ${placeholderId || 'any'}`);
+                            logger.upload(`✅ [findImagePlaceholder] 从图层中找到占位符: ${placeholderId || 'any'}`);
                             return item;
                         }
                     }
@@ -736,11 +736,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             }
             
             if (placeholderId) {
-                console.warn(`⚠️ [findImagePlaceholder] 未找到占位符: ${placeholderId}，当前占位符数量: ${predictedPlaceholdersRef.current.size}`);
+                logger.upload(`⚠️ [findImagePlaceholder] 未找到占位符: ${placeholderId}，当前占位符数量: ${predictedPlaceholdersRef.current.size}`);
             }
             return null;
         } catch (error) {
-            console.error('查找占位框时出错:', error);
+            logger.error('查找占位框时出错:', error);
             return null;
         }
     }, []);
@@ -775,7 +775,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             
             if (isRemoteUrl) {
                 // 如果是远程 URL，直接使用，不需要上传
-                console.log(`🌐 [handleQuickImageUploaded] 检测到远程 URL，直接使用: ${imagePayload.substring(0, 50)}...`);
+                logger.upload(`🌐 [handleQuickImageUploaded] 检测到远程 URL，直接使用: ${imagePayload.substring(0, 50)}...`);
                 asset = {
                     id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                     url: imagePayload,
@@ -1041,22 +1041,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 let boundsSource: 'placeholder' | 'selected' | null = null;
 
                 if (placeholderId) {
-                    console.log(`🔍 [raster.onLoad] 查找占位符: ${placeholderId}`);
+                    logger.upload(`🔍 [raster.onLoad] 查找占位符: ${placeholderId}`);
                     placeholder = findImagePlaceholder(placeholderId);
                     if (placeholder && placeholder.data?.bounds) {
                         targetBounds = placeholder.data.bounds;
                         boundsSource = 'placeholder';
-                        console.log(`✅ [raster.onLoad] 找到占位符，bounds:`, targetBounds);
+                        logger.upload('✅ [raster.onLoad] 找到占位符，bounds:', targetBounds);
                     } else {
                         const placeholderFromRef = predictedPlaceholdersRef.current.get(placeholderId);
                         if (placeholderFromRef && placeholderFromRef.data?.bounds) {
                             placeholder = placeholderFromRef;
                             targetBounds = placeholderFromRef.data.bounds;
                             boundsSource = 'placeholder';
-                            console.log(`✅ [raster.onLoad] 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`, targetBounds);
+                            logger.upload(`✅ [raster.onLoad] 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`, targetBounds);
                             logger.upload(`🎯 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`);
                         } else {
-                            console.warn(`⚠️ [raster.onLoad] 未找到占位符 ${placeholderId}，当前占位符数量: ${predictedPlaceholdersRef.current.size}`);
+                            logger.upload(`⚠️ [raster.onLoad] 未找到占位符 ${placeholderId}，当前占位符数量: ${predictedPlaceholdersRef.current.size}`);
                             logger.upload(`⚠️ 未找到占位符 ${placeholderId}，将使用智能位置计算`);
                         }
                     }
@@ -1109,14 +1109,14 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
                     // 删除占位框（如果存在）
                     if (placeholderId) {
-                        console.log(`🗑️ [handleQuickImageUploaded] 准备移除占位符: ${placeholderId}`);
+                        logger.upload(`🗑️ [handleQuickImageUploaded] 准备移除占位符: ${placeholderId}`);
                         const placeholderBeforeRemove = findImagePlaceholder(placeholderId);
                         if (placeholderBeforeRemove) {
-                            console.log(`✅ [handleQuickImageUploaded] 找到占位符，准备移除: ${placeholderId}`);
+                            logger.upload(`✅ [handleQuickImageUploaded] 找到占位符，准备移除: ${placeholderId}`);
                             removePredictedPlaceholder(placeholderId);
-                            console.log(`✅ [handleQuickImageUploaded] 已移除占位符: ${placeholderId}`);
+                            logger.upload(`✅ [handleQuickImageUploaded] 已移除占位符: ${placeholderId}`);
                         } else {
-                            console.warn(`⚠️ [handleQuickImageUploaded] 未找到占位符，无法移除: ${placeholderId}`);
+                            logger.upload(`⚠️ [handleQuickImageUploaded] 未找到占位符，无法移除: ${placeholderId}`);
                         }
                     } else if (placeholder) {
                         placeholder.remove();
@@ -1137,7 +1137,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                             finalPosition = adjustedPoint;
                             logger.upload(`📍 使用智能位置计算: (${adjustedPoint.x.toFixed(1)}, ${adjustedPoint.y.toFixed(1)})`);
                         } catch (error) {
-                            console.error('智能位置计算失败:', error);
+                            logger.error('智能位置计算失败:', error);
                             // 如果智能位置计算失败，使用默认位置
                             if (!finalPosition) {
                                 finalPosition = targetPosition;
@@ -1343,7 +1343,6 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             raster.source = imageData;
         } catch (error) {
             logger.error('快速上传图片时出错:', error);
-            console.error('快速上传图片时出错:', error);
         }
     }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, findNonOverlappingPosition, projectId, removePredictedPlaceholder, upsertPendingImage]);
 

@@ -173,6 +173,7 @@ export const useInteractionController = ({
   const isSpacePressedRef = useRef(false);
   const spacePanDragRef = useRef<SpacePanDragState | null>(null);
   const imageDragMovedRef = useRef(false);
+  const imageDragRafRef = useRef<number | null>(null); // RAF ID for image drag sync
   const groupPathDragRef = useRef<GroupPathDragState>({
     active: false,
     mode: null,
@@ -946,19 +947,27 @@ export const useInteractionController = ({
           : [latestImageTool.imageDragState.dragImageId];
         const groupStart = latestImageTool.imageDragState.groupStartBounds || {};
 
-        groupIds.forEach((id) => {
-          const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
-          if (!start) {
-            return;
-          }
-          const newPosition = {
-            x: start.x + deltaX,
-            y: start.y + deltaY,
-          };
-          latestImageTool.handleImageMove(id, newPosition, false);
-        });
+        // 使用 RAF 同步图片位置更新，与画布平移保持同一帧
+        if (imageDragRafRef.current) {
+          cancelAnimationFrame(imageDragRafRef.current);
+        }
 
-        applyGroupPathDrag(point, 'image');
+        imageDragRafRef.current = requestAnimationFrame(() => {
+          groupIds.forEach((id) => {
+            const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
+            if (!start) {
+              return;
+            }
+            const newPosition = {
+              x: start.x + deltaX,
+              y: start.y + deltaY,
+            };
+            latestImageTool.handleImageMove(id, newPosition, false);
+          });
+
+          applyGroupPathDrag(point, 'image');
+          imageDragRafRef.current = null;
+        });
         return;
       }
 
@@ -1077,6 +1086,11 @@ export const useInteractionController = ({
 
       // 处理图像拖拽结束
       if (latestImageTool.imageDragState.isImageDragging) {
+        // 清理未完成的 RAF
+        if (imageDragRafRef.current) {
+          cancelAnimationFrame(imageDragRafRef.current);
+          imageDragRafRef.current = null;
+        }
         const didMove = imageDragMovedRef.current;
         imageDragMovedRef.current = false;
         latestImageTool.setImageDragState({

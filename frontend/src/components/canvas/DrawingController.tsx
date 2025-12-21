@@ -684,7 +684,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (parsed?.type === '2d' && parsed?.url) {
               event.preventDefault();
               event.stopPropagation();
-              console.log('🖼️ 从资源库拖拽 2D 图片:', parsed);
+              logger.upload('🖼️ 从资源库拖拽 2D 图片:', parsed);
               await uploadImageToCanvas?.(parsed.url, parsed.fileName || parsed.name, undefined, { x: projectPoint.x, y: projectPoint.y }, 'manual');
               return;
             }
@@ -801,7 +801,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 监听预测占位符事件，提前在画布上标记预计位置与尺寸
   useEffect(() => {
     const handlePredictPlaceholder = (event: CustomEvent) => {
-      console.log('🎯 [DrawingController] 收到占位符事件:', event.detail);
+      logger.tool('🎯 [DrawingController] 收到占位符事件:', event.detail);
       const detail = event.detail || {};
       const action = detail.action || 'add';
       const placeholderId = detail.placeholderId as string | undefined;
@@ -811,12 +811,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const sourceImages = detail.sourceImages as string[] | undefined;
 
       if (!placeholderId) {
-        console.warn('🎯 [DrawingController] 缺少 placeholderId');
+        logger.warn('🎯 [DrawingController] 缺少 placeholderId');
         return;
       }
 
       if (action === 'remove') {
-        console.log('🎯 [DrawingController] 移除占位符:', placeholderId);
+        logger.tool('🎯 [DrawingController] 移除占位符:', placeholderId);
         quickImageUploadRef.current.removePredictedPlaceholder(placeholderId);
         return;
       }
@@ -832,7 +832,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const operationType = detail.operationType as string | undefined;
       const layoutAnchor = groupAnchor || center || smartPosition || null;
 
-      console.log('🎯 [DrawingController] 占位符参数:', { center, width, height, operationType, groupId, groupIndex, groupTotal });
+      logger.tool('🎯 [DrawingController] 占位符参数:', { center, width, height, operationType, groupId, groupIndex, groupTotal });
 
       let resolvedCenter = center;
       if ((preferSmartLayout || !resolvedCenter) && typeof quickImageUploadRef.current.calculateSmartPosition === 'function') {
@@ -852,7 +852,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           );
         if (smart && Number.isFinite(smart.x) && Number.isFinite(smart.y)) {
           resolvedCenter = { x: smart.x, y: smart.y };
-          console.log('🎯 [DrawingController] 使用智能排版位置:', resolvedCenter);
+          logger.tool('🎯 [DrawingController] 使用智能排版位置:', resolvedCenter);
         }
       }
 
@@ -865,7 +865,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return;
       }
 
-      console.log('🎯 [DrawingController] 调用 showPredictedPlaceholder');
+      logger.tool('🎯 [DrawingController] 调用 showPredictedPlaceholder');
       quickImageUploadRef.current.showPredictedPlaceholder({
         placeholderId,
         center: resolvedCenter,
@@ -885,7 +885,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     window.addEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
-    console.log('🎯 [DrawingController] 已注册占位符事件监听器');
+    logger.tool('🎯 [DrawingController] 已注册占位符事件监听器');
     return () => {
       window.removeEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
     };
@@ -3402,7 +3402,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         if (!paper || !paper.project) return;
 
-        console.log('🔄 rebuildFromPaper 开始执行...');
+        logger.drawing('🔄 rebuildFromPaper 开始执行...');
 
         const imageInstances: any[] = [];
         const textInstances: any[] = [];
@@ -3410,27 +3410,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         // 扫描所有图层
         (paper.project.layers || []).forEach((layer: any) => {
-          console.log(`🔍 扫描图层: ${layer?.name || '未命名'}, 子元素数量: ${layer?.children?.length || 0}`);
+          logger.drawing(`🔍 扫描图层: ${layer?.name || '未命名'}, 子元素数量: ${layer?.children?.length || 0}`);
           const children = layer?.children || [];
           children.forEach((item: any) => {
             // 🔍 调试：输出每个元素的信息
-            console.log(`  📦 元素: className=${item?.className}, type=${item?.data?.type}, imageId=${item?.data?.imageId}`);
+            logger.drawing(`  📦 元素: className=${item?.className}, type=${item?.data?.type}, imageId=${item?.data?.imageId}`);
 
             // ========== 处理图片 ==========
             let imageGroup: any | null = null;
             if (item?.data?.type === 'image' && item?.data?.imageId) {
               imageGroup = item;
-              console.log(`    ✅ 识别为图片组 (type=image): ${item?.data?.imageId}`);
+              logger.drawing(`    ✅ 识别为图片组 (type=image): ${item?.data?.imageId}`);
             } else if (item?.className === 'Raster' || item instanceof (paper as any).Raster) {
               // 兼容只有 Raster 的情况
-              console.log(`    🖼️ 发现 Raster 元素`);
+              logger.drawing('    🖼️ 发现 Raster 元素');
               imageGroup = item.parent && item.parent.className === 'Group' ? item.parent : null;
               if (imageGroup && !(imageGroup.data && imageGroup.data.type === 'image')) {
                 // 为旧内容补上标记
                 if (!imageGroup.data) imageGroup.data = {};
                 imageGroup.data.type = 'image';
                 imageGroup.data.imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-                console.log(`    ✅ 为 Raster 补充标记: ${imageGroup.data.imageId}`);
+                logger.drawing(`    ✅ 为 Raster 补充标记: ${imageGroup.data.imageId}`);
               }
             }
 

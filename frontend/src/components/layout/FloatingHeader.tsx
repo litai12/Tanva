@@ -18,7 +18,6 @@ import {
     Share,
     Library,
     Grid3x3,
-    Ruler,
     Square,
     Menu,
     Activity,
@@ -58,7 +57,6 @@ const SETTINGS_SECTIONS = [
     { id: 'workspace', label: '工作区', icon: Square },
     { id: 'appearance', label: '视图外观', icon: Grid3x3 },
     { id: 'ai', label: 'AI 设置', icon: Sparkles },
-    { id: 'smart', label: '智能落位', icon: Ruler },
     { id: 'advanced', label: '高级', icon: Activity },
 ] as const;
 
@@ -73,7 +71,6 @@ const FloatingHeader: React.FC = () => {
         showLibraryPanel,
         showGrid,
         showLayerPanel,
-        smartPlacementOffset,
         toggleLibraryPanel,
         toggleGrid,
         setShowGrid,
@@ -947,29 +944,6 @@ const FloatingHeader: React.FC = () => {
                                 {googleApiKeyFeedback === 'error' && (
                                     <div className="text-xs text-red-600">保存失败，请重试</div>
                                 )}
-                            </div>
-                        </div>
-                    </div>
-                );
-            case 'smart':
-                return (
-                    <div className="space-y-6 pb-6">
-                        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
-                            <div className="mb-2 text-sm font-medium text-slate-700">智能落位偏移</div>
-                            <div className="text-xs text-slate-500 mb-4">
-                                自动排布节点时的默认间距（固定值）。
-                            </div>
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                <input
-                                    type="number"
-                                    min={16}
-                                    max={4096}
-                                    inputMode="numeric"
-                                    value={smartPlacementOffset}
-                                    disabled
-                                    className="w-full sm:w-32 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
-                                />
-                                <span className="text-xs text-slate-500">固定 522</span>
                             </div>
                         </div>
                     </div>

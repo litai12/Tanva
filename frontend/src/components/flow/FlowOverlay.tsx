@@ -1062,29 +1062,34 @@ function FlowInner() {
   }, [backgroundSize, setBackgroundSize]);
 
   // 使用Canvas → Flow 单向同步：保证节点随画布平移/缩放
-  // 使用数组选择器而非对象，避免 React 19 对 getSnapshot 的新警告
-  const cvZoom = useCanvasStore(s => s.zoom);
-  const cvPanX = useCanvasStore(s => s.panX);
-  const cvPanY = useCanvasStore(s => s.panY);
+  // 使用 subscribe 直接订阅状态变化，避免 useEffect 的渲染延迟
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(null);
   React.useEffect(() => {
-    const z = cvZoom || 1;
-    // Canvas: screen_px = z * (world + panWorld)
-    // 世界坐标以设备像素为单位，CSS 需除以 dpr
-    // ReactFlow: 使用 CSS 像素，因此 translate 需折算 dpr：translate = (z * panWorld) / dpr
-    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-    const x = ((cvPanX || 0) * z) / dpr;
-    const y = ((cvPanY || 0) * z) / dpr;
-    const prev = lastApplied.current;
-    const eps = 1e-6;
-    if (prev && Math.abs(prev.x - x) < eps && Math.abs(prev.y - y) < eps && Math.abs(prev.z - z) < eps) return;
-    lastApplied.current = { x, y, z };
-    let raf = 0;
-    raf = requestAnimationFrame(() => {
+    // 使用 Zustand subscribe 直接监听状态变化，绕过 React 渲染周期
+    const unsubscribe = useCanvasStore.subscribe((state) => {
+      const z = state.zoom || 1;
+      const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+      const x = ((state.panX || 0) * z) / dpr;
+      const y = ((state.panY || 0) * z) / dpr;
+      const prev = lastApplied.current;
+      const eps = 1e-6;
+      if (prev && Math.abs(prev.x - x) < eps && Math.abs(prev.y - y) < eps && Math.abs(prev.z - z) < eps) return;
+      lastApplied.current = { x, y, z };
+      // 直接同步更新，不使用 RAF，与 Canvas 平移在同一帧内完成
       try { rf.setViewport({ x, y, zoom: z }, { duration: 0 }); } catch { /* noop */ }
     });
-    return () => { if (raf) cancelAnimationFrame(raf); };
-  }, [rf, cvZoom, cvPanX, cvPanY]);
+
+    // 初始同步
+    const state = useCanvasStore.getState();
+    const z = state.zoom || 1;
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const x = ((state.panX || 0) * z) / dpr;
+    const y = ((state.panY || 0) * z) / dpr;
+    lastApplied.current = { x, y, z };
+    try { rf.setViewport({ x, y, zoom: z }, { duration: 0 }); } catch { /* noop */ }
+
+    return unsubscribe;
+  }, [rf]);
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {

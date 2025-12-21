@@ -25,6 +25,7 @@ import { createSafeStorage } from "@/stores/storageUtils";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
+import { logger } from "@/utils/logger";
 import type { StoredImageAsset } from "@/types/canvas";
 import type {
   AIImageResult,
@@ -48,6 +49,8 @@ const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
 
 // 🔥 全局待生成图片计数器（防止连续快速生成时重叠）
 let generatingImageCount = 0;
+
+const placeholderLogger = logger.scope("placeholder");
 
 function readSessionsFromLocalStorage(): {
   sessions: SerializedConversationContext[];
@@ -336,7 +339,7 @@ const dispatchPlaceholderEvent = (
 ) => {
   if (typeof window === "undefined") return;
   try {
-    console.log("🎯 [占位符事件] 派发事件:", { action, placeholder });
+    placeholderLogger.debug("[占位符事件] 派发事件:", { action, placeholder });
     window.dispatchEvent(
       new CustomEvent("predictImagePlaceholder", {
         detail:
@@ -346,7 +349,7 @@ const dispatchPlaceholderEvent = (
       })
     );
   } catch (error) {
-    console.warn("⚠️ 派发占位符事件失败", error);
+    placeholderLogger.warn("派发占位符事件失败", error);
   }
 };
 
@@ -543,6 +546,64 @@ const normalizeInlineImageData = (value?: string | null): string | null => {
     return `data:image/png;base64,${compact}`;
   }
   return null;
+};
+
+const readBlobAsDataUrl = (blob: Blob): Promise<string | null> =>
+  new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    } catch {
+      resolve(null);
+    }
+  });
+
+const fetchImageAsDataUrl = async (url: string): Promise<string | null> => {
+  try {
+    const init: RequestInit = /^blob:/i.test(url)
+      ? {}
+      : { mode: "cors", credentials: "omit" };
+    const response = await fetch(url, init);
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return await readBlobAsDataUrl(blob);
+  } catch (error) {
+    console.warn("⚠️ 获取图片并转换为 DataURL 失败:", error);
+    return null;
+  }
+};
+
+const resolveImageInputToDataUrl = async (
+  value?: string | null
+): Promise<string | null> => {
+  if (!value || typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const normalizedInline = normalizeInlineImageData(trimmed);
+  if (normalizedInline) return normalizedInline;
+
+  if (/^blob:/i.test(trimmed) || isRemoteUrl(trimmed)) {
+    return await fetchImageAsDataUrl(trimmed);
+  }
+
+  return null;
+};
+
+type CachedImagePayload = NonNullable<
+  ReturnType<(typeof contextManager)["getCachedImage"]>
+>;
+
+const resolveCachedImageForImageTools = async (
+  cached: CachedImagePayload
+): Promise<string | null> => {
+  return (
+    (await resolveImageInputToDataUrl(cached.imageData)) ||
+    (await resolveImageInputToDataUrl(cached.remoteUrl ?? null))
+  );
 };
 const shouldUploadLegacyInline = (
   inline: string | null,
@@ -2017,7 +2078,7 @@ export const useAIChatStore = create<AIChatState>()(
               );
               // 占位框的清理交由生成/上传流程完成，避免在 100% 时提前移除导致落位信息丢失
             } catch (error) {
-              console.warn("⚠️ 派发占位符进度更新事件失败", error);
+              placeholderLogger.warn("派发占位符进度更新事件失败", error);
             }
           }
         },
@@ -2380,7 +2441,7 @@ export const useAIChatStore = create<AIChatState>()(
             const isParallelGeneration = groupTotal > 1;
             let layoutAnchor: { x: number; y: number } | null = null;
 
-            console.log(
+            placeholderLogger.debug(
               "🎯 [generateImage] 准备显示占位符, cached:",
               cached,
               "groupIndex:",
@@ -2414,7 +2475,7 @@ export const useAIChatStore = create<AIChatState>()(
                 x: baseX + groupIndex * offset,
                 y: baseY,
               };
-              console.log(
+              placeholderLogger.debug(
                 `🎯 [generateImage] 并行生成第${
                   groupIndex + 1
                 }/${groupTotal}张，横向排列位置:`,
@@ -2428,18 +2489,21 @@ export const useAIChatStore = create<AIChatState>()(
                   y: cached.bounds.y + cached.bounds.height / 2,
                 };
                 layoutAnchor = { ...center };
-                console.log("🎯 [generateImage] 使用缓存图片位置:", center);
+                placeholderLogger.debug(
+                  "🎯 [generateImage] 使用缓存图片位置:",
+                  center
+                );
               } else {
                 center = getViewCenter();
                 layoutAnchor = center ? { ...center } : null;
-                console.log("🎯 [generateImage] 使用视口中心:", center);
+                placeholderLogger.debug("🎯 [generateImage] 使用视口中心:", center);
               }
             }
 
             // 如果 center 仍然为 null，使用默认位置 (0, 0)
             if (!center) {
               center = { x: 0, y: 0 };
-              console.log("🎯 [generateImage] 使用默认位置 (0, 0)");
+              placeholderLogger.debug("🎯 [generateImage] 使用默认位置 (0, 0)");
             }
 
             const size = estimatePlaceholderSize({
@@ -2447,7 +2511,7 @@ export const useAIChatStore = create<AIChatState>()(
               imageSize: state.imageSize,
               fallbackBounds: cached?.bounds ?? null,
             });
-            console.log("🎯 [generateImage] 占位符尺寸:", size);
+            placeholderLogger.debug("🎯 [generateImage] 占位符尺寸:", size);
 
             const smartPosition = center ? { ...center } : undefined;
 
@@ -2466,7 +2530,7 @@ export const useAIChatStore = create<AIChatState>()(
               groupAnchor: layoutAnchor || undefined,
             });
           } catch (error) {
-            console.warn("⚠️ 预测占位符生成失败", error);
+            placeholderLogger.warn("预测占位符生成失败", error);
           }
 
           let progressInterval: ReturnType<typeof setInterval> | null = null;
@@ -3076,7 +3140,7 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }
           } catch (error) {
-            console.warn("⚠️ 预测编辑占位符生成失败", error);
+            placeholderLogger.warn("预测编辑占位符生成失败", error);
           }
 
           logProcessStep(metrics, "editImage message prepared");
@@ -3604,7 +3668,7 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }
           } catch (error) {
-            console.warn("⚠️ 预测融合占位符生成失败", error);
+            placeholderLogger.warn("预测融合占位符生成失败", error);
           }
 
           try {
@@ -5376,14 +5440,18 @@ export const useAIChatStore = create<AIChatState>()(
                   // 🖼️ 检查是否有缓存的图像可以编辑
                   const cachedImage = contextManager.getCachedImage();
 
-                  if (cachedImage) {
+                  const cachedSource = cachedImage
+                    ? await resolveCachedImageForImageTools(cachedImage)
+                    : null;
+
+                  if (cachedImage && cachedSource) {
                     logProcessStep(
                       metrics,
                       "invoking editImage with cached image"
                     );
                     await store.editImage(
                       parameters.prompt,
-                      cachedImage.imageData,
+                      cachedSource,
                       false,
                       { override: messageOverride, metrics }
                     ); // 不显示图片占位框
@@ -5391,6 +5459,8 @@ export const useAIChatStore = create<AIChatState>()(
                   } else {
                     console.error("❌ 无法编辑图像的原因:", {
                       cachedImage: cachedImage ? "exists" : "null",
+                      hasRemoteUrl: !!cachedImage?.remoteUrl,
+                      hasImageData: !!cachedImage?.imageData,
                       input: input,
                     });
                     throw new Error("没有可编辑的图像");
@@ -5441,14 +5511,17 @@ export const useAIChatStore = create<AIChatState>()(
                 } else {
                   // 🖼️ 检查是否有缓存的图像可以分析
                   const cachedImage = contextManager.getCachedImage();
-                  if (cachedImage) {
+                  const cachedSource = cachedImage
+                    ? await resolveCachedImageForImageTools(cachedImage)
+                    : null;
+                  if (cachedImage && cachedSource) {
                     logProcessStep(
                       metrics,
                       "invoking analyzeImage (cached image)"
                     );
                     await store.analyzeImage(
                       parameters.prompt || input,
-                      cachedImage.imageData,
+                      cachedSource,
                       { override: messageOverride, metrics }
                     );
                     logProcessStep(metrics, "analyzeImage finished");
@@ -5855,9 +5928,11 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             if (selectedTool === "edit") {
-              const editSource =
-                sourceImageForEditing ||
-                contextManager.getCachedImage()?.imageData;
+              const cached = contextManager.getCachedImage();
+              const cachedSource = cached
+                ? await resolveCachedImageForImageTools(cached)
+                : null;
+              const editSource = sourceImageForEditing || cachedSource;
 
               if (!editSource) {
                 console.warn("⚠️ [并行编辑] 未找到可编辑的源图，退回生成逻辑");

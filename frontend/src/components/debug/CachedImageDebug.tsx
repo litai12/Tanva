@@ -34,7 +34,7 @@ const CachedImageDebug: React.FC = () => {
         }
         return;
       }
-      const key = `${data.imageId}:${data.imageData?.length || 0}:${data.bounds ? `${Math.round(data.bounds.x)}-${Math.round(data.bounds.y)}-${Math.round(data.bounds.width)}-${Math.round(data.bounds.height)}` : 'no-bounds'}`;
+      const key = `${data.imageId}:${data.imageData?.length || 0}:${data.remoteUrl ? data.remoteUrl.length : 0}:${data.bounds ? `${Math.round(data.bounds.x)}-${Math.round(data.bounds.y)}-${Math.round(data.bounds.width)}-${Math.round(data.bounds.height)}` : 'no-bounds'}`;
       if (lastKeyRef.current !== key) {
         lastKeyRef.current = key;
         setCached({
@@ -221,46 +221,46 @@ const CachedImageDebug: React.FC = () => {
 
   // 简易可拖拽（不干扰画布交互，pointer-events 控制在容器内）
   const panelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest('[data-drag-handle]')) return;
+
     const el = panelRef.current;
     if (!el) return;
-    let dragging = false;
-    let startX = 0;
-    let startY = 0;
-    let initLeft = 0;
-    let initTop = 0;
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('[data-drag-handle]')) return;
-      dragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      const rect = el.getBoundingClientRect();
-      initLeft = rect.left;
-      initTop = rect.top;
-      e.preventDefault();
+
+    draggingRef.current = true;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      left: el.getBoundingClientRect().left,
+      top: el.getBoundingClientRect().top,
     };
-    const onMouseMove = (e: MouseEvent) => {
-      if (!dragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      el.style.left = `${Math.max(8, initLeft + dx)}px`;
-      el.style.top = `${Math.max(8, initTop + dy)}px`;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // 只在拖拽开始时添加全局监听器
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!draggingRef.current || !el) return;
+      const dx = ev.clientX - dragStartRef.current.x;
+      const dy = ev.clientY - dragStartRef.current.y;
+      el.style.left = `${Math.max(8, dragStartRef.current.left + dx)}px`;
+      el.style.top = `${Math.max(8, dragStartRef.current.top + dy)}px`;
       el.style.right = 'auto';
       el.style.bottom = 'auto';
     };
+
     const onMouseUp = () => {
-      dragging = false;
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown);
+      draggingRef.current = false;
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
-  }, []);
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
 
   // 预设默认位置：向下、向左一些，避免遮挡右上角账号区
   // 注意：拖拽后会切换为 left/top 布局（并将 right/bottom 置为 auto）
@@ -270,8 +270,11 @@ const CachedImageDebug: React.FC = () => {
       className="fixed right-3 top-3 z-[60] pointer-events-none"
       style={{ maxWidth: 260, top: 72, right: 280 }}
     >
-      <div className="pointer-events-auto select-none rounded-md border border-gray-300 bg-white/90 shadow-lg backdrop-blur p-2">
-        <div className="flex items-center justify-between gap-2" data-drag-handle>
+      <div
+        className="pointer-events-auto select-none rounded-md border border-gray-300 bg-white/90 shadow-lg backdrop-blur p-2"
+        onMouseDown={handleDragStart}
+      >
+        <div className="flex items-center justify-between gap-2 cursor-move" data-drag-handle>
           <div className="text-xs font-medium text-gray-700">调试面板</div>
           <div className="flex items-center gap-1">
             <button
