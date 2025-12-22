@@ -31,8 +31,10 @@ import { useEraserTool } from './hooks/useEraserTool';
 import { useInteractionController } from './hooks/useInteractionController';
 import { useQuickImageUpload } from './hooks/useQuickImageUpload';
 import { useSimpleTextTool } from './hooks/useSimpleTextTool';
+import { useSnapAlignment } from './hooks/useSnapAlignment';
 import SimpleTextEditor from './SimpleTextEditor';
 import TextSelectionOverlay from './TextSelectionOverlay';
+import { SnapGuideRenderer } from './SnapGuideRenderer';
 import type { DrawingContext, ImageInstance } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { historyService } from '@/services/historyService';
@@ -932,6 +934,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     model3DInstancesRef.current = model3DTool.model3DInstances;
   }, [model3DTool.model3DInstances]);
+
+  // ========== 初始化自动对齐Hook ==========
+  const snapAlignment = useSnapAlignment({
+    imageInstances: imageTool.imageInstances,
+    model3DInstances: model3DTool.model3DInstances,
+    zoom,
+  });
 
   useEffect(() => {
     const handleInsertModelFromLibrary = (event: CustomEvent) => {
@@ -2068,7 +2077,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     simpleTextTool,
     performErase: eraserTool.performErase,
     setDrawMode,
-    isEraser
+    isEraser,
+    snapAlignment
   });
 
   const collectCanvasClipboardData = useCallback((): CanvasClipboardData | null => {
@@ -3890,6 +3900,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         trigger={model3DTool.triggerModel3DUpload}
         onTriggerHandled={model3DTool.handleModel3DUploadTriggerHandled}
         projectId={projectId}
+      />
+
+      {/* 自动对齐参考线渲染 */}
+      <SnapGuideRenderer
+        alignments={snapAlignment.activeAlignments}
+        zoom={zoom}
       />
 
       {/* 图片UI覆盖层实例 */}

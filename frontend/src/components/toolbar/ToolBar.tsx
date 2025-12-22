@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, LayoutTemplate, FolderOpen } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, LayoutTemplate, FolderOpen, Magnet } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -185,6 +185,8 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     setShowTemplatePanel,
     showLibraryPanel,
     toggleLibraryPanel,
+    snapAlignmentEnabled,
+    toggleSnapAlignment,
   } = useUIStore();
 
   // 用于防止事件循环的标志
@@ -934,6 +936,26 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">个人库</TooltipContent>
+      </Tooltip>
+
+      {/* 自动对齐开关 */}
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
+        <TooltipTrigger asChild>
+          <Button
+            variant={snapAlignmentEnabled ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(snapAlignmentEnabled)
+            )}
+            onClick={toggleSnapAlignment}
+          >
+            <Magnet className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {snapAlignmentEnabled ? '关闭自动对齐' : '开启自动对齐'}
+        </TooltipContent>
       </Tooltip>
 
       {/* 工具按钮 */}

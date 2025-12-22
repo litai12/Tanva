@@ -20,6 +20,7 @@ interface UIState {
   showSandboxPanel: boolean; // Paper.js 沙盒面板
   showTemplatePanel: boolean; // 模板库面板
   showDebugPanel: boolean; // 调试面板
+  snapAlignmentEnabled: boolean; // 自动对齐开关
 
   // 智能落位配置
   smartPlacementOffsetHorizontal: number; // px，水平偏移 522
@@ -41,6 +42,7 @@ interface UIState {
   toggleSandboxPanel: () => void;
   toggleTemplatePanel: () => void;
   toggleDebugPanel: () => void;
+  toggleSnapAlignment: () => void;
 
   // 设置方法
   setShowLibraryPanel: (show: boolean) => void;
@@ -77,6 +79,7 @@ const persistedUIPreferences = (() => {
       focusMode,
       showSandboxPanel,
       showDebugPanel,
+      snapAlignmentEnabled,
     } = state as Partial<UIState>;
     return {
       showLibraryPanel,
@@ -91,6 +94,7 @@ const persistedUIPreferences = (() => {
       focusMode,
       showSandboxPanel,
       showDebugPanel,
+      snapAlignmentEnabled,
     };
   } catch (error) {
     console.warn('[uiStore] Failed to parse persisted ui-preferences, using defaults.', error);
@@ -115,6 +119,7 @@ export const useUIStore = create<UIState>()(
       showSandboxPanel: persistedUIPreferences?.showSandboxPanel ?? false,
       showTemplatePanel: false, // 模板面板默认关闭，不持久化
       showDebugPanel: persistedUIPreferences?.showDebugPanel ?? false, // 调试面板默认关闭
+      snapAlignmentEnabled: persistedUIPreferences?.snapAlignmentEnabled ?? true, // 自动对齐默认开启
       smartPlacementOffsetHorizontal: SMART_PLACEMENT_OFFSET_HORIZONTAL,
       smartPlacementOffsetVertical: SMART_PLACEMENT_OFFSET_VERTICAL,
 
@@ -134,6 +139,7 @@ export const useUIStore = create<UIState>()(
       toggleSandboxPanel: () => set((state) => ({ showSandboxPanel: !state.showSandboxPanel })),
       toggleTemplatePanel: () => set((state) => ({ showTemplatePanel: !state.showTemplatePanel })),
       toggleDebugPanel: () => set((state) => ({ showDebugPanel: !state.showDebugPanel })),
+      toggleSnapAlignment: () => set((state) => ({ snapAlignmentEnabled: !state.snapAlignmentEnabled })),
 
       // 设置方法
       setShowLibraryPanel: (show) => set({ showLibraryPanel: show }),
@@ -173,6 +179,7 @@ export const useUIStore = create<UIState>()(
         focusMode: state.focusMode,
         showSandboxPanel: state.showSandboxPanel,
         showDebugPanel: state.showDebugPanel,
+        snapAlignmentEnabled: state.snapAlignmentEnabled,
       }) as Partial<UIState>,
     }
   )

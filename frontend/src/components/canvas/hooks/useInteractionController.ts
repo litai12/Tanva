@@ -14,6 +14,7 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { useCanvasStore } from '@/stores';
 import { findGroupBlockTitle, updateGroupBlockTitle, IMAGE_GROUP_BLOCK_TYPE } from '@/utils/paperImageGroupBlock';
 import type { ImageAssetSnapshot } from '@/types/project';
+import type { SnapAlignmentAPI } from './useSnapAlignment';
 
 // 导入其他hook的类型
 interface SelectionTool {
@@ -161,6 +162,7 @@ interface UseInteractionControllerProps {
   performErase: (path: paper.Path) => void;
   setDrawMode: (mode: DrawMode) => void;
   isEraser: boolean;
+  snapAlignment?: SnapAlignmentAPI;
 }
 
 export const useInteractionController = ({
@@ -175,7 +177,8 @@ export const useInteractionController = ({
   simpleTextTool,
   performErase,
   setDrawMode,
-  isEraser
+  isEraser,
+  snapAlignment
 }: UseInteractionControllerProps) => {
 
   // 拖拽检测相关常量
@@ -211,6 +214,7 @@ export const useInteractionController = ({
   const zoomRef = useRef(zoom);
   const performEraseRef = useRef(performErase);
   const setDrawModeRef = useRef(setDrawMode);
+  const snapAlignmentRef = useRef(snapAlignment);
 
   useEffect(() => {
     selectionToolRef.current = selectionTool;
@@ -255,6 +259,10 @@ export const useInteractionController = ({
   useEffect(() => {
     setDrawModeRef.current = setDrawMode;
   }, [setDrawMode]);
+
+  useEffect(() => {
+    snapAlignmentRef.current = snapAlignment;
+  }, [snapAlignment]);
 
   const isSelectionLikeMode = useCallback(() => {
     const mode = drawModeRef.current;
@@ -632,6 +640,10 @@ export const useInteractionController = ({
             groupImageIds: selectedIds,
             groupStartBounds: boundsMap,
           });
+          // 初始化对齐吸附
+          if (snapAlignmentRef.current?.startSnapping) {
+            snapAlignmentRef.current.startSnapping(selectedIds);
+          }
           // 拖拽图片时禁用 Flow 节点事件，避免经过节点时被打断
           document.body.classList.add('tanva-canvas-dragging');
           if (shouldDragExistingSelection) {
@@ -691,6 +703,10 @@ export const useInteractionController = ({
                 groupImageIds: groupIds,
                 groupStartBounds: boundsMap,
               });
+              // 初始化对齐吸附
+              if (snapAlignmentRef.current?.startSnapping) {
+                snapAlignmentRef.current.startSnapping(groupIds);
+              }
               document.body.classList.add('tanva-canvas-dragging');
               if (pathWasSelected) {
                 beginGroupPathDrag(point, 'image');
@@ -1141,18 +1157,48 @@ export const useInteractionController = ({
             return;
           }
 
-          // 普通拖拽：移动原图
+          // 普通拖拽：移动原图（支持对齐吸附）
+          const latestSnapAlignment = snapAlignmentRef.current;
+          let hasAlignments = false;
+
           groupIds.forEach((id) => {
             const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
             if (!start) {
               return;
             }
-            const newPosition = {
+
+            // 计算原始位置
+            const rawPosition = {
               x: start.x + deltaX,
               y: start.y + deltaY,
             };
-            latestImageTool.handleImageMove(id, newPosition, false);
+
+            // 应用对齐吸附
+            let finalPosition = rawPosition;
+            if (latestSnapAlignment?.snapEnabled) {
+              const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === id);
+              if (imageInstance) {
+                const result = latestSnapAlignment.calculateSnappedPosition(
+                  id,
+                  rawPosition,
+                  { width: imageInstance.bounds.width, height: imageInstance.bounds.height }
+                );
+                finalPosition = result.position;
+                // 只更新第一个图片的对齐线（避免多图片时重复更新）
+                if (!hasAlignments && result.alignments.length > 0) {
+                  latestSnapAlignment.updateAlignments(result.alignments);
+                  hasAlignments = true;
+                }
+              }
+            }
+
+            latestImageTool.handleImageMove(id, finalPosition, false);
           });
+
+          // 如果没有对齐线，清除显示
+          if (latestSnapAlignment && !hasAlignments) {
+            latestSnapAlignment.updateAlignments([]);
+          }
 
           applyGroupPathDrag(point, 'image');
           imageDragRafRef.current = null;
@@ -1439,6 +1485,10 @@ export const useInteractionController = ({
           groupImageIds: undefined,
           groupStartBounds: undefined,
         });
+        // 清除对齐参考线
+        if (snapAlignmentRef.current?.clearAlignments) {
+          snapAlignmentRef.current.clearAlignments();
+        }
         // 移除拖拽时禁用 Flow 节点事件的 CSS 类
         document.body.classList.remove('tanva-canvas-dragging');
         resetGroupPathDrag();
