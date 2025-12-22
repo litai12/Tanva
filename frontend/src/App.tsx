@@ -163,7 +163,7 @@ const App: React.FC = () => {
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
-      <SaveDebugPanel />
+      {/* <SaveDebugPanel /> */}
     </div>
   );
 };

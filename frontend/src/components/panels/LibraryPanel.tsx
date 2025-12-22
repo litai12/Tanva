@@ -42,6 +42,7 @@ const getTypeLabel = (type: PersonalAssetType): { label: string; icon: React.Rea
 const LibraryPanel: React.FC = () => {
   const { showLibraryPanel, setShowLibraryPanel, focusMode } = useUIStore();
   const [isUploading, setUploading] = React.useState(false);
+  const [isLibraryDragHovering, setLibraryDragHovering] = React.useState(false);
   const [selectedAsset, setSelectedAsset] = React.useState<PersonalLibraryAsset | null>(null);
   const [detailPosition, setDetailPosition] = React.useState<{ top: number } | null>(null);
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
@@ -72,6 +73,25 @@ const LibraryPanel: React.FC = () => {
       fileInputRef.current.value = '';
     }
   };
+
+  // 监听画布侧的库悬停事件，用于展示占位反馈
+  React.useEffect(() => {
+    const handleLibraryHover = (event: Event) => {
+      const hovering = Boolean((event as CustomEvent<{ hovering: boolean }>).detail?.hovering);
+      setLibraryDragHovering(hovering);
+    };
+    window.addEventListener('canvas:library-drag-hover', handleLibraryHover as EventListener);
+    return () => {
+      window.removeEventListener('canvas:library-drag-hover', handleLibraryHover as EventListener);
+    };
+  }, []);
+
+  // 面板关闭时自动清理悬停态
+  React.useEffect(() => {
+    if (!showLibraryPanel && isLibraryDragHovering) {
+      setLibraryDragHovering(false);
+    }
+  }, [showLibraryPanel, isLibraryDragHovering]);
 
   const triggerUpload = () => fileInputRef.current?.click();
 
@@ -399,11 +419,50 @@ const LibraryPanel: React.FC = () => {
       }
     };
 
+    // 监听从画布拖拽到库的事件
+    const handleAddToLibrary = (event: CustomEvent<{
+      type: '2d' | '3d' | 'svg';
+      url: string;
+      name?: string;
+      fileName?: string;
+      width?: number;
+      height?: number;
+      contentType?: string;
+    }>) => {
+      const { type, url, name, fileName, width, height, contentType } = event.detail;
+      if (!url) return;
+
+      if (type === '2d') {
+        const id = createPersonalAssetId('pl2d');
+        const imageAsset: PersonalImageAsset = {
+          id,
+          type: '2d',
+          name: name || fileName?.replace(/\.[^/.]+$/, '') || '画布图片',
+          url,
+          thumbnail: url,
+          width,
+          height,
+          fileName: fileName || '画布图片.png',
+          contentType: contentType || 'image/png',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        addAsset(imageAsset);
+        void personalLibraryApi.upsert(imageAsset).catch((error) => {
+          console.warn('[LibraryPanel] 同步图片资源到个人库失败:', error);
+        });
+        window.dispatchEvent(new CustomEvent('toast', { detail: { message: '图片已添加到个人库', type: 'success' } }));
+        setLibraryDragHovering(false);
+      }
+    };
+
     window.addEventListener('drop', handleDrop);
+    window.addEventListener('canvas:add-to-library', handleAddToLibrary as EventListener);
     return () => {
       window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('canvas:add-to-library', handleAddToLibrary as EventListener);
     };
-  }, []);
+  }, [addAsset]);
 
   // 点击外部关闭详情面板
   React.useEffect(() => {
@@ -567,10 +626,18 @@ const LibraryPanel: React.FC = () => {
 
       {/* 主面板 */}
       <div
+        data-library-drop-zone="true"
         className={`fixed top-0 right-0 h-full w-80 bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border-l border-liquid-glass z-[1000] transform transition-transform duration-[50ms] ease-out ${
           showLibraryPanel ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
+        {isLibraryDragHovering && (
+          <div className="pointer-events-none absolute inset-0 z-[1010] flex items-start justify-center px-3 pt-3">
+            <div className="w-full h-24 rounded-xl border-2 border-dashed border-blue-400/80 bg-blue-50/85 text-blue-700 flex items-center justify-center font-medium shadow-[0_10px_30px_rgba(59,130,246,0.15)] backdrop-blur-sm">
+              松开添加到库
+            </div>
+          </div>
+        )}
         {/* 面板头部 */}
         <div className="flex items-center justify-between px-4 pt-6 pb-4">
           <Button
@@ -599,7 +666,7 @@ const LibraryPanel: React.FC = () => {
         />
 
         {/* 资源网格 */}
-        <div className="flex-1 overflow-y-auto pb-12">
+        <div className="flex-1 overflow-y-auto pb-12 relative">
           <div className="p-3">
             <div className="grid grid-cols-3 gap-2">
               {/* 资源列表 */}

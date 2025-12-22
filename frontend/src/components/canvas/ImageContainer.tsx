@@ -1253,6 +1253,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       {isSelected && showIndividualTools && !showExpandSelector && (
         <div
           className="absolute"
+          data-image-toolbar="true"
           style={{
             top: '100%',
             marginTop: 12 * toolbarScale,

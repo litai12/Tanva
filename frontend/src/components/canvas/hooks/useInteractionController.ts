@@ -12,6 +12,8 @@ import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useCanvasStore } from '@/stores';
+import { findGroupBlockTitle, updateGroupBlockTitle, IMAGE_GROUP_BLOCK_TYPE } from '@/utils/paperImageGroupBlock';
+import type { ImageAssetSnapshot } from '@/types/project';
 
 // 导入其他hook的类型
 interface SelectionTool {
@@ -76,6 +78,14 @@ interface ImageTool {
   handleImageMove: (id: string, position: { x: number; y: number }, skipPaperUpdate?: boolean) => void;
   handleImageResize: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
   createImagePlaceholder: (start: paper.Point, end: paper.Point) => void;
+  createImageFromSnapshot?: (
+    snapshot: ImageAssetSnapshot,
+    options?: {
+      offset?: { x: number; y: number };
+      idOverride?: string;
+    }
+  ) => string | null;
+  setImagesVisibility?: (ids: string[], visible: boolean) => void;
   // 可选：由图片工具暴露的选中集与删除方法
   selectedImageIds?: string[];
   handleImageDelete?: (id: string) => void;
@@ -171,9 +181,15 @@ export const useInteractionController = ({
   // 拖拽检测相关常量
   const DRAG_THRESHOLD = 3; // 3像素的拖拽阈值
   const isSpacePressedRef = useRef(false);
+  const isAltPressedRef = useRef(false); // Alt/Option 键状态
+  const altDragClonedRef = useRef(false); // 标记是否已经在当前拖拽中创建了克隆
+  const altDragCloneIdsRef = useRef<string[]>([]); // 记录Alt拖拽时创建的克隆图片ID
+  const altDragPlaceholderRef = useRef<paper.Group | null>(null); // Alt+拖拽时的占位框
+  const altDragSnapshotsRef = useRef<ImageAssetSnapshot[]>([]); // Alt+拖拽时保存的图片快照
   const spacePanDragRef = useRef<SpacePanDragState | null>(null);
   const imageDragMovedRef = useRef(false);
   const imageDragRafRef = useRef<number | null>(null); // RAF ID for image drag sync
+  const libraryHoveringRef = useRef(false);
   const groupPathDragRef = useRef<GroupPathDragState>({
     active: false,
     mode: null,
@@ -606,6 +622,8 @@ export const useInteractionController = ({
           });
 
           imageDragMovedRef.current = false;
+          altDragCloneIdsRef.current = [];
+          libraryHoveringRef.current = false;
           latestImageTool.setImageDragState({
             isImageDragging: true,
             dragImageId: selectionResult.id,
@@ -663,6 +681,8 @@ export const useInteractionController = ({
             const first = firstId ? instanceMap.get(firstId) : null;
             if (first && firstId) {
               imageDragMovedRef.current = false;
+              altDragCloneIdsRef.current = [];
+              libraryHoveringRef.current = false;
               latestImageTool.setImageDragState({
                 isImageDragging: true,
                 dragImageId: firstId,
@@ -756,7 +776,8 @@ export const useInteractionController = ({
         point.y >= image.bounds.y &&
         point.y <= image.bounds.y + image.bounds.height
       ) {
-        canvas.style.cursor = 'move';
+        // Alt 键按下时显示复制光标
+        canvas.style.cursor = isAltPressedRef.current ? 'copy' : 'move';
         return;
       }
     }
@@ -940,6 +961,107 @@ export const useInteractionController = ({
             return;
           }
           imageDragMovedRef.current = true;
+
+          // Alt+拖拽：显示占位框，原图保持不动
+          if ((isAltPressedRef.current || event.altKey) && !altDragClonedRef.current) {
+            altDragClonedRef.current = true;
+            const groupIds = latestImageTool.imageDragState.groupImageIds?.length
+              ? latestImageTool.imageDragState.groupImageIds
+              : [latestImageTool.imageDragState.dragImageId];
+
+            // 保存图片快照，用于松开时创建副本
+            const snapshots: ImageAssetSnapshot[] = [];
+            let totalBounds: paper.Rectangle | null = null;
+
+            groupIds.forEach((imageId) => {
+              const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === imageId);
+              if (imageInstance) {
+                const snapshot: ImageAssetSnapshot = {
+                  id: imageInstance.id,
+                  bounds: { ...imageInstance.bounds },
+                  url: imageInstance.imageData?.url || '',
+                  src: imageInstance.imageData?.src || '',
+                  localDataUrl: imageInstance.imageData?.localDataUrl,
+                  key: imageInstance.imageData?.key,
+                  fileName: imageInstance.imageData?.fileName,
+                  width: imageInstance.imageData?.width,
+                  height: imageInstance.imageData?.height,
+                  contentType: imageInstance.imageData?.contentType,
+                  layerId: imageInstance.layerId ?? null,
+                };
+                snapshots.push(snapshot);
+
+                // 计算总边界
+                const imgBounds = new paper.Rectangle(
+                  imageInstance.bounds.x,
+                  imageInstance.bounds.y,
+                  imageInstance.bounds.width,
+                  imageInstance.bounds.height
+                );
+                if (!totalBounds) {
+                  totalBounds = imgBounds;
+                } else {
+                  totalBounds = totalBounds.unite(imgBounds);
+                }
+              }
+            });
+
+            altDragSnapshotsRef.current = snapshots;
+
+            // 创建占位框
+            if (totalBounds && paper.project) {
+              const placeholderGroup = new paper.Group();
+              placeholderGroup.data = { type: 'alt-drag-placeholder', isHelper: true };
+
+              // 占位框背景
+              const placeholder = new paper.Path.Rectangle({
+                rectangle: totalBounds,
+                strokeColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.8),
+                strokeWidth: 2 / (zoomRef.current || 1),
+                dashArray: [6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)],
+                fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.1),
+              });
+              placeholder.data = { isHelper: true };
+              placeholderGroup.addChild(placeholder);
+
+              // 图标背景圆
+              const iconSize = Math.min(40, Math.min(totalBounds.width, totalBounds.height) * 0.3);
+              const iconBg = new paper.Path.Circle({
+                center: totalBounds.center,
+                radius: iconSize / 2,
+                fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.9),
+              });
+              iconBg.data = { isHelper: true };
+              placeholderGroup.addChild(iconBg);
+
+              // 复制图标 (简化的两个重叠矩形)
+              const iconScale = iconSize / 40;
+              const rect1 = new paper.Path.Rectangle({
+                point: [totalBounds.center.x - 8 * iconScale, totalBounds.center.y - 8 * iconScale],
+                size: [12 * iconScale, 12 * iconScale],
+                strokeColor: new paper.Color(1, 1, 1, 1),
+                strokeWidth: 1.5 / (zoomRef.current || 1),
+                fillColor: null,
+              });
+              rect1.data = { isHelper: true };
+              placeholderGroup.addChild(rect1);
+
+              const rect2 = new paper.Path.Rectangle({
+                point: [totalBounds.center.x - 4 * iconScale, totalBounds.center.y - 4 * iconScale],
+                size: [12 * iconScale, 12 * iconScale],
+                strokeColor: new paper.Color(1, 1, 1, 1),
+                strokeWidth: 1.5 / (zoomRef.current || 1),
+                fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.9),
+              });
+              rect2.data = { isHelper: true };
+              placeholderGroup.addChild(rect2);
+
+              altDragPlaceholderRef.current = placeholderGroup;
+              try { paper.view.update(); } catch {}
+            }
+
+            logger.debug('🔄 Alt+拖拽：显示占位框，原图保持不动');
+          }
         }
 
         const groupIds = latestImageTool.imageDragState.groupImageIds?.length
@@ -947,12 +1069,77 @@ export const useInteractionController = ({
           : [latestImageTool.imageDragState.dragImageId];
         const groupStart = latestImageTool.imageDragState.groupStartBounds || {};
 
+        // Alt+拖拽时检测是否在库区域，添加高亮效果
+        if (isAltPressedRef.current || event.altKey) {
+          const libraryDropZone = document.querySelector('[data-library-drop-zone="true"]');
+          if (libraryDropZone) {
+            const rect = libraryDropZone.getBoundingClientRect();
+            const isOverLibrary =
+              event.clientX >= rect.left &&
+              event.clientX <= rect.right &&
+              event.clientY >= rect.top &&
+              event.clientY <= rect.bottom;
+
+            if (isOverLibrary) {
+              libraryDropZone.classList.add('library-drop-highlight');
+            } else {
+              libraryDropZone.classList.remove('library-drop-highlight');
+            }
+
+            if (libraryHoveringRef.current !== isOverLibrary) {
+              libraryHoveringRef.current = isOverLibrary;
+              window.dispatchEvent(new CustomEvent('canvas:library-drag-hover', {
+                detail: { hovering: isOverLibrary }
+              }));
+              const cloneIds = altDragCloneIdsRef.current;
+              if (cloneIds.length && typeof latestImageTool.setImagesVisibility === 'function') {
+                latestImageTool.setImagesVisibility(cloneIds, !isOverLibrary);
+              }
+            }
+          } else if (libraryHoveringRef.current) {
+            libraryHoveringRef.current = false;
+            window.dispatchEvent(new CustomEvent('canvas:library-drag-hover', {
+              detail: { hovering: false }
+            }));
+            const cloneIds = altDragCloneIdsRef.current;
+            if (cloneIds.length && typeof latestImageTool.setImagesVisibility === 'function') {
+              latestImageTool.setImagesVisibility(cloneIds, true);
+            }
+          }
+        } else if (libraryHoveringRef.current) {
+          libraryHoveringRef.current = false;
+          const libraryDropZone = document.querySelector('[data-library-drop-zone="true"]');
+          libraryDropZone?.classList.remove('library-drop-highlight');
+          window.dispatchEvent(new CustomEvent('canvas:library-drag-hover', {
+            detail: { hovering: false }
+          }));
+          const cloneIds = altDragCloneIdsRef.current;
+          if (cloneIds.length && typeof latestImageTool.setImagesVisibility === 'function') {
+            latestImageTool.setImagesVisibility(cloneIds, true);
+          }
+        }
+
         // 使用 RAF 同步图片位置更新，与画布平移保持同一帧
         if (imageDragRafRef.current) {
           cancelAnimationFrame(imageDragRafRef.current);
         }
 
         imageDragRafRef.current = requestAnimationFrame(() => {
+          // Alt+拖拽模式：只移动占位框，不移动原图
+          if (altDragPlaceholderRef.current && altDragClonedRef.current) {
+            const placeholder = altDragPlaceholderRef.current;
+            placeholder.position = new paper.Point(
+              placeholder.position.x + deltaX - (placeholder.data.lastDeltaX || 0),
+              placeholder.position.y + deltaY - (placeholder.data.lastDeltaY || 0)
+            );
+            placeholder.data.lastDeltaX = deltaX;
+            placeholder.data.lastDeltaY = deltaY;
+            try { paper.view.update(); } catch {}
+            imageDragRafRef.current = null;
+            return;
+          }
+
+          // 普通拖拽：移动原图
           groupIds.forEach((id) => {
             const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
             if (!start) {
@@ -1092,7 +1279,155 @@ export const useInteractionController = ({
           imageDragRafRef.current = null;
         }
         const didMove = imageDragMovedRef.current;
+        const wasAltClone = altDragClonedRef.current;
+        const wasAltDrag = isAltPressedRef.current || event.altKey;
         imageDragMovedRef.current = false;
+        altDragClonedRef.current = false; // 重置 Alt 拖拽克隆标记
+
+        // Alt+拖拽复制：在目标位置创建副本
+        if (wasAltClone && didMove && altDragPlaceholderRef.current && altDragSnapshotsRef.current.length > 0) {
+          const placeholder = altDragPlaceholderRef.current;
+          const snapshots = altDragSnapshotsRef.current;
+
+          // 计算位移量
+          const deltaX = placeholder.data.lastDeltaX || 0;
+          const deltaY = placeholder.data.lastDeltaY || 0;
+
+          // 检测是否拖拽到库区域
+          const libraryDropZone = document.querySelector('[data-library-drop-zone="true"]');
+          let droppedToLibrary = false;
+          if (libraryDropZone) {
+            libraryDropZone.classList.remove('library-drop-highlight');
+            const rect = libraryDropZone.getBoundingClientRect();
+            if (
+              event.clientX >= rect.left &&
+              event.clientX <= rect.right &&
+              event.clientY >= rect.top &&
+              event.clientY <= rect.bottom
+            ) {
+              droppedToLibrary = true;
+              // 添加到库
+              snapshots.forEach((snapshot) => {
+                window.dispatchEvent(new CustomEvent('canvas:add-to-library', {
+                  detail: {
+                    type: '2d',
+                    url: snapshot.url || snapshot.src,
+                    name: snapshot.fileName || '画布图片',
+                    fileName: snapshot.fileName,
+                    width: snapshot.width,
+                    height: snapshot.height,
+                    contentType: snapshot.contentType,
+                  }
+                }));
+              });
+              logger.debug('📚 Alt+拖拽：已将图片添加到个人库');
+            }
+          }
+
+          // 如果没有拖到库，则在目标位置创建副本
+          if (!droppedToLibrary && typeof latestImageTool.createImageFromSnapshot === 'function') {
+            snapshots.forEach((snapshot) => {
+              const newSnapshot = {
+                ...snapshot,
+                bounds: {
+                  x: snapshot.bounds.x + deltaX,
+                  y: snapshot.bounds.y + deltaY,
+                  width: snapshot.bounds.width,
+                  height: snapshot.bounds.height,
+                },
+              };
+              latestImageTool.createImageFromSnapshot(newSnapshot, { offset: { x: 0, y: 0 } });
+            });
+            logger.debug('🔄 Alt+拖拽：已在目标位置创建副本');
+          }
+
+          // 清理占位框
+          try { placeholder.remove(); } catch {}
+          altDragPlaceholderRef.current = null;
+          altDragSnapshotsRef.current = [];
+
+          // 清理状态并提交历史
+          latestImageTool.setImageDragState({
+            isImageDragging: false,
+            dragImageId: null,
+            imageDragStartPoint: null,
+            imageDragStartBounds: null,
+            groupImageIds: undefined,
+            groupStartBounds: undefined,
+          });
+          document.body.classList.remove('tanva-canvas-dragging');
+          resetGroupPathDrag();
+
+          if (!droppedToLibrary) {
+            historyService.commit('clone-image').catch(() => {});
+            try { paperSaveService.triggerAutoSave('clone-image'); } catch {}
+          }
+          try { paper.view.update(); } catch {}
+          return;
+        }
+
+        // 清理占位框（如果存在但没有移动）
+        if (altDragPlaceholderRef.current) {
+          try { altDragPlaceholderRef.current.remove(); } catch {}
+          altDragPlaceholderRef.current = null;
+          altDragSnapshotsRef.current = [];
+        }
+
+        // Alt+拖拽到库：检测鼠标是否在库面板区域
+        if (wasAltDrag && didMove) {
+          const libraryDropZone = document.querySelector('[data-library-drop-zone="true"]');
+          if (libraryDropZone) {
+            // 清除高亮效果
+            libraryDropZone.classList.remove('library-drop-highlight');
+
+            const rect = libraryDropZone.getBoundingClientRect();
+            if (
+              event.clientX >= rect.left &&
+              event.clientX <= rect.right &&
+              event.clientY >= rect.top &&
+              event.clientY <= rect.bottom
+            ) {
+              // 拖拽到库区域，添加资源到个人库
+              const groupIds = latestImageTool.imageDragState.groupImageIds?.length
+                ? latestImageTool.imageDragState.groupImageIds
+                : [latestImageTool.imageDragState.dragImageId];
+
+              groupIds.forEach((imageId) => {
+                const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === imageId);
+                if (imageInstance?.imageData?.url) {
+                  // 通过自定义事件通知库面板添加资源
+                  window.dispatchEvent(new CustomEvent('canvas:add-to-library', {
+                    detail: {
+                      type: '2d',
+                      url: imageInstance.imageData.url,
+                      name: imageInstance.imageData.fileName || '画布图片',
+                      fileName: imageInstance.imageData.fileName,
+                      width: imageInstance.imageData.width,
+                      height: imageInstance.imageData.height,
+                      contentType: imageInstance.imageData.contentType,
+                    }
+                  }));
+                }
+              });
+
+              logger.debug('📚 Alt+拖拽：已将图片添加到个人库');
+            }
+          }
+        }
+
+        // 清理库悬停状态并恢复克隆可见性
+        if (libraryHoveringRef.current) {
+          window.dispatchEvent(new CustomEvent('canvas:library-drag-hover', {
+            detail: { hovering: false }
+          }));
+        }
+        libraryHoveringRef.current = false;
+        const altCloneIds = altDragCloneIdsRef.current;
+        if (altCloneIds.length && typeof latestImageTool.setImagesVisibility === 'function') {
+          latestImageTool.setImagesVisibility(altCloneIds, true);
+        }
+        altDragCloneIdsRef.current = [];
+
         latestImageTool.setImageDragState({
           isImageDragging: false,
           dragImageId: null,
@@ -1105,8 +1440,8 @@ export const useInteractionController = ({
         document.body.classList.remove('tanva-canvas-dragging');
         resetGroupPathDrag();
         if (didMove) {
-          historyService.commit('move-image').catch(() => {});
-          try { paperSaveService.triggerAutoSave('move-image'); } catch {}
+          historyService.commit(wasAltClone ? 'clone-image' : 'move-image').catch(() => {});
+          try { paperSaveService.triggerAutoSave(wasAltClone ? 'clone-image' : 'move-image'); } catch {}
         }
         return;
       }
@@ -1205,6 +1540,11 @@ export const useInteractionController = ({
       // 输入框/可编辑区域不拦截
       const active = document.activeElement as Element | null;
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
+
+      // Alt/Option 键追踪
+      if (event.key === 'Alt') {
+        isAltPressedRef.current = true;
+      }
 
       if (!isEditable && isSelectionLikeMode() && (event.code === 'Space' || event.key === ' ')) {
         isSpacePressedRef.current = true;
@@ -1354,14 +1694,173 @@ export const useInteractionController = ({
         isSpacePressedRef.current = false;
         stopSpacePan();
       }
+      // Alt/Option 键释放
+      if (event.key === 'Alt') {
+        isAltPressedRef.current = false;
+      }
     };
 
     // 双击事件处理
     const handleDoubleClick = (event: MouseEvent) => {
+      const latestImageTool = imageToolRef.current;
+
+      // 🔥 修复：如果正在拖拽图片或刚刚完成拖拽，忽略双击事件
+      // 这可以防止拖拽过程中意外触发双击打开全屏预览
+      if (latestImageTool?.imageDragState?.isImageDragging || imageDragMovedRef.current) {
+        logger.debug('🚫 拖拽中，忽略双击事件');
+        return;
+      }
+
       const point = clientToProject(canvas, event.clientX, event.clientY);
 
       const currentDrawMode = drawModeRef.current;
       const latestSimpleTextTool = simpleTextToolRef.current;
+
+      // 检查是否双击了组块标题（用于编辑标题）
+      const tryEditGroupBlockTitle = () => {
+        try {
+          const hit = paper.project.hitTest(point, {
+            fill: true,
+            stroke: true,
+            tolerance: 6,
+          } as any);
+          if (hit?.item) {
+            // 检查是否点击了标题文本
+            if (hit.item.data?.type === 'image-group-title') {
+              const groupId = hit.item.data.groupId;
+              const titleText = hit.item as paper.PointText;
+              const currentTitle = titleText.content || '';
+
+              // 创建输入框进行编辑
+              const inputEl = document.createElement('input');
+              inputEl.type = 'text';
+              inputEl.value = currentTitle;
+              inputEl.style.cssText = `
+                position: fixed;
+                font-size: 14px;
+                font-family: system-ui, -apple-system, sans-serif;
+                font-weight: 500;
+                padding: 4px 8px;
+                border: 2px solid #3b82f6;
+                border-radius: 4px;
+                outline: none;
+                background: white;
+                min-width: 150px;
+                z-index: 10000;
+              `;
+
+              // 计算输入框位置（将 Paper.js 坐标转换为屏幕坐标）
+              const viewPoint = paper.view.projectToView(titleText.point);
+              const canvasRect = canvas.getBoundingClientRect();
+              const dpr = window.devicePixelRatio || 1;
+              inputEl.style.left = `${canvasRect.left + viewPoint.x / dpr}px`;
+              inputEl.style.top = `${canvasRect.top + viewPoint.y / dpr - 24}px`;
+
+              document.body.appendChild(inputEl);
+              inputEl.focus();
+              inputEl.select();
+
+              const finishEdit = (save: boolean) => {
+                if (save && inputEl.value.trim()) {
+                  updateGroupBlockTitle(groupId, inputEl.value.trim());
+                  try { paper.view.update(); } catch {}
+                  historyService.commit('edit-group-title').catch(() => {});
+                  try { paperSaveService.triggerAutoSave('edit-group-title'); } catch {}
+                }
+                inputEl.remove();
+              };
+
+              inputEl.addEventListener('blur', () => finishEdit(true));
+              inputEl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  finishEdit(true);
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  finishEdit(false);
+                }
+              });
+
+              event.preventDefault();
+              event.stopPropagation();
+              return true;
+            }
+
+            // 检查是否点击了组块本身（也可以编辑标题）
+            let current: any = hit.item;
+            while (current) {
+              if (current.data?.type === IMAGE_GROUP_BLOCK_TYPE) {
+                const groupId = current.data.groupId;
+                const titleText = findGroupBlockTitle(groupId);
+                if (titleText) {
+                  const currentTitle = titleText.content || '';
+
+                  // 创建输入框进行编辑
+                  const inputEl = document.createElement('input');
+                  inputEl.type = 'text';
+                  inputEl.value = currentTitle;
+                  inputEl.style.cssText = `
+                    position: fixed;
+                    font-size: 14px;
+                    font-family: system-ui, -apple-system, sans-serif;
+                    font-weight: 500;
+                    padding: 4px 8px;
+                    border: 2px solid #3b82f6;
+                    border-radius: 4px;
+                    outline: none;
+                    background: white;
+                    min-width: 150px;
+                    z-index: 10000;
+                  `;
+
+                  // 计算输入框位置
+                  const viewPoint = paper.view.projectToView(titleText.point);
+                  const canvasRect = canvas.getBoundingClientRect();
+                  const dpr = window.devicePixelRatio || 1;
+                  inputEl.style.left = `${canvasRect.left + viewPoint.x / dpr}px`;
+                  inputEl.style.top = `${canvasRect.top + viewPoint.y / dpr - 24}px`;
+
+                  document.body.appendChild(inputEl);
+                  inputEl.focus();
+                  inputEl.select();
+
+                  const finishEdit = (save: boolean) => {
+                    if (save && inputEl.value.trim()) {
+                      updateGroupBlockTitle(groupId, inputEl.value.trim());
+                      try { paper.view.update(); } catch {}
+                      historyService.commit('edit-group-title').catch(() => {});
+                      try { paperSaveService.triggerAutoSave('edit-group-title'); } catch {}
+                    }
+                    inputEl.remove();
+                  };
+
+                  inputEl.addEventListener('blur', () => finishEdit(true));
+                  inputEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      finishEdit(true);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      finishEdit(false);
+                    }
+                  });
+
+                  event.preventDefault();
+                  event.stopPropagation();
+                  return true;
+                }
+              }
+              current = current.parent;
+            }
+          }
+        } catch (err) {
+          console.warn('hitTest group title on dblclick failed', err);
+        }
+        return false;
+      };
+
+      // 先检查是否双击了组块标题
+      if (tryEditGroupBlockTitle()) return;
 
       const tryOpenImagePreview = () => {
         try {

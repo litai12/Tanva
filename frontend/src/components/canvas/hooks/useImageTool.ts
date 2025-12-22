@@ -640,6 +640,36 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     eventHandlers.onImageMove?.(imageId, newPosition);
   }, [eventHandlers.onImageMove, isRasterItem]);
 
+  // ========== 批量切换图片可见性（用于拖拽到库时隐藏克隆副本） ==========
+  const setImagesVisibility = useCallback((imageIds: string[], visible: boolean) => {
+    if (!imageIds || imageIds.length === 0) return;
+    const idSet = new Set(imageIds);
+
+    try {
+      const items = paper.project?.getItems({
+        match: (item: any) => {
+          const data = item?.data || {};
+          const isImageGroup = data.type === 'image' && typeof data.imageId === 'string';
+          const isRasterWithId = isRasterItem(item) && typeof data.imageId === 'string';
+          return (isImageGroup || isRasterWithId) && idSet.has(data.imageId);
+        }
+      }) as paper.Item[] | undefined;
+
+      items?.forEach((item) => {
+        try {
+          item.visible = visible;
+        } catch {}
+      });
+      paper.view?.update();
+    } catch (error) {
+      console.warn('[ImageTool] 切换图片可见性失败:', error);
+    }
+
+    setImageInstances((prev) =>
+      prev.map((img) => (idSet.has(img.id) ? { ...img, visible } : img))
+    );
+  }, [isRasterItem]);
+
   // 直接更新，避免复杂的节流逻辑
 
   // ========== 图片调整大小 ==========
@@ -1018,5 +1048,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     getImageDataForEditing,
     hydrateFromSnapshot,
     createImageFromSnapshot,
+    setImagesVisibility,
   };
 };

@@ -224,3 +224,38 @@ html, body, #root {
   position: relative;
   z-index: 2;
 }
+
+/* ==================== Alt+拖拽到库的高亮效果 ==================== */
+.library-drop-highlight {
+  box-shadow:
+    inset 0 0 0 3px rgba(59, 130, 246, 0.6),
+    0 0 20px rgba(59, 130, 246, 0.3) !important;
+  transition: box-shadow 0.15s ease-out;
+}
+
+.library-drop-highlight::after {
+  content: '松开添加到库';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 9999;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* ==================== 画布拖拽时禁用工具栏事件 ==================== */
+/* 当 Canvas 正在拖拽图片时，禁用图片/模型工具栏的 pointer-events，避免经过时被打断 */
+body.tanva-canvas-dragging [data-image-toolbar],
+body.tanva-canvas-dragging [data-image-toolbar] *,
+body.tanva-canvas-dragging [data-model-toolbar],
+body.tanva-canvas-dragging [data-model-toolbar] * {
+  pointer-events: none !important;
+}

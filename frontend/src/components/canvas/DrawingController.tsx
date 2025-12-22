@@ -14,7 +14,7 @@ import { AutoScreenshotService } from '@/services/AutoScreenshotService';
 import { logger } from '@/utils/logger';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
 import { BoundsCalculator } from '@/utils/BoundsCalculator';
-import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
+import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import { isRaster } from '@/utils/paperCoords';
@@ -1894,6 +1894,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 合并模式：如果这次组合包含旧的组块，移除它们（避免嵌套/重复组块）
     try {
       selectedGroupBlocks.forEach((old) => {
+        // 先删除标题
+        const groupId = (old.data as any)?.groupId;
+        if (groupId) {
+          try { removeGroupBlockTitle(groupId); } catch {}
+        }
         try { old.remove(); } catch {}
       });
     } catch {}
@@ -1924,6 +1929,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const blocks = [...selectedGroupBlocks];
       selectionTool.clearAllSelections();
       blocks.forEach((block) => {
+        // 先删除标题
+        const groupId = (block.data as any)?.groupId;
+        if (groupId) {
+          try { removeGroupBlockTitle(groupId); } catch {}
+        }
         try { block.remove(); } catch {}
       });
       try { paper.view.update(); } catch {}
@@ -3404,9 +3414,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         logger.drawing('🔄 rebuildFromPaper 开始执行...');
 
-        const imageInstances: any[] = [];
-        const textInstances: any[] = [];
-        const model3DInstances: any[] = [];
+	        const imageInstances: any[] = [];
+	        const textInstances: any[] = [];
+	        const model3DInstances: any[] = [];
+	        const seenImageGroupTitles = new Set<string>();
 
         // 扫描所有图层
         (paper.project.layers || []).forEach((layer: any) => {
@@ -3592,17 +3603,42 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               }
             }
 
-            // ========== 处理文字 ==========
-            if (item?.className === 'PointText' || item instanceof (paper as any).PointText) {
-              const pointText = item as any;
-              // 跳过辅助文本
-              if (pointText.data?.isHelper) return;
+	            // ========== 处理文字 ==========
+	            if (item?.className === 'PointText' || item instanceof (paper as any).PointText) {
+	              const pointText = item as any;
+	              // 跳过辅助文本
+	              if (pointText.data?.isHelper) return;
 
-              // 生成或使用已有的 text ID
-              let textId = pointText.data?.textId;
-              if (!textId) {
-                textId = `text_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-                if (!pointText.data) pointText.data = {};
+	              // 图片组标题：不归文本工具接管；同时做一次修复/去重，避免保存后出现重复标题
+	              const groupId = pointText.data?.groupId;
+	              if (typeof groupId === 'string' && groupId) {
+	                if (!pointText.data) pointText.data = {};
+	                pointText.data.type = 'image-group-title';
+	                pointText.data.isHelper = false;
+	                try {
+	                  const nextTitle = formatImageGroupTitle(String(pointText.content || ''));
+	                  if (nextTitle && pointText.content !== nextTitle) {
+	                    pointText.content = nextTitle;
+	                  }
+	                } catch {}
+	                if (seenImageGroupTitles.has(groupId)) {
+	                  try { pointText.remove(); } catch {}
+	                } else {
+	                  seenImageGroupTitles.add(groupId);
+	                }
+	                return;
+	              }
+
+	              // 只接管真正的文本工具文本；其他 PointText（未来可能的标注/刻度等）跳过
+	              if (pointText.data?.type && pointText.data.type !== 'text') {
+	                return;
+	              }
+
+	              // 生成或使用已有的 text ID
+	              let textId = pointText.data?.textId;
+	              if (!textId) {
+	                textId = `text_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+	                if (!pointText.data) pointText.data = {};
                 pointText.data.textId = textId;
               }
 

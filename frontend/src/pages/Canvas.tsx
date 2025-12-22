@@ -13,7 +13,7 @@ import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import CodeSandboxPanel from '@/components/sandbox/CodeSandboxPanel';
 import { useLayerStore } from '@/stores';
-import CachedImageDebug from '@/components/debug/CachedImageDebug';
+// import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
 import { migrateImageHistoryToRemote } from '@/services/imageHistoryService';
 import paper from 'paper';
@@ -109,7 +109,7 @@ const Canvas: React.FC = () => {
             {/* Paper.js 沙盒代码面板 */}
             <CodeSandboxPanel />
 
-            {/* 调试面板：显示缓存图像信息 */}
+            {/* 调试面板：显示缓存图像信息（暂时隐藏） */}
             {/* <CachedImageDebug /> */}
         </div>
     );

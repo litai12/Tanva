@@ -760,6 +760,18 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
     items.forEach((item) => {
       if (!item || !item.paperText) return;
 
+      // 仅接管真正的“文本工具”文本；跳过其他 PointText（例如图片组标题）
+      const data: any = item.paperText.data || {};
+      if (data.groupId) {
+        try {
+          item.paperText.data = { ...(item.paperText.data || {}), type: 'image-group-title', isHelper: false };
+        } catch {}
+        return;
+      }
+      if (data.type && data.type !== 'text') {
+        return;
+      }
+
       let id = item.id || item.paperText.data?.textId;
       if (!id) {
         id = `text_${++textIdCounter.current}`;
@@ -863,7 +875,7 @@ export const useSimpleTextTool = ({ currentColor, ensureDrawingLayer }: UseSimpl
         (paper.project.layers || []).forEach((layer: any) => {
           const children = layer?.children || [];
           children.forEach((child: any) => {
-            if (child?.data?.type === 'text' || child instanceof paper.PointText) {
+            if (child?.data?.type === 'text') {
               toRemove.push(child);
             }
           });
