@@ -1601,9 +1601,9 @@ function FlowInner() {
     return () => { cancelled = true; };
   }, [addPanel.visible, addTab, tplIndex]);
 
-  // 捕获原生点击，通过自定义检测实现双击（200ms 间隔），仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
+  // 捕获原生点击，通过自定义检测实现双击（300ms 间隔），仅在真正空白 Pane 区域触发；排除 AI 对话框及其保护带
   React.useEffect(() => {
-    const DOUBLE_CLICK_INTERVAL = 200; // 双击时间间隔（毫秒）
+    const DOUBLE_CLICK_INTERVAL = 300; // 双击时间间隔（毫秒）
     const DOUBLE_CLICK_DISTANCE = 10; // 允许的最大移动距离（像素）
 
     const onNativeClick = (e: MouseEvent) => {

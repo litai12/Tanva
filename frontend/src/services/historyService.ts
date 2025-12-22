@@ -63,8 +63,9 @@ async function restoreSnapshot(s: Snapshot) {
       try { paperSaveService.clearCanvasContent(); } catch {}
     }
 
-    // 通知 UI 覆盖层回填
-    try { window.dispatchEvent(new CustomEvent('history-restore', { detail: { assets: s.content.assets } })); } catch {}
+    // 触发 paper-project-changed 事件，让 DrawingController 从 Paper.js 对象重建 React 状态
+    // 这比 history-restore + hydrateFromSnapshot 更可靠，因为不会重建 Paper.js 对象
+    try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
 
     try { await paperSaveService.saveImmediately(); } catch {}
   } finally {
