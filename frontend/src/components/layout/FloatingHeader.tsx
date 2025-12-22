@@ -93,7 +93,7 @@ const FloatingHeader: React.FC = () => {
     } = useCanvasStore();
 
     // AI 配置
-    const { imageOnly, setImageOnly, aiProvider, setAIProvider, sendShortcut, setSendShortcut } = useAIChatStore();
+    const { imageOnly, setImageOnly, aiProvider, setAIProvider, sendShortcut, setSendShortcut, expandedPanelStyle, setExpandedPanelStyle } = useAIChatStore();
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
@@ -700,6 +700,39 @@ const FloatingHeader: React.FC = () => {
                                         />
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur">
+                            <div>
+                                <div className="text-sm font-medium text-slate-700">AI 对话框样式</div>
+                                <div className="text-xs text-slate-500">展开或最大化时的背景样式</div>
+                            </div>
+                            <div className="mt-4 flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setExpandedPanelStyle('transparent')}
+                                    className={cn(
+                                        "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                                        expandedPanelStyle === 'transparent'
+                                            ? "bg-slate-900 text-white"
+                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                    )}
+                                >
+                                    透明
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setExpandedPanelStyle('solid')}
+                                    className={cn(
+                                        "px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                                        expandedPanelStyle === 'solid'
+                                            ? "bg-slate-900 text-white"
+                                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                    )}
+                                >
+                                    纯色
+                                </button>
                             </div>
                         </div>
                     </div>

@@ -297,6 +297,7 @@ const AIChatDialog: React.FC = () => {
     setAutoModeMultiplier,
     sendShortcut,
     executeMidjourneyAction,
+    expandedPanelStyle,
     // 直接调用的图像处理方法（用于重新发送）
     editImage,
     blendImages,
@@ -2286,11 +2287,19 @@ const AIChatDialog: React.FC = () => {
   }, [messages, isMaximized]);
 
   // 🔥 计算彩雾状态（必须在 early return 之前）
+  // 彩雾显示条件：
+  // 1. 紧凑模式：始终显示
+  // 2. 展开模式 + 透明背景：显示
+  // 3. 展开模式 + 纯色背景：不显示
+  // 4. 最大化模式：不显示
   const generatingTaskCountForAura = messages.filter(
     (msg) => msg.type === "ai" && msg.generationStatus?.isGenerating
   ).length;
+  const isCompactMode = !showHistory && !isMaximized;
+  const isExpandedWithTransparent = showHistory && !isMaximized && expandedPanelStyle === "transparent";
+  const shouldShowAuraEffect = isCompactMode || isExpandedWithTransparent;
   const hasActiveAuraForEffect =
-    ENABLE_CHAT_AURA && generatingTaskCountForAura > 0 && !isMaximized;
+    ENABLE_CHAT_AURA && generatingTaskCountForAura > 0 && shouldShowAuraEffect;
 
   // 控制彩雾挂载/卸载，避免静止状态出现
   useEffect(() => {
@@ -2358,9 +2367,12 @@ const AIChatDialog: React.FC = () => {
 
   // 🔥 显示计数 = pendingTaskCount（包括未开始和生成中的任务）
   const _displayTaskCount = pendingTaskCount;
-  // 🔥 回复状态背景：仅在任务进行中（生成阶段）时显示，最大化时暂停彩雾
+  // 🔥 回复状态背景：紧凑模式或展开透明模式下显示彩雾
   const hasActiveAura =
-    ENABLE_CHAT_AURA && generatingTaskCount > 0 && !isMaximized;
+    ENABLE_CHAT_AURA && generatingTaskCount > 0 && shouldShowAuraEffect;
+
+  // 判断是否使用实心面板样式（展开/最大化模式下用户可选）
+  const useSolidPanel = !isCompactMode && expandedPanelStyle === "solid";
 
   const sendShortcutHint =
     sendShortcut === "enter"
@@ -2409,7 +2421,7 @@ const AIChatDialog: React.FC = () => {
           ? "top-2 left-2 right-2 bottom-2 z-[9999]" // 最大化：接近全屏，最高 z-index 确保在所有元素之上
           : "z-50",
         !isMaximized && showHistory
-          ? "top-4 bottom-4 max-w-[600px] w-[600px] px-4" // 展开模式：右侧全高，固定宽度（刚好容纳4张图）
+          ? "top-4 bottom-4 max-w-[580px] w-[580px] px-4" // 展开模式：右侧全高，固定宽度（刚好容纳4张图）
           : !isMaximized
           ? "bottom-3 left-1/2 transform -translate-x-1/2 w-full max-w-[600px] px-4" // 紧凑模式：底部居中
           : "",
@@ -2432,7 +2444,12 @@ const AIChatDialog: React.FC = () => {
         ref={dialogRef}
         data-prevent-add-panel
         className={cn(
-          "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass transition-all ease-out relative overflow-visible group",
+          "transition-all ease-out relative overflow-visible group",
+          // 紧凑模式：透明玻璃效果
+          isCompactMode && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass",
+          // 展开/最大化模式：根据用户设置选择透明或实心
+          !isCompactMode && !useSolidPanel && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass",
+          !isCompactMode && useSolidPanel && "bg-white shadow-xl border border-gray-200",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl",
           showHistory && !isMaximized && "h-full flex flex-col -mr-4", // 展开模式：填满容器高度并贴合屏幕右侧
           isDragging || isResizing ? "duration-0" : "duration-300"

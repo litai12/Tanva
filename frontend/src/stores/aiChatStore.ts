@@ -1602,6 +1602,7 @@ interface AIChatState {
   aiProvider: AIProviderType; // AI提供商选择 (gemini: Google Gemini, banana: 147 API, runninghub: SU截图转效果, midjourney: 147 Midjourney)
   autoModeMultiplier: AutoModeMultiplier;
   sendShortcut: SendShortcut;
+  expandedPanelStyle: "transparent" | "solid"; // 展开/最大化模式的面板样式
 
   // 操作方法
   showDialog: () => void;
@@ -1774,6 +1775,7 @@ interface AIChatState {
   setAIProvider: (provider: AIProviderType) => void; // 设置AI提供商
   setAutoModeMultiplier: (multiplier: AutoModeMultiplier) => void;
   setSendShortcut: (shortcut: SendShortcut) => void;
+  setExpandedPanelStyle: (style: "transparent" | "solid") => void; // 设置展开模式面板样式
 
   // 重置状态
   resetState: () => void;
@@ -1968,6 +1970,7 @@ export const useAIChatStore = create<AIChatState>()(
         aiProvider: "banana-2.5", // 默认国内极速版
         autoModeMultiplier: 1,
         sendShortcut: "enter",
+        expandedPanelStyle: "transparent", // 默认透明样式
 
         // 对话框控制
         showDialog: () => {
@@ -6033,6 +6036,10 @@ export const useAIChatStore = create<AIChatState>()(
           const next = shortcut === "enter" ? "enter" : "mod-enter";
           set({ sendShortcut: next });
         },
+        setExpandedPanelStyle: (style) => {
+          const next = style === "solid" ? "solid" : "transparent";
+          set({ expandedPanelStyle: next });
+        },
 
         // 重置状态
         resetState: () => {
@@ -6124,6 +6131,12 @@ export const useAIChatStore = create<AIChatState>()(
         thinkingLevel: state.thinkingLevel,
         autoModeMultiplier: state.autoModeMultiplier,
         sendShortcut: state.sendShortcut,
+        expandedPanelStyle: state.expandedPanelStyle,
+      }),
+      // 确保新字段能正确合并，使用初始状态的默认值填充缺失字段
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<AIChatState>),
       }),
     }
   )
