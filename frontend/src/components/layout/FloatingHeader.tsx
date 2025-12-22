@@ -38,6 +38,7 @@ import {
     Send
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
+import HistoryDebugPanel from '@/components/debug/HistoryDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
 import ProjectManagerModal from '@/components/projects/ProjectManagerModal';
 import { useUIStore, useCanvasStore, GridStyle } from '@/stores';
@@ -126,6 +127,7 @@ const FloatingHeader: React.FC = () => {
 
     // 单位/比例功能已移除
     const [showMemoryDebug, setShowMemoryDebug] = useState(false);
+    const [showHistoryDebug, setShowHistoryDebug] = useState(false);
     const [gridSizeInput, setGridSizeInput] = useState(String(gridSize));
     const [saveFeedback, setSaveFeedback] = useState<'idle' | 'success' | 'error'>('idle');
     const saveFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1000,6 +1002,22 @@ const FloatingHeader: React.FC = () => {
                                 </Button>
                             </div>
                         )}
+                        {import.meta.env.DEV && (
+                            <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div className="text-sm font-medium text-slate-700">历史记录调试</div>
+                                    <div className="text-xs text-slate-500">查看撤销/重做栈内容与快照详情</div>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    className="rounded-xl text-sm"
+                                    onClick={() => setShowHistoryDebug(!showHistoryDebug)}
+                                >
+                                    <History className="mr-2 h-4 w-4" />
+                                    {showHistoryDebug ? '关闭面板' : '打开面板'}
+                                </Button>
+                            </div>
+                        )}
                         <div className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-sm backdrop-blur flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <div className="text-sm font-medium text-slate-700">Paper.js 沙盒</div>
@@ -1311,9 +1329,15 @@ return (
             )}
             
             {/* 内存调试面板 */}
-            <MemoryDebugPanel 
-                isVisible={showMemoryDebug} 
-                onClose={() => setShowMemoryDebug(false)} 
+            <MemoryDebugPanel
+                isVisible={showMemoryDebug}
+                onClose={() => setShowMemoryDebug(false)}
+            />
+
+            {/* 历史记录调试面板 */}
+            <HistoryDebugPanel
+                isVisible={showHistoryDebug}
+                onClose={() => setShowHistoryDebug(false)}
             />
 
             {/* 项目管理器（文件选择弹窗） */}

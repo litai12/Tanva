@@ -402,6 +402,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     }));
     if (didUpdate) {
       try { paperSaveService.triggerAutoSave('model3d-move'); } catch {}
+      try { historyService.commit('move-model3d').catch(() => {}); } catch {}
     }
   }, [eventHandlers.onModel3DMove]);
 
@@ -469,6 +470,7 @@ export const useModel3DTool = ({ context, canvasRef, eventHandlers = {}, setDraw
     }));
     if (didUpdate) {
       try { paperSaveService.triggerAutoSave('model3d-resize'); } catch {}
+      try { historyService.commit('resize-model3d').catch(() => {}); } catch {}
     }
   }, [eventHandlers.onModel3DResize]);
 

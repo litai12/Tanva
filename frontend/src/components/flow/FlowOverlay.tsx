@@ -1660,6 +1660,47 @@ function FlowInner() {
     return () => window.removeEventListener('click', onNativeClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
+  // 🔥 备选方案：监听原生 dblclick 事件，解决自定义双击检测在某些模式下失效的问题
+  React.useEffect(() => {
+    const onNativeDblClick = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = e.clientX, y = e.clientY;
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+
+      // 检查是否在受保护元素内（AI 对话框等）
+      try {
+        const path = (e.composedPath && e.composedPath()) || [];
+        for (const n of path) {
+          if (n instanceof HTMLElement && n.closest?.('[data-prevent-add-panel]')) {
+            return;
+          }
+        }
+      } catch {}
+
+      // 检查是否在屏蔽元素或其外侧保护带内
+      try {
+        const shield = 24;
+        const preventEls = Array.from(document.querySelectorAll('[data-prevent-add-panel]')) as HTMLElement[];
+        for (const el of preventEls) {
+          const r = el.getBoundingClientRect();
+          if (x >= r.left - shield && x <= r.right + shield && y >= r.top - shield && y <= r.bottom + shield) {
+            return;
+          }
+        }
+      } catch {}
+
+      if (isBlankArea(x, y)) {
+        e.stopPropagation();
+        e.preventDefault();
+        openAddPanelAt(x, y, { tab: 'nodes', allowedTabs: ['nodes', 'beta', 'custom'] });
+      }
+    };
+
+    window.addEventListener('dblclick', onNativeDblClick, true);
+    return () => window.removeEventListener('dblclick', onNativeDblClick, true);
+  }, [openAddPanelAt, isBlankArea]);
+
   const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {

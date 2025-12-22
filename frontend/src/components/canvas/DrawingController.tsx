@@ -631,6 +631,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       paper.view.update();
       paperSaveService.triggerAutoSave();
+      try { historyService.commit('import-svg').catch(() => {}); } catch {}
     } catch (error) {
       console.warn('导入 SVG 失败:', error);
       window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 导入失败', type: 'error' } }));

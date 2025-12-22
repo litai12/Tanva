@@ -267,6 +267,13 @@ input[type="text"],
   border-radius: 8px;
 }
 
+/* Pointer 模式下禁用节点内文本选择，防止双击时文字变蓝 */
+.tanva-flow-overlay.pointer-mode .react-flow__node,
+.tanva-flow-overlay.pointer-mode .react-flow__node * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
 /* Marquee 纯框选模式：禁用 Flow 图谱交互，避免阻挡画布框选 */
 .tanva-flow-overlay.marquee-mode .react-flow__node,
 .tanva-flow-overlay.marquee-mode .react-flow__node *,
