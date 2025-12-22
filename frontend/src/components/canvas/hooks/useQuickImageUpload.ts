@@ -12,6 +12,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { imageUploadService } from '@/services/imageUploadService';
 import { isRaster } from '@/utils/paperCoords';
+import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
 
 interface UseQuickImageUploadProps {
@@ -53,6 +54,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
     const pendingImagesRef = useRef<Array<PendingImageEntry>>([]);
     const predictedPlaceholdersRef = useRef<Map<string, paper.Item>>(new Map());
+
+    // 🔥 收集并行生成的图片 ID，用于 X4/X8 自动打组
+    // key: parallelGroupId, value: { total: 期望数量, imageIds: 已加载的图片 ID 列表 }
+    const parallelGroupCollectorRef = useRef<Map<string, { total: number; imageIds: string[] }>>(new Map());
 
     const upsertPendingImage = useCallback((entry: PendingImageEntry) => {
         if (!entry?.id) return;
@@ -208,9 +213,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         currentImageId?: string,
         preferHorizontal?: boolean  // 🔥 新增：是否优先横向排列
     ): paper.Point => {
-        const spacing = useUIStore.getState().smartPlacementOffset || 522;
-        const verticalStep = Math.max(spacing, expectedHeight + 16);
-        const horizontalStep = Math.max(spacing, expectedWidth + 16);
+        const spacingHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+        const spacingVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
+        const verticalStep = Math.max(spacingVertical, expectedHeight + 16);
+        const horizontalStep = Math.max(spacingHorizontal, expectedWidth + 16);
         const maxAttempts = 50;
 
         const doesOverlap = (point: paper.Point) => {
@@ -256,7 +262,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
     // 计算智能排版位置
     const calculateSmartPosition = useCallback((
-        operationType: string, 
+        operationType: string,
         sourceImageId?: string,
         sourceImages?: string[],
         currentImageId?: string,
@@ -268,7 +274,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             preferHorizontal?: boolean;
         }
     ) => {
-        const getSpacing = () => useUIStore.getState().smartPlacementOffset || 522;
+        const getSpacingHorizontal = () => useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+        const getSpacingVertical = () => useUIStore.getState().smartPlacementOffsetVertical || 552;
         const existingImages = getAllCanvasImages();
 
         // 如果画布上没有任何图片，重置行分配状态，避免旧状态干扰
@@ -280,7 +287,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
         switch (operationType) {
             case 'generate': {
-                const spacing = getSpacing();
+                const spacingH = getSpacingHorizontal();
+                const spacingV = getSpacingVertical();
                 const viewCenter = paper.view?.center ?? new paper.Point(0, 0);
 
                 // 如果已有同名占位符，直接复用其位置，避免重复计算导致跳动
@@ -320,13 +328,14 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const colIndex = Math.min(columns - 1, Math.max(0, groupIndex % columns));
 
                 return {
-                    x: anchor.x + (colIndex - (columns - 1) / 2) * spacing,
-                    y: anchor.y + rowIndex * spacing
+                    x: anchor.x + (colIndex - (columns - 1) / 2) * spacingH,
+                    y: anchor.y + rowIndex * spacingV
                 };
             }
 
             case 'edit': {
-                const spacing = getSpacing();
+                const spacingH = getSpacingHorizontal();
+                const spacingV = getSpacingVertical();
                 const groupTotal = Math.max(1, layoutContext?.groupTotal ?? 1);
                 const groupIndex = Math.max(0, layoutContext?.groupIndex ?? 0);
                 const columns = groupTotal > 1 ? Math.min(4, groupTotal) : 1;
@@ -342,8 +351,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     const colIndex = groupIndex % columns;
 
                     return {
-                        x: anchor.x + (colIndex - (columns - 1) / 2) * spacing,
-                        y: anchor.y + rowIndex * spacing
+                        x: anchor.x + (colIndex - (columns - 1) / 2) * spacingH,
+                        y: anchor.y + rowIndex * spacingV
                     };
                 }
 
@@ -351,27 +360,27 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 if (sourceImageId) {
                     const sourceImage = findImageById(sourceImageId);
                     if (sourceImage) {
-                        const position = { x: sourceImage.x + spacing, y: sourceImage.y };
+                        const position = { x: sourceImage.x + spacingH, y: sourceImage.y };
                         return position;
                     }
                 }
                 // 没有找到源图，默认向右偏移
-                const editPosition = { x: spacing, y: 0 };
+                const editPosition = { x: spacingH, y: 0 };
                 return editPosition;
             }
 
             case 'blend': {
                 // 融合图：基于第一张源图向右偏移
-                const spacing = getSpacing();
+                const spacingH = getSpacingHorizontal();
                 if (sourceImages && sourceImages.length > 0) {
                     const firstSourceImage = findImageById(sourceImages[0]);
                     if (firstSourceImage) {
-                        const position = { x: firstSourceImage.x + spacing, y: firstSourceImage.y };
+                        const position = { x: firstSourceImage.x + spacingH, y: firstSourceImage.y };
                         return position;
                     }
                 }
                 // 没有找到源图，默认向右偏移
-                const blendPosition = { x: spacing, y: 0 };
+                const blendPosition = { x: spacingH, y: 0 };
                 return blendPosition;
             }
 
@@ -758,6 +767,10 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             videoInfo?: PendingImageEntry['videoInfo'];
             placeholderId?: string;
             preferHorizontal?: boolean;  // 🔥 新增：是否优先横向排列
+            // 🔥 并行生成分组信息，用于 X4/X8 自动打组
+            parallelGroupId?: string;
+            parallelGroupIndex?: number;
+            parallelGroupTotal?: number;
         }
     ) => {
         if (!imagePayload) {
@@ -846,6 +859,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const expectedHeight = placeholderBounds?.height ?? defaultExpectedSize;
             const pendingOperationType = operationType || 'manual';
             const preferHorizontal = extraOptions?.preferHorizontal ?? false;  // 🔥 获取横向排列偏好
+            // 🔥 获取并行生成分组信息
+            const parallelGroupId = extraOptions?.parallelGroupId;
+            const parallelGroupTotal = extraOptions?.parallelGroupTotal;
             let targetPosition: paper.Point;
             let pendingEntry: PendingImageEntry | null = null;
 
@@ -1278,6 +1294,47 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     window.dispatchEvent(new CustomEvent('quickImageAdded', {
                         detail: newImageInstance
                     }));
+                }
+
+                // 🔥 X4/X8 自动打组：收集同批次图片，当所有图片都加载完成后自动打组
+                if (parallelGroupId && parallelGroupTotal && parallelGroupTotal >= 2) {
+                    const collector = parallelGroupCollectorRef.current;
+                    let groupData = collector.get(parallelGroupId);
+                    if (!groupData) {
+                        groupData = { total: parallelGroupTotal, imageIds: [] };
+                        collector.set(parallelGroupId, groupData);
+                    }
+                    // 添加当前图片 ID
+                    if (!groupData.imageIds.includes(imageId)) {
+                        groupData.imageIds.push(imageId);
+                    }
+                    logger.upload(`🔗 [自动打组] 收集图片 ${groupData.imageIds.length}/${groupData.total}, groupId: ${parallelGroupId}, imageId: ${imageId}`);
+
+                    // 检查是否所有图片都已加载完成
+                    if (groupData.imageIds.length >= groupData.total) {
+                        logger.upload(`✅ [自动打组] 所有 ${groupData.total} 张图片已加载完成，触发自动打组`);
+                        // 保存当前 groupData 的引用，避免闭包问题
+                        const imageIdsToGroup = [...groupData.imageIds];
+                        const groupIdToDelete = parallelGroupId;
+                        // 延迟执行打组，确保所有图片都已渲染到画布
+                        setTimeout(() => {
+                            try {
+                                const result = createImageGroupBlock(imageIdsToGroup);
+                                if (result.block) {
+                                    logger.upload(`✅ [自动打组] 成功创建图片组，包含 ${imageIdsToGroup.length} 张图片`);
+                                    paper.view?.update();
+                                    // 提交历史记录
+                                    try { historyService.commit('auto-group-images').catch(() => {}); } catch {}
+                                } else {
+                                    logger.upload(`⚠️ [自动打组] 创建图片组失败: ${result.reason}`);
+                                }
+                            } catch (err) {
+                                logger.error('自动打组执行失败:', err);
+                            }
+                            // 清理收集器
+                            collector.delete(groupIdToDelete);
+                        }, 500); // 延迟 500ms 确保画布渲染完成
+                    }
                 }
 
                 // 记录历史，优先使用 OSS 链接，便于刷新后从云端恢复

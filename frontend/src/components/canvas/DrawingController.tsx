@@ -756,7 +756,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         sourceImages,
         videoInfo,
         placeholderId,
-        preferHorizontal  // 🔥 新增：是否优先横向排列
+        preferHorizontal,  // 🔥 新增：是否优先横向排列
+        // 🔥 并行生成分组信息，用于 X4/X8 自动打组
+        parallelGroupId,
+        parallelGroupIndex,
+        parallelGroupTotal,
       } = event.detail;
 
       logger.debug('🎨 [DEBUG] 收到AI图片快速上传触发事件:', {
@@ -766,7 +770,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         operationType,
         sourceImageId,
         sourceImages: sourceImages?.length,
-        preferHorizontal
+        preferHorizontal,
+        parallelGroupId,
+        parallelGroupIndex,
+        parallelGroupTotal,
       });
 
       if (imageData && quickImageUpload.handleQuickImageUploaded) {
@@ -779,7 +786,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           operationType,
           sourceImageId,
           sourceImages,
-          { videoInfo, placeholderId, preferHorizontal }  // 🔥 传递 preferHorizontal
+          { videoInfo, placeholderId, preferHorizontal, parallelGroupId, parallelGroupIndex, parallelGroupTotal }  // 🔥 传递并行分组信息
         );
         logger.debug('✅ [DEBUG] 已调用智能排版快速上传处理函数');
       }

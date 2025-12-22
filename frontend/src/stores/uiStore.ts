@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSafeStorage } from './storageUtils';
 
-const SMART_PLACEMENT_OFFSET = 522;
+const SMART_PLACEMENT_OFFSET_HORIZONTAL = 522;
+const SMART_PLACEMENT_OFFSET_VERTICAL = 582;
 
 interface UIState {
   // 面板显示状态
@@ -21,7 +22,8 @@ interface UIState {
   showDebugPanel: boolean; // 调试面板
 
   // 智能落位配置
-  smartPlacementOffset: number; // px，固定 522
+  smartPlacementOffsetHorizontal: number; // px，水平偏移 522
+  smartPlacementOffsetVertical: number; // px，垂直偏移 552
 
   // 操作方法
   toggleLibraryPanel: () => void;
@@ -47,7 +49,8 @@ interface UIState {
   setShowAxis: (show: boolean) => void;
   setShowBounds: (show: boolean) => void;
   setShowFlowPanel: (show: boolean) => void;
-  setSmartPlacementOffset: (offset: number) => void;
+  setSmartPlacementOffsetHorizontal: (offset: number) => void;
+  setSmartPlacementOffsetVertical: (offset: number) => void;
   setShowSandboxPanel: (show: boolean) => void;
   setShowTemplatePanel: (show: boolean) => void;
   setShowDebugPanel: (show: boolean) => void;
@@ -112,7 +115,8 @@ export const useUIStore = create<UIState>()(
       showSandboxPanel: persistedUIPreferences?.showSandboxPanel ?? false,
       showTemplatePanel: false, // 模板面板默认关闭，不持久化
       showDebugPanel: persistedUIPreferences?.showDebugPanel ?? false, // 调试面板默认关闭
-      smartPlacementOffset: SMART_PLACEMENT_OFFSET,
+      smartPlacementOffsetHorizontal: SMART_PLACEMENT_OFFSET_HORIZONTAL,
+      smartPlacementOffsetVertical: SMART_PLACEMENT_OFFSET_VERTICAL,
 
       // 切换方法
       toggleLibraryPanel: () => set((state) => ({ showLibraryPanel: !state.showLibraryPanel })),
@@ -141,14 +145,20 @@ export const useUIStore = create<UIState>()(
       setShowSandboxPanel: (show) => set({ showSandboxPanel: show }),
       setShowTemplatePanel: (show) => set({ showTemplatePanel: show }),
       setShowDebugPanel: (show) => set({ showDebugPanel: show }),
-      setSmartPlacementOffset: () => set(() => ({ smartPlacementOffset: SMART_PLACEMENT_OFFSET })),
+      setSmartPlacementOffsetHorizontal: () => set(() => ({ smartPlacementOffsetHorizontal: SMART_PLACEMENT_OFFSET_HORIZONTAL })),
+      setSmartPlacementOffsetVertical: () => set(() => ({ smartPlacementOffsetVertical: SMART_PLACEMENT_OFFSET_VERTICAL })),
     }),
     {
       name: 'ui-preferences',
       storage: createJSONStorage<Partial<UIState>>(() => createSafeStorage({ storageName: 'ui-preferences' })),
       merge: (persistedState, currentState) => {
         const safePersisted = persistedState && typeof persistedState === 'object' ? (persistedState as Partial<UIState>) : {};
-        return { ...currentState, ...safePersisted, smartPlacementOffset: SMART_PLACEMENT_OFFSET };
+        return {
+          ...currentState,
+          ...safePersisted,
+          smartPlacementOffsetHorizontal: SMART_PLACEMENT_OFFSET_HORIZONTAL,
+          smartPlacementOffsetVertical: SMART_PLACEMENT_OFFSET_VERTICAL,
+        };
       },
       partialize: (state) => ({
         showLibraryPanel: state.showLibraryPanel,

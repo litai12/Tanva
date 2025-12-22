@@ -1102,10 +1102,10 @@ const computeVideoSmartPosition = (): { x: number; y: number } | undefined => {
   try {
     const cached = contextManager.getCachedImage();
     if (cached?.bounds) {
-      const offset = useUIStore.getState().smartPlacementOffset || 522;
+      const offsetVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
       return {
         x: cached.bounds.x + cached.bounds.width / 2,
-        y: cached.bounds.y + cached.bounds.height / 2 + offset,
+        y: cached.bounds.y + cached.bounds.height / 2 + offsetVertical,
       };
     }
   } catch (error) {
@@ -2433,7 +2433,8 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             const cached = contextManager.getCachedImage();
-            const offset = useUIStore.getState().smartPlacementOffset || 522;
+            const offsetHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+            const offsetVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
             let center: { x: number; y: number } | null = null;
 
             // 🔥 检查是否是并行生成的一部分
@@ -2463,7 +2464,7 @@ export const useAIChatStore = create<AIChatState>()(
               if (cached?.bounds) {
                 // 基于缓存图片位置，在其下方开始新的一行
                 baseX = cached.bounds.x + cached.bounds.width / 2;
-                baseY = cached.bounds.y + cached.bounds.height / 2 + offset;
+                baseY = cached.bounds.y + cached.bounds.height / 2 + offsetVertical;
               } else {
                 const viewCenter = getViewCenter();
                 baseX = viewCenter?.x ?? 0;
@@ -2472,10 +2473,10 @@ export const useAIChatStore = create<AIChatState>()(
 
               layoutAnchor = { x: baseX, y: baseY };
 
-              // 横向排列：每张图片向右偏移 offset
+              // 横向排列：每张图片向右偏移 offsetHorizontal
               // groupIndex: 0, 1, 2, 3 -> 横向排列
               center = {
-                x: baseX + groupIndex * offset,
+                x: baseX + groupIndex * offsetHorizontal,
                 y: baseY,
               };
               placeholderLogger.debug(
@@ -2488,7 +2489,7 @@ export const useAIChatStore = create<AIChatState>()(
               // 单张生成：使用原有逻辑
               if (cached?.bounds) {
                 center = {
-                  x: cached.bounds.x + cached.bounds.width / 2 + offset,
+                  x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
                   y: cached.bounds.y + cached.bounds.height / 2,
                 };
                 layoutAnchor = { ...center };
@@ -2733,7 +2734,8 @@ export const useAIChatStore = create<AIChatState>()(
               const addImageToCanvas = (
                 aiResult: AIImageResult,
                 imageSrc: string,
-                isParallel: boolean = false
+                isParallel: boolean = false,
+                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
               ) => {
                 const fileName = `ai_generated_${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
@@ -2759,6 +2761,10 @@ export const useAIChatStore = create<AIChatState>()(
                       sourceImages: undefined,
                       placeholderId,
                       preferHorizontal: isParallel, // 🔥 并行生成时使用横向排列
+                      // 🔥 传递并行生成分组信息，用于自动打组
+                      parallelGroupId: parallelGroupInfo?.groupId,
+                      parallelGroupIndex: parallelGroupInfo?.groupIndex,
+                      parallelGroupTotal: parallelGroupInfo?.groupTotal,
                     },
                   })
                 );
@@ -2768,6 +2774,7 @@ export const useAIChatStore = create<AIChatState>()(
               const currentMsg = get().messages.find(
                 (m) => m.id === aiMessageId
               );
+              const groupId = currentMsg?.groupId;
               const groupIndex = currentMsg?.groupIndex ?? 0;
               const groupTotal = currentMsg?.groupTotal ?? 1;
               const isParallel = groupTotal > 1; // 🔥 判断是否是并行生成
@@ -2780,7 +2787,13 @@ export const useAIChatStore = create<AIChatState>()(
                   console.log(
                     `✅ [generateImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallel})`
                   );
-                  addImageToCanvas(result.data, placementImageData, isParallel);
+                  // 🔥 传递并行生成分组信息，用于 X4/X8 自动打组
+                  const parallelGroupInfo = isParallel && groupId ? {
+                    groupId,
+                    groupIndex,
+                    groupTotal,
+                  } : undefined;
+                  addImageToCanvas(result.data, placementImageData, isParallel, parallelGroupInfo);
                 }
               }, totalDelay); // 递增延迟，避免并行图片同时添加到画布
 
@@ -3099,12 +3112,12 @@ export const useAIChatStore = create<AIChatState>()(
             } catch {}
 
             const cached = contextManager.getCachedImage();
-            const offset = useUIStore.getState().smartPlacementOffset || 522;
+            const offsetHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
             let center: { x: number; y: number } | null = null;
 
             if (cached?.bounds) {
               center = {
-                x: cached.bounds.x + cached.bounds.width / 2 + offset,
+                x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
                 y: cached.bounds.y + cached.bounds.height / 2,
               };
             } else if (selectedImageBounds) {
@@ -3112,7 +3125,7 @@ export const useAIChatStore = create<AIChatState>()(
                 x:
                   selectedImageBounds.x +
                   selectedImageBounds.width / 2 +
-                  offset,
+                  offsetHorizontal,
                 y: selectedImageBounds.y + selectedImageBounds.height / 2,
               };
             } else {
@@ -3640,12 +3653,12 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             const cached = contextManager.getCachedImage();
-            const offset = useUIStore.getState().smartPlacementOffset || 522;
+            const offsetHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
             let center: { x: number; y: number } | null = null;
 
             if (cached?.bounds) {
               center = {
-                x: cached.bounds.x + cached.bounds.width / 2 + offset,
+                x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
                 y: cached.bounds.y + cached.bounds.height / 2,
               };
             } else {
