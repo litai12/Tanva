@@ -1010,12 +1010,14 @@ export const useInteractionController = ({
 
             // 创建占位框
             if (totalBounds && paper.project) {
+              const bounds = totalBounds as unknown as paper.Rectangle;
+              const boundsCenter = bounds.center;
               const placeholderGroup = new paper.Group();
               placeholderGroup.data = { type: 'alt-drag-placeholder', isHelper: true };
 
               // 占位框背景
               const placeholder = new paper.Path.Rectangle({
-                rectangle: totalBounds,
+                rectangle: bounds,
                 strokeColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.8),
                 strokeWidth: 2 / (zoomRef.current || 1),
                 dashArray: [6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)],
@@ -1025,9 +1027,9 @@ export const useInteractionController = ({
               placeholderGroup.addChild(placeholder);
 
               // 图标背景圆
-              const iconSize = Math.min(40, Math.min(totalBounds.width, totalBounds.height) * 0.3);
+              const iconSize = Math.min(40, Math.min(bounds.width, bounds.height) * 0.3);
               const iconBg = new paper.Path.Circle({
-                center: totalBounds.center,
+                center: boundsCenter,
                 radius: iconSize / 2,
                 fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.9),
               });
@@ -1037,7 +1039,7 @@ export const useInteractionController = ({
               // 复制图标 (简化的两个重叠矩形)
               const iconScale = iconSize / 40;
               const rect1 = new paper.Path.Rectangle({
-                point: [totalBounds.center.x - 8 * iconScale, totalBounds.center.y - 8 * iconScale],
+                point: [boundsCenter.x - 8 * iconScale, boundsCenter.y - 8 * iconScale],
                 size: [12 * iconScale, 12 * iconScale],
                 strokeColor: new paper.Color(1, 1, 1, 1),
                 strokeWidth: 1.5 / (zoomRef.current || 1),
@@ -1047,7 +1049,7 @@ export const useInteractionController = ({
               placeholderGroup.addChild(rect1);
 
               const rect2 = new paper.Path.Rectangle({
-                point: [totalBounds.center.x - 4 * iconScale, totalBounds.center.y - 4 * iconScale],
+                point: [boundsCenter.x - 4 * iconScale, boundsCenter.y - 4 * iconScale],
                 size: [12 * iconScale, 12 * iconScale],
                 strokeColor: new paper.Color(1, 1, 1, 1),
                 strokeWidth: 1.5 / (zoomRef.current || 1),
@@ -1325,7 +1327,8 @@ export const useInteractionController = ({
           }
 
           // 如果没有拖到库，则在目标位置创建副本
-          if (!droppedToLibrary && typeof latestImageTool.createImageFromSnapshot === 'function') {
+          const createImageFromSnapshot = latestImageTool.createImageFromSnapshot;
+          if (!droppedToLibrary && typeof createImageFromSnapshot === 'function') {
             snapshots.forEach((snapshot) => {
               const newSnapshot = {
                 ...snapshot,
@@ -1336,7 +1339,7 @@ export const useInteractionController = ({
                   height: snapshot.bounds.height,
                 },
               };
-              latestImageTool.createImageFromSnapshot(newSnapshot, { offset: { x: 0, y: 0 } });
+              createImageFromSnapshot(newSnapshot, { offset: { x: 0, y: 0 } });
             });
             logger.debug('🔄 Alt+拖拽：已在目标位置创建副本');
           }
