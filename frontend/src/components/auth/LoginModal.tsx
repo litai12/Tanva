@@ -40,7 +40,9 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
         setIsOpen(true);
       }
     });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const handleClose = useCallback(() => {

@@ -27,6 +27,7 @@ import type { FlowTemplate, TemplateIndexEntry, TemplateNode, TemplateEdge } fro
 import { loadBuiltInTemplateIndex, loadBuiltInTemplateByPath, listUserTemplates, getUserTemplate, saveUserTemplate, deleteUserTemplate, generateId } from '@/services/templateStore';
 
 import TextPromptNode from './nodes/TextPromptNode';
+import TextPromptProNode from './nodes/TextPromptProNode';
 import TextChatNode from './nodes/TextChatNode';
 import ImageNode from './nodes/ImageNode';
 import GenerateNode from './nodes/GenerateNode';
@@ -82,6 +83,7 @@ const FLOW_CLIPBOARD_TYPE = 'tanva-flow';
 
 const nodeTypes = {
   textPrompt: TextPromptNode,
+  textPromptPro: TextPromptProNode,
   textChat: TextChatNode,
   promptOptimize: PromptOptimizeNode,
   textNote: TextNoteNode,
@@ -247,6 +249,7 @@ const NODE_PALETTE_ITEMS = [
 
 // Beta 节点列表（实验性功能）
 const BETA_NODE_ITEMS = [
+  { key: 'textPromptPro', zh: '专业提示词节点', en: 'Prompt Pro', badge: 'Pro' },
   { key: 'generatePro', zh: '专业生成节点', en: 'Generate Pro', badge: 'Beta' },
   { key: 'generatePro4', zh: '四图专业生成节点', en: 'Generate Pro 4', badge: 'Beta' },
 ];
@@ -1711,10 +1714,11 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
+      textPromptPro: { w: 420, h: 360 },
       textNote: { w: 220, h: 140 },
       textChat: { w: 320, h: 540 },
       promptOptimize: { w: 360, h: 300 },
@@ -1733,6 +1737,7 @@ function FlowInner() {
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
     const data = type === 'textPrompt' ? { text: '', boxW: size.w, boxH: size.h, title: 'Prompt' }
+      : type === 'textPromptPro' ? { prompts: [''], text: '', textMode: 'raw', boxW: size.w, boxH: size.h }
       : type === 'textNote' ? { text: '', boxW: size.w, boxH: size.h }
       : type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false, boxW: size.w, boxH: size.h }
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
@@ -1752,7 +1757,7 @@ function FlowInner() {
     return id;
   }, [setNodes]);
 
-  const textSourceTypes = React.useMemo(() => ['textPrompt','textChat','promptOptimize','analysis','textNote','storyboardSplit','generatePro','generatePro4'], []);
+  const textSourceTypes = React.useMemo(() => ['textPrompt','textPromptPro','textChat','promptOptimize','analysis','textNote','storyboardSplit','generatePro','generatePro4'], []);
   const TEXT_PROMPT_MAX_CONNECTIONS = 20;
   const isTextHandle = React.useCallback((handle?: string | null) => typeof handle === 'string' && handle.startsWith('text'), []);
 
@@ -1809,6 +1814,10 @@ function FlowInner() {
       if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
       return false;
     }
+    if (targetNode.type === 'textPromptPro') {
+      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
+      return false;
+    }
     if (targetNode.type === 'analysis') {
       if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
@@ -1851,6 +1860,9 @@ function FlowInner() {
       if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
     }
     if (targetNode?.type === 'textPrompt') {
+      if (isTextHandle(params.targetHandle)) return incoming.length < TEXT_PROMPT_MAX_CONNECTIONS;
+    }
+    if (targetNode?.type === 'textPromptPro') {
       if (isTextHandle(params.targetHandle)) return incoming.length < TEXT_PROMPT_MAX_CONNECTIONS;
     }
     if (targetNode?.type === 'textNote') {
@@ -2879,7 +2891,7 @@ function FlowInner() {
     return () => { delete (window as any).tanvaFlow; };
   }, [setNodes, setEdges, isValidConnection, canAcceptConnection, rf]);
 
-  const addAtCenter = React.useCallback((type: 'textPrompt' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generate4' | 'generateRef' | 'analysis') => {
+  const addAtCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generate4' | 'generateRef' | 'analysis') => {
     const rect = containerRef.current?.getBoundingClientRect();
     const centerScreen = {
       x: (rect?.width || window.innerWidth) / 2,
@@ -2893,6 +2905,7 @@ function FlowInner() {
       position: center,
       data:
         type === 'textPrompt' ? { text: '', title: 'Prompt' } :
+        type === 'textPromptPro' ? { prompts: [''], text: '', textMode: 'raw' } :
         type === 'textNote' ? { text: '' } :
         type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false } :
         type === 'promptOptimize' ? { text: '', expandedText: '' } :

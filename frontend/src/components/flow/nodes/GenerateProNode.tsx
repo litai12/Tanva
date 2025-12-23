@@ -34,6 +34,7 @@ type Props = {
     imageSize?: '1K' | '2K' | '4K' | null;
     prompts?: string[];
     imageWidth?: number;
+    promptHeight?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -52,6 +53,9 @@ const buildImageSrc = (value?: string): string | undefined => {
 const MIN_IMAGE_WIDTH = 150;
 const MAX_IMAGE_WIDTH = 600;
 const DEFAULT_IMAGE_WIDTH = 296;
+const MIN_PROMPT_HEIGHT = 60;
+const MAX_PROMPT_HEIGHT = 400;
+const DEFAULT_PROMPT_HEIGHT = 80;
 
 function GenerateProNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
@@ -83,6 +87,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   // 图片宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;
+  // 提示词区域高度
+  const promptHeight = data.promptHeight || DEFAULT_PROMPT_HEIGHT;
 
   // 提示词数组，至少有一个
   const prompts = React.useMemo(() => {
@@ -468,6 +474,34 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     zIndex: 20,
   };
 
+  // 处理 prompt 区域高度拖拽
+  const handlePromptResizeStart = React.useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const startY = e.clientY;
+    const startHeight = promptHeight;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const newHeight = Math.max(MIN_PROMPT_HEIGHT, Math.min(MAX_PROMPT_HEIGHT, startHeight + deltaY));
+
+      window.dispatchEvent(
+        new CustomEvent('flow:updateNodeData', {
+          detail: { id, patch: { promptHeight: newHeight } }
+        })
+      );
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [promptHeight, id]);
+
   return (
     <div
       ref={containerRef}
@@ -644,7 +678,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       {prompts.map((prompt, index) => (
         <div key={index} style={{ marginTop: index === 0 ? 0 : 8, position: 'relative' }}>
           <div
-            className="nodrag nopan group"
+            className="group"
             style={{
               background: '#fff',
               borderRadius: 16,
@@ -652,6 +686,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               padding: '12px 16px',
               boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
               position: 'relative',
+              minHeight: index === 0 ? promptHeight : undefined,
+              display: 'flex',
+              flexDirection: 'column',
             }}
           >
             {index === 0 && externalPrompts.length > 0 && (
@@ -688,6 +725,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               </div>
             )}
             <textarea
+              className="nodrag nopan nowheel"
               value={prompt}
               onChange={(event) => updatePrompt(index, event.target.value)}
               onKeyDown={(e) => {
@@ -699,9 +737,10 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               placeholder={index === 0
                 ? (externalPrompts.length > 0 ? "输入额外提示词..." : "输入提示词...")
                 : "输入额外提示词..."}
-              rows={2}
               style={{
                 width: '100%',
+                flex: 1,
+                minHeight: 40,
                 fontSize: 14,
                 lineHeight: 1.5,
                 border: 'none',
@@ -711,10 +750,18 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                 color: '#374151',
                 paddingRight: prompts.length > 1 ? 24 : 0,
               }}
-              onPointerDownCapture={stopNodeDrag}
-              onPointerDown={stopNodeDrag}
-              onMouseDownCapture={stopNodeDrag}
-              onMouseDown={stopNodeDrag}
+              onWheelCapture={(event) => {
+                event.stopPropagation();
+                (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
+              }}
+              onPointerDownCapture={(event) => {
+                event.stopPropagation();
+                (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
+              }}
+              onMouseDownCapture={(event) => {
+                event.stopPropagation();
+                (event.nativeEvent as Event & { stopImmediatePropagation?: () => void })?.stopImmediatePropagation?.();
+              }}
               onFocus={() => setIsTextFocused(true)}
               onBlur={() => setIsTextFocused(false)}
             />
@@ -728,6 +775,36 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               >
                 <X style={{ width: 12, height: 12 }} />
               </button>
+            )}
+            {/* 底部拖拽条 - 仅第一个提示词框显示 */}
+            {index === 0 && (
+              <div
+                className="nodrag"
+                onMouseDown={handlePromptResizeStart}
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 16,
+                  right: 16,
+                  height: 8,
+                  cursor: 'ns-resize',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <div
+                  style={{
+                    width: 32,
+                    height: 3,
+                    borderRadius: 2,
+                    background: '#d1d5db',
+                    opacity: 0.6,
+                    transition: 'opacity 0.15s',
+                  }}
+                  className="group-hover:opacity-100"
+                />
+              </div>
             )}
           </div>
 
