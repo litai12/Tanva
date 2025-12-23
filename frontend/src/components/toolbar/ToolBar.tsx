@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Separator } from '../ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { Eraser, Square, Trash2, Box, Image, Layers, Camera, Sparkles, Type, GitBranch, MousePointer2, Code, LayoutTemplate, FolderOpen } from 'lucide-react';
+import { Eraser, Square, Trash2, Box, Image, Layers, Sparkles, Type, GitBranch, MousePointer2, LayoutTemplate, FolderOpen } from 'lucide-react';
 import TextStylePanel from './TextStylePanel';
 import ColorPicker from './ColorPicker';
 import { useToolStore, useUIStore } from '@/stores';
@@ -11,8 +11,6 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
 import { isRaster } from '@/utils/paperCoords';
-
-const ENABLE_SCREENSHOT_TOOL = false;
 
 // 统一画板：移除 Node 模式专属按钮组件
 
@@ -58,11 +56,24 @@ const CircleIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-// 添加节点图标 - 圆角矩形内有加号
+// 添加节点图标 - 带连接线的节点图标
 const AddNodeIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
-    <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-    <path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    {/* 左侧节点 */}
+    <rect x="1" y="5" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    {/* 右侧节点 */}
+    <rect x="10" y="5" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    {/* 连接线 */}
+    <path d="M6 7.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    {/* 连接线箭头 */}
+    <path d="M8.5 6L10 7.5L8.5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
+// 加号图标 - 用于添加工具主按钮
+const PlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
+    <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
 
@@ -228,10 +239,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
   const selectionGroupRef = React.useRef<HTMLDivElement>(null);
   const drawingGroupRef = React.useRef<HTMLDivElement>(null);
+  const addToolsGroupRef = React.useRef<HTMLDivElement>(null);
   const [isSelectionMenuOpen, setSelectionMenuOpen] = React.useState(false);
   const [isDrawingMenuOpen, setDrawingMenuOpen] = React.useState(false);
+  const [isAddToolsMenuOpen, setAddToolsMenuOpen] = React.useState(false);
   const selectionMenuEnabled = true;
-  const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen;
+  const isSubMenuOpen = (selectionMenuEnabled && isSelectionMenuOpen) || isDrawingMenuOpen || isAddToolsMenuOpen;
   const drawingModes = ['free', 'line', 'rect', 'circle'] as const;
 
   const { toggleDialog, isVisible: isAIDialogVisible, isMaximized: isAIChatMaximized, setSourceImageForEditing, showDialog } = useAIChatStore();
@@ -263,6 +276,13 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
     }
   }, [drawMode, isEraser]);
 
+  // 自动关闭添加工具菜单：当离开相关模式时
+  React.useEffect(() => {
+    if (drawMode !== 'image' && drawMode !== '3d-model') {
+      setAddToolsMenuOpen(false);
+    }
+  }, [drawMode]);
+
   // 点击画布空白处自动收起次级菜单
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -285,11 +305,19 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       ) {
         setDrawingMenuOpen(false);
       }
+
+      if (
+        isAddToolsMenuOpen &&
+        addToolsGroupRef.current &&
+        !addToolsGroupRef.current.contains(target)
+      ) {
+        setAddToolsMenuOpen(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isSelectionMenuOpen, isDrawingMenuOpen]);
+  }, [isSelectionMenuOpen, isDrawingMenuOpen, isAddToolsMenuOpen]);
 
   // AI 对话框最大化时隐藏工具栏（专注模式下保留工具栏）
   if (isAIChatMaximized) {
@@ -520,6 +548,115 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={12}>纯框选（不含节点）</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 添加工具分组（图片/3D/节点） */}
+      <div className="relative" ref={addToolsGroupRef}>
+        {/* 主按钮 - 加号 */}
+        <Tooltip open={isSubMenuOpen ? false : undefined}>
+          <TooltipTrigger asChild>
+            <Button
+              variant={drawMode === 'image' || drawMode === '3d-model' ? "default" : "outline"}
+              size="sm"
+              className={cn(
+                "p-0 h-8 w-8 rounded-full",
+                getActiveButtonStyle(drawMode === 'image' || drawMode === '3d-model')
+              )}
+              onClick={() => {
+                if (drawMode !== 'image' && drawMode !== '3d-model') {
+                  setAddToolsMenuOpen(true);
+                } else {
+                  setAddToolsMenuOpen((prev) => !prev);
+                }
+                setSelectionMenuOpen(false);
+                setDrawingMenuOpen(false);
+              }}
+            >
+              {drawMode === 'image' && <Image className="w-4 h-4" />}
+              {drawMode === '3d-model' && <Box className="w-4 h-4" />}
+              {drawMode !== 'image' && drawMode !== '3d-model' && <PlusIcon className="w-4 h-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {drawMode === 'image' ? '添加图片' : drawMode === '3d-model' ? '添加3D模型' : '添加内容'}
+          </TooltipContent>
+        </Tooltip>
+
+        {/* 添加工具次级菜单 */}
+        {isAddToolsMenuOpen && (
+          <div className="absolute left-full ml-3 transition-all duration-[50ms] ease-out z-[1001]" style={{ top: '-14px' }}>
+            <div className="flex flex-col items-center gap-3 px-2 py-3 rounded-[999px] bg-liquid-glass-light backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass-light" style={{ marginTop: '1px' }}>
+              <div className="flex flex-col gap-1">
+                {/* 图片工具 */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === 'image' ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === 'image')
+                      )}
+                      onClick={() => setDrawMode('image')}
+                    >
+                      <Image className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={12}>添加图片</TooltipContent>
+                </Tooltip>
+
+                {/* 3D模型工具 */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={drawMode === '3d-model' ? 'default' : 'outline'}
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        getSubPanelButtonStyle(drawMode === '3d-model')
+                      )}
+                      onClick={() => setDrawMode('3d-model')}
+                    >
+                      <Box className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={12}>添加3D模型</TooltipContent>
+                </Tooltip>
+
+                {/* 节点工具 */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        "p-0 h-8 w-8 rounded-full",
+                        inactiveButtonStyle
+                      )}
+                      onClick={() => {
+                        // 在画面中心打开节点面板
+                        const centerX = window.innerWidth / 2;
+                        const centerY = window.innerHeight / 2;
+                        window.dispatchEvent(new CustomEvent('flow:set-template-panel', {
+                          detail: {
+                            visible: true,
+                            tab: 'nodes',
+                            allowedTabs: ['nodes', 'beta', 'custom'],
+                            screen: { x: centerX, y: centerY }
+                          }
+                        }));
+                        setAddToolsMenuOpen(false);
+                      }}
+                    >
+                      <AddNodeIcon className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={12}>添加节点</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -765,68 +902,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
             )}
         </div>
 
-      {/* 统一画板：移除节点快速创建按钮（改为空白处双击弹窗） */}
-
-      {/* 图片/3D/截图 工具 */}
-      <>
-          <Tooltip open={isSubMenuOpen ? false : undefined}>
-            <TooltipTrigger asChild>
-              <Button
-                variant={drawMode === 'image' ? 'default' : 'outline'}
-                size="sm"
-                className={cn(
-                  "p-0 h-8 w-8 rounded-full",
-                  getActiveButtonStyle(drawMode === 'image')
-                )}
-                onClick={() => setDrawMode('image')}
-              >
-                <Image className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">添加图片</TooltipContent>
-          </Tooltip>
-
-          {/* 快速图片上传工具（居中） - 暂时隐藏 */}
-          {/* 3D模型工具（仅 Chat 模式） */}
-          <Tooltip open={isSubMenuOpen ? false : undefined}>
-            <TooltipTrigger asChild>
-              <Button
-                variant={drawMode === '3d-model' ? 'default' : 'outline'}
-                size="sm"
-                className={cn(
-                  "p-0 h-8 w-8 rounded-full",
-                  getActiveButtonStyle(drawMode === '3d-model')
-                )}
-                onClick={() => setDrawMode('3d-model')}
-              >
-                <Box className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">添加3D模型</TooltipContent>
-          </Tooltip>
-
-        {/* 截图工具暂时隐藏，后续需要时启用 ENABLE_SCREENSHOT_TOOL */}
-        {ENABLE_SCREENSHOT_TOOL && (
-          <Tooltip open={isSubMenuOpen ? false : undefined}>
-            <TooltipTrigger asChild>
-              <Button
-                variant={drawMode === 'screenshot' ? 'default' : 'outline'}
-                size="sm"
-                className={cn(
-                  "p-0 h-8 w-8 rounded-full",
-                  getActiveButtonStyle(drawMode === 'screenshot')
-                )}
-                onClick={() => setDrawMode('screenshot')}
-              >
-                <Camera className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">AI截图 - 自动包含所有元素</TooltipContent>
-          </Tooltip>
-        )}
-
-      </>
-
       {/* AI编辑图像工具 - 暂时隐藏 */}
         {/* <Button
           variant="outline"
@@ -851,54 +926,6 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
       </div>
 
       <Separator orientation="horizontal" className="w-6" />
-
-      {/* 节点面板按钮 - 在画面中心打开节点面板 */}
-      <Tooltip open={isSubMenuOpen ? false : undefined}>
-        <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn(
-              "p-0 h-8 w-8 rounded-full",
-              inactiveButtonStyle
-            )}
-            onClick={() => {
-              // 在画面中心打开节点面板
-              const centerX = window.innerWidth / 2;
-              const centerY = window.innerHeight / 2;
-              window.dispatchEvent(new CustomEvent('flow:set-template-panel', {
-                detail: {
-                  visible: true,
-                  tab: 'nodes',
-                  allowedTabs: ['nodes', 'beta', 'custom'],
-                  screen: { x: centerX, y: centerY }
-                }
-              }));
-            }}
-          >
-            <AddNodeIcon className="w-4 h-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">添加节点</TooltipContent>
-      </Tooltip>
-
-      {/* 模板库按钮 */}
-      <Tooltip open={isSubMenuOpen ? false : undefined}>
-        <TooltipTrigger asChild>
-          <Button
-            variant={showTemplatePanel ? 'default' : 'outline'}
-            size="sm"
-            className={cn(
-              "p-0 h-8 w-8 rounded-full",
-              getActiveButtonStyle(showTemplatePanel)
-            )}
-            onClick={handleToggleTemplatePanel}
-          >
-            <LayoutTemplate className="w-4 h-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">公共模板</TooltipContent>
-      </Tooltip>
 
       {/* 图层工具 */}
       <Tooltip open={isSubMenuOpen ? false : undefined}>
@@ -934,6 +961,24 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">个人库</TooltipContent>
+      </Tooltip>
+
+      {/* 模板库按钮 */}
+      <Tooltip open={isSubMenuOpen ? false : undefined}>
+        <TooltipTrigger asChild>
+          <Button
+            variant={showTemplatePanel ? 'default' : 'outline'}
+            size="sm"
+            className={cn(
+              "p-0 h-8 w-8 rounded-full",
+              getActiveButtonStyle(showTemplatePanel)
+            )}
+            onClick={handleToggleTemplatePanel}
+          >
+            <LayoutTemplate className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">公共模板</TooltipContent>
       </Tooltip>
 
       {/* 自动对齐开关已移至设置面板的视图外观中 */}
