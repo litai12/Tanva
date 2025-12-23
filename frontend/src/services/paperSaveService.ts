@@ -485,7 +485,11 @@ class PaperSaveService {
         return true;
       }
 
-      // 导入保存的内容（此操作会替换当前项目内容）
+      // Paper.js 的 Project#importJSON 默认是“追加”到当前项目，而不是替换。
+      // 若不先清空，撤销/重做/加载快照会出现旧对象残留、重复图元、选择框漂移（图框分离）等问题。
+      try { (paper.project as any).clear(); } catch {}
+
+      // 导入保存的内容
       (paper.project as any).importJSON(jsonString);
 
       // 清理系统图层与辅助元素

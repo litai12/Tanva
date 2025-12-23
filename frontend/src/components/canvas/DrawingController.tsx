@@ -3432,10 +3432,81 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         logger.drawing('🔄 rebuildFromPaper 开始执行...');
 
-	        const imageInstances: any[] = [];
-	        const textInstances: any[] = [];
-	        const model3DInstances: any[] = [];
-	        const seenImageGroupTitles = new Set<string>();
+        // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
+        // 1. 清理所有没有 raster 的图片组（包括它们的选择框）
+        const orphanGroups: paper.Group[] = [];
+        (paper.project.layers || []).forEach((layer: any) => {
+          const children = layer?.children || [];
+          children.forEach((item: any) => {
+            // 检查是否是图片组但没有有效的 raster
+            if (item?.data?.type === 'image' && item?.data?.imageId) {
+              const hasRaster = item.children?.some((c: any) => 
+                c?.className === 'Raster' || c instanceof (paper as any).Raster
+              );
+              if (!hasRaster) {
+                orphanGroups.push(item);
+              }
+            }
+          });
+        });
+        
+        // 删除所有孤儿图片组
+        orphanGroups.forEach(group => {
+          try {
+            logger.drawing(`🗑️ 清理孤儿图片组: ${group.data?.imageId}`);
+            group.remove();
+          } catch (e) {
+            console.warn('清理孤儿图片组失败:', e);
+          }
+        });
+
+        // 2. 清理所有没有对应图片组的孤儿选择框元素
+        const validImageIds = new Set<string>();
+        (paper.project.layers || []).forEach((layer: any) => {
+          const children = layer?.children || [];
+          children.forEach((item: any) => {
+            if (item?.data?.type === 'image' && item?.data?.imageId) {
+              const hasRaster = item.children?.some((c: any) => 
+                c?.className === 'Raster' || c instanceof (paper as any).Raster
+              );
+              if (hasRaster) {
+                validImageIds.add(item.data.imageId);
+              }
+            }
+          });
+        });
+
+        // 清理所有没有对应有效图片的选择框元素
+        (paper.project.layers || []).forEach((layer: any) => {
+          const children = layer?.children || [];
+          children.forEach((item: any) => {
+            // 检查是否是选择框相关元素
+            const isSelectionElement = 
+              item?.data?.type === 'image-selection-area' ||
+              item?.data?.isSelectionBorder ||
+              item?.data?.isResizeHandle;
+            
+            if (isSelectionElement) {
+              const imageId = item?.data?.imageId;
+              if (imageId && !validImageIds.has(imageId)) {
+                try {
+                  logger.drawing(`🗑️ 清理孤儿选择框元素: ${imageId}`);
+                  item.remove();
+                } catch (e) {
+                  console.warn('清理孤儿选择框元素失败:', e);
+                }
+              }
+            }
+          });
+        });
+
+        // 3. 清理所有选择状态
+        selectionTool.clearAllSelections();
+
+        const imageInstances: any[] = [];
+        const textInstances: any[] = [];
+        const model3DInstances: any[] = [];
+        const seenImageGroupTitles = new Set<string>();
 
         // 扫描所有图层
         (paper.project.layers || []).forEach((layer: any) => {
@@ -3772,42 +3843,51 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         });
 
         // 更新图片实例
-        if (imageInstances.length > 0) {
-          imageTool.setImageInstances((prev) => {
-            const prevMap = new Map(prev.map(item => [item.id, item]));
-            const merged: typeof prev = [];
+        // 🔥 修复：只保留在 Paper.js 中实际存在的图片实例，移除已不存在的实例
+        imageTool.setImageInstances((prev) => {
+          const prevMap = new Map(prev.map(item => [item.id, item]));
+          const merged: typeof prev = [];
+          const validImageIds = new Set(imageInstances.map(inst => inst.id));
 
-            imageInstances.forEach(instance => {
-              const previous = prevMap.get(instance.id);
-              if (previous) {
-                prevMap.delete(instance.id);
-              }
+          imageInstances.forEach(instance => {
+            const previous = prevMap.get(instance.id);
+            if (previous) {
+              prevMap.delete(instance.id);
+            }
 
-              const boundsToUse = previous && previous.bounds.width > 0 && previous.bounds.height > 0
-                ? previous.bounds
-                : instance.bounds;
+            const boundsToUse = previous && previous.bounds.width > 0 && previous.bounds.height > 0
+              ? previous.bounds
+              : instance.bounds;
 
-              merged.push({
-                ...instance,
-                ...previous,
-                bounds: boundsToUse,
-                imageData: {
-                  ...(instance.imageData || {}),
-                  ...(previous?.imageData || {})
-                },
-                isSelected: false,
-                visible: instance.visible
-              });
+            merged.push({
+              ...instance,
+              ...previous,
+              bounds: boundsToUse,
+              imageData: {
+                ...(instance.imageData || {}),
+                ...(previous?.imageData || {})
+              },
+              isSelected: false,
+              visible: instance.visible
             });
-
-            // 如果还有遗留的旧实例（理论上不会发生），保留它们以免数据丢失
-            prevMap.forEach(item => merged.push(item));
-
-            try { (window as any).tanvaImageInstances = merged; } catch {}
-            return merged;
           });
-          imageTool.setSelectedImageIds([]);
+
+          // 🔥 修复：不再保留遗留的旧实例，因为它们已经在 Paper.js 中不存在了
+          // 这样可以避免图框分离的问题
+          const removedCount = prevMap.size;
+          if (removedCount > 0) {
+            logger.drawing(`🗑️ 清理了 ${removedCount} 个已不存在的图片实例`);
+          }
+
+          try { (window as any).tanvaImageInstances = merged; } catch {}
+          return merged;
+        });
+        imageTool.setSelectedImageIds([]);
+        if (imageInstances.length > 0) {
           logger.debug(`🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`);
+        } else {
+          // 即使没有图片实例，也要确保清空状态
+          logger.debug('🧩 已清空所有图片实例');
         }
 
         // 更新文字实例
@@ -3837,7 +3917,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     window.addEventListener('paper-project-changed', rebuildFromPaper as EventListener);
     return () => window.removeEventListener('paper-project-changed', rebuildFromPaper as EventListener);
-  }, [imageTool, simpleTextTool, model3DTool]);
+  }, [imageTool, simpleTextTool, model3DTool, selectionTool]);
 
   // 监听图层面板的选择事件
   useEffect(() => {
