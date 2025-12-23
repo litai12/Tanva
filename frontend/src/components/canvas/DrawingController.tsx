@@ -4013,6 +4013,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               localDataUrl: image.imageData?.localDataUrl,
               fileName: image.imageData?.fileName,
               pendingUpload: image.imageData?.pendingUpload,
+              width: image.imageData?.width,
+              height: image.imageData?.height,
             }}
             bounds={image.bounds}
             isSelected={imageTool.selectedImageIds.includes(image.id)}

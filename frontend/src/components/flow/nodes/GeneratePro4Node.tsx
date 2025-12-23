@@ -1,11 +1,13 @@
 import React from "react";
-import { Handle, Position, useReactFlow, useEdges } from "reactflow";
-import { Send as SendIcon, Play, Link } from "lucide-react";
+import { Handle, Position, useReactFlow } from "reactflow";
+import { Play, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { useAIChatStore } from "@/stores/aiChatStore";
 import { cn } from "@/lib/utils";
 import { resolveTextFromSourceNode } from "../utils/textSource";
+import ContextMenu from "../../ui/context-menu";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -32,21 +34,13 @@ type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
-    images?: string[]; // base64 strings, max 4
+    images?: string[];
+    thumbnails?: string[]; // 缩略图
     error?: string;
-    aspectRatio?:
-      | "1:1"
-      | "2:3"
-      | "3:2"
-      | "3:4"
-      | "4:3"
-      | "4:5"
-      | "5:4"
-      | "9:16"
-      | "16:9"
-      | "21:9";
-    prompts?: string[]; // 多个提示词
-    imageWidth?: number; // 图片区域宽度
+    aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
+    imageSize?: "1K" | "2K" | "4K" | null;
+    prompts?: string[];
+    imageWidth?: number;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
   };
@@ -68,28 +62,33 @@ const buildImageSrc = (value?: string): string => {
 function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const images = React.useMemo(() => data.images || [], [data.images]);
+  const thumbnails = React.useMemo(() => data.thumbnails || [], [data.thumbnails]);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState(0);
   const [isTextFocused, setIsTextFocused] = React.useState(false);
   const [isAspectMenuOpen, setIsAspectMenuOpen] = React.useState(false);
+  const [isImageSizeMenuOpen, setIsImageSizeMenuOpen] = React.useState(false);
+  const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
   const aspectMenuRef = React.useRef<HTMLDivElement>(null);
+  const imageSizeMenuRef = React.useRef<HTMLDivElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const promptBoxRef = React.useRef<HTMLDivElement>(null);
   const imageBoxRef = React.useRef<HTMLDivElement>(null);
 
+  // 全局状态
+  const projectId = useProjectContentStore((state) => state.projectId);
+  const aiProvider = useAIChatStore((state) => state.aiProvider);
+  const isProMode = aiProvider === 'gemini-pro' || aiProvider === 'banana';
+
   // 检测外部文本连接
   const rf = useReactFlow();
-  const edges = useEdges();
-  const [externalPrompt, setExternalPrompt] = React.useState<string | null>(
-    null
-  );
-  const [externalSourceId, setExternalSourceId] = React.useState<string | null>(
-    null
-  );
+  const [externalPrompt, setExternalPrompt] = React.useState<string | null>(null);
+  const [externalSourceId, setExternalSourceId] = React.useState<string | null>(null);
 
   const refreshExternalPrompt = React.useCallback(() => {
-    const textEdge = edges.find(
+    const currentEdges = rf.getEdges();
+    const textEdge = currentEdges.find(
       (e) => e.target === id && e.targetHandle === "text"
     );
     if (!textEdge) {
@@ -110,7 +109,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     setExternalPrompt(
       resolved && resolved.trim().length ? resolved.trim() : null
     );
-  }, [edges, id, rf]);
+  }, [id, rf]);
 
   React.useEffect(() => {
     refreshExternalPrompt();
@@ -140,9 +139,6 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     return p.length > 0 ? p : [""];
   }, [data.prompts]);
 
-  // 项目ID
-  const projectId = useProjectContentStore((state) => state.projectId);
-
   const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
     event.stopPropagation();
     const nativeEvent = (event as React.SyntheticEvent<Element, Event>)
@@ -171,6 +167,45 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const onSend = React.useCallback(() => {
     data.onSend?.(id);
   }, [data, id]);
+
+  // 右键菜单处理
+  const handleContextMenu = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const closeContextMenu = React.useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  const handleCopy = React.useCallback(() => {
+    window.dispatchEvent(new CustomEvent('flow:copyNode', { detail: { nodeId: id } }));
+  }, [id]);
+
+  const handleDelete = React.useCallback(() => {
+    window.dispatchEvent(new CustomEvent('flow:deleteNode', { detail: { nodeId: id } }));
+  }, [id]);
+
+  const handleDownload = React.useCallback((index: number) => {
+    const img = images[index];
+    if (!img) return;
+    const src = buildImageSrc(img);
+    const link = document.createElement('a');
+    link.href = src;
+    link.download = `generate_pro4_${id}_${index + 1}_${Date.now()}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [images, id]);
+
+  const handleAddToLibrary = React.useCallback(() => {
+    const firstImage = images[0];
+    if (!firstImage) return;
+    window.dispatchEvent(new CustomEvent('flow:addToLibrary', {
+      detail: { imageData: firstImage, nodeId: id, nodeType: 'generatePro4' }
+    }));
+  }, [images, id]);
 
   // 长宽比选项
   const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(
@@ -208,6 +243,35 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   );
 
   const aspectRatioValue = data.aspectRatio ?? "";
+  const imageSizeValue = data.imageSize ?? null;
+
+  // 图像尺寸选项
+  const imageSizeOptions: Array<{ label: string; value: '1K' | '2K' | '4K' | null }> = React.useMemo(() => ([
+    { label: '自动', value: null },
+    { label: '1K', value: '1K' },
+    { label: '2K', value: '2K' },
+    { label: '4K', value: '4K' },
+  ]), []);
+
+  const updateImageSize = React.useCallback((size: '1K' | '2K' | '4K' | null) => {
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { imageSize: size } }
+      })
+    );
+  }, [id]);
+
+  // 点击外部关闭菜单
+  React.useEffect(() => {
+    if (!isImageSizeMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (imageSizeMenuRef.current && !imageSizeMenuRef.current.contains(e.target as Node)) {
+        setIsImageSizeMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isImageSizeMenuOpen]);
 
   // 当图片数据更新时，添加到全局历史记录
   React.useEffect(() => {
@@ -367,6 +431,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   return (
     <div
       ref={containerRef}
+      onContextMenu={handleContextMenu}
       style={{
         width: imageWidth + 24,
         background: "transparent",
@@ -599,6 +664,12 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           <textarea
             value={prompts[0] || ""}
             onChange={(event) => updatePrompt(0, event.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                onRun();
+              }
+            }}
             placeholder={
               externalPrompt ? "输入额外提示词（可选）..." : "输入提示词..."
             }
@@ -701,34 +772,57 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           }}
         >
           <div className='inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
-            {/* 长宽比选择按钮 */}
-            <div className='relative' ref={aspectMenuRef}>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsAspectMenuOpen(!isAspectMenuOpen);
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onPointerDownCapture={stopNodeDrag}
-                className={cn(
-                  "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
-                  aspectRatioValue
-                    ? "bg-gray-800 text-white border-gray-800"
-                    : ""
-                )}
-                title={
-                  aspectRatioValue
-                    ? `长宽比: ${aspectRatioValue}`
-                    : "选择长宽比"
-                }
-              >
-                <AspectRatioIcon style={{ width: 14, height: 14 }} />
-              </button>
-            </div>
+            {/* 长宽比选择按钮 - 仅 Pro 模式显示 */}
+            {isProMode && (
+              <div className='relative' ref={aspectMenuRef}>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsAspectMenuOpen(!isAspectMenuOpen);
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className={cn(
+                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                    aspectRatioValue ? "bg-gray-800 text-white border-gray-800" : ""
+                  )}
+                  title={aspectRatioValue ? `长宽比: ${aspectRatioValue}` : "选择长宽比"}
+                >
+                  <AspectRatioIcon style={{ width: 14, height: 14 }} />
+                </button>
+              </div>
+            )}
+
+            {/* HD 图像尺寸选择按钮 - 仅 Pro 模式显示 */}
+            {isProMode && (
+              <div className="relative" ref={imageSizeMenuRef}>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsImageSizeMenuOpen(!isImageSizeMenuOpen);
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className={cn(
+                    "p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center",
+                    imageSizeValue ? "bg-gray-800 text-white border-gray-800" : ""
+                  )}
+                  title={imageSizeValue ? `分辨率: ${imageSizeValue}` : '选择分辨率'}
+                >
+                  <span className="font-medium text-[10px] leading-none">
+                    {imageSizeValue || 'HD'}
+                  </span>
+                </button>
+              </div>
+            )}
 
             {/* Run 按钮 */}
             <button
@@ -748,29 +842,10 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
             >
               <Play style={{ width: 14, height: 14 }} />
             </button>
-
-            {/* 发送按钮 */}
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onSend();
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              disabled={!images.length}
-              onPointerDownCapture={stopNodeDrag}
-              className='p-0 h-8 w-8 rounded-full bg-white/50 border border-gray-300 text-gray-700 transition-all duration-200 hover:bg-gray-800/10 hover:border-gray-800/20 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed'
-              title={!images.length ? "无可发送的图像" : "发送到画布"}
-            >
-              <SendIcon style={{ width: 14, height: 14 }} />
-            </button>
           </div>
 
-          {/* 长宽比水平选择栏 */}
-          {isAspectMenuOpen && (
+          {/* 长宽比水平选择栏 - 仅 Pro 模式显示 */}
+          {isProMode && isAspectMenuOpen && (
             <div className='bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1'>
               {aspectOptions.map((opt) => (
                 <button
@@ -785,6 +860,31 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                     "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
                     aspectRatioValue === opt.value ||
                       (!aspectRatioValue && opt.value === "")
+                      ? "bg-gray-800 text-white font-medium"
+                      : "text-gray-700 hover:bg-gray-100"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* HD 图像尺寸水平选择栏 - 仅 Pro 模式显示 */}
+          {isProMode && isImageSizeMenuOpen && (
+            <div className="bg-white rounded-full shadow-lg border border-gray-200 px-2 py-1.5 flex items-center gap-1">
+              {imageSizeOptions.map(opt => (
+                <button
+                  key={opt.value || 'auto'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    updateImageSize(opt.value);
+                    setIsImageSizeMenuOpen(false);
+                  }}
+                  onPointerDownCapture={stopNodeDrag}
+                  className={cn(
+                    "px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap",
+                    imageSizeValue === opt.value
                       ? "bg-gray-800 text-white font-medium"
                       : "text-gray-700 hover:bg-gray-100"
                   )}
@@ -826,6 +926,45 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
           if (i >= 0) setPreviewIndex(i);
         }}
       />
+
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={closeContextMenu}
+          items={[
+            {
+              label: '复制节点',
+              icon: <Copy className="w-4 h-4" />,
+              onClick: handleCopy,
+            },
+            {
+              label: '删除节点',
+              icon: <Trash2 className="w-4 h-4" />,
+              onClick: handleDelete,
+            },
+            {
+              label: '添加到库',
+              icon: <FolderPlus className="w-4 h-4" />,
+              onClick: handleAddToLibrary,
+              disabled: !images.length,
+            },
+            {
+              label: '下载图片',
+              icon: <Download className="w-4 h-4" />,
+              onClick: () => handleDownload(0),
+              disabled: !images.length,
+            },
+            {
+              label: '发送到画板',
+              icon: <SendIcon className="w-4 h-4" />,
+              onClick: onSend,
+              disabled: !images.length,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

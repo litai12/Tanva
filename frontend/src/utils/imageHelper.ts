@@ -130,3 +130,52 @@ export async function trimTransparentPng(
     changed: true,
   };
 }
+
+/**
+ * 生成缩略图
+ * @param sourceData 原始图片数据（base64 或 data URL）
+ * @param maxWidth 最大宽度，默认 300
+ * @param quality JPEG 质量，默认 0.8
+ * @returns 缩略图的 data URL
+ */
+export async function generateThumbnail(
+  sourceData: string,
+  maxWidth: number = 300,
+  quality: number = 0.8
+): Promise<string | null> {
+  try {
+    const normalized = normalizeDataUrl(sourceData);
+    if (!normalized) return null;
+
+    const image = await loadImageElement(normalized);
+    const origWidth = image.naturalWidth || image.width;
+    const origHeight = image.naturalHeight || image.height;
+
+    // 如果原图已经很小，直接返回
+    if (origWidth <= maxWidth) {
+      return normalized;
+    }
+
+    // 计算缩放后的尺寸
+    const scale = maxWidth / origWidth;
+    const newWidth = Math.round(origWidth * scale);
+    const newHeight = Math.round(origHeight * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = newWidth;
+    canvas.height = newHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    // 使用高质量缩放
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(image, 0, 0, newWidth, newHeight);
+
+    // 返回 JPEG 格式以减小体积
+    return canvas.toDataURL('image/jpeg', quality);
+  } catch {
+    return null;
+  }
+}

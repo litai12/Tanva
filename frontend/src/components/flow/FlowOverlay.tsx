@@ -41,6 +41,7 @@ import TextNoteNode from './nodes/TextNoteNode';
 import StoryboardSplitNode from './nodes/StoryboardSplitNode';
 import GenerateProNode from './nodes/GenerateProNode';
 import GeneratePro4Node from './nodes/GeneratePro4Node';
+import { generateThumbnail } from '@/utils/imageHelper';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
@@ -1849,8 +1850,14 @@ function FlowInner() {
       if (isTextHandle(params.targetHandle)) return true;
     }
     if (targetNode?.type === 'sora2Video') {
-      if (params.targetHandle === 'image') return true;
-      if (params.targetHandle === 'text') return true;
+      // image 句柄只接受图像类型节点
+      if (params.targetHandle === 'image') {
+        return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode?.type || '');
+      }
+      // text 句柄只接受文本类型节点
+      if (params.targetHandle === 'text') {
+        return textSourceTypes.includes(sourceNode?.type || '');
+      }
     }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
@@ -2354,6 +2361,14 @@ function FlowInner() {
       return typeof raw === 'string' && raw.trim().length ? raw.trim() as AIImageGenerateRequest['aspectRatio'] : undefined;
     })();
 
+    // 优先使用节点本地的 imageSize，否则使用全局设置
+    const nodeSizeValue = (() => {
+      const raw = (node.data as any)?.imageSize;
+      if (raw === '1K' || raw === '2K' || raw === '4K') return raw;
+      return undefined;
+    })();
+    const effectiveImageSize = nodeSizeValue || imageSize || undefined;
+
     if (node.type === 'generate4') {
       const total = Math.max(1, Math.min(4, Number((node.data as any)?.count) || 4));
       setNodes(ns => ns.map(n => n.id === nodeId ? {
@@ -2380,7 +2395,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
-              imageSize: imageSize || undefined,
+              imageSize: effectiveImageSize,
             });
           } else if (imageDatas.length === 1) {
             result = await editImageViaAPI({
@@ -2390,7 +2405,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
-              imageSize: imageSize || undefined,
+              imageSize: effectiveImageSize,
             });
           } else {
             result = await blendImagesViaAPI({
@@ -2400,7 +2415,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
-              imageSize: imageSize || undefined,
+              imageSize: effectiveImageSize,
             });
           }
 
@@ -2472,7 +2487,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
-              imageSize: imageSize || undefined,
+              imageSize: effectiveImageSize,
             });
           } else if (imageDatas.length === 1) {
             result = await editImageViaAPI({
@@ -2482,7 +2497,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
-              imageSize: imageSize || undefined,
+              imageSize: effectiveImageSize,
             });
           } else {
             result = await blendImagesViaAPI({
@@ -2492,7 +2507,7 @@ function FlowInner() {
               aiProvider,
               model: imageModel,
               aspectRatio: aspectRatioValue,
-              imageSize: imageSize || undefined,
+              imageSize: effectiveImageSize,
             });
           }
 
@@ -2569,7 +2584,7 @@ function FlowInner() {
           aiProvider,
           model: imageModel,
           aspectRatio: aspectRatioValue,
-          imageSize: imageSize || undefined,
+          imageSize: effectiveImageSize,
         });
       } else if (imageDatas.length === 1) {
         result = await editImageViaAPI({
@@ -2579,7 +2594,7 @@ function FlowInner() {
           aiProvider,
           model: imageModel,
           aspectRatio: aspectRatioValue,
-          imageSize: imageSize || undefined,
+          imageSize: effectiveImageSize,
         });
       } else {
         result = await blendImagesViaAPI({
@@ -2589,7 +2604,7 @@ function FlowInner() {
           aiProvider,
           model: imageModel,
           aspectRatio: aspectRatioValue,
-          imageSize: imageSize || undefined,
+          imageSize: effectiveImageSize,
         });
       }
 
@@ -2611,7 +2626,17 @@ function FlowInner() {
         });
       }
 
+      // 先设置原图，然后异步生成缩略图
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'succeeded', imageData: imgBase64, error: undefined } } : n));
+
+      // 为 generatePro 节点异步生成缩略图
+      if (imgBase64 && (node.type === 'generatePro' || node.type === 'generate')) {
+        generateThumbnail(imgBase64, 400).then(thumbnail => {
+          if (thumbnail) {
+            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, thumbnail } } : n));
+          }
+        }).catch(() => {});
+      }
 
       if (imgBase64) {
         const outs = rf.getEdges().filter(e => e.source === nodeId);

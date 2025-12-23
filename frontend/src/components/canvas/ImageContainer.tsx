@@ -116,6 +116,8 @@ interface ImageData {
   fileName?: string;
   pendingUpload?: boolean;
   localDataUrl?: string;
+  width?: number;  // 图片原始宽度
+  height?: number; // 图片原始高度
 }
 
 interface ImageContainerProps {
@@ -1237,6 +1239,59 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           pointerEvents: "none",
         }}
       />
+
+      {/* 图片信息条 - 选中时显示在图片上方，左上角显示名称，右上角显示分辨率 */}
+      {isSelected && !showExpandSelector && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: 0,
+            right: 0,
+            marginBottom: 6 * toolbarScale,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: `${4 * toolbarScale}px ${8 * toolbarScale}px`,
+            fontSize: 12 * toolbarScale,
+            color: '#374151',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            backdropFilter: 'blur(8px)',
+            borderRadius: 6 * toolbarScale,
+            border: '1px solid rgba(229, 231, 235, 0.8)',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            minWidth: 0,
+          }}
+        >
+          {/* 左侧：图片名称 */}
+          <span
+            style={{
+              fontWeight: 500,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth: '60%',
+            }}
+            title={imageData.fileName || `图片 ${imageData.id}`}
+          >
+            {imageData.fileName || `图片 ${imageData.id}`}
+          </span>
+          {/* 右侧：分辨率 */}
+          <span
+            style={{
+              color: '#6b7280',
+              marginLeft: 8 * toolbarScale,
+              flexShrink: 0,
+            }}
+          >
+            {imageData.width && imageData.height
+              ? `${imageData.width} × ${imageData.height}`
+              : ''}
+          </span>
+        </div>
+      )}
 
       {/* 扩图选择器 - 截图时显示，隐藏小工具栏 */}
       {showExpandSelector && (
