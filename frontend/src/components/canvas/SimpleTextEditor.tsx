@@ -87,7 +87,8 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
       // 限制字体大小在合理范围内
       const clampedFontSize = Math.min(Math.max(rawFontSize, 12), 128);
       const minWidth = Math.max(bounds.width * zoom, 150);
-      const minHeight = Math.max(bounds.height * zoom, clampedFontSize * 1.5);
+      // 确保至少能显示两行文字
+      const minHeight = Math.max(bounds.height * zoom, clampedFontSize * 2.8);
 
       return {
         left: tl.x,
@@ -220,7 +221,7 @@ const SimpleTextEditor: React.FC<SimpleTextEditorProps> = ({
         width: position.width,
         minWidth: 150,
         height: position.height,
-        minHeight: displayFontSize * 1.5,
+        minHeight: displayFontSize * 2.8,
         padding: '2px 4px',
         border: '2px solid #3b82f6',
         borderRadius: '4px',

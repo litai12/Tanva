@@ -12,8 +12,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { login, loginWithSms, loading, error } = useAuthStore();
+  const { login, loginWithSms, error } = useAuthStore();
   const loadProjects = useProjectStore((s) => s.load);
 
   const _isMock =
@@ -43,6 +44,7 @@ export default function LoginPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       if (tab === "password") {
         await login(phone, password);
@@ -53,6 +55,7 @@ export default function LoginPage() {
       navigate("/app", { replace: true });
     } catch (err) {
       console.error("登录失败:", err);
+      setIsSubmitting(false);
     }
   };
 
@@ -107,9 +110,9 @@ export default function LoginPage() {
                   <Button
                     type='submit'
                     className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-2xl disabled:opacity-70'
-                    disabled={loading}
+                    disabled={isSubmitting}
                   >
-                    {loading ? (
+                    {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         登录中...
@@ -165,9 +168,9 @@ export default function LoginPage() {
                   <Button
                     type='submit'
                     className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-2xl disabled:opacity-70'
-                    disabled={loading}
+                    disabled={isSubmitting}
                   >
-                    {loading ? (
+                    {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         登录中...

@@ -20,7 +20,7 @@ type ProjectContentState = {
   hydrate: (content: ProjectContentSnapshot, version: number, savedAt?: string | null) => void;
   updatePartial: (partial: Partial<ProjectContentSnapshot>, options?: UpdateOptions) => void;
   setSaving: (saving: boolean) => void;
-  markSaved: (version: number, savedAt: string | null) => void;
+  markSaved: (version: number, savedAt: string | null, savedAtCounter?: number) => void;
   setError: (error: string | null) => void;
   reset: () => void;
 };
@@ -105,16 +105,22 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
     });
   },
   setSaving: (saving) => set({ saving }),
-  markSaved: (version, savedAt) => {
-    set((state) => ({
-      ...state,
-      version,
-      dirty: false,
-      dirtySince: null,
-      dirtyCounter: 0,
-      saving: false,
-      lastSavedAt: savedAt ?? new Date().toISOString(),
-    }));
+  markSaved: (version, savedAt, savedAtCounter?: number) => {
+    set((state) => {
+      // 如果提供了 savedAtCounter，检查保存期间是否有新修改
+      // 只有当 dirtyCounter 没有增加时才清除 dirty 状态
+      const hasNewChanges = savedAtCounter !== undefined && state.dirtyCounter > savedAtCounter;
+
+      return {
+        ...state,
+        version,
+        dirty: hasNewChanges ? state.dirty : false,
+        dirtySince: hasNewChanges ? state.dirtySince : null,
+        dirtyCounter: hasNewChanges ? state.dirtyCounter : 0,
+        saving: false,
+        lastSavedAt: savedAt ?? new Date().toISOString(),
+      };
+    });
   },
   setError: (error) => set((state) => ({
     lastError: error,
