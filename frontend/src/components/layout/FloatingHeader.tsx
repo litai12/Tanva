@@ -1280,14 +1280,6 @@ return (
                         className="relative flex h-[90vh] max-h-[700px] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_32px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl"
                         onClick={(event) => event.stopPropagation()}
                     >
-                        <button
-                            type="button"
-                            className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
-                            onClick={() => setIsSettingsOpen(false)}
-                            title="关闭设置 (Esc)"
-                        >
-                            <X className="h-4 w-4" />
-                        </button>
                         <div className="flex h-full flex-1 overflow-hidden pt-4 sm:pt-0">
                             <aside className="hidden h-full w-56 shrink-0 border-r border-slate-200/80 bg-white/95 py-6 pr-2 sm:flex sm:flex-col">
                                 {SETTINGS_SECTIONS.map((section) => {

@@ -2886,17 +2886,22 @@ const AIChatDialog: React.FC = () => {
                   size='sm'
                   variant='outline'
                   className={cn(
-                    "absolute right-52 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "absolute right-52 bottom-2 h-7 p-0 rounded-full transition-all duration-200",
                     "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                     aspectRatio
-                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900"
-                      : !generationStatus.isGenerating
+                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-900 px-2"
+                      : "w-7",
+                    !aspectRatio && !generationStatus.isGenerating
                       ? "text-slate-700"
-                      : "opacity-50 cursor-not-allowed text-gray-400"
+                      : !aspectRatio && "opacity-50 cursor-not-allowed text-gray-400"
                   )}
                   title={aspectRatio ? `长宽比: ${aspectRatio}` : "选择长宽比"}
                 >
-                  <AspectRatioIcon className='h-3.5 w-3.5' />
+                  {aspectRatio ? (
+                    <span className='text-[10px] font-medium leading-none'>{aspectRatio}</span>
+                  ) : (
+                    <AspectRatioIcon className='h-3.5 w-3.5' />
+                  )}
                 </Button>
               )}
 
@@ -3225,11 +3230,7 @@ const AIChatDialog: React.FC = () => {
                     : "opacity-50 cursor-not-allowed text-gray-400"
                 )}
               >
-                {generationStatus.isGenerating ? (
-                  <LoadingSpinner size='sm' />
-                ) : (
-                  <Play className='h-3.5 w-3.5' />
-                )}
+                <Play className='h-3.5 w-3.5' />
               </Button>
             </div>
 

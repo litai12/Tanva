@@ -3,7 +3,7 @@
  * 处理控制点拖拽、路径拖拽等路径编辑功能
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
 
@@ -21,6 +21,12 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   const [draggedSegment, setDraggedSegment] = useState<paper.Segment | null>(null);
   const [draggedPath, setDraggedPath] = useState<paper.Path | null>(null);
   const [originalBounds, setOriginalBounds] = useState<paper.Rectangle | null>(null);
+  const pathDragMovedRef = useRef(false);
+  const segmentDragMovedRef = useRef(false);
+  const altCloneActiveRef = useRef(false);
+  const altClonePlaceholderRef = useRef<paper.Group | null>(null);
+  const altClonePathRef = useRef<paper.Path | null>(null);
+  const altCloneDeltaRef = useRef({ x: 0, y: 0 });
 
   const findPlaceholderGroup = useCallback((item?: paper.Item | null): paper.Group | null => {
     let node: paper.Item | null | undefined = item;
@@ -33,6 +39,16 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     }
 
     return null;
+  }, []);
+
+  const clearAltCloneState = useCallback(() => {
+    altCloneActiveRef.current = false;
+    altCloneDeltaRef.current = { x: 0, y: 0 };
+    altClonePathRef.current = null;
+    if (altClonePlaceholderRef.current) {
+      try { altClonePlaceholderRef.current.remove(); } catch {}
+      altClonePlaceholderRef.current = null;
+    }
   }, []);
 
   // ========== 控制点检测和拖拽 ==========
@@ -61,6 +77,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
 
   // 开始拖拽控制点
   const startSegmentDrag = useCallback((segment: paper.Segment, startPoint: paper.Point, shiftPressed: boolean = false) => {
+    segmentDragMovedRef.current = false;
     const placeholderGroup = findPlaceholderGroup(segment.path);
     if (placeholderGroup) {
       setIsSegmentDragging(true);
@@ -148,6 +165,11 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   // 更新控制点位置
   const updateSegmentDrag = useCallback((currentPoint: paper.Point) => {
     if (!isSegmentDragging || !draggedSegment || !dragStartPoint) return;
+    try {
+      if (currentPoint.getDistance(dragStartPoint) > 0.01) {
+        segmentDragMovedRef.current = true;
+      }
+    } catch {}
 
     const placeholderGroup = findPlaceholderGroup(draggedSegment.path);
 
@@ -198,7 +220,9 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   // ========== 路径拖拽 ==========
 
   // 开始拖拽整个路径
-  const startPathDrag = useCallback((path: paper.Path, startPoint: paper.Point) => {
+  const startPathDrag = useCallback((path: paper.Path, startPoint: paper.Point, altPressed: boolean = false) => {
+    pathDragMovedRef.current = false;
+    clearAltCloneState();
     const placeholderGroup = findPlaceholderGroup(path);
     if (placeholderGroup) {
       setIsPathDragging(true);
@@ -209,11 +233,78 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
       return;
     }
 
+    if (altPressed) {
+      altCloneActiveRef.current = true;
+      altCloneDeltaRef.current = { x: 0, y: 0 };
+      try {
+        altClonePathRef.current = path.clone({ insert: false }) as paper.Path;
+      } catch {
+        altClonePathRef.current = null;
+      }
+
+      try {
+        const bounds = path.bounds?.clone?.() ?? path.bounds;
+        const placeholderGroup = new paper.Group();
+        placeholderGroup.data = { type: 'path-alt-drag-placeholder', isHelper: true, totalDeltaX: 0, totalDeltaY: 0 };
+
+        const safeZoom = Math.max(zoom || 1, 0.0001);
+        const placeholder = new paper.Path.Rectangle({
+          rectangle: bounds,
+          strokeColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.8),
+          strokeWidth: 2 / safeZoom,
+          dashArray: [6 / safeZoom, 4 / safeZoom],
+          fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.1),
+        });
+        placeholder.data = { isHelper: true };
+        placeholderGroup.addChild(placeholder);
+
+        const boundsCenter = bounds.center;
+        const iconSize = Math.min(40, Math.min(bounds.width, bounds.height) * 0.3);
+        const iconBg = new paper.Path.Circle({
+          center: boundsCenter,
+          radius: iconSize / 2,
+          fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.9),
+        });
+        iconBg.data = { isHelper: true };
+        placeholderGroup.addChild(iconBg);
+
+        const iconScale = iconSize / 40;
+        const rect1 = new paper.Path.Rectangle({
+          point: [boundsCenter.x - 8 * iconScale, boundsCenter.y - 8 * iconScale],
+          size: [12 * iconScale, 12 * iconScale],
+          strokeColor: new paper.Color(1, 1, 1, 1),
+          strokeWidth: 1.5 / safeZoom,
+          fillColor: null,
+        });
+        rect1.data = { isHelper: true };
+        placeholderGroup.addChild(rect1);
+
+        const rect2 = new paper.Path.Rectangle({
+          point: [boundsCenter.x - 4 * iconScale, boundsCenter.y - 4 * iconScale],
+          size: [12 * iconScale, 12 * iconScale],
+          strokeColor: new paper.Color(1, 1, 1, 1),
+          strokeWidth: 1.5 / safeZoom,
+          fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.9),
+        });
+        rect2.data = { isHelper: true };
+        placeholderGroup.addChild(rect2);
+
+        altClonePlaceholderRef.current = placeholderGroup;
+        try { paper.view.update(); } catch {}
+        logger.debug('🔄 Alt+拖拽路径：显示占位框，原路径保持不动');
+      } catch {
+        // 若占位框创建失败，则退回到普通拖拽
+        altCloneActiveRef.current = false;
+        altCloneDeltaRef.current = { x: 0, y: 0 };
+        altClonePathRef.current = null;
+      }
+    }
+
     setIsPathDragging(true);
     setDraggedPath(path);
     setDragStartPoint(startPoint);
     logger.debug('开始拖拽路径');
-  }, [findPlaceholderGroup]);
+  }, [clearAltCloneState, findPlaceholderGroup, zoom]);
 
   // 更新路径位置
   const updatePathDrag = useCallback((currentPoint: paper.Point) => {
@@ -222,6 +313,9 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     const placeholderGroup = findPlaceholderGroup(draggedPath);
     if (placeholderGroup) {
       const delta = currentPoint.subtract(dragStartPoint);
+      if (Math.abs(delta.x) > 0.01 || Math.abs(delta.y) > 0.01) {
+        pathDragMovedRef.current = true;
+      }
       placeholderGroup.translate(delta);
       const b = placeholderGroup.bounds;
       try {
@@ -236,20 +330,67 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     }
 
     const delta = currentPoint.subtract(dragStartPoint);
+    if (Math.abs(delta.x) > 0.01 || Math.abs(delta.y) > 0.01) {
+      pathDragMovedRef.current = true;
+    }
+
+    if (altCloneActiveRef.current && altClonePlaceholderRef.current) {
+      altClonePlaceholderRef.current.translate(delta);
+      altCloneDeltaRef.current = {
+        x: altCloneDeltaRef.current.x + delta.x,
+        y: altCloneDeltaRef.current.y + delta.y,
+      };
+      setDragStartPoint(currentPoint);
+      logger.debug('移动路径复制占位框');
+      return;
+    }
+
     draggedPath.translate(delta);
     setDragStartPoint(currentPoint);
     logger.debug('更新路径位置');
   }, [isPathDragging, draggedPath, dragStartPoint, findPlaceholderGroup]);
 
   // 结束路径拖拽
-  const finishPathDrag = useCallback(() => {
-    if (isPathDragging) {
-      setIsPathDragging(false);
-      setDraggedPath(null);
-      setDragStartPoint(null);
-      logger.debug('结束路径拖拽');
+  const finishPathDrag = useCallback((): { moved: boolean; action: 'move' | 'clone' | 'none' } | null => {
+    if (!isPathDragging) return null;
+
+    const moved = pathDragMovedRef.current;
+    let action: 'move' | 'clone' | 'none' = moved ? 'move' : 'none';
+
+    if (altCloneActiveRef.current) {
+      action = 'none';
+      const delta = altCloneDeltaRef.current;
+      const didMove = moved && Number.isFinite(delta.x) && Number.isFinite(delta.y) && (Math.abs(delta.x) > 0.01 || Math.abs(delta.y) > 0.01);
+      if (didMove && altClonePathRef.current) {
+        try {
+          const cloned = altClonePathRef.current;
+          cloned.translate(new paper.Point(delta.x, delta.y));
+
+          const parent = draggedPath?.parent;
+          if (parent && typeof (parent as any).insertChild === 'function' && typeof (draggedPath as any)?.index === 'number') {
+            (parent as any).insertChild((draggedPath as any).index + 1, cloned);
+          } else if (paper.project?.activeLayer) {
+            paper.project.activeLayer.addChild(cloned);
+          } else if (paper.project) {
+            try { new paper.Layer(); } catch {}
+            try { paper.project.activeLayer?.addChild?.(cloned); } catch {}
+          }
+          try { paper.view.update(); } catch {}
+          action = 'clone';
+          logger.debug('🔄 Alt+拖拽路径：已在目标位置创建副本');
+        } catch {
+          action = 'none';
+        }
+      }
+      clearAltCloneState();
     }
-  }, [isPathDragging]);
+
+    setIsPathDragging(false);
+    setDraggedPath(null);
+    setDragStartPoint(null);
+    logger.debug('结束路径拖拽');
+    return { moved, action };
+  }, [clearAltCloneState, draggedPath, isPathDragging]);
 
   // ========== 路径编辑辅助功能 ==========
 
@@ -284,7 +425,8 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     point: paper.Point, 
     selectedPath: paper.Path | null,
     interactionType: 'mousedown' | 'mousemove' | 'mouseup',
-    shiftPressed?: boolean
+    shiftPressed?: boolean,
+    altPressed?: boolean
   ) => {
     if (!selectedPath) return null;
 
@@ -300,7 +442,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
       // 检查是否点击在路径本身上（非控制点）
       if (isPointOnPath(point, selectedPath)) {
         // 点击在路径上，开始路径拖拽
-        startPathDrag(selectedPath, point);
+        startPathDrag(selectedPath, point, !!altPressed);
         return { type: 'path-drag-start', path: selectedPath };
       }
     } else if (interactionType === 'mousemove') {
@@ -317,13 +459,14 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     } else if (interactionType === 'mouseup') {
       // 处理拖拽结束
       if (isSegmentDragging) {
+        const moved = segmentDragMovedRef.current;
         finishSegmentDrag();
-        return { type: 'segment-drag-end' };
+        return { type: 'segment-drag-end', moved };
       }
 
       if (isPathDragging) {
-        finishPathDrag();
-        return { type: 'path-drag-end' };
+        const result = finishPathDrag();
+        return { type: 'path-drag-end', ...(result ?? { moved: false, action: 'none' }) };
       }
     }
 

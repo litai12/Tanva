@@ -14,28 +14,22 @@ const getCanonicalSrc = (item: { src?: string | null; remoteUrl?: string | null 
 const shouldSkipHistoryItem = (item: { nodeId: string; nodeType: ImageHistoryItem['nodeType'] }) =>
   item.nodeId === 'canvas' && item.nodeType === 'image';
 
-// 判断是否为 base64 数据（内存优化：不存储大的 base64）
-const isBase64Data = (src?: string | null): boolean => {
-  if (!src) return false;
-  return src.startsWith('data:image/') || (src.length > 1000 && !src.startsWith('http'));
+const normalizeLocalImageSrc = (src?: string | null): string | null => {
+  const normalized = normalizeValue(src);
+  if (!normalized) return null;
+  if (normalized.startsWith('data:') || normalized.startsWith('http')) return normalized;
+  // 兼容：若调用方传入原始 base64（无 dataURL 前缀），默认按 png 处理
+  return `data:image/png;base64,${normalized}`;
 };
 
-// 获取存储友好的 src（优先使用 URL，避免存储 base64）
+// 获取用于运行时展示/去重的 src（优先 URL；无 URL 时允许 dataURL 作为内存态历史）
 const getStorageFriendlySrc = (item: { src?: string | null; remoteUrl?: string | null }): string | null => {
-  // 优先使用远程 URL
-  if (item.remoteUrl && item.remoteUrl.startsWith('http')) {
-    return item.remoteUrl;
-  }
-  // 如果 src 是 URL，使用它
-  if (item.src && item.src.startsWith('http')) {
-    return item.src;
-  }
-  // 如果 src 是 base64 且没有远程 URL，返回 null（不存储）
-  if (isBase64Data(item.src)) {
-    console.log('⚠️ [ImageHistory] 跳过 base64 数据存储，等待远程 URL');
-    return null;
-  }
-  return item.src || null;
+  const remote = normalizeValue(item.remoteUrl);
+  if (remote && remote.startsWith('http')) return remote;
+
+  const local = normalizeLocalImageSrc(item.src);
+  if (!local) return null;
+  return local;
 };
 
 export interface ImageHistoryItem {
@@ -76,62 +70,63 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
             return;
           }
           set((state) => {
-            const canonicalSrc = getCanonicalSrc(item);
+            const projectKey = item.projectId ?? null;
+
+            const storageSrc = getStorageFriendlySrc(item);
+            if (!storageSrc) {
+              return state;
+            }
+
+            const canonicalSrc = getCanonicalSrc({
+              src: storageSrc,
+              remoteUrl: item.remoteUrl,
+            });
             if (!canonicalSrc) {
               return state;
             }
 
-          const projectKey = item.projectId ?? null;
+            const newItem: ImageHistoryItem = {
+              ...item,
+              src: storageSrc,
+              remoteUrl:
+                item.remoteUrl || (storageSrc.startsWith('http') ? storageSrc : undefined),
+              thumbnail: undefined, // 不再存储 thumbnail，节省内存
+              projectId: projectKey,
+              timestamp: item.timestamp ?? Date.now(),
+            };
 
-          // 内存优化：优先使用远程 URL，避免存储 base64
-          const storageSrc = getStorageFriendlySrc(item);
-
-          // 如果没有可存储的 src，跳过添加
-          if (!storageSrc) {
-            return state;
-          }
-
-          const newItem: ImageHistoryItem = {
-            ...item,
-            src: storageSrc,
-            remoteUrl: item.remoteUrl || (storageSrc.startsWith('http') ? storageSrc : undefined),
-            thumbnail: undefined, // 不再存储 thumbnail，节省内存
-            projectId: projectKey,
-            timestamp: item.timestamp ?? Date.now()
-          };
-
-          // 先按同 projectId + 同源链接去重，避免同一张图出现多条
-          const existingIndex = state.history.findIndex(existing => {
-            const existingProject = existing.projectId ?? null;
-            if (existingProject !== projectKey) return false;
-            return getCanonicalSrc(existing) === canonicalSrc;
-          });
+            // 先按同 projectId + 同源链接去重，避免同一张图出现多条
+            const existingIndex = state.history.findIndex((existing) => {
+              const existingProject = existing.projectId ?? null;
+              if (existingProject !== projectKey) return false;
+              return getCanonicalSrc(existing) === canonicalSrc;
+            });
 
             if (existingIndex >= 0) {
               const updated = [...state.history];
               const existing = updated[existingIndex];
 
-              // 如果现有记录有 URL 而新记录是 base64，保留现有 URL
+              // 如果现有记录有 URL 而新记录是 dataURL（内存态），保留现有 URL
               const shouldKeepExistingSrc =
                 existing.src?.startsWith('http') && !storageSrc.startsWith('http');
 
               updated[existingIndex] = {
                 ...existing,
-              ...newItem,
-              src: shouldKeepExistingSrc ? existing.src : storageSrc,
-              remoteUrl: existing.remoteUrl || newItem.remoteUrl,
-              id: existing.id, // 保留原有id，避免 key 抖动
-              projectId: projectKey,
-              timestamp: newItem.timestamp ?? existing.timestamp
-            };
-            return { history: updated };
-          }
+                ...newItem,
+                src: shouldKeepExistingSrc ? existing.src : storageSrc,
+                remoteUrl: existing.remoteUrl || newItem.remoteUrl,
+                id: existing.id, // 保留原有id，避免 key 抖动
+                projectId: projectKey,
+                timestamp: newItem.timestamp ?? existing.timestamp,
+              };
+              return { history: updated };
+            }
 
-          const updatedHistory = [newItem, ...state.history];
-              if (updatedHistory.length > MAX_HISTORY_SIZE) {
-                updatedHistory.length = MAX_HISTORY_SIZE;
-              }
-              return { history: updatedHistory };
+            const updatedHistory = [newItem, ...state.history];
+            if (updatedHistory.length > MAX_HISTORY_SIZE) {
+              updatedHistory.length = MAX_HISTORY_SIZE;
+            }
+            return { history: updatedHistory };
           });
         },
 

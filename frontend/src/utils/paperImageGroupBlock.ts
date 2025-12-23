@@ -312,6 +312,49 @@ export const removeGroupBlockTitle = (groupId: string): boolean => {
   return removed;
 };
 
+// 删除整个组（包括组块、标题和所有图片）
+// 返回被删除的图片ID列表，供外部清理图片状态
+export const deleteImageGroupBlock = (block: paper.Path): string[] => {
+  if (!block || !isPath(block)) return [];
+  if ((block.data as any)?.type !== IMAGE_GROUP_BLOCK_TYPE) return [];
+
+  const groupId = (block.data as any)?.groupId;
+  const imageIds = normalizeImageIdList((block.data as any)?.imageIds);
+
+  // 1. 删除组内所有图片的 Paper.js 对象
+  const deletedImageIds: string[] = [];
+  imageIds.forEach((imageId) => {
+    const item = findImagePaperItem(imageId);
+    if (item) {
+      try {
+        item.remove();
+        deletedImageIds.push(imageId);
+      } catch {}
+    }
+  });
+
+  // 2. 删除组块标题
+  if (groupId) {
+    removeGroupBlockTitle(groupId);
+  }
+
+  // 3. 删除组块本身
+  try {
+    block.remove();
+  } catch {}
+
+  return deletedImageIds;
+};
+
+// 根据 groupId 查找并删除整个组
+export const deleteImageGroupBlockByGroupId = (groupId: string): string[] => {
+  if (!groupId) return [];
+  const blocks = getImageGroupBlocks();
+  const block = blocks.find((b) => (b.data as any)?.groupId === groupId);
+  if (!block) return [];
+  return deleteImageGroupBlock(block);
+};
+
 export const getImageGroupBlocks = (): paper.Path[] => {
   if (!paper.project) return [];
   try {

@@ -2085,6 +2085,7 @@ export const useAIChatStore = create<AIChatState>()(
             }
           }
         },
+
         updateMessage: (messageId, updater) => {
           set((state) => ({
             messages: state.messages.map((msg) =>
@@ -2737,7 +2738,7 @@ export const useAIChatStore = create<AIChatState>()(
                 isParallel: boolean = false,
                 parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
               ) => {
-                const fileName = `ai_generated_${prompt.substring(0, 20)}.${
+                const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
                 }`;
                 const imagePayload = buildImagePayloadForUpload(
@@ -3398,9 +3399,10 @@ export const useAIChatStore = create<AIChatState>()(
               // 自动添加到画布
               const addImageToCanvas = (
                 aiResult: AIImageResult,
-                imageSrc: string
+                imageSrc: string,
+                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
               ) => {
-                const fileName = `ai_edited_${prompt.substring(0, 20)}.${
+                const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
                 }`;
                 const imagePayload = buildImagePayloadForUpload(
@@ -3441,14 +3443,25 @@ export const useAIChatStore = create<AIChatState>()(
                       sourceImages: undefined,
                       placeholderId,
                       preferHorizontal: isParallelEdit,
+                      // 🔥 传递并行生成分组信息，用于自动打组
+                      parallelGroupId: parallelGroupInfo?.groupId,
+                      parallelGroupIndex: parallelGroupInfo?.groupIndex,
+                      parallelGroupTotal: parallelGroupInfo?.groupTotal,
                     },
                   })
                 );
               };
 
+              // 🔥 传递并行编辑分组信息，用于自动打组
+              const editParallelGroupInfo = isParallelEdit && groupId ? {
+                groupId,
+                groupIndex,
+                groupTotal,
+              } : undefined;
+
               setTimeout(() => {
                 if (result.data) {
-                  addImageToCanvas(result.data, placementImageData);
+                  addImageToCanvas(result.data, placementImageData, editParallelGroupInfo);
                 }
               }, 100);
 
@@ -3636,6 +3649,15 @@ export const useAIChatStore = create<AIChatState>()(
             return;
           }
           logProcessStep(metrics, "blendImages message prepared");
+
+          // 🔥 获取并行融合的分组信息
+          const currentMsg = override
+            ? get().messages.find((m) => m.id === override.aiMessageId)
+            : null;
+          const groupId = currentMsg?.groupId;
+          const groupIndex = currentMsg?.groupIndex ?? 0;
+          const groupTotal = currentMsg?.groupTotal ?? 1;
+          const isParallelBlend = groupTotal > 1;
 
           const placeholderId = `ai-placeholder-${aiMessageId}`;
           const removePredictivePlaceholder = () => {
@@ -3839,9 +3861,10 @@ export const useAIChatStore = create<AIChatState>()(
 
               const addImageToCanvas = (
                 aiResult: AIImageResult,
-                imageSrc: string
+                imageSrc: string,
+                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
               ) => {
-                const fileName = `ai_blended_${prompt.substring(0, 20)}.${
+                const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
                 }`;
                 const imagePayload = buildImagePayloadForUpload(
@@ -3874,14 +3897,26 @@ export const useAIChatStore = create<AIChatState>()(
                       sourceImages:
                         sourceImageIds.length > 0 ? sourceImageIds : undefined,
                       placeholderId,
+                      preferHorizontal: isParallelBlend,
+                      // 🔥 传递并行生成分组信息，用于自动打组
+                      parallelGroupId: parallelGroupInfo?.groupId,
+                      parallelGroupIndex: parallelGroupInfo?.groupIndex,
+                      parallelGroupTotal: parallelGroupInfo?.groupTotal,
                     },
                   })
                 );
               };
 
+              // 🔥 传递并行融合分组信息，用于自动打组
+              const blendParallelGroupInfo = isParallelBlend && groupId ? {
+                groupId,
+                groupIndex,
+                groupTotal,
+              } : undefined;
+
               setTimeout(() => {
                 if (result.data) {
-                  addImageToCanvas(result.data, placementImageData);
+                  addImageToCanvas(result.data, placementImageData, blendParallelGroupInfo);
                 }
               }, 100);
 

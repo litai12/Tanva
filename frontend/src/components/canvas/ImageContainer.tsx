@@ -1011,7 +1011,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           });
 
           const editResult = await aiImageService.editImage({
-            prompt: "高清放大这张图",
+            prompt: "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容",
             sourceImage: baseImage,
             model: HD_UPSCALE_MODEL,
             aiProvider: HD_UPSCALE_PROVIDER,

@@ -667,6 +667,8 @@ function FlowInner() {
   const lastSyncedJSONRef = React.useRef<string | null>(null);
   const nodeDraggingRef = React.useRef(false);
   const commitTimerRef = React.useRef<number | null>(null);
+  // Alt+拖拽复制相关状态
+  const altDragStartRef = React.useRef<{ nodeId: string; altPressed: boolean; startPositions: Map<string, { x: number; y: number }> } | null>(null);
 
   const sanitizeNodeData = React.useCallback((input: any) => {
     try {
@@ -3119,9 +3121,98 @@ function FlowInner() {
         edges={edges}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
-        onNodeDragStart={() => { nodeDraggingRef.current = true; }}
-        onNodeDragStop={() => {
+        onNodeDragStart={(event, node) => {
+          nodeDraggingRef.current = true;
+          // 检测 Alt 键是否按下
+          const altPressed = event.altKey;
+          if (altPressed) {
+            // Alt+拖拽：立即在原位置创建副本，让用户拖拽的看起来像是"新节点"
+            const allNodes = rf.getNodes();
+            const selectedNodes = allNodes.filter((n: any) => n.selected || n.id === node.id);
+
+            if (selectedNodes.length > 0) {
+              // 创建副本节点（放在原位置，作为"留下的原节点"）
+              const idMap = new Map<string, string>();
+              const clonedNodes = selectedNodes.map((n: any) => {
+                const newId = generateId(n.type || 'n');
+                idMap.set(n.id, newId);
+                const rawData = { ...(n.data || {}) };
+                delete rawData.onRun;
+                delete rawData.onSend;
+                const data = sanitizeNodeData(rawData);
+                if (data) {
+                  delete data.status;
+                  delete data.error;
+                }
+                return {
+                  id: newId,
+                  type: n.type || 'default',
+                  position: { x: n.position.x, y: n.position.y }, // 原位置
+                  data,
+                  selected: false, // 副本不选中
+                  width: n.width,
+                  height: n.height,
+                  style: n.style ? { ...n.style } : undefined,
+                };
+              });
+
+              // 复制相关的边
+              const selectedIds = new Set(selectedNodes.map((n: any) => n.id));
+              const relatedEdges = rf.getEdges().filter((edge: any) =>
+                selectedIds.has(edge.source) && selectedIds.has(edge.target)
+              );
+              const clonedEdges = relatedEdges.map((edge: any) => {
+                const source = idMap.get(edge.source);
+                const target = idMap.get(edge.target);
+                if (!source || !target) return null;
+                return {
+                  id: generateId('e'),
+                  source,
+                  target,
+                  sourceHandle: edge.sourceHandle,
+                  targetHandle: edge.targetHandle,
+                  type: edge.type || 'default',
+                  label: edge.label,
+                };
+              }).filter(Boolean);
+
+              // 添加副本到节点列表（原节点继续被拖拽）
+              setNodes((prev: any[]) => [...prev, ...clonedNodes]);
+              if (clonedEdges.length > 0) {
+                setEdges((prev: any[]) => [...prev, ...clonedEdges]);
+              }
+
+              // 记录已创建副本，用于在 dragStop 时提交历史
+              altDragStartRef.current = { nodeId: node.id, altPressed: true, startPositions: new Map(), cloned: true };
+            } else {
+              altDragStartRef.current = null;
+            }
+          } else {
+            altDragStartRef.current = null;
+          }
+        }}
+        onNodeDragStop={(event, node) => {
           nodeDraggingRef.current = false;
+
+          // Alt+拖拽复制：副本已在 dragStart 时创建，这里只需提交历史
+          if (altDragStartRef.current?.altPressed && altDragStartRef.current.cloned) {
+            // 提交历史记录
+            try { historyService.commit('flow-alt-drag-clone').catch(() => {}); } catch {}
+
+            // 清理状态
+            altDragStartRef.current = null;
+
+            // 提交到项目内容
+            const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
+            const es = rfEdgesToTplEdges((rf.getEdges?.() || edges));
+            scheduleCommit(ns, es);
+            return;
+          }
+
+          // 清理 Alt 拖拽状态
+          altDragStartRef.current = null;
+
+          // 普通拖拽：提交位置变化
           const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
           const es = rfEdgesToTplEdges((rf.getEdges?.() || edges));
           scheduleCommit(ns, es);

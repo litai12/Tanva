@@ -12,7 +12,7 @@ import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useCanvasStore } from '@/stores';
-import { findGroupBlockTitle, updateGroupBlockTitle, IMAGE_GROUP_BLOCK_TYPE } from '@/utils/paperImageGroupBlock';
+import { findGroupBlockTitle, updateGroupBlockTitle, IMAGE_GROUP_BLOCK_TYPE, deleteImageGroupBlock } from '@/utils/paperImageGroupBlock';
 import type { ImageAssetSnapshot } from '@/types/project';
 import type { SnapAlignmentAPI } from './useSnapAlignment';
 
@@ -44,7 +44,13 @@ interface PathEditor {
   isPathDragging: boolean;
   isSegmentDragging: boolean;
   isScaling: boolean;
-  handlePathEditInteraction: (point: paper.Point, selectedPath: paper.Path | null, type: 'mousedown' | 'mousemove' | 'mouseup', shiftPressed?: boolean) => any;
+  handlePathEditInteraction: (
+    point: paper.Point,
+    selectedPath: paper.Path | null,
+    type: 'mousedown' | 'mousemove' | 'mouseup',
+    shiftPressed?: boolean,
+    altPressed?: boolean
+  ) => any;
   getCursorStyle: (point: paper.Point, selectedPath: paper.Path | null) => string;
 }
 
@@ -189,6 +195,10 @@ export const useInteractionController = ({
   const altDragCloneIdsRef = useRef<string[]>([]); // 记录Alt拖拽时创建的克隆图片ID
   const altDragPlaceholderRef = useRef<paper.Group | null>(null); // Alt+拖拽时的占位框
   const altDragSnapshotsRef = useRef<ImageAssetSnapshot[]>([]); // Alt+拖拽时保存的图片快照
+  // 路径 Alt+拖拽复制相关状态
+  const pathAltDragClonedRef = useRef(false); // 标记路径是否已创建克隆占位框
+  const pathAltDragPlaceholderRef = useRef<paper.Group | null>(null); // 路径 Alt+拖拽占位框
+  const pathAltDragSnapshotsRef = useRef<paper.Path[]>([]); // 保存原始路径的克隆
   const spacePanDragRef = useRef<SpacePanDragState | null>(null);
   const imageDragMovedRef = useRef(false);
   const imageDragRafRef = useRef<number | null>(null); // RAF ID for image drag sync
@@ -295,6 +305,13 @@ export const useInteractionController = ({
       groupBlocks: [],
       hasMoved: false
     };
+    // 清理路径 Alt+拖拽状态
+    pathAltDragClonedRef.current = false;
+    if (pathAltDragPlaceholderRef.current) {
+      try { pathAltDragPlaceholderRef.current.remove(); } catch {}
+      pathAltDragPlaceholderRef.current = null;
+    }
+    pathAltDragSnapshotsRef.current = [];
   }, []);
 
   const beginGroupPathDrag = useCallback((startPoint: paper.Point | null, mode: GroupPathDragMode) => {
@@ -361,7 +378,7 @@ export const useInteractionController = ({
     return true;
   }, [collectSelectedPaths, resetGroupPathDrag]);
 
-  const applyGroupPathDrag = useCallback((point: paper.Point | null, expectedMode: GroupPathDragMode | null = null) => {
+  const applyGroupPathDrag = useCallback((point: paper.Point | null, expectedMode: GroupPathDragMode | null = null, altPressed: boolean = false) => {
     const state = groupPathDragRef.current;
     if (!state.active || !state.startPoint || !point) return;
     if (expectedMode && state.mode !== expectedMode) return;
@@ -373,6 +390,100 @@ export const useInteractionController = ({
       state.hasMoved = true;
     }
 
+    // Alt+拖拽路径：创建占位框，原路径保持不动
+    if (altPressed && state.paths.length > 0 && !pathAltDragClonedRef.current) {
+      pathAltDragClonedRef.current = true;
+
+      // 计算所有路径的总边界
+      let totalBounds: paper.Rectangle | null = null;
+      const clonedPaths: paper.Path[] = [];
+
+      state.paths.forEach(({ path }) => {
+        if (!path || isPaperItemRemoved(path)) return;
+        // 克隆路径用于后续创建副本
+        const cloned = path.clone({ insert: false }) as paper.Path;
+        clonedPaths.push(cloned);
+
+        if (!totalBounds) {
+          totalBounds = path.bounds.clone();
+        } else {
+          totalBounds = totalBounds.unite(path.bounds);
+        }
+      });
+
+      pathAltDragSnapshotsRef.current = clonedPaths;
+
+      // 创建占位框
+      if (totalBounds && paper.project) {
+        const bounds = totalBounds as paper.Rectangle;
+        const placeholderGroup = new paper.Group();
+        placeholderGroup.data = { type: 'path-alt-drag-placeholder', isHelper: true };
+
+        // 占位框背景（蓝色虚线框）
+        const placeholder = new paper.Path.Rectangle({
+          rectangle: bounds,
+          strokeColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.8),
+          strokeWidth: 2 / (zoomRef.current || 1),
+          dashArray: [6 / (zoomRef.current || 1), 4 / (zoomRef.current || 1)],
+          fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.1),
+        });
+        placeholder.data = { isHelper: true };
+        placeholderGroup.addChild(placeholder);
+
+        // 图标背景圆
+        const boundsCenter = bounds.center;
+        const iconSize = Math.min(40, Math.min(bounds.width, bounds.height) * 0.3);
+        const iconBg = new paper.Path.Circle({
+          center: boundsCenter,
+          radius: iconSize / 2,
+          fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.9),
+        });
+        iconBg.data = { isHelper: true };
+        placeholderGroup.addChild(iconBg);
+
+        // 复制图标（两个重叠矩形）
+        const iconScale = iconSize / 40;
+        const rect1 = new paper.Path.Rectangle({
+          point: [boundsCenter.x - 8 * iconScale, boundsCenter.y - 8 * iconScale],
+          size: [12 * iconScale, 12 * iconScale],
+          strokeColor: new paper.Color(1, 1, 1, 1),
+          strokeWidth: 1.5 / (zoomRef.current || 1),
+          fillColor: null,
+        });
+        rect1.data = { isHelper: true };
+        placeholderGroup.addChild(rect1);
+
+        const rect2 = new paper.Path.Rectangle({
+          point: [boundsCenter.x - 4 * iconScale, boundsCenter.y - 4 * iconScale],
+          size: [12 * iconScale, 12 * iconScale],
+          strokeColor: new paper.Color(1, 1, 1, 1),
+          strokeWidth: 1.5 / (zoomRef.current || 1),
+          fillColor: new paper.Color(59 / 255, 130 / 255, 246 / 255, 0.9),
+        });
+        rect2.data = { isHelper: true };
+        placeholderGroup.addChild(rect2);
+
+        pathAltDragPlaceholderRef.current = placeholderGroup;
+        try { paper.view.update(); } catch {}
+      }
+
+      logger.debug('🔄 Alt+拖拽路径：显示占位框，原路径保持不动');
+    }
+
+    // Alt+拖拽模式：只移动占位框，不移动原路径
+    if (pathAltDragClonedRef.current && pathAltDragPlaceholderRef.current) {
+      const placeholder = pathAltDragPlaceholderRef.current;
+      placeholder.position = new paper.Point(
+        placeholder.position.x + deltaX - (placeholder.data.lastDeltaX || 0),
+        placeholder.position.y + deltaY - (placeholder.data.lastDeltaY || 0)
+      );
+      placeholder.data.lastDeltaX = deltaX;
+      placeholder.data.lastDeltaY = deltaY;
+      try { paper.view.update(); } catch {}
+      return;
+    }
+
+    // 普通拖拽：移动原路径
     state.paths.forEach(({ path, startPosition }) => {
       if (!path || isPaperItemRemoved(path) || !startPosition) return;
       const newPosition = new paper.Point(startPosition.x + deltaX, startPosition.y + deltaY);
@@ -567,7 +678,13 @@ export const useInteractionController = ({
       const selectedPathForEdit = latestSelectionTool.selectedPath;
       const isImageGroupBlockSelected = selectedPathForEdit?.data?.type === 'image-group';
       if (!hasMultiplePathSelection && !isImageGroupBlockSelected) {
-        const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousedown', shiftPressed);
+        const pathEditResult = latestPathEditor.handlePathEditInteraction(
+          point,
+          latestSelectionTool.selectedPath,
+          'mousedown',
+          shiftPressed,
+          isAltPressedRef.current || event.altKey
+        );
         if (pathEditResult) {
           return; // 路径编辑处理了这个事件
         }
@@ -799,10 +916,38 @@ export const useInteractionController = ({
     }
 
     if (latestSelectionTool?.selectedPath && latestPathEditor) {
-      canvas.style.cursor = latestPathEditor.getCursorStyle(
-        point,
-        latestSelectionTool.selectedPath,
-      );
+      const baseCursor = latestPathEditor.getCursorStyle(point, latestSelectionTool.selectedPath);
+
+      // Alt 键按下时，鼠标在任意已选路径上显示复制光标（包含开放路径的 stroke 命中）
+      if (isAltPressedRef.current && baseCursor !== 'crosshair') {
+        try {
+          const hit = paper.project.hitTest(point, {
+            stroke: true,
+            fill: true,
+            bounds: true,
+            tolerance: 6 / currentZoom,
+          } as any);
+
+          if (hit?.item) {
+            let node: any = hit.item;
+            for (let i = 0; i < 6 && node; i++) {
+              if (node.selected || node.fullySelected) {
+                canvas.style.cursor = 'copy';
+                return;
+              }
+              node = node.parent;
+            }
+          }
+        } catch {}
+
+        // 兜底：若在当前 selectedPath 上显示 move，则改为 copy
+        if (baseCursor === 'move') {
+          canvas.style.cursor = 'copy';
+          return;
+        }
+      }
+
+      canvas.style.cursor = baseCursor;
       return;
     }
 
@@ -951,12 +1096,18 @@ export const useInteractionController = ({
     if (currentDrawMode === 'select' || currentDrawMode === 'marquee') {
       const pathGroupDragState = groupPathDragRef.current;
       if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
-        applyGroupPathDrag(point, 'path');
+        applyGroupPathDrag(point, 'path', isAltPressedRef.current || event.altKey);
         try { paper.view.update(); } catch {}
         return;
       }
       // 处理路径编辑移动
-      const pathEditResult = latestPathEditor.handlePathEditInteraction(point, latestSelectionTool.selectedPath, 'mousemove');
+      const pathEditResult = latestPathEditor.handlePathEditInteraction(
+        point,
+        latestSelectionTool.selectedPath,
+        'mousemove',
+        undefined,
+        isAltPressedRef.current || event.altKey
+      );
       if (pathEditResult) {
         return; // 路径编辑处理了这个事件
       }
@@ -1159,8 +1310,55 @@ export const useInteractionController = ({
 
           // 普通拖拽：移动原图（支持对齐吸附）
           const latestSnapAlignment = snapAlignmentRef.current;
-          let hasAlignments = false;
+          const isGroupDrag = groupIds.length > 1;
 
+          // 计算组的整体边界（用于组拖拽时的对齐检测）
+          let groupBounds: { x: number; y: number; width: number; height: number } | null = null;
+          let snapDeltaX = 0;
+          let snapDeltaY = 0;
+          let groupAlignments: any[] = [];
+
+          if (isGroupDrag && latestSnapAlignment?.snapEnabled) {
+            // 计算组的整体边界
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            groupIds.forEach((id) => {
+              const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === id);
+              if (imageInstance) {
+                const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
+                if (start) {
+                  const newX = start.x + deltaX;
+                  const newY = start.y + deltaY;
+                  minX = Math.min(minX, newX);
+                  minY = Math.min(minY, newY);
+                  maxX = Math.max(maxX, newX + imageInstance.bounds.width);
+                  maxY = Math.max(maxY, newY + imageInstance.bounds.height);
+                }
+              }
+            });
+
+            if (minX !== Infinity) {
+              groupBounds = {
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY,
+              };
+
+              // 对组的整体边界进行对齐检测
+              const result = latestSnapAlignment.calculateSnappedPosition(
+                `group-${groupIds[0]}`, // 使用虚拟 ID
+                { x: groupBounds.x, y: groupBounds.y },
+                { width: groupBounds.width, height: groupBounds.height }
+              );
+
+              // 计算吸附偏移量
+              snapDeltaX = result.position.x - groupBounds.x;
+              snapDeltaY = result.position.y - groupBounds.y;
+              groupAlignments = result.alignments;
+            }
+          }
+
+          // 移动所有图片
           groupIds.forEach((id) => {
             const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
             if (!start) {
@@ -1173,21 +1371,26 @@ export const useInteractionController = ({
               y: start.y + deltaY,
             };
 
-            // 应用对齐吸附
             let finalPosition = rawPosition;
+
             if (latestSnapAlignment?.snapEnabled) {
-              const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === id);
-              if (imageInstance) {
-                const result = latestSnapAlignment.calculateSnappedPosition(
-                  id,
-                  rawPosition,
-                  { width: imageInstance.bounds.width, height: imageInstance.bounds.height }
-                );
-                finalPosition = result.position;
-                // 只更新第一个图片的对齐线（避免多图片时重复更新）
-                if (!hasAlignments && result.alignments.length > 0) {
-                  latestSnapAlignment.updateAlignments(result.alignments);
-                  hasAlignments = true;
+              if (isGroupDrag) {
+                // 组拖拽：所有图片应用相同的吸附偏移量
+                finalPosition = {
+                  x: rawPosition.x + snapDeltaX,
+                  y: rawPosition.y + snapDeltaY,
+                };
+              } else {
+                // 单图拖拽：单独计算对齐
+                const imageInstance = latestImageTool.imageInstances.find((img: any) => img.id === id);
+                if (imageInstance) {
+                  const result = latestSnapAlignment.calculateSnappedPosition(
+                    id,
+                    rawPosition,
+                    { width: imageInstance.bounds.width, height: imageInstance.bounds.height }
+                  );
+                  finalPosition = result.position;
+                  groupAlignments = result.alignments;
                 }
               }
             }
@@ -1195,9 +1398,13 @@ export const useInteractionController = ({
             latestImageTool.handleImageMove(id, finalPosition, false);
           });
 
-          // 如果没有对齐线，清除显示
-          if (latestSnapAlignment && !hasAlignments) {
-            latestSnapAlignment.updateAlignments([]);
+          // 更新对齐线显示
+          if (latestSnapAlignment) {
+            if (groupAlignments.length > 0) {
+              latestSnapAlignment.updateAlignments(groupAlignments);
+            } else {
+              latestSnapAlignment.updateAlignments([]);
+            }
           }
 
           applyGroupPathDrag(point, 'image');
@@ -1302,15 +1509,78 @@ export const useInteractionController = ({
       const pathEditResult = latestPathEditor.handlePathEditInteraction(
         clientToProject(canvas, event.clientX, event.clientY),
         latestSelectionTool.selectedPath,
-        'mouseup'
+        'mouseup',
+        undefined,
+        isAltPressedRef.current || event.altKey
       );
       if (pathEditResult) {
+        const moved = !!(pathEditResult as any)?.moved;
+        const action = (pathEditResult as any)?.action as 'move' | 'clone' | 'none' | undefined;
+        if (moved) {
+          try { paper.view.update(); } catch {}
+          if (action === 'clone') {
+            historyService.commit('clone-paths').catch(() => {});
+            try { paperSaveService.triggerAutoSave('clone-paths'); } catch {}
+          } else if (action === 'move') {
+            historyService.commit('move-paths').catch(() => {});
+          } else if ((pathEditResult as any)?.type === 'segment-drag-end') {
+            historyService.commit('edit-path').catch(() => {});
+          }
+        }
         return;
       }
 
       const pathGroupDragState = groupPathDragRef.current;
       if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
         const moved = pathGroupDragState.hasMoved;
+        const wasPathAltClone = pathAltDragClonedRef.current;
+
+        // Alt+拖拽路径复制：在目标位置创建副本
+        if (wasPathAltClone && moved && pathAltDragPlaceholderRef.current && pathAltDragSnapshotsRef.current.length > 0) {
+          const placeholder = pathAltDragPlaceholderRef.current;
+          const clonedPaths = pathAltDragSnapshotsRef.current;
+
+          // 计算位移量
+          const deltaX = placeholder.data.lastDeltaX || 0;
+          const deltaY = placeholder.data.lastDeltaY || 0;
+
+          // 在目标位置创建路径副本
+          clonedPaths.forEach((clonedPath) => {
+            // 移动克隆的路径到目标位置
+            clonedPath.position = new paper.Point(
+              clonedPath.position.x + deltaX,
+              clonedPath.position.y + deltaY
+            );
+            // 插入到画布
+            if (paper.project.activeLayer) {
+              paper.project.activeLayer.addChild(clonedPath);
+            }
+          });
+
+          logger.debug('🔄 Alt+拖拽路径：已在目标位置创建副本');
+
+          // 清理占位框
+          try { placeholder.remove(); } catch {}
+          pathAltDragPlaceholderRef.current = null;
+          pathAltDragSnapshotsRef.current = [];
+          pathAltDragClonedRef.current = false;
+
+          // 重置拖拽状态
+          groupPathDragRef.current = {
+            active: false,
+            mode: null,
+            startPoint: null,
+            paths: [],
+            groupBlocks: [],
+            hasMoved: false
+          };
+
+          try { paper.view.update(); } catch {}
+          historyService.commit('clone-paths').catch(() => {});
+          try { paperSaveService.triggerAutoSave('clone-paths'); } catch {}
+          return;
+        }
+
         resetGroupPathDrag();
         if (moved) {
           try { paper.view.update(); } catch {}
@@ -1641,8 +1911,10 @@ export const useInteractionController = ({
       // Delete/Backspace 删除已选元素
       if (!isEditable && (event.key === 'Delete' || event.key === 'Backspace')) {
         let didDelete = false;
+        // 记录通过删除组块而删除的图片ID，避免重复删除
+        const deletedImageIdsFromGroup = new Set<string>();
 
-        // 删除路径（单选与多选），含占位符组
+        // 删除路径（单选与多选），含占位符组和图片组块
         try {
           const selectedPath = (latestSelectionTool as any)?.selectedPath as paper.Path | null;
           const selectedPaths = (latestSelectionTool as any)?.selectedPaths as paper.Path[] | undefined;
@@ -1660,8 +1932,24 @@ export const useInteractionController = ({
             return null;
           };
 
-          if (selectedPath) {
-            const ph = resolvePlaceholderGroup(selectedPath);
+          // 检查是否为图片组块
+          const isImageGroupBlock = (path: paper.Path | null | undefined): boolean => {
+            return path?.data?.type === IMAGE_GROUP_BLOCK_TYPE;
+          };
+
+          // 删除单个路径的处理函数
+          const deletePath = (p: paper.Path) => {
+            // 检查是否为图片组块，如果是则删除整个组（包括图片）
+            if (isImageGroupBlock(p)) {
+              const deletedIds = deleteImageGroupBlock(p);
+              deletedIds.forEach(id => deletedImageIdsFromGroup.add(id));
+              if (deletedIds.length > 0 || p.data?.groupId) {
+                didDelete = true;
+              }
+              return;
+            }
+
+            const ph = resolvePlaceholderGroup(p);
             if (ph && !removedPlaceholders.has(ph)) {
               try {
                 const pid = ph.data?.placeholderId;
@@ -1672,39 +1960,32 @@ export const useInteractionController = ({
                 didDelete = true;
               } catch {}
               removedPlaceholders.add(ph);
-            } else {
-              try { selectedPath.remove(); didDelete = true; } catch {}
+            } else if (!ph) {
+              try { p.remove(); didDelete = true; } catch {}
             }
+          };
+
+          if (selectedPath) {
+            deletePath(selectedPath);
             try { (latestSelectionTool as any)?.setSelectedPath?.(null); } catch {}
           }
           if (Array.isArray(selectedPaths) && selectedPaths.length > 0) {
-            selectedPaths.forEach(p => {
-              const ph = resolvePlaceholderGroup(p);
-              if (ph && !removedPlaceholders.has(ph)) {
-                try {
-                  const pid = ph.data?.placeholderId;
-                  ph.remove();
-                  if (pid && typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('predictImagePlaceholder', { detail: { placeholderId: pid, action: 'remove' } }));
-                  }
-                  didDelete = true;
-                } catch {}
-                removedPlaceholders.add(ph);
-              } else {
-                try { p.remove(); didDelete = true; } catch {}
-              }
-            });
+            selectedPaths.forEach(p => deletePath(p));
             try { (latestSelectionTool as any)?.setSelectedPaths?.([]); } catch {}
           }
         } catch {}
 
-        // 删除图片（按选中ID或状态）
+        // 删除图片（按选中ID或状态），跳过已通过组块删除的图片
         try {
           const ids = (latestImageTool?.selectedImageIds && latestImageTool.selectedImageIds.length > 0)
             ? latestImageTool.selectedImageIds
             : (latestImageTool?.imageInstances || []).filter((img: any) => img.isSelected).map((img: any) => img.id);
           if (ids && ids.length > 0 && typeof latestImageTool?.handleImageDelete === 'function') {
-            ids.forEach((id: string) => { try { latestImageTool.handleImageDelete?.(id); didDelete = true; } catch {} });
+            ids.forEach((id: string) => {
+              // 跳过已通过删除组块而删除的图片
+              if (deletedImageIdsFromGroup.has(id)) return;
+              try { latestImageTool.handleImageDelete?.(id); didDelete = true; } catch {}
+            });
           }
         } catch {}
 
