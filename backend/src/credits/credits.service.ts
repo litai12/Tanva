@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CREDIT_PRICING_CONFIG,
   DEFAULT_NEW_USER_CREDITS,
+  DAILY_LOGIN_REWARD_CREDITS,
   ServiceType,
 } from './credits.config';
 import { TransactionType, ApiResponseStatus } from './dto/credits.dto';
@@ -485,5 +486,83 @@ export class CreditsService {
         totalPages: Math.ceil(total / pageSize),
       },
     };
+  }
+
+  /**
+   * 检查用户今天是否已领取每日奖励
+   */
+  async canClaimDailyReward(userId: string): Promise<{ canClaim: boolean; lastClaimAt: Date | null }> {
+    const account = await this.getOrCreateAccount(userId);
+
+    if (!account.lastDailyRewardAt) {
+      return { canClaim: true, lastClaimAt: null };
+    }
+
+    const now = new Date();
+    const lastClaim = new Date(account.lastDailyRewardAt);
+
+    // 检查是否是同一天（使用本地时间）
+    const isSameDay =
+      now.getFullYear() === lastClaim.getFullYear() &&
+      now.getMonth() === lastClaim.getMonth() &&
+      now.getDate() === lastClaim.getDate();
+
+    return { canClaim: !isSameDay, lastClaimAt: account.lastDailyRewardAt };
+  }
+
+  /**
+   * 领取每日登录奖励
+   */
+  async claimDailyReward(userId: string): Promise<AddCreditsResult & { alreadyClaimed?: boolean }> {
+    const { canClaim, lastClaimAt } = await this.canClaimDailyReward(userId);
+
+    if (!canClaim) {
+      return {
+        success: false,
+        newBalance: (await this.getBalance(userId)),
+        transactionId: '',
+        alreadyClaimed: true,
+      };
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      const account = await tx.creditAccount.findUnique({
+        where: { userId },
+      });
+
+      if (!account) {
+        throw new NotFoundException('用户积分账户不存在');
+      }
+
+      const newBalance = account.balance + DAILY_LOGIN_REWARD_CREDITS;
+
+      // 更新账户余额和最后领取时间
+      await tx.creditAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: newBalance,
+          totalEarned: account.totalEarned + DAILY_LOGIN_REWARD_CREDITS,
+          lastDailyRewardAt: new Date(),
+        },
+      });
+
+      // 创建交易记录
+      const transaction = await tx.creditTransaction.create({
+        data: {
+          accountId: account.id,
+          type: TransactionType.DAILY_REWARD,
+          amount: DAILY_LOGIN_REWARD_CREDITS,
+          balanceBefore: account.balance,
+          balanceAfter: newBalance,
+          description: '每日登录奖励',
+        },
+      });
+
+      return {
+        success: true,
+        newBalance,
+        transactionId: transaction.id,
+      };
+    });
   }
 }

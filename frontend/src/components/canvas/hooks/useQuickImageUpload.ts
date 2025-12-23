@@ -782,6 +782,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         }
 
         let asset: StoredImageAsset | null = null;
+        const skipUpload = Boolean(extraOptions?.placeholderId); // AI生成的占位符无需等待上传即可落盘
         if (typeof imagePayload === 'string') {
             // 🔥 检查是否是远程 URL 还是 base64 data URL
             const isRemoteUrl = imagePayload.startsWith('http://') || imagePayload.startsWith('https://');
@@ -796,6 +797,18 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     fileName: fileName || 'remote-image.png',
                     pendingUpload: false,
                 };
+            } else if (skipUpload) {
+                const resolvedName = fileName || 'ai-image.png';
+                // AI落盘：直接使用本地 dataURL，上传由上游负责
+                asset = {
+                    id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    url: imagePayload,
+                    src: imagePayload,
+                    fileName: resolvedName,
+                    pendingUpload: false,
+                    localDataUrl: imagePayload,
+                };
+                fileName = resolvedName;
             } else {
                 // 如果是 base64 data URL，执行上传流程
                 const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
@@ -833,12 +846,15 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             fileName = asset.fileName || fileName;
         }
 
-        if (!asset || !asset.url) {
+        if (!asset || (!asset.url && !asset.localDataUrl)) {
             logger.error('快速上传未获取到有效图片资源');
+            if (extraOptions?.placeholderId) {
+                removePredictedPlaceholder(extraOptions.placeholderId);
+            }
             return;
         }
 
-        const imageData = asset.url;
+        const imageData = isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : asset.url;
         try {
             ensureDrawingLayer();
 

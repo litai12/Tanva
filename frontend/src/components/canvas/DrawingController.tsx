@@ -2889,6 +2889,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
   }, [selectionTool.selectedPath, selectionTool.selectedPaths, addAsset]);
 
+  // 监听从画布 Alt/Option 拖拽路径到库面板的事件
+  useEffect(() => {
+    const handleAddSelectedPathsToLibrary = () => {
+      void handleAddPathsToLibrary();
+    };
+    window.addEventListener('canvas:add-selected-paths-to-library', handleAddSelectedPathsToLibrary as EventListener);
+    return () => {
+      window.removeEventListener('canvas:add-selected-paths-to-library', handleAddSelectedPathsToLibrary as EventListener);
+    };
+  }, [handleAddPathsToLibrary]);
+
   const resolveContextTarget = useCallback((event: MouseEvent): HitTestTarget => {
     const canvas = canvasRef.current;
     if (!canvas || !paper?.project) return null;

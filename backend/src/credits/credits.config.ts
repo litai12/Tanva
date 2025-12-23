@@ -16,13 +16,13 @@ export const CREDIT_PRICING_CONFIG = {
   'gemini-image-edit': {
     serviceName: 'Gemini 图像编辑',
     provider: 'gemini',
-    creditsPerCall: 10,
+    creditsPerCall: 15,
     description: '使用 Gemini 编辑图像',
   },
   'gemini-image-blend': {
     serviceName: 'Gemini 图像融合',
     provider: 'gemini',
-    creditsPerCall: 12,
+    creditsPerCall: 15,
     description: '使用 Gemini 融合多张图像',
   },
   'gemini-image-analyze': {
@@ -40,6 +40,12 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Gemini 进行文字对话',
     maxInputTokens: 8000,
     maxContextLength: 32000,
+  },
+  'gemini-tool-selection': {
+    serviceName: 'Gemini 工具选择',
+    provider: 'gemini',
+    creditsPerCall: 1,
+    description: '使用 Gemini 进行智能工具选择',
   },
   'gemini-paperjs': {
     serviceName: 'Gemini Paper.js 生成',
@@ -113,3 +119,6 @@ export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;
 
 // 默认新用户赠送积分
 export const DEFAULT_NEW_USER_CREDITS = 1000;
+
+// 每日登录奖励积分
+export const DAILY_LOGIN_REWARD_CREDITS = 100;

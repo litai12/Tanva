@@ -68,15 +68,16 @@ model Project {
 
 // 用户积分账户
 model CreditAccount {
-  id              String   @id @default(uuid())
-  user            User     @relation(fields: [userId], references: [id])
-  userId          String   @unique
-  balance         Int      @default(0)        // 当前积分余额
-  totalEarned     Int      @default(0)        // 历史总获得积分
-  totalSpent      Int      @default(0)        // 历史总消费积分
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  transactions    CreditTransaction[]
+  id                String   @id @default(uuid())
+  user              User     @relation(fields: [userId], references: [id])
+  userId            String   @unique
+  balance           Int      @default(0)        // 当前积分余额
+  totalEarned       Int      @default(0)        // 历史总获得积分
+  totalSpent        Int      @default(0)        // 历史总消费积分
+  lastDailyRewardAt DateTime?                   // 上次领取每日奖励时间
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  transactions      CreditTransaction[]
 }
 
 // 积分交易记录

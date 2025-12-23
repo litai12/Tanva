@@ -9,6 +9,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import { tokenRefreshManager } from "./tokenRefreshManager";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -88,6 +89,9 @@ class AIImageService {
   async generateImage(
     request: AIImageGenerateRequest
   ): Promise<AIServiceResponse<AIImageResult>> {
+    // 关键操作前确保 token 有效
+    await tokenRefreshManager.ensureValidToken();
+
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/generate-image`,
       request,
@@ -103,6 +107,9 @@ class AIImageService {
   async editImage(
     request: AIImageEditRequest
   ): Promise<AIServiceResponse<AIImageResult>> {
+    // 关键操作前确保 token 有效
+    await tokenRefreshManager.ensureValidToken();
+
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/edit-image`,
       request,
@@ -118,6 +125,9 @@ class AIImageService {
   async blendImages(
     request: AIImageBlendRequest
   ): Promise<AIServiceResponse<AIImageResult>> {
+    // 关键操作前确保 token 有效
+    await tokenRefreshManager.ensureValidToken();
+
     const response = await this.callAPI<AIImageResult>(
       `${this.API_BASE}/ai/blend-images`,
       request,
@@ -529,6 +539,8 @@ class AIImageService {
       });
       if (res.ok) {
         console.log("🔄 Session refresh succeeded");
+        // 通知 tokenRefreshManager 刷新成功
+        tokenRefreshManager.onLoginSuccess();
         return true;
       }
       console.warn("Session refresh failed with status", res.status);

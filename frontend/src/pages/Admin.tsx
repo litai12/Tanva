@@ -258,27 +258,32 @@ function UsersTab() {
         </div>
       </div>
 
-      {pagination && pagination.totalPages > 1 && (
-        <div className='mt-4 flex justify-center gap-2'>
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={page === 1}
-            onClick={() => setPage(page - 1)}
-          >
-            上一页
-          </Button>
-          <span className='px-4 py-2 text-sm'>
-            {page} / {pagination.totalPages}
+      {pagination && (
+        <div className='mt-4 flex items-center justify-center gap-4'>
+          <span className='text-sm text-gray-500'>
+            共 {pagination.total} 条记录
           </span>
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={page === pagination.totalPages}
-            onClick={() => setPage(page + 1)}
-          >
-            下一页
-          </Button>
+          <div className='flex items-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === 1}
+              onClick={() => setPage(page - 1)}
+            >
+              上一页
+            </Button>
+            <span className='px-4 py-2 text-sm'>
+              {page} / {pagination.totalPages}
+            </span>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === pagination.totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              下一页
+            </Button>
+          </div>
         </div>
       )}
 

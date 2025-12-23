@@ -7,6 +7,8 @@ import ProjectAutosaveManager from '@/components/autosave/ProjectAutosaveManager
 import SaveDebugPanel from '@/components/autosave/SaveDebugPanel';
 import { useProjectStore } from '@/stores/projectStore';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
+import LoginModal from '@/components/auth/LoginModal';
+import { tokenRefreshManager } from '@/services/tokenRefreshManager';
 
 // 检测是否为移动设备
 const isMobileDevice = (): boolean => {
@@ -73,6 +75,14 @@ const App: React.FC = () => {
 
   // 记录上一次打开的项目ID，避免重复打开
   const lastOpenedProjectIdRef = useRef<string | null>(null);
+
+  // 初始化 TokenRefreshManager
+  useEffect(() => {
+    tokenRefreshManager.init();
+    return () => {
+      tokenRefreshManager.destroy();
+    };
+  }, []);
 
   // 监听窗口大小变化，更新移动设备状态
   useEffect(() => {
@@ -163,6 +173,7 @@ const App: React.FC = () => {
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
+      <LoginModal />
       {/* <SaveDebugPanel /> */}
     </div>
   );

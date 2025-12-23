@@ -40,6 +40,22 @@ export class CreditsController {
     return this.creditsService.getAccountDetails(req.user.id);
   }
 
+  @Get('daily-reward/status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '检查每日奖励领取状态' })
+  async getDailyRewardStatus(@Request() req: FastifyRequest & { user: AuthenticatedUser }) {
+    return this.creditsService.canClaimDailyReward(req.user.id);
+  }
+
+  @Post('daily-reward/claim')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '领取每日登录奖励' })
+  async claimDailyReward(@Request() req: FastifyRequest & { user: AuthenticatedUser }) {
+    return this.creditsService.claimDailyReward(req.user.id);
+  }
+
   @Get('pricing')
   @ApiOperation({ summary: '获取所有服务定价' })
   @ApiResponse({ status: 200, type: [PricingResponseDto] })

@@ -348,7 +348,7 @@ export class AiController {
   }
 
   @Post('tool-selection')
-  async toolSelection(@Body() dto: ToolSelectionRequestDto) {
+  async toolSelection(@Body() dto: ToolSelectionRequestDto, @Req() req: any) {
     const allowVector = this.hasVectorIntent(dto.prompt);
     const availableTools = this.sanitizeAvailableTools(dto.availableTools, allowVector);
 
@@ -366,64 +366,66 @@ export class AiController {
     const providerName =
       dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
 
-    if (providerName) {
-      try {
-        // 🔥 先规范化模型
-        const normalizedModel = this.resolveImageModel(providerName, dto.model);
+    return this.withCredits(req, 'gemini-tool-selection', dto.model, async () => {
+      if (providerName) {
+        try {
+          // 🔥 先规范化模型
+          const normalizedModel = this.resolveImageModel(providerName, dto.model);
 
-        this.logger.log(`[${providerName.toUpperCase()}] Using provider for tool selection`, {
-          originalModel: dto.model,
-          normalizedModel,
-        });
+          this.logger.log(`[${providerName.toUpperCase()}] Using provider for tool selection`, {
+            originalModel: dto.model,
+            normalizedModel,
+          });
 
-        const provider = this.factory.getProvider(normalizedModel, providerName);
-        const result = await provider.selectTool({
-          prompt: dto.prompt,
-          availableTools,
-          hasImages: dto.hasImages,
-          imageCount: dto.imageCount,
-          hasCachedImage: dto.hasCachedImage,
-          context: dto.context,
-          model: normalizedModel,
-        });
+          const provider = this.factory.getProvider(normalizedModel, providerName);
+          const result = await provider.selectTool({
+            prompt: dto.prompt,
+            availableTools,
+            hasImages: dto.hasImages,
+            imageCount: dto.imageCount,
+            hasCachedImage: dto.hasCachedImage,
+            context: dto.context,
+            model: normalizedModel,
+          });
 
-        if (result.success && result.data) {
-          const selectedTool = this.enforceSelectedTool(result.data.selectedTool, availableTools);
-          this.logger.log(`✅ [${providerName.toUpperCase()}] Tool selected: ${selectedTool}`);
-          return {
-            selectedTool,
-            parameters: { prompt: dto.prompt },
-            reasoning: result.data.reasoning,
-            confidence: result.data.confidence,
-          };
+          if (result.success && result.data) {
+            const selectedTool = this.enforceSelectedTool(result.data.selectedTool, availableTools);
+            this.logger.log(`✅ [${providerName.toUpperCase()}] Tool selected: ${selectedTool}`);
+            return {
+              selectedTool,
+              parameters: { prompt: dto.prompt },
+              reasoning: result.data.reasoning,
+              confidence: result.data.confidence,
+            };
+          }
+
+          const message = result.error?.message ?? 'provider returned an error response';
+          this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider responded with error: ${message}`);
+          throw new ServiceUnavailableException(
+            `[${providerName}] tool selection failed: ${message}`
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider threw exception: ${message}`);
+          throw new ServiceUnavailableException(
+            `[${providerName}] tool selection failed: ${message}`
+          );
         }
-
-        const message = result.error?.message ?? 'provider returned an error response';
-        this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider responded with error: ${message}`);
-        throw new ServiceUnavailableException(
-          `[${providerName}] tool selection failed: ${message}`
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`⚠️ [${providerName.toUpperCase()}] provider threw exception: ${message}`);
-        throw new ServiceUnavailableException(
-          `[${providerName}] tool selection failed: ${message}`
-        );
       }
-    }
 
-    // 🔥 降级到Google Gemini进行工具选择
-    this.logger.log('📊 Falling back to Gemini tool selection');
-    const result = await this.ai.runToolSelectionPrompt(dto.prompt, availableTools);
-    const selectedTool = this.enforceSelectedTool(result.selectedTool, availableTools);
+      // 🔥 降级到Google Gemini进行工具选择
+      this.logger.log('📊 Falling back to Gemini tool selection');
+      const result = await this.ai.runToolSelectionPrompt(dto.prompt, availableTools);
+      const selectedTool = this.enforceSelectedTool(result.selectedTool, availableTools);
 
-    this.logger.log('✅ [GEMINI] Tool selected:', selectedTool);
-    return {
-      selectedTool,
-      parameters: { prompt: dto.prompt },
-      reasoning: result.reasoning,
-      confidence: result.confidence,
-    };
+      this.logger.log('✅ [GEMINI] Tool selected:', selectedTool);
+      return {
+        selectedTool,
+        parameters: { prompt: dto.prompt },
+        reasoning: result.reasoning,
+        confidence: result.confidence,
+      };
+    });
   }
 
   @Post('generate-image')

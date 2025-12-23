@@ -6,6 +6,7 @@ export enum TransactionType {
   SPEND = 'spend',
   REFUND = 'refund',
   ADMIN_ADJUST = 'admin_adjust',
+  DAILY_REWARD = 'daily_reward',
 }
 
 export enum ApiResponseStatus {

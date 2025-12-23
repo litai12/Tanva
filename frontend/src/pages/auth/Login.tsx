@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
 import { useProjectStore } from "@/stores/projectStore";
+import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const [tab, setTab] = useState<"password" | "sms">("password");
@@ -105,10 +106,15 @@ export default function LoginPage() {
                   {error && <div className='text-red-500 text-sm'>{error}</div>}
                   <Button
                     type='submit'
-                    className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-2xl'
+                    className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-2xl disabled:opacity-70'
                     disabled={loading}
                   >
-                    {loading ? "登录中..." : "登录"}
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        登录中...
+                      </>
+                    ) : "登录"}
                   </Button>
                   <div className='flex justify-between text-sm text-slate-500'>
                     <Link to='#'>忘记密码</Link>
@@ -158,10 +164,15 @@ export default function LoginPage() {
                   {error && <div className='text-red-500 text-sm'>{error}</div>}
                   <Button
                     type='submit'
-                    className='w-full bg-gray-700 hover:bg-gray-500 text-white rounded-2xl'
+                    className='w-full bg-gray-700 hover:bg-gray-800 text-white rounded-2xl disabled:opacity-70'
                     disabled={loading}
                   >
-                    {loading ? "登录中…" : "登录"}
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        登录中...
+                      </>
+                    ) : "登录"}
                   </Button>
                 </form>
               )}

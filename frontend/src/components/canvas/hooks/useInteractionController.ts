@@ -49,7 +49,8 @@ interface PathEditor {
     selectedPath: paper.Path | null,
     type: 'mousedown' | 'mousemove' | 'mouseup',
     shiftPressed?: boolean,
-    altPressed?: boolean
+    altPressed?: boolean,
+    dropToLibrary?: boolean
   ) => any;
   getCursorStyle: (point: paper.Point, selectedPath: paper.Path | null) => string;
 }
@@ -378,6 +379,56 @@ export const useInteractionController = ({
     return true;
   }, [collectSelectedPaths, resetGroupPathDrag]);
 
+  const updateLibraryDropHover = useCallback((clientX: number, clientY: number, enabled: boolean) => {
+    const libraryDropZone = document.querySelector('[data-library-drop-zone="true"]');
+    if (!libraryDropZone) {
+      if (libraryHoveringRef.current) {
+        libraryHoveringRef.current = false;
+        window.dispatchEvent(new CustomEvent('canvas:library-drag-hover', {
+          detail: { hovering: false }
+        }));
+      }
+      return false;
+    }
+
+    if (!enabled) {
+      libraryDropZone.classList.remove('library-drop-highlight');
+      if (libraryHoveringRef.current) {
+        libraryHoveringRef.current = false;
+        window.dispatchEvent(new CustomEvent('canvas:library-drag-hover', {
+          detail: { hovering: false }
+        }));
+      }
+      return false;
+    }
+
+    const rect = libraryDropZone.getBoundingClientRect();
+    const isOverLibrary =
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom;
+
+    if (isOverLibrary) {
+      libraryDropZone.classList.add('library-drop-highlight');
+    } else {
+      libraryDropZone.classList.remove('library-drop-highlight');
+    }
+
+    if (libraryHoveringRef.current !== isOverLibrary) {
+      libraryHoveringRef.current = isOverLibrary;
+      window.dispatchEvent(new CustomEvent('canvas:library-drag-hover', {
+        detail: { hovering: isOverLibrary }
+      }));
+    }
+
+    return isOverLibrary;
+  }, []);
+
+  const clearLibraryDropHover = useCallback(() => {
+    updateLibraryDropHover(0, 0, false);
+  }, [updateLibraryDropHover]);
+
   const applyGroupPathDrag = useCallback((point: paper.Point | null, expectedMode: GroupPathDragMode | null = null, altPressed: boolean = false) => {
     const state = groupPathDragRef.current;
     if (!state.active || !state.startPoint || !point) return;
@@ -683,7 +734,8 @@ export const useInteractionController = ({
           latestSelectionTool.selectedPath,
           'mousedown',
           shiftPressed,
-          isAltPressedRef.current || event.altKey
+          isAltPressedRef.current || event.altKey,
+          undefined
         );
         if (pathEditResult) {
           return; // 路径编辑处理了这个事件
@@ -1096,7 +1148,9 @@ export const useInteractionController = ({
     if (currentDrawMode === 'select' || currentDrawMode === 'marquee') {
       const pathGroupDragState = groupPathDragRef.current;
       if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
-        applyGroupPathDrag(point, 'path', isAltPressedRef.current || event.altKey);
+        const altPressed = isAltPressedRef.current || event.altKey;
+        updateLibraryDropHover(event.clientX, event.clientY, altPressed);
+        applyGroupPathDrag(point, 'path', altPressed);
         try { paper.view.update(); } catch {}
         return;
       }
@@ -1106,9 +1160,13 @@ export const useInteractionController = ({
         latestSelectionTool.selectedPath,
         'mousemove',
         undefined,
-        isAltPressedRef.current || event.altKey
+        isAltPressedRef.current || event.altKey,
+        undefined
       );
       if (pathEditResult) {
+        const altPressed = isAltPressedRef.current || event.altKey;
+        const isPathDragging = (pathEditResult as any)?.type === 'path-dragging' || latestPathEditor.isPathDragging;
+        updateLibraryDropHover(event.clientX, event.clientY, altPressed && isPathDragging);
         return; // 路径编辑处理了这个事件
       }
 
@@ -1471,6 +1529,7 @@ export const useInteractionController = ({
     canvasRef,
     DRAG_THRESHOLD,
     applyGroupPathDrag,
+    updateLibraryDropHover,
     updateCursorStyle,
     handleImageResize
   ]);
@@ -1506,16 +1565,32 @@ export const useInteractionController = ({
     // ========== 选择模式处理 ==========
     if (currentDrawMode === 'select' || currentDrawMode === 'marquee') {
       // 处理路径编辑结束
+      const isAltPressed = isAltPressedRef.current || event.altKey;
+      const droppedToLibrary =
+        isAltPressed &&
+        (() => {
+          const libraryDropZone = document.querySelector('[data-library-drop-zone="true"]');
+          if (!libraryDropZone) return false;
+          const rect = libraryDropZone.getBoundingClientRect();
+          return (
+            event.clientX >= rect.left &&
+            event.clientX <= rect.right &&
+            event.clientY >= rect.top &&
+            event.clientY <= rect.bottom
+          );
+        })();
       const pathEditResult = latestPathEditor.handlePathEditInteraction(
         clientToProject(canvas, event.clientX, event.clientY),
         latestSelectionTool.selectedPath,
         'mouseup',
         undefined,
-        isAltPressedRef.current || event.altKey
+        isAltPressed,
+        droppedToLibrary
       );
       if (pathEditResult) {
+        clearLibraryDropHover();
         const moved = !!(pathEditResult as any)?.moved;
-        const action = (pathEditResult as any)?.action as 'move' | 'clone' | 'none' | undefined;
+        const action = (pathEditResult as any)?.action as 'move' | 'clone' | 'none' | 'library' | undefined;
         if (moved) {
           try { paper.view.update(); } catch {}
           if (action === 'clone') {
@@ -1523,6 +1598,8 @@ export const useInteractionController = ({
             try { paperSaveService.triggerAutoSave('clone-paths'); } catch {}
           } else if (action === 'move') {
             historyService.commit('move-paths').catch(() => {});
+          } else if (action === 'library') {
+            window.dispatchEvent(new CustomEvent('canvas:add-selected-paths-to-library'));
           } else if ((pathEditResult as any)?.type === 'segment-drag-end') {
             historyService.commit('edit-path').catch(() => {});
           }
@@ -1534,6 +1611,20 @@ export const useInteractionController = ({
       if (pathGroupDragState.active && pathGroupDragState.mode === 'path') {
         const moved = pathGroupDragState.hasMoved;
         const wasPathAltClone = pathAltDragClonedRef.current;
+        const droppedToLibrary =
+          wasPathAltClone &&
+          (() => {
+            const libraryDropZone = document.querySelector('[data-library-drop-zone="true"]');
+            if (!libraryDropZone) return false;
+            const rect = libraryDropZone.getBoundingClientRect();
+            return (
+              event.clientX >= rect.left &&
+              event.clientX <= rect.right &&
+              event.clientY >= rect.top &&
+              event.clientY <= rect.bottom
+            );
+          })();
+        clearLibraryDropHover();
 
         // Alt+拖拽路径复制：在目标位置创建副本
         if (wasPathAltClone && moved && pathAltDragPlaceholderRef.current && pathAltDragSnapshotsRef.current.length > 0) {
@@ -1543,6 +1634,30 @@ export const useInteractionController = ({
           // 计算位移量
           const deltaX = placeholder.data.lastDeltaX || 0;
           const deltaY = placeholder.data.lastDeltaY || 0;
+
+          // 拖拽到库：触发加入个人库（导出为 SVG），不在画布创建副本
+          if (droppedToLibrary) {
+            window.dispatchEvent(new CustomEvent('canvas:add-selected-paths-to-library'));
+            logger.debug('📚 Alt+拖拽路径：已触发添加到个人库');
+
+            // 清理占位框
+            try { placeholder.remove(); } catch {}
+            pathAltDragPlaceholderRef.current = null;
+            pathAltDragSnapshotsRef.current = [];
+            pathAltDragClonedRef.current = false;
+
+            // 重置拖拽状态
+            groupPathDragRef.current = {
+              active: false,
+              mode: null,
+              startPoint: null,
+              paths: [],
+              groupBlocks: [],
+              hasMoved: false
+            };
+            try { paper.view.update(); } catch {}
+            return;
+          }
 
           // 在目标位置创建路径副本
           clonedPaths.forEach((clonedPath) => {
@@ -1582,6 +1697,7 @@ export const useInteractionController = ({
         }
 
         resetGroupPathDrag();
+        clearLibraryDropHover();
         if (moved) {
           try { paper.view.update(); } catch {}
           historyService.commit('move-paths').catch(() => {});

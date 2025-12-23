@@ -351,17 +351,19 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
   }, [isPathDragging, draggedPath, dragStartPoint, findPlaceholderGroup]);
 
   // 结束路径拖拽
-  const finishPathDrag = useCallback((): { moved: boolean; action: 'move' | 'clone' | 'none' } | null => {
+  const finishPathDrag = useCallback((options?: { dropToLibrary?: boolean }): { moved: boolean; action: 'move' | 'clone' | 'library' | 'none' } | null => {
     if (!isPathDragging) return null;
 
     const moved = pathDragMovedRef.current;
-    let action: 'move' | 'clone' | 'none' = moved ? 'move' : 'none';
+    let action: 'move' | 'clone' | 'library' | 'none' = moved ? 'move' : 'none';
 
     if (altCloneActiveRef.current) {
       action = 'none';
       const delta = altCloneDeltaRef.current;
       const didMove = moved && Number.isFinite(delta.x) && Number.isFinite(delta.y) && (Math.abs(delta.x) > 0.01 || Math.abs(delta.y) > 0.01);
-      if (didMove && altClonePathRef.current) {
+      if (options?.dropToLibrary && didMove) {
+        action = 'library';
+      } else if (didMove && altClonePathRef.current) {
         try {
           const cloned = altClonePathRef.current;
           cloned.translate(new paper.Point(delta.x, delta.y));
@@ -426,7 +428,8 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
     selectedPath: paper.Path | null,
     interactionType: 'mousedown' | 'mousemove' | 'mouseup',
     shiftPressed?: boolean,
-    altPressed?: boolean
+    altPressed?: boolean,
+    dropToLibrary?: boolean
   ) => {
     if (!selectedPath) return null;
 
@@ -465,7 +468,7 @@ export const usePathEditor = ({ zoom }: UsePathEditorProps) => {
       }
 
       if (isPathDragging) {
-        const result = finishPathDrag();
+        const result = finishPathDrag({ dropToLibrary });
         return { type: 'path-drag-end', ...(result ?? { moved: false, action: 'none' }) };
       }
     }
