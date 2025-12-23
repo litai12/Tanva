@@ -99,8 +99,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   const rf = useReactFlow();
   // 移除 useEdges() - 改用事件监听方式获取外部提示词，避免频繁重渲染
-  const [externalPrompt, setExternalPrompt] = React.useState<string | null>(null);
-  const [externalSourceId, setExternalSourceId] = React.useState<string | null>(null);
+  // 支持多个外部提示词输入
+  const [externalPrompts, setExternalPrompts] = React.useState<string[]>([]);
+  const [externalSourceIds, setExternalSourceIds] = React.useState<string[]>([]);
 
   // 只在预览模式下才获取历史记录，避免不必要的重渲染
   const allImages = React.useMemo(() => {
@@ -130,47 +131,58 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     nativeEvent.stopImmediatePropagation?.();
   }, []);
 
-  const refreshExternalPrompt = React.useCallback(() => {
+  const refreshExternalPrompts = React.useCallback(() => {
     const currentEdges = rf.getEdges();
-    const textEdge = currentEdges.find(e => e.target === id && e.targetHandle === 'text');
-    if (!textEdge) {
-      setExternalPrompt(null);
-      setExternalSourceId(null);
+    // 获取所有连接到 text handle 的边
+    const textEdges = currentEdges.filter(e => e.target === id && e.targetHandle === 'text');
+
+    if (textEdges.length === 0) {
+      setExternalPrompts([]);
+      setExternalSourceIds([]);
       return;
     }
-    setExternalSourceId(textEdge.source);
-    const sourceNode = rf.getNode(textEdge.source);
-    if (!sourceNode) {
-      setExternalPrompt(null);
-      return;
+
+    const sourceIds: string[] = [];
+    const prompts: string[] = [];
+
+    for (const edge of textEdges) {
+      sourceIds.push(edge.source);
+      const sourceNode = rf.getNode(edge.source);
+      if (sourceNode) {
+        const resolved = resolveTextFromSourceNode(sourceNode, edge.sourceHandle);
+        if (resolved && resolved.trim().length) {
+          prompts.push(resolved.trim());
+        }
+      }
     }
-    const resolved = resolveTextFromSourceNode(sourceNode, textEdge.sourceHandle);
-    setExternalPrompt(resolved && resolved.trim().length ? resolved.trim() : null);
+
+    setExternalSourceIds(sourceIds);
+    setExternalPrompts(prompts);
   }, [id, rf]);
 
   React.useEffect(() => {
-    refreshExternalPrompt();
-  }, [refreshExternalPrompt]);
+    refreshExternalPrompts();
+  }, [refreshExternalPrompts]);
 
   // 监听边的变化（连接/断开）来刷新外部提示词
   React.useEffect(() => {
     const handleEdgesChange = () => {
-      refreshExternalPrompt();
+      refreshExternalPrompts();
     };
     window.addEventListener('flow:edgesChange', handleEdgesChange);
     return () => window.removeEventListener('flow:edgesChange', handleEdgesChange);
-  }, [refreshExternalPrompt]);
+  }, [refreshExternalPrompts]);
 
   React.useEffect(() => {
-    if (!externalSourceId) return;
+    if (externalSourceIds.length === 0) return;
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string }>).detail;
-      if (!detail?.id || detail.id !== externalSourceId) return;
-      refreshExternalPrompt();
+      if (!detail?.id || !externalSourceIds.includes(detail.id)) return;
+      refreshExternalPrompts();
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
-  }, [externalSourceId, refreshExternalPrompt]);
+  }, [externalSourceIds, refreshExternalPrompts]);
 
   // 更新图片宽度
   const updateImageWidth = React.useCallback((width: number) => {
@@ -642,33 +654,37 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               position: 'relative',
             }}
           >
-            {index === 0 && externalPrompt && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 6,
-                  marginBottom: 8,
-                  padding: '8px 10px',
-                  background: '#f0f9ff',
-                  borderRadius: 8,
-                  border: '1px solid #bae6fd',
-                }}
-              >
-                <Link style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
-                <span
-                  style={{
-                    fontSize: 13,
-                    color: '#0369a1',
-                    lineHeight: 1.4,
-                    wordBreak: 'break-word',
-                    maxHeight: 60,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {externalPrompt.length > 100 ? `${externalPrompt.slice(0, 100)}...` : externalPrompt}
-                </span>
+            {index === 0 && externalPrompts.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                {externalPrompts.map((extPrompt, extIndex) => (
+                  <div
+                    key={extIndex}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 6,
+                      padding: '8px 10px',
+                      background: '#f0f9ff',
+                      borderRadius: 8,
+                      border: '1px solid #bae6fd',
+                    }}
+                  >
+                    <Link style={{ width: 14, height: 14, color: '#0ea5e9', flexShrink: 0, marginTop: 2 }} />
+                    <span
+                      style={{
+                        fontSize: 13,
+                        color: '#0369a1',
+                        lineHeight: 1.4,
+                        wordBreak: 'break-word',
+                        maxHeight: 60,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {extPrompt.length > 100 ? `${extPrompt.slice(0, 100)}...` : extPrompt}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
             <textarea
@@ -681,7 +697,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
                 }
               }}
               placeholder={index === 0
-                ? (externalPrompt ? "输入额外提示词..." : "输入提示词...")
+                ? (externalPrompts.length > 0 ? "输入额外提示词..." : "输入提示词...")
                 : "输入额外提示词..."}
               rows={2}
               style={{

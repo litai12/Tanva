@@ -638,7 +638,10 @@ function FlowInner() {
       if (needCommit) {
         historyService.commit('flow-edges-change').catch(() => {});
         // 通知节点边已变化（用于刷新外部提示词预览等）
-        window.dispatchEvent(new CustomEvent('flow:edgesChange'));
+        // 使用 setTimeout 确保在状态更新后再触发
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('flow:edgesChange'));
+        }, 0);
       }
     } catch {}
   }, [onEdgesChange]);
@@ -1887,9 +1890,11 @@ function FlowInner() {
       if ((tgt?.type === 'image' || tgt?.type === 'analysis') && params.targetHandle === 'img') {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === 'img'));
       }
-      
+
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
-      if (((tgt?.type === 'generate') || (tgt?.type === 'generatePro') || (tgt?.type === 'generatePro4') || (tgt?.type === 'generate4') || (tgt?.type === 'generateRef') || (tgt?.type === 'promptOptimize') || (tgt?.type === 'textNote') || (tgt?.type === 'sora2Video') || (tgt?.type === 'storyboardSplit')) && isTextHandle(params.targetHandle)) {
+      // 注意：generatePro 和 generatePro4 允许多个 text 输入，不移除旧连接
+      const singleTextInputTypes = ['generate', 'generate4', 'generateRef', 'promptOptimize', 'textNote', 'sora2Video', 'storyboardSplit'];
+      if (singleTextInputTypes.includes(tgt?.type || '') && isTextHandle(params.targetHandle)) {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       if ((tgt?.type === 'sora2Video') && params.targetHandle === 'image') {
@@ -1926,7 +1931,10 @@ function FlowInner() {
     try { historyService.commit('flow-connect').catch(() => {}); } catch {}
 
     // 通知节点边已变化（用于刷新外部提示词预览等）
-    window.dispatchEvent(new CustomEvent('flow:edgesChange'));
+    // 使用 setTimeout 确保在 setEdges 状态更新后再触发
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('flow:edgesChange'));
+    }, 0);
 
     // 若连接到 Image(img)，立即把源图像写入目标
     try {
