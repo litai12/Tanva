@@ -76,6 +76,8 @@ const FloatingHeader: React.FC = () => {
         toggleGrid,
         setShowGrid,
         focusMode,
+        snapAlignmentEnabled,
+        toggleSnapAlignment,
     } = useUIStore();
 
     const {
@@ -593,6 +595,18 @@ const FloatingHeader: React.FC = () => {
                                 <Switch
                                     checked={showGrid}
                                     onCheckedChange={toggleGrid}
+                                    className="h-5 w-9"
+                                />
+                            </div>
+
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <div className="text-sm font-medium text-slate-700">自动吸附对齐</div>
+                                    <div className="text-xs text-slate-500">拖动元素时自动吸附到其他元素边缘</div>
+                                </div>
+                                <Switch
+                                    checked={snapAlignmentEnabled}
+                                    onCheckedChange={toggleSnapAlignment}
                                     className="h-5 w-9"
                                 />
                             </div>
