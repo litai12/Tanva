@@ -635,7 +635,11 @@ function FlowInner() {
     onEdgesChange(changes);
     try {
       const needCommit = Array.isArray(changes) && changes.some((c: any) => c?.type === 'remove' || c?.type === 'add');
-      if (needCommit) historyService.commit('flow-edges-change').catch(() => {});
+      if (needCommit) {
+        historyService.commit('flow-edges-change').catch(() => {});
+        // 通知节点边已变化（用于刷新外部提示词预览等）
+        window.dispatchEvent(new CustomEvent('flow:edgesChange'));
+      }
     } catch {}
   }, [onEdgesChange]);
   const rf = useReactFlow();
@@ -1920,6 +1924,9 @@ function FlowInner() {
       return out;
     });
     try { historyService.commit('flow-connect').catch(() => {}); } catch {}
+
+    // 通知节点边已变化（用于刷新外部提示词预览等）
+    window.dispatchEvent(new CustomEvent('flow:edgesChange'));
 
     // 若连接到 Image(img)，立即把源图像写入目标
     try {

@@ -338,14 +338,16 @@ input[type="text"],
 
 .tanva-flow-overlay .react-flow__handle:hover::after,
 .tanva-flow-overlay .react-flow__handle:focus-visible::after {
-  box-shadow: 0 0 0 10px rgba(15, 23, 42, 0.06);
+  /* 热区直接贴着句柄芯，inset: -8px 意味着从句柄边缘向外 8px */
+  /* 使用 inset 的 box-shadow 让灰色圈从热区内边缘开始 */
+  box-shadow: inset 0 0 0 8px rgba(15, 23, 42, 0.06);
 }
 
 /* 连接时的可视放大（拖拽接入/有效目标） */
 .tanva-flow-overlay .react-flow__handle-connecting::after,
 .tanva-flow-overlay .react-flow__handle-valid::after,
 .tanva-flow-overlay .react-flow__handle-connecting-target::after {
-  box-shadow: 0 0 0 12px rgba(15, 23, 42, 0.08);
+  box-shadow: inset 0 0 0 10px rgba(15, 23, 42, 0.08);
 }
 
 /* ==================== 框选时禁用 Flow 节点事件 ==================== */

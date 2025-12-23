@@ -152,6 +152,15 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     refreshExternalPrompt();
   }, [refreshExternalPrompt]);
 
+  // 监听边的变化（连接/断开）来刷新外部提示词
+  React.useEffect(() => {
+    const handleEdgesChange = () => {
+      refreshExternalPrompt();
+    };
+    window.addEventListener('flow:edgesChange', handleEdgesChange);
+    return () => window.removeEventListener('flow:edgesChange', handleEdgesChange);
+  }, [refreshExternalPrompt]);
+
   React.useEffect(() => {
     if (!externalSourceId) return;
     const handler = (event: Event) => {
