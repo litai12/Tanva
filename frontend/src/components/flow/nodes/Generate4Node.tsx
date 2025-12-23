@@ -8,21 +8,12 @@ type Props = {
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
     error?: string;
-    images?: string[]; // base64 strings, max 4
-    count?: number; // 1-4
-    aspectRatio?:
-      | "1:1"
-      | "2:3"
-      | "3:2"
-      | "3:4"
-      | "4:3"
-      | "4:5"
-      | "5:4"
-      | "9:16"
-      | "16:9"
-      | "21:9";
+    images?: string[];
+    thumbnails?: string[];
+    count?: number;
+    aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     onRun?: (id: string) => void;
-    onSend?: (id: string) => void; // send all
+    onSend?: (id: string) => void;
     boxW?: number;
     boxH?: number;
   };
@@ -42,6 +33,7 @@ const buildImageSrc = (value?: string): string => {
 function Generate4NodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const images = data.images || [];
+  const thumbnails = data.thumbnails || [];
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [previewIndex, setPreviewIndex] = React.useState<number>(0);
@@ -90,7 +82,9 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   // 2x2 网格渲染单元
   const renderCell = (idx: number) => {
     const img = images[idx];
-    const isLoading = status === "running" && idx >= images.length; // 简单的加载标识
+    const thumb = thumbnails[idx];
+    const displaySrc = thumb ? buildImageSrc(thumb) : (img ? buildImageSrc(img) : '');
+    const isLoading = status === "running" && idx >= images.length;
     return (
       <div
         key={idx}
@@ -114,9 +108,9 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         }}
         title={img ? "双击全屏预览" : undefined}
       >
-        {img ? (
+        {displaySrc ? (
           <img
-            src={buildImageSrc(img)}
+            src={displaySrc}
             alt=''
             style={{
               width: "100%",

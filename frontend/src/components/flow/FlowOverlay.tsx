@@ -2465,6 +2465,15 @@ function FlowInner() {
           images: [...produced],
         }
       } : n));
+
+      // 为 generate4 节点异步生成缩略图
+      if (hasAny) {
+        Promise.all(produced.map(img => img ? generateThumbnail(img, 200) : Promise.resolve(null)))
+          .then(thumbs => {
+            const thumbnails = thumbs.map(t => t || '');
+            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, thumbnails } } : n));
+          }).catch(() => {});
+      }
       return;
     }
 
@@ -2569,6 +2578,15 @@ function FlowInner() {
           images: [...produced],
         }
       } : n));
+
+      // 为 generatePro4 节点异步生成缩略图
+      if (hasAny) {
+        Promise.all(produced.map(img => img ? generateThumbnail(img, 200) : Promise.resolve(null)))
+          .then(thumbs => {
+            const thumbnails = thumbs.map(t => t || '');
+            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, thumbnails } } : n));
+          }).catch(() => {});
+      }
       return;
     }
 
@@ -2629,8 +2647,8 @@ function FlowInner() {
       // 先设置原图，然后异步生成缩略图
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'succeeded', imageData: imgBase64, error: undefined } } : n));
 
-      // 为 generatePro 节点异步生成缩略图
-      if (imgBase64 && (node.type === 'generatePro' || node.type === 'generate')) {
+      // 为单图节点异步生成缩略图
+      if (imgBase64 && ['generatePro', 'generate', 'generateRef'].includes(node.type || '')) {
         generateThumbnail(imgBase64, 400).then(thumbnail => {
           if (thumbnail) {
             setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, thumbnail } } : n));

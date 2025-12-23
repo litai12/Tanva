@@ -12,18 +12,9 @@ type Props = {
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
     imageData?: string;
+    thumbnail?: string;
     error?: string;
-    aspectRatio?:
-      | "1:1"
-      | "2:3"
-      | "3:2"
-      | "3:4"
-      | "4:3"
-      | "4:5"
-      | "5:4"
-      | "9:16"
-      | "16:9"
-      | "21:9";
+    aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
     presetPrompt?: string;
     onRun?: (id: string) => void;
     onSend?: (id: string) => void;
@@ -43,7 +34,8 @@ const buildImageSrc = (value?: string): string | undefined => {
 
 function GenerateNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
-  const src = buildImageSrc(data.imageData);
+  const fullSrc = buildImageSrc(data.imageData);
+  const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
@@ -312,7 +304,7 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         </label>
       </div>
       <div
-        onDoubleClick={() => src && setPreview(true)}
+        onDoubleClick={() => fullSrc && setPreview(true)}
         style={{
           width: "100%",
           height: 160,
@@ -324,11 +316,11 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           overflow: "hidden",
           border: "1px solid #eef0f2",
         }}
-        title={src ? "双击预览" : undefined}
+        title={displaySrc ? "双击预览" : undefined}
       >
-        {src ? (
+        {displaySrc ? (
           <img
-            src={src}
+            src={displaySrc}
             alt=''
             style={{
               width: "100%",
@@ -414,9 +406,9 @@ function GenerateNodeInner({ id, data, selected }: Props) {
         imageSrc={
           allImages.length > 0 && currentImageId
             ? allImages.find((item) => item.id === currentImageId)?.src ||
-              src ||
+              fullSrc ||
               ""
-            : src || ""
+            : fullSrc || ""
         }
         imageTitle='全局图片预览'
         onClose={() => setPreview(false)}

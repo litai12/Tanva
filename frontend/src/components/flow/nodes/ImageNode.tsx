@@ -89,6 +89,7 @@ type Props = {
   id: string;
   data: {
     imageData?: string;
+    thumbnail?: string;
     label?: string;
     boxW?: number;
     boxH?: number;
@@ -114,7 +115,8 @@ const MAX_IMAGE_NAME_LENGTH = 28;
 function ImageNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-  const src = buildImageSrc(data.imageData);
+  const fullSrc = buildImageSrc(data.imageData);
+  const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
@@ -439,9 +441,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
       <div
         onDrop={onDrop}
         onDragOver={onDragOver}
-        onDoubleClick={() => src && setPreview(true)}
+        onDoubleClick={() => fullSrc && setPreview(true)}
         onClick={() => {
-          if (!src) {
+          if (!displaySrc) {
             inputRef.current?.click();
           }
         }}
@@ -455,13 +457,13 @@ function ImageNodeInner({ id, data, selected }: Props) {
           justifyContent: "center",
           overflow: "hidden",
           border: "1px solid #e5e7eb",
-          cursor: src ? "default" : "pointer",
+          cursor: displaySrc ? "default" : "pointer",
         }}
         title='拖拽图片到此或点击上传'
       >
-        {src ? (
+        {displaySrc ? (
           <img
-            src={src}
+            src={displaySrc}
             alt=''
             style={{
               width: "100%",
@@ -513,9 +515,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
         imageSrc={
           allImages.length > 0 && currentImageId
             ? allImages.find((item) => item.id === currentImageId)?.src ||
-              src ||
+              fullSrc ||
               ""
-            : src || ""
+            : fullSrc || ""
         }
         imageTitle='全局图片预览'
         onClose={() => setPreview(false)}

@@ -12,6 +12,7 @@ type Props = {
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
     imageData?: string;
+    thumbnail?: string;
     error?: string;
     referencePrompt?: string;
     onRun?: (id: string) => void;
@@ -34,7 +35,8 @@ const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
 
 function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
-  const src = buildImageSrc(data.imageData);
+  const fullSrc = buildImageSrc(data.imageData);
+  const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
@@ -197,7 +199,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
       </div>
 
       <div
-        onDoubleClick={() => src && setPreview(true)}
+        onDoubleClick={() => fullSrc && setPreview(true)}
         style={{
           width: "100%",
           height: 140,
@@ -209,11 +211,11 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           overflow: "hidden",
           border: "1px solid #eef0f2",
         }}
-        title={src ? "双击预览" : undefined}
+        title={displaySrc ? "双击预览" : undefined}
       >
-        {src ? (
+        {displaySrc ? (
           <img
-            src={src}
+            src={displaySrc}
             alt=''
             style={{
               width: "100%",
@@ -369,9 +371,9 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         imageSrc={
           allImages.length > 0 && currentImageId
             ? allImages.find((item) => item.id === currentImageId)?.src ||
-              src ||
+              fullSrc ||
               ""
-            : src || ""
+            : fullSrc || ""
         }
         imageTitle='全局图片预览'
         onClose={() => setPreview(false)}
