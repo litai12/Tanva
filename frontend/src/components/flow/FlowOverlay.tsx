@@ -42,6 +42,7 @@ import TextNoteNode from './nodes/TextNoteNode';
 import StoryboardSplitNode from './nodes/StoryboardSplitNode';
 import GenerateProNode from './nodes/GenerateProNode';
 import GeneratePro4Node from './nodes/GeneratePro4Node';
+import ImageProNode from './nodes/ImageProNode';
 import { generateThumbnail } from '@/utils/imageHelper';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -88,6 +89,7 @@ const nodeTypes = {
   promptOptimize: PromptOptimizeNode,
   textNote: TextNoteNode,
   image: ImageNode,
+  imagePro: ImageProNode,
   generate: GenerateNode,
   generate4: Generate4Node,
   generatePro: GenerateProNode,
@@ -249,7 +251,8 @@ const NODE_PALETTE_ITEMS = [
 
 // Beta 节点列表（实验性功能）
 const BETA_NODE_ITEMS = [
-  { key: 'textPromptPro', zh: '专业提示词节点', en: 'Prompt Pro', badge: 'Pro' },
+  { key: 'textPromptPro', zh: '专业提示词节点', en: 'Prompt Pro', badge: 'Beta' },
+  { key: 'imagePro', zh: '专业图片节点', en: 'Image Pro', badge: 'Beta' },
   { key: 'generatePro', zh: '专业生成节点', en: 'Generate Pro', badge: 'Beta' },
   { key: 'generatePro4', zh: '四图专业生成节点', en: 'Generate Pro 4', badge: 'Beta' },
 ];
@@ -1714,7 +1717,7 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'imagePro' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
@@ -1723,6 +1726,7 @@ function FlowInner() {
       textChat: { w: 320, h: 540 },
       promptOptimize: { w: 360, h: 300 },
       image: { w: 260, h: 240 },
+      imagePro: { w: 320, h: 240 },
       generate: { w: 260, h: 200 },
       generatePro: { w: 320, h: 400 },
       generatePro4: { w: 380, h: 480 },
@@ -1742,6 +1746,7 @@ function FlowInner() {
       : type === 'textChat' ? { status: 'idle' as const, manualInput: '', responseText: '', enableWebSearch: false, boxW: size.w, boxH: size.h }
       : type === 'promptOptimize' ? { text: '', expandedText: '', boxW: size.w, boxH: size.h }
       : type === 'image' ? { imageData: undefined, boxW: size.w, boxH: size.h }
+      : type === 'imagePro' ? { imageData: undefined, imageWidth: 296 }
       : type === 'generate' ? { status: 'idle' as const, boxW: size.w, boxH: size.h, presetPrompt: '' }
       : type === 'generatePro' ? { status: 'idle' as const, boxW: size.w, boxH: size.h, prompts: [''] }
       : type === 'generatePro4' ? { status: 'idle' as const, images: [], boxW: size.w, boxH: size.h, prompts: [''] }
@@ -2704,13 +2709,23 @@ function FlowInner() {
   const onSendHandler = React.useCallback((id: string) => {
     const node = rf.getNode(id);
     if (!node) return;
-    const mime = 'image/png';
-    if (node.type === 'generate4') {
+    const normalizeForCanvas = (value?: string): string | null => {
+      const trimmed = value?.trim();
+      if (!trimmed) return null;
+      if (/^data:/i.test(trimmed) || /^https?:\/\//i.test(trimmed)) return trimmed;
+      return `data:image/png;base64,${trimmed}`;
+    };
+
+    if (node.type === 'generate4' || node.type === 'generatePro4') {
       const imgs = ((node.data as any)?.images as string[] | undefined) || [];
-      if (!imgs.length) return;
-      imgs.forEach((img, idx) => {
-        if (!img) return;
-        const dataUrl = `data:${mime};base64,${img}`;
+      const normalizedImages = imgs.map(normalizeForCanvas).filter(Boolean) as string[];
+      if (!normalizedImages.length) {
+        window.dispatchEvent(new CustomEvent('toast', { detail: { message: '没有可发送的图片', type: 'warning' } }));
+        return;
+      }
+
+      const parallelGroupId = `flow_send_${id}_${Date.now()}`;
+      normalizedImages.forEach((dataUrl, idx) => {
         const fileName = `flow_${id}_${idx + 1}.png`;
         window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
           detail: {
@@ -2720,15 +2735,25 @@ function FlowInner() {
             smartPosition: undefined,
             sourceImageId: undefined,
             sourceImages: undefined,
+            preferHorizontal: true,
+            parallelGroupId,
+            parallelGroupIndex: idx,
+            parallelGroupTotal: normalizedImages.length,
           }
         }));
       });
+
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: `已发送 ${normalizedImages.length} 张图片到画板`, type: 'success' } }));
       return;
     }
-    // 默认单图
-    const img = (node.data as any)?.imageData as string | undefined;
-    if (!img) return;
-    const dataUrl = `data:${mime};base64,${img}`;
+
+    // 默认单图（generate / generatePro / generateRef）
+    const dataUrl = normalizeForCanvas((node.data as any)?.imageData as string | undefined);
+    if (!dataUrl) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '没有可发送的图片', type: 'warning' } }));
+      return;
+    }
+
     const fileName = `flow_${Date.now()}.png`;
     window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
       detail: {
@@ -2740,6 +2765,7 @@ function FlowInner() {
         sourceImages: undefined,
       }
     }));
+    window.dispatchEvent(new CustomEvent('toast', { detail: { message: '图片已发送到画板', type: 'success' } }));
   }, [rf]);
 
   // 连接状态回调

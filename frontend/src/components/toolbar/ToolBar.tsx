@@ -656,7 +656,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                       <AddNodeIcon className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={12}>添加节点</TooltipContent>
+                  <TooltipContent side="right" sideOffset={12}>添加节点（双击画布空白处触发）</TooltipContent>
                 </Tooltip>
               </div>
             </div>

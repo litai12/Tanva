@@ -3612,6 +3612,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   const resolvedUrl = remoteUrl ?? inlineDataUrl ?? '';
                   const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
 
+                  // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
+                  const originalWidth = computedMetadata.originalWidth || (raster as any).width || Math.round(boundsRect.width);
+                  const originalHeight = computedMetadata.originalHeight || (raster as any).height || Math.round(boundsRect.height);
+
                   return {
                     id: ensuredImageId,
                     imageData: {
@@ -3619,7 +3623,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       url: resolvedUrl,
                       src: resolvedSrc,
                       fileName: computedMetadata.fileName,
-                      pendingUpload: false
+                      pendingUpload: false,
+                      width: Math.round(originalWidth),
+                      height: Math.round(originalHeight),
                     },
                     bounds: {
                       x: boundsRect.x,

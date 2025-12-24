@@ -39,7 +39,7 @@ export interface ImageHistoryItem {
   thumbnail?: string; // 已弃用，不再存储，保留字段兼容性
   title: string;
   nodeId: string;
-  nodeType: 'generate' | 'generatePro' | 'generatePro4' | 'image' | '3d' | 'camera';
+  nodeType: 'generate' | 'generatePro' | 'generatePro4' | 'image' | 'imagePro' | '3d' | 'camera';
   projectId?: string | null;
   timestamp: number;
 }

@@ -185,7 +185,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
-  
+
+  // 图片真实像素尺寸（通过加载图片获取）
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+
   // 预览模态框状态
   const [showPreview, setShowPreview] = useState(false);
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
@@ -368,6 +371,23 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   useEffect(() => {
     setRealTimeBounds(bounds);
   }, [bounds]);
+
+  // 获取图片真实像素尺寸
+  useEffect(() => {
+    setNaturalSize(null);
+    const src = imageData.url || imageData.src || imageData.localDataUrl;
+    if (!src) return;
+
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (w > 0 && h > 0) {
+        setNaturalSize({ width: w, height: h });
+      }
+    };
+    img.src = src;
+  }, [imageData.url, imageData.src, imageData.localDataUrl]);
 
   // 使用实时坐标进行屏幕坐标转换
   const screenBounds = useMemo(() => {
@@ -1252,14 +1272,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            padding: `${4 * toolbarScale}px ${8 * toolbarScale}px`,
+            padding: `${4 * toolbarScale}px 0`,
             fontSize: 12 * toolbarScale,
             color: '#374151',
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-            backdropFilter: 'blur(8px)',
-            borderRadius: 6 * toolbarScale,
-            border: '1px solid rgba(229, 231, 235, 0.8)',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
             pointerEvents: 'none',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -1286,8 +1301,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
               flexShrink: 0,
             }}
           >
-            {imageData.width && imageData.height
-              ? `${imageData.width} × ${imageData.height}`
+            {naturalSize
+              ? `${naturalSize.width} × ${naturalSize.height}`
               : ''}
           </span>
         </div>
