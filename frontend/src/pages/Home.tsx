@@ -15,9 +15,12 @@ export default function Home() {
   const touchStartY = useRef(0);
   const lastScrollTime = useRef(0);
 
+  // 暂时只允许第一页，禁用后两页
+  const maxPage = 0;
+
   // 切换到指定页面
   const goToPage = useCallback((page: number) => {
-    if (isAnimating || page < 0 || page > 2) return;
+    if (isAnimating || page < 0 || page > maxPage) return;
     setIsAnimating(true);
     setCurrentPage(page);
     setTimeout(() => setIsAnimating(false), 600);
@@ -36,7 +39,7 @@ export default function Home() {
         e.preventDefault();
         lastScrollTime.current = now;
 
-        if (e.deltaY > 0 && currentPage < 2) {
+        if (e.deltaY > 0 && currentPage < maxPage) {
           goToPage(currentPage + 1);
         } else if (e.deltaY < 0 && currentPage > 0) {
           goToPage(currentPage - 1);
@@ -66,7 +69,7 @@ export default function Home() {
 
       const deltaY = touchStartY.current - e.changedTouches[0].clientY;
       if (Math.abs(deltaY) > 50) {
-        if (deltaY > 0 && currentPage < 2) {
+        if (deltaY > 0 && currentPage < maxPage) {
           goToPage(currentPage + 1);
         } else if (deltaY < 0 && currentPage > 0) {
           goToPage(currentPage - 1);
@@ -153,9 +156,9 @@ export default function Home() {
         </div>
       </header>
 
-      {/* 页面指示器 */}
+      {/* 页面指示器 - 暂时只显示第一个点 */}
       <div className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3">
-        {[0, 1, 2].map((i) => (
+        {[0].map((i) => (
           <button
             key={i}
             onClick={() => goToPage(i)}

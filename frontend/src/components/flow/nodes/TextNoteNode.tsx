@@ -142,13 +142,13 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
       />
       <div
         ref={editorRef}
-        className="tanva-textnote-editor"
+        className="tanva-textnote-editor nodrag nowheel"
         contentEditable={isEditing}
         suppressContentEditableWarning
         data-placeholder="输入文本"
         onInput={onEditorInput}
         onWheelCapture={isEditing ? stopPropagation : undefined}
-        onPointerDownCapture={isEditing ? stopPropagation : undefined}
+        onMouseDown={stopPropagation}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         onBlur={() => exitEditing(true)}
