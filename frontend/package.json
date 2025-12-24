@@ -30,6 +30,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.539.0",
+    "ogl": "^1.0.11",
     "onnxruntime-web": "^1.21.0",
     "paper": "^0.12.18",
     "react": "^19.1.1",

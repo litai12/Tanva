@@ -1,0 +1,201 @@
+.metallic-button-outer {
+  display: inline-block;
+  border-radius: 16px;
+  filter:
+    drop-shadow(0 4px 15px rgba(0, 0, 0, 0.2))
+    drop-shadow(0 2px 5px rgba(0, 0, 0, 0.1));
+}
+
+.metallic-button {
+  --metallic-radius: 16px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  height: 56px;
+  padding: 0 40px;
+  border-radius: var(--metallic-radius);
+  border: none;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  -webkit-clip-path: inset(0 round var(--metallic-radius));
+  clip-path: inset(0 round var(--metallic-radius));
+  transition: box-shadow 0.3s ease;
+}
+
+.metallic-button:active {
+  transform: translateY(0);
+}
+
+/* 银色金属背景 */
+.metallic-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    #e8e8e8 0%,
+    #f5f5f5 20%,
+    #d0d0d0 40%,
+    #e0e0e0 60%,
+    #c8c8c8 80%,
+    #e5e5e5 100%
+  );
+  z-index: 0;
+}
+
+/* 金属光泽层 */
+.metallic-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 0.2) 30%,
+    rgba(0, 0, 0, 0.05) 50%,
+    rgba(0, 0, 0, 0.1) 100%
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* 反射高光 */
+.metallic-sheen {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  z-index: 2;
+  animation: none;
+  pointer-events: none;
+}
+
+.metallic-button-outer:hover .metallic-sheen {
+  animation: sheen-sweep 1.4s ease-in-out 1;
+}
+
+@keyframes sheen-sweep {
+  0%, 100% {
+    left: -100%;
+  }
+  50% {
+    left: 150%;
+  }
+}
+
+/* 边框高光 */
+.metallic-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(200, 200, 200, 0.5) 50%,
+    rgba(255, 255, 255, 0.7) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* 金属凹凸文字 */
+.metallic-text {
+  position: relative;
+  z-index: 4;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #5a5a5a;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 -1px 0 rgba(0, 0, 0, 0.08);
+  background: linear-gradient(
+    180deg,
+    #7a7a7a 0%,
+    #5a5a5a 50%,
+    #4a4a4a 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.4));
+}
+
+/* 内部阴影（外部阴影由 outer 容器负责，避免溢出裁剪问题） */
+.metallic-button {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* 噪点纹理 */
+.metallic-noise {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  z-index: 2;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+  overflow: hidden;
+}
+
+/* SVG 滤镜隐藏 */
+.metallic-svg-filters {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* 视频包装容器 - 用于裁剪 */
+.metallic-video-wrapper {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--metallic-radius);
+  overflow: hidden;
+  contain: paint;
+  isolation: isolate;
+  -webkit-clip-path: inset(0 round var(--metallic-radius));
+  clip-path: inset(0 round var(--metallic-radius));
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+}
+
+/* 摄像头视频反射 */
+.metallic-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  filter:
+    saturate(0)
+    contrast(1.1)
+    brightness(1.15)
+    blur(2px);
+  pointer-events: none;
+}
