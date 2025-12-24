@@ -20,7 +20,11 @@ interface FlowState {
   backgroundSize: number;          // 点大小/线宽
   backgroundColor: string;         // 背景颜色
   backgroundOpacity: number;       // 背景透明度
-  
+
+  // 性能/渲染策略
+  onlyRenderVisibleElements: boolean; // ReactFlow: 视窗外元素是否卸载（省性能但会有“回到视窗重新加载感”）
+  showFpsOverlay: boolean; // 调试：显示拖拽帧率
+
   // Flow视口状态 (独立于Canvas)
   flowZoom: number;
   flowPanX: number;
@@ -43,6 +47,8 @@ interface FlowState {
   resetFlowView: () => void;
   setIsConnecting: (connecting: boolean) => void;
   setSnapToGrid: (snap: boolean) => void;
+  setOnlyRenderVisibleElements: (enabled: boolean) => void;
+  setShowFpsOverlay: (enabled: boolean) => void;
 }
 
 export const useFlowStore = create<FlowState>()(
@@ -56,6 +62,10 @@ export const useFlowStore = create<FlowState>()(
         backgroundSize: 1,
         backgroundColor: '#94a3b8', // slate-400
         backgroundOpacity: 0.4,
+
+        // 默认关闭：避免节点/图片离开视窗后再进入时的卸载/重建“加载感”
+        onlyRenderVisibleElements: false,
+        showFpsOverlay: false,
         
         // Flow视口初始状态
         flowZoom: 1.0,
@@ -79,6 +89,9 @@ export const useFlowStore = create<FlowState>()(
         setBackgroundOpacity: (opacity) => set({ 
           backgroundOpacity: Math.max(0, Math.min(1, opacity)) 
         }),
+
+        setOnlyRenderVisibleElements: (enabled) => set({ onlyRenderVisibleElements: enabled }),
+        setShowFpsOverlay: (enabled) => set({ showFpsOverlay: enabled }),
         
         // 视口方法
         setFlowZoom: (zoom) => set({ 
@@ -114,6 +127,8 @@ export const useFlowStore = create<FlowState>()(
           backgroundColor: state.backgroundColor,
           backgroundOpacity: state.backgroundOpacity,
           snapToGrid: state.snapToGrid,
+          onlyRenderVisibleElements: state.onlyRenderVisibleElements,
+          showFpsOverlay: state.showFpsOverlay,
         }) as Partial<FlowState>,
       }
     )

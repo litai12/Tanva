@@ -26,6 +26,20 @@ const isInlineDataUrl = (value?: string | null): value is string => {
     return value.startsWith('data:image') || value.startsWith('blob:');
 };
 
+const isRemoteUrl = (value?: string | null): value is string => {
+    if (typeof value !== 'string') return false;
+    return /^https?:\/\//i.test(value.trim());
+};
+
+const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string } => {
+    const remoteUrl = isRemoteUrl(asset.url) ? asset.url : isRemoteUrl(asset.src) ? asset.src : undefined;
+    if (remoteUrl) {
+        return { source: remoteUrl, remoteUrl };
+    }
+    const inline = isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : isInlineDataUrl(asset.src) ? asset.src : undefined;
+    return { source: inline || asset.url, remoteUrl: undefined };
+};
+
 // 图片加载超时时间，防止占位框长时间悬挂
 const IMAGE_LOAD_TIMEOUT = 20000; // 20s
 
@@ -818,7 +832,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     fileName,
                 });
                 if (uploadResult.success && uploadResult.asset) {
-                    asset = { ...uploadResult.asset, src: uploadResult.asset.url, localDataUrl: imagePayload };
+                    // 上传成功后优先使用远程URL，避免在运行时长期保留大体积 base64（会拖慢渲染与序列化）
+                    asset = { ...uploadResult.asset, src: uploadResult.asset.url };
                     fileName = asset.fileName || fileName;
                 } else {
                     const errMsg = uploadResult.error || '图片上传失败';
@@ -854,7 +869,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             return;
         }
 
-        const imageData = isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : asset.url;
+        const { source: rasterSource, remoteUrl: resolvedRemoteUrl } = pickRasterSource(asset);
         try {
             ensureDrawingLayer();
 
@@ -1028,6 +1043,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const raster = new paper.Raster();
             (raster as any).crossOrigin = 'anonymous';
             raster.position = targetPosition;
+            if (resolvedRemoteUrl) {
+                raster.data = { ...(raster.data || {}), remoteUrl: resolvedRemoteUrl };
+            }
 
             // 超时兜底，防止网络问题导致占位框一直存在
             let loadTimeoutId: number | null = window.setTimeout(() => {
@@ -1413,7 +1431,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             };
 
             // 触发加载
-            raster.source = imageData;
+            raster.source = rasterSource;
         } catch (error) {
             logger.error('快速上传图片时出错:', error);
         }

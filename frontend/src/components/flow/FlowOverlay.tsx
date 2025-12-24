@@ -1056,6 +1056,65 @@ function FlowInner() {
   const setBackgroundSize = useFlowStore(s => s.setBackgroundSize);
   const setBackgroundColor = useFlowStore(s => s.setBackgroundColor);
   const setBackgroundOpacity = useFlowStore(s => s.setBackgroundOpacity);
+  const onlyRenderVisibleElements = useFlowStore(s => s.onlyRenderVisibleElements);
+  const setOnlyRenderVisibleElements = useFlowStore(s => s.setOnlyRenderVisibleElements);
+  const showFpsOverlay = useFlowStore(s => s.showFpsOverlay);
+  const setShowFpsOverlay = useFlowStore(s => s.setShowFpsOverlay);
+
+  const [dragFps, setDragFps] = React.useState<number>(0);
+  const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
+  const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
+
+  React.useEffect(() => {
+    if (!showFpsOverlay) return;
+    let rafId = 0;
+    let last = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
+    let lastReport = last;
+    let frames = 0;
+    let acc = 0;
+    let longFrames = 0;
+    let maxDt = 0;
+
+    const tick = (nowArg: number) => {
+      const now = nowArg || (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
+      const dt = Math.max(0, now - last);
+      last = now;
+
+      if (nodeDraggingRef.current) {
+        frames += 1;
+        acc += dt;
+        if (dt >= 20) longFrames += 1; // 粗略把 >20ms 视为卡顿帧
+        if (dt > maxDt) maxDt = dt;
+      } else {
+        frames = 0;
+        acc = 0;
+        longFrames = 0;
+        maxDt = 0;
+      }
+
+      if (now - lastReport >= 250) {
+        if (nodeDraggingRef.current && acc > 0) {
+          setDragFps((1000 * frames) / acc);
+          setDragLongFrames(longFrames);
+          setDragMaxFrameMs(maxDt);
+        } else {
+          setDragFps(0);
+          setDragLongFrames(0);
+          setDragMaxFrameMs(0);
+        }
+        frames = 0;
+        acc = 0;
+        longFrames = 0;
+        maxDt = 0;
+        lastReport = now;
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [showFpsOverlay]);
 
   // Flow独立的背景状态管理，不再同步到Canvas
   const [bgGapInput, setBgGapInput] = React.useState<string>(String(backgroundGap));
@@ -2968,6 +3027,12 @@ function FlowInner() {
       <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
         <input type="checkbox" checked={backgroundEnabled} onChange={(e) => setBackgroundEnabled(e.target.checked)} /> Flow背景
       </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }} title="开启后视窗外节点会卸载以节省性能，但拖回视窗时会有重新渲染/加载感">
+        <input type="checkbox" checked={onlyRenderVisibleElements} onChange={(e) => setOnlyRenderVisibleElements(e.target.checked)} /> 仅渲染可见(性能)
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }} title="显示节点拖拽时的估算帧率（每 250ms 刷新一次）">
+        <input type="checkbox" checked={showFpsOverlay} onChange={(e) => setShowFpsOverlay(e.target.checked)} /> FPS
+      </label>
       {backgroundEnabled && (
         <>
           <select 
@@ -3336,7 +3401,7 @@ function FlowInner() {
         selectionKeyCode={isPointerMode ? null : null}
         deleteKeyCode={['Backspace', 'Delete']}
         proOptions={{ hideAttribution: true }}
-        onlyRenderVisibleElements={true}
+        onlyRenderVisibleElements={onlyRenderVisibleElements}
       >
         {backgroundEnabled && (
           <Background
@@ -3358,6 +3423,28 @@ function FlowInner() {
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 - 专注模式下隐藏 */}
         {!focusMode && <MiniMapImageOverlay />}
       </ReactFlow>
+
+      {showFpsOverlay && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 16,
+            bottom: 16,
+            zIndex: 20,
+            pointerEvents: 'none',
+            fontSize: 12,
+            padding: '6px 8px',
+            borderRadius: 8,
+            border: '1px solid rgba(229,231,235,0.9)',
+            background: 'rgba(255,255,255,0.85)',
+            color: '#111827',
+            fontFamily:
+              'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+          }}
+        >
+          Drag FPS: {dragFps ? dragFps.toFixed(1) : '--'} | max: {dragMaxFrameMs ? dragMaxFrameMs.toFixed(1) : '--'}ms | long: {dragLongFrames}
+        </div>
+      )}
 
       {edgeLabelEditor.visible && (
         <div

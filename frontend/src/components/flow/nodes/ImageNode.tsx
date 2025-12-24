@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React from "react";
-import { Handle, Position, useReactFlow } from "reactflow";
+import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
@@ -114,6 +114,7 @@ const MAX_IMAGE_NAME_LENGTH = 28;
 
 function ImageNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
+  const edges = useStore((state: ReactFlowState) => state.edges);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const fullSrc = buildImageSrc(data.imageData);
   const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
@@ -165,21 +166,11 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   // 检查输入连线状态
   React.useEffect(() => {
-    const checkConnections = () => {
-      const edges = rf.getEdges();
-      const hasConnection = edges.some(
-        (edge) => edge.target === id && edge.targetHandle === "img"
-      );
-      setHasInputConnection(hasConnection);
-    };
-
-    // 初始检查
-    checkConnections();
-
-    // 设置定期检查（简单方案）
-    const interval = setInterval(checkConnections, 100);
-    return () => clearInterval(interval);
-  }, [rf, id]);
+    const hasConnection = edges.some(
+      (edge) => edge.target === id && edge.targetHandle === "img"
+    );
+    setHasInputConnection(hasConnection);
+  }, [edges, id]);
 
   // 使用全局图片历史记录
   const history = useImageHistoryStore((state) => state.history);
@@ -441,12 +432,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
       <div
         onDrop={onDrop}
         onDragOver={onDragOver}
-        onDoubleClick={() => fullSrc && setPreview(true)}
-        onClick={() => {
-          if (!displaySrc) {
-            inputRef.current?.click();
-          }
+        onDoubleClick={() => {
+          inputRef.current?.click();
         }}
+        onClick={() => {}}
         style={{
           flex: 1,
           minHeight: 120,
@@ -457,9 +446,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
           justifyContent: "center",
           overflow: "hidden",
           border: "1px solid #e5e7eb",
-          cursor: displaySrc ? "default" : "pointer",
+          cursor: "pointer",
         }}
-        title='拖拽图片到此或点击上传'
+        title='拖拽图片到此或双击上传'
       >
         {displaySrc ? (
           <img
@@ -474,7 +463,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
           />
         ) : (
           <span style={{ fontSize: 12, color: "#9ca3af" }}>
-            拖拽图片到此或点击上传
+            拖拽图片到此或双击上传
           </span>
         )}
       </div>

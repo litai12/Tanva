@@ -352,38 +352,40 @@ class PaperSaveService {
     });
 
     try {
-      (paper.project.layers || []).forEach((layer: any) => {
-        const children = layer?.children || [];
-        children.forEach((child: any) => {
-          if (!child) return;
-          const isRaster = child.className === 'Raster' || child instanceof paper.Raster;
-          if (!isRaster) return;
+      const rasters = (paper.project as any).getItems?.({
+        match: (item: any) => item && (item.className === 'Raster' || item instanceof paper.Raster),
+      }) as paper.Raster[] | undefined;
 
-          const imageId = child?.data?.imageId || child?.data?.id || child?.id;
-          if (!imageId) return;
+      (rasters || []).forEach((raster: any) => {
+        if (!raster) return;
+        const imageId =
+          raster?.data?.imageId ||
+          raster?.parent?.data?.imageId ||
+          raster?.data?.id ||
+          raster?.id;
+        if (!imageId) return;
 
-          const asset = assetMap.get(imageId);
-          if (!asset) return;
+        const asset = assetMap.get(String(imageId));
+        if (!asset) return;
 
-          const remoteUrl = (asset.url && this.isRemoteUrl(asset.url))
-            ? asset.url
-            : asset.src && this.isRemoteUrl(asset.src)
-              ? asset.src
-              : undefined;
+        const remoteUrl = (asset.url && this.isRemoteUrl(asset.url))
+          ? asset.url
+          : asset.src && this.isRemoteUrl(asset.src)
+            ? asset.src
+            : undefined;
 
-          if (remoteUrl) {
-            if (typeof child.source === 'string' && this.isInlineImageSource(child.source)) {
-              child.source = remoteUrl;
-            }
-            if (!child.data) child.data = {};
-            child.data.remoteUrl = remoteUrl;
+        if (remoteUrl) {
+          if (typeof raster.source === 'string' && this.isInlineImageSource(raster.source)) {
+            raster.source = remoteUrl;
           }
+          if (!raster.data) raster.data = {};
+          raster.data.remoteUrl = remoteUrl;
+        }
 
-          if (child.data) {
-            delete child.data.localDataUrl;
-            delete child.data.inlineDataUrl;
-          }
-        });
+        if (raster.data) {
+          delete raster.data.localDataUrl;
+          delete raster.data.inlineDataUrl;
+        }
       });
     } catch (error) {
       console.warn('准备Raster资源时出错:', error);

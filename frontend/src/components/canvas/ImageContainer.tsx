@@ -186,6 +186,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
 
+  // 是否正在移动（用于隐藏文字信息避免脱节）
+  const [isMoving, setIsMoving] = useState(false);
+  const movingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 图片真实像素尺寸（通过加载图片获取）
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
 
@@ -346,6 +350,14 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       if (hasChanged) {
         setRealTimeBounds(paperBounds);
+        // 设置移动状态，隐藏文字信息
+        setIsMoving(true);
+        if (movingTimeoutRef.current) {
+          clearTimeout(movingTimeoutRef.current);
+        }
+        movingTimeoutRef.current = setTimeout(() => {
+          setIsMoving(false);
+        }, 150);
       }
 
       // 继续下一帧
@@ -1260,21 +1272,17 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
-      {/* 图片信息条 - 选中时显示在图片上方，左上角显示名称，右上角显示分辨率 */}
-      {isSelected && !showExpandSelector && (
+      {/* 图片信息条 - 选中时显示在图片内部顶部，左上角显示名称，右上角显示分辨率 */}
+      {isSelected && !showExpandSelector && !isMoving && (
         <div
           style={{
             position: 'absolute',
-            bottom: '100%',
-            left: 0,
-            right: 0,
-            marginBottom: 6 * toolbarScale,
+            top: 4 * toolbarScale,
+            left: 4 * toolbarScale,
+            right: 4 * toolbarScale,
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            padding: `${4 * toolbarScale}px 0`,
-            fontSize: 12 * toolbarScale,
-            color: '#374151',
             pointerEvents: 'none',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -1285,6 +1293,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           <span
             style={{
               fontWeight: 500,
+              fontSize: 10 * toolbarScale,
+              color: '#fff',
+              padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               maxWidth: '60%',
@@ -1294,17 +1305,19 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             {imageData.fileName || `图片 ${imageData.id}`}
           </span>
           {/* 右侧：分辨率 */}
-          <span
-            style={{
-              color: '#6b7280',
-              marginLeft: 8 * toolbarScale,
-              flexShrink: 0,
-            }}
-          >
-            {naturalSize
-              ? `${naturalSize.width} × ${naturalSize.height}`
-              : ''}
-          </span>
+          {naturalSize && (
+            <span
+              style={{
+                fontSize: 10 * toolbarScale,
+                color: '#fff',
+                padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
+                marginLeft: 4 * toolbarScale,
+                flexShrink: 0,
+              }}
+            >
+              {`${naturalSize.width} × ${naturalSize.height}`}
+            </span>
+          )}
         </div>
       )}
 

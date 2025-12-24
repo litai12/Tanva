@@ -362,11 +362,8 @@ function ImageProNodeInner({ id, data, selected }: Props) {
           onDrop={onDrop}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
-          onDoubleClick={() => fullSrc && setPreview(true)}
-          onClick={() => {
-            if (!displaySrc) {
-              inputRef.current?.click();
-            }
+          onDoubleClick={() => {
+            inputRef.current?.click();
           }}
           style={{
             position: 'relative',
@@ -375,10 +372,10 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             background: isDragOver ? '#e0f2fe' : displaySrc ? 'transparent' : '#f8f9fa',
             borderRadius: 12,
             overflow: 'hidden',
-            cursor: displaySrc ? 'pointer' : 'pointer',
+            cursor: 'pointer',
             border: isDragOver ? '2px dashed #3b82f6' : 'none',
           }}
-          title={displaySrc ? '双击预览' : '拖拽图片到此或点击上传'}
+          title='拖拽图片到此或双击上传'
         >
           <div
             style={{
@@ -400,7 +397,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
               />
             ) : (
               <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                {isDragOver ? '释放以上传' : '拖拽图片到此或点击上传'}
+                {isDragOver ? '释放以上传' : '拖拽图片到此或双击上传'}
               </span>
             )}
           </div>
