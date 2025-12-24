@@ -171,7 +171,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   } = useAIChatStore();
 
   // 获取画布状态 - 用于监听画布移动变化
-  const { zoom, panX, panY } = useCanvasStore();
+  const { zoom, panX, panY, isDragging: isCanvasDragging } = useCanvasStore();
 
   // 工具栏缩放逻辑：>=100% 保持标准大小，<100% 随画布缩放
   const currentZoom = zoom || 1;
@@ -186,9 +186,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 实时Paper.js坐标状态
   const [realTimeBounds, setRealTimeBounds] = useState(bounds);
 
-  // 是否正在移动（用于隐藏文字信息避免脱节）
-  const [isMoving, setIsMoving] = useState(false);
-  const movingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 是否正在拖拽（图片拖拽/选择拖拽会通过 body class 标记；画布中键平移通过 store 标记）
+  const [isBodyDragging, setIsBodyDragging] = useState(false);
 
   // 图片真实像素尺寸（通过加载图片获取）
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
@@ -226,6 +225,38 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         timestamp: item.timestamp,
       }));
   }, [scopedHistory]);
+
+  // 监听 body class：图片拖拽 / 选择框拖拽时隐藏文字与工具栏，避免“跟随不紧”观感
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.body) return;
+
+    const compute = () => {
+      const classList = document.body.classList;
+      return (
+        classList.contains("tanva-canvas-dragging") ||
+        classList.contains("tanva-selection-dragging")
+      );
+    };
+
+    const update = () => setIsBodyDragging(compute());
+    update();
+
+    const observer = new MutationObserver(update);
+    try {
+      observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    } catch {
+      // ignore
+    }
+
+    return () => {
+      try { observer.disconnect(); } catch {}
+    };
+  }, []);
+
+  const shouldHideUi = isCanvasDragging || isBodyDragging;
 
   // 将Paper.js世界坐标转换为屏幕坐标（改进版）
   const convertToScreenBounds = useCallback(
@@ -326,7 +357,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     let animationFrame: number | null = null;
     let isRunning = true;
     let lastUpdateTime = 0;
-    const throttleMs = 16; // 约60fps
+    const throttleMs = 8; // 尽量贴近高刷屏的跟随体验
 
     const updateRealTimeBounds = () => {
       if (!isRunning) return;
@@ -341,23 +372,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       const paperBounds = getRealTimePaperBounds();
       const currentBounds = realTimeBoundsRef.current;
 
+      // 以“视图像素”为基准做容差：zoom 越大，同样的世界坐标差在屏幕上越明显
+      // 这里 world 单位近似是 device px，因此容差要除以 zoom，避免放大后出现明显“跟不上”
+      const zoomFactor = Math.max(0.0001, Number((paper.view as any)?.zoom ?? 1) || 1);
+      const toleranceWorld = 0.25 / zoomFactor;
+
       // 检查坐标是否发生变化 - 使用 ref 获取最新值
       const hasChanged =
-        Math.abs(paperBounds.x - currentBounds.x) > 0.5 ||
-        Math.abs(paperBounds.y - currentBounds.y) > 0.5 ||
-        Math.abs(paperBounds.width - currentBounds.width) > 0.5 ||
-        Math.abs(paperBounds.height - currentBounds.height) > 0.5;
+        Math.abs(paperBounds.x - currentBounds.x) > toleranceWorld ||
+        Math.abs(paperBounds.y - currentBounds.y) > toleranceWorld ||
+        Math.abs(paperBounds.width - currentBounds.width) > toleranceWorld ||
+        Math.abs(paperBounds.height - currentBounds.height) > toleranceWorld;
 
       if (hasChanged) {
         setRealTimeBounds(paperBounds);
-        // 设置移动状态，隐藏文字信息
-        setIsMoving(true);
-        if (movingTimeoutRef.current) {
-          clearTimeout(movingTimeoutRef.current);
-        }
-        movingTimeoutRef.current = setTimeout(() => {
-          setIsMoving(false);
-        }, 150);
       }
 
       // 继续下一帧
@@ -1251,10 +1279,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       ref={containerRef}
       style={{
         position: "absolute",
-        left: screenBounds.x,
-        top: screenBounds.y,
+        left: 0,
+        top: 0,
         width: screenBounds.width,
         height: screenBounds.height,
+        transform: `translate3d(${screenBounds.x}px, ${screenBounds.y}px, 0)`,
+        willChange: "transform",
         zIndex: 10 + layerIndex * 2 + (isSelected ? 1 : 0), // 大幅降低z-index，确保在对话框下方
         cursor: "default",
         userSelect: "none",
@@ -1273,7 +1303,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       />
 
       {/* 图片信息条 - 选中时显示在图片内部顶部，左上角显示名称，右上角显示分辨率 */}
-      {isSelected && !showExpandSelector && !isMoving && (
+      {isSelected && !showExpandSelector && !shouldHideUi && (
         <div
           style={{
             position: 'absolute',
@@ -1333,7 +1363,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       )}
 
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部，截图时隐藏 */}
-      {isSelected && showIndividualTools && !showExpandSelector && (
+      {isSelected && showIndividualTools && !showExpandSelector && !shouldHideUi && (
         <div
           className="absolute"
           data-image-toolbar="true"

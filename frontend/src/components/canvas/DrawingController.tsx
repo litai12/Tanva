@@ -3936,6 +3936,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return () => window.removeEventListener('paper-project-changed', rebuildFromPaper as EventListener);
   }, [imageTool, simpleTextTool, model3DTool, selectionTool]);
 
+  // 历史快速回放（仅图片 bounds）：避免 undo/redo 时全量重建导致全图闪烁
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as any;
+      const images = detail?.images as ImageAssetSnapshot[] | undefined;
+      if (!Array.isArray(images) || images.length === 0) return;
+      try { imageTool.applyBoundsFromSnapshot?.(images); } catch {}
+    };
+    window.addEventListener('history:apply-image-snapshot', handler as EventListener);
+    return () => window.removeEventListener('history:apply-image-snapshot', handler as EventListener);
+  }, [imageTool]);
+
   // 监听图层面板的选择事件
   useEffect(() => {
     const handleLayerItemSelected = (event: CustomEvent) => {

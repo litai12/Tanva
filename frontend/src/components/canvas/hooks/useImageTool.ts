@@ -535,6 +535,87 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     return item.className === 'Raster' || item instanceof paper.Raster;
   }, []);
 
+  const applyBoundsToPaperImage = useCallback((imageId: string, bounds: { x: number; y: number; width: number; height: number }) => {
+    if (!paper?.project) return false;
+
+    const imageGroup = paper.project.layers.flatMap(layer =>
+      layer.children.filter(child =>
+        child.data?.type === 'image' && child.data?.imageId === imageId
+      )
+    )[0];
+
+    const rect = new paper.Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
+
+    if (isGroup(imageGroup)) {
+      imageGroup.children.forEach(child => {
+        if (isRasterItem(child)) {
+          child.bounds = rect.clone();
+          return;
+        }
+        if (child.data?.isSelectionBorder) {
+          child.bounds = rect.clone();
+          return;
+        }
+        if (child.data?.type === 'image-selection-area') {
+          child.bounds = rect.clone();
+          return;
+        }
+        if (child.data?.isResizeHandle) {
+          const direction = child.data.direction;
+          let x = bounds.x;
+          let y = bounds.y;
+          if (direction === 'ne' || direction === 'se') x = bounds.x + bounds.width;
+          if (direction === 'sw' || direction === 'se') y = bounds.y + bounds.height;
+          child.position = new paper.Point(x, y);
+          return;
+        }
+      });
+      return true;
+    }
+
+    if (isRaster(imageGroup)) {
+      imageGroup.bounds = rect;
+      return true;
+    }
+
+    return false;
+  }, [isRasterItem]);
+
+  // ========== 历史快速回放：仅应用 bounds（避免全量重建导致闪烁） ==========
+  const applyBoundsFromSnapshot = useCallback((snapshots: ImageAssetSnapshot[]) => {
+    if (!Array.isArray(snapshots) || snapshots.length === 0) return;
+
+    const boundsById = new Map<string, { x: number; y: number; width: number; height: number }>();
+    snapshots.forEach((snap) => {
+      const id = snap?.id;
+      const b = snap?.bounds;
+      if (!id || !b) return;
+      boundsById.set(id, { x: b.x, y: b.y, width: b.width, height: b.height });
+    });
+    if (boundsById.size === 0) return;
+
+    const changedIds: string[] = [];
+    boundsById.forEach((b, id) => {
+      const didUpdate = applyBoundsToPaperImage(id, b);
+      if (didUpdate) changedIds.push(id);
+    });
+
+    if (changedIds.length === 0) return;
+
+    setImageInstances((prev) =>
+      prev.map((img) => {
+        const b = boundsById.get(img.id);
+        if (!b) return img;
+        const cur = img.bounds;
+        if (cur.x === b.x && cur.y === b.y && cur.width === b.width && cur.height === b.height) return img;
+        return { ...img, bounds: { ...cur, ...b } };
+      })
+    );
+
+    try { syncImageGroupBlocksForImageIds(changedIds); } catch {}
+    try { paper.view.update(); } catch {}
+  }, [applyBoundsToPaperImage]);
+
   // ========== 图片移动 ==========
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
     setImageInstances(prev => prev.map(img => {
@@ -1050,5 +1131,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     hydrateFromSnapshot,
     createImageFromSnapshot,
     setImagesVisibility,
+    applyBoundsFromSnapshot,
   };
 };
