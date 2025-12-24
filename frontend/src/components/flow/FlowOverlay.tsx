@@ -38,6 +38,8 @@ import CameraNode from './nodes/CameraNode';
 import PromptOptimizeNode from './nodes/PromptOptimizeNode';
 import AnalysisNode from './nodes/AnalyzeNode';
 import Sora2VideoNode from './nodes/Sora2VideoNode';
+import Wan26Node from './nodes/Wan26Node';
+import Wan2R2VNode from './nodes/Wan2R2VNode';
 import TextNoteNode from './nodes/TextNoteNode';
 import StoryboardSplitNode from './nodes/StoryboardSplitNode';
 import GenerateProNode from './nodes/GenerateProNode';
@@ -52,7 +54,7 @@ import type { Sora2VideoQuality } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
-import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI } from '@/services/aiBackendAPI';
+import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI, generateWan26ViaAPI } from '@/services/aiBackendAPI';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -99,6 +101,8 @@ const nodeTypes = {
   camera: CameraNode,
   analysis: AnalysisNode,
   sora2Video: Sora2VideoNode,
+  wan26: Wan26Node,
+  wan2R2V: Wan2R2VNode,
   storyboardSplit: StoryboardSplitNode,
 };
 
@@ -245,6 +249,8 @@ const NODE_PALETTE_ITEMS = [
   { key: 'generate4', zh: '生成多张图片节点', en: 'Multi Generate' },
   { key: 'three', zh: '三维节点', en: '3D Node' },
   { key: 'sora2Video', zh: '视频生成节点', en: 'Sora2 Video' },
+  { key: 'wan26', zh: 'Wan2.6生成视频', en: 'Wan2.6 Video' },
+  { key: 'wan2R2V', zh: 'Wan2.6 参考视频', en: 'Wan2.6 R2V' },
   { key: 'camera', zh: '截图节点', en: 'Shot Node' },
   { key: 'storyboardSplit', zh: '分镜拆分节点', en: 'Storyboard Split' },
 ];
@@ -1776,7 +1782,7 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'imagePro' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'storyboardSplit', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'imagePro' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'wan26' | 'wan2R2V' | 'storyboardSplit', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
@@ -1795,6 +1801,8 @@ function FlowInner() {
       camera: { w: 260, h: 220 },
       analysis: { w: 260, h: 280 },
       sora2Video: { w: 280, h: 260 },
+      wan26: { w: 300, h: 320 },
+      wan2R2V: { w: 300, h: 360 },
       storyboardSplit: { w: 320, h: 400 },
     }[type];
     const id = `${type}_${Date.now()}`;
@@ -1813,6 +1821,8 @@ function FlowInner() {
       : type === 'generateRef' ? { status: 'idle' as const, referencePrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'analysis' ? { status: 'idle' as const, prompt: '', analysisPrompt: undefined, boxW: size.w, boxH: size.h }
       : type === 'sora2Video' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, videoQuality: DEFAULT_SORA2_VIDEO_QUALITY, videoVersion: 0, history: [], clipDuration: undefined, aspectRatio: undefined, boxW: size.w, boxH: size.h }
+      : type === 'wan26' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, size: undefined, resolution: '720P', duration: 5, shotType: 'single', audioUrl: undefined, videoVersion: 0, history: [], boxW: size.w, boxH: size.h }
+      : type === 'wan2R2V' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, size: '16:9', duration: 5, shotType: 'single', videoVersion: 0, history: [], boxW: size.w, boxH: size.h }
       : type === 'storyboardSplit' ? { status: 'idle' as const, inputText: '', segments: [], outputCount: 9, boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
@@ -1836,7 +1846,7 @@ function FlowInner() {
 
   // 允许 TextPrompt -> Generate(text); Image/Generate(img) -> Generate(img)
   const isValidConnection = React.useCallback((connection: Connection) => {
-    const { source, target, targetHandle } = connection;
+    const { source, target, targetHandle, sourceHandle } = connection;
     if (!source || !target || !targetHandle) return false;
     if (source === target) return false;
 
@@ -1862,6 +1872,27 @@ function FlowInner() {
       }
       if (targetHandle === 'text') {
         return textSourceTypes.includes(sourceNode.type || '');
+      }
+      return false;
+    }
+
+    if (targetNode.type === 'wan26') {
+      if (targetHandle === 'text') {
+        return textSourceTypes.includes(sourceNode.type || '');
+      }
+      if (targetHandle === 'image') {
+        return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      }
+      return false;
+    }
+
+    if (targetNode.type === 'wan2R2V') {
+      if (targetHandle === 'text') {
+        return textSourceTypes.includes(sourceNode.type || '');
+      }
+      if (targetHandle === 'video-1' || targetHandle === 'video-2' || targetHandle === 'video-3') {
+        if (sourceHandle !== 'video') return false;
+        return ['sora2Video','wan2R2V','wan26'].includes(sourceNode.type || '');
       }
       return false;
     }
@@ -1933,14 +1964,17 @@ function FlowInner() {
       if (isTextHandle(params.targetHandle)) return true;
     }
     if (targetNode?.type === 'sora2Video') {
-      // image 句柄只接受图像类型节点
-      if (params.targetHandle === 'image') {
-        return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode?.type || '');
-      }
-      // text 句柄只接受文本类型节点
-      if (params.targetHandle === 'text') {
-        return textSourceTypes.includes(sourceNode?.type || '');
-      }
+      // 类型校验由 isValidConnection 负责；这里仅做容量/替换策略控制
+      if (params.targetHandle === 'image') return true;
+      if (params.targetHandle === 'text') return true;
+    }
+    if (targetNode?.type === 'wan26') {
+      if (params.targetHandle === 'text') return true;  // 新线会替换旧线
+      if (params.targetHandle === 'image') return true; // 新线会替换旧线
+    }
+    if (targetNode?.type === 'wan2R2V') {
+      if (params.targetHandle === 'text') return true; // 新线会替换旧线
+      if (params.targetHandle.startsWith('video-')) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
     }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
@@ -1969,7 +2003,7 @@ function FlowInner() {
 
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
       // 注意：generatePro 和 generatePro4 允许多个 text 输入，不移除旧连接
-      const singleTextInputTypes = ['generate', 'generate4', 'generateRef', 'promptOptimize', 'textNote', 'sora2Video', 'storyboardSplit'];
+      const singleTextInputTypes = ['generate', 'generate4', 'generateRef', 'promptOptimize', 'textNote', 'sora2Video', 'wan26', 'wan2R2V', 'storyboardSplit'];
       if (singleTextInputTypes.includes(tgt?.type || '') && isTextHandle(params.targetHandle)) {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
@@ -1991,6 +2025,14 @@ function FlowInner() {
             return true;
           });
         }
+      }
+      // wan26 只允许单个 image 输入
+      if ((tgt?.type === 'wan26') && params.targetHandle === 'image') {
+        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'image'));
+      }
+      // wan2R2V: 每个 video-* 句柄只保留 1 条输入线
+      if ((tgt?.type === 'wan2R2V') && typeof params.targetHandle === 'string' && params.targetHandle.startsWith('video-')) {
+        next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
       if (tgt?.type === 'generateRef') {
         const image1Handles = ['image1','refer'];
@@ -2233,6 +2275,80 @@ function FlowInner() {
       const resolved = resolveTextFromSourceNode(promptNode, textEdge.sourceHandle);
       return { text: resolved?.trim() || '', hasEdge: true };
     };
+
+    // Wan2.6 节点处理逻辑
+    if (node.type === 'wan26') {
+      const projectId = useProjectContentStore.getState().projectId;
+      const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+      if (!hasText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
+        return;
+      }
+      if (!promptText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
+        return;
+      }
+
+      // 检查是否有图片输入（判断 T2V 还是 I2V）
+      const imageEdges = currentEdges.filter(e => e.target === nodeId && (e.targetHandle === 'image' || e.targetHandle === 'img')).slice(0, 1);
+      const hasImageInput = imageEdges.length > 0;
+
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
+
+      try {
+        let imgUrl: string | undefined = undefined;
+
+        if (hasImageInput) {
+          const imageDatas = collectImages(imageEdges);
+          if (!imageDatas.length) throw new Error('图片输入为空');
+          for (const img of imageDatas) {
+            const dataUrl = ensureDataUrl(img);
+            const uploaded = await uploadImageToOSS(dataUrl, projectId);
+            if (!uploaded) throw new Error('图片上传失败');
+            imgUrl = uploaded;
+          }
+        }
+
+        const size = (node.data as any)?.size || '16:9';
+        const resolution = (node.data as any)?.resolution || '720P';
+        const duration = (node.data as any)?.duration || 5;
+        const shotType = (node.data as any)?.shotType || 'single';
+        const audioUrl = (node.data as any)?.audioUrl;
+
+        const result = await generateWan26ViaAPI({
+          prompt: promptText,
+          imgUrl: imgUrl,
+          audioUrl: audioUrl,
+          parameters: { size, resolution, duration, shot_type: shotType },
+        });
+
+        const extractVideoUrl = (obj: any): string | undefined => {
+          if (!obj) return undefined;
+          return obj.videoUrl || obj.video_url || obj.output?.video_url || (Array.isArray(obj.output) && obj.output[0]?.video_url) || obj.raw?.output?.video_url || obj.raw?.video_url || undefined;
+        };
+
+        const videoUrl = extractVideoUrl(result.data) || '';
+        const thumbnail = result.data?.thumbnail;
+        const historyEntry = {
+          id: `history-${Date.now()}`,
+          videoUrl, thumbnail, prompt: promptText,
+          quality: hasImageInput ? 'I2V' : 'T2V',
+          createdAt: new Date().toISOString(),
+        };
+
+        setNodes(ns => ns.map(n => n.id === nodeId ? {
+          ...n, data: {
+            ...n.data, status: 'succeeded', videoUrl, thumbnail, error: undefined,
+            videoVersion: Number((n.data as any).videoVersion || 0) + 1,
+            history: Array.isArray((n.data as any).history) ? [historyEntry, ...(n.data as any).history] : [historyEntry],
+          }
+        } : n));
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '任务提交失败';
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+      }
+      return;
+    }
 
     if (node.type === 'sora2Video') {
       const projectId = useProjectContentStore.getState().projectId;
@@ -2835,7 +2951,7 @@ function FlowInner() {
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
     (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef' || n.type === 'generatePro' || n.type === 'generatePro4')
       ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
-      : n.type === 'sora2Video'
+      : (n.type === 'sora2Video' || n.type === 'wan26' || n.type === 'wan2R2V')
         ? { ...n, data: { ...n.data, onRun: runNode } }
         : n
   )), [nodes, runNode, onSendHandler]);

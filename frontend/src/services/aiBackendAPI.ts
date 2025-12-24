@@ -974,3 +974,239 @@ export async function generateVideoViaAPI(
     };
   }
 }
+
+/**
+ * 调用后端代理的 DashScope Wan2.6-t2v 文生视频接口
+ */
+export async function generateWan26T2VViaAPI(request: {
+  prompt: string;
+  audioUrl?: string;
+  parameters?: {
+    size?: string;
+    duration?: 5 | 10;
+    shot_type?: "single" | "multi";
+  };
+}): Promise<AIServiceResponse<any>> {
+  const startedAt = getTimestamp();
+  const dashscopeRequest = {
+    model: "wan2.6-t2v",
+    input: {
+      prompt: request.prompt,
+      ...(request.audioUrl && { audio_url: request.audioUrl }),
+    },
+    parameters: request.parameters || {},
+  };
+
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/dashscope/generate-wan26-t2v`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dashscopeRequest),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("generate-wan2-6-t2v", startedAt, { success: false, status: response.status });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-wan2-6-t2v", startedAt, { success: true });
+    return data;
+  } catch (error) {
+    logApiTiming("generate-wan2-6-t2v", startedAt, {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+/**
+ * 调用后端代理的 DashScope Wan2.6-i2v 图生视频接口
+ */
+export async function generateWan26I2VViaAPI(request: {
+  prompt: string;
+  imgUrl: string;
+  audioUrl?: string;
+  parameters?: {
+    resolution?: "720P" | "1080P";
+    duration?: 5 | 10 | 15;
+    shot_type?: "single" | "multi";
+  };
+}): Promise<AIServiceResponse<any>> {
+  const startedAt = getTimestamp();
+  const dashscopeRequest = {
+    model: "wan2.6-i2v",
+    input: {
+      img_url: request.imgUrl,
+      prompt: request.prompt,
+      ...(request.audioUrl && { audio_url: request.audioUrl }),
+    },
+    parameters: request.parameters || {},
+  };
+
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/dashscope/generate-wan2-6-i2v`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dashscopeRequest),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("generate-wan2-6-i2v", startedAt, { success: false, status: response.status });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-wan2-6-i2v", startedAt, { success: true });
+    return data;
+  } catch (error) {
+    logApiTiming("generate-wan2-6-i2v", startedAt, {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+/**
+ * 调用后端代理的 DashScope Wan2.6 统一接口
+ * 前端根据是否有 imgUrl 自动判断调用 T2V 还是 I2V
+ */
+export async function generateWan26ViaAPI(request: {
+  prompt: string;
+  imgUrl?: string;
+  audioUrl?: string;
+  parameters?: {
+    size?: string;
+    resolution?: string;
+    duration?: number;
+    shot_type?: "single" | "multi";
+  };
+}): Promise<AIServiceResponse<any>> {
+  const sizeMapping: Record<string, string> = {
+    "16:9": "1280*720",
+    "9:16": "720*1280",
+    "1:1": "960*960",
+    "4:3": "1088*832",
+    "3:4": "832*1088",
+  };
+
+  if (request.imgUrl) {
+    return generateWan26I2VViaAPI({
+      prompt: request.prompt,
+      imgUrl: request.imgUrl,
+      audioUrl: request.audioUrl,
+      parameters: {
+        resolution: request.parameters?.resolution as "720P" | "1080P" | undefined,
+        duration: request.parameters?.duration as 5 | 10 | 15 | undefined,
+        shot_type: request.parameters?.shot_type,
+      },
+    });
+  } else {
+    const mappedSize = request.parameters?.size
+      ? sizeMapping[request.parameters.size] || request.parameters.size
+      : undefined;
+
+    return generateWan26T2VViaAPI({
+      prompt: request.prompt,
+      audioUrl: request.audioUrl,
+      parameters: {
+        size: mappedSize,
+        duration: request.parameters?.duration as 5 | 10 | undefined,
+        shot_type: request.parameters?.shot_type,
+      },
+    });
+  }
+}
+
+/**
+ * 调用后端代理的 DashScope Wan2.6-r2v 参考视频生成视频接口
+ */
+export async function generateWan26R2VViaAPI(request: {
+  prompt: string;
+  referenceVideoUrls: string[];
+  parameters?: {
+    size?: string;
+    duration?: 5 | 10;
+    shot_type?: "single" | "multi";
+  };
+}): Promise<AIServiceResponse<any>> {
+  const startedAt = getTimestamp();
+  try {
+    const response = await fetchWithAuth(
+      `${API_BASE_URL}/ai/dashscope/generate-wan2-6-r2v`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("generate-wan2-6-r2v", startedAt, { success: false, status: response.status });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data = await response.json();
+    logApiTiming("generate-wan2-6-r2v", startedAt, { success: true });
+    return { success: true, data };
+  } catch (error) {
+    logApiTiming("generate-wan2-6-r2v", startedAt, {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}

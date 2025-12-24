@@ -74,6 +74,20 @@ export const CREDIT_PRICING_CONFIG = {
     description: '使用 Sora 生成高清视频',
   },
 
+  // Wan2.6 视频服务
+  'wan26-video': {
+    serviceName: 'Wan2.6 生成视频',
+    provider: 'dashscope',
+    creditsPerCall: 600,
+    description: '使用 Wan2.6 生成视频（T2V/I2V）',
+  },
+  'wan26-r2v': {
+    serviceName: 'Wan2.6 参考视频',
+    provider: 'dashscope',
+    creditsPerCall: 600,
+    description: '使用 Wan2.6 参考视频生成视频',
+  },
+
   // Midjourney 服务
   'midjourney-imagine': {
     serviceName: 'Midjourney 生图',

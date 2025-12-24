@@ -6211,3 +6211,43 @@ if (typeof window !== "undefined") {
     console.warn("⚠️ 初始化AI对话调试订阅失败:", error);
   }
 }
+
+/**
+ * 上传音频到 OSS
+ */
+export async function uploadAudioToOSS(
+  audioDataOrUrl: string,
+  projectId?: string | null
+): Promise<string | null> {
+  try {
+    if (!audioDataOrUrl) return null;
+    if (/^https?:\/\//.test(audioDataOrUrl)) return audioDataOrUrl;
+    if (!audioDataOrUrl.includes("base64,")) {
+      console.warn("⚠️ 非支持的音频数据格式，跳过上传");
+      return null;
+    }
+
+    const blob = dataURLToBlob(audioDataOrUrl);
+    const mimeMatch = audioDataOrUrl.match(/^data:([^;]+);/);
+    const contentType = mimeMatch ? mimeMatch[1] : "audio/mpeg";
+
+    const result = await ossUploadService.uploadToOSS(blob, {
+      dir: "ai-chat-audios/",
+      projectId,
+      fileName: `ai-audio-${Date.now()}.mp3`,
+      contentType,
+      maxSize: 15 * 1024 * 1024,
+    });
+
+    if (result.success && result.url) {
+      return result.url;
+    } else {
+      const errMsg = result.error || "音频上传失败";
+      console.error("❌ 音频上传失败:", errMsg);
+      throw new Error(errMsg);
+    }
+  } catch (error: any) {
+    console.error("❌ 音频上传异常:", error);
+    throw error;
+  }
+}

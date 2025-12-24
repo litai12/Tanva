@@ -322,7 +322,8 @@ input[type="text"],
 }
 
 /* Video 类型句柄 - 紫色 */
-.tanva-flow-overlay .react-flow__handle[data-handleid="video"] {
+.tanva-flow-overlay .react-flow__handle[data-handleid="video"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="video-"] {
   background: #a855f7 !important;
   border-color: #9333ea !important;
 }
