@@ -276,17 +276,17 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
       )}
       {hover === "video1-in" && (
         <div className="flow-tooltip" style={{ left: -8, top: "35%", transform: "translate(-100%, -50%)" }}>
-          角色 video
+          Video1
         </div>
       )}
       {hover === "video2-in" && (
         <div className="flow-tooltip" style={{ left: -8, top: "55%", transform: "translate(-100%, -50%)" }}>
-          场景 video
+          Video2
         </div>
       )}
       {hover === "video3-in" && (
         <div className="flow-tooltip" style={{ left: -8, top: "75%", transform: "translate(-100%, -50%)" }}>
-          特效 video
+          Video3
         </div>
       )}
       {hover === "video-out" && (

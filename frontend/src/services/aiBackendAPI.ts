@@ -1169,13 +1169,21 @@ export async function generateWan26R2VViaAPI(request: {
   };
 }): Promise<AIServiceResponse<any>> {
   const startedAt = getTimestamp();
+  const dashscopeRequest = {
+    model: "wan2.6-r2v",
+    input: {
+      prompt: request.prompt,
+      reference_video_urls: request.referenceVideoUrls,
+    },
+    parameters: request.parameters || {},
+  };
   try {
     const response = await fetchWithAuth(
       `${API_BASE_URL}/ai/dashscope/generate-wan2-6-r2v`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
+        body: JSON.stringify(dashscopeRequest),
       }
     );
 
@@ -1194,7 +1202,8 @@ export async function generateWan26R2VViaAPI(request: {
 
     const data = await response.json();
     logApiTiming("generate-wan2-6-r2v", startedAt, { success: true });
-    return { success: true, data };
+    // 直接返回后端响应，不再二次包装
+    return data;
   } catch (error) {
     logApiTiming("generate-wan2-6-r2v", startedAt, {
       success: false,

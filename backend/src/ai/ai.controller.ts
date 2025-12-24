@@ -1166,7 +1166,11 @@ export class AiController {
     return this.withCredits(req, 'wan26-video', 'wan2.6-i2v', async () => {
       const dashKey = process.env.DASHSCOPE_API_KEY;
       if (!dashKey) {
-        return { success: false, error: { message: 'DASHSCOPE_API_KEY not configured' } };
+        this.logger.error('DASHSCOPE_API_KEY not configured');
+        return {
+          success: false,
+          error: { message: 'DASHSCOPE_API_KEY not configured on server' },
+        };
       }
 
       const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
@@ -1184,37 +1188,134 @@ export class AiController {
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          return { success: false, error: { code: `HTTP_${response.status}`, message: data?.message || `HTTP ${response.status}` } };
+          this.logger.error('DashScope i2v create task failed', {
+            status: response.status,
+            body: data,
+          });
+          return {
+            success: false,
+            error: {
+              code: `HTTP_${response.status}`,
+              message: data?.message || `DashScope HTTP ${response.status}`,
+              details: data,
+            },
+          };
         }
 
-        const extractVideoUrl = (obj: any) => obj?.output?.video_url || obj?.video_url || obj?.videoUrl || undefined;
+        this.logger.log('✅ DashScope i2v task created', {
+          resultPreview: JSON.stringify(data).slice(0, 200),
+        });
+
+        const extractVideoUrl = (obj: any) =>
+          obj?.output?.video_url ||
+          obj?.video_url ||
+          obj?.videoUrl ||
+          (Array.isArray(obj?.output) && obj.output[0]?.video_url) ||
+          undefined;
         const videoUrlDirect = extractVideoUrl(data);
         if (videoUrlDirect) return { success: true, data };
 
-        const taskId = data?.taskId || data?.task_id || data?.id || data?.output?.task_id;
-        if (!taskId) return { success: true, data };
+        const taskId =
+          data?.taskId ||
+          data?.task_id ||
+          data?.id ||
+          data?.output?.task_id ||
+          data?.result?.task_id ||
+          data?.output?.[0]?.task_id ||
+          data?.data?.task_id ||
+          data?.data?.output?.task_id;
+
+        if (!taskId) {
+          this.logger.warn('DashScope i2v create response contains no task id and no video url', {
+            dataPreview: JSON.stringify(data).slice(0, 200),
+          });
+          return { success: true, data };
+        }
 
         const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
-        for (let attempt = 0; attempt < 40; attempt++) {
-          await new Promise((r) => setTimeout(r, 15000));
+        const intervalMs = 15000;
+        const maxAttempts = 40;
+        this.logger.log(
+          `🔁 Start polling DashScope i2v task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`
+        );
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise((r) => setTimeout(r, intervalMs));
           try {
-            const statusResp = await fetch(statusUrl, { method: 'GET', headers: { Authorization: `Bearer ${dashKey}` } });
-            if (!statusResp.ok) continue;
+            const statusResp = await fetch(statusUrl, {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${dashKey}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            if (!statusResp.ok) {
+              const errBody = await statusResp.text().catch(() => '');
+              this.logger.warn('DashScope i2v status check non-OK', {
+                status: statusResp.status,
+                body: errBody,
+              });
+              continue;
+            }
             const statusData = await statusResp.json().catch(() => ({}));
-            const statusValue = (statusData?.output?.task_status || statusData?.status || '').toLowerCase();
+            this.logger.debug(
+              `🔎 DashScope i2v status response (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`
+            );
+            const statusValue = (
+              statusData?.output?.task_status ||
+              statusData?.status ||
+              statusData?.state ||
+              statusData?.task_status ||
+              ''
+            )
+              .toString()
+              .toLowerCase();
 
             if (statusValue === 'succeeded' || statusValue === 'success') {
-              const finalVideoUrl = extractVideoUrl(statusData) || extractVideoUrl(statusData?.output);
-              return { success: true, data: { taskId, videoUrl: finalVideoUrl, video_url: finalVideoUrl, output: { video_url: finalVideoUrl }, raw: statusData } };
+              const finalVideoUrl =
+                extractVideoUrl(statusData) ||
+                extractVideoUrl(statusData?.result) ||
+                extractVideoUrl(statusData?.output) ||
+                undefined;
+              this.logger.log(
+                `✅ DashScope i2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
+              );
+              return {
+                success: true,
+                data: {
+                  taskId,
+                  status: statusValue,
+                  videoUrl: finalVideoUrl,
+                  video_url: finalVideoUrl,
+                  output: { video_url: finalVideoUrl },
+                  raw: statusData,
+                },
+              };
             }
-            if (statusValue === 'failed') {
-              return { success: false, error: { message: 'DashScope task failed', details: statusData } };
+            if (statusValue === 'failed' || statusValue === 'error') {
+              this.logger.error(`❌ DashScope i2v task ${taskId} failed`, { raw: statusData });
+              return {
+                success: false,
+                error: { message: 'DashScope i2v task failed', details: statusData },
+              };
             }
-          } catch { continue; }
+          } catch (err: any) {
+            this.logger.warn('DashScope i2v polling exception, will retry', err);
+          }
         }
-        return { success: false, error: { message: 'DashScope task polling timed out' } };
+        this.logger.warn(
+          `⏳ DashScope i2v task ${taskId} polling timed out after ${maxAttempts} attempts`
+        );
+        return {
+          success: false,
+          error: { message: 'DashScope i2v task polling timed out' },
+        };
       } catch (error: any) {
-        return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
+        this.logger.error('❌ DashScope i2v request exception', error);
+        return {
+          success: false,
+          error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
+        };
       }
     });
   }
@@ -1227,7 +1328,11 @@ export class AiController {
     return this.withCredits(req, 'wan26-r2v', 'wan2.6-r2v', async () => {
       const dashKey = process.env.DASHSCOPE_API_KEY;
       if (!dashKey) {
-        return { success: false, error: { message: 'DASHSCOPE_API_KEY not configured' } };
+        this.logger.error('DASHSCOPE_API_KEY not configured');
+        return {
+          success: false,
+          error: { message: 'DASHSCOPE_API_KEY not configured on server' },
+        };
       }
 
       const dashUrl = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis';
@@ -1245,37 +1350,132 @@ export class AiController {
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          return { success: false, error: { code: `HTTP_${response.status}`, message: data?.message || `HTTP ${response.status}` } };
+          this.logger.error('DashScope r2v create task failed', {
+            status: response.status,
+            body: data,
+          });
+          return {
+            success: false,
+            error: {
+              code: `HTTP_${response.status}`,
+              message: data?.message || `DashScope HTTP ${response.status}`,
+              details: data,
+            },
+          };
         }
 
-        const extractVideoUrl = (obj: any) => obj?.output?.video_url || obj?.video_url || obj?.videoUrl || undefined;
+        this.logger.log('✅ DashScope r2v task created', {
+          resultPreview: JSON.stringify(data).slice(0, 200),
+        });
+
+        const extractVideoUrl = (obj: any) =>
+          obj?.output?.video_url ||
+          obj?.video_url ||
+          obj?.videoUrl ||
+          (Array.isArray(obj?.output) && obj.output[0]?.video_url) ||
+          undefined;
         const videoUrlDirect = extractVideoUrl(data);
         if (videoUrlDirect) return { success: true, data };
 
-        const taskId = data?.taskId || data?.task_id || data?.id || data?.output?.task_id;
-        if (!taskId) return { success: true, data };
+        const taskId =
+          data?.taskId ||
+          data?.task_id ||
+          data?.id ||
+          data?.output?.task_id ||
+          data?.result?.task_id ||
+          data?.output?.[0]?.task_id ||
+          data?.data?.task_id ||
+          data?.data?.output?.task_id;
+        if (!taskId) {
+          this.logger.warn('DashScope r2v create response contains no task id and no video url', {
+            dataPreview: JSON.stringify(data).slice(0, 200),
+          });
+          return { success: true, data };
+        }
 
         const statusUrl = `https://dashscope.aliyuncs.com/api/v1/tasks/${encodeURIComponent(taskId)}`;
-        for (let attempt = 0; attempt < 40; attempt++) {
-          await new Promise((r) => setTimeout(r, 15000));
+        const intervalMs = 15000;
+        const maxAttempts = 40;
+        this.logger.log(
+          `🔁 Start polling DashScope r2v task ${taskId} (${maxAttempts} attempts, ${intervalMs}ms interval)`
+        );
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise((r) => setTimeout(r, intervalMs));
           try {
-            const statusResp = await fetch(statusUrl, { method: 'GET', headers: { Authorization: `Bearer ${dashKey}` } });
-            if (!statusResp.ok) continue;
+            const statusResp = await fetch(statusUrl, {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${dashKey}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            if (!statusResp.ok) {
+              const errBody = await statusResp.text().catch(() => '');
+              this.logger.warn('DashScope r2v status check non-OK', {
+                status: statusResp.status,
+                body: errBody,
+              });
+              continue;
+            }
             const statusData = await statusResp.json().catch(() => ({}));
-            const statusValue = (statusData?.output?.task_status || statusData?.status || '').toLowerCase();
+            this.logger.debug(
+              `🔎 DashScope r2v status response (attempt ${attempt + 1}): ${JSON.stringify(statusData).slice(0, 200)}`
+            );
+            const statusValue = (
+              statusData?.output?.task_status ||
+              statusData?.status ||
+              statusData?.state ||
+              statusData?.task_status ||
+              ''
+            )
+              .toString()
+              .toLowerCase();
 
             if (statusValue === 'succeeded' || statusValue === 'success') {
-              const finalVideoUrl = extractVideoUrl(statusData) || extractVideoUrl(statusData?.output);
-              return { success: true, data: { taskId, videoUrl: finalVideoUrl, video_url: finalVideoUrl, raw: statusData } };
+              const finalVideoUrl =
+                extractVideoUrl(statusData) ||
+                extractVideoUrl(statusData?.result) ||
+                extractVideoUrl(statusData?.output) ||
+                undefined;
+              this.logger.log(
+                `✅ DashScope r2v task ${taskId} succeeded, videoUrl: ${String(finalVideoUrl).slice(0, 120)}`
+              );
+              return {
+                success: true,
+                data: {
+                  taskId,
+                  status: statusValue,
+                  videoUrl: finalVideoUrl,
+                  video_url: finalVideoUrl,
+                  output: { video_url: finalVideoUrl },
+                  raw: statusData,
+                },
+              };
             }
-            if (statusValue === 'failed') {
-              return { success: false, error: { message: 'DashScope task failed', details: statusData } };
+            if (statusValue === 'failed' || statusValue === 'error') {
+              this.logger.error(`❌ DashScope r2v task ${taskId} failed`, { raw: statusData });
+              return {
+                success: false,
+                error: { message: 'DashScope r2v task failed', details: statusData },
+              };
             }
-          } catch { continue; }
+          } catch (err: any) {
+            this.logger.warn('DashScope r2v polling exception, will retry', err);
+          }
         }
-        return { success: false, error: { message: 'DashScope task polling timed out' } };
+        this.logger.warn(
+          `⏳ DashScope r2v task ${taskId} polling timed out after ${maxAttempts} attempts`
+        );
+        return {
+          success: false,
+          error: { message: 'DashScope r2v task polling timed out' },
+        };
       } catch (error: any) {
-        return { success: false, error: { code: 'NETWORK_ERROR', message: error?.message || String(error) } };
+        this.logger.error('❌ DashScope r2v request exception', error);
+        return {
+          success: false,
+          error: { code: 'NETWORK_ERROR', message: error?.message || String(error) },
+        };
       }
     });
   }

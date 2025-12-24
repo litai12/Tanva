@@ -54,7 +54,7 @@ import type { Sora2VideoQuality } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
-import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI, generateWan26ViaAPI } from '@/services/aiBackendAPI';
+import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI, generateWan26ViaAPI, generateWan26R2VViaAPI } from '@/services/aiBackendAPI';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -250,7 +250,7 @@ const NODE_PALETTE_ITEMS = [
   { key: 'three', zh: '三维节点', en: '3D Node' },
   { key: 'sora2Video', zh: '视频生成节点', en: 'Sora2 Video' },
   { key: 'wan26', zh: 'Wan2.6生成视频', en: 'Wan2.6 Video' },
-  { key: 'wan2R2V', zh: 'Wan2.6 参考视频', en: 'Wan2.6 R2V' },
+  { key: 'wan2R2V', zh: '视频融合', en: 'Wan2.6 R2V' },
   { key: 'camera', zh: '截图节点', en: 'Shot Node' },
   { key: 'storyboardSplit', zh: '分镜拆分节点', en: 'Storyboard Split' },
 ];
@@ -2327,13 +2327,132 @@ function FlowInner() {
           return obj.videoUrl || obj.video_url || obj.output?.video_url || (Array.isArray(obj.output) && obj.output[0]?.video_url) || obj.raw?.output?.video_url || obj.raw?.video_url || undefined;
         };
 
-        const videoUrl = extractVideoUrl(result.data) || '';
+        if (!result?.success) {
+          throw new Error(result?.error?.message || '任务提交失败');
+        }
+
+        const videoUrl = extractVideoUrl(result.data);
+        if (!videoUrl) {
+          throw new Error('未返回视频地址');
+        }
         const thumbnail = result.data?.thumbnail;
         const historyEntry = {
           id: `history-${Date.now()}`,
           videoUrl, thumbnail, prompt: promptText,
           quality: hasImageInput ? 'I2V' : 'T2V',
           createdAt: new Date().toISOString(),
+        };
+
+        setNodes(ns => ns.map(n => n.id === nodeId ? {
+          ...n, data: {
+            ...n.data, status: 'succeeded', videoUrl, thumbnail, error: undefined,
+            videoVersion: Number((n.data as any).videoVersion || 0) + 1,
+            history: Array.isArray((n.data as any).history) ? [historyEntry, ...(n.data as any).history] : [historyEntry],
+          }
+        } : n));
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : '任务提交失败';
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+      }
+      return;
+    }
+
+    // Wan2.6 R2V 节点处理逻辑（参考视频生成视频）
+    if (node.type === 'wan2R2V') {
+      const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+      if (!hasText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
+        return;
+      }
+      if (!promptText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
+        return;
+      }
+
+      const sanitizeMediaUrl = (url?: string | null) => {
+        if (!url || typeof url !== 'string') return undefined;
+        const trimmed = url.trim();
+        if (!trimmed) return undefined;
+        const markdownSplit = trimmed.split('](');
+        const candidate = markdownSplit.length > 1 ? markdownSplit[0] : trimmed;
+        const spaceIdx = candidate.indexOf(' ');
+        return spaceIdx > 0 ? candidate.slice(0, spaceIdx) : candidate;
+      };
+
+      const resolveVideoUrl = (edge: Edge): string | undefined => {
+        const srcNode = rf.getNode(edge.source);
+        if (!srcNode) return undefined;
+        const data = (srcNode.data as any) || {};
+        const direct =
+          data.videoUrl ||
+          data.video_url ||
+          data.output?.video_url ||
+          (Array.isArray(data.output) ? data.output[0]?.video_url : undefined) ||
+          data.raw?.output?.video_url ||
+          data.raw?.video_url;
+        const fromHistory = Array.isArray(data.history) ? data.history[0]?.videoUrl : undefined;
+        return sanitizeMediaUrl(direct) || sanitizeMediaUrl(fromHistory);
+      };
+
+      const videoEdges = currentEdges
+        .filter(e => e.target === nodeId && typeof e.targetHandle === 'string' && e.targetHandle.startsWith('video-'))
+        .sort((a, b) => String(a.targetHandle).localeCompare(String(b.targetHandle)));
+      if (!videoEdges.length) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少参考视频输入' } } : n));
+        return;
+      }
+
+      const referenceVideoUrls = videoEdges
+        .map(resolveVideoUrl)
+        .filter((v): v is string => typeof v === 'string' && v.length > 0);
+      if (!referenceVideoUrls.length) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '参考视频为空' } } : n));
+        return;
+      }
+
+      const sizeMapping: Record<string, string> = {
+        '16:9': '1280*720',
+        '9:16': '720*1280',
+        '1:1': '960*960',
+        '4:3': '1088*832',
+        '3:4': '832*1088',
+      };
+      const size = (node.data as any)?.size || '16:9';
+      const duration = (node.data as any)?.duration || 5;
+      const shotType = (node.data as any)?.shotType || 'single';
+      const mappedSize = sizeMapping[size] || size;
+
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
+
+      try {
+        const result = await generateWan26R2VViaAPI({
+          prompt: promptText,
+          referenceVideoUrls,
+          parameters: { size: mappedSize, duration, shot_type: shotType },
+        });
+
+        const extractVideoUrl = (obj: any): string | undefined => {
+          if (!obj) return undefined;
+          return obj.videoUrl || obj.video_url || obj.output?.video_url || (Array.isArray(obj.output) && obj.output[0]?.video_url) || obj.raw?.output?.video_url || obj.raw?.video_url || undefined;
+        };
+
+        if (!result?.success) {
+          throw new Error(result?.error?.message || '任务提交失败');
+        }
+        const videoUrl = extractVideoUrl(result.data);
+        if (!videoUrl) {
+          throw new Error('未返回视频地址');
+        }
+
+        const thumbnail = result.data?.thumbnail;
+        const historyEntry = {
+          id: `history-${Date.now()}`,
+          videoUrl,
+          thumbnail,
+          prompt: promptText,
+          quality: 'R2V',
+          createdAt: new Date().toISOString(),
+          referenceCount: referenceVideoUrls.length,
         };
 
         setNodes(ns => ns.map(n => n.id === nodeId ? {
