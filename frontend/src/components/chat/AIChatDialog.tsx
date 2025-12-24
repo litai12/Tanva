@@ -2444,12 +2444,12 @@ const AIChatDialog: React.FC = () => {
         ref={dialogRef}
         data-prevent-add-panel
         className={cn(
-          "transition-all ease-out relative overflow-visible group",
+          "transition-all ease-out relative overflow-visible group ai-chat-glow-border",
           // 紧凑模式：透明玻璃效果
-          isCompactMode && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass",
+          isCompactMode && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg",
           // 展开/最大化模式：根据用户设置选择透明或实心
-          !isCompactMode && !useSolidPanel && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass",
-          !isCompactMode && useSolidPanel && "bg-white shadow-xl border border-gray-200",
+          !isCompactMode && !useSolidPanel && "bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg",
+          !isCompactMode && useSolidPanel && "bg-white shadow-xl",
           isMaximized ? "h-full flex flex-col rounded-2xl" : "p-4 rounded-2xl",
           showHistory && !isMaximized && "h-full flex flex-col -mr-4", // 展开模式：填满容器高度并贴合屏幕右侧
           isDragging || isResizing ? "duration-0" : "duration-300"
