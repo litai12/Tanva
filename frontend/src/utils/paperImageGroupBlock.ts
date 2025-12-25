@@ -79,7 +79,16 @@ const findImagePaperItem = (imageId: string): paper.Item | null => {
     const matches = paper.project.getItems({
       match: (item: any) => item?.data?.type === 'image' && item?.data?.imageId === imageId,
     }) as paper.Item[];
-    if (matches.length > 0) return matches[0] ?? null;
+    if (matches.length > 0) {
+      // 兼容：同一个 imageId 可能同时标在 Group 与其内部 Raster 上。
+      // 这里必须优先返回顶层 Group，否则后续 insertChild 会拿到 -1 导致组块被插到最上层，
+      // 从而出现“打组不整齐/拖不动/点击错对象”等问题（X2 更容易触发）。
+      const group = matches.find((item) => isGroup(item));
+      if (group) return group;
+      const raster = matches.find((item) => isRaster(item));
+      if (raster) return raster;
+      return matches[0] ?? null;
+    }
   } catch {}
   return null;
 };
@@ -506,7 +515,18 @@ export const createImageGroupBlock = (
   // Insert behind all selected images within the same layer.
   let insertIndex = targetLayer.children.length;
   const indices = paperItems
-    .map((item) => targetLayer.children.indexOf(item))
+    .map((item) => {
+      // item 可能是 Raster（嵌在 Group 内），此时用它的顶层 parent(Group) 来计算插入顺序
+      // 以保证组块始终位于图片下方。
+      const direct = targetLayer.children.indexOf(item);
+      if (direct >= 0) return direct;
+
+      const parent = (item.parent as any) ?? null;
+      if (parent && parent.layer === targetLayer && targetLayer.children.includes(parent)) {
+        return targetLayer.children.indexOf(parent);
+      }
+      return -1;
+    })
     .filter((idx) => idx >= 0);
   if (indices.length > 0) {
     insertIndex = Math.min(...indices);

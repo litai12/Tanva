@@ -621,6 +621,8 @@ function useFlowViewport() {
 function FlowInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
+  const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const imageSize = useAIChatStore((state) => state.imageSize);
   const imageModel = React.useMemo(
@@ -634,6 +636,51 @@ function FlowInner() {
   const isMarqueeMode = drawMode === 'marquee';
 
   const onNodesChangeWithHistory = React.useCallback((changes: any) => {
+    const altState = altDragStartRef.current;
+    const isAltDragCloning = !!altState?.altPressed && !!altState?.cloned && altState?.idMap instanceof Map;
+
+    if (isAltDragCloning && Array.isArray(changes)) {
+      // ReactFlow 仍会尝试拖拽原节点；这里把“原节点的位置变化”重定向到副本，
+      // 并把原节点强制回到起始位置，保证原有连线不被“带走”。
+      const posChange =
+        changes.find((c: any) => c?.type === 'position' && c?.id === altState?.nodeId && altState?.startPositions?.has?.(c.id)) ||
+        changes.find((c: any) => c?.type === 'position' && altState?.startPositions?.has?.(c.id));
+
+      if (posChange) {
+        const base = altState.startPositions.get(posChange.id);
+        const dx = (posChange.position?.x ?? base.x) - base.x;
+        const dy = (posChange.position?.y ?? base.y) - base.y;
+        const dragging = !!posChange.dragging;
+
+        const remapped: any[] = [];
+        // 先保留非 position 变更（如 select/dimensions/remove/add）
+        for (const c of changes) {
+          if (c?.type !== 'position') remapped.push(c);
+        }
+
+        // 对参与复制的所有节点应用相同 delta：副本移动，原节点回位
+        for (const [origId, cloneId] of altState.idMap.entries()) {
+          const startPos = altState.startPositions.get(origId);
+          if (!startPos) continue;
+          remapped.push({
+            ...posChange,
+            id: cloneId,
+            position: { x: startPos.x + dx, y: startPos.y + dy },
+            dragging,
+          });
+          remapped.push({
+            ...posChange,
+            id: origId,
+            position: { x: startPos.x, y: startPos.y },
+            dragging: false,
+          });
+        }
+        onNodesChange(remapped);
+        // Alt+拖拽复制的历史提交由 onNodeDragStop 统一处理，避免重复 commit
+        return;
+      }
+    }
+
     onNodesChange(changes);
     try {
       const needCommit = Array.isArray(changes) && changes.some((c: any) => (
@@ -687,8 +734,6 @@ function FlowInner() {
   const lastSyncedJSONRef = React.useRef<string | null>(null);
   const nodeDraggingRef = React.useRef(false);
   const commitTimerRef = React.useRef<number | null>(null);
-  // Alt+拖拽复制相关状态
-  const altDragStartRef = React.useRef<{ nodeId: string; altPressed: boolean; startPositions: Map<string, { x: number; y: number }> } | null>(null);
 
   const sanitizeNodeData = React.useCallback((input: any) => {
     try {
@@ -3523,14 +3568,15 @@ function FlowInner() {
           // 检测 Alt 键是否按下
           const altPressed = event.altKey;
           if (altPressed) {
-            // Alt+拖拽：立即在原位置创建副本，让用户拖拽的看起来像是"新节点"
+            // Alt+拖拽：创建副本并让副本跟随鼠标移动，原节点保持原有连线与位置
             const allNodes = rf.getNodes();
             const selectedNodes = allNodes.filter((n: any) => n.selected || n.id === node.id);
 
             if (selectedNodes.length > 0) {
-              // 创建副本节点（放在原位置，作为"留下的原节点"）
+              const startPositions = new Map<string, { x: number; y: number }>();
               const idMap = new Map<string, string>();
               const clonedNodes = selectedNodes.map((n: any) => {
+                startPositions.set(n.id, { x: n.position.x, y: n.position.y });
                 const newId = generateId(n.type || 'n');
                 idMap.set(n.id, newId);
                 const rawData = { ...(n.data || {}) };
@@ -3546,7 +3592,7 @@ function FlowInner() {
                   type: n.type || 'default',
                   position: { x: n.position.x, y: n.position.y }, // 原位置
                   data,
-                  selected: false, // 副本不选中
+                  selected: true, // 副本选中，符合“复制后继续操作副本”的直觉
                   width: n.width,
                   height: n.height,
                   style: n.style ? { ...n.style } : undefined,
@@ -3573,14 +3619,17 @@ function FlowInner() {
                 };
               }).filter(Boolean);
 
-              // 添加副本到节点列表（原节点继续被拖拽）
-              setNodes((prev: any[]) => [...prev, ...clonedNodes]);
+              // 添加副本到节点列表（拖拽期间通过 onNodesChange 把位移重映射到副本）
+              const selectedIdSet = new Set(selectedNodes.map((n: any) => n.id));
+              setNodes((prev: any[]) => prev.map((n: any) => (
+                selectedIdSet.has(n.id) ? { ...n, selected: false } : n
+              )).concat(clonedNodes));
               if (clonedEdges.length > 0) {
                 setEdges((prev: any[]) => [...prev, ...clonedEdges]);
               }
 
               // 记录已创建副本，用于在 dragStop 时提交历史
-              altDragStartRef.current = { nodeId: node.id, altPressed: true, startPositions: new Map(), cloned: true };
+              altDragStartRef.current = { nodeId: node.id, altPressed: true, startPositions, idMap, cloned: true };
             } else {
               altDragStartRef.current = null;
             }

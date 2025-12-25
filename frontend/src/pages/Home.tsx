@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import AccountBadge from '@/components/AccountBadge';
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import Iridescence from '@/components/Iridescence';
 import MetallicButton from '@/components/MetallicButton';
 import { useAuthStore } from '@/stores/authStore';
@@ -14,6 +14,7 @@ export default function Home() {
   const [isAnimating, setIsAnimating] = useState(false);
   const touchStartY = useRef(0);
   const lastScrollTime = useRef(0);
+  const iridescenceColor = useMemo(() => [0.6, 0.8, 1.2] as [number, number, number], []);
 
   // 暂时只允许第一页，禁用后两页
   const maxPage = 0;
@@ -156,8 +157,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* 页面指示器 - 暂时只显示第一个点 */}
-      <div className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3">
+      {/* 页面指示器 - 暂时隐藏 */}
+      <div className="hidden fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-3">
         {[0].map((i) => (
           <button
             key={i}
@@ -181,7 +182,7 @@ export default function Home() {
           
           {/* Iridescence 背景 */}
           <Iridescence
-            color={[0.6, 0.8, 1.2]}
+            color={iridescenceColor}
             speed={0.8}
             amplitude={0.15}
             mouseReact={true}
