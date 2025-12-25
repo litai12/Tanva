@@ -1067,6 +1067,51 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 // 移除加载指示器
                 removeLoadingIndicator();
 
+                // 🔥 若 Raster source 在保存/上传后被切换（dataURL → OSS URL 等），Paper.js 会再次触发 onLoad。
+                // 这里必须避免重复执行“创建图片组/派发事件/写历史”等初始化逻辑，否则会产生无 Raster 的孤儿 image 组，
+                // 进而导致点击/拖拽命中错对象（刷新后清理孤儿组才恢复）。
+                const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
+                if (alreadyInitialized) {
+                    const stored = (raster as any)?.data?.__tanvaBounds as
+                        | { x: number; y: number; width: number; height: number }
+                        | undefined;
+                    if (
+                        stored &&
+                        Number.isFinite(stored.x) &&
+                        Number.isFinite(stored.y) &&
+                        Number.isFinite(stored.width) &&
+                        Number.isFinite(stored.height) &&
+                        stored.width > 0 &&
+                        stored.height > 0
+                    ) {
+                        const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
+                        try { raster.bounds = rect.clone(); } catch {}
+                        try {
+                            const parent: any = raster.parent;
+                            if (parent && parent.className === 'Group' && Array.isArray(parent.children)) {
+                                parent.children.forEach((child: any) => {
+                                    if (!child || child === raster) return;
+                                    const data = child.data || {};
+                                    if (data.type === 'image-selection-area' || data.isSelectionBorder || data.isImageHitRect) {
+                                        try { child.bounds = rect.clone(); } catch {}
+                                        return;
+                                    }
+                                    if (data.isResizeHandle) {
+                                        const direction = data.direction;
+                                        let x = rect.x;
+                                        let y = rect.y;
+                                        if (direction === 'ne' || direction === 'se') x = rect.x + rect.width;
+                                        if (direction === 'sw' || direction === 'se') y = rect.y + rect.height;
+                                        try { child.position = new paper.Point(x, y); } catch {}
+                                    }
+                                });
+                            }
+                        } catch {}
+                    }
+                    try { paper.view.update(); } catch {}
+                    return;
+                }
+
                 if (!asset) {
                     logger.error('快速上传：缺少图片资源');
                     return;
@@ -1228,6 +1273,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
                 // 存储元数据
                 raster.data = {
+                    ...(raster.data || {}),
                     type: 'image',
                     imageId: imageId,
                     originalWidth: originalWidth,
@@ -1239,6 +1285,20 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     sourceImageId: sourceImageId,
                     sourceImages: sourceImages,
                     videoInfo: extraOptions?.videoInfo
+                };
+
+                // 创建选择区域（透明点击热区，避免 Raster hitTest/异步加载导致“点不到图片”）
+                const selectionArea = new paper.Path.Rectangle({
+                    rectangle: raster.bounds,
+                    fillColor: new paper.Color(0, 0, 0, 0.001),
+                    strokeColor: null,
+                    visible: true,
+                    selected: false
+                });
+                selectionArea.data = {
+                    type: 'image-selection-area',
+                    imageId,
+                    isHelper: true
                 };
 
                 // 创建选择框（默认隐藏，点击时显示）
@@ -1287,8 +1347,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     handleElements.push(handle);
                 });
 
-                // 创建组合：仅包含 Raster 与可视辅助，避免隐形交互矩形扩大边界
-                const imageGroup = new paper.Group([raster, selectionBorder, ...handleElements]);
+                // 创建组合：包含 Raster + 选择区域 + 可视辅助
+                const imageGroup = new paper.Group([raster, selectionArea, selectionBorder, ...handleElements]);
                 imageGroup.data = {
                     type: 'image',
                     imageId: imageId,
@@ -1327,6 +1387,18 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 window.dispatchEvent(new CustomEvent('quickImageAdded', {
                     detail: newImageInstance
                 }));
+
+                // 标记初始化完成并缓存 bounds，防止后续 source 切换重复初始化/命中异常
+                try {
+                    if (!raster.data) raster.data = {};
+                    (raster.data as any).__tanvaImageInitialized = true;
+                    (raster.data as any).__tanvaBounds = {
+                        x: raster.bounds.x,
+                        y: raster.bounds.y,
+                        width: raster.bounds.width,
+                        height: raster.bounds.height
+                    };
+                } catch {}
 
                 // 🔥 X4/X8 自动打组：收集同批次图片，当所有图片都加载完成后自动打组
                 if (parallelGroupId && parallelGroupTotal && parallelGroupTotal >= 2) {

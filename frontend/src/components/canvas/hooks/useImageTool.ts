@@ -9,7 +9,7 @@ import { logger } from '@/utils/logger';
 import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
-import { syncImageGroupBlocksForImageIds } from '@/utils/paperImageGroupBlock';
+import { syncImageGroupBlocksForImageIds, findImagePaperItem } from '@/utils/paperImageGroupBlock';
 import type {
   ImageInstance,
   ImageDragState,
@@ -198,15 +198,62 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 等待图片加载完成后设置位置
     raster.onLoad = () => {
+      // 🔥 若 Raster source 被切换（dataURL → OSS URL 等）会再次触发 onLoad：
+      // 避免重复创建选择元素/触发状态更新，导致命中/拖拽异常与闪烁
+      const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
+      if (alreadyInitialized) {
+        const stored = (raster as any)?.data?.__tanvaBounds as
+          | { x: number; y: number; width: number; height: number }
+          | undefined;
+        if (
+          stored &&
+          Number.isFinite(stored.x) &&
+          Number.isFinite(stored.y) &&
+          Number.isFinite(stored.width) &&
+          Number.isFinite(stored.height) &&
+          stored.width > 0 &&
+          stored.height > 0
+        ) {
+          const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
+          try { raster.bounds = rect.clone(); } catch {}
+          try {
+            const parent: any = raster.parent;
+            if (parent && parent.className === 'Group' && Array.isArray(parent.children)) {
+              parent.children.forEach((child: any) => {
+                if (!child || child === raster) return;
+                const data = child.data || {};
+                if (data.type === 'image-selection-area' || data.isSelectionBorder || data.isImageHitRect) {
+                  try { child.bounds = rect.clone(); } catch {}
+                  return;
+                }
+                if (data.isResizeHandle) {
+                  const direction = data.direction;
+                  let x = rect.x;
+                  let y = rect.y;
+                  if (direction === 'ne' || direction === 'se') x = rect.x + rect.width;
+                  if (direction === 'sw' || direction === 'se') y = rect.y + rect.height;
+                  try { child.position = new paper.Point(x, y); } catch {}
+                }
+              });
+            }
+          } catch {}
+        }
+        try { paper.view.update(); } catch {}
+        return;
+      }
+
       // 存储原始尺寸信息
       const originalWidth = raster.width;
       const originalHeight = raster.height;
       const aspectRatio = originalWidth / originalHeight;
 
       raster.data = {
-        originalWidth: originalWidth,
-        originalHeight: originalHeight,
-        aspectRatio: aspectRatio
+        ...(raster.data || {}),
+        type: 'image',
+        imageId,
+        originalWidth,
+        originalHeight,
+        aspectRatio
       };
 
       // 检查是否启用原始尺寸模式
@@ -286,6 +333,18 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         } : img
       ));
 
+      // 标记初始化完成并缓存 bounds，防止后续 source 切换重复初始化/命中异常
+      try {
+        if (!raster.data) raster.data = {};
+        (raster.data as any).__tanvaImageInitialized = true;
+        (raster.data as any).__tanvaBounds = {
+          x: finalBounds.x,
+          y: finalBounds.y,
+          width: finalBounds.width,
+          height: finalBounds.height
+        };
+      } catch {}
+
       paper.view.update();
     };
 
@@ -346,6 +405,32 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   const addImageSelectionElements = useCallback((raster: paper.Raster, bounds: paper.Rectangle, imageId: string) => {
     const parentGroup = raster.parent;
     if (!isGroup(parentGroup)) return;
+
+    // 清理旧的选择元素，避免重复（例如 Raster source 被切换导致 onLoad 再次触发）
+    try {
+      const children = [...(parentGroup.children || [])];
+      children.forEach((child) => {
+        const data = child?.data || {};
+        if (data.isSelectionBorder || data.isResizeHandle || data.type === 'image-selection-area') {
+          try { child.remove(); } catch {}
+        }
+      });
+    } catch {}
+
+    // 添加选择区域（透明点击热区），避免 Raster hitTest/异步加载导致点击命中不稳定
+    const selectionArea = new paper.Path.Rectangle({
+      rectangle: bounds,
+      fillColor: new paper.Color(0, 0, 0, 0.001),
+      strokeColor: null,
+      visible: true,
+      selected: false,
+    });
+    selectionArea.data = {
+      type: 'image-selection-area',
+      imageId,
+      isHelper: true,
+    };
+    try { selectionArea.insertAbove(raster); } catch { parentGroup.addChild(selectionArea); }
 
     // 添加选择框（默认隐藏）
     const selectionBorder = new paper.Path.Rectangle({
@@ -409,15 +494,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
       // 备用方案：从Paper.js获取（已缩放，可能质量较低）
       console.warn('⚠️ AI编辑：未找到原始图片数据，使用canvas数据（可能已缩放）');
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === imageId
-        )
-      )[0];
+      // 🔥 使用 findImagePaperItem 进行深度搜索
+      const imageGroup = findImagePaperItem(imageId);
 
       if (!imageGroup) return null;
 
-      const raster = imageGroup.children.find(child => isRaster(child)) as paper.Raster;
+      const raster = isGroup(imageGroup)
+        ? imageGroup.children.find(child => isRaster(child)) as paper.Raster
+        : (isRaster(imageGroup) ? imageGroup as paper.Raster : null);
       if (!raster || !raster.canvas) return null;
 
       // 将canvas转换为base64（已缩放，可能质量较低）
@@ -430,12 +514,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
   // 检查图层是否可见
   const isLayerVisible = useCallback((imageId: string) => {
-    // 找到对应的Paper.js图层组
-    const imageGroup = paper.project.layers.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageId
-      )
-    )[0];
+    // 🔥 使用 findImagePaperItem 进行深度搜索
+    const imageGroup = findImagePaperItem(imageId);
 
     if (isGroup(imageGroup) || isRaster(imageGroup)) {
       // 获取图片所在的图层
@@ -455,11 +535,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       const isSelected = selectedIds.includes(img.id);
 
       // 控制选择框和控制点的可见性
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === img.id
-        )
-      )[0];
+      // 🔥 使用 findImagePaperItem 进行深度搜索
+      const imageGroup = findImagePaperItem(img.id);
 
       if (isGroup(imageGroup)) {
         imageGroup.children.forEach(child => {
@@ -538,11 +615,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   const applyBoundsToPaperImage = useCallback((imageId: string, bounds: { x: number; y: number; width: number; height: number }) => {
     if (!paper?.project) return false;
 
-    const imageGroup = paper.project.layers.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageId
-      )
-    )[0];
+    // 🔥 使用 findImagePaperItem 进行深度搜索
+    const imageGroup = findImagePaperItem(imageId);
 
     const rect = new paper.Rectangle(bounds.x, bounds.y, bounds.width, bounds.height);
 
@@ -550,6 +624,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       imageGroup.children.forEach(child => {
         if (isRasterItem(child)) {
           child.bounds = rect.clone();
+          try {
+            if (!child.data) child.data = {};
+            (child.data as any).__tanvaBounds = { ...bounds };
+          } catch {}
           return;
         }
         if (child.data?.isSelectionBorder) {
@@ -569,12 +647,20 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           child.position = new paper.Point(x, y);
           return;
         }
+        if (child.data?.isImageHitRect) {
+          child.bounds = rect.clone();
+          return;
+        }
       });
       return true;
     }
 
     if (isRaster(imageGroup)) {
       imageGroup.bounds = rect;
+      try {
+        if (!imageGroup.data) imageGroup.data = {};
+        (imageGroup.data as any).__tanvaBounds = { ...bounds };
+      } catch {}
       return true;
     }
 
@@ -623,11 +709,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         // 只有在不跳过Paper.js更新时才更新Paper.js元素
         // 这避免了在拖拽过程中的重复更新
         if (!skipPaperUpdate) {
-          const imageGroup = paper.project.layers.flatMap(layer =>
-            layer.children.filter(child =>
-              child.data?.type === 'image' && child.data?.imageId === imageId
-            )
-          )[0];
+          // 🔥 使用 findImagePaperItem 进行深度搜索，确保能找到嵌套的图片组
+          const imageGroup = findImagePaperItem(imageId);
 
           if (isGroup(imageGroup)) {
             // 获取实际的Raster对象来获取真实尺寸
@@ -689,8 +772,28 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
                   }
 
                   child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+                } else if (child.data?.isImageHitRect) {
+                  // 更新碰撞检测矩形的bounds（由ensureImageGroupStructure创建）
+                  child.bounds = new paper.Rectangle(
+                    newPosition.x,
+                    newPosition.y,
+                    actualWidth,
+                    actualHeight
+                  );
                 }
               });
+
+              // 同步缓存 bounds（用于后续 source 切换二次 onLoad 时恢复显示尺寸）
+              try {
+                if (raster && (raster as any).data) {
+                  (raster as any).data.__tanvaBounds = {
+                    x: newPosition.x,
+                    y: newPosition.y,
+                    width: actualWidth,
+                    height: actualHeight
+                  };
+                }
+              } catch {}
 
               try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
               paper.view.update();
@@ -702,6 +805,15 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
               newPosition.x + actualWidth / 2,
               newPosition.y + actualHeight / 2
             );
+            try {
+              if (!imageGroup.data) imageGroup.data = {};
+              (imageGroup.data as any).__tanvaBounds = {
+                x: newPosition.x,
+                y: newPosition.y,
+                width: actualWidth,
+                height: actualHeight
+              };
+            } catch {}
             try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
             try { paper.view.update(); } catch {}
           }
@@ -756,11 +868,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   // ========== 图片调整大小 ==========
   const handleImageResize = useCallback((imageId: string, newBounds: { x: number; y: number; width: number; height: number }) => {
     // 立即更新Paper.js对象，不等待React状态
-    const imageGroup = paper.project.layers.flatMap(layer =>
-      layer.children.filter(child =>
-        child.data?.type === 'image' && child.data?.imageId === imageId
-      )
-    )[0];
+    // 🔥 使用 findImagePaperItem 进行深度搜索
+    const imageGroup = findImagePaperItem(imageId);
 
     if (isGroup(imageGroup)) {
       // 找到图片Raster元素并调整大小和位置
@@ -774,6 +883,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           newBounds.width,
           newBounds.height
         );
+        try {
+          if (!raster.data) raster.data = {};
+          (raster.data as any).__tanvaBounds = { ...newBounds };
+        } catch {}
       }
 
       // 更新选择框、选择区域和控制点
@@ -816,6 +929,14 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           }
 
           child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+        } else if (child.data?.isImageHitRect) {
+          // 更新碰撞检测矩形的bounds（由ensureImageGroupStructure创建）
+          child.bounds = new paper.Rectangle(
+            newBounds.x,
+            newBounds.y,
+            newBounds.width,
+            newBounds.height
+          );
         }
       });
       try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
@@ -827,6 +948,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         newBounds.width,
         newBounds.height
       );
+      try {
+        if (!imageGroup.data) imageGroup.data = {};
+        (imageGroup.data as any).__tanvaBounds = { ...newBounds };
+      } catch {}
       try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
       try { paper.view.update(); } catch {}
     }

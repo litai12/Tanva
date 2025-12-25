@@ -3518,6 +3518,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const textInstances: any[] = [];
         const model3DInstances: any[] = [];
         const seenImageGroupTitles = new Set<string>();
+        const seenImageIds = new Set<string>();  // 🔥 防止重复添加同一个图片
 
         // 扫描所有图层
         (paper.project.layers || []).forEach((layer: any) => {
@@ -3535,6 +3536,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             } else if (item?.className === 'Raster' || item instanceof (paper as any).Raster) {
               // 兼容只有 Raster 的情况
               logger.drawing('    🖼️ 发现 Raster 元素');
+
+              // 🔥 如果 Raster 已经有 imageId，说明它正在等待 onLoad 处理，跳过
+              if (item?.data?.imageId) {
+                logger.drawing(`    ⏭️ Raster 已有 imageId，跳过: ${item.data.imageId}`);
+                return;
+              }
+
               imageGroup = item.parent && item.parent.className === 'Group' ? item.parent : null;
               if (imageGroup && !(imageGroup.data && imageGroup.data.type === 'image')) {
                 // 为旧内容补上标记
@@ -3555,6 +3563,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   imageGroup.data?.imageId ||
                   (raster.data && raster.data.imageId) ||
                   `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+                // 🔥 防止重复添加同一个图片
+                if (seenImageIds.has(ensuredImageId)) {
+                  logger.drawing(`    ⏭️ 跳过已处理的图片: ${ensuredImageId}`);
+                  return;
+                }
+                seenImageIds.add(ensuredImageId);
 
                 if (!imageGroup.data) imageGroup.data = {};
                 imageGroup.data.type = 'image';

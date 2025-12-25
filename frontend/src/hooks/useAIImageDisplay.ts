@@ -248,7 +248,8 @@ export const useAIImageDisplay = () => {
             });
             highlightBorder.data = {
               type: 'ai-image-highlight',
-              isTemporary: true
+              isTemporary: true,
+              isHelper: true  // 🔥 修复：标记为辅助元素，避免被图层面板检测为有效元素
             };
 
             // 添加高亮边框

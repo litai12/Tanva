@@ -133,9 +133,12 @@ const LayerPanel: React.FC = () => {
             const isHelper = item.data?.isHelper;
             const isGrid = item.data?.type === 'grid';
             const isScalebar = item.data?.type === 'scalebar';
+            // 🔥 过滤掉图片组块的边框和标题（它们不应该作为独立元素显示）
+            const isImageGroupBlock = item.data?.type === 'image-group';
+            const isImageGroupTitle = item.data?.type === 'image-group-title';
             // 🔥 修复：图片组的 isHelper 应该是 false，但如果未定义也应该通过
             // 只有明确设置为 true 的才过滤掉
-            const shouldFilter = isHelper === true || isGrid || isScalebar;
+            const shouldFilter = isHelper === true || isGrid || isScalebar || isImageGroupBlock || isImageGroupTitle;
             console.log(`🔍 [scanLayerItems] 过滤检查: className=${item.className}, isHelper=${isHelper}, shouldFilter=${shouldFilter}`);
             return !shouldFilter;
         }).reverse();

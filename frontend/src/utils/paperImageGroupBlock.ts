@@ -73,7 +73,7 @@ const normalizeImageIdList = (value: unknown): string[] => {
   return [];
 };
 
-const findImagePaperItem = (imageId: string): paper.Item | null => {
+export const findImagePaperItem = (imageId: string): paper.Item | null => {
   if (!paper.project || !imageId) return null;
   try {
     const matches = paper.project.getItems({
@@ -83,6 +83,14 @@ const findImagePaperItem = (imageId: string): paper.Item | null => {
       // 兼容：同一个 imageId 可能同时标在 Group 与其内部 Raster 上。
       // 这里必须优先返回顶层 Group，否则后续 insertChild 会拿到 -1 导致组块被插到最上层，
       // 从而出现“打组不整齐/拖不动/点击错对象”等问题（X2 更容易触发）。
+      // 同时要避免返回“无 Raster 的孤儿组”（可能由 source 切换触发重复初始化造成）。
+      const groupWithRaster = matches.find((item) => {
+        if (!isGroup(item)) return false;
+        const children = (item as paper.Group).children || [];
+        return children.some((child) => isRaster(child));
+      });
+      if (groupWithRaster) return groupWithRaster;
+
       const group = matches.find((item) => isGroup(item));
       if (group) return group;
       const raster = matches.find((item) => isRaster(item));

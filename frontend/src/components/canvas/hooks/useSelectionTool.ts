@@ -559,46 +559,145 @@ export const useSelectionTool = ({
     let imageClicked = null;
     let modelClicked = null;
 
-    // 🔍 调试：输出点击坐标和图片实例信息
-    logger.tool('detectClickedObject - 点击坐标:', { x: point.x, y: point.y });
-    logger.tool('detectClickedObject - 图片实例数量:', imageInstances.length);
+    // 优先使用 Paper.js 命中结果解析图片/3D（避免 React 状态尚未同步时误判为空白而开启选择框）
+    const resolveTargetFromHitItem = (item: paper.Item | null | undefined) => {
+      let current: paper.Item | null | undefined = item;
+      while (current) {
+        const data = (current.data || {}) as any;
+        const type = data.type as string | undefined;
 
-    // 检查图片实例 - 反向遍历以选择最上层的图片
-    for (let i = imageInstances.length - 1; i >= 0; i--) {
-      const image = imageInstances[i];
-      // 🔍 调试：输出每个图片的 bounds
-      logger.tool(`图片[${i}] id=${image.id}, bounds:`, image.bounds);
+        // 占位框/预测占位符的子元素：不作为图片/模型命中
+        if (data.placeholderGroupId || data.placeholderType) {
+          return null;
+        }
+        if (type === 'image-placeholder' || type === '3d-model-placeholder') {
+          return null;
+        }
 
-      const inBounds = point.x >= image.bounds.x &&
-        point.x <= image.bounds.x + image.bounds.width &&
-        point.y >= image.bounds.y &&
-        point.y <= image.bounds.y + image.bounds.height;
+        if (type === 'image' && typeof data.imageId === 'string') {
+          return { type: 'image' as const, id: data.imageId as string };
+        }
+        if (type === 'image-selection-area' && typeof data.imageId === 'string') {
+          return { type: 'image' as const, id: data.imageId as string };
+        }
+        if (type === '3d-model' && typeof data.modelId === 'string') {
+          return { type: '3d-model' as const, id: data.modelId as string };
+        }
+        if (type === '3d-model-selection-area' && typeof data.modelId === 'string') {
+          return { type: '3d-model' as const, id: data.modelId as string };
+        }
 
-      logger.tool(`图片[${i}] 点击在范围内:`, inBounds);
+        // 一些辅助元素（如 resize handle）只携带 imageId/modelId
+        if (typeof data.imageId === 'string') {
+          return { type: 'image' as const, id: data.imageId as string };
+        }
+        if (typeof data.modelId === 'string') {
+          return { type: '3d-model' as const, id: data.modelId as string };
+        }
 
-      if (inBounds) {
-        // 检查图层是否可见，只有可见的图层才能被选中
-        const layerVisible = isLayerVisible(image.id);
-        logger.tool(`图片[${i}] 图层可见:`, layerVisible);
+        if (data.isHelper || data.isSelectionHelper || data.isResizeHandle || type === 'selection-box') {
+          current = current.parent as paper.Item | null | undefined;
+          continue;
+        }
+        current = current.parent as paper.Item | null | undefined;
+      }
+      return null;
+    };
 
-        if (layerVisible) {
-          imageClicked = image.id;
-          break;
-        } else {
-          // 如果图层不可见，记录日志但跳过选择
-          logger.debug('图层不可见，跳过选择:', image.id);
+    const resolvedFromHit = resolveTargetFromHitItem(hitResult?.item);
+    if (resolvedFromHit?.type === 'image') {
+      if (isLayerVisible(resolvedFromHit.id)) {
+        imageClicked = resolvedFromHit.id;
+      }
+    } else if (resolvedFromHit?.type === '3d-model') {
+      modelClicked = resolvedFromHit.id;
+    }
+
+    // 顶层命中可能是高亮/标题/其它元素：再做一次带 match 的 hitTest，只命中图片/模型相关元素
+    // 这样即使 React 状态尚未同步，也不会把“点到图片”误判为“点到空白”从而进入框选
+    if (!imageClicked && !modelClicked) {
+      let filteredHitResult: paper.HitResult | null = null;
+      try {
+        filteredHitResult = paper.project.hitTest(point, {
+          segments: true,
+          stroke: true,
+          fill: true,
+          bounds: true,
+          tolerance: 5 / zoom,
+          match: (item: any) => {
+            const data = item?.data || {};
+            const type = data.type;
+            if (data.placeholderGroupId || data.placeholderType) return false;
+            if (type === 'image-placeholder' || type === '3d-model-placeholder') return false;
+            if (
+              type === 'image' ||
+              type === 'image-selection-area' ||
+              type === '3d-model' ||
+              type === '3d-model-selection-area'
+            ) {
+              return true;
+            }
+            if (typeof data.imageId === 'string' || typeof data.modelId === 'string') return true;
+            return false;
+          },
+        });
+      } catch {
+        filteredHitResult = null;
+      }
+
+      const resolvedFromFiltered = resolveTargetFromHitItem(filteredHitResult?.item);
+      if (resolvedFromFiltered?.type === 'image') {
+        if (isLayerVisible(resolvedFromFiltered.id)) {
+          imageClicked = resolvedFromFiltered.id;
+        }
+      } else if (resolvedFromFiltered?.type === '3d-model') {
+        modelClicked = resolvedFromFiltered.id;
+      }
+    }
+
+    // 兜底：若 hitTest 未命中图片（例如历史内容缺少选择区域），回退到 React bounds 检测
+    if (!imageClicked && !modelClicked) {
+      // 🔍 调试：输出点击坐标和图片实例信息
+      logger.tool('detectClickedObject - 点击坐标:', { x: point.x, y: point.y });
+      logger.tool('detectClickedObject - 图片实例数量:', imageInstances.length);
+
+      // 检查图片实例 - 反向遍历以选择最上层的图片
+      for (let i = imageInstances.length - 1; i >= 0; i--) {
+        const image = imageInstances[i];
+        // 🔍 调试：输出每个图片的 bounds
+        logger.tool(`图片[${i}] id=${image.id}, bounds:`, image.bounds);
+
+        const inBounds = point.x >= image.bounds.x &&
+          point.x <= image.bounds.x + image.bounds.width &&
+          point.y >= image.bounds.y &&
+          point.y <= image.bounds.y + image.bounds.height;
+
+        logger.tool(`图片[${i}] 点击在范围内:`, inBounds);
+
+        if (inBounds) {
+          // 检查图层是否可见，只有可见的图层才能被选中
+          const layerVisible = isLayerVisible(image.id);
+          logger.tool(`图片[${i}] 图层可见:`, layerVisible);
+
+          if (layerVisible) {
+            imageClicked = image.id;
+            break;
+          } else {
+            // 如果图层不可见，记录日志但跳过选择
+            logger.debug('图层不可见，跳过选择:', image.id);
+          }
         }
       }
     }
 
     // 如果没有点击图片，检查3D模型实例 - 反向遍历以选择最上层的模型
-    if (!imageClicked) {
+    if (!imageClicked && !modelClicked) {
       for (let i = model3DInstances.length - 1; i >= 0; i--) {
         const model = model3DInstances[i];
         if (point.x >= model.bounds.x &&
           point.x <= model.bounds.x + model.bounds.width &&
           point.y >= model.bounds.y &&
-          point.y <= model.bounds.height) {
+          point.y <= model.bounds.y + model.bounds.height) {
           modelClicked = model.id;
           break;
         }
@@ -637,10 +736,29 @@ export const useSelectionTool = ({
         onImageSelect(imageClicked, true);
         logger.upload(`增量选中图片: ${imageClicked}`);
       } else {
-        // 否则单选
+        // 🔥 优化：单选模式下不调用 clearAllSelections()，避免两次 paper.view.update() 导致闪烁
+        // updateImageSelectionVisuals([imageId]) 会正确处理：只显示新选中图片的选择框
         const clickedImage = imageInstances.find(img => img.id === imageClicked);
         if (!clickedImage?.isSelected) {
-          clearAllSelections();
+          // 只清除非图片类型的选择（路径、3D模型、文本等），图片选择由 onImageSelect 统一处理
+          handlePathDeselect();
+          selectedPaths.forEach(path => {
+            path.selected = false;
+            path.fullySelected = false;
+            if ((path as any).originalStrokeWidth) {
+              path.strokeWidth = (path as any).originalStrokeWidth;
+            }
+          });
+          setSelectedPaths([]);
+          onModel3DDeselect();
+          onTextDeselect?.();
+          // 清除 React Flow 节点选择
+          try {
+            const tanvaFlow = (window as any).tanvaFlow;
+            if (tanvaFlow?.deselectAllNodes) {
+              tanvaFlow.deselectAllNodes();
+            }
+          } catch {}
         }
         // 🔥 始终调用 onImageSelect，确保 AI 对话框同步更新
         onImageSelect(imageClicked);

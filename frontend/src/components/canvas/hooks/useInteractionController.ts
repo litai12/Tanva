@@ -12,7 +12,13 @@ import type { DrawMode } from '@/stores/toolStore';
 import type { ImageDragState, ImageResizeState } from '@/types/canvas';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useCanvasStore } from '@/stores';
-import { findGroupBlockTitle, updateGroupBlockTitle, IMAGE_GROUP_BLOCK_TYPE, deleteImageGroupBlock } from '@/utils/paperImageGroupBlock';
+import {
+  deleteImageGroupBlock,
+  findGroupBlockTitle,
+  getImagePaperBounds,
+  IMAGE_GROUP_BLOCK_TYPE,
+  updateGroupBlockTitle,
+} from '@/utils/paperImageGroupBlock';
 import type { ImageAssetSnapshot } from '@/types/project';
 import type { SnapAlignmentAPI } from './useSnapAlignment';
 
@@ -149,11 +155,6 @@ const isPaperItemRemoved = (item: paper.Item | null | undefined): boolean => {
     return removedFlag;
   }
   return typeof item.isInserted === 'function' ? !item.isInserted() : false;
-};
-
-// 辅助函数：检查是否为 Raster 对象（兼容生产环境，instanceof 在压缩后可能失效）
-const isRasterItem = (item: paper.Item): boolean => {
-  return item.className === 'Raster' || item instanceof paper.Raster;
 };
 
 interface UseInteractionControllerProps {
@@ -700,27 +701,16 @@ export const useInteractionController = ({
         const imageId = resizeHandleHit.item.data.imageId;
         const direction = resizeHandleHit.item.data.direction;
 
-        // 获取图像组
-        const imageGroup = paper.project.layers.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId === imageId
-          )
-        )[0];
+        const actualBounds = getImagePaperBounds(imageId);
+        if (!actualBounds) return;
 
-        if (imageGroup) {
-          // 获取实际的图片边界（Raster的边界），而不是整个组的边界
-          // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
-          const raster = imageGroup.children.find(child => isRasterItem(child));
-          const actualBounds = raster ? raster.bounds.clone() : imageGroup.bounds.clone();
-
-          latestImageTool.setImageResizeState({
-            isImageResizing: true,
-            resizeImageId: imageId,
-            resizeDirection: direction,
-            resizeStartBounds: actualBounds,
-            resizeStartPoint: point
-          });
-        }
+        latestImageTool.setImageResizeState({
+          isImageResizing: true,
+          resizeImageId: imageId,
+          resizeDirection: direction,
+          resizeStartBounds: actualBounds,
+          resizeStartPoint: point
+        });
         return;
       }
 
@@ -758,88 +748,100 @@ export const useInteractionController = ({
       // 第一次点击图片时，isSelected 还是 false（状态更新是异步的），导致无法拖拽
       if (selectionResult?.type === 'image') {
         const clickedImage = latestImageTool.imageInstances.find(img => img.id === selectionResult.id);
-        if (clickedImage) {
-          // 若当前已选中图片组块，且点击的图片属于该组，则允许直接从组内图片触发“组拖拽”
-          const selectedGroupImageIds = new Set<string>();
-          let clickedInSelectedGroup = false;
-          try {
-            previouslySelectedPaths.forEach((path) => {
-              if (path?.data?.type !== 'image-group') return;
-              const raw = (path.data as any)?.imageIds;
-              if (!Array.isArray(raw)) return;
+
+        // 若当前已选中图片组块，且点击的图片属于该组，则允许直接从组内图片触发“组拖拽”
+        const selectedGroupImageIds = new Set<string>();
+        let clickedInSelectedGroup = false;
+        try {
+          previouslySelectedPaths.forEach((path) => {
+            if (path?.data?.type !== 'image-group') return;
+            const raw = (path.data as any)?.imageIds;
+            if (!Array.isArray(raw)) return;
+            raw.forEach((id) => {
+              if (typeof id !== 'string') return;
+              const trimmed = id.trim();
+              if (!trimmed) return;
+              selectedGroupImageIds.add(trimmed);
+            });
+          });
+          clickedInSelectedGroup = selectedGroupImageIds.has(selectionResult.id);
+        } catch {}
+
+        // 判断是否已有多选：如果当前图片在已选中列表中，使用已选中列表；否则只拖拽当前图片
+        const wasAlreadySelected = Boolean(clickedImage?.isSelected);
+        const shouldDragExistingSelection =
+          wasAlreadySelected &&
+          Array.isArray(latestImageTool.selectedImageIds) &&
+          latestImageTool.selectedImageIds.length > 0 &&
+          latestImageTool.selectedImageIds.includes(selectionResult.id);
+
+        const baseSelectedIds = shouldDragExistingSelection
+          ? latestImageTool.selectedImageIds!
+          : [selectionResult.id];
+
+        // 若复合选择中包含图片组块，则拖拽时需要把组内图片一并移动
+        const groupImageIds: string[] = [];
+        if (shouldDragExistingSelection || clickedInSelectedGroup) {
+          previouslySelectedPaths.forEach((path) => {
+            if (path?.data?.type !== 'image-group') return;
+            const raw = (path.data as any)?.imageIds;
+            if (Array.isArray(raw)) {
               raw.forEach((id) => {
-                if (typeof id !== 'string') return;
-                const trimmed = id.trim();
-                if (!trimmed) return;
-                selectedGroupImageIds.add(trimmed);
+                if (typeof id === 'string') groupImageIds.push(id);
               });
-            });
-            clickedInSelectedGroup = selectedGroupImageIds.has(selectionResult.id);
-          } catch {}
-
-          // 判断是否已有多选：如果当前图片在已选中列表中，使用已选中列表；否则只拖拽当前图片
-          const wasAlreadySelected = clickedImage.isSelected;
-          const shouldDragExistingSelection =
-            wasAlreadySelected &&
-            Array.isArray(latestImageTool.selectedImageIds) &&
-            latestImageTool.selectedImageIds.length > 0 &&
-            latestImageTool.selectedImageIds.includes(selectionResult.id);
-
-          const baseSelectedIds = shouldDragExistingSelection
-            ? latestImageTool.selectedImageIds!
-            : [selectionResult.id];
-
-          // 若复合选择中包含图片组块，则拖拽时需要把组内图片一并移动
-          const groupImageIds: string[] = [];
-          if (shouldDragExistingSelection || clickedInSelectedGroup) {
-            previouslySelectedPaths.forEach((path) => {
-              if (path?.data?.type !== 'image-group') return;
-              const raw = (path.data as any)?.imageIds;
-              if (Array.isArray(raw)) {
-                raw.forEach((id) => {
-                  if (typeof id === 'string') groupImageIds.push(id);
-                });
-              }
-            });
-          }
-
-          const dragIdsSet = new Set<string>();
-          baseSelectedIds.forEach((id) => dragIdsSet.add(id));
-          groupImageIds.forEach((id) => dragIdsSet.add(id));
-          // 组块被选中但图片未选中时：从组内图片开始拖拽，确保能拖动整个组
-          if (clickedInSelectedGroup && selectedGroupImageIds.size > 0) {
-            selectedGroupImageIds.forEach((id) => dragIdsSet.add(id));
-          }
-          const selectedIds = Array.from(dragIdsSet);
-
-          const boundsMap: Record<string, { x: number; y: number }> = {};
-          selectedIds.forEach((id) => {
-            const inst = latestImageTool.imageInstances.find((img) => img.id === id);
-            if (inst) {
-              boundsMap[id] = { x: inst.bounds.x, y: inst.bounds.y };
             }
           });
+        }
 
-          imageDragMovedRef.current = false;
-          altDragCloneIdsRef.current = [];
-          libraryHoveringRef.current = false;
-          latestImageTool.setImageDragState({
-            isImageDragging: true,
-            dragImageId: selectionResult.id,
-            imageDragStartPoint: point,
-            imageDragStartBounds: { x: clickedImage.bounds.x, y: clickedImage.bounds.y },
-            groupImageIds: selectedIds,
-            groupStartBounds: boundsMap,
-          });
-          // 初始化对齐吸附
-          if (snapAlignmentRef.current?.startSnapping) {
-            snapAlignmentRef.current.startSnapping(selectedIds);
+        const dragIdsSet = new Set<string>();
+        baseSelectedIds.forEach((id) => dragIdsSet.add(id));
+        groupImageIds.forEach((id) => dragIdsSet.add(id));
+        // 组块被选中但图片未选中时：从组内图片开始拖拽，确保能拖动整个组
+        if (clickedInSelectedGroup && selectedGroupImageIds.size > 0) {
+          selectedGroupImageIds.forEach((id) => dragIdsSet.add(id));
+        }
+        const selectedIds = Array.from(dragIdsSet);
+
+        // 🔥 修复：优先从 Paper.js 获取实际 bounds，避免 React 状态不同步/尚未写入导致拖动异常
+        const boundsMap: Record<string, { x: number; y: number }> = {};
+        selectedIds.forEach((id) => {
+          const paperBounds = getImagePaperBounds(id);
+          if (paperBounds) {
+            boundsMap[id] = { x: paperBounds.x, y: paperBounds.y };
+            return;
           }
-          // 拖拽图片时禁用 Flow 节点事件，避免经过节点时被打断
-          document.body.classList.add('tanva-canvas-dragging');
-          if (shouldDragExistingSelection) {
-            beginGroupPathDrag(point, 'image');
-          }
+          const inst = latestImageTool.imageInstances.find((img) => img.id === id);
+          if (inst) boundsMap[id] = { x: inst.bounds.x, y: inst.bounds.y };
+        });
+
+        const clickedPaperBounds = getImagePaperBounds(selectionResult.id);
+        const actualClickedBounds = clickedPaperBounds
+          ? { x: clickedPaperBounds.x, y: clickedPaperBounds.y }
+          : clickedImage
+            ? { x: clickedImage.bounds.x, y: clickedImage.bounds.y }
+            : null;
+
+        if (!actualClickedBounds) return;
+
+        imageDragMovedRef.current = false;
+        altDragCloneIdsRef.current = [];
+        libraryHoveringRef.current = false;
+        latestImageTool.setImageDragState({
+          isImageDragging: true,
+          dragImageId: selectionResult.id,
+          imageDragStartPoint: point,
+          imageDragStartBounds: { x: actualClickedBounds.x, y: actualClickedBounds.y },
+          groupImageIds: selectedIds,
+          groupStartBounds: boundsMap,
+        });
+        // 初始化对齐吸附
+        if (snapAlignmentRef.current?.startSnapping) {
+          snapAlignmentRef.current.startSnapping(selectedIds);
+        }
+        // 拖拽图片时禁用 Flow 节点事件，避免经过节点时被打断
+        document.body.classList.add('tanva-canvas-dragging');
+        if (shouldDragExistingSelection) {
+          beginGroupPathDrag(point, 'image');
         }
       }
 
@@ -874,15 +876,29 @@ export const useInteractionController = ({
             }
 
             const groupIds = Array.from(dragIdSet);
+            // 🔥 修复：优先从 Paper.js 获取实际 bounds
             const boundsMap: Record<string, { x: number; y: number }> = {};
             groupIds.forEach((id) => {
-              const inst = instanceMap.get(id);
-              if (inst) boundsMap[id] = { x: inst.bounds.x, y: inst.bounds.y };
+              const paperBounds = getImagePaperBounds(id);
+              if (paperBounds) {
+                boundsMap[id] = { x: paperBounds.x, y: paperBounds.y };
+              } else {
+                const inst = instanceMap.get(id);
+                if (inst) boundsMap[id] = { x: inst.bounds.x, y: inst.bounds.y };
+              }
             });
 
             const firstId = groupIds[0];
             const first = firstId ? instanceMap.get(firstId) : null;
-            if (first && firstId) {
+            // 🔥 修复：获取第一张图片的实际 bounds
+            const firstPaperBounds = firstId ? getImagePaperBounds(firstId) : null;
+            const actualFirstBounds = firstPaperBounds
+              ? { x: firstPaperBounds.x, y: firstPaperBounds.y }
+              : first?.bounds
+                ? { x: first.bounds.x, y: first.bounds.y }
+                : null;
+
+            if (first && firstId && actualFirstBounds) {
               imageDragMovedRef.current = false;
               altDragCloneIdsRef.current = [];
               libraryHoveringRef.current = false;
@@ -890,7 +906,7 @@ export const useInteractionController = ({
                 isImageDragging: true,
                 dragImageId: firstId,
                 imageDragStartPoint: point,
-                imageDragStartBounds: { x: first.bounds.x, y: first.bounds.y },
+                imageDragStartBounds: { x: actualFirstBounds.x, y: actualFirstBounds.y },
                 groupImageIds: groupIds,
                 groupStartBounds: boundsMap,
               });
