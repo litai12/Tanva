@@ -1298,8 +1298,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     sourceImages: sourceImages
                 };
 
-                // 添加到全局图片实例管理（如果有的话）
-                if ((window as any).tanvaImageInstances) {
+                // 添加到全局图片实例管理
                 const newImageInstance = {
                     id: imageId,
                     imageData: {
@@ -1312,23 +1311,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                         width: raster.bounds.width,
                         height: raster.bounds.height,
                         contentType: asset.contentType,
-                        },
-                        bounds: {
-                            x: raster.bounds.x,
-                            y: raster.bounds.y,
-                            width: raster.bounds.width,
-                            height: raster.bounds.height
-                        },
-                        isSelected: false,
-                        visible: true,
-                        layerId: paper.project.activeLayer.name
-                    };
+                    },
+                    bounds: {
+                        x: raster.bounds.x,
+                        y: raster.bounds.y,
+                        width: raster.bounds.width,
+                        height: raster.bounds.height
+                    },
+                    isSelected: false,
+                    visible: true,
+                    layerId: paper.project.activeLayer.name
+                };
 
-                    // 触发图片实例更新事件
-                    window.dispatchEvent(new CustomEvent('quickImageAdded', {
-                        detail: newImageInstance
-                    }));
-                }
+                // 触发图片实例更新事件（始终触发，让 DrawingController 处理）
+                window.dispatchEvent(new CustomEvent('quickImageAdded', {
+                    detail: newImageInstance
+                }));
 
                 // 🔥 X4/X8 自动打组：收集同批次图片，当所有图片都加载完成后自动打组
                 if (parallelGroupId && parallelGroupTotal && parallelGroupTotal >= 2) {

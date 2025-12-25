@@ -26,13 +26,12 @@ const ZoomIndicator: React.FC = () => {
         };
     };
 
-    // 专注模式下隐藏缩放控件
-    if (focusMode) {
-        return null;
-    }
-
     // 点击外部关闭菜单
     useEffect(() => {
+        if (focusMode) {
+            setMenuOpen(false);
+            return;
+        }
         const handleClickOutside = (event: MouseEvent) => {
             if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
                 setMenuOpen(false);
@@ -42,7 +41,12 @@ const ZoomIndicator: React.FC = () => {
             document.addEventListener('mousedown', handleClickOutside);
             return () => document.removeEventListener('mousedown', handleClickOutside);
         }
-    }, [menuOpen]);
+    }, [menuOpen, focusMode]);
+
+    // 专注模式下隐藏缩放控件
+    if (focusMode) {
+        return null;
+    }
 
     // 格式化缩放百分比
     const formatZoom = (zoomValue: number): string => {
