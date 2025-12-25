@@ -3645,13 +3645,19 @@ function FlowInner() {
             // 提交历史记录
             try { historyService.commit('flow-alt-drag-clone').catch(() => {}); } catch {}
 
-            // 清理状态
-            altDragStartRef.current = null;
-
             // 提交到项目内容
             const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
             const es = rfEdgesToTplEdges((rf.getEdges?.() || edges));
             scheduleCommit(ns, es);
+
+            // 不要立刻清理：ReactFlow 可能会在 dragStop 之后再派发一次 position(dragging:false)，
+            // 需要让 onNodesChange 继续把“原节点位移”重映射到副本，避免最终落点回到原节点上。
+            const snapshot = altDragStartRef.current;
+            window.setTimeout(() => {
+              if (altDragStartRef.current === snapshot) {
+                altDragStartRef.current = null;
+              }
+            }, 0);
             return;
           }
 

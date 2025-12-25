@@ -670,6 +670,28 @@ export const useSelectionTool = ({
       }
       return { type: 'text', id: textClicked };
     } else if (hitResult?.item) {
+      // 图片组块标题（PointText）也应当可点击/拖拽：命中标题时，转而选中对应的组块 Path
+      try {
+        const hitItem: any = hitResult.item;
+        const isPointText =
+          hitItem?.className === 'PointText' ||
+          (paper as any)?.PointText && hitItem instanceof (paper as any).PointText;
+        if (isPointText && hitItem?.data?.type === 'image-group-title' && hitItem?.data?.groupId) {
+          const groupId = String(hitItem.data.groupId);
+          const matches = paper.project.getItems({
+            match: (item: any) => item?.data?.type === 'image-group' && item?.data?.groupId === groupId,
+          }) as paper.Item[];
+          const block = matches.find((item) => item instanceof paper.Path) as paper.Path | undefined;
+          if (block) {
+            clearAllSelections();
+            handlePathSelect(block);
+            setSelectedPaths([block]);
+            logger.debug('命中图片组标题，选中组块:', groupId);
+            return { type: 'path', path: block };
+          }
+        }
+      } catch {}
+
       const isPath = hitResult.item instanceof paper.Path;
       const path = isPath ? (hitResult.item as paper.Path) : null;
       const pathLayer = path?.layer;

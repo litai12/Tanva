@@ -759,6 +759,24 @@ export const useInteractionController = ({
       if (selectionResult?.type === 'image') {
         const clickedImage = latestImageTool.imageInstances.find(img => img.id === selectionResult.id);
         if (clickedImage) {
+          // 若当前已选中图片组块，且点击的图片属于该组，则允许直接从组内图片触发“组拖拽”
+          const selectedGroupImageIds = new Set<string>();
+          let clickedInSelectedGroup = false;
+          try {
+            previouslySelectedPaths.forEach((path) => {
+              if (path?.data?.type !== 'image-group') return;
+              const raw = (path.data as any)?.imageIds;
+              if (!Array.isArray(raw)) return;
+              raw.forEach((id) => {
+                if (typeof id !== 'string') return;
+                const trimmed = id.trim();
+                if (!trimmed) return;
+                selectedGroupImageIds.add(trimmed);
+              });
+            });
+            clickedInSelectedGroup = selectedGroupImageIds.has(selectionResult.id);
+          } catch {}
+
           // 判断是否已有多选：如果当前图片在已选中列表中，使用已选中列表；否则只拖拽当前图片
           const wasAlreadySelected = clickedImage.isSelected;
           const shouldDragExistingSelection =
@@ -773,7 +791,7 @@ export const useInteractionController = ({
 
           // 若复合选择中包含图片组块，则拖拽时需要把组内图片一并移动
           const groupImageIds: string[] = [];
-          if (shouldDragExistingSelection) {
+          if (shouldDragExistingSelection || clickedInSelectedGroup) {
             previouslySelectedPaths.forEach((path) => {
               if (path?.data?.type !== 'image-group') return;
               const raw = (path.data as any)?.imageIds;
@@ -788,6 +806,10 @@ export const useInteractionController = ({
           const dragIdsSet = new Set<string>();
           baseSelectedIds.forEach((id) => dragIdsSet.add(id));
           groupImageIds.forEach((id) => dragIdsSet.add(id));
+          // 组块被选中但图片未选中时：从组内图片开始拖拽，确保能拖动整个组
+          if (clickedInSelectedGroup && selectedGroupImageIds.size > 0) {
+            selectedGroupImageIds.forEach((id) => dragIdsSet.add(id));
+          }
           const selectedIds = Array.from(dragIdsSet);
 
           const boundsMap: Record<string, { x: number; y: number }> = {};

@@ -333,6 +333,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   // 2x2 网格渲染单元
   const renderCell = (idx: number) => {
     const img = images[idx];
+    const thumb = thumbnails[idx];
+    const displaySrc = thumb ? buildImageSrc(thumb) : (img ? buildImageSrc(img) : "");
     // 并发模式：status 是 running 且这张图片还没有生成出来，都显示生成中
     const isGenerating = status === "running" && !img;
     return (
@@ -347,7 +349,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         style={{
           width: "100%",
           aspectRatio: "1 / 1",
-          background: img ? "transparent" : "#f8f9fa",
+          background: displaySrc ? "transparent" : "#f8f9fa",
           borderRadius: 8,
           display: "flex",
           alignItems: "center",
@@ -358,10 +360,13 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         }}
         title={img ? "双击预览" : undefined}
       >
-        {img ? (
+        {displaySrc ? (
           <img
-            src={buildImageSrc(img)}
+            src={displaySrc}
             alt=''
+            loading="lazy"
+            decoding="async"
+            draggable={false}
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (
