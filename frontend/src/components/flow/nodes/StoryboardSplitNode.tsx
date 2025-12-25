@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, NodeResizer, useReactFlow, useStore, type ReactFlowState, type Edge } from 'reactflow';
+import { Handle, Position, NodeResizer, useReactFlow, useStore, useUpdateNodeInternals, type ReactFlowState, type Edge } from 'reactflow';
 
 type Props = {
   id: string;
@@ -105,6 +105,7 @@ function extractSegmentsByMatches(text: string, matches: RegExpMatchArray[]): st
 
 function StoryboardSplitNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
   const edges = useStore((state: ReactFlowState) => state.edges);
   const edgesRef = React.useRef<Edge[]>(edges);
 
@@ -269,6 +270,11 @@ function StoryboardSplitNodeInner({ id, data, selected }: Props) {
 
   const boxW = data.boxW || 320;
   const boxH = data.boxH || 400;
+
+  // 当输出端口数量变化时，强制 React Flow 重新计算句柄位置，确保连线与句柄对齐
+  React.useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, outputCount, boxW, boxH, updateNodeInternals]);
 
   // 一键生成 Prompt 节点并连接
   const handleGeneratePromptNodes = React.useCallback(() => {

@@ -62,6 +62,9 @@ export default function Iridescence({
   ...rest
 }: IridescenceProps) {
   const ctnDom = useRef<HTMLDivElement>(null);
+  const initialColorRef = useRef(color);
+  const initialSpeedRef = useRef(speed);
+  const initialAmplitudeRef = useRef(amplitude);
   const rendererRef = useRef<Renderer | null>(null);
   const programRef = useRef<Program | null>(null);
   const meshRef = useRef<Mesh | null>(null);
@@ -84,7 +87,7 @@ export default function Iridescence({
 
     const resolution = new Color(1, 1, 1);
     const uMouse = new Float32Array([0.5, 0.5]);
-    const uColor = new Color(...color);
+    const uColor = new Color(...initialColorRef.current);
 
     const geometry = new Triangle(gl);
     const program = new Program(gl, {
@@ -95,8 +98,8 @@ export default function Iridescence({
         uColor: { value: uColor },
         uResolution: { value: resolution },
         uMouse: { value: uMouse },
-        uAmplitude: { value: amplitude },
-        uSpeed: { value: speed }
+        uAmplitude: { value: initialAmplitudeRef.current },
+        uSpeed: { value: initialSpeedRef.current }
       }
     });
     const mesh = new Mesh(gl, { geometry, program });
@@ -174,7 +177,15 @@ export default function Iridescence({
       }
 
       geometry.remove();
+      try {
+        gl.detachShader(program.program, program.vertexShader);
+        gl.detachShader(program.program, program.fragmentShader);
+      } catch {}
       program.remove();
+      try {
+        gl.deleteShader(program.vertexShader);
+        gl.deleteShader(program.fragmentShader);
+      } catch {}
       gl.getExtension('WEBGL_lose_context')?.loseContext();
 
       rendererRef.current = null;

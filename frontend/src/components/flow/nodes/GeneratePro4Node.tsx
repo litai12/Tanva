@@ -1,6 +1,6 @@
 import React from "react";
 import { Handle, Position, useReactFlow } from "reactflow";
-import { Play, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon } from "lucide-react";
+import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -48,6 +48,8 @@ type Props = {
 };
 
 const DEFAULT_IMAGE_WIDTH = 340;
+const MIN_IMAGE_WIDTH = 200;
+const MAX_IMAGE_WIDTH = 800;
 
 const buildImageSrc = (value?: string): string => {
   if (!value) return "";
@@ -83,44 +85,51 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
 
   // 检测外部文本连接
   const rf = useReactFlow();
-  const [externalPrompt, setExternalPrompt] = React.useState<string | null>(null);
-  const [externalSourceId, setExternalSourceId] = React.useState<string | null>(null);
+  const [externalPrompts, setExternalPrompts] = React.useState<string[]>([]);
+  const [externalSourceIds, setExternalSourceIds] = React.useState<string[]>([]);
 
-  const refreshExternalPrompt = React.useCallback(() => {
+  const refreshExternalPrompts = React.useCallback(() => {
     const currentEdges = rf.getEdges();
-    const textEdge = currentEdges.find(
-      (e) => e.target === id && e.targetHandle === "text"
-    );
-    if (!textEdge) {
-      setExternalPrompt(null);
-      setExternalSourceId(null);
+    const textEdges = currentEdges.filter((e) => e.target === id && e.targetHandle === "text");
+
+    if (textEdges.length === 0) {
+      setExternalPrompts([]);
+      setExternalSourceIds([]);
       return;
     }
-    setExternalSourceId(textEdge.source);
-    const sourceNode = rf.getNode(textEdge.source);
-    if (!sourceNode) {
-      setExternalPrompt(null);
-      return;
+
+    const sourceIds: string[] = [];
+    const prompts: string[] = [];
+    for (const edge of textEdges) {
+      sourceIds.push(edge.source);
+      const sourceNode = rf.getNode(edge.source);
+      if (!sourceNode) continue;
+      const resolved = resolveTextFromSourceNode(sourceNode, edge.sourceHandle);
+      if (resolved && resolved.trim().length) prompts.push(resolved.trim());
     }
-    const resolved = resolveTextFromSourceNode(
-      sourceNode,
-      textEdge.sourceHandle
-    );
-    setExternalPrompt(
-      resolved && resolved.trim().length ? resolved.trim() : null
-    );
+
+    setExternalSourceIds(sourceIds);
+    setExternalPrompts(prompts);
   }, [id, rf]);
 
   React.useEffect(() => {
-    refreshExternalPrompt();
-  }, [refreshExternalPrompt]);
+    refreshExternalPrompts();
+  }, [refreshExternalPrompts]);
 
   React.useEffect(() => {
-    if (!externalSourceId) return;
+    const handleEdgesChange = () => {
+      refreshExternalPrompts();
+    };
+    window.addEventListener("flow:edgesChange", handleEdgesChange);
+    return () => window.removeEventListener("flow:edgesChange", handleEdgesChange);
+  }, [refreshExternalPrompts]);
+
+  React.useEffect(() => {
+    if (externalSourceIds.length === 0) return;
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string }>).detail;
-      if (!detail?.id || detail.id !== externalSourceId) return;
-      refreshExternalPrompt();
+      if (!detail?.id || !externalSourceIds.includes(detail.id)) return;
+      refreshExternalPrompts();
     };
     window.addEventListener("flow:updateNodeData", handler as EventListener);
     return () =>
@@ -128,7 +137,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         "flow:updateNodeData",
         handler as EventListener
       );
-  }, [externalSourceId, refreshExternalPrompt]);
+  }, [externalSourceIds, refreshExternalPrompts]);
 
   // 图片区域宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;
@@ -151,6 +160,30 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     (index: number, value: string) => {
       const newPrompts = [...prompts];
       newPrompts[index] = value;
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: { id, patch: { prompts: newPrompts } },
+        })
+      );
+    },
+    [id, prompts]
+  );
+
+  // 添加新提示词
+  const addPrompt = React.useCallback(() => {
+    const newPrompts = [...prompts, ""];
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: { id, patch: { prompts: newPrompts } },
+      })
+    );
+  }, [id, prompts]);
+
+  // 删除提示词
+  const removePrompt = React.useCallback(
+    (index: number) => {
+      if (prompts.length <= 1) return;
+      const newPrompts = prompts.filter((_, i) => i !== index);
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
           detail: { id, patch: { prompts: newPrompts } },
@@ -318,6 +351,68 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isAspectMenuOpen]);
+
+  // 角点拖拽调整大小
+  const handleResizeStart = React.useCallback(
+    (corner: string) => (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startWidth = imageWidth;
+      let lastWidth = startWidth;
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+
+        let widthChange = 0;
+        if (corner === "top-left") {
+          widthChange = -Math.max(deltaX, deltaY);
+        } else if (corner === "top-right") {
+          widthChange = Math.max(deltaX, -deltaY);
+        } else if (corner === "bottom-left") {
+          widthChange = Math.max(-deltaX, deltaY);
+        } else if (corner === "bottom-right") {
+          widthChange = Math.max(deltaX, deltaY);
+        }
+
+        const newWidth = Math.max(
+          MIN_IMAGE_WIDTH,
+          Math.min(MAX_IMAGE_WIDTH, startWidth + widthChange)
+        );
+        const incrementalChange = newWidth - lastWidth;
+        lastWidth = newWidth;
+
+        if (incrementalChange === 0) return;
+
+        const positionOffsetX = -incrementalChange / 2;
+        const positionOffsetY = -incrementalChange / 2;
+
+        window.dispatchEvent(
+          new CustomEvent("flow:updateNodeData", {
+            detail: {
+              id,
+              patch: {
+                imageWidth: newWidth,
+                _positionOffset: { x: positionOffsetX, y: positionOffsetY },
+              },
+            },
+          })
+        );
+      };
+
+      const handleMouseUp = () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [imageWidth, id]
+  );
 
   // 预览用集合
   const previewCollection = React.useMemo(
@@ -507,6 +602,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                 left: -5,
                 cursor: "nwse-resize",
               }}
+              onMouseDown={handleResizeStart("top-left")}
             />
             <div
               className='nodrag'
@@ -516,6 +612,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                 right: -5,
                 cursor: "nesw-resize",
               }}
+              onMouseDown={handleResizeStart("top-right")}
             />
             <div
               className='nodrag'
@@ -525,6 +622,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                 left: -5,
                 cursor: "nesw-resize",
               }}
+              onMouseDown={handleResizeStart("bottom-left")}
             />
             <div
               className='nodrag'
@@ -534,6 +632,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
                 right: -5,
                 cursor: "nwse-resize",
               }}
+              onMouseDown={handleResizeStart("bottom-right")}
             />
           </>
         )}
@@ -613,169 +712,253 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         )}
       </div>
 
-      {/* 提示词输入框 */}
-      <div ref={promptBoxRef} style={{ marginTop: 8, position: "relative" }}>
+      {/* 多个提示词输入框 */}
+      {prompts.map((prompt, index) => (
         <div
-          className='nodrag nopan'
-          style={{
-            background: "#fff",
-            borderRadius: 16,
-            border: "1px solid #e5e7eb",
-            padding: "12px 16px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-            position: "relative",
-          }}
+          key={index}
+          ref={index === 0 ? promptBoxRef : undefined}
+          style={{ marginTop: 8, position: "relative" }}
         >
-          {/* 外部连接的提示词显示 */}
-          {externalPrompt && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                gap: 6,
-                marginBottom: 8,
-                padding: "8px 10px",
-                background: "#f0f9ff",
-                borderRadius: 8,
-                border: "1px solid #bae6fd",
-              }}
-            >
-              <Link
+          <div
+            className='group nodrag nopan'
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              border: "1px solid #e5e7eb",
+              padding: "12px 16px",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+              position: "relative",
+            }}
+          >
+            {/* 外部连接的提示词显示（仅第一个输入框展示） */}
+            {index === 0 && externalPrompts.length > 0 && (
+              <div
                 style={{
-                  width: 14,
-                  height: 14,
-                  color: "#0ea5e9",
-                  flexShrink: 0,
-                  marginTop: 2,
-                }}
-              />
-              <span
-                style={{
-                  fontSize: 13,
-                  color: "#0369a1",
-                  lineHeight: 1.4,
-                  wordBreak: "break-word",
-                  maxHeight: 60,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  marginBottom: 8,
                 }}
               >
-                {externalPrompt.length > 100
-                  ? externalPrompt.slice(0, 100) + "..."
-                  : externalPrompt}
-              </span>
-            </div>
-          )}
-          <textarea
-            value={prompts[0] || ""}
-            onChange={(event) => updatePrompt(0, event.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                onRun();
+                {externalPrompts.map((externalPrompt, externalIndex) => (
+                  <div
+                    key={externalIndex}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 6,
+                      padding: "8px 10px",
+                      background: "#f0f9ff",
+                      borderRadius: 8,
+                      border: "1px solid #bae6fd",
+                    }}
+                  >
+                    <Link
+                      style={{
+                        width: 14,
+                        height: 14,
+                        color: "#0ea5e9",
+                        flexShrink: 0,
+                        marginTop: 2,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 13,
+                        color: "#0369a1",
+                        lineHeight: 1.4,
+                        wordBreak: "break-word",
+                        maxHeight: 60,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {externalPrompt.length > 100
+                        ? `${externalPrompt.slice(0, 100)}...`
+                        : externalPrompt}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <textarea
+              className='nodrag nopan nowheel'
+              value={prompt}
+              onChange={(event) => updatePrompt(index, event.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  onRun();
+                }
+              }}
+              placeholder={
+                index === 0
+                  ? externalPrompts.length > 0
+                    ? "输入额外提示词（可选）..."
+                    : "输入提示词..."
+                  : "输入额外提示词（可选）..."
               }
-            }}
-            placeholder={
-              externalPrompt ? "输入额外提示词（可选）..." : "输入提示词..."
-            }
-            rows={2}
-            style={{
-              width: "100%",
-              fontSize: 14,
-              lineHeight: 1.5,
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              resize: "none",
-              color: "#374151",
-            }}
-            onPointerDownCapture={stopNodeDrag}
-            onPointerDown={stopNodeDrag}
-            onMouseDownCapture={stopNodeDrag}
-            onMouseDown={stopNodeDrag}
-            onFocus={() => setIsTextFocused(true)}
-            onBlur={() => setIsTextFocused(false)}
-          />
+              rows={2}
+              style={{
+                width: "100%",
+                fontSize: 14,
+                lineHeight: 1.5,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                resize: "none",
+                color: "#374151",
+                paddingRight: prompts.length > 1 ? 24 : 0,
+              }}
+              onWheelCapture={(event) => {
+                event.stopPropagation();
+                (
+                  event.nativeEvent as Event & {
+                    stopImmediatePropagation?: () => void;
+                  }
+                )?.stopImmediatePropagation?.();
+              }}
+              onPointerDownCapture={(event) => {
+                event.stopPropagation();
+                (
+                  event.nativeEvent as Event & {
+                    stopImmediatePropagation?: () => void;
+                  }
+                )?.stopImmediatePropagation?.();
+              }}
+              onMouseDownCapture={(event) => {
+                event.stopPropagation();
+                (
+                  event.nativeEvent as Event & {
+                    stopImmediatePropagation?: () => void;
+                  }
+                )?.stopImmediatePropagation?.();
+              }}
+              onFocus={() => setIsTextFocused(true)}
+              onBlur={() => setIsTextFocused(false)}
+              disabled={status === "running"}
+            />
+
+            {/* 删除按钮 - 只有多个时显示 */}
+            {prompts.length > 1 && (
+              <button
+                onClick={() => removePrompt(index)}
+                onPointerDownCapture={stopNodeDrag}
+                className='absolute top-2 right-2 w-5 h-5 rounded-full bg-gray-100 hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100'
+                title='删除此提示词'
+              >
+                <X style={{ width: 12, height: 12 }} />
+              </button>
+            )}
+          </div>
+
+          {/* 第一个提示词框的 Handle */}
+          {index === 0 && (
+            <>
+              <Handle
+                type='target'
+                position={Position.Left}
+                id='text'
+                style={{
+                  top: "50%",
+                  left: -12,
+                  width: 8,
+                  height: 8,
+                  background: "#6b7280",
+                  border: "2px solid #fff",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }}
+                onMouseEnter={() => setHover("text-in")}
+                onMouseLeave={() => setHover(null)}
+              />
+              <Handle
+                type='source'
+                position={Position.Right}
+                id='text'
+                style={{
+                  top: "50%",
+                  right: -12,
+                  width: 8,
+                  height: 8,
+                  background: "#6b7280",
+                  border: "2px solid #fff",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }}
+                onMouseEnter={() => setHover("text-out")}
+                onMouseLeave={() => setHover(null)}
+              />
+
+              {hover === "text-in" && (
+                <div
+                  className='flow-tooltip'
+                  style={{
+                    position: "absolute",
+                    left: -16,
+                    top: "50%",
+                    transform: "translate(-100%, -50%)",
+                    zIndex: 10,
+                  }}
+                >
+                  prompt
+                </div>
+              )}
+              {hover === "text-out" && (
+                <div
+                  className='flow-tooltip'
+                  style={{
+                    position: "absolute",
+                    right: -16,
+                    top: "50%",
+                    transform: "translate(100%, -50%)",
+                    zIndex: 10,
+                  }}
+                >
+                  prompt
+                </div>
+              )}
+            </>
+          )}
         </div>
+      ))}
 
-        {/* 左侧文本输入 Handle - 放在提示词框中间 */}
-        <Handle
-          type='target'
-          position={Position.Left}
-          id='text'
-          style={{
-            top: "50%",
-            left: -12,
-            width: 8,
-            height: 8,
-            background: "#6b7280",
-            border: "2px solid #fff",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-          }}
-          onMouseEnter={() => setHover("text-in")}
-          onMouseLeave={() => setHover(null)}
-        />
-
-        {/* 右侧文本输出 Handle - 放在提示词框中间 */}
-        <Handle
-          type='source'
-          position={Position.Right}
-          id='text'
-          style={{
-            top: "50%",
-            right: -12,
-            width: 8,
-            height: 8,
-            background: "#6b7280",
-            border: "2px solid #fff",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-          }}
-          onMouseEnter={() => setHover("text-out")}
-          onMouseLeave={() => setHover(null)}
-        />
-
-        {/* Handle 提示 - 文本 */}
-        {hover === "text-in" && (
-          <div
-            className='flow-tooltip'
-            style={{
-              position: "absolute",
-              left: -16,
-              top: "50%",
-              transform: "translate(-100%, -50%)",
-              zIndex: 10,
-            }}
-          >
-            prompt
-          </div>
-        )}
-        {hover === "text-out" && (
-          <div
-            className='flow-tooltip'
-            style={{
-              position: "absolute",
-              right: -16,
-              top: "50%",
-              transform: "translate(100%, -50%)",
-              zIndex: 10,
-            }}
-          >
-            prompt
-          </div>
-        )}
-      </div>
-
-      {/* 选中或文字聚焦时显示按钮组 */}
+      {/* 选中或文字聚焦时显示：添加提示词按钮和按钮组 */}
       {(selected || isTextFocused) && (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 8,
-            marginTop: 8,
-          }}
-        >
+        <>
+          {/* 添加提示词按钮 */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              marginTop: 4,
+              marginBottom: 4,
+            }}
+          >
+            <button
+              onClick={addPrompt}
+              onPointerDownCapture={stopNodeDrag}
+              className='text-gray-400 hover:text-gray-600 flex items-center justify-center transition-colors cursor-pointer'
+              title='添加提示词'
+              style={{
+                padding: 0,
+                background: "transparent",
+                border: "none",
+              }}
+            >
+              <Plus style={{ width: 12, height: 12 }} />
+            </button>
+          </div>
+
+          {/* 按钮组 */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 8,
+              marginTop: 8,
+            }}
+          >
           <div className='inline-flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
             {/* 长宽比选择按钮 - 仅 Pro 模式显示 */}
             {isProMode && (
@@ -899,7 +1082,8 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               ))}
             </div>
           )}
-        </div>
+          </div>
+        </>
       )}
 
       {/* 状态和错误信息 */}

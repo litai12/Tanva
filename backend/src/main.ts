@@ -36,7 +36,7 @@ async function bootstrap() {
     AppModule,
     new FastifyAdapter({
       logger: true,
-      bodyLimit: 50 * 1024 * 1024, // 50MB，放宽项目内容请求体大小
+      bodyLimit: 200 * 1024 * 1024, // 200MB，放宽项目内容请求体大小
     }),
   );
 

@@ -2,7 +2,15 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, TrendingUp, TrendingDown, Activity, Zap, Calendar, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getMyCredits, getMyTransactions, getMyApiUsage, type UserCreditsInfo } from '@/services/adminApi';
+import {
+  claimDailyReward,
+  getDailyRewardStatus,
+  getMyApiUsage,
+  getMyCredits,
+  getMyTransactions,
+  type DailyRewardStatus,
+  type UserCreditsInfo,
+} from '@/services/adminApi';
 import { cn } from '@/lib/utils';
 
 interface Transaction {
@@ -95,14 +103,17 @@ const MyCredits: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [apiUsage, setApiUsage] = useState<ApiUsageRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dailyRewardStatus, setDailyRewardStatus] = useState<DailyRewardStatus | null>(null);
+  const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
+  const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions' | 'usage'>('overview');
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (showLoading: boolean = true) => {
+    if (showLoading) setLoading(true);
     try {
       const [creditsData, transactionsData, usageData] = await Promise.all([
         getMyCredits(),
@@ -116,7 +127,38 @@ const MyCredits: React.FC = () => {
     } catch (error) {
       console.error('Failed to load credits data:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
+    }
+
+    setDailyRewardLoading(true);
+    try {
+      const status = await getDailyRewardStatus();
+      setDailyRewardStatus(status);
+    } catch (error) {
+      console.warn('Failed to load daily reward status:', error);
+    } finally {
+      setDailyRewardLoading(false);
+    }
+  };
+
+  const handleClaimDailyReward = async () => {
+    if (dailyRewardClaiming) return;
+    setDailyRewardClaiming(true);
+    try {
+      const result = await claimDailyReward();
+      if (result.success) {
+        alert('领取成功：已发放每日登录奖励');
+      } else if (result.alreadyClaimed) {
+        alert('今日奖励已领取');
+      } else {
+        alert('领取失败，请稍后重试');
+      }
+    } catch (error: any) {
+      console.error('Failed to claim daily reward:', error);
+      alert(error?.message || '领取失败，请稍后重试');
+    } finally {
+      setDailyRewardClaiming(false);
+      loadData(false);
     }
   };
 
@@ -214,7 +256,7 @@ const MyCredits: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={loadData}
+            onClick={() => loadData()}
             className="h-9 w-9 p-0 rounded-full"
           >
             <RefreshCw className="h-4 w-4" />
@@ -230,8 +272,33 @@ const MyCredits: React.FC = () => {
               <div className="text-blue-100 text-sm mb-1">可用积分</div>
               <div className="text-5xl font-bold">{credits?.balance || 0}</div>
             </div>
-            <div className="bg-white/20 rounded-2xl p-3">
-              <Zap className="h-8 w-8" />
+            <div className="flex flex-col items-end gap-3">
+              <div className="bg-white/20 rounded-2xl p-3">
+                <Zap className="h-8 w-8" />
+              </div>
+              <Button
+                variant="outline"
+                size="md"
+                className={cn(
+                  "h-9 px-4 rounded-full border-white/30 bg-white/15 text-white hover:bg-white/25",
+                  dailyRewardStatus?.canClaim === false && "opacity-80"
+                )}
+                disabled={
+                  dailyRewardLoading ||
+                  dailyRewardClaiming ||
+                  dailyRewardStatus?.canClaim === false
+                }
+                onClick={handleClaimDailyReward}
+                title={dailyRewardStatus?.lastClaimAt ? `上次领取：${new Date(dailyRewardStatus.lastClaimAt).toLocaleString('zh-CN')}` : undefined}
+              >
+                {dailyRewardLoading
+                  ? '加载中...'
+                  : dailyRewardClaiming
+                    ? '领取中...'
+                    : dailyRewardStatus?.canClaim === false
+                      ? '今日已领'
+                      : '领取奖励'}
+              </Button>
             </div>
           </div>
           <div className="mt-6 grid grid-cols-3 gap-4">

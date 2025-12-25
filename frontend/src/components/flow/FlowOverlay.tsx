@@ -648,8 +648,25 @@ function FlowInner() {
 
       if (posChange) {
         const base = altState.startPositions.get(posChange.id);
-        const dx = (posChange.position?.x ?? base.x) - base.x;
-        const dy = (posChange.position?.y ?? base.y) - base.y;
+        const baseAbs = altState.startAbsPositions?.get?.(posChange.id);
+        const hasPosition = typeof posChange.position !== 'undefined' || typeof posChange.positionAbsolute !== 'undefined';
+        if (!base) {
+          onNodesChange(changes);
+          return;
+        }
+
+        // ReactFlow 在 dragStop 会再派发一次 position(dragging:false)，但不带 position/positionAbsolute；
+        // 这里不要把 dx/dy 误算成 0 导致副本回弹，只更新 dragging 标记即可。
+        const dx = typeof posChange.position !== 'undefined'
+          ? (posChange.position.x - base.x)
+          : (typeof posChange.positionAbsolute !== 'undefined' && baseAbs
+            ? (posChange.positionAbsolute.x - baseAbs.x)
+            : 0);
+        const dy = typeof posChange.position !== 'undefined'
+          ? (posChange.position.y - base.y)
+          : (typeof posChange.positionAbsolute !== 'undefined' && baseAbs
+            ? (posChange.positionAbsolute.y - baseAbs.y)
+            : 0);
         const dragging = !!posChange.dragging;
 
         const remapped: any[] = [];
@@ -661,19 +678,23 @@ function FlowInner() {
         // 对参与复制的所有节点应用相同 delta：副本移动，原节点回位
         for (const [origId, cloneId] of altState.idMap.entries()) {
           const startPos = altState.startPositions.get(origId);
+          const startAbs = altState.startAbsPositions?.get?.(origId);
           if (!startPos) continue;
-          remapped.push({
-            ...posChange,
-            id: cloneId,
-            position: { x: startPos.x + dx, y: startPos.y + dy },
-            dragging,
-          });
-          remapped.push({
-            ...posChange,
-            id: origId,
-            position: { x: startPos.x, y: startPos.y },
-            dragging: false,
-          });
+          const cloneChange: any = { id: cloneId, type: 'position', dragging };
+          const origChange: any = { id: origId, type: 'position', dragging: false };
+
+          if (hasPosition) {
+            cloneChange.position = { x: startPos.x + dx, y: startPos.y + dy };
+            origChange.position = { x: startPos.x, y: startPos.y };
+
+            if (startAbs) {
+              cloneChange.positionAbsolute = { x: startAbs.x + dx, y: startAbs.y + dy };
+              origChange.positionAbsolute = { x: startAbs.x, y: startAbs.y };
+            }
+          }
+
+          remapped.push(cloneChange);
+          remapped.push(origChange);
         }
         onNodesChange(remapped);
         // Alt+拖拽复制的历史提交由 onNodeDragStop 统一处理，避免重复 commit
@@ -1902,18 +1923,18 @@ function FlowInner() {
     // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
     if (targetNode.type === 'generateRef') {
       if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
-      if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
-      if (targetHandle === 'image2' || targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'image2' || targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'generate' || targetNode.type === 'generate4' || targetNode.type === 'generatePro' || targetNode.type === 'generatePro4') {
       if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
-      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'sora2Video') {
       if (targetHandle === 'image') {
-        return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+        return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       }
       if (targetHandle === 'text') {
         return textSourceTypes.includes(sourceNode.type || '');
@@ -1926,7 +1947,7 @@ function FlowInner() {
         return textSourceTypes.includes(sourceNode.type || '');
       }
       if (targetHandle === 'image') {
-        return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+        return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       }
       return false;
     }
@@ -1943,7 +1964,7 @@ function FlowInner() {
     }
 
     if (targetNode.type === 'image') {
-      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'promptOptimize') {
@@ -2106,11 +2127,16 @@ function FlowInner() {
         const src = rf.getNode(params.source);
         let img: string | undefined;
         let incomingImageName: string | undefined;
+        let incomingThumbnail: string | undefined;
         if (src?.type === 'generate4' || src?.type === 'generatePro4') {
           const handle = (params as any).sourceHandle as string | undefined;
           const idx = handle && handle.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
           const imgs = (src.data as any)?.images as string[] | undefined;
           img = imgs?.[idx];
+          const thumbs = (src.data as any)?.thumbnails as string[] | undefined;
+          if (Array.isArray(thumbs)) {
+            incomingThumbnail = thumbs[idx];
+          }
           const imageNames = (src.data as any)?.imageNames as string[] | undefined;
           if (Array.isArray(imageNames)) {
             incomingImageName = imageNames[idx];
@@ -2119,13 +2145,18 @@ function FlowInner() {
             // 回退到 imageData（若实现了镜像）
             img = (src.data as any)?.imageData;
             incomingImageName = incomingImageName ?? (src.data as any)?.imageName;
+            incomingThumbnail = incomingThumbnail ?? (src.data as any)?.thumbnail;
           }
         } else {
           img = (src?.data as any)?.imageData;
           incomingImageName = (src?.data as any)?.imageName;
+          incomingThumbnail = (src?.data as any)?.thumbnail;
         }
         const normalizedIncomingName = typeof incomingImageName === 'string'
           ? incomingImageName.trim()
+          : '';
+        const normalizedIncomingThumbnail = typeof incomingThumbnail === 'string'
+          ? incomingThumbnail.trim()
           : '';
         if (img) {
           setNodes(ns => ns.map(n => {
@@ -2133,16 +2164,36 @@ function FlowInner() {
             const resetStatus = target.type === 'analysis'
               ? { status: 'idle', error: undefined, prompt: '', text: '' }
               : {};
+            const thumbPatch = target.type === 'image'
+              ? { thumbnail: normalizedIncomingThumbnail || undefined }
+              : {};
             return {
               ...n,
               data: {
                 ...n.data,
                 imageData: img,
                 imageName: normalizedIncomingName || undefined,
+                ...thumbPatch,
                 ...resetStatus
               }
             };
           }));
+
+          // 若目标是 Image 且没有可用缩略图，异步生成缩略图（用于节点渲染性能）
+          if (target.type === 'image' && !normalizedIncomingThumbnail) {
+            generateThumbnail(img, 400)
+              .then((thumbnail) => {
+                if (!thumbnail) return;
+                setNodes((ns) =>
+                  ns.map((n) => {
+                    if (n.id !== target.id) return n;
+                    if ((n.data as any)?.imageData !== img) return n;
+                    return { ...n, data: { ...n.data, thumbnail } };
+                  })
+                );
+              })
+              .catch(() => {});
+          }
         }
       }
     } catch {}
@@ -2158,6 +2209,9 @@ function FlowInner() {
       // 处理位置偏移（用于中心点缩放）
       const positionOffset = detail.patch?._positionOffset;
 
+      let shouldAutoGenerateThumbnail = false;
+      let thumbnailSourceImageData: string | undefined;
+
       setNodes((ns) => ns.map((n) => {
         if (n.id !== detail.id) return n;
         const patch = { ...(detail.patch || {}) };
@@ -2168,6 +2222,23 @@ function FlowInner() {
         if (Object.prototype.hasOwnProperty.call(patch, 'imageData') &&
             !Object.prototype.hasOwnProperty.call(patch, 'imageName')) {
           patch.imageName = undefined;
+        }
+        // imageData 清空时一并清理 thumbnail，避免大字符串残留
+        if (Object.prototype.hasOwnProperty.call(patch, 'imageData') && !patch.imageData) {
+          patch.thumbnail = undefined;
+        }
+
+        // 图片节点：若写入 imageData 但未提供 thumbnail，异步生成缩略图
+        if (
+          Object.prototype.hasOwnProperty.call(patch, 'imageData') &&
+          patch.imageData &&
+          !Object.prototype.hasOwnProperty.call(patch, 'thumbnail') &&
+          (n.type === 'image' || n.type === 'imagePro')
+        ) {
+          // 先清掉旧 thumbnail，避免显示旧缩略图与新 imageData 不一致
+          patch.thumbnail = undefined;
+          shouldAutoGenerateThumbnail = true;
+          thumbnailSourceImageData = patch.imageData;
         }
 
         // 如果有位置偏移，同时更新节点位置
@@ -2184,6 +2255,21 @@ function FlowInner() {
       // 若目标是 Image 且设置了 imageData 为空，自动断开输入连线
       if (Object.prototype.hasOwnProperty.call(detail.patch, 'imageData') && !detail.patch.imageData) {
         setEdges(eds => eds.filter(e => !(e.target === detail.id && e.targetHandle === 'img')));
+      }
+
+      if (shouldAutoGenerateThumbnail && thumbnailSourceImageData) {
+        generateThumbnail(thumbnailSourceImageData, 400)
+          .then((thumbnail) => {
+            if (!thumbnail) return;
+            setNodes((ns) =>
+              ns.map((n) => {
+                if (n.id !== detail.id) return n;
+                if ((n.data as any)?.imageData !== thumbnailSourceImageData) return n;
+                return { ...n, data: { ...n.data, thumbnail } };
+              })
+            );
+          })
+          .catch(() => {});
       }
     };
     window.addEventListener('flow:updateNodeData', handler as EventListener);
@@ -2271,6 +2357,10 @@ function FlowInner() {
         },
         selected: true,
       } as any]));
+      generateThumbnail(detail.imageData, 400).then((thumbnail) => {
+        if (!thumbnail) return;
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, thumbnail } } : n));
+      }).catch(() => {});
       try {
         historyService.commit('flow-create-image-from-canvas').catch(() => {});
       } catch {}
@@ -2319,6 +2409,22 @@ function FlowInner() {
       if (!promptNode) return { text: '', hasEdge: true };
       const resolved = resolveTextFromSourceNode(promptNode, textEdge.sourceHandle);
       return { text: resolved?.trim() || '', hasEdge: true };
+    };
+
+    const getTextPromptsForNode = (targetId: string) => {
+      const textEdges = currentEdges.filter(e => e.target === targetId && e.targetHandle === 'text');
+      if (!textEdges.length) return { texts: [] as string[], hasEdge: false };
+
+      const texts: string[] = [];
+      for (const edge of textEdges) {
+        const promptNode = rf.getNode(edge.source);
+        if (!promptNode) continue;
+        const resolved = resolveTextFromSourceNode(promptNode, edge.sourceHandle);
+        const trimmed = resolved?.trim() || '';
+        if (trimmed) texts.push(trimmed);
+      }
+
+      return { texts, hasEdge: true };
     };
 
     // Wan2.6 节点处理逻辑
@@ -2653,6 +2759,7 @@ function FlowInner() {
     ) return;
 
     const { text: promptFromText, hasEdge: hasPromptEdge } = getTextPromptForNode(nodeId);
+    const { texts: promptsFromTextEdges } = getTextPromptsForNode(nodeId);
 
     const failWithMessage = (message: string) => {
       setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: message } } : n));
@@ -2680,10 +2787,10 @@ function FlowInner() {
         }
         return [];
       })();
-      const externalPrompt = promptFromText.trim();
+      const externalPrompts = promptsFromTextEdges;
 
       // 合并：外部提示词 + 本地提示词数组（依次叠加）
-      const allPrompts = [externalPrompt, ...localPrompts].filter(Boolean);
+      const allPrompts = [...externalPrompts, ...localPrompts].filter(Boolean);
       prompt = allPrompts.join(' ').trim();
 
       if (!prompt.length) {
@@ -2817,7 +2924,7 @@ function FlowInner() {
             setNodes(ns => ns.map(n => {
               const hits = outs.filter(e => e.target === n.id);
               if (!hits.length) return n;
-              if (n.type === 'image' && imgB64) return { ...n, data: { ...n.data, imageData: imgB64 } };
+              if (n.type === 'image' && imgB64) return { ...n, data: { ...n.data, imageData: imgB64, thumbnail: undefined } };
               return n;
             }));
           }
@@ -2840,10 +2947,29 @@ function FlowInner() {
       // 为 generate4 节点异步生成缩略图
       if (hasAny) {
         Promise.all(produced.map(img => img ? generateThumbnail(img, 200) : Promise.resolve(null)))
-          .then(thumbs => {
+          .then((thumbs) => {
             const thumbnails = thumbs.map(t => t || '');
-            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, thumbnails } } : n));
-          }).catch(() => {});
+            const outEdges = rf.getEdges().filter(e => e.source === nodeId);
+            const thumbByTarget = new Map<string, { thumbnail: string; imageData?: string }>();
+            for (const edge of outEdges) {
+              const handle = (edge as any).sourceHandle as string | undefined;
+              const idx = handle && handle.startsWith('img')
+                ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
+                : 0;
+              const thumb = thumbnails[idx];
+              if (!thumb) continue;
+              thumbByTarget.set(edge.target, { thumbnail: thumb, imageData: produced[idx] });
+            }
+            setNodes(ns => ns.map(n => {
+              if (n.id === nodeId) return { ...n, data: { ...n.data, thumbnails } };
+              const hit = thumbByTarget.get(n.id);
+              if (!hit) return n;
+              if (n.type !== 'image') return n;
+              if (hit.imageData && (n.data as any)?.imageData !== hit.imageData) return n;
+              return { ...n, data: { ...n.data, thumbnail: hit.thumbnail } };
+            }));
+          })
+          .catch(() => {});
       }
       return;
     }
@@ -2927,7 +3053,7 @@ function FlowInner() {
               setNodes(ns => ns.map(n => {
                 const hits = outs.filter(e => e.target === n.id);
                 if (!hits.length) return n;
-                if (n.type === 'image' && imgB64) return { ...n, data: { ...n.data, imageData: imgB64 } };
+                if (n.type === 'image' && imgB64) return { ...n, data: { ...n.data, imageData: imgB64, thumbnail: undefined } };
                 return n;
               }));
             }
@@ -2953,10 +3079,29 @@ function FlowInner() {
       // 为 generatePro4 节点异步生成缩略图
       if (hasAny) {
         Promise.all(produced.map(img => img ? generateThumbnail(img, 200) : Promise.resolve(null)))
-          .then(thumbs => {
+          .then((thumbs) => {
             const thumbnails = thumbs.map(t => t || '');
-            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, thumbnails } } : n));
-          }).catch(() => {});
+            const outEdges = rf.getEdges().filter(e => e.source === nodeId);
+            const thumbByTarget = new Map<string, { thumbnail: string; imageData?: string }>();
+            for (const edge of outEdges) {
+              const handle = (edge as any).sourceHandle as string | undefined;
+              const idx = handle && handle.startsWith('img')
+                ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
+                : 0;
+              const thumb = thumbnails[idx];
+              if (!thumb) continue;
+              thumbByTarget.set(edge.target, { thumbnail: thumb, imageData: produced[idx] });
+            }
+            setNodes(ns => ns.map(n => {
+              if (n.id === nodeId) return { ...n, data: { ...n.data, thumbnails } };
+              const hit = thumbByTarget.get(n.id);
+              if (!hit) return n;
+              if (n.type !== 'image') return n;
+              if (hit.imageData && (n.data as any)?.imageData !== hit.imageData) return n;
+              return { ...n, data: { ...n.data, thumbnail: hit.thumbnail } };
+            }));
+          })
+          .catch(() => {});
       }
       return;
     }
@@ -3020,11 +3165,28 @@ function FlowInner() {
 
       // 为单图节点异步生成缩略图
       if (imgBase64 && ['generatePro', 'generate', 'generateRef'].includes(node.type || '')) {
-        generateThumbnail(imgBase64, 400).then(thumbnail => {
-          if (thumbnail) {
-            setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, thumbnail } } : n));
-          }
-        }).catch(() => {});
+        const imageDataForThumb = imgBase64;
+        generateThumbnail(imageDataForThumb, 400)
+          .then((thumbnail) => {
+            if (!thumbnail) return;
+            const outTargets = new Set(
+              rf.getEdges().filter(e => e.source === nodeId).map(e => e.target)
+            );
+            setNodes(ns => ns.map(n => {
+              // 更新当前生成节点自身
+              if (n.id === nodeId) {
+                if ((n.data as any)?.imageData !== imageDataForThumb) return n;
+                return { ...n, data: { ...n.data, thumbnail } };
+              }
+              // 同步更新下游 Image 节点的缩略图（避免 Image 节点直接渲染大图）
+              if (outTargets.has(n.id) && n.type === 'image') {
+                if ((n.data as any)?.imageData !== imageDataForThumb) return n;
+                return { ...n, data: { ...n.data, thumbnail } };
+              }
+              return n;
+            }));
+          })
+          .catch(() => {});
       }
 
       if (imgBase64) {
@@ -3033,7 +3195,7 @@ function FlowInner() {
           setNodes(ns => ns.map(n => {
             const hits = outs.filter(e => e.target === n.id);
             if (!hits.length) return n;
-            if (n.type === 'image') return { ...n, data: { ...n.data, imageData: imgBase64 } };
+            if (n.type === 'image') return { ...n, data: { ...n.data, imageData: imgBase64, thumbnail: undefined } };
             return n;
           }));
         }
@@ -3574,9 +3736,14 @@ function FlowInner() {
 
             if (selectedNodes.length > 0) {
               const startPositions = new Map<string, { x: number; y: number }>();
+              const startAbsPositions = new Map<string, { x: number; y: number }>();
               const idMap = new Map<string, string>();
               const clonedNodes = selectedNodes.map((n: any) => {
                 startPositions.set(n.id, { x: n.position.x, y: n.position.y });
+                startAbsPositions.set(n.id, {
+                  x: (n as any).positionAbsolute?.x ?? n.position.x,
+                  y: (n as any).positionAbsolute?.y ?? n.position.y,
+                });
                 const newId = generateId(n.type || 'n');
                 idMap.set(n.id, newId);
                 const rawData = { ...(n.data || {}) };
@@ -3629,7 +3796,7 @@ function FlowInner() {
               }
 
               // 记录已创建副本，用于在 dragStop 时提交历史
-              altDragStartRef.current = { nodeId: node.id, altPressed: true, startPositions, idMap, cloned: true };
+              altDragStartRef.current = { nodeId: node.id, altPressed: true, startPositions, startAbsPositions, idMap, cloned: true };
             } else {
               altDragStartRef.current = null;
             }

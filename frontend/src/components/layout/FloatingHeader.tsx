@@ -52,7 +52,13 @@ import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { authApi, type GoogleApiKeyInfo } from '@/services/authApi';
-import { getMyCredits, type UserCreditsInfo } from '@/services/adminApi';
+import {
+    claimDailyReward,
+    getDailyRewardStatus,
+    getMyCredits,
+    type DailyRewardStatus,
+    type UserCreditsInfo,
+} from '@/services/adminApi';
 
 const SETTINGS_SECTIONS = [
     { id: 'workspace', label: '工作区', icon: Square },
@@ -146,6 +152,9 @@ const FloatingHeader: React.FC = () => {
     // 用户积分状态
     const [creditsInfo, setCreditsInfo] = useState<UserCreditsInfo | null>(null);
     const [creditsLoading, setCreditsLoading] = useState(false);
+    const [dailyRewardStatus, setDailyRewardStatus] = useState<DailyRewardStatus | null>(null);
+    const [dailyRewardLoading, setDailyRewardLoading] = useState(false);
+    const [dailyRewardClaiming, setDailyRewardClaiming] = useState(false);
 
     // 清理 Google API Key 反馈计时器
     useEffect(() => () => {
@@ -396,12 +405,71 @@ const FloatingHeader: React.FC = () => {
     // 加载用户积分信息
     useEffect(() => {
         if (!user) return;
+        let canceled = false;
         setCreditsLoading(true);
-        getMyCredits()
-            .then(setCreditsInfo)
-            .catch(console.warn)
-            .finally(() => setCreditsLoading(false));
+        setDailyRewardLoading(true);
+        Promise.allSettled([getMyCredits(), getDailyRewardStatus()])
+            .then(([creditsResult, dailyRewardResult]) => {
+                if (canceled) return;
+                if (creditsResult.status === 'fulfilled') setCreditsInfo(creditsResult.value);
+                else console.warn(creditsResult.reason);
+                if (dailyRewardResult.status === 'fulfilled') setDailyRewardStatus(dailyRewardResult.value);
+                else console.warn(dailyRewardResult.reason);
+            })
+            .finally(() => {
+                if (canceled) return;
+                setCreditsLoading(false);
+                setDailyRewardLoading(false);
+            });
+        return () => {
+            canceled = true;
+        };
     }, [user]);
+
+    const refreshCreditsAndDailyReward = useCallback(async () => {
+        if (!user) return;
+        setCreditsLoading(true);
+        setDailyRewardLoading(true);
+        try {
+            const [creditsResult, dailyRewardResult] = await Promise.allSettled([
+                getMyCredits(),
+                getDailyRewardStatus(),
+            ]);
+            if (creditsResult.status === 'fulfilled') setCreditsInfo(creditsResult.value);
+            else console.warn(creditsResult.reason);
+            if (dailyRewardResult.status === 'fulfilled') setDailyRewardStatus(dailyRewardResult.value);
+            else console.warn(dailyRewardResult.reason);
+        } finally {
+            setCreditsLoading(false);
+            setDailyRewardLoading(false);
+        }
+    }, [user]);
+
+    useEffect(() => {
+        if (!isSettingsOpen || !user) return;
+        refreshCreditsAndDailyReward();
+    }, [isSettingsOpen, refreshCreditsAndDailyReward, user]);
+
+    const handleClaimDailyReward = useCallback(async () => {
+        if (!user || dailyRewardClaiming) return;
+        setDailyRewardClaiming(true);
+        try {
+            const result = await claimDailyReward();
+            if (result.success) {
+                alert('领取成功：已发放每日登录奖励');
+            } else if (result.alreadyClaimed) {
+                alert('今日奖励已领取');
+            } else {
+                alert('领取失败，请稍后重试');
+            }
+        } catch (e: any) {
+            console.error('Failed to claim daily reward:', e);
+            alert(e?.message || '领取失败，请稍后重试');
+        } finally {
+            setDailyRewardClaiming(false);
+            refreshCreditsAndDailyReward();
+        }
+    }, [dailyRewardClaiming, refreshCreditsAndDailyReward, user]);
 
     const displayName = user?.name || user?.phone?.slice(-4) || user?.email || user?.id?.slice(-4) || '用户';
     const secondaryId = user?.email || (user?.phone ? `${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : '') || '';
@@ -484,17 +552,47 @@ const FloatingHeader: React.FC = () => {
                                     <Sparkles className="h-4 w-4 text-blue-600" />
                                     <span className="text-sm font-medium text-slate-700">我的积分</span>
                                 </div>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-2 text-xs text-gray-800 hover:text-gray-900 hover:bg-gray-800/10"
-                                    onClick={() => {
-                                        setIsSettingsOpen(false);
-                                        window.open('/my-credits', '_blank');
-                                    }}
-                                >
-                                    详情
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant={dailyRewardStatus?.canClaim === false ? "outline" : "default"}
+                                        size="sm"
+                                        className={cn(
+                                            "h-7 px-2 text-xs",
+                                            dailyRewardStatus?.canClaim === false
+                                                ? "text-slate-600 border-slate-300 bg-white/70 hover:bg-white"
+                                                : "bg-blue-600 hover:bg-blue-700 text-white"
+                                        )}
+                                        disabled={
+                                            !user ||
+                                            dailyRewardLoading ||
+                                            dailyRewardClaiming ||
+                                            dailyRewardStatus?.canClaim === false
+                                        }
+                                        onClick={handleClaimDailyReward}
+                                        title={dailyRewardStatus?.lastClaimAt ? `上次领取：${new Date(dailyRewardStatus.lastClaimAt).toLocaleString('zh-CN')}` : undefined}
+                                    >
+                                        {!user
+                                            ? '登录后领取'
+                                            : dailyRewardLoading
+                                            ? '加载中...'
+                                            : dailyRewardClaiming
+                                                ? '领取中...'
+                                                : dailyRewardStatus?.canClaim === false
+                                                    ? '今日已领'
+                                                    : '领取奖励'}
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs text-gray-800 hover:text-gray-900 hover:bg-gray-800/10"
+                                        onClick={() => {
+                                            setIsSettingsOpen(false);
+                                            window.open('/my-credits', '_blank');
+                                        }}
+                                    >
+                                        详情
+                                    </Button>
+                                </div>
                             </div>
                             {creditsLoading ? (
                                 <div className="text-xs text-slate-500">加载中...</div>

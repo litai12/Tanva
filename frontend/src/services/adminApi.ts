@@ -361,6 +361,30 @@ export async function getMyApiUsage(params?: {
   return response.json();
 }
 
+export interface DailyRewardStatus {
+  canClaim: boolean;
+  lastClaimAt: string | null;
+}
+
+export interface ClaimDailyRewardResult {
+  success: boolean;
+  newBalance: number;
+  transactionId: string;
+  alreadyClaimed?: boolean;
+}
+
+export async function getDailyRewardStatus(): Promise<DailyRewardStatus> {
+  const response = await request("/api/credits/daily-reward/status");
+  return response.json();
+}
+
+export async function claimDailyReward(): Promise<ClaimDailyRewardResult> {
+  const response = await request("/api/credits/daily-reward/claim", {
+    method: "POST",
+  });
+  return response.json();
+}
+
 // ==================== 系统设置 ====================
 
 export interface SystemSetting {
