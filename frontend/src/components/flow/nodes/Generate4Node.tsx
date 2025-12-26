@@ -318,9 +318,6 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         {Array.from({ length: 4 }).map((_, i) => renderCell(i))}
       </div>
 
-      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
-        Status: {status || "idle"}
-      </div>
       {status === "failed" && error && (
         <div
           style={{

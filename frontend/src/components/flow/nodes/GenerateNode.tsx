@@ -333,9 +333,6 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           <span style={{ fontSize: 12, color: "#9ca3af" }}>等待生成</span>
         )}
       </div>
-      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
-        Status: {status || "idle"}
-      </div>
       <GenerationProgressBar status={status} />
       {status === "failed" && error && (
         <div

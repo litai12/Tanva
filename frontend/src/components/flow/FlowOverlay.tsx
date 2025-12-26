@@ -45,7 +45,9 @@ import StoryboardSplitNode from './nodes/StoryboardSplitNode';
 import GenerateProNode from './nodes/GenerateProNode';
 import GeneratePro4Node from './nodes/GeneratePro4Node';
 import ImageProNode from './nodes/ImageProNode';
+import MidjourneyNode from './nodes/MidjourneyNode';
 import { generateThumbnail } from '@/utils/imageHelper';
+import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useFlowStore, FlowBackgroundVariant } from '@/stores/flowStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useUIStore } from '@/stores';
@@ -54,7 +56,7 @@ import type { Sora2VideoQuality } from '@/stores/aiChatStore';
 import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
-import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI, generateWan26ViaAPI, generateWan26R2VViaAPI } from '@/services/aiBackendAPI';
+import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI, generateWan26ViaAPI, generateWan26R2VViaAPI, midjourneyActionViaAPI } from '@/services/aiBackendAPI';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -104,6 +106,7 @@ const nodeTypes = {
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
   storyboardSplit: StoryboardSplitNode,
+  midjourney: MidjourneyNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -247,6 +250,7 @@ const NODE_PALETTE_ITEMS = [
   { key: 'generate', zh: '生成节点', en: 'Generate Node' },
   { key: 'generateRef', zh: '参考图生成节点', en: 'Generate Refer' },
   { key: 'generate4', zh: '生成多张图片节点', en: 'Multi Generate' },
+  { key: 'midjourney', zh: 'Midjourney生成', en: 'Midjourney' },
   { key: 'three', zh: '三维节点', en: '3D Node' },
   { key: 'sora2Video', zh: '视频生成节点', en: 'Sora2 Video' },
   { key: 'wan26', zh: 'Wan2.6生成视频', en: 'Wan2.6 Video' },
@@ -1848,7 +1852,7 @@ function FlowInner() {
     return () => window.removeEventListener('dblclick', onNativeDblClick, true);
   }, [openAddPanelAt, isBlankArea]);
 
-  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'imagePro' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'wan26' | 'wan2R2V' | 'storyboardSplit', world: { x: number; y: number }) => {
+  const createNodeAtWorldCenter = React.useCallback((type: 'textPrompt' | 'textPromptPro' | 'textChat' | 'textNote' | 'promptOptimize' | 'image' | 'imagePro' | 'generate' | 'generatePro' | 'generatePro4' | 'generate4' | 'generateRef' | 'three' | 'camera' | 'analysis' | 'sora2Video' | 'wan26' | 'wan2R2V' | 'storyboardSplit' | 'midjourney', world: { x: number; y: number }) => {
     // 以默认尺寸中心对齐放置
     const size = {
       textPrompt: { w: 240, h: 180 },
@@ -1870,6 +1874,7 @@ function FlowInner() {
       wan26: { w: 300, h: 320 },
       wan2R2V: { w: 300, h: 360 },
       storyboardSplit: { w: 320, h: 400 },
+      midjourney: { w: 280, h: 320 },
     }[type];
     const id = `${type}_${Date.now()}`;
     const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -1890,6 +1895,7 @@ function FlowInner() {
       : type === 'wan26' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, size: undefined, resolution: '720P', duration: 5, shotType: 'single', audioUrl: undefined, videoVersion: 0, history: [], boxW: size.w, boxH: size.h }
       : type === 'wan2R2V' ? { status: 'idle' as const, videoUrl: undefined, thumbnail: undefined, size: '16:9', duration: 5, shotType: 'single', videoVersion: 0, history: [], boxW: size.w, boxH: size.h }
       : type === 'storyboardSplit' ? { status: 'idle' as const, inputText: '', segments: [], outputCount: 9, boxW: size.w, boxH: size.h }
+      : type === 'midjourney' ? { status: 'idle' as const, mode: 'FAST', presetPrompt: '', boxW: size.w, boxH: size.h }
       : { boxW: size.w, boxH: size.h };
     setNodes(ns => ns.concat([{ id, type, position: pos, data } as any]));
     try { historyService.commit('flow-add-node').catch(() => {}); } catch {}
@@ -1959,6 +1965,17 @@ function FlowInner() {
       if (targetHandle === 'video-1' || targetHandle === 'video-2' || targetHandle === 'video-3') {
         if (sourceHandle !== 'video') return false;
         return ['sora2Video','wan2R2V','wan26'].includes(sourceNode.type || '');
+      }
+      return false;
+    }
+
+    // Midjourney 节点连接验证
+    if (targetNode.type === 'midjourney') {
+      if (targetHandle === 'text') {
+        return textSourceTypes.includes(sourceNode.type || '');
+      }
+      if (targetHandle === 'img') {
+        return ['image','imagePro','generate','generate4','generatePro','generatePro4','midjourney','three','camera'].includes(sourceNode.type || '');
       }
       return false;
     }
@@ -2042,6 +2059,11 @@ function FlowInner() {
       if (params.targetHandle === 'text') return true; // 新线会替换旧线
       if (params.targetHandle.startsWith('video-')) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
     }
+    // Midjourney 节点连接容量控制
+    if (targetNode?.type === 'midjourney') {
+      if (params.targetHandle === 'text') return true; // 新线会替换旧线
+      if (params.targetHandle === 'img') return incoming.length < 6; // 最多6张图片输入
+    }
     if (targetNode?.type === 'analysis') {
       if (params.targetHandle === 'img') return true; // 仅一条连接，后续替换
     }
@@ -2069,7 +2091,7 @@ function FlowInner() {
 
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
       // 注意：generatePro 和 generatePro4 允许多个 text 输入，不移除旧连接
-      const singleTextInputTypes = ['generate', 'generate4', 'generateRef', 'promptOptimize', 'textNote', 'sora2Video', 'wan26', 'wan2R2V', 'storyboardSplit'];
+      const singleTextInputTypes = ['generate', 'generate4', 'generateRef', 'promptOptimize', 'textNote', 'sora2Video', 'wan26', 'wan2R2V', 'storyboardSplit', 'midjourney'];
       if (singleTextInputTypes.includes(tgt?.type || '') && isTextHandle(params.targetHandle)) {
         next = next.filter(e => !(e.target === params.target && e.targetHandle === params.targetHandle));
       }
@@ -2367,6 +2389,100 @@ function FlowInner() {
     };
     window.addEventListener('flow:createImageNode', handler as EventListener);
     return () => window.removeEventListener('flow:createImageNode', handler as EventListener);
+  }, [rf, setNodes]);
+
+  // 监听 Midjourney Action 事件（U1-U4, V1-V4 等按钮操作）
+  React.useEffect(() => {
+    const handler = async (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        nodeId: string;
+        taskId: string;
+        customId: string;
+        label?: string;
+      };
+      if (!detail?.nodeId || !detail?.taskId || !detail?.customId) return;
+
+      const node = rf.getNode(detail.nodeId);
+      if (!node || node.type !== 'midjourney') return;
+
+      // 设置节点为运行状态
+      setNodes(ns => ns.map(n => n.id === detail.nodeId ? {
+        ...n,
+        data: { ...n.data, status: 'running', error: undefined }
+      } : n));
+
+      try {
+        const result = await midjourneyActionViaAPI({
+          taskId: detail.taskId,
+          customId: detail.customId,
+          actionLabel: detail.label,
+        });
+
+        if (!result.success || !result.data) {
+          const msg = result.error?.message || 'Midjourney 操作失败';
+          setNodes(ns => ns.map(n => n.id === detail.nodeId ? {
+            ...n,
+            data: { ...n.data, status: 'failed', error: msg }
+          } : n));
+          return;
+        }
+
+        const imgBase64 = result.data.imageData;
+        const metadata = result.data.metadata || {};
+        const midjourneyMeta = metadata.midjourney || {};
+
+        // 更新节点数据
+        setNodes(ns => ns.map(n => n.id === detail.nodeId ? {
+          ...n,
+          data: {
+            ...n.data,
+            status: 'succeeded',
+            imageData: imgBase64,
+            error: undefined,
+            taskId: midjourneyMeta.taskId || detail.taskId,
+            buttons: midjourneyMeta.buttons,
+            imageUrl: midjourneyMeta.imageUrl,
+            promptEn: midjourneyMeta.promptEn,
+          }
+        } : n));
+
+        // 生成缩略图
+        if (imgBase64) {
+          // 记录到历史
+          const projectId = useProjectContentStore.getState().projectId;
+          const historyId = `${detail.nodeId}-${Date.now()}`;
+          void recordImageHistoryEntry({
+            id: historyId,
+            base64: imgBase64,
+            title: `Midjourney ${detail.label || 'Action'} ${new Date().toLocaleTimeString()}`,
+            nodeId: detail.nodeId,
+            nodeType: 'midjourney',
+            fileName: `flow_midjourney_${historyId}.png`,
+            projectId,
+          });
+
+          generateThumbnail(imgBase64, 400)
+            .then((thumbnail) => {
+              if (!thumbnail) return;
+              setNodes(ns => ns.map(n => {
+                if (n.id !== detail.nodeId) return n;
+                if ((n.data as any)?.imageData !== imgBase64) return n;
+                return { ...n, data: { ...n.data, thumbnail } };
+              }));
+            })
+            .catch(() => {});
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Midjourney 操作失败';
+        setNodes(ns => ns.map(n => n.id === detail.nodeId ? {
+          ...n,
+          data: { ...n.data, status: 'failed', error: msg }
+        } : n));
+      }
+    };
+
+    window.addEventListener('flow:midjourneyAction', handler as EventListener);
+    return () => window.removeEventListener('flow:midjourneyAction', handler as EventListener);
   }, [rf, setNodes]);
 
 
@@ -2745,6 +2861,132 @@ function FlowInner() {
           error: error instanceof Error ? error.message : String(error),
         });
         const msg = error instanceof Error ? error.message : '视频生成失败';
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+      }
+      return;
+    }
+
+    // Midjourney 节点处理逻辑
+    if (node.type === 'midjourney') {
+      const { text: promptText, hasEdge: hasText } = getTextPromptForNode(nodeId);
+      if (!hasText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '缺少 TextPrompt 输入' } } : n));
+        return;
+      }
+      if (!promptText) {
+        setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: '提示词为空' } } : n));
+        return;
+      }
+
+      // 获取预设提示词
+      const presetPrompt = typeof (node.data as any)?.presetPrompt === 'string'
+        ? (node.data as any).presetPrompt.trim()
+        : '';
+      const finalPrompt = presetPrompt ? `${presetPrompt} ${promptText}` : promptText;
+
+      // 获取模式和宽高比
+      const mjMode = (node.data as any)?.mode || 'FAST';
+      const mjAspectRatio = (node.data as any)?.aspectRatio;
+
+      // 检查是否有图片输入
+      const mjImageEdges = currentEdges.filter(e => e.target === nodeId && e.targetHandle === 'img').slice(0, 6);
+      const mjImageDatas = collectImages(mjImageEdges);
+
+      setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'running', error: undefined } } : n));
+
+      try {
+        let mjResult: { success: boolean; data?: any; error?: { message: string } };
+
+        if (mjImageDatas.length === 0) {
+          // 文生图 (Imagine)
+          mjResult = await generateImageViaAPI({
+            prompt: finalPrompt,
+            outputFormat: 'png',
+            aiProvider: 'midjourney',
+            model: 'midjourney-fast',
+            aspectRatio: mjAspectRatio,
+            providerOptions: {
+              midjourney: { mode: mjMode }
+            }
+          });
+        } else if (mjImageDatas.length === 1) {
+          // 图生图 (Edit)
+          mjResult = await editImageViaAPI({
+            prompt: finalPrompt,
+            sourceImage: mjImageDatas[0],
+            outputFormat: 'png',
+            aiProvider: 'midjourney',
+            model: 'midjourney-fast',
+            providerOptions: {
+              midjourney: { mode: mjMode }
+            }
+          });
+        } else {
+          // 融图 (Blend)
+          mjResult = await blendImagesViaAPI({
+            prompt: finalPrompt,
+            sourceImages: mjImageDatas.slice(0, 6),
+            outputFormat: 'png',
+            aiProvider: 'midjourney',
+            model: 'midjourney-fast',
+            aspectRatio: mjAspectRatio,
+            providerOptions: {
+              midjourney: { mode: mjMode }
+            }
+          });
+        }
+
+        if (!mjResult.success || !mjResult.data) {
+          const msg = mjResult.error?.message || 'Midjourney 生成失败';
+          setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
+          return;
+        }
+
+        const mjImgBase64 = mjResult.data.imageData;
+        const mjMetadata = mjResult.data.metadata || {};
+        const midjourneyMeta = mjMetadata.midjourney || {};
+
+        // 更新节点数据
+        setNodes(ns => ns.map(n => n.id === nodeId ? {
+          ...n,
+          data: {
+            ...n.data,
+            status: 'succeeded',
+            imageData: mjImgBase64,
+            error: undefined,
+            taskId: midjourneyMeta.taskId,
+            buttons: midjourneyMeta.buttons,
+            imageUrl: midjourneyMeta.imageUrl,
+            promptEn: midjourneyMeta.promptEn,
+          }
+        } : n));
+
+        // 生成缩略图
+        if (mjImgBase64) {
+          generateThumbnail(mjImgBase64, 400)
+            .then((thumbnail) => {
+              if (!thumbnail) return;
+              setNodes(ns => ns.map(n => {
+                if (n.id !== nodeId) return n;
+                if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                return { ...n, data: { ...n.data, thumbnail } };
+              }));
+            })
+            .catch(() => {});
+
+          // 更新下游节点
+          const mjOuts = rf.getEdges().filter(e => e.source === nodeId);
+          if (mjOuts.length) {
+            setNodes(ns => ns.map(n => {
+              const hits = mjOuts.filter(e => e.target === n.id);
+              if (!hits.length) return n;
+              if (n.type === 'image') return { ...n, data: { ...n.data, imageData: mjImgBase64, thumbnail: undefined } };
+              return n;
+            }));
+          }
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Midjourney 生成失败';
         setNodes(ns => ns.map(n => n.id === nodeId ? { ...n, data: { ...n.data, status: 'failed', error: msg } } : n));
       }
       return;
@@ -3275,7 +3517,7 @@ function FlowInner() {
 
   // 在 node 渲染前为 Generate 节点注入 onRun 回调
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
-    (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef' || n.type === 'generatePro' || n.type === 'generatePro4')
+    (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef' || n.type === 'generatePro' || n.type === 'generatePro4' || n.type === 'midjourney')
       ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
       : (n.type === 'sora2Video' || n.type === 'wan26' || n.type === 'wan2R2V')
         ? { ...n, data: { ...n.data, onRun: runNode } }

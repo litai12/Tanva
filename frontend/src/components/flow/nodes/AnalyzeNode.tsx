@@ -227,7 +227,6 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         {data.prompt ? data.prompt : <span style={{ color: '#9ca3af' }}>Analysis result will appear here</span>}
       </div>
 
-      <div style={{ fontSize: 12, color: '#6b7280' }}>Status: {status || 'idle'}</div>
       {status === 'failed' && error && (
         <div style={{ fontSize: 12, color: '#ef4444', whiteSpace: 'pre-wrap' }}>{error}</div>
       )}
