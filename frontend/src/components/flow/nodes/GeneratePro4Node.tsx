@@ -213,7 +213,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   }, []);
 
   const handleCopy = React.useCallback(() => {
-    window.dispatchEvent(new CustomEvent('flow:copyNode', { detail: { nodeId: id } }));
+    window.dispatchEvent(new CustomEvent('flow:duplicateNode', { detail: { nodeId: id } }));
   }, [id]);
 
   const handleDelete = React.useCallback(() => {

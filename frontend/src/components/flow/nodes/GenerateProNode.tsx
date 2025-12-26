@@ -251,9 +251,9 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
     setContextMenu(null);
   }, []);
 
-  // 复制节点
+  // 复制节点（直接在画板上创建副本）
   const handleCopy = React.useCallback(() => {
-    window.dispatchEvent(new CustomEvent('flow:copyNode', { detail: { nodeId: id } }));
+    window.dispatchEvent(new CustomEvent('flow:duplicateNode', { detail: { nodeId: id } }));
   }, [id]);
 
   // 删除节点

@@ -57,6 +57,9 @@ import { historyService } from '@/services/historyService';
 import { clipboardService, type ClipboardFlowNode } from '@/services/clipboardService';
 import { aiImageService } from '@/services/aiImageService';
 import { generateImageViaAPI, editImageViaAPI, blendImagesViaAPI, generateWan26ViaAPI, generateWan26R2VViaAPI, midjourneyActionViaAPI } from '@/services/aiBackendAPI';
+import { imageUploadService } from '@/services/imageUploadService';
+import { personalLibraryApi } from '@/services/personalLibraryApi';
+import { createPersonalAssetId, usePersonalLibraryStore, type PersonalImageAsset } from '@/stores/personalLibraryStore';
 import { normalizeWheelDelta, computeSmoothZoom } from '@/lib/zoomUtils';
 import type { AIImageGenerateRequest, AIImageResult } from '@/types/ai';
 import MiniMapImageOverlay from './MiniMapImageOverlay';
@@ -639,6 +642,8 @@ function FlowInner() {
   const isPointerMode = drawMode === 'pointer';
   const isMarqueeMode = drawMode === 'marquee';
 
+  const addPersonalAsset = usePersonalLibraryStore((state) => state.addAsset);
+
   const onNodesChangeWithHistory = React.useCallback((changes: any) => {
     const altState = altDragStartRef.current;
     const isAltDragCloning = !!altState?.altPressed && !!altState?.cloned && altState?.idMap instanceof Map;
@@ -830,10 +835,153 @@ function FlowInner() {
     label: e.label,
   })) as any, []);
 
+  // Flow -> Canvas：将含有图片的节点转换为可在画板粘贴的剪贴板数据
+  const buildCanvasClipboardFromFlowNodes = React.useCallback((selected: RFNode[]) => {
+    if (!Array.isArray(selected) || selected.length === 0) return null;
+
+    const normalizeImageSource = (value?: string): string | null => {
+      const trimmed = value?.trim();
+      if (!trimmed) return null;
+      if (/^data:/i.test(trimmed) || /^blob:/i.test(trimmed) || /^https?:\/\//i.test(trimmed)) return trimmed;
+      return `data:image/png;base64,${trimmed}`;
+    };
+
+    const safeFileStem = (value: string): string =>
+      value.trim().replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'image';
+
+    const getNodeImageSources = (node: any): Array<{ source: string; fileName: string; contentType?: string; w?: number; h?: number }> => {
+      const data = (node?.data || {}) as any;
+      const titleCandidate = data.imageName || data.label || data.title || node?.type || 'flow';
+      const baseName = typeof titleCandidate === 'string' ? titleCandidate.trim() : String(titleCandidate || 'flow');
+
+      const preferredWRaw =
+        (typeof data.boxW === 'number' ? data.boxW : undefined) ??
+        (typeof data.imageWidth === 'number' ? data.imageWidth : undefined) ??
+        undefined;
+      const preferredHRaw =
+        (typeof data.boxH === 'number' ? data.boxH : undefined) ??
+        (typeof data.imageWidth === 'number' ? data.imageWidth * 0.75 : undefined) ??
+        undefined;
+
+      const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+      const preferredW =
+        typeof preferredWRaw === 'number' && Number.isFinite(preferredWRaw) && preferredWRaw > 0
+          ? clamp(preferredWRaw, 220, 1200)
+          : 360;
+      const preferredH =
+        typeof preferredHRaw === 'number' && Number.isFinite(preferredHRaw) && preferredHRaw > 0
+          ? clamp(preferredHRaw, 160, 1200)
+          : 270;
+
+      // 多图节点（generate4 / generatePro4）
+      if (node?.type === 'generate4' || node?.type === 'generatePro4') {
+        const imgs = Array.isArray(data.images) ? (data.images as string[]) : [];
+        return imgs
+          .map((img, idx) => {
+            const source = normalizeImageSource(img);
+            if (!source) return null;
+            return {
+              source,
+              fileName: `${safeFileStem(baseName)}_${node.id}_${idx + 1}.png`,
+              contentType: 'image/png',
+              w: preferredW,
+              h: preferredH,
+            };
+          })
+          .filter(Boolean) as any;
+      }
+
+      const single = normalizeImageSource(data.imageData);
+      if (!single) return [];
+      return [{
+        source: single,
+        fileName: `${safeFileStem(baseName)}_${node.id}.png`,
+        contentType: 'image/png',
+        w: preferredW,
+        h: preferredH,
+      }];
+    };
+
+    const images: Array<{ source: string; fileName: string; contentType?: string; w: number; h: number }> = [];
+    selected.forEach((node: any) => {
+      try {
+        const list = getNodeImageSources(node);
+        list.forEach((item: any) => {
+          if (item?.source) images.push({
+            source: item.source,
+            fileName: item.fileName,
+            contentType: item.contentType,
+            w: item.w || 360,
+            h: item.h || 270,
+          });
+        });
+      } catch {}
+    });
+    if (images.length === 0) return null;
+
+    const center = (() => {
+      try {
+        const c = (paper?.view as any)?.center;
+        if (c && Number.isFinite(c.x) && Number.isFinite(c.y)) return { x: c.x, y: c.y };
+      } catch {}
+      return { x: 0, y: 0 };
+    })();
+
+    // 画板粘贴会额外偏移 (32, 32)，这里预先抵消以便默认落在视口中心附近
+    const pasteOffset = { x: 32, y: 32 };
+    const gap = 24;
+    const cols = images.length >= 4 ? 2 : images.length;
+    const rows = Math.ceil(images.length / cols);
+    const cellW = Math.max(...images.map((x) => x.w || 0), 360);
+    const cellH = Math.max(...images.map((x) => x.h || 0), 270);
+    const totalW = cols * cellW + (cols - 1) * gap;
+    const totalH = rows * cellH + (rows - 1) * gap;
+    const startX = center.x - totalW / 2;
+    const startY = center.y - totalH / 2;
+
+    const now = Date.now();
+    const snapshots = images.map((item, idx) => {
+      const col = idx % cols;
+      const row = Math.floor(idx / cols);
+      const cellX = startX + col * (cellW + gap);
+      const cellY = startY + row * (cellH + gap);
+      const x = cellX + (cellW - item.w) / 2 - pasteOffset.x;
+      const y = cellY + (cellH - item.h) / 2 - pasteOffset.y;
+      const localDataUrl = /^data:/i.test(item.source) ? item.source : undefined;
+
+      return {
+        id: `flow_clip_img_${now}_${idx}_${Math.random().toString(36).slice(2, 8)}`,
+        url: item.source,
+        src: item.source,
+        fileName: item.fileName,
+        width: item.w,
+        height: item.h,
+        contentType: item.contentType,
+        localDataUrl,
+        pendingUpload: false,
+        bounds: { x, y, width: item.w, height: item.h },
+        layerId: null,
+      };
+    });
+
+    return {
+      images: snapshots,
+      models: [],
+      texts: [],
+      paths: [],
+    };
+  }, []);
+
   const handleCopyFlow = React.useCallback(() => {
     const allNodes = rf.getNodes();
     const selectedNodes = allNodes.filter((node: any) => node.selected);
     if (!selectedNodes.length) return false;
+
+    // 同步一份“可粘贴到画板”的数据（仅对含图片节点生效）
+    try {
+      const canvasPayload = buildCanvasClipboardFromFlowNodes(selectedNodes as any);
+      if (canvasPayload) clipboardService.setCanvasData(canvasPayload);
+    } catch {}
 
     const nodeSnapshots = rfNodesToTplNodes(selectedNodes as any);
     const selectedIds = new Set(selectedNodes.map((node: any) => node.id));
@@ -849,7 +997,7 @@ function FlowInner() {
       origin: { x: minX, y: minY },
     });
     return true;
-  }, [rf, rfNodesToTplNodes, rfEdgesToTplEdges]);
+  }, [rf, rfNodesToTplNodes, rfEdgesToTplEdges, buildCanvasClipboardFromFlowNodes]);
 
   const handlePasteFlow = React.useCallback(() => {
     const payload = clipboardService.getFlowData();
@@ -2298,6 +2446,243 @@ function FlowInner() {
     return () => window.removeEventListener('flow:updateNodeData', handler as EventListener);
   }, [setNodes]);
 
+  // 监听节点右键菜单：复制（写入 Flow 内部剪贴板，Ctrl+V 可粘贴）
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { nodeId?: string } | undefined;
+      const allNodes = rf.getNodes();
+      const targetNode = detail?.nodeId ? rf.getNode(detail.nodeId) : null;
+      const selectedNodes = allNodes.filter((n: any) => n.selected);
+      const nodesToCopy = targetNode && !targetNode.selected
+        ? [targetNode]
+        : selectedNodes.length
+          ? selectedNodes
+          : (targetNode ? [targetNode] : []);
+
+      if (!nodesToCopy.length) return;
+
+      let hasCanvasPayload = false;
+      try {
+        const canvasPayload = buildCanvasClipboardFromFlowNodes(nodesToCopy as any);
+        if (canvasPayload) {
+          clipboardService.setCanvasData(canvasPayload);
+          hasCanvasPayload = true;
+        }
+      } catch {}
+
+      const idSet = new Set(nodesToCopy.map((n: any) => n.id));
+      const nodeSnapshots = rfNodesToTplNodes(nodesToCopy as any);
+      const relatedEdges = rf.getEdges().filter((edge: any) => idSet.has(edge.source) && idSet.has(edge.target));
+      const edgeSnapshots = rfEdgesToTplEdges(relatedEdges as any);
+      const minX = Math.min(...nodesToCopy.map((n: any) => n.position?.x ?? 0));
+      const minY = Math.min(...nodesToCopy.map((n: any) => n.position?.y ?? 0));
+
+      clipboardService.setActiveZone('flow');
+      clipboardService.setFlowData({ nodes: nodeSnapshots, edges: edgeSnapshots, origin: { x: minX, y: minY } });
+
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          message: hasCanvasPayload
+            ? '已复制节点：Flow Ctrl+V 粘贴，画板 Ctrl+V 可粘贴图片'
+            : '已复制节点，按 Ctrl+V 粘贴',
+          type: 'success'
+        }
+      }));
+    };
+
+    window.addEventListener('flow:copyNode', handler as EventListener);
+    return () => window.removeEventListener('flow:copyNode', handler as EventListener);
+  }, [rf, rfNodesToTplNodes, rfEdgesToTplEdges, buildCanvasClipboardFromFlowNodes]);
+
+  // 监听节点右键菜单：删除
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { nodeId?: string } | undefined;
+      const allNodes = rf.getNodes();
+      const targetNode = detail?.nodeId ? rf.getNode(detail.nodeId) : null;
+      const selectedIds = new Set(allNodes.filter((n: any) => n.selected).map((n: any) => n.id));
+      const ids = targetNode && !targetNode.selected
+        ? new Set([targetNode.id])
+        : selectedIds.size
+          ? selectedIds
+          : (detail?.nodeId ? new Set([detail.nodeId]) : new Set<string>());
+      if (!ids.size) return;
+
+      setNodes((prev: any[]) => prev.filter((n: any) => !ids.has(n.id)));
+      setEdges((prev: any[]) => prev.filter((e: any) => !ids.has(e.source) && !ids.has(e.target)));
+      try { historyService.commit('flow-delete-node').catch(() => {}); } catch {}
+    };
+    window.addEventListener('flow:deleteNode', handler as EventListener);
+    return () => window.removeEventListener('flow:deleteNode', handler as EventListener);
+  }, [rf, setNodes, setEdges]);
+
+  // 监听节点右键菜单：复制节点（直接在画板上创建副本）
+  React.useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { nodeId?: string } | undefined;
+      const targetNode = detail?.nodeId ? rf.getNode(detail.nodeId) : null;
+      if (!targetNode) return;
+
+      const OFFSET = 40;
+      const newId = generateId(targetNode.type || 'n');
+      const data: any = sanitizeNodeData((targetNode.data as any) || {});
+
+      const newNode = {
+        id: newId,
+        type: targetNode.type || 'default',
+        position: {
+          x: (targetNode.position?.x ?? 0) + OFFSET,
+          y: (targetNode.position?.y ?? 0) + OFFSET,
+        },
+        data,
+        selected: true,
+        width: targetNode.width,
+        height: targetNode.height,
+        style: targetNode.style ? { ...targetNode.style } : undefined,
+      } as any;
+
+      setNodes((prev: any[]) => prev.map((node) => ({ ...node, selected: false })).concat([newNode]));
+      try { historyService.commit('flow-duplicate-node').catch(() => {}); } catch {}
+
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: { message: '已复制节点', type: 'success' }
+      }));
+    };
+    window.addEventListener('flow:duplicateNode', handler as EventListener);
+    return () => window.removeEventListener('flow:duplicateNode', handler as EventListener);
+  }, [rf, setNodes, sanitizeNodeData]);
+
+  // 监听节点右键菜单：添加到个人库（上传到 OSS 后写入 store）
+  React.useEffect(() => {
+    const normalizeSource = (value?: string): string | null => {
+      const trimmed = value?.trim();
+      if (!trimmed) return null;
+      if (/^data:/i.test(trimmed) || /^blob:/i.test(trimmed) || /^https?:\/\//i.test(trimmed)) return trimmed;
+      return `data:image/png;base64,${trimmed}`;
+    };
+    const sanitizeFileStem = (value: string): string =>
+      value.trim().replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'image';
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        imageData?: string;
+        nodeId?: string;
+        nodeType?: string;
+      } | undefined;
+      const nodeId = detail?.nodeId;
+      const node = nodeId ? rf.getNode(nodeId) : null;
+      const rawImageData = detail?.imageData ?? (node?.data as any)?.imageData;
+      const source = normalizeSource(rawImageData);
+      if (!source) return;
+
+      const nameCandidate =
+        (node?.data as any)?.imageName ||
+        (node?.data as any)?.label ||
+        (node?.data as any)?.title ||
+        '';
+      const displayName = typeof nameCandidate === 'string' && nameCandidate.trim()
+        ? nameCandidate.trim()
+        : `节点资源 ${new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+      const now = Date.now();
+      const fileName = `${sanitizeFileStem(displayName)}_${now}.png`;
+
+      void (async () => {
+        try {
+          let uploadedUrl: string | null = null;
+          let uploadedMeta: { width?: number; height?: number; fileName?: string; contentType?: string } | null = null;
+          let fileSize: number | undefined;
+
+          try {
+            if (source.startsWith('data:')) {
+              const uploadResult = await imageUploadService.uploadImageDataUrl(source, {
+                dir: 'uploads/personal-library/images/',
+                fileName,
+              });
+              if (uploadResult.success && uploadResult.asset?.url) {
+                uploadedUrl = uploadResult.asset.url;
+                uploadedMeta = {
+                  width: uploadResult.asset.width,
+                  height: uploadResult.asset.height,
+                  fileName: uploadResult.asset.fileName ?? fileName,
+                  contentType: uploadResult.asset.contentType ?? 'image/png',
+                };
+              }
+            } else {
+              let credentials: RequestCredentials | undefined;
+              if (source.startsWith('http')) {
+                try {
+                  const origin = new URL(source).origin;
+                  credentials = origin === window.location.origin ? 'include' : 'omit';
+                } catch {
+                  credentials = 'omit';
+                }
+              }
+              const response = await fetch(source, credentials ? { credentials } : undefined);
+              if (response.ok) {
+                const blob = await response.blob();
+                const file = new File([blob], fileName, { type: blob.type || 'image/png' });
+                fileSize = file.size;
+                const uploadResult = await imageUploadService.uploadImageFile(file, {
+                  dir: 'uploads/personal-library/images/',
+                });
+                if (uploadResult.success && uploadResult.asset?.url) {
+                  uploadedUrl = uploadResult.asset.url;
+                  uploadedMeta = {
+                    width: uploadResult.asset.width,
+                    height: uploadResult.asset.height,
+                    fileName: uploadResult.asset.fileName ?? file.name,
+                    contentType: uploadResult.asset.contentType ?? file.type,
+                  };
+                }
+              }
+            }
+          } catch {
+            // ignore, fallback below
+          }
+
+          const finalUrl = uploadedUrl || (source.startsWith('http') ? source : null);
+          if (!finalUrl) {
+            window.dispatchEvent(new CustomEvent('toast', {
+              detail: { message: '添加到库失败，请重试', type: 'error' }
+            }));
+            return;
+          }
+
+          const assetId = createPersonalAssetId('plimg');
+          const imageAsset: PersonalImageAsset = {
+            id: assetId,
+            type: '2d',
+            name: displayName,
+            url: finalUrl,
+            thumbnail: finalUrl,
+            fileName: uploadedMeta?.fileName ?? fileName,
+            fileSize,
+            contentType: uploadedMeta?.contentType,
+            width: uploadedMeta?.width,
+            height: uploadedMeta?.height,
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          addPersonalAsset(imageAsset);
+          void personalLibraryApi.upsert(imageAsset).catch(() => {});
+
+          window.dispatchEvent(new CustomEvent('toast', {
+            detail: { message: '已添加到个人库', type: 'success' }
+          }));
+        } catch (error) {
+          console.error('添加到库失败:', error);
+          window.dispatchEvent(new CustomEvent('toast', {
+            detail: { message: '添加到库失败，请重试', type: 'error' }
+          }));
+        }
+      })();
+    };
+
+    window.addEventListener('flow:addToLibrary', handler as EventListener);
+    return () => window.removeEventListener('flow:addToLibrary', handler as EventListener);
+  }, [rf, addPersonalAsset]);
+
   // 监听双击输出节点创建新节点并连线
   React.useEffect(() => {
     const handler = (event: Event) => {
@@ -2430,6 +2815,9 @@ function FlowInner() {
         const imgBase64 = result.data.imageData;
         const metadata = result.data.metadata || {};
         const midjourneyMeta = metadata.midjourney || {};
+        const midjourneyImageUrl = midjourneyMeta.imageUrl || metadata.imageUrl;
+        const resolvedImageData = imgBase64 || midjourneyImageUrl;
+        const historyId = resolvedImageData ? `${detail.nodeId}-${Date.now()}` : undefined;
 
         // 更新节点数据
         setNodes(ns => ns.map(n => n.id === detail.nodeId ? {
@@ -2437,36 +2825,39 @@ function FlowInner() {
           data: {
             ...n.data,
             status: 'succeeded',
-            imageData: imgBase64,
+            imageData: resolvedImageData,
             error: undefined,
             taskId: midjourneyMeta.taskId || detail.taskId,
             buttons: midjourneyMeta.buttons,
             imageUrl: midjourneyMeta.imageUrl,
             promptEn: midjourneyMeta.promptEn,
+            lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
           }
         } : n));
 
         // 生成缩略图
-        if (imgBase64) {
-          // 记录到历史
+        if (historyId) {
+          // 记录到历史（避免依赖节点渲染，onlyRenderVisibleElements 时也可记录）
           const projectId = useProjectContentStore.getState().projectId;
-          const historyId = `${detail.nodeId}-${Date.now()}`;
           void recordImageHistoryEntry({
             id: historyId,
             base64: imgBase64,
+            remoteUrl: imgBase64 ? undefined : midjourneyImageUrl,
             title: `Midjourney ${detail.label || 'Action'} ${new Date().toLocaleTimeString()}`,
             nodeId: detail.nodeId,
             nodeType: 'midjourney',
             fileName: `flow_midjourney_${historyId}.png`,
             projectId,
           });
+        }
 
-          generateThumbnail(imgBase64, 400)
+        if (resolvedImageData) {
+          generateThumbnail(resolvedImageData, 400)
             .then((thumbnail) => {
               if (!thumbnail) return;
               setNodes(ns => ns.map(n => {
                 if (n.id !== detail.nodeId) return n;
-                if ((n.data as any)?.imageData !== imgBase64) return n;
+                if ((n.data as any)?.imageData !== resolvedImageData) return n;
                 return { ...n, data: { ...n.data, thumbnail } };
               }));
             })
@@ -2945,6 +3336,9 @@ function FlowInner() {
         const mjImgBase64 = mjResult.data.imageData;
         const mjMetadata = mjResult.data.metadata || {};
         const midjourneyMeta = mjMetadata.midjourney || {};
+        const midjourneyImageUrl = midjourneyMeta.imageUrl || mjMetadata.imageUrl;
+        const resolvedImageData = mjImgBase64 || midjourneyImageUrl;
+        const historyId = resolvedImageData ? `${nodeId}-${Date.now()}` : undefined;
 
         // 更新节点数据
         setNodes(ns => ns.map(n => n.id === nodeId ? {
@@ -2952,23 +3346,39 @@ function FlowInner() {
           data: {
             ...n.data,
             status: 'succeeded',
-            imageData: mjImgBase64,
+            imageData: resolvedImageData,
             error: undefined,
             taskId: midjourneyMeta.taskId,
             buttons: midjourneyMeta.buttons,
             imageUrl: midjourneyMeta.imageUrl,
             promptEn: midjourneyMeta.promptEn,
+            lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
           }
         } : n));
 
         // 生成缩略图
-        if (mjImgBase64) {
-          generateThumbnail(mjImgBase64, 400)
+        if (historyId) {
+          const projectId = useProjectContentStore.getState().projectId;
+          const actionLabel = mjImageDatas.length === 0 ? 'Imagine' : mjImageDatas.length === 1 ? 'Edit' : 'Blend';
+          void recordImageHistoryEntry({
+            id: historyId,
+            base64: mjImgBase64,
+            remoteUrl: mjImgBase64 ? undefined : midjourneyImageUrl,
+            title: `Midjourney ${actionLabel} ${new Date().toLocaleTimeString()}`,
+            nodeId,
+            nodeType: 'midjourney',
+            fileName: `flow_midjourney_${historyId}.png`,
+            projectId,
+          });
+        }
+
+        if (resolvedImageData) {
+          generateThumbnail(resolvedImageData, 400)
             .then((thumbnail) => {
               if (!thumbnail) return;
               setNodes(ns => ns.map(n => {
                 if (n.id !== nodeId) return n;
-                if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                if ((n.data as any)?.imageData !== resolvedImageData) return n;
                 return { ...n, data: { ...n.data, thumbnail } };
               }));
             })
@@ -2980,7 +3390,7 @@ function FlowInner() {
             setNodes(ns => ns.map(n => {
               const hits = mjOuts.filter(e => e.target === n.id);
               if (!hits.length) return n;
-              if (n.type === 'image') return { ...n, data: { ...n.data, imageData: mjImgBase64, thumbnail: undefined } };
+              if (n.type === 'image') return { ...n, data: { ...n.data, imageData: resolvedImageData, thumbnail: undefined } };
               return n;
             }));
           }
@@ -3519,6 +3929,8 @@ function FlowInner() {
   const nodesWithHandlers = React.useMemo(() => nodes.map(n => (
     (n.type === 'generate' || n.type === 'generate4' || n.type === 'generateRef' || n.type === 'generatePro' || n.type === 'generatePro4' || n.type === 'midjourney')
       ? { ...n, data: { ...n.data, onRun: runNode, onSend: onSendHandler } }
+      : (n.type === 'imagePro')
+        ? { ...n, data: { ...n.data, onSend: onSendHandler } }
       : (n.type === 'sora2Video' || n.type === 'wan26' || n.type === 'wan2R2V')
         ? { ...n, data: { ...n.data, onRun: runNode } }
         : n

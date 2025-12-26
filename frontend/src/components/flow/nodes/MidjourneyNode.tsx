@@ -3,7 +3,6 @@ import { Handle, Position } from 'reactflow';
 import { Send as SendIcon, Sparkles } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
-import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 
@@ -34,6 +33,7 @@ type Props = {
     buttons?: MidjourneyButtonInfo[];
     imageUrl?: string;
     promptEn?: string;
+    lastHistoryId?: string;
   };
   selected?: boolean;
 };
@@ -171,22 +171,12 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
     [id, data.taskId, actionLoading]
   );
 
-  // 当图片数据更新时，添加到全局历史记录
+  // 当节点数据更新时同步最新历史图片 id（历史写入在 FlowOverlay 中统一处理，避免 onlyRenderVisibleElements 时丢失）
   React.useEffect(() => {
-    if (data.imageData && status === 'succeeded') {
-      const newImageId = `${id}-${Date.now()}`;
-      setCurrentImageId(newImageId);
-      void recordImageHistoryEntry({
-        id: newImageId,
-        base64: data.imageData,
-        title: `Midjourney ${new Date().toLocaleTimeString()}`,
-        nodeId: id,
-        nodeType: 'midjourney',
-        fileName: `flow_midjourney_${newImageId}.png`,
-        projectId,
-      });
+    if (status === 'succeeded' && data.lastHistoryId) {
+      setCurrentImageId(data.lastHistoryId);
     }
-  }, [data.imageData, status, id, projectId]);
+  }, [data.lastHistoryId, status]);
 
   // 处理图片切换
   const handleImageChange = React.useCallback(
@@ -222,64 +212,109 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
 
     const buttonStyle: React.CSSProperties = {
       fontSize: 11,
-      padding: '3px 6px',
-      borderRadius: 4,
+      height: 26,
+      borderRadius: 6,
       border: '1px solid #e5e7eb',
       background: '#fff',
       cursor: 'pointer',
-      transition: 'all 0.15s ease',
-      minWidth: 28,
+      transition: 'all 0.2s ease',
+      width: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: '#4b5563',
+      fontWeight: 500,
     };
 
-    const renderButtonGroup = (buttons: MidjourneyButtonInfo[], label: string) => {
-      if (buttons.length === 0) return null;
-      return (
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <span style={{ fontSize: 10, color: '#9ca3af', minWidth: 16 }}>{label}</span>
-          {buttons.map((btn) => (
-            <button
-              key={btn.customId}
-              onClick={() => handleButtonAction(btn)}
-              disabled={!!actionLoading}
-              style={{
-                ...buttonStyle,
-                opacity: actionLoading === btn.customId ? 0.6 : 1,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#f3f4f6';
-                e.currentTarget.style.borderColor = '#d1d5db';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#fff';
-                e.currentTarget.style.borderColor = '#e5e7eb';
-              }}
-              title={btn.label}
-            >
-              {btn.emoji || btn.label}
-            </button>
-          ))}
-        </div>
-      );
+    const handleMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.currentTarget.style.borderColor = '#8b5cf6';
+      e.currentTarget.style.color = '#7c3aed';
+      e.currentTarget.style.background = '#f5f3ff';
+      e.currentTarget.style.transform = 'translateY(-1px)';
+      e.currentTarget.style.boxShadow = '0 2px 4px rgba(139, 92, 246, 0.1)';
+    };
+
+    const handleMouseLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.currentTarget.style.borderColor = '#e5e7eb';
+      e.currentTarget.style.color = '#4b5563';
+      e.currentTarget.style.background = '#fff';
+      e.currentTarget.style.transform = 'none';
+      e.currentTarget.style.boxShadow = 'none';
     };
 
     return (
       <div
+        className="nodrag"
         style={{
-          marginTop: 8,
-          padding: 8,
+          marginTop: 10,
+          padding: '10px 12px',
           background: '#faf5ff',
-          borderRadius: 6,
+          borderRadius: 8,
           border: '1px solid #e9d5ff',
         }}
       >
-        <div style={{ fontSize: 11, color: '#7c3aed', marginBottom: 6, fontWeight: 500 }}>
+        <div style={{ fontSize: 11, color: '#7c3aed', marginBottom: 8, fontWeight: 600 }}>
           Midjourney 操作
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {renderButtonGroup(upscaleButtons, 'U')}
-          {renderButtonGroup(variationButtons, 'V')}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {upscaleButtons.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>U</span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                {upscaleButtons.map((btn) => (
+                  <button
+                    key={btn.customId}
+                    onClick={() => handleButtonAction(btn)}
+                    disabled={!!actionLoading}
+                    style={{
+                      ...buttonStyle,
+                      opacity: actionLoading === btn.customId ? 0.6 : 1,
+                    }}
+                    onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
+                    onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
+                    title={btn.label}
+                  >
+                    {btn.emoji || btn.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {variationButtons.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>V</span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                {variationButtons.map((btn) => (
+                  <button
+                    key={btn.customId}
+                    onClick={() => handleButtonAction(btn)}
+                    disabled={!!actionLoading}
+                    style={{
+                      ...buttonStyle,
+                      opacity: actionLoading === btn.customId ? 0.6 : 1,
+                    }}
+                    onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
+                    onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
+                    title={btn.label}
+                  >
+                    {btn.emoji || btn.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {otherButtons.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              marginTop: 2,
+              paddingTop: 8,
+              borderTop: '1px dashed #ddd6fe',
+              justifyContent: 'center'
+            }}>
               {otherButtons.map((btn) => (
                 <button
                   key={btn.customId}
@@ -287,8 +322,13 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
                   disabled={!!actionLoading}
                   style={{
                     ...buttonStyle,
+                    width: 'auto',
+                    minWidth: 32,
+                    padding: '0 10px',
                     opacity: actionLoading === btn.customId ? 0.6 : 1,
                   }}
+                  onMouseEnter={!actionLoading ? handleMouseEnter : undefined}
+                  onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
                   title={btn.label}
                 >
                   {btn.emoji || btn.label}

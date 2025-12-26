@@ -577,6 +577,7 @@ export const useInteractionController = ({
 
     const canvas = canvasRef.current;
     if (!canvas) return;
+    isAltPressedRef.current = event.altKey;
     const currentDrawMode = drawModeRef.current;
     const latestSelectionTool = selectionToolRef.current;
     const latestImageTool = imageToolRef.current;
@@ -1153,6 +1154,7 @@ export const useInteractionController = ({
   const handleMouseMove = useCallback((event: MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    isAltPressedRef.current = event.altKey;
 
     const currentDrawMode = drawModeRef.current;
     const latestSelectionTool = selectionToolRef.current;
@@ -1576,6 +1578,7 @@ export const useInteractionController = ({
   const handleMouseUp = useCallback((event: MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    isAltPressedRef.current = event.altKey;
     const currentDrawMode = drawModeRef.current;
     const latestSelectionTool = selectionToolRef.current;
 
@@ -2008,6 +2011,7 @@ export const useInteractionController = ({
 
     // 键盘事件处理
     const handleKeyDown = (event: KeyboardEvent) => {
+      isAltPressedRef.current = event.altKey;
       const latestSelectionTool = selectionToolRef.current;
       const latestImageTool = imageToolRef.current;
       const latestModel3DTool = model3DToolRef.current;
@@ -2017,11 +2021,6 @@ export const useInteractionController = ({
       // 输入框/可编辑区域不拦截
       const active = document.activeElement as Element | null;
       const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
-
-      // Alt/Option 键追踪
-      if (event.key === 'Alt') {
-        isAltPressedRef.current = true;
-      }
 
       if (!isEditable && isSelectionLikeMode() && (event.code === 'Space' || event.key === ' ')) {
         isSpacePressedRef.current = true;
@@ -2178,13 +2177,10 @@ export const useInteractionController = ({
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
+      isAltPressedRef.current = event.altKey;
       if (event.code === 'Space' || event.key === ' ') {
         isSpacePressedRef.current = false;
         stopSpacePan();
-      }
-      // Alt/Option 键释放
-      if (event.key === 'Alt') {
-        isAltPressedRef.current = false;
       }
     };
 
@@ -2404,6 +2400,17 @@ export const useInteractionController = ({
     // 键盘事件需要绑定到document，因为canvas无法获取焦点
     document.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('keyup', handleKeyUp, true);
+    const resetModifierKeys = () => {
+      isAltPressedRef.current = false;
+      isSpacePressedRef.current = false;
+      stopSpacePan();
+    };
+    const handleWindowBlur = () => resetModifierKeys();
+    const handleVisibilityChange = () => {
+      if (document.hidden) resetModifierKeys();
+    };
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       // 清理事件监听器
@@ -2414,6 +2421,8 @@ export const useInteractionController = ({
       window.removeEventListener('mouseleave', handleMouseUp, { capture: true });
       document.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('keyup', handleKeyUp, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [handleMouseDown, handleMouseMove, handleMouseUp, stopSpacePan, isSelectionLikeMode]);
 
