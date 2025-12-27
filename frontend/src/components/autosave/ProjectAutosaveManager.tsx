@@ -61,8 +61,33 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
     (async () => {
       try {
+        // 等待项目列表加载完成，以便获取 projectMeta 进行缓存验证
+        const waitForProjectMeta = async (timeout = 3000): Promise<ReturnType<typeof useProjectStore.getState>['projects'][number] | null> => {
+          const start = Date.now();
+          while (Date.now() - start < timeout) {
+            if (cancelled) return null;
+            const state = useProjectStore.getState();
+            // 如果不在加载中，且有项目列表，尝试查找
+            if (!state.loading && state.projects.length > 0) {
+              const found = state.projects.find(p => p.id === projectId);
+              if (found) return found;
+              // 列表已加载但找不到该项目，不再等待
+              break;
+            }
+            // 如果正在加载，等待一小段时间后重试
+            if (state.loading) {
+              await new Promise(r => setTimeout(r, 50));
+              continue;
+            }
+            // 列表为空且不在加载，可能还没开始加载，短暂等待
+            await new Promise(r => setTimeout(r, 50));
+          }
+          // 超时或找不到，返回当前状态
+          return useProjectStore.getState().projects.find(p => p.id === projectId) ?? null;
+        };
+
         // 尝试从本地缓存加载
-        const projectMeta = useProjectStore.getState().projects.find(p => p.id === projectId);
+        const projectMeta = await waitForProjectMeta();
         const cached = await getProjectCache(projectId);
 
         let data: { content: any; version: number; updatedAt: string | null };
@@ -76,7 +101,12 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
           data = { content: cached.content, version: cached.version, updatedAt: cached.updatedAt };
         } else {
           // 缓存未命中或过期，从 OSS 加载
-          console.log('[ProjectCache] 缓存未命中，从 OSS 加载');
+          console.log('[ProjectCache] 缓存未命中，从 OSS 加载', {
+            hasCached: !!cached,
+            hasProjectMeta: !!projectMeta,
+            cacheVersion: cached?.version,
+            metaVersion: projectMeta?.contentVersion,
+          });
           data = await projectApi.getContent(projectId);
 
           // 写入缓存

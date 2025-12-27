@@ -48,7 +48,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
               onClick={onDownload}
               variant="outline"
               size="sm"
-              className="text-white border-white/30 hover:bg-white/10"
+              className="bg-white/10 text-white border-white/20 hover:bg-white/20"
             >
               <Download className="h-4 w-4 mr-1" />
               下载
@@ -57,7 +57,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
               onClick={onDelete}
               variant="outline"
               size="sm"
-              className="text-red-400 border-red-400/30 hover:bg-red-500/10"
+              className="bg-red-500/10 text-red-300 border-red-400/30 hover:bg-red-500/20"
             >
               <Trash2 className="h-4 w-4 mr-1" />
               删除

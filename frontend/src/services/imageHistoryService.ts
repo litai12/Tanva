@@ -50,6 +50,23 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
     skipGlobalHistory,
   } = options;
 
+  const enqueueGlobalHistoryWrite = (imageUrl?: string) => {
+    if (skipGlobalHistory) return;
+    if (!imageUrl || !imageUrl.startsWith('http')) return;
+    const globalStore = useGlobalImageHistoryStore.getState();
+    globalStore
+      .addItem({
+        imageUrl,
+        prompt: options.title,
+        sourceType: nodeType,
+        sourceProjectId: projectId ?? undefined,
+        sourceProjectName: projectName,
+      })
+      .catch((err) => {
+        console.warn('[ImageHistory] 写入全局历史失败:', err);
+      });
+  };
+
   let { id } = options;
   if (!id) {
     id = `history_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -87,11 +104,13 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
   }
 
   if (options.remoteUrl && options.remoteUrl.startsWith('http')) {
+    enqueueGlobalHistoryWrite(options.remoteUrl);
     return { id, remoteUrl: options.remoteUrl, thumbnail: resolvedThumbnail };
   }
 
   if (!dataUrl || dataUrl.startsWith('http')) {
     const url = dataUrl?.startsWith('http') ? dataUrl : undefined;
+    enqueueGlobalHistoryWrite(url);
     return { id, remoteUrl: url, thumbnail: resolvedThumbnail };
   }
 
@@ -114,18 +133,7 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
       });
 
       // 同步写入全局历史（异步，不阻塞返回）
-      if (!skipGlobalHistory) {
-        const globalStore = useGlobalImageHistoryStore.getState();
-        globalStore.addItem({
-          imageUrl: remoteUrl,
-          prompt: options.title,
-          sourceType: nodeType,
-          sourceProjectId: projectId ?? undefined,
-          sourceProjectName: projectName,
-        }).catch((err) => {
-          console.warn('[ImageHistory] 写入全局历史失败:', err);
-        });
-      }
+      enqueueGlobalHistoryWrite(remoteUrl);
 
       return {
         id,

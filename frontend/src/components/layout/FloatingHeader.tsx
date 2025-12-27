@@ -654,12 +654,11 @@ const FloatingHeader: React.FC = () => {
                         <div className="grid gap-3 sm:grid-cols-2">
                             <Button
                                 variant="outline"
-                                className="h-10 rounded-xl text-sm border-yellow-200 text-yellow-700 hover:bg-yellow-50"
+                                className="h-10 rounded-xl text-sm"
                                 onClick={() => setIsGlobalHistoryOpen(true)}
                             >
                                 <History className="mr-2 h-4 w-4" />
                                 全局图片历史
-                                <span className="ml-auto text-[11px] text-slate-500">({globalHistoryCount})</span>
                             </Button>
                             <Button
                                 variant="outline"

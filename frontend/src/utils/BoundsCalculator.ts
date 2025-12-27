@@ -32,30 +32,25 @@ export class BoundsCalculator {
     model3DInstances: Model3DInstance[],
     padding: number = 0
   ): ContentBounds {
-    console.log('📏 计算截图边界（包含 2D/图片/3D 全部内容）...');
     
     // 第一步：收集所有可见3D模型作为基础边界（图片以 Paper.Raster 为准，避免重复统计）
     const baseBounds: Bounds[] = [];
     
     // 1. 收集可见3D模型实例
     const visibleModels = model3DInstances.filter(model => model.visible);
-    console.log(`🎭 找到 ${visibleModels.length} 个可见3D模型`);
-    
+
     for (const model of visibleModels) {
       if (this.isValidBounds(model.bounds)) {
         baseBounds.push(model.bounds);
-        console.log(`  - 3D模型 ${model.id}: ${Math.round(model.bounds.x)},${Math.round(model.bounds.y)} ${Math.round(model.bounds.width)}x${Math.round(model.bounds.height)}`);
       }
     }
     
     // 第二步：无论是否存在3D模型，都合并 2D 绘制内容的边界（包含图片的 Paper.Raster）
     const paperDrawingBounds = this.getPaperDrawingBounds();
-    console.log(`✏️ 可见的 2D 绘制元素边界数量: ${paperDrawingBounds.length}`);
     const allBounds: Bounds[] = baseBounds.concat(paperDrawingBounds);
 
     // 第三步：计算最终边界
     if (allBounds.length === 0) {
-      console.log('⚠️ 没有找到任何内容元素，使用默认边界');
       return {
         x: 0,
         y: 0,
@@ -68,8 +63,7 @@ export class BoundsCalculator {
 
     // 使用所有内容的联合边界（图片/3D/2D线条）
     const finalBounds = this.calculateUnionBounds(allBounds);
-    console.log(`📏 最终截图边界（合并 2D/图片/3D）: ${Math.round(finalBounds.x)},${Math.round(finalBounds.y)} ${Math.round(finalBounds.width)}x${Math.round(finalBounds.height)}`);
-    
+
     // 应用可选边距
     const pad = Math.max(0, padding || 0);
     return {
@@ -91,8 +85,6 @@ export class BoundsCalculator {
     selectedPaperItems: paper.Item[],
     padding: number = 0
   ): ContentBounds {
-    console.log('📏 计算选中元素的截图边界...');
-
     const boundsList: Bounds[] = [];
 
     for (const image of selectedImages) {
@@ -104,7 +96,6 @@ export class BoundsCalculator {
           width: image.bounds.width,
           height: image.bounds.height,
         });
-        console.log(`  - 选中图片 ${image.id}: ${Math.round(image.bounds.x)},${Math.round(image.bounds.y)} ${Math.round(image.bounds.width)}x${Math.round(image.bounds.height)}`);
       }
     }
 
@@ -117,7 +108,6 @@ export class BoundsCalculator {
           width: model.bounds.width,
           height: model.bounds.height,
         });
-        console.log(`  - 选中3D模型 ${model.id}: ${Math.round(model.bounds.x)},${Math.round(model.bounds.y)} ${Math.round(model.bounds.width)}x${Math.round(model.bounds.height)}`);
       }
     }
 

@@ -170,7 +170,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   }, [ensureDrawingLayer]);
 
   // ========== 处理图片上传成功 ==========
-  const handleImageUploaded = useCallback((asset: StoredImageAsset) => {
+  const handleImageUploaded = useCallback((
+    asset: StoredImageAsset,
+    options?: { suppressAutoSave?: boolean; autoSaveReason?: string }
+  ) => {
     const placeholder = currentPlaceholderRef.current;
     if (!placeholder || !placeholder.data?.bounds) {
       logger.error('没有找到图片占位框');
@@ -181,6 +184,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       logger.error('无有效图片资源');
       return;
     }
+
+    const suppressAutoSave = Boolean(options?.suppressAutoSave);
+    const autoSaveReason = options?.autoSaveReason || 'image-uploaded';
 
     logger.upload('✅ 图片上传成功，创建图片实例');
 
@@ -333,6 +339,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         } : img
       ));
 
+      if (!suppressAutoSave) {
+        try { paperSaveService.triggerAutoSave('image-loaded'); } catch {}
+      }
+
       // 标记初始化完成并缓存 bounds，防止后续 source 切换重复初始化/命中异常
       try {
         if (!raster.data) raster.data = {};
@@ -399,6 +409,9 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     currentPlaceholderRef.current = null;
 
     logger.upload('🖼️ 图片实例创建完成:', imageId);
+    if (!suppressAutoSave) {
+      try { paperSaveService.triggerAutoSave(autoSaveReason); } catch {}
+    }
   }, [ensureDrawingLayer, eventHandlers.onImageSelect]);
 
   // ========== 添加图片选择元素 ==========
@@ -1148,7 +1161,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           contentType: snap.contentType,
           pendingUpload: snap.pendingUpload,
           localDataUrl: snap.localDataUrl ?? resolvedUrl,
-        });
+        }, { suppressAutoSave: true });
       }
     });
 

@@ -97,7 +97,6 @@ const MiniMapImageOverlay: React.FC = () => {
         if (sig !== lastSig) {
           lastSig = sig;
           setImages(mapped);
-          try { console.log('[MiniMapImageOverlay] images:', mapped.length); } catch {}
         }
       } catch {}
       raf = window.requestAnimationFrame(tick);

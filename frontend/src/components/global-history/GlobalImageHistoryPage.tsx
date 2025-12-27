@@ -188,7 +188,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({
               onClick={onLoadMore}
               disabled={isLoading}
               variant="outline"
-              className="text-white border-white/30 hover:bg-white/10"
+              className="bg-white/10 text-white border-white/20 hover:bg-white/20"
             >
               {isLoading ? (
                 <>
