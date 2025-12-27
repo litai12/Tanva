@@ -3,6 +3,7 @@ import { projectApi } from '@/services/projectApi';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
+import { setProjectCache } from '@/services/projectCacheStore';
 
 const AUTOSAVE_INTERVAL = 60 * 1000; // 1 分钟定时保存
 const DEBOUNCE_DELAY = 5 * 1000; // 5 秒防抖保存（用户停止操作后）
@@ -81,6 +82,15 @@ export function useProjectAutosave(projectId: string | null) {
 
       // 成功保存后尝试刷新缩略图（异步执行，避免阻塞主流程）
       void refreshProjectThumbnail(currentProjectId);
+
+      // 更新本地缓存
+      setProjectCache({
+        projectId: currentProjectId,
+        content: currentContent,
+        version: result.version,
+        updatedAt: result.updatedAt ?? new Date().toISOString(),
+        cachedAt: new Date().toISOString(),
+      }).catch(() => {});
 
       console.log(`✅ 项目保存成功 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS})`);
 

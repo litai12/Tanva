@@ -179,7 +179,7 @@ export default function Home() {
         <section className="h-screen w-full flex flex-col items-center justify-center px-4 relative overflow-hidden bg-black">
           {/* 黑色背景底 */}
           <div className="absolute inset-0 bg-black z-0"></div>
-          
+
           {/* Iridescence 背景 */}
           <Iridescence
             color={iridescenceColor}
@@ -188,11 +188,11 @@ export default function Home() {
             mouseReact={true}
             className="absolute inset-0 z-[1]"
           />
-          
+
           <div className="text-center relative z-10">
             <h1 className="text-5xl sm:text-6xl font-bold tracking-tight mb-6 text-white drop-shadow-lg">探索创作之境</h1>
             <p className="text-xl text-slate-200 mb-12 drop-shadow-md">专业绘图与 AI 创作平台，轻松开启你的灵感旅程</p>
-            <MetallicButton onClick={() => navigate('/app')}>
+            <MetallicButton onClick={() => navigate('/app')} enableWebcam={false}>
               立即体验
             </MetallicButton>
           </div>

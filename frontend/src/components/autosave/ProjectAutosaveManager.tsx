@@ -10,6 +10,7 @@ import { saveMonitor } from '@/utils/saveMonitor';
 import { useProjectStore } from '@/stores/projectStore';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore } from '@/stores/aiChatStore';
+import { getProjectCache, setProjectCache, isCacheValid } from '@/services/projectCacheStore';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -60,7 +61,36 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
     (async () => {
       try {
-        const data = await projectApi.getContent(projectId);
+        // 尝试从本地缓存加载
+        const projectMeta = useProjectStore.getState().projects.find(p => p.id === projectId);
+        const cached = await getProjectCache(projectId);
+
+        let data: { content: any; version: number; updatedAt: string | null };
+
+        if (cached && projectMeta && isCacheValid(cached, {
+          contentVersion: projectMeta.contentVersion,
+          updatedAt: projectMeta.updatedAt
+        })) {
+          // 缓存命中且有效
+          console.log('[ProjectCache] 缓存命中，跳过 OSS 请求');
+          data = { content: cached.content, version: cached.version, updatedAt: cached.updatedAt };
+        } else {
+          // 缓存未命中或过期，从 OSS 加载
+          console.log('[ProjectCache] 缓存未命中，从 OSS 加载');
+          data = await projectApi.getContent(projectId);
+
+          // 写入缓存
+          if (data.content && !cancelled) {
+            setProjectCache({
+              projectId,
+              content: data.content,
+              version: data.version,
+              updatedAt: data.updatedAt ?? new Date().toISOString(),
+              cachedAt: new Date().toISOString(),
+            }).catch(() => {});
+          }
+        }
+
         if (cancelled) return;
 
         hydrate(data.content, data.version, data.updatedAt ?? null);

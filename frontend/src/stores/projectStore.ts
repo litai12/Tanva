@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { projectApi, type Project } from '@/services/projectApi';
+import { deleteProjectCache } from '@/services/projectCacheStore';
 
 type ProjectState = {
   projects: Project[];
@@ -125,6 +126,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   remove: async (id) => {
     await projectApi.remove(id);
+
+    // 清理本地缓存
+    deleteProjectCache(id).catch(() => {});
 
     set((state) => {
       const projects = state.projects.filter((p) => p.id !== id);
