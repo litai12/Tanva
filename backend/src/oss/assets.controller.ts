@@ -53,8 +53,13 @@ export class AssetsController {
     const contentType = upstream.headers.get('content-type');
     if (contentType) reply.header('content-type', contentType);
 
-    const cacheControl = upstream.headers.get('cache-control');
-    reply.header('cache-control', cacheControl || 'public, max-age=3600');
+    // 仅对成功响应缓存，避免把偶发的 4xx/5xx “缓存成空白图”。
+    if (upstream.ok) {
+      const cacheControl = upstream.headers.get('cache-control');
+      reply.header('cache-control', cacheControl || 'public, max-age=3600');
+    } else {
+      reply.header('cache-control', 'no-store');
+    }
 
     const etag = upstream.headers.get('etag');
     if (etag) reply.header('etag', etag);

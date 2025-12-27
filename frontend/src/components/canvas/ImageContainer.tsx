@@ -54,7 +54,16 @@ const ensureDataUrlString = (
 const normalizeImageSrc = (value?: string | null): string => {
   if (!value) return "";
   const trimmed = value.trim();
-  if (/^data:image\//i.test(trimmed) || /^https?:\/\//i.test(trimmed)) {
+  // 允许同源的 proxy 资源（如 /api/assets/proxy?...），否则会被误判为 base64 导致空白
+  if (
+    /^data:image\//i.test(trimmed) ||
+    /^https?:\/\//i.test(trimmed) ||
+    /^blob:/i.test(trimmed) ||
+    trimmed.startsWith("/api/") ||
+    trimmed.startsWith("/assets/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../")
+  ) {
     return trimmed;
   }
   return `data:image/png;base64,${trimmed}`;
