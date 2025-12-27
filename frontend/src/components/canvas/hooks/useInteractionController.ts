@@ -90,6 +90,7 @@ interface ImageTool {
   setImageDragState: (state: ImageDragState) => void;
   setImageResizeState: (state: ImageResizeState) => void;
   handleImageMove: (id: string, position: { x: number; y: number }, skipPaperUpdate?: boolean) => void;
+  handleImagesMove?: (moves: Array<{ id: string; position: { x: number; y: number } }>, skipPaperUpdate?: boolean) => void;
   handleImageResize: (id: string, bounds: { x: number; y: number; width: number; height: number }) => void;
   createImagePlaceholder: (start: paper.Point, end: paper.Point) => void;
   createImageFromSnapshot?: (
@@ -547,11 +548,21 @@ export const useInteractionController = ({
     if (latestImageTool?.handleImageMove) {
       state.groupBlocks.forEach((entry) => {
         const startBounds = entry.startBounds || {};
+        const moves: Array<{ id: string; position: { x: number; y: number } }> = [];
         Object.keys(startBounds).forEach((imageId) => {
           const start = startBounds[imageId];
           if (!start) return;
-          const newPosition = { x: start.x + deltaX, y: start.y + deltaY };
-          try { latestImageTool.handleImageMove(imageId, newPosition, false); } catch {}
+          moves.push({ id: imageId, position: { x: start.x + deltaX, y: start.y + deltaY } });
+        });
+
+        if (moves.length === 0) return;
+        if (typeof latestImageTool.handleImagesMove === 'function') {
+          try { latestImageTool.handleImagesMove(moves, false); } catch {}
+          return;
+        }
+
+        moves.forEach(({ id, position }) => {
+          try { latestImageTool.handleImageMove(id, position, false); } catch {}
         });
       });
     }
@@ -1457,6 +1468,7 @@ export const useInteractionController = ({
           }
 
           // 移动所有图片
+          const moves: Array<{ id: string; position: { x: number; y: number } }> = [];
           groupIds.forEach((id) => {
             const start = groupStart[id] || latestImageTool.imageDragState.imageDragStartBounds;
             if (!start) {
@@ -1493,8 +1505,18 @@ export const useInteractionController = ({
               }
             }
 
-            latestImageTool.handleImageMove(id, finalPosition, false);
+            moves.push({ id, position: finalPosition });
           });
+
+          if (moves.length > 0) {
+            if (moves.length > 1 && typeof latestImageTool.handleImagesMove === 'function') {
+              try { latestImageTool.handleImagesMove(moves, false); } catch {}
+            } else {
+              moves.forEach(({ id, position }) => {
+                latestImageTool.handleImageMove(id, position, false);
+              });
+            }
+          }
 
           // 更新对齐线显示
           if (latestSnapAlignment) {

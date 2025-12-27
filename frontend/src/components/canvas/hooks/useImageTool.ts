@@ -702,136 +702,155 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     try { paper.view.update(); } catch {}
   }, [applyBoundsToPaperImage]);
 
+  const applyPaperMoveToImage = useCallback((imageId: string, newPosition: { x: number; y: number }) => {
+    // 🔥 使用 findImagePaperItem 进行深度搜索，确保能找到嵌套的图片组
+    const imageGroup = findImagePaperItem(imageId);
+
+    if (isGroup(imageGroup)) {
+      // 获取实际的Raster对象来获取真实尺寸
+      // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
+      const raster = imageGroup.children.find(child => isRasterItem(child));
+      const actualBounds = raster ? raster.bounds : imageGroup.bounds;
+
+      if (actualBounds) {
+        // 使用实际的图片尺寸而不是React状态中的尺寸
+        const actualWidth = actualBounds.width;
+        const actualHeight = actualBounds.height;
+
+        // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
+        imageGroup.children.forEach(child => {
+          if (isRasterItem(child)) {
+            // 使用 bounds 而不是 position，避免云端环境下 position 设置不生效的问题
+            child.bounds = new paper.Rectangle(
+              newPosition.x,
+              newPosition.y,
+              actualWidth,
+              actualHeight
+            );
+          } else if (child.data?.isSelectionBorder) {
+            // 设置选择框的绝对位置和尺寸（使用实际图片尺寸）
+            child.bounds = new paper.Rectangle(
+              newPosition.x,
+              newPosition.y,
+              actualWidth,
+              actualHeight
+            );
+          } else if (child.data?.type === 'image-selection-area') {
+            // 更新选择区域的bounds（关键！用于点击检测）
+            child.bounds = new paper.Rectangle(
+              newPosition.x,
+              newPosition.y,
+              actualWidth,
+              actualHeight
+            );
+          } else if (child.data?.isResizeHandle) {
+            // 重新定位控制点到绝对位置（使用实际图片尺寸）
+            const direction = child.data.direction;
+            let handlePosition;
+
+            switch (direction) {
+              case 'nw':
+                handlePosition = [newPosition.x, newPosition.y];
+                break;
+              case 'ne':
+                handlePosition = [newPosition.x + actualWidth, newPosition.y];
+                break;
+              case 'sw':
+                handlePosition = [newPosition.x, newPosition.y + actualHeight];
+                break;
+              case 'se':
+                handlePosition = [newPosition.x + actualWidth, newPosition.y + actualHeight];
+                break;
+              default:
+                handlePosition = [newPosition.x, newPosition.y];
+            }
+
+            child.position = new paper.Point(handlePosition[0], handlePosition[1]);
+          } else if (child.data?.isImageHitRect) {
+            // 更新碰撞检测矩形的bounds（由ensureImageGroupStructure创建）
+            child.bounds = new paper.Rectangle(
+              newPosition.x,
+              newPosition.y,
+              actualWidth,
+              actualHeight
+            );
+          }
+        });
+
+        // 同步缓存 bounds（用于后续 source 切换二次 onLoad 时恢复显示尺寸）
+        try {
+          if (raster && (raster as any).data) {
+            (raster as any).data.__tanvaBounds = {
+              x: newPosition.x,
+              y: newPosition.y,
+              width: actualWidth,
+              height: actualHeight
+            };
+          }
+        } catch {}
+      }
+
+      return;
+    }
+
+    if (isRaster(imageGroup)) {
+      const actualWidth = imageGroup.bounds.width;
+      const actualHeight = imageGroup.bounds.height;
+      imageGroup.position = new paper.Point(
+        newPosition.x + actualWidth / 2,
+        newPosition.y + actualHeight / 2
+      );
+      try {
+        if (!imageGroup.data) imageGroup.data = {};
+        (imageGroup.data as any).__tanvaBounds = {
+          x: newPosition.x,
+          y: newPosition.y,
+          width: actualWidth,
+          height: actualHeight
+        };
+      } catch {}
+    }
+  }, [isRasterItem]);
+
+  const handleImagesMove = useCallback((
+    moves: Array<{ id: string; position: { x: number; y: number } }>,
+    skipPaperUpdate = false
+  ) => {
+    const validMoves = Array.isArray(moves)
+      ? moves.filter((m): m is { id: string; position: { x: number; y: number } } => !!m?.id && !!m?.position)
+      : [];
+    if (validMoves.length === 0) return;
+
+    const positionsById = new Map<string, { x: number; y: number }>();
+    validMoves.forEach(({ id, position }) => positionsById.set(id, position));
+
+    if (!skipPaperUpdate) {
+      validMoves.forEach(({ id, position }) => {
+        try { applyPaperMoveToImage(id, position); } catch {}
+      });
+      try { syncImageGroupBlocksForImageIds(validMoves.map((m) => m.id)); } catch {}
+      try { paper.view.update(); } catch {}
+    }
+
+    setImageInstances((prev) =>
+      prev.map((img) => {
+        const pos = positionsById.get(img.id);
+        if (!pos) return img;
+        const cur = img.bounds;
+        if (cur.x === pos.x && cur.y === pos.y) return img;
+        return { ...img, bounds: { ...cur, x: pos.x, y: pos.y } };
+      })
+    );
+
+    validMoves.forEach(({ id, position }) => {
+      eventHandlers.onImageMove?.(id, position);
+    });
+  }, [applyPaperMoveToImage, eventHandlers.onImageMove]);
+
   // ========== 图片移动 ==========
   const handleImageMove = useCallback((imageId: string, newPosition: { x: number; y: number }, skipPaperUpdate = false) => {
-    setImageInstances(prev => prev.map(img => {
-      if (img.id === imageId) {
-        // 只有在不跳过Paper.js更新时才更新Paper.js元素
-        // 这避免了在拖拽过程中的重复更新
-        if (!skipPaperUpdate) {
-          // 🔥 使用 findImagePaperItem 进行深度搜索，确保能找到嵌套的图片组
-          const imageGroup = findImagePaperItem(imageId);
-
-          if (isGroup(imageGroup)) {
-            // 获取实际的Raster对象来获取真实尺寸
-            // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
-            const raster = imageGroup.children.find(child => isRasterItem(child));
-            const actualBounds = raster ? raster.bounds : imageGroup.bounds;
-
-            if (actualBounds) {
-              // 使用实际的图片尺寸而不是React状态中的尺寸
-              const actualWidth = actualBounds.width;
-              const actualHeight = actualBounds.height;
-
-              // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
-              imageGroup.children.forEach(child => {
-                if (isRasterItem(child)) {
-                  // 使用 bounds 而不是 position，避免云端环境下 position 设置不生效的问题
-                  child.bounds = new paper.Rectangle(
-                    newPosition.x,
-                    newPosition.y,
-                    actualWidth,
-                    actualHeight
-                  );
-                } else if (child.data?.isSelectionBorder) {
-                  // 设置选择框的绝对位置和尺寸（使用实际图片尺寸）
-                  child.bounds = new paper.Rectangle(
-                    newPosition.x,
-                    newPosition.y,
-                    actualWidth,
-                    actualHeight
-                  );
-                } else if (child.data?.type === 'image-selection-area') {
-                  // 更新选择区域的bounds（关键！用于点击检测）
-                  child.bounds = new paper.Rectangle(
-                    newPosition.x,
-                    newPosition.y,
-                    actualWidth,
-                    actualHeight
-                  );
-                } else if (child.data?.isResizeHandle) {
-                  // 重新定位控制点到绝对位置（使用实际图片尺寸）
-                  const direction = child.data.direction;
-                  let handlePosition;
-
-                  switch (direction) {
-                    case 'nw':
-                      handlePosition = [newPosition.x, newPosition.y];
-                      break;
-                    case 'ne':
-                      handlePosition = [newPosition.x + actualWidth, newPosition.y];
-                      break;
-                    case 'sw':
-                      handlePosition = [newPosition.x, newPosition.y + actualHeight];
-                      break;
-                    case 'se':
-                      handlePosition = [newPosition.x + actualWidth, newPosition.y + actualHeight];
-                      break;
-                    default:
-                      handlePosition = [newPosition.x, newPosition.y];
-                  }
-
-                  child.position = new paper.Point(handlePosition[0], handlePosition[1]);
-                } else if (child.data?.isImageHitRect) {
-                  // 更新碰撞检测矩形的bounds（由ensureImageGroupStructure创建）
-                  child.bounds = new paper.Rectangle(
-                    newPosition.x,
-                    newPosition.y,
-                    actualWidth,
-                    actualHeight
-                  );
-                }
-              });
-
-              // 同步缓存 bounds（用于后续 source 切换二次 onLoad 时恢复显示尺寸）
-              try {
-                if (raster && (raster as any).data) {
-                  (raster as any).data.__tanvaBounds = {
-                    x: newPosition.x,
-                    y: newPosition.y,
-                    width: actualWidth,
-                    height: actualHeight
-                  };
-                }
-              } catch {}
-
-              try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
-              paper.view.update();
-            }
-          } else if (isRaster(imageGroup)) {
-            const actualWidth = imageGroup.bounds.width;
-            const actualHeight = imageGroup.bounds.height;
-            imageGroup.position = new paper.Point(
-              newPosition.x + actualWidth / 2,
-              newPosition.y + actualHeight / 2
-            );
-            try {
-              if (!imageGroup.data) imageGroup.data = {};
-              (imageGroup.data as any).__tanvaBounds = {
-                x: newPosition.x,
-                y: newPosition.y,
-                width: actualWidth,
-                height: actualHeight
-              };
-            } catch {}
-            try { syncImageGroupBlocksForImageIds([imageId]); } catch {}
-            try { paper.view.update(); } catch {}
-          }
-        }
-
-        return {
-          ...img,
-          bounds: {
-            ...img.bounds,
-            x: newPosition.x,
-            y: newPosition.y
-          }
-        };
-      }
-      return img;
-    }));
-    eventHandlers.onImageMove?.(imageId, newPosition);
-  }, [eventHandlers.onImageMove, isRasterItem]);
+    handleImagesMove([{ id: imageId, position: newPosition }], skipPaperUpdate);
+  }, [handleImagesMove]);
 
   // ========== 批量切换图片可见性（用于拖拽到库时隐藏克隆副本） ==========
   const setImagesVisibility = useCallback((imageIds: string[], visible: boolean) => {
@@ -1241,6 +1260,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     // 图片移动和调整大小
     handleImageMove,
+    handleImagesMove,
     handleImageResize,
     handleImageDelete,
 
