@@ -259,3 +259,9 @@ body.tanva-canvas-dragging [data-model-toolbar],
 body.tanva-canvas-dragging [data-model-toolbar] * {
   pointer-events: none !important;
 }
+
+/* 选中组工具栏：拖拽中隐藏，停止后显示 */
+body.tanva-canvas-dragging .tanva-selection-group-toolbar {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
