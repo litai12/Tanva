@@ -1,3 +1,5 @@
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+
 export interface TrimTransparentResult {
   dataUrl: string;
   cropBounds: { left: number; top: number; width: number; height: number };
@@ -19,7 +21,7 @@ export const loadImageElement = (src: string): Promise<HTMLImageElement> => {
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('无法加载图像数据'));
-    img.src = src;
+    img.src = proxifyRemoteAssetUrl(src);
   });
 };
 

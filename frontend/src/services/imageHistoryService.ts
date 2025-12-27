@@ -1,6 +1,7 @@
 import { imageUploadService } from '@/services/imageUploadService';
 import type { ImageHistoryItem } from '@/stores/imageHistoryStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
+import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 
 interface RecordImageHistoryOptions {
   id?: string;
@@ -12,12 +13,14 @@ interface RecordImageHistoryOptions {
   nodeId: string;
   nodeType: ImageHistoryItem['nodeType'];
   projectId?: string | null;
+  projectName?: string;
   dir?: string;
   timestamp?: number;
   skipInitialStoreUpdate?: boolean;
   keepThumbnail?: boolean;
   mimeType?: string;
   thumbnailDataUrl?: string;
+  skipGlobalHistory?: boolean;
 }
 
 const ensureDataUrl = (value: string, mimeType: string = 'png'): string => {
@@ -39,10 +42,12 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
     nodeId,
     nodeType,
     projectId,
+    projectName,
     dir,
     skipInitialStoreUpdate,
     keepThumbnail,
     mimeType,
+    skipGlobalHistory,
   } = options;
 
   let { id } = options;
@@ -107,6 +112,21 @@ export async function recordImageHistoryEntry(options: RecordImageHistoryOptions
         thumbnail: keepThumbnail ? resolvedThumbnail ?? dataUrl : undefined,
         projectId,
       });
+
+      // 同步写入全局历史（异步，不阻塞返回）
+      if (!skipGlobalHistory) {
+        const globalStore = useGlobalImageHistoryStore.getState();
+        globalStore.addItem({
+          imageUrl: remoteUrl,
+          prompt: options.title,
+          sourceType: nodeType,
+          sourceProjectId: projectId ?? undefined,
+          sourceProjectName: projectName,
+        }).catch((err) => {
+          console.warn('[ImageHistory] 写入全局历史失败:', err);
+        });
+      }
+
       return {
         id,
         remoteUrl,

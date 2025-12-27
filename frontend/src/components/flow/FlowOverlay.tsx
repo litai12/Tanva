@@ -2128,14 +2128,18 @@ function FlowInner() {
       return false;
     }
 
-    if (targetNode.type === 'image') {
-      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
-      return false;
-    }
-    if (targetNode.type === 'promptOptimize') {
-      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
-      return false;
-    }
+	    if (targetNode.type === 'image') {
+	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+	      return false;
+	    }
+	    if (targetNode.type === 'imagePro') {
+	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+	      return false;
+	    }
+	    if (targetNode.type === 'promptOptimize') {
+	      if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
+	      return false;
+	    }
     if (targetNode.type === 'textPrompt') {
       if (isTextHandle(targetHandle)) return textSourceTypes.includes(sourceNode.type || '');
       return false;
@@ -2179,12 +2183,15 @@ function FlowInner() {
       if (handle === 'image1' || handle === 'refer') return true;
       if (handle === 'image2' || handle === 'img') return true;
     }
-    if (targetNode?.type === 'image') {
-      if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
-    }
-    if (targetNode?.type === 'promptOptimize') {
-      if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
-    }
+	    if (targetNode?.type === 'image') {
+	      if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
+	    }
+	    if (targetNode?.type === 'imagePro') {
+	      if (params.targetHandle === 'img') return true; // 允许连接，新线会替换旧线
+	    }
+	    if (targetNode?.type === 'promptOptimize') {
+	      if (isTextHandle(params.targetHandle)) return true; // 仅一条连接，后续替换
+	    }
     if (targetNode?.type === 'textPrompt') {
       if (isTextHandle(params.targetHandle)) return incoming.length < TEXT_PROMPT_MAX_CONNECTIONS;
     }
@@ -2230,12 +2237,12 @@ function FlowInner() {
 
     setEdges((eds) => {
       let next = eds;
-      const tgt = rf.getNode(params.target!);
-      
-      // 如果是连接到 Image(img)，先移除旧的输入线，再添加新线
-      if ((tgt?.type === 'image' || tgt?.type === 'analysis') && params.targetHandle === 'img') {
-        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'img'));
-      }
+	      const tgt = rf.getNode(params.target!);
+	      
+	      // 如果是连接到 Image(img)，先移除旧的输入线，再添加新线
+	      if ((tgt?.type === 'image' || tgt?.type === 'imagePro' || tgt?.type === 'analysis') && params.targetHandle === 'img') {
+	        next = next.filter(e => !(e.target === params.target && e.targetHandle === 'img'));
+	      }
 
       // 如果是连接到 Generate(text) 或 PromptOptimize(text)，先移除旧的输入线，再添加新线
       // 注意：generatePro 和 generatePro4 允许多个 text 输入，不移除旧连接
@@ -2291,13 +2298,13 @@ function FlowInner() {
     }, 0);
 
     // 若连接到 Image(img)，立即把源图像写入目标
-    try {
-      const target = rf.getNode(params.target!);
-      if ((target?.type === 'image' || target?.type === 'analysis') && params.targetHandle === 'img' && params.source) {
-        const src = rf.getNode(params.source);
-        let img: string | undefined;
-        let incomingImageName: string | undefined;
-        let incomingThumbnail: string | undefined;
+	    try {
+	      const target = rf.getNode(params.target!);
+	      if ((target?.type === 'image' || target?.type === 'imagePro' || target?.type === 'analysis') && params.targetHandle === 'img' && params.source) {
+	        const src = rf.getNode(params.source);
+	        let img: string | undefined;
+	        let incomingImageName: string | undefined;
+	        let incomingThumbnail: string | undefined;
         if (src?.type === 'generate4' || src?.type === 'generatePro4') {
           const handle = (params as any).sourceHandle as string | undefined;
           const idx = handle && handle.startsWith('img') ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1)) : 0;
@@ -2329,16 +2336,16 @@ function FlowInner() {
           ? incomingThumbnail.trim()
           : '';
         if (img) {
-          setNodes(ns => ns.map(n => {
-            if (n.id !== target.id) return n;
-            const resetStatus = target.type === 'analysis'
-              ? { status: 'idle', error: undefined, prompt: '', text: '' }
-              : {};
-            const thumbPatch = target.type === 'image'
-              ? { thumbnail: normalizedIncomingThumbnail || undefined }
-              : {};
-            return {
-              ...n,
+	          setNodes(ns => ns.map(n => {
+	            if (n.id !== target.id) return n;
+	            const resetStatus = target.type === 'analysis'
+	              ? { status: 'idle', error: undefined, prompt: '', text: '' }
+	              : {};
+	            const thumbPatch = (target.type === 'image' || target.type === 'imagePro')
+	              ? { thumbnail: normalizedIncomingThumbnail || undefined }
+	              : {};
+	            return {
+	              ...n,
               data: {
                 ...n.data,
                 imageData: img,
@@ -2347,26 +2354,26 @@ function FlowInner() {
                 ...resetStatus
               }
             };
-          }));
+	          }));
 
-          // 若目标是 Image 且没有可用缩略图，异步生成缩略图（用于节点渲染性能）
-          if (target.type === 'image' && !normalizedIncomingThumbnail) {
-            generateThumbnail(img, 400)
-              .then((thumbnail) => {
-                if (!thumbnail) return;
-                setNodes((ns) =>
-                  ns.map((n) => {
-                    if (n.id !== target.id) return n;
-                    if ((n.data as any)?.imageData !== img) return n;
-                    return { ...n, data: { ...n.data, thumbnail } };
-                  })
-                );
-              })
-              .catch(() => {});
-          }
-        }
-      }
-    } catch {}
+	          // 若目标是 Image 且没有可用缩略图，异步生成缩略图（用于节点渲染性能）
+	          if ((target.type === 'image' || target.type === 'imagePro') && !normalizedIncomingThumbnail) {
+	            generateThumbnail(img, 400)
+	              .then((thumbnail) => {
+	                if (!thumbnail) return;
+	                setNodes((ns) =>
+	                  ns.map((n) => {
+	                    if (n.id !== target.id) return n;
+	                    if ((n.data as any)?.imageData !== img) return n;
+	                    return { ...n, data: { ...n.data, thumbnail } };
+	                  })
+	                );
+	              })
+	              .catch(() => {});
+	          }
+	        }
+	      }
+	    } catch {}
     setIsConnecting(false);
   }, [isValidConnection, canAcceptConnection, setEdges, rf, setNodes, isTextHandle, setIsConnecting]);
 

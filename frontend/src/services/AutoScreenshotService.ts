@@ -10,6 +10,7 @@ import { BoundsCalculator, type ContentBounds } from '@/utils/BoundsCalculator';
 import { trimTransparentPng } from '@/utils/imageHelper';
 import type { ImageInstance, Model3DInstance } from '@/types/canvas';
 import { logger } from '@/utils/logger';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 export interface ScreenshotOptions {
   /** 输出图片格式 */
@@ -1432,10 +1433,11 @@ export class AutoScreenshotService {
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error('图片加载失败'));
-      if (!/^data:/i.test(src) && !/^blob:/i.test(src)) {
+      const finalSrc = proxifyRemoteAssetUrl(src);
+      if (!/^data:/i.test(finalSrc) && !/^blob:/i.test(finalSrc)) {
         img.crossOrigin = 'anonymous';
       }
-      img.src = src;
+      img.src = finalSrc;
     });
   }
 

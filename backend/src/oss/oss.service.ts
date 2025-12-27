@@ -104,4 +104,14 @@ export class OssService {
     const host = cdnHost || `${bucket}.${region}.aliyuncs.com`;
     return `https://${host}/${key}`;
   }
+
+  allowedPublicHosts(): string[] {
+    const { cdnHost, bucket, region } = this.conf;
+    const stripProtocol = (value: string) => value.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    const hosts = [`${bucket}.${region}.aliyuncs.com`];
+    if (cdnHost) {
+      hosts.push(stripProtocol(cdnHost));
+    }
+    return Array.from(new Set(hosts)).filter(Boolean);
+  }
 }

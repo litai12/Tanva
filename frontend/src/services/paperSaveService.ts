@@ -4,6 +4,7 @@ import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
 import { saveMonitor } from '@/utils/saveMonitor';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -25,6 +26,52 @@ class PaperSaveService {
     if (typeof value !== 'string') return false;
     const trimmed = value.trim();
     return trimmed.startsWith('data:image/') || trimmed.startsWith('blob:');
+  }
+
+  private ensureRasterCrossOriginAndProxySources() {
+    try {
+      if (!this.isPaperProjectReady()) return;
+
+      const project = paper.project as any;
+      const rasterClass = (paper as any).Raster;
+      if (!project?.getItems || !rasterClass) return;
+
+      const rasters = project.getItems({ class: rasterClass }) as any[];
+      if (!Array.isArray(rasters) || rasters.length === 0) return;
+
+      rasters.forEach((raster) => {
+        if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
+
+        try {
+          (raster as any).crossOrigin = 'anonymous';
+        } catch {}
+
+        const dataRemoteUrl = typeof raster?.data?.remoteUrl === 'string' ? raster.data.remoteUrl.trim() : '';
+        const sourceString = typeof raster.source === 'string' ? raster.source.trim() : '';
+
+        const candidate =
+          (dataRemoteUrl && this.isRemoteUrl(dataRemoteUrl) ? dataRemoteUrl : '') ||
+          (sourceString && this.isRemoteUrl(sourceString) ? sourceString : '');
+
+        if (!candidate || this.isInlineImageSource(candidate)) return;
+
+        const proxied = proxifyRemoteAssetUrl(candidate);
+        if (proxied === candidate) return;
+
+        if (typeof raster.source === 'string') {
+          raster.source = proxied;
+          return;
+        }
+
+        const maybeImg = raster.source as any;
+        if (maybeImg && typeof maybeImg === 'object' && typeof maybeImg.src === 'string') {
+          try { maybeImg.crossOrigin = 'anonymous'; } catch {}
+          try { maybeImg.src = proxied; } catch {}
+        }
+      });
+    } catch (error) {
+      console.warn('[PaperSaveService] 修复 Raster 跨域加载失败:', error);
+    }
   }
 
   private async convertBlobUrlToBlob(blobUrl: string): Promise<Blob | null> {
@@ -493,6 +540,10 @@ class PaperSaveService {
 
       // 导入保存的内容
       (paper.project as any).importJSON(jsonString);
+
+      // OSS 图片未配置 CORS 时，Paper.js Raster 在 canvas 场景会被浏览器拦截。
+      // 通过同源 /api/assets/proxy 代理加载，可避免跨域限制。
+      this.ensureRasterCrossOriginAndProxySources();
 
       // 清理系统图层与辅助元素
       const toRemove: paper.Layer[] = [];

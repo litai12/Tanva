@@ -48,6 +48,8 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
 import ManualSaveButton from '@/components/autosave/ManualSaveButton';
+import GlobalImageHistoryPage from '@/components/global-history/GlobalImageHistoryPage';
+import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -299,6 +301,7 @@ const FloatingHeader: React.FC = () => {
     }, [showGrid, gridStyle, gridSize, gridColor, gridBgColor, gridBgEnabled]);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('workspace');
+    const [isGlobalHistoryOpen, setIsGlobalHistoryOpen] = useState(false);
     
     // 监听网格大小变化
     useEffect(() => {
@@ -333,6 +336,14 @@ const FloatingHeader: React.FC = () => {
 
     const clearImageHistory = useImageHistoryStore((state) => state.clearHistory);
     const historyCount = useImageHistoryStore((state) => state.history.length);
+    const globalHistoryCount = useGlobalImageHistoryStore((state) => state.totalCount);
+    const fetchGlobalHistoryCount = useGlobalImageHistoryStore((state) => state.fetchCount);
+
+    // 获取全局历史数量
+    useEffect(() => {
+        fetchGlobalHistoryCount();
+    }, [fetchGlobalHistoryCount]);
+
     const handleClearImageHistory = React.useCallback(() => {
         if (historyCount === 0) {
             alert('当前没有需要清理的图片历史。');
@@ -644,11 +655,11 @@ const FloatingHeader: React.FC = () => {
                             <Button
                                 variant="outline"
                                 className="h-10 rounded-xl text-sm border-yellow-200 text-yellow-700 hover:bg-yellow-50"
-                                onClick={() => handleClearImageHistory()}
+                                onClick={() => setIsGlobalHistoryOpen(true)}
                             >
                                 <History className="mr-2 h-4 w-4" />
-                                清空图片历史
-                                <span className="ml-auto text-[11px] text-slate-500">({historyCount})</span>
+                                全局图片历史
+                                <span className="ml-auto text-[11px] text-slate-500">({globalHistoryCount})</span>
                             </Button>
                             <Button
                                 variant="outline"
@@ -1446,6 +1457,12 @@ return (
 
             {/* 项目管理器（文件选择弹窗） */}
             <ProjectManagerModal />
+
+            {/* 全局图片历史页面 */}
+            <GlobalImageHistoryPage
+                isOpen={isGlobalHistoryOpen}
+                onClose={() => setIsGlobalHistoryOpen(false)}
+            />
         </div>
     );
 };

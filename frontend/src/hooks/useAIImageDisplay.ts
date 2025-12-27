@@ -7,6 +7,7 @@ import { useEffect, useCallback } from 'react';
 import paper from 'paper';
 import type { AIImageResult } from '@/types/ai';
 import { ensureImageGroupStructure } from '@/utils/paperImageGroup';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 export const useAIImageDisplay = () => {
 
@@ -362,7 +363,7 @@ export const useAIImageDisplay = () => {
       };
 
       // 开始加载图像
-      img.src = imageDataUrl;
+      img.src = proxifyRemoteAssetUrl(imageDataUrl);
 
     } catch (error) {
       console.error('❌ 显示AI图像时发生错误:', error);
