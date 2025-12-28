@@ -9,6 +9,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import LoginModal from '@/components/auth/LoginModal';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
+import InitialLoadingOverlay from '@/components/InitialLoadingOverlay';
 
 // 检测是否为移动设备
 const isMobileDevice = (): boolean => {
@@ -170,6 +171,7 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen">
+      <InitialLoadingOverlay />
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
