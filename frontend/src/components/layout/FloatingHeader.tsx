@@ -1338,6 +1338,7 @@ return (
                         size="sm"
                         className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
                         title="帮助"
+                        onClick={() => window.open('https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd', '_blank')}
                     >
                         <HelpCircle className="w-4 h-4" />
                     </Button>
