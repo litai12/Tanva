@@ -2133,11 +2133,11 @@ function FlowInner() {
     }
 
 	    if (targetNode.type === 'image') {
-	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','midjourney','three','camera'].includes(sourceNode.type || '');
 	      return false;
 	    }
 	    if (targetNode.type === 'imagePro') {
-	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','midjourney','three','camera'].includes(sourceNode.type || '');
 	      return false;
 	    }
 	    if (targetNode.type === 'promptOptimize') {
@@ -2153,7 +2153,7 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'analysis') {
-      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','midjourney','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'textChat') {
