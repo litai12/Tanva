@@ -1210,7 +1210,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
 
     const offsetX = options?.offset?.x ?? 0;
     const offsetY = options?.offset?.y ?? 0;
-    const imageId = options?.idOverride || `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const imageId = options?.idOverride || `image_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
     if (snapshot.layerId) {
       try { useLayerStore.getState().activateLayer(snapshot.layerId); } catch {}
