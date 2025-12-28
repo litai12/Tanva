@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { getPendingImageCount, subscribePendingImageCount } from '@/utils/globalImageLoadTracker';
@@ -18,10 +18,6 @@ export default function InitialLoadingOverlay() {
   const startedAtRef = useRef<number>(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const quietTimerRef = useRef<number | null>(null);
   const hideTimerRef = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    document.getElementById('initial-loading')?.remove();
-  }, []);
 
   useEffect(() => {
     return subscribePendingImageCount(setPendingImages);
