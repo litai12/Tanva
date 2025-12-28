@@ -628,7 +628,7 @@ function useFlowViewport() {
 function FlowInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让“副本在动、原节点不动”）
+  // Alt+拖拽复制相关状态（在 onNodesChange 中做位置重映射，让"副本在动、原节点不动"）
   const altDragStartRef = React.useRef<any>(null);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const imageSize = useAIChatStore((state) => state.imageSize);
@@ -636,6 +636,10 @@ function FlowInner() {
     () => getImageModelForProvider(aiProvider),
     [aiProvider]
   );
+
+  // 使用 useMemo 缓存 nodeTypes 和 edgeTypes，避免 React Flow 警告
+  const memoizedNodeTypes = React.useMemo(() => nodeTypes, []);
+  const memoizedEdgeTypes = React.useMemo(() => edgeTypes, []);
 
   // 获取当前工具模式
   const drawMode = useToolStore((state) => state.drawMode);
@@ -4504,8 +4508,8 @@ function FlowInner() {
         onEdgeDoubleClick={handleEdgeDoubleClick}
 
         isValidConnection={isValidConnection}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
+        nodeTypes={memoizedNodeTypes}
+        edgeTypes={memoizedEdgeTypes}
         fitView={false}
         panOnDrag={!isPointerMode}
         zoomOnScroll={false}

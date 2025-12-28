@@ -14,6 +14,10 @@ import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
 import RunningHubTest from '@/pages/RunningHubTest';
+import { runMigrations } from '@/services/indexedDB/migrations';
+
+// 应用启动时执行 localStorage -> IndexedDB 迁移
+runMigrations().catch(console.error);
 
 function RootRoutes() {
   const init = useAuthStore((s) => s.init);
