@@ -266,14 +266,14 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
         panY: useCanvasStore.getState().panY,
       };
       const store = useProjectContentStore.getState();
-      const markDirty = hydrationReadyRef.current && store.hydrated;
+      // 画布视角变化不标记 dirty，避免频繁触发自动保存
       store.updatePartial({
         canvas: {
           zoom: canvasState.zoom,
           panX: canvasState.panX,
           panY: canvasState.panY,
         },
-      }, { markDirty });
+      }, { markDirty: false });
     };
 
     syncLayers();

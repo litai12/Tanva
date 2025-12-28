@@ -40,6 +40,22 @@ const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?
     return { source: inline || asset.url, remoteUrl: undefined };
 };
 
+const shouldUseAnonymousCrossOrigin = (source: string): boolean => {
+    const value = typeof source === 'string' ? source.trim() : '';
+    if (!value) return false;
+    if (value.startsWith('data:image/') || value.startsWith('blob:')) return false;
+    if (value.startsWith('/')) return false; // same-origin paths
+    if (!isRemoteUrl(value) || typeof window === 'undefined') return false;
+    try {
+        const url = new URL(value);
+        if (url.hostname === window.location.hostname) return true;
+        // OSS / CDN 图片通常支持 CORS，开启 anonymous 以避免污染 canvas
+        if (url.hostname.endsWith('.aliyuncs.com')) return true;
+    } catch {}
+    // 其他外部来源不强制 crossOrigin=anonymous，避免因缺少 CORS 头导致图片加载失败
+    return false;
+};
+
 // 图片加载超时时间，防止占位框长时间悬挂
 const IMAGE_LOAD_TIMEOUT = 20000; // 20s
 
@@ -1041,7 +1057,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             // 创建图片的 Raster 对象（先绑定 onLoad 再设置 source，避免极快缓存触发导致丢失回调）
             const raster = new paper.Raster();
-            (raster as any).crossOrigin = 'anonymous';
+            try {
+                if (shouldUseAnonymousCrossOrigin(rasterSource)) {
+                    (raster as any).crossOrigin = 'anonymous';
+                }
+            } catch {}
             raster.position = targetPosition;
             if (resolvedRemoteUrl) {
                 raster.data = { ...(raster.data || {}), remoteUrl: resolvedRemoteUrl };

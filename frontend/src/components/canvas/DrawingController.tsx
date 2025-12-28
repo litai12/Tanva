@@ -412,14 +412,19 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       });
 
       if (imageInstance) {
-        const alreadyExists = imageTool.imageInstances.some(inst => inst.id === imageInstance.id);
-        if (!alreadyExists) {
-          imageTool.setImageInstances(prev => [...prev, imageInstance]);
+        imageTool.setImageInstances((prev) => {
+          const alreadyExists = prev.some((inst) => inst.id === imageInstance.id);
+          if (alreadyExists) {
+            logger.debug('ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加', imageInstance.id);
+            return prev;
+          }
+          const next = [...prev, imageInstance];
+          // 立即同步到 window，避免“刚发送到画布→立刻保存”时 assets 采集不到新图片
+          try { (window as any).tanvaImageInstances = next; } catch {}
           logger.upload('快速上传的图片已添加到实例管理');
           logger.debug('✅ [DEBUG] 图片实例已添加到imageTool管理');
-        } else {
-          logger.debug('ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加', imageInstance.id);
-        }
+          return next;
+        });
 
         // 同步缓存位置信息（如果该图片刚被缓存为最新）
         try {
@@ -441,9 +446,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             return cached?.remoteUrl ?? null;
           })();
 
-          if (imageDataForCache) {
+          const dataToCache = imageDataForCache || remoteUrl;
+          if (dataToCache) {
             contextManager.cacheLatestImage(
-              imageDataForCache,
+              dataToCache,
               imageInstance.id,
               cached?.prompt || '快速上传图片',
               {
@@ -1372,9 +1378,33 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (snap?.id) snapshotMap.set(snap.id, snap);
           });
 
-          const restoredImageGroups = paper.project.layers.flatMap((layer) =>
-            (layer.children || []).filter((child: any) => child?.data?.type === 'image' && child?.data?.imageId)
-          ) as paper.Item[];
+          const restoredImageGroups = (() => {
+            try {
+              const items = (paper.project as any).getItems?.({
+                match: (item: any) => item?.data?.type === 'image' && item?.data?.imageId,
+              }) as paper.Item[] | undefined;
+              const list = Array.isArray(items) ? items : [];
+
+              // 去重：同一个 imageId 可能同时标在 Group 与其内部 Raster 上，优先保留 Group
+              const byId = new Map<string, paper.Item>();
+              for (const item of list) {
+                const imageId = item?.data?.imageId;
+                if (!imageId) continue;
+                const existing = byId.get(imageId);
+                const isGroupLike = (it: any) => it?.className === 'Group' || it instanceof paper.Group;
+                if (!existing) {
+                  byId.set(imageId, item);
+                  continue;
+                }
+                if (isGroupLike(item) && !isGroupLike(existing)) {
+                  byId.set(imageId, item);
+                }
+              }
+              return Array.from(byId.values());
+            } catch {
+              return [];
+            }
+          })();
 
           const reconstructed: ImageInstance[] = [];
           restoredImageGroups.forEach((item) => {

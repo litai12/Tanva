@@ -42,10 +42,6 @@ class PaperSaveService {
       rasters.forEach((raster) => {
         if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
 
-        try {
-          (raster as any).crossOrigin = 'anonymous';
-        } catch {}
-
         const dataRemoteUrl = typeof raster?.data?.remoteUrl === 'string' ? raster.data.remoteUrl.trim() : '';
         const sourceString = typeof raster.source === 'string' ? raster.source.trim() : '';
 
@@ -56,7 +52,23 @@ class PaperSaveService {
         if (!candidate || this.isInlineImageSource(candidate)) return;
 
         const proxied = proxifyRemoteAssetUrl(candidate);
-        if (proxied === candidate) return;
+        const shouldProxy = proxied !== candidate;
+
+        const shouldUseAnonymous = (() => {
+          if (shouldProxy) return true;
+          try {
+            const url = new URL(candidate);
+            if (typeof window !== 'undefined' && url.hostname === window.location.hostname) return true;
+            if (url.hostname.endsWith('.aliyuncs.com')) return true;
+          } catch {}
+          return false;
+        })();
+
+        if (shouldUseAnonymous) {
+          try { (raster as any).crossOrigin = 'anonymous'; } catch {}
+        }
+
+        if (!shouldProxy) return;
 
         if (typeof raster.source === 'string') {
           raster.source = proxied;
@@ -65,7 +77,9 @@ class PaperSaveService {
 
         const maybeImg = raster.source as any;
         if (maybeImg && typeof maybeImg === 'object' && typeof maybeImg.src === 'string') {
-          try { maybeImg.crossOrigin = 'anonymous'; } catch {}
+          if (shouldUseAnonymous) {
+            try { maybeImg.crossOrigin = 'anonymous'; } catch {}
+          }
           try { maybeImg.src = proxied; } catch {}
         }
       });

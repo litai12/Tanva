@@ -1943,7 +1943,7 @@ export const useInteractionController = ({
         resetGroupPathDrag();
         if (didMove) {
           historyService.commit(wasAltClone ? 'clone-image' : 'move-image').catch(() => {});
-          try { paperSaveService.triggerAutoSave(wasAltClone ? 'clone-image' : 'move-image'); } catch {}
+          // 移动图片不触发自动保存，仅记录历史
         }
         return;
       }
@@ -1958,7 +1958,7 @@ export const useInteractionController = ({
           resizeStartPoint: null
         });
         historyService.commit('resize-image').catch(() => {});
-        try { paperSaveService.triggerAutoSave('resize-image'); } catch {}
+        // 调整图片大小不触发自动保存，仅记录历史
         return;
       }
 
