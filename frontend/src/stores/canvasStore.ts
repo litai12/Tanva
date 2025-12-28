@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { Unit } from '@/lib/unitUtils';
 import { isValidUnit } from '@/lib/unitUtils';
-import { createSafeStorage } from './storageUtils';
+import { createIndexedDBStorage } from '@/services/indexedDB/storageService';
 import { useProjectStore } from './projectStore';
 
 // 视口持久化：使用独立存储，降低高频写入对主 store 的影响
@@ -16,7 +16,7 @@ const getViewportStorageKey = (projectId?: string | null) =>
 const readViewportSnapshot = (projectId?: string | null): ViewportSnapshot | null => {
   if (typeof window === 'undefined') return null;
   try {
-    const storage = createSafeStorage({ storageName: 'canvas-viewport' });
+    const storage = createIndexedDBStorage({ storageName: 'canvas-viewport' });
     const raw = storage.getItem(getViewportStorageKey(projectId));
     if (typeof raw !== 'string' || !raw) return null;
     const parsed = JSON.parse(raw);
@@ -172,7 +172,7 @@ export const useCanvasStore = create<CanvasState>()(
       }),
       {
         name: 'canvas-settings', // localStorage 键名
-        storage: createJSONStorage<Partial<CanvasState>>(() => createSafeStorage({ storageName: 'canvas-settings' })),
+        storage: createJSONStorage<Partial<CanvasState>>(() => createIndexedDBStorage({ storageName: 'canvas-settings' })),
         version: GRID_SETTINGS_VERSION,
         migrate: (persistedState: unknown, version): Partial<CanvasState> => {
           if (!persistedState || typeof persistedState !== 'object') {
@@ -227,7 +227,7 @@ if (typeof window !== 'undefined' && 'persist' in useCanvasStore) {
 
 // 视口状态按项目持久化
 if (typeof window !== 'undefined') {
-  const viewportStorage = createSafeStorage({ storageName: 'canvas-viewport' });
+  const viewportStorage = createIndexedDBStorage({ storageName: 'canvas-viewport' });
   let lastSnapshot: ViewportSnapshot | null = initialViewport ?? null;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
   let currentProjectId = initialProjectId;

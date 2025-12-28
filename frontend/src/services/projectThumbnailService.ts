@@ -9,7 +9,8 @@ type RefreshOptions = {
 };
 
 const COOLDOWN_MS = 30000;
-const MAX_THUMBNAIL_SIZE = 6 * 1024 * 1024; // 6MB 上限，避免缩略图过大导致上传被拒
+const MAX_THUMBNAIL_SIZE = 500 * 1024; // 500KB 上限，缩略图应该尽量小以加快加载
+const TARGET_THUMBNAIL_WIDTH = 600; // 目标宽度，足够在项目列表中清晰显示
 const inFlight = new Set<string>();
 const lastTriggerAt = new Map<string, number>();
 
@@ -65,8 +66,8 @@ export async function refreshProjectThumbnail(
   try {
     let thumbnailUrl: string | null = null;
     const captureAttempts = [
-      { format: 'jpeg' as const, quality: 0.82, scale: 1.5 },
-      { format: 'jpeg' as const, quality: 0.7, scale: 1.1 },
+      { format: 'jpeg' as const, quality: 0.7, scale: 0.5 },
+      { format: 'jpeg' as const, quality: 0.5, scale: 0.4 },
     ];
 
     for (const attempt of captureAttempts) {

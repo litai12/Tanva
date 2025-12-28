@@ -973,6 +973,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               "p-0 h-8 w-8 rounded-full",
               getActiveButtonStyle(showTemplatePanel)
             )}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={handleToggleTemplatePanel}
           >
             <LayoutTemplate className="w-4 h-4" />

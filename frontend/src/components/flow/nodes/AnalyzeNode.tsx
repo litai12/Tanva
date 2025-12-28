@@ -19,9 +19,22 @@ type Props = {
 // 默认提示词
 const DEFAULT_ANALYSIS_PROMPT = '分析一下这张图的内容，尽可能描述出来场景中的物体和特点，用一段提示词的方式输出';
 
+// 智能构建图片 src，支持 base64、data URL 和 HTTP URL
+const buildImageSrc = (value?: string): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  // 已经是 data URL，直接返回
+  if (trimmed.startsWith('data:image')) return trimmed;
+  // HTTP/HTTPS URL，直接返回
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  // 纯 base64 数据，添加前缀
+  return `data:image/png;base64,${trimmed}`;
+};
+
 function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const { status, error } = data;
-  const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const src = buildImageSrc(data.imageData);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const aiProvider = useAIChatStore((state) => state.aiProvider);

@@ -58,6 +58,8 @@ export class MidjourneyProvider implements IAIProvider {
   private readonly pollIntervalMs: number;
   private readonly maxPollAttempts: number;
   private readonly defaultMode: 'FAST' | 'RELAX' = 'FAST';
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY_MS = 1000;
   private apiKey: string | null = null;
 
   constructor(private readonly config: ConfigService) {
@@ -99,6 +101,61 @@ export class MidjourneyProvider implements IAIProvider {
     return `${this.apiBaseUrl.replace(/\/$/, '')}${path.startsWith('/') ? '' : '/'}${path}`;
   }
 
+  private isRetryableError(error: Error, responseText?: string): boolean {
+    const message = error.message.toLowerCase();
+    const text = (responseText || '').toLowerCase();
+
+    // 上游错误可以重试
+    if (text.includes('upstream_error') || text.includes('do_request_failed')) {
+      return true;
+    }
+
+    // 网络相关错误可以重试
+    const retryablePatterns = [
+      'fetch failed', 'network', 'timeout', 'econnreset',
+      'etimedout', 'enotfound', 'econnrefused', 'socket', 'connection',
+    ];
+    for (const pattern of retryablePatterns) {
+      if (message.includes(pattern)) {
+        return true;
+      }
+    }
+
+    // 5xx 服务器错误可以重试
+    if (/\b5\d{2}\b/.test(message)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    operationType: string
+  ): Promise<T> {
+    let lastError: Error = new Error('Unknown error');
+
+    for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        if (attempt < this.MAX_RETRIES && this.isRetryableError(lastError, lastError.message)) {
+          const delay = this.RETRY_DELAY_MS * attempt;
+          this.logger.warn(
+            `[Midjourney] ${operationType} attempt ${attempt}/${this.MAX_RETRIES} failed: ${lastError.message}, retrying in ${delay}ms...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        } else {
+          break;
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
   private async apiRequest<T>(
     method: 'GET' | 'POST',
     path: string,
@@ -123,7 +180,7 @@ export class MidjourneyProvider implements IAIProvider {
       this.logger.error(
         `[Midjourney] ${operation} failed: HTTP ${response.status} ${response.statusText} ${text}`
       );
-      throw new Error(`Midjourney ${operation} failed: ${response.status} ${response.statusText}`);
+      throw new Error(`Midjourney ${operation} failed: ${response.status} ${response.statusText} ${text}`);
     }
 
     const data = (await response.json()) as T;
@@ -135,25 +192,27 @@ export class MidjourneyProvider implements IAIProvider {
     payload: Record<string, any>,
     operation: string
   ): Promise<string> {
-    const response = await this.apiRequest<MidjourneySubmitResponse>(
-      'POST',
-      path,
-      payload,
-      `${operation} submit`
-    );
-
-    if (response?.code === 21) {
-      throw new Error(
-        response.description || 'Midjourney API requires modal input for this action.'
+    return this.withRetry(async () => {
+      const response = await this.apiRequest<MidjourneySubmitResponse>(
+        'POST',
+        path,
+        payload,
+        `${operation} submit`
       );
-    }
 
-    const taskId = response?.result ?? response?.properties?.taskId;
-    if (!taskId) {
-      throw new Error(`[Midjourney] ${operation} did not return task id.`);
-    }
+      if (response?.code === 21) {
+        throw new Error(
+          response.description || 'Midjourney API requires modal input for this action.'
+        );
+      }
 
-    return String(taskId);
+      const taskId = response?.result ?? response?.properties?.taskId;
+      if (!taskId) {
+        throw new Error(`[Midjourney] ${operation} did not return task id.`);
+      }
+
+      return String(taskId);
+    }, operation);
   }
 
   private async pollTask(taskId: string, operation: string): Promise<MidjourneyTaskResponse> {

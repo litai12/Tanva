@@ -199,16 +199,37 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
 
+  // Upscale 按钮标签映射（Midjourney V6 的 Subtle/Creative 模式）
+  const getUpscaleDisplayLabel = (label?: string): string => {
+    if (!label) return '';
+    const lower = label.toLowerCase();
+    // upscale (subtle) 或 upscale_1 (不是 U1) -> Subtle
+    if (lower.includes('subtle') || lower === 'upscale_1') return 'Subtle';
+    // upscale (creative) 或 upscale_2 (不是 U2) -> Creative
+    if (lower.includes('creative') || lower === 'upscale_2') return 'Creative';
+    // U1, U2, U3, U4 等保持原样
+    return label;
+  };
+
   // 渲染 Midjourney 操作按钮
   const renderActionButtons = () => {
     if (!data.buttons || data.buttons.length === 0) return null;
 
-    // 分组按钮：U1-U4, V1-V4, 其他
-    const upscaleButtons = data.buttons.filter((b) => b.label?.startsWith('U'));
+    // 分组按钮：Upscale (Subtle/Creative), V1-V4, 其他
+    const upscaleButtons = data.buttons.filter((b) => {
+      const label = b.label?.toLowerCase() || '';
+      return label.startsWith('u') || label.includes('upscale');
+    });
     const variationButtons = data.buttons.filter((b) => b.label?.startsWith('V'));
-    const otherButtons = data.buttons.filter(
-      (b) => !b.label?.startsWith('U') && !b.label?.startsWith('V')
-    );
+    const otherButtons = data.buttons.filter((b) => {
+      const label = b.label?.toLowerCase() || '';
+      const emoji = b.emoji || '';
+      // 只保留刷新按钮（🔄 emoji 或 reroll/redo 标签）
+      if (emoji === '🔄' || label.includes('reroll') || label.includes('redo') || label.includes('refresh')) {
+        return true;
+      }
+      return false;
+    });
 
     const buttonStyle: React.CSSProperties = {
       fontSize: 11,
@@ -260,7 +281,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
           {upscaleButtons.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>U</span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(upscaleButtons.length, 4)}, 1fr)`, gap: 6 }}>
                 {upscaleButtons.map((btn) => (
                   <button
                     key={btn.customId}
@@ -274,7 +295,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
                     onMouseLeave={!actionLoading ? handleMouseLeave : undefined}
                     title={btn.label}
                   >
-                    {btn.emoji || btn.label}
+                    {btn.emoji || getUpscaleDisplayLabel(btn.label)}
                   </button>
                 ))}
               </div>

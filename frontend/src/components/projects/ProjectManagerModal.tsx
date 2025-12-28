@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,34 @@ const placeholderThumb =
   );
 
 const PAGE_SIZE = 6;
+
+function ProjectThumbnail({ src, alt }: { src?: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  const imgSrc = error || !src ? placeholderThumb : src;
+
+  return (
+    <>
+      {!loaded && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-100 animate-pulse">
+          <div className="w-8 h-8 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
+        </div>
+      )}
+      <img
+        src={imgSrc}
+        alt={alt}
+        loading="lazy"
+        className={`h-full w-auto max-w-full object-contain transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+        onLoad={() => setLoaded(true)}
+        onError={() => {
+          setError(true);
+          setLoaded(true);
+        }}
+      />
+    </>
+  );
+}
 
 export default function ProjectManagerModal() {
   const { modalOpen, closeModal, projects, create, open, rename, remove, loading, load, error } = useProjectStore();
@@ -283,10 +311,9 @@ export default function ProjectManagerModal() {
                               <Check className="h-4 w-4" />
                             </button>
                           )}
-                          <img
-                            src={p.thumbnailUrl || placeholderThumb}
+                          <ProjectThumbnail
+                            src={p.thumbnailUrl}
                             alt={p.name}
-                            className="h-full w-auto max-w-full object-contain"
                           />
                         </div>
                         <div className="px-3 py-1.5 flex items-center justify-between gap-2">

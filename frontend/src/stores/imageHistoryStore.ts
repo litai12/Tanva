@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector, persist, createJSONStorage } from 'zustand/middleware';
-import { createSafeStorage } from './storageUtils';
+import { createIndexedDBStorage } from '@/services/indexedDB/storageService';
 
 const normalizeValue = (value?: string | null): string | null => {
   if (!value) return null;
@@ -184,7 +184,7 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
       }),
       {
         name: 'image-history',
-        storage: createJSONStorage<Partial<ImageHistoryStore>>(() => createSafeStorage({ storageName: 'image-history' })),
+        storage: createJSONStorage<Partial<ImageHistoryStore>>(() => createIndexedDBStorage({ storageName: 'image-history' })),
         partialize: (state) => ({
           // 只持久化有有效 URL 的记录，避免存储 base64
           history: state.history.filter(item =>
