@@ -5,6 +5,7 @@ import ProtectedRoute from '@/routes/ProtectedRoute';
 import './index.css';
 import App from './App.tsx';
 import InitialLoadingOverlay from '@/components/InitialLoadingOverlay';
+import { installGlobalImageLoadTracker } from '@/utils/globalImageLoadTracker';
 import Home from '@/pages/Home';
 import LoginPage from '@/pages/auth/Login';
 import RegisterPage from '@/pages/auth/Register';
@@ -41,6 +42,8 @@ function RootRoutes() {
     </Routes>
   );
 }
+
+installGlobalImageLoadTracker();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
