@@ -372,8 +372,8 @@ const UserTemplateCard: React.FC<{
         cursor: 'pointer',
         transition: 'all 0.2s ease',
         position: 'relative',
-        minHeight: 160,
-        height: 160,
+        minHeight: 130,
+        height: 130,
         overflow: 'hidden'
       }}
       onMouseEnter={(e) => {
@@ -488,8 +488,8 @@ const AddTemplateCard: React.FC<{ onAdd: () => Promise<void>; label?: string }> 
         border: '1px dashed #a1a1aa',
         borderRadius: 12,
         padding: '18px 20px',
-        minHeight: 160,
-        height: 160,
+        minHeight: 130,
+        height: 130,
         background: '#fafafa',
         color: '#18181b',
         cursor: isLoading ? 'wait' : 'pointer',
@@ -528,8 +528,8 @@ const TemplatePlaceholder: React.FC<{ label?: string }> = ({ label }) => (
       border: '1px dashed #d1d5db',
       borderRadius: 12,
       padding: '18px 20px',
-      minHeight: 160,
-      height: 160,
+      minHeight: 130,
+      height: 130,
       background: '#f9fafb',
       transition: 'all 0.2s ease'
     }}
@@ -4901,8 +4901,8 @@ function FlowInner() {
                             background: '#fff',
                             cursor: 'pointer',
                             transition: 'all 0.2s ease',
-                            minHeight: 160,
-                            height: 160,
+                            minHeight: 130,
+                            height: 130,
                             overflow: 'hidden'
                           }}
                           onMouseEnter={(e) => {
