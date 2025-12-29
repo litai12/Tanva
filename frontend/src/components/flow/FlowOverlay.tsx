@@ -2077,18 +2077,18 @@ function FlowInner() {
     // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
     if (targetNode.type === 'generateRef') {
       if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
-      if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
-      if (targetHandle === 'image2' || targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'image1' || targetHandle === 'refer') return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'image2' || targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'generate' || targetNode.type === 'generate4' || targetNode.type === 'generatePro' || targetNode.type === 'generatePro4') {
       if (targetHandle === 'text') return textSourceTypes.includes(sourceNode.type || '');
-      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'sora2Video') {
       if (targetHandle === 'image') {
-        return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+        return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
       }
       if (targetHandle === 'text') {
         return textSourceTypes.includes(sourceNode.type || '');
@@ -2101,7 +2101,7 @@ function FlowInner() {
         return textSourceTypes.includes(sourceNode.type || '');
       }
       if (targetHandle === 'image') {
-        return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+        return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
       }
       return false;
     }
@@ -2123,17 +2123,17 @@ function FlowInner() {
         return textSourceTypes.includes(sourceNode.type || '');
       }
       if (targetHandle === 'img') {
-        return ['image','imagePro','generate','generate4','generatePro','generatePro4','midjourney','three','camera'].includes(sourceNode.type || '');
+        return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','midjourney','three','camera'].includes(sourceNode.type || '');
       }
       return false;
     }
 
 	    if (targetNode.type === 'image') {
-	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
 	      return false;
 	    }
 	    if (targetNode.type === 'imagePro') {
-	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+	      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
 	      return false;
 	    }
 	    if (targetNode.type === 'promptOptimize') {
@@ -2149,7 +2149,7 @@ function FlowInner() {
       return false;
     }
     if (targetNode.type === 'analysis') {
-      if (targetHandle === 'img') return ['image','generate','generate4','generatePro','generatePro4','three','camera'].includes(sourceNode.type || '');
+      if (targetHandle === 'img') return ['image','imagePro','generate','generate4','generatePro','generatePro4','generateRef','three','camera'].includes(sourceNode.type || '');
       return false;
     }
     if (targetNode.type === 'textChat') {
