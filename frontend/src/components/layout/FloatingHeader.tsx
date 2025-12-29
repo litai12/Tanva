@@ -1338,24 +1338,9 @@ return (
                         size="sm"
                         className="h-7 w-7 p-0 rounded-full transition-all duration-200 bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light hover:bg-liquid-glass-hover text-gray-600"
                         title="帮助"
+                        onClick={() => window.open('https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd', '_blank')}
                     >
                         <HelpCircle className="w-4 h-4" />
-                    </Button>
-
-                    {/* 分享按钮 */}
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className={cn(
-                            "h-7 text-xs flex items-center rounded-full transition-all duration-200 w-7 sm:w-auto px-0 sm:px-3 gap-0 sm:gap-1",
-                            "bg-liquid-glass-light backdrop-blur-minimal border border-liquid-glass-light text-gray-600",
-                            "hover:bg-gray-900 hover:text-white hover:border-gray-900"
-                        )}
-                        onClick={handleShare}
-                        title="分享"
-                    >
-                        <Share className="w-3 h-3" />
-                        <span className="hidden sm:inline">分享</span>
                     </Button>
 
                     {/* 设置按钮 */}
