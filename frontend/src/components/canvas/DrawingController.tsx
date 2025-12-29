@@ -546,6 +546,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             } catch (err) {
               console.error('粘贴URL处理失败:', err);
             }
+            return;
+          }
+
+          // 兜底：若系统剪贴板没有图片/URL/结构化数据，但内存中存在画布剪贴板数据，则执行画布内粘贴
+          const canUseInMemoryCanvasPaste =
+            !rawCanvasData && (!text || text === CANVAS_CLIPBOARD_FALLBACK_TEXT) && !!clipboardService.getCanvasData();
+          if (canUseInMemoryCanvasPaste) {
+            const handled = handleCanvasPasteRef.current();
+            if (handled) {
+              e.preventDefault();
+              return;
+            }
           }
         } catch (err) {
           console.error('处理粘贴事件出错:', err);
@@ -2542,10 +2554,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       if (isPaste) {
         if (zone !== 'canvas' && !fromCanvas) return;
-        const handled = handleCanvasPaste();
-        if (handled) {
-          event.preventDefault();
-        }
+        // 交由原生 paste 事件处理（可读取系统剪贴板内容），避免内存剪贴板抢占外部粘贴
+        return;
       }
     };
 
