@@ -2,14 +2,33 @@ import sharp from "sharp";
 import * as path from "path";
 import * as fs from "fs";
 
-// 水印图片路径（相对于项目根目录）
-const WATERMARK_IMAGE_PATH = path.resolve(__dirname, "../../../../frontend/public/tanvas_ai.png");
-// 水印透明度
+// 可配置项：允许通过环境变量覆盖水印路径；并尝试多个候选路径以增强鲁棒性
+const DEFAULT_WATERMARK_FILENAME = "tanvas_ai.png";
 const WATERMARK_OPACITY = 0.8;
-// 水印相对于图片短边的比例
 const WATERMARK_SCALE = 0.25;
-// 水印距离边缘的距离（像素）
 const WATERMARK_MARGIN = 25;
+
+function resolveWatermarkImagePath(): string | null {
+  const candidates = [
+    process.env.WATERMARK_PATH,
+    path.resolve(process.cwd(), "frontend/public", DEFAULT_WATERMARK_FILENAME),
+    path.resolve(
+      __dirname,
+      "../../../../frontend/public",
+      DEFAULT_WATERMARK_FILENAME
+    ),
+    path.resolve(__dirname, "../../public", DEFAULT_WATERMARK_FILENAME),
+  ].filter(Boolean) as string[];
+
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (e) {
+      // ignore and try next
+    }
+  }
+  return null;
+}
 
 /**
  * 将 base64（或 data URL）图片添加图片水印，返回纯 base64 字符串。
@@ -30,10 +49,16 @@ export async function applyWatermarkToBase64(
     return dataPart;
   }
 
-  // 读取水印图片
+  // 读取水印图片（尝试多路径）
+  const watermarkPath = resolveWatermarkImagePath();
+  if (!watermarkPath) {
+    console.warn("无法定位水印图片（候选路径均不存在），返回原图");
+    return dataPart;
+  }
+
   let watermarkBuffer: Buffer;
   try {
-    watermarkBuffer = fs.readFileSync(WATERMARK_IMAGE_PATH);
+    watermarkBuffer = fs.readFileSync(watermarkPath);
   } catch (error) {
     console.warn("无法读取水印图片，返回原图:", error);
     return dataPart;
@@ -93,12 +118,3 @@ export async function applyWatermarkToBase64(
   // 返回纯 base64 字符串（不带 data URL 前缀）
   return output.toString("base64");
 }
-
-
-
-
-
-
-
-
-
