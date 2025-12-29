@@ -17,17 +17,29 @@ interface VideoWatermarkOptions {
   ossKey?: string;
 }
 
-// 水印图片路径（与图片水印使用相同的水印图）
-const WATERMARK_IMAGE_PATH = path.resolve(
-  __dirname,
-  "../../../../frontend/public/tanvas_ai.png"
-);
-// 水印相对于视频短边的比例（视频水印需要更大一些）
+// 水印相关常量与路径解析（支持环境变量覆盖并尝试多个候选路径）
+const DEFAULT_WATERMARK_FILENAME = "tanvas_ai.png";
 const WATERMARK_SCALE = 1.8;
-// 水印距离边缘的距离（像素，与图片水印保持一致）
 const WATERMARK_MARGIN = 25;
-// 水印透明度 (0-1，与图片水印保持一致)
 const WATERMARK_OPACITY = 0.7;
+
+function resolveWatermarkImagePath(): string | null {
+  const candidates = [
+    process.env.WATERMARK_PATH,
+    path.resolve(process.cwd(), "frontend/public", DEFAULT_WATERMARK_FILENAME),
+    path.resolve(__dirname, "../../../../frontend/public", DEFAULT_WATERMARK_FILENAME),
+    path.resolve(__dirname, "../../public", DEFAULT_WATERMARK_FILENAME),
+  ].filter(Boolean) as string[];
+
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (e) {
+      // ignore and try next
+    }
+  }
+  return null;
+}
 
 @Injectable()
 export class VideoWatermarkService {
@@ -51,10 +63,11 @@ export class VideoWatermarkService {
       options?.ossKey ||
       `videos/watermarked/${this.buildDatePrefix()}/video-${this.safeRandomId()}.mp4`;
 
-    // 检查水印图片是否存在
-    if (!fs.existsSync(WATERMARK_IMAGE_PATH)) {
+    // 检查水印图片是否存在（尝试多个候选路径）
+    const watermarkPath = resolveWatermarkImagePath();
+    if (!watermarkPath) {
       this.logger.warn(
-        `水印图片不存在: ${WATERMARK_IMAGE_PATH}，回退到文字水印`
+        `水印图片不存在（候选路径均无），回退到文字水印`
       );
       return this.addTextWatermarkAndUpload(sourceUrl, options);
     }
@@ -80,7 +93,7 @@ export class VideoWatermarkService {
       "-i",
       sourceUrl, // 输入视频
       "-i",
-      WATERMARK_IMAGE_PATH, // 输入水印图片
+      watermarkPath, // 输入水印图片（已解析）
       "-filter_complex",
       filterComplex,
       "-c:v",

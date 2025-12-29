@@ -1,10 +1,9 @@
-import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import AccountBadge from '@/components/AccountBadge';
-import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import Iridescence from '@/components/Iridescence';
-import MetallicButton from '@/components/MetallicButton';
-import { useAuthStore } from '@/stores/authStore';
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import AccountBadge from "@/components/AccountBadge";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import GlassButton from "@/components/GlassButton";
+import { useAuthStore } from "@/stores/authStore";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -176,25 +175,36 @@ export default function Home() {
         style={{ transform: `translateY(-${currentPage * 100}vh)` }}
       >
         {/* 第一页 - 主标题 */}
-        <section className="h-screen w-full flex flex-col items-center justify-center px-4 relative overflow-hidden bg-black">
-          {/* 黑色背景底 */}
-          <div className="absolute inset-0 bg-black z-0"></div>
+        <section className='h-screen w-full flex flex-col items-center justify-center px-4 relative overflow-hidden'>
+          {/* 视频背景 */}
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className='absolute inset-0 w-full h-full object-cover z-[1]'
+          >
+            <source src='/OpenVideo.mp4' type='video/mp4' />
+            您的浏览器不支持视频播放。
+          </video>
 
-          {/* Iridescence 背景 */}
-          <Iridescence
-            color={iridescenceColor}
-            speed={0.8}
-            amplitude={0.15}
-            mouseReact={true}
-            className="absolute inset-0 z-[1]"
-          />
-
-          <div className="text-center relative z-10">
-            <h1 className="text-5xl sm:text-6xl font-bold tracking-tight mb-6 text-white drop-shadow-lg">探索创作之境</h1>
-            <p className="text-xl text-slate-200 mb-12 drop-shadow-md">专业绘图与 AI 创作平台，轻松开启你的灵感旅程</p>
-            <MetallicButton onClick={() => navigate('/app')} enableWebcam={false}>
-              立即体验
-            </MetallicButton>
+          <div className='text-center relative z-10'>
+            <h1 className='mb-10'>
+              <img
+                src='/TanvasText.png'
+                alt='探索创作之境'
+                draggable='false'
+                className='mx-auto h-[5rem] sm:h-[5.7rem] object-contain drop-shadow-lg'
+                style={{
+                  imageRendering: "auto",
+                  WebkitFontSmoothing: "antialiased",
+                }}
+              />
+            </h1>
+            <p className='text-xl text-slate-200 mb-12 drop-shadow-md'>
+              专业绘图与 AI 创作平台，轻松开启你的灵感旅程
+            </p>
+            <GlassButton onClick={() => navigate("/app")}>立即体验</GlassButton>
           </div>
           {/* 向下滚动提示 */}
           <div className="absolute bottom-12 animate-bounce z-10">
