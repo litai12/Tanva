@@ -17,6 +17,9 @@ type HistoryState = {
 };
 
 const MAX_DEPTH = 50;
+// 基于 paperJson 字符长度的额外预算（字符串为 UTF-16，实际占用通常约为 2x chars）
+// 目标：在大工程下避免 history 累积导致 JS 堆内存暴涨/崩溃
+const MAX_TOTAL_PAPER_JSON_CHARS = 30_000_000;
 const projectHistory = new Map<string, HistoryState>();
 
 function getProjectId(): string | null {
@@ -33,7 +36,42 @@ function getOrInitState(pid: string): HistoryState {
 }
 
 function cloneContent(content: ProjectContentSnapshot): ProjectContentSnapshot {
+  // structuredClone 对大型字符串更友好（避免 JSON.parse/stringify 带来的额外复制与峰值内存）
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(content);
+    } catch {
+      // fall through
+    }
+  }
   return JSON.parse(JSON.stringify(content));
+}
+
+function getPaperJsonLen(snapshot: Snapshot | null | undefined): number {
+  if (!snapshot) return 0;
+  return snapshot.content.paperJson?.length ?? 0;
+}
+
+function trimHistoryByBudget(st: HistoryState): void {
+  let total = getPaperJsonLen(st.present);
+  for (const s of st.past) total += getPaperJsonLen(s);
+  for (const s of st.future) total += getPaperJsonLen(s);
+
+  if (total <= MAX_TOTAL_PAPER_JSON_CHARS) return;
+
+  // 优先丢弃最老的 undo 历史
+  while (st.past.length > 0 && total > MAX_TOTAL_PAPER_JSON_CHARS) {
+    const removed = st.past.shift();
+    if (!removed) break;
+    total -= getPaperJsonLen(removed);
+  }
+
+  // 仍超预算时，丢弃最老的 redo 历史
+  while (st.future.length > 0 && total > MAX_TOTAL_PAPER_JSON_CHARS) {
+    const removed = st.future.shift();
+    if (!removed) break;
+    total -= getPaperJsonLen(removed);
+  }
 }
 
 async function captureCurrentSnapshot(
@@ -227,6 +265,7 @@ export const historyService = {
     }
     st.present = snap;
     st.future = [];
+    trimHistoryByBudget(st);
   },
 
   async undo() {
@@ -239,6 +278,7 @@ export const historyService = {
     const prev = st.past.pop()!;
     st.future.push(st.present);
     st.present = prev;
+    trimHistoryByBudget(st);
     await restoreSnapshot(prev, { from, op: 'undo' });
   },
 
@@ -251,6 +291,7 @@ export const historyService = {
     const next = st.future.pop()!;
     st.past.push(st.present);
     st.present = next;
+    trimHistoryByBudget(st);
     await restoreSnapshot(next, { from, op: 'redo' });
   }
 };

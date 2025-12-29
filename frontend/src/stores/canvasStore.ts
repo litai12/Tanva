@@ -111,7 +111,7 @@ export const useCanvasStore = create<CanvasState>()(
       gridStyle: GridStyle.SOLID, // 默认使用纯色背景
       gridDotSize: 1,
       gridColor: '#000000',
-      gridBgColor: '#f7f7f7',
+      gridBgColor: '#ffffff',
       gridBgEnabled: false,
       zoom: initialViewport?.zoom ?? 1.0,
       panX: initialViewport?.panX ?? 0,

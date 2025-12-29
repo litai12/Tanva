@@ -600,7 +600,11 @@ function ApiRecordsTab() {
                       </span>
                     </td>
                     <td className='px-4 py-3 text-right font-medium'>
-                      {record.creditsUsed}
+                      {record.responseStatus === 'failed' ? (
+                        <span className='text-green-600'>已退还 {record.creditsUsed}</span>
+                      ) : (
+                        record.creditsUsed
+                      )}
                     </td>
                     <td className='px-4 py-3 text-right text-gray-500'>
                       {record.processingTime

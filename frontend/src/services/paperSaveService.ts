@@ -520,13 +520,84 @@ class PaperSaveService {
         return null;
       }
 
-      // 直接导出当前项目；导入时再清理系统层/辅助元素
-      const jsonString = (paper.project as any).exportJSON({ asString: true });
-      if (!jsonString || (typeof jsonString === 'string' && jsonString.length === 0)) {
-        return JSON.stringify({ layers: [] });
-      }
+      const project = paper.project as any;
+      const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
 
-      return jsonString as string;
+      // 导出时剔除系统层与辅助元素，避免 paperJson 巨大导致序列化卡顿/内存峰值
+      // 注意：通过“临时移除→导出→恢复”的方式实现，且在同一同步调用栈内完成，避免可见闪烁。
+      const detachedLayers: Array<{ layer: paper.Layer; index: number }> = [];
+      const detachedHelpers: Array<{ item: paper.Item; parent: paper.Item; index: number }> = [];
+      const previousActiveLayer = paper.project.activeLayer;
+
+      const detachHelpers = (parent: paper.Item) => {
+        const children = (parent as any)?.children as paper.Item[] | undefined;
+        if (!Array.isArray(children) || children.length === 0) return;
+
+        // 从后往前遍历，记录原始 index，方便后续按升序恢复
+        for (let i = children.length - 1; i >= 0; i--) {
+          const child = children[i];
+          if (!child) continue;
+          const data = (child as any).data as any;
+          if (data?.isHelper) {
+            detachedHelpers.push({ item: child, parent, index: i });
+            try { child.remove(); } catch {}
+            continue;
+          }
+          // 只深入非 helper 容器，避免重复拆解 helper group
+          if ((child as any).hasChildren) {
+            detachHelpers(child);
+          }
+        }
+      };
+
+      try {
+        const layers = (paper.project.layers || []).slice();
+        layers.forEach((layer: paper.Layer, index: number) => {
+          const name = (layer as any)?.name || '';
+          if (!SYSTEM_LAYER_NAMES.has(name)) return;
+          detachedLayers.push({ layer, index });
+        });
+
+        // 临时移除系统层
+        detachedLayers.forEach(({ layer }) => {
+          try { layer.remove(); } catch {}
+        });
+
+        // 临时移除所有 helper item（保留用户内容）
+        (paper.project.layers || []).forEach((layer: any) => {
+          const name = layer?.name || '';
+          if (SYSTEM_LAYER_NAMES.has(name)) return;
+          detachHelpers(layer as paper.Layer);
+        });
+
+        const jsonString = project.exportJSON({ asString: true });
+        if (!jsonString || (typeof jsonString === 'string' && jsonString.length === 0)) {
+          return JSON.stringify({ layers: [] });
+        }
+        return jsonString as string;
+      } finally {
+        // 恢复 helper items（逆序插入可保证每个 parent 内按原 index 升序恢复）
+        for (let i = detachedHelpers.length - 1; i >= 0; i--) {
+          const entry = detachedHelpers[i];
+          try {
+            (entry.parent as any).insertChild(entry.index, entry.item);
+          } catch {}
+        }
+
+        // 恢复系统层（按原 index 升序插入）
+        detachedLayers
+          .sort((a, b) => a.index - b.index)
+          .forEach(({ layer, index }) => {
+            try { (paper.project as any).insertLayer(index, layer); } catch {}
+          });
+
+        // 恢复之前的 activeLayer
+        try {
+          if (previousActiveLayer && (previousActiveLayer as any).project === paper.project) {
+            previousActiveLayer.activate();
+          }
+        } catch {}
+      }
     } catch (error) {
       console.error('❌ Paper.js项目序列化失败:', error);
       return null;

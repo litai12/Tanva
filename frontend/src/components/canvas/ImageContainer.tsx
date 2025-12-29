@@ -1000,17 +1000,18 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           "image/png"
         );
 
-        const originalCenter = {
-          x: realTimeBounds.x + realTimeBounds.width / 2,
-          y: realTimeBounds.y + realTimeBounds.height / 2,
+        // 使用扩展后的边界尺寸来计算放置位置，避免错位
+        const expandedCenter = {
+          x: selectedBounds.x + selectedBounds.width / 2,
+          y: selectedBounds.y + selectedBounds.height / 2,
         };
         const expandPlacementGap = Math.max(
           32,
-          Math.min(120, realTimeBounds.width * 0.1)
+          Math.min(120, selectedBounds.width * 0.1)
         );
         const expandResultCenter = {
-          x: originalCenter.x - realTimeBounds.width - expandPlacementGap,
-          y: originalCenter.y,
+          x: expandedCenter.x - selectedBounds.width - expandPlacementGap,
+          y: expandedCenter.y,
         };
 
         window.dispatchEvent(

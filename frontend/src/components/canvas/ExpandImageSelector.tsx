@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import paper from 'paper';
 import { Button } from '../ui/button';
 import { X, Send, Ruler } from 'lucide-react';
@@ -92,7 +93,12 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     if (!paper.view) return { x: point.x, y: point.y };
     const dpr = window.devicePixelRatio || 1;
     const viewPoint = paper.view.projectToView(point);
-    return { x: viewPoint.x / dpr, y: viewPoint.y / dpr };
+    const canvas = paper.project?.view?.element;
+    const rect = canvas?.getBoundingClientRect();
+    return {
+      x: viewPoint.x / dpr + (rect?.left ?? 0),
+      y: viewPoint.y / dpr + (rect?.top ?? 0),
+    };
   }, []);
 
   // 将屏幕坐标转换为Paper.js坐标
@@ -401,7 +407,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
     return { left, top };
   }, [screenBounds]);
 
-  return (
+  const content = (
     <>
       {/* 全屏覆盖层 */}
       <div
@@ -642,6 +648,9 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
       )}
     </>
   );
+
+  if (typeof document === 'undefined') return content;
+  return createPortal(content, document.body);
 };
 
 export default ExpandImageSelector;

@@ -361,8 +361,8 @@ const MyCredits: React.FC = () => {
               {usageByService.length === 0 ? (
                 <div className="text-center text-slate-400 py-8 text-sm">暂无使用记录</div>
               ) : (
-                <div className="space-y-3">
-                  {usageByService.slice(0, 8).map(service => {
+                <div className="space-y-3 max-h-[280px] overflow-y-auto">
+                  {usageByService.map(service => {
                     const maxCredits = usageByService[0]?.credits || 1;
                     const percentage = (service.credits / maxCredits) * 100;
                     return (
@@ -464,7 +464,11 @@ const MyCredits: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between text-xs text-slate-400">
                       <span>{new Date(record.createdAt).toLocaleString('zh-CN')}</span>
-                      <span className="text-orange-600">-{record.creditsUsed} 积分</span>
+                      {record.responseStatus === 'failed' ? (
+                        <span className="text-green-600">已退还 {record.creditsUsed} 积分</span>
+                      ) : (
+                        <span className="text-orange-600">-{record.creditsUsed} 积分</span>
+                      )}
                     </div>
                   </div>
                 ))}

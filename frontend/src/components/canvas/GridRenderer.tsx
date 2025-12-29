@@ -18,16 +18,18 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
   const gridBgEnabled = useCanvasStore(state => state.gridBgEnabled);
   const { showGrid, showAxis } = useUIStore();
   const gridLayerRef = useRef<paper.Layer | null>(null);
+  const backgroundRectRef = useRef<paper.Path.Rectangle | null>(null);
   const lastPanRef = useRef({ x: panX, y: panY }); // 缓存上次的平移值
   const lastZoomRef = useRef(zoom); // 缓存上次的缩放值
   const isInitializedRef = useRef(false); // 标记是否已完成初始化渲染
 
   // Paper.js对象池 - 优化：增加池大小和清理机制
   const pathPoolRef = useRef<paper.Path[]>([]);
-  const MAX_POOL_SIZE = 500; // 增加到500，支持大型项目
-  const POOL_CLEANUP_THRESHOLD = 750; // 超过750时触发清理
+  const MAX_POOL_SIZE = 1800; // 足够覆盖低缩放下的网格线数量，避免频繁分配
+  const POOL_IDLE_TARGET = 400; // 空闲时收缩池容量，降低驻留内存
+  const MAX_LINES_PER_AXIS = 900; // 限制单轴网格线数量，防止低缩放时的过度渲染
   const lastPoolCleanupRef = useRef<number>(Date.now());
-  const POOL_CLEANUP_INTERVAL = 30000; // 30秒清理一次
+  const POOL_CLEANUP_INTERVAL = 20000; // 20秒清理一次，更快释放冗余对象
 
   const axisPathsRef = useRef<{ xAxis: paper.Path | null, yAxis: paper.Path | null }>({
     xAxis: null,
@@ -58,7 +60,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     }
 
     // 使用固定网格间距，通过缩放实现视觉变化
-    const currentGridSize = baseGridSize;
+    let effectiveGridSize = baseGridSize;
     // 保存当前活动图层
     const previousActiveLayer = paper.project.activeLayer;
 
@@ -91,11 +93,37 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 设置渲染标记，防止重复调用
     gridLayer.data = { isGrid: true, isRendering: true };
 
+    // 动态收缩对象池，避免闲置过多对象
+    const trimPool = (targetSize: number) => {
+      if (pathPoolRef.current.length <= targetSize) return;
+      const removeCount = pathPoolRef.current.length - targetSize;
+      const removed = pathPoolRef.current.splice(0, removeCount);
+      removed.forEach(path => {
+        try {
+          path.remove();
+        } catch {
+          // 忽略清理异常，保持渲染流程不中断
+        }
+      });
+    };
+
     // 清理现有网格内容
     const existingChildren = gridLayer.children;
     for (let i = existingChildren.length - 1; i >= 0; i--) {
       const child = existingChildren[i];
       if (child instanceof paper.Path && !child.data?.isAxis) {
+        // 复用纯色背景矩形，避免每次重建导致对象分配与GC压力
+        if (child.data?.type === 'solid-background') {
+          if (!backgroundRectRef.current || isLayerRemoved(backgroundRectRef.current as any)) {
+            backgroundRectRef.current = child as any;
+          } else if (backgroundRectRef.current !== child) {
+            try { child.remove(); } catch {}
+            continue;
+          }
+          child.visible = false;
+          continue;
+        }
+
         child.visible = false;
 
         // 优化：增加对象池大小，并验证对象有效性
@@ -125,10 +153,9 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         }
         return true;
       });
-      // 如果池太大，删除一半
-      if (pathPoolRef.current.length > POOL_CLEANUP_THRESHOLD) {
-        const toRemove = pathPoolRef.current.splice(0, Math.floor(pathPoolRef.current.length / 2));
-        toRemove.forEach(path => path.remove());
+      // 池子过大时主动收缩，避免长期占用内存
+      if (pathPoolRef.current.length > POOL_IDLE_TARGET) {
+        trimPool(POOL_IDLE_TARGET);
       }
       lastPoolCleanupRef.current = now;
     }
@@ -143,8 +170,6 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     // 获取世界坐标系中的可视边界
     const viewBounds = paper.view.bounds;
 
-    // 虚拟化渲染：智能计算渲染边界，避免过度渲染
-    const padding = currentGridSize * 2;
     const viewWidth = viewBounds.width;
     const viewHeight = viewBounds.height;
 
@@ -157,12 +182,6 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     };
 
     const renderMultiplier = calculateRenderMultiplier(zoom);
-    const effectivePadding = padding * Math.min(renderMultiplier, 3);
-
-    const minX = Math.floor((viewBounds.left - effectivePadding) / currentGridSize) * currentGridSize;
-    const maxX = Math.ceil((viewBounds.right + effectivePadding) / currentGridSize) * currentGridSize;
-    const minY = Math.floor((viewBounds.top - effectivePadding) / currentGridSize) * currentGridSize;
-    const maxY = Math.ceil((viewBounds.bottom + effectivePadding) / currentGridSize) * currentGridSize;
 
     // 优化：虚拟化限制，根据缩放动态调整，并设置绝对像素上限
     const maxRenderWidth = viewWidth * renderMultiplier;
@@ -172,6 +191,26 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     const MAX_RENDER_PIXELS = 8000;
     const cappedRenderWidth = Math.min(maxRenderWidth, MAX_RENDER_PIXELS);
     const cappedRenderHeight = Math.min(maxRenderHeight, MAX_RENDER_PIXELS);
+
+    // 根据渲染区域限制网格密度，防止低缩放下生成过多网格线
+    const estimatedLinesX = cappedRenderWidth / effectiveGridSize;
+    const estimatedLinesY = cappedRenderHeight / effectiveGridSize;
+    const densityFactor = Math.max(
+      1,
+      Math.ceil(Math.max(estimatedLinesX, estimatedLinesY) / MAX_LINES_PER_AXIS)
+    );
+    if (densityFactor > 1) {
+      effectiveGridSize *= densityFactor;
+    }
+
+    // 虚拟化渲染：智能计算渲染边界，避免过度渲染
+    const padding = effectiveGridSize * 2;
+    const effectivePadding = padding * Math.min(renderMultiplier, 3);
+
+    const minX = Math.floor((viewBounds.left - effectivePadding) / effectiveGridSize) * effectiveGridSize;
+    const maxX = Math.ceil((viewBounds.right + effectivePadding) / effectiveGridSize) * effectiveGridSize;
+    const minY = Math.floor((viewBounds.top - effectivePadding) / effectiveGridSize) * effectiveGridSize;
+    const maxY = Math.ceil((viewBounds.bottom + effectivePadding) / effectiveGridSize) * effectiveGridSize;
 
     // 当视口很大时，限制渲染区域时仍要覆盖视口中心
     const centerX = paper.view.center.x;
@@ -187,10 +226,10 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       const half = size / 2;
       const clampedMin = Math.max(min, center - half);
       const clampedMax = Math.min(max, center + half);
-      const snappedMin = Math.floor(clampedMin / currentGridSize) * currentGridSize;
-      const snappedMax = Math.ceil(clampedMax / currentGridSize) * currentGridSize;
+      const snappedMin = Math.floor(clampedMin / effectiveGridSize) * effectiveGridSize;
+      const snappedMax = Math.ceil(clampedMax / effectiveGridSize) * effectiveGridSize;
       if (snappedMax <= snappedMin) {
-        return { min: snappedMin, max: snappedMin + currentGridSize };
+        return { min: snappedMin, max: snappedMin + effectiveGridSize };
       }
       return { min: snappedMin, max: snappedMax };
     };
@@ -259,8 +298,16 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
 
       // 线条网格
       if (gridStyle === GridStyle.LINES) {
-        const counts = createLineGrid(currentGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer);
+        const showMinorGrid = zoom >= 0.3 && densityFactor === 1;
+        const counts = createLineGrid(effectiveGridSize, finalMinX, finalMaxX, finalMinY, finalMaxY, zoom, gridLayer, { showMinorGrid });
         poolStats = { main: counts.mainCount, minor: counts.minorCount, lines: counts.lineCount };
+
+        // 根据实际使用量收缩对象池，避免低缩放时持有过多空闲对象
+        const targetPoolSize = Math.min(
+          MAX_POOL_SIZE,
+          Math.max(POOL_IDLE_TARGET, counts.lineCount + 100)
+        );
+        trimPool(targetPoolSize);
       }
       // SOLID 模式只显示纯色背景，不叠加其他内容
     } else {
@@ -298,13 +345,22 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     return new paper.Color(r/255, g/255, b/255, alpha);
   };
 
-  const createLineGrid = (currentGridSize: number, minX: number, maxX: number, minY: number, maxY: number, zoom: number, gridLayer: paper.Layer) => {
+  const createLineGrid = (
+    currentGridSize: number,
+    minX: number,
+    maxX: number,
+    minY: number,
+    maxY: number,
+    zoom: number,
+    gridLayer: paper.Layer,
+    options?: { showMinorGrid?: boolean }
+  ) => {
     let mainCount = 0;
     let minorCount = 0;
     let lineCount = 0;
 
     // 计算副网格显示阈值 - 当缩放小于30%时隐藏副网格
-    const shouldShowMinorGrid = zoom >= 0.3;
+    const shouldShowMinorGrid = options?.showMinorGrid ?? (zoom >= 0.3);
     const minorColor = getColorWithAlpha(gridColor, 0.10);
     const majorColor = getColorWithAlpha(gridColor, 0.13);
 
@@ -320,7 +376,6 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       // 如果是副网格且缩放过小，则跳过
       if (!isMainGrid && !shouldShowMinorGrid) continue;
 
-      lineCount += 1;
       if (isMainGrid) mainCount += 1;
       else minorCount += 1;
 
@@ -328,7 +383,14 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       let line: paper.Path;
       const poolItem = pathPoolRef.current.pop();
 
-      if (poolItem && poolItem.segments && poolItem.segments.length === 2) {
+      const canReuse =
+        poolItem &&
+        poolItem.project &&
+        !(poolItem as any).removed &&
+        poolItem.segments &&
+        poolItem.segments.length === 2;
+
+      if (canReuse) {
         // 复用现有路径
         line = poolItem;
         line.segments[0].point = new paper.Point(x, minY);
@@ -338,6 +400,13 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line.visible = true;
         line.data = { ...(line.data || {}), isHelper: true, type: 'grid', isMain: isMainGrid };
       } else {
+        if (poolItem) {
+          try {
+            poolItem.remove();
+          } catch {
+            // 忽略释放异常
+          }
+        }
         // 创建新路径
         line = new paper.Path.Line({
           from: [x, minY],
@@ -363,7 +432,6 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       // 如果是副网格且缩放过小，则跳过
       if (!isMainGrid && !shouldShowMinorGrid) continue;
 
-      lineCount += 1;
       if (isMainGrid) mainCount += 1;
       else minorCount += 1;
 
@@ -371,7 +439,14 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       let line: paper.Path;
       const poolItem = pathPoolRef.current.pop();
 
-      if (poolItem && poolItem.segments && poolItem.segments.length === 2) {
+      const canReuse =
+        poolItem &&
+        poolItem.project &&
+        !(poolItem as any).removed &&
+        poolItem.segments &&
+        poolItem.segments.length === 2;
+
+      if (canReuse) {
         // 复用现有路径
         line = poolItem;
         line.segments[0].point = new paper.Point(minX, y);
@@ -381,6 +456,13 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         line.visible = true;
         line.data = { ...(line.data || {}), isHelper: true, type: 'grid', isMain: isMainGrid };
       } else {
+        if (poolItem) {
+          try {
+            poolItem.remove();
+          } catch {
+            // 忽略释放异常
+          }
+        }
         // 创建新路径
         line = new paper.Path.Line({
           from: [minX, y],
@@ -421,6 +503,26 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       }
     })();
 
+    const bounds = new paper.Rectangle(minX, minY, maxX - minX, maxY - minY);
+    const existing = backgroundRectRef.current;
+
+    if (existing && existing.project && !(existing as any).removed) {
+      try {
+        existing.bounds = bounds;
+        existing.fillColor = bg;
+        existing.visible = true;
+        existing.data = { ...(existing.data || {}), isHelper: true, type: 'solid-background' };
+        if (existing.parent !== gridLayer) {
+          gridLayer.addChild(existing);
+        }
+        existing.sendToBack();
+        return;
+      } catch {
+        try { existing.remove(); } catch {}
+        backgroundRectRef.current = null;
+      }
+    }
+
     const backgroundRect = new paper.Path.Rectangle({
       from: [minX, minY],
       to: [maxX, maxY],
@@ -429,6 +531,8 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
     });
 
     gridLayer.addChild(backgroundRect);
+    backgroundRect.sendToBack();
+    backgroundRectRef.current = backgroundRect as any;
   };
 
   // 统一网格渲染控制 - 合并所有触发条件到单一useEffect
@@ -441,6 +545,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
       if (gridLayer && !isLayerRemoved(gridLayer)) {
         gridLayer.removeChildren();
       }
+      backgroundRectRef.current = null;
       isInitializedRef.current = false; // 重置初始化标记
       memoryMonitor.updatePoolStats(0, 0, 0);
       return;
@@ -584,6 +689,7 @@ const GridRenderer: React.FC<GridRendererProps> = ({ canvasRef, isPaperInitializ
         gridLayer.remove();
         gridLayerRef.current = null;
       }
+      backgroundRectRef.current = null;
 
       // 重置初始化标记
       isInitializedRef.current = false;

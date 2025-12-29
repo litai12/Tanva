@@ -60,10 +60,10 @@ const UserTemplateCard: React.FC<{
         overflow: 'hidden'
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = '#2563eb';
-        e.currentTarget.style.background = '#f1f5ff';
+        e.currentTarget.style.borderColor = '#18181b';
+        e.currentTarget.style.background = '#f4f4f5';
         e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 16px 32px rgba(37, 99, 235, 0.12)';
+        e.currentTarget.style.boxShadow = '0 16px 32px rgba(0, 0, 0, 0.12)';
         setIsHovered(true);
       }}
       onMouseLeave={(e) => {
@@ -168,13 +168,13 @@ const AddTemplateCard: React.FC<{ onAdd: () => Promise<void>; label?: string }> 
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        border: '1px dashed #cbd5f5',
+        border: '1px dashed #a1a1aa',
         borderRadius: 12,
         padding: '18px 20px',
         minHeight: 160,
         height: 160,
-        background: '#f8fbff',
-        color: '#2563eb',
+        background: '#fafafa',
+        color: '#18181b',
         cursor: isLoading ? 'wait' : 'pointer',
         transition: 'all 0.15s ease',
         gap: 10,
@@ -183,14 +183,14 @@ const AddTemplateCard: React.FC<{ onAdd: () => Promise<void>; label?: string }> 
       }}
       onMouseEnter={(e) => {
         if (isLoading) return;
-        e.currentTarget.style.background = '#eef2ff';
-        e.currentTarget.style.borderColor = '#93c5fd';
+        e.currentTarget.style.background = '#f4f4f5';
+        e.currentTarget.style.borderColor = '#71717a';
         e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 12px 24px rgba(37, 99, 235, 0.12)';
+        e.currentTarget.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.12)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = '#f8fbff';
-        e.currentTarget.style.borderColor = '#cbd5f5';
+        e.currentTarget.style.background = '#fafafa';
+        e.currentTarget.style.borderColor = '#a1a1aa';
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = 'none';
       }}
@@ -460,9 +460,9 @@ export default function TemplateModal({ isOpen, onClose, onInstantiateTemplate }
                 gap: 6,
                 padding: '8px 14px',
                 borderRadius: 999,
-                border: '1px solid #bfdbfe',
-                background: '#eff6ff',
-                color: '#2563eb',
+                border: '1px solid #d4d4d8',
+                background: '#f4f4f5',
+                color: '#18181b',
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -479,9 +479,9 @@ export default function TemplateModal({ isOpen, onClose, onInstantiateTemplate }
                 gap: 6,
                 padding: '8px 14px',
                 borderRadius: 999,
-                border: '1px solid #c4b5fd',
-                background: '#ede9fe',
-                color: '#7c3aed',
+                border: '1px solid #d4d4d8',
+                background: '#f4f4f5',
+                color: '#18181b',
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -514,14 +514,14 @@ export default function TemplateModal({ isOpen, onClose, onInstantiateTemplate }
                       style={{
                         padding: '6px 14px',
                         borderRadius: 999,
-                        border: '1px solid ' + (isActive ? '#2563eb' : '#e5e7eb'),
-                        background: isActive ? '#2563eb' : '#fff',
+                        border: '1px solid ' + (isActive ? '#18181b' : '#e5e7eb'),
+                        background: isActive ? '#18181b' : '#fff',
                         color: isActive ? '#fff' : '#374151',
                         fontSize: 12,
                         fontWeight: isActive ? 600 : 500,
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
-                        boxShadow: isActive ? '0 10px 18px rgba(37, 99, 235, 0.18)' : 'none'
+                        boxShadow: isActive ? '0 10px 18px rgba(0, 0, 0, 0.18)' : 'none'
                       }}
                     >
                       {cat.label}
@@ -548,10 +548,10 @@ export default function TemplateModal({ isOpen, onClose, onInstantiateTemplate }
                       overflow: 'hidden'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#2563eb';
-                      e.currentTarget.style.background = '#f1f5ff';
+                      e.currentTarget.style.borderColor = '#18181b';
+                      e.currentTarget.style.background = '#f4f4f5';
                       e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 18px 36px rgba(37, 99, 235, 0.12)';
+                      e.currentTarget.style.boxShadow = '0 18px 36px rgba(0, 0, 0, 0.12)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.borderColor = '#e5e7eb';

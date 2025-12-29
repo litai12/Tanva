@@ -479,7 +479,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return () => {
       window.removeEventListener('quickImageAdded', handleQuickImageAdded as EventListener);
     };
-  }, [imageTool]);
+  }, [imageTool.setImageInstances]);
 
   // ========== 粘贴到画布：从剪贴板粘贴图片 ==========
   useEffect(() => {
@@ -961,6 +961,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     zoom,
   });
 
+  const create3DModelPlaceholder = model3DTool.create3DModelPlaceholder;
+  const handleModel3DUploaded = model3DTool.handleModel3DUploaded;
+  const currentModel3DPlaceholderRef = model3DTool.currentModel3DPlaceholderRef;
+
   useEffect(() => {
     const handleInsertModelFromLibrary = (event: CustomEvent) => {
       const detail = event.detail as { 
@@ -987,9 +991,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         end = new paper.Point(center.x + width / 2, center.y + height / 2);
       }
       
-      const placeholder = model3DTool.create3DModelPlaceholder(start, end);
+      const placeholder = create3DModelPlaceholder(start, end);
       if (!placeholder) return;
-      model3DTool.currentModel3DPlaceholderRef.current = placeholder;
+      currentModel3DPlaceholderRef.current = placeholder;
       const normalized: Model3DData = {
         url: detail.modelData.url || detail.modelData.path || '',
         path: detail.modelData.path || detail.modelData.url || '',
@@ -1002,12 +1006,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         timestamp: detail.modelData.timestamp || Date.now(),
         camera: detail.modelData.camera,
       };
-      model3DTool.handleModel3DUploaded(normalized);
+      handleModel3DUploaded(normalized);
     };
 
     window.addEventListener('canvas:insert-model3d', handleInsertModelFromLibrary as EventListener);
     return () => window.removeEventListener('canvas:insert-model3d', handleInsertModelFromLibrary as EventListener);
-  }, [model3DTool]);
+  }, [create3DModelPlaceholder, currentModel3DPlaceholderRef, handleModel3DUploaded]);
 
   // ========== 初始化绘图工具Hook ==========
   const drawingTools = useDrawingTools({
@@ -1323,6 +1327,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 记录上一次处理的 projectId，避免重复清空
   const lastProcessedProjectIdRef = useRef<string | null>(null);
   const clearingInProgressRef = useRef(false);
+  const clearProjectImageInstances = imageTool.setImageInstances;
+  const clearProjectSelectedImageIds = imageTool.setSelectedImageIds;
+  const clearProjectModel3DInstances = model3DTool.setModel3DInstances;
+  const clearProjectSelectedModel3DIds = model3DTool.setSelectedModel3DIds;
+  const clearProjectTextItems = simpleTextTool.clearAllTextItems;
+  const clearProjectSelections = selectionTool.clearAllSelections;
 
   // 🔄 当 projectId 变化时，清空所有实例状态，防止旧项目数据残留
   useEffect(() => {
@@ -1346,22 +1356,30 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 直接同步执行，但使用稳定的函数引用
     try {
       // 清空图片实例
-      imageTool.setImageInstances([]);
-      imageTool.setSelectedImageIds([]);
+      clearProjectImageInstances([]);
+      clearProjectSelectedImageIds([]);
 
       // 清空3D模型实例
-      model3DTool.setModel3DInstances([]);
-      model3DTool.setSelectedModel3DIds([]);
+      clearProjectModel3DInstances([]);
+      clearProjectSelectedModel3DIds([]);
 
       // 清空文本实例
-      simpleTextTool.clearAllTextItems();
+      clearProjectTextItems();
 
       // 清空选择工具状态
-      selectionTool.clearAllSelections();
+      clearProjectSelections();
     } finally {
       clearingInProgressRef.current = false;
     }
-  }, [projectId, imageTool, model3DTool, simpleTextTool, selectionTool]);
+  }, [
+    projectId,
+    clearProjectImageInstances,
+    clearProjectSelectedImageIds,
+    clearProjectModel3DInstances,
+    clearProjectSelectedModel3DIds,
+    clearProjectTextItems,
+    clearProjectSelections,
+  ]);
 
   useEffect(() => {
     if (!projectAssets) return;
@@ -3308,11 +3326,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     hasSelection,
   ]);
 
+  // 事件监听器/长生命周期回调使用稳定引用，避免依赖 tool 对象导致频繁解绑/重绑
+  const dcSetImageInstances = imageTool.setImageInstances;
+  const dcSetSelectedImageIds = imageTool.setSelectedImageIds;
+  const dcHydrateImagesFromSnapshot = imageTool.hydrateFromSnapshot;
+  const dcApplyImageBoundsFromSnapshot = imageTool.applyBoundsFromSnapshot;
+  const dcSetModel3DInstances = model3DTool.setModel3DInstances;
+  const dcSetSelectedModel3DIds = model3DTool.setSelectedModel3DIds;
+  const dcHydrateModelsFromSnapshot = model3DTool.hydrateFromSnapshot;
+  const dcClearAllTextItems = simpleTextTool.clearAllTextItems;
+  const dcHydrateTextsFromSnapshot = simpleTextTool.hydrateFromSnapshot;
+  const dcHydrateTextsFromPaperItems = simpleTextTool.hydrateFromPaperItems;
+  const dcClearAllSelections = selectionTool.clearAllSelections;
+
   // 同步图片和3D模型的可见性状态
   useEffect(() => {
     const syncVisibilityStates = () => {
       // 同步图片可见性
-      imageTool.setImageInstances(prev => prev.map(image => {
+      dcSetImageInstances(prev => prev.map(image => {
         const paperGroup = paper.project.layers.flatMap(layer =>
           layer.children.filter(child =>
             child.data?.type === 'image' && child.data?.imageId === image.id
@@ -3326,7 +3357,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }));
 
       // 同步3D模型可见性
-      model3DTool.setModel3DInstances(prev => prev.map(model => {
+      dcSetModel3DInstances(prev => prev.map(model => {
         const paperGroup = paper.project.layers.flatMap(layer =>
           layer.children.filter(child =>
             child.data?.type === '3d-model' && child.data?.modelId === model.id
@@ -3350,19 +3381,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return () => {
       window.removeEventListener('layerVisibilityChanged', handleVisibilitySync);
     };
-  }, [imageTool, model3DTool]);
+  }, [dcSetImageInstances, dcSetModel3DInstances]);
 
   // 将图片和3D模型实例暴露给图层面板使用
   useEffect(() => {
-    (window as any).tanvaImageInstances = imageTool.imageInstances;
-    (window as any).tanvaModel3DInstances = model3DTool.model3DInstances;
-    (window as any).tanvaTextItems = simpleTextTool.textItems;
+    try { (window as any).tanvaImageInstances = imageTool.imageInstances; } catch {}
+    try { (window as any).tanvaModel3DInstances = model3DTool.model3DInstances; } catch {}
+    try { (window as any).tanvaTextItems = simpleTextTool.textItems; } catch {}
   }, [imageTool.imageInstances, model3DTool.model3DInstances, simpleTextTool.textItems]);
+
+  // 组件卸载时清理全局引用，避免残留导致无法释放
+  useEffect(() => {
+    return () => {
+      try { (window as any).tanvaImageInstances = []; } catch {}
+      try { (window as any).tanvaModel3DInstances = []; } catch {}
+      try { (window as any).tanvaTextItems = []; } catch {}
+    };
+  }, []);
 
   // 监听图层顺序变化并更新图像的layerId
   useEffect(() => {
     const updateImageLayerIds = () => {
-      imageTool.setImageInstances(prev => prev.map(image => {
+      dcSetImageInstances(prev => prev.map(image => {
         const imageGroup = paper.project?.layers?.flatMap(layer =>
           layer.children.filter(child =>
             child.data?.type === 'image' &&
@@ -3396,7 +3436,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     return () => {
       window.removeEventListener('layerOrderChanged', handleLayerOrderChanged);
     };
-  }, [imageTool]);
+  }, [dcSetImageInstances]);
 
   // 监听图层面板触发的实例更新事件
   useEffect(() => {
@@ -3405,7 +3445,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const { imageId, layerId } = event.detail;
       logger.debug(`🔄 DrawingController收到图片实例更新事件: ${imageId} → 图层${layerId}`);
       
-      imageTool.setImageInstances(prev => prev.map(image => {
+      dcSetImageInstances(prev => prev.map(image => {
         if (image.id === imageId) {
           return { 
             ...image, 
@@ -3422,7 +3462,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const { modelId, layerId } = event.detail;
       logger.debug(`🔄 DrawingController收到3D模型实例更新事件: ${modelId} → 图层${layerId}`);
       
-      model3DTool.setModel3DInstances(prev => prev.map(model => {
+      dcSetModel3DInstances(prev => prev.map(model => {
         if (model.id === modelId) {
           return { 
             ...model, 
@@ -3442,7 +3482,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       window.removeEventListener('imageInstanceUpdated', handleImageInstanceUpdate as EventListener);
       window.removeEventListener('model3DInstanceUpdated', handleModel3DInstanceUpdate as EventListener);
     };
-  }, [imageTool, model3DTool]);
+  }, [dcSetImageInstances, dcSetModel3DInstances]);
 
   // 历史恢复：清空实例并基于快照资产回填 UI 覆盖层
   useEffect(() => {
@@ -3450,21 +3490,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         const assets = event.detail?.assets;
         // 清空现有实例
-        imageTool.setImageInstances([]);
-        imageTool.setSelectedImageIds([]);
-        model3DTool.setModel3DInstances([]);
-        model3DTool.setSelectedModel3DIds([]);
-        simpleTextTool.clearAllTextItems();
+        dcSetImageInstances([]);
+        dcSetSelectedImageIds([]);
+        dcSetModel3DInstances([]);
+        dcSetSelectedModel3DIds([]);
+        dcClearAllTextItems();
 
         if (assets) {
           if (assets.images?.length) {
-            imageTool.hydrateFromSnapshot(assets.images);
+            dcHydrateImagesFromSnapshot(assets.images);
           }
           if (assets.models?.length) {
-            model3DTool.hydrateFromSnapshot(assets.models);
+            dcHydrateModelsFromSnapshot(assets.models);
           }
           if (assets.texts?.length) {
-            simpleTextTool.hydrateFromSnapshot(assets.texts);
+            dcHydrateTextsFromSnapshot(assets.texts);
           }
         }
       } catch (e) {
@@ -3473,7 +3513,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
     window.addEventListener('history-restore', handler as EventListener);
     return () => window.removeEventListener('history-restore', handler as EventListener);
-  }, [imageTool, model3DTool, simpleTextTool]);
+  }, [
+    dcClearAllTextItems,
+    dcHydrateImagesFromSnapshot,
+    dcHydrateModelsFromSnapshot,
+    dcHydrateTextsFromSnapshot,
+    dcSetImageInstances,
+    dcSetModel3DInstances,
+    dcSetSelectedImageIds,
+    dcSetSelectedModel3DIds,
+  ]);
 
   // 从已反序列化的 Paper 项目重建图片、文字和3D模型实例
   useEffect(() => {
@@ -3482,6 +3531,54 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (!paper || !paper.project) return;
 
         logger.drawing('🔄 rebuildFromPaper 开始执行...');
+
+        // 避免重复包裹 Raster.onLoad（多次 rebuild 可能导致链式闭包与内存增长）
+        const ensureRasterRebuildOnLoad = (raster: any, callback: () => void) => {
+          if (!raster) return;
+          const anyRaster = raster as any;
+          anyRaster.__tanvaRebuildOnLoadCallback = callback;
+
+          const existingWrapper = anyRaster.__tanvaRebuildOnLoadWrapper as any;
+          const currentOnLoad = raster.onLoad;
+
+          // 已安装 wrapper：只更新 callback，避免链式包裹
+          if (existingWrapper && currentOnLoad === existingWrapper) {
+            return;
+          }
+
+          // 记录/更新原始 onLoad（避免把 wrapper 自己当作 original）
+          if (currentOnLoad && currentOnLoad !== existingWrapper) {
+            anyRaster.__tanvaOriginalOnLoad = currentOnLoad;
+          }
+
+          const wrapper =
+            existingWrapper ||
+            function (this: any, ...args: any[]) {
+              try {
+                const cb = (this as any).__tanvaRebuildOnLoadCallback;
+                if (typeof cb === 'function') {
+                  // 释放闭包引用，避免长期占用内存
+                  (this as any).__tanvaRebuildOnLoadCallback = null;
+                  cb();
+                }
+              } catch (err) {
+                console.warn('Raster rebuild onLoad callback failed:', err);
+              }
+
+              try {
+                const original = (this as any).__tanvaOriginalOnLoad;
+                const selfWrapper = (this as any).__tanvaRebuildOnLoadWrapper;
+                if (typeof original === 'function' && original !== selfWrapper) {
+                  original.apply(this, args);
+                }
+              } catch (err) {
+                console.warn('Raster original onLoad failed:', err);
+              }
+            };
+
+          anyRaster.__tanvaRebuildOnLoadWrapper = wrapper;
+          raster.onLoad = wrapper;
+        };
 
         // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
         // 1. 清理所有没有 raster 的图片组（包括它们的选择框）
@@ -3552,7 +3649,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         });
 
         // 3. 清理所有选择状态
-        selectionTool.clearAllSelections();
+        dcClearAllSelections();
 
         const imageInstances: any[] = [];
         const textInstances: any[] = [];
@@ -3727,42 +3824,33 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     layerId: layer?.name
                   });
 
-                  const previousOnLoad = raster.onLoad;
-                  raster.onLoad = () => {
-                    const loadedInstance = buildImageInstance();
-                    if (loadedInstance) {
-                      imageTool.setImageInstances((prev) => {
-                        const updated = [...prev];
-                        const index = updated.findIndex(img => img.id === ensuredImageId);
-                        if (index >= 0) {
-                          updated[index] = {
-                            ...updated[index],
-                            ...loadedInstance,
-                            imageData: {
-                              ...updated[index].imageData,
-                              ...loadedInstance.imageData
-                            }
-                          };
-                        } else {
-                          updated.push(loadedInstance);
-                        }
-                        try { (window as any).tanvaImageInstances = updated; } catch {}
-                        return updated;
-                      });
-                      try { paper.view?.update(); } catch {}
-                    }
+	                  ensureRasterRebuildOnLoad(raster, () => {
+	                    const loadedInstance = buildImageInstance();
+	                    if (!loadedInstance) return;
 
-                    if (typeof previousOnLoad === 'function') {
-                      try {
-                        previousOnLoad.call(raster);
-                      } catch (err) {
-                        console.warn('重建图片时执行原始Raster onLoad失败:', err);
-                      }
-                    }
-                  };
-                }
-              }
-            }
+	                    dcSetImageInstances((prev) => {
+	                      const updated = [...prev];
+	                      const index = updated.findIndex(img => img.id === ensuredImageId);
+	                      if (index >= 0) {
+	                        updated[index] = {
+	                          ...updated[index],
+	                          ...loadedInstance,
+	                          imageData: {
+	                            ...updated[index].imageData,
+	                            ...loadedInstance.imageData
+	                          }
+	                        };
+	                      } else {
+	                        updated.push(loadedInstance);
+	                      }
+	                      try { (window as any).tanvaImageInstances = updated; } catch {}
+	                      return updated;
+	                    });
+	                    try { paper.view?.update(); } catch {}
+	                  });
+	                }
+	              }
+	            }
 
 	            // ========== 处理文字 ==========
 	            if (item?.className === 'PointText' || item instanceof (paper as any).PointText) {
@@ -3916,7 +4004,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         // 更新图片实例
         // 🔥 修复：只保留在 Paper.js 中实际存在的图片实例，移除已不存在的实例
-        imageTool.setImageInstances((prev) => {
+        dcSetImageInstances((prev) => {
           const prevMap = new Map(prev.map(item => [item.id, item]));
           const merged: typeof prev = [];
           const validImageIds = new Set(imageInstances.map(inst => inst.id));
@@ -3954,7 +4042,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           try { (window as any).tanvaImageInstances = merged; } catch {}
           return merged;
         });
-        imageTool.setSelectedImageIds([]);
+        dcSetSelectedImageIds([]);
         if (imageInstances.length > 0) {
           logger.debug(`🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`);
         } else {
@@ -3963,7 +4051,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
 
         // 更新文字实例
-        simpleTextTool.hydrateFromPaperItems(textInstances);
+        dcHydrateTextsFromPaperItems(textInstances);
         try { (window as any).tanvaTextItems = textInstances; } catch {}
         if (textInstances.length > 0) {
           logger.debug(`📝 已从 Paper 恢复 ${textInstances.length} 个文字实例`);
@@ -3971,8 +4059,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         // 更新3D模型实例
         if (model3DInstances.length > 0) {
-          model3DTool.setModel3DInstances(model3DInstances);
-          model3DTool.setSelectedModel3DIds([]);
+          dcSetModel3DInstances(model3DInstances);
+          dcSetSelectedModel3DIds([]);
           try { (window as any).tanvaModel3DInstances = model3DInstances; } catch {}
           logger.debug(`🎮 已从 Paper 恢复 ${model3DInstances.length} 个3D模型实例`);
         }
@@ -3985,25 +4073,49 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       } catch (e) {
         console.warn('从Paper重建实例失败:', e);
       }
-    };
+	    };
 
-    window.addEventListener('paper-project-changed', rebuildFromPaper as EventListener);
-    return () => window.removeEventListener('paper-project-changed', rebuildFromPaper as EventListener);
-  }, [imageTool, simpleTextTool, model3DTool, selectionTool]);
+	    let rafId: number | null = null;
+	    const scheduleRebuild = () => {
+	      if (rafId !== null) return;
+	      rafId = requestAnimationFrame(() => {
+	        rafId = null;
+	        rebuildFromPaper();
+	      });
+	    };
+
+	    window.addEventListener('paper-project-changed', scheduleRebuild as EventListener);
+	    return () => {
+	      window.removeEventListener('paper-project-changed', scheduleRebuild as EventListener);
+	      if (rafId !== null) {
+	        cancelAnimationFrame(rafId);
+	      }
+	    };
+	  }, [
+	    dcClearAllSelections,
+	    dcHydrateTextsFromPaperItems,
+	    dcSetImageInstances,
+	    dcSetModel3DInstances,
+	    dcSetSelectedImageIds,
+	    dcSetSelectedModel3DIds,
+	  ]);
 
   // 历史快速回放（仅图片 bounds）：避免 undo/redo 时全量重建导致全图闪烁
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent)?.detail as any;
-      const images = detail?.images as ImageAssetSnapshot[] | undefined;
-      if (!Array.isArray(images) || images.length === 0) return;
-      try { imageTool.applyBoundsFromSnapshot?.(images); } catch {}
-    };
-    window.addEventListener('history:apply-image-snapshot', handler as EventListener);
-    return () => window.removeEventListener('history:apply-image-snapshot', handler as EventListener);
-  }, [imageTool]);
+	  useEffect(() => {
+	    const handler = (event: Event) => {
+	      const detail = (event as CustomEvent)?.detail as any;
+	      const images = detail?.images as ImageAssetSnapshot[] | undefined;
+	      if (!Array.isArray(images) || images.length === 0) return;
+	      try { dcApplyImageBoundsFromSnapshot?.(images); } catch {}
+	    };
+	    window.addEventListener('history:apply-image-snapshot', handler as EventListener);
+	    return () => window.removeEventListener('history:apply-image-snapshot', handler as EventListener);
+	  }, [dcApplyImageBoundsFromSnapshot]);
 
   // 监听图层面板的选择事件
+  const dcHandleLayerImageSelect = imageTool.handleImageSelect;
+  const dcHandleLayerModel3DSelect = model3DTool.handleModel3DSelect;
+
   useEffect(() => {
     const handleLayerItemSelected = (event: CustomEvent) => {
       const { item, type, itemId } = event.detail;
@@ -4011,21 +4123,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       logger.debug('收到图层面板选择事件:', type, itemId);
 
       // 清除之前的所有选择
-      selectionTool.clearAllSelections();
+      dcClearAllSelections();
 
       // 根据类型进行相应的选择处理
       if (type === 'image') {
         const imageData = item.data;
         if (imageData?.imageId) {
-          imageTool.handleImageSelect(imageData.imageId);
+          dcHandleLayerImageSelect(imageData.imageId);
         }
       } else if (type === 'model3d') {
         const modelData = item.data;
         if (modelData?.modelId) {
-          model3DTool.handleModel3DSelect(modelData.modelId);
+          dcHandleLayerModel3DSelect(modelData.modelId);
         }
       } else if (item instanceof paper.Path) {
-        selectionTool.handlePathSelect(item);
+        selectToolHandlePathSelect(item);
       }
     };
 
@@ -4036,7 +4148,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // 清理事件监听器
       window.removeEventListener('layerItemSelected', handleLayerItemSelected as EventListener);
     };
-  }, [selectionTool, imageTool, model3DTool]);
+  }, [dcClearAllSelections, dcHandleLayerImageSelect, dcHandleLayerModel3DSelect, selectToolHandlePathSelect]);
 
   return (
     <>

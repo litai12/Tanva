@@ -804,7 +804,8 @@ const FloatingHeader: React.FC = () => {
                                         <span className="text-xs text-slate-500">{gridColor}</span>
                                     </div>
                                 </div>
-                                <div className="flex flex-col gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                                {/* 画布底色功能暂时隐藏 */}
+                                {/* <div className="flex flex-col gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                         <div className="text-xs font-medium text-slate-600">画布底色</div>
                                         <div className="text-xs text-slate-500">启用后可自定义背景颜色</div>
@@ -823,7 +824,7 @@ const FloatingHeader: React.FC = () => {
                                             className="h-5 w-9"
                                         />
                                     </div>
-                                </div>
+                                </div> */}
                             </div>
                         </div>
 

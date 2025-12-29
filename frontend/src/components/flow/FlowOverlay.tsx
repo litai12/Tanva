@@ -320,11 +320,11 @@ const nodePaletteEnCodeStyle: React.CSSProperties = {
 const nodePaletteBadgeStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
-  color: '#1d4ed8',
-  background: '#eff6ff',
+  color: '#18181b',
+  background: '#f4f4f5',
   padding: '4px 8px',
   borderRadius: 999,
-  border: '1px solid #dbeafe',
+  border: '1px solid #d4d4d8',
   letterSpacing: '0.04em',
   whiteSpace: 'nowrap'
 };
@@ -377,10 +377,10 @@ const UserTemplateCard: React.FC<{
         overflow: 'hidden'
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = '#2563eb';
-        e.currentTarget.style.background = '#f1f5ff';
+        e.currentTarget.style.borderColor = '#18181b';
+        e.currentTarget.style.background = '#f4f4f5';
         e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 16px 32px rgba(37, 99, 235, 0.12)';
+        e.currentTarget.style.boxShadow = '0 16px 32px rgba(0, 0, 0, 0.12)';
         setIsHovered(true);
       }}
       onMouseLeave={(e) => {
@@ -485,13 +485,13 @@ const AddTemplateCard: React.FC<{ onAdd: () => Promise<void>; label?: string }> 
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        border: '1px dashed #cbd5f5',
+        border: '1px dashed #a1a1aa',
         borderRadius: 12,
         padding: '18px 20px',
         minHeight: 160,
         height: 160,
-        background: '#f8fbff',
-        color: '#2563eb',
+        background: '#fafafa',
+        color: '#18181b',
         cursor: isLoading ? 'wait' : 'pointer',
         transition: 'all 0.15s ease',
         gap: 10,
@@ -500,14 +500,14 @@ const AddTemplateCard: React.FC<{ onAdd: () => Promise<void>; label?: string }> 
       }}
       onMouseEnter={(e) => {
         if (isLoading) return;
-        e.currentTarget.style.background = '#eef2ff';
-        e.currentTarget.style.borderColor = '#93c5fd';
+        e.currentTarget.style.background = '#f4f4f5';
+        e.currentTarget.style.borderColor = '#71717a';
         e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 12px 24px rgba(37, 99, 235, 0.12)';
+        e.currentTarget.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.12)';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = '#f8fbff';
-        e.currentTarget.style.borderColor = '#cbd5f5';
+        e.currentTarget.style.background = '#fafafa';
+        e.currentTarget.style.borderColor = '#a1a1aa';
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = 'none';
       }}
@@ -4663,23 +4663,42 @@ function FlowInner() {
                   </button>
                 )}
                 {allowedAddTabs.includes('templates') && (
-                  <button 
-                    onClick={() => setAddTabWithMemory('templates', allowedAddTabs)} 
-                    style={{ 
-                      padding: '10px 18px 14px', 
-                      fontSize: 13,
-                      fontWeight: addTab === 'templates' ? 600 : 500,
-                      borderRadius: '24px 24px 0 0', 
-                      border: 'none',
-                      background: addTab === 'templates' ? '#fff' : 'transparent', 
-                      color: addTab === 'templates' ? '#111827' : '#374151',
-                      marginBottom: -2,
-                      transition: 'all 0.15s ease',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    模板
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setAddTabWithMemory('templates', allowedAddTabs); setTemplateScope('public'); }}
+                      style={{
+                        padding: '10px 18px 14px',
+                        fontSize: 13,
+                        fontWeight: addTab === 'templates' && templateScope === 'public' ? 600 : 500,
+                        borderRadius: '24px 24px 0 0',
+                        border: 'none',
+                        background: addTab === 'templates' && templateScope === 'public' ? '#fff' : 'transparent',
+                        color: addTab === 'templates' && templateScope === 'public' ? '#111827' : '#374151',
+                        marginBottom: -2,
+                        transition: 'all 0.15s ease',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      公共模板
+                    </button>
+                    <button
+                      onClick={() => { setAddTabWithMemory('templates', allowedAddTabs); setTemplateScope('mine'); }}
+                      style={{
+                        padding: '10px 18px 14px',
+                        fontSize: 13,
+                        fontWeight: addTab === 'templates' && templateScope === 'mine' ? 600 : 500,
+                        borderRadius: '24px 24px 0 0',
+                        border: 'none',
+                        background: addTab === 'templates' && templateScope === 'mine' ? '#fff' : 'transparent',
+                        color: addTab === 'templates' && templateScope === 'mine' ? '#111827' : '#374151',
+                        marginBottom: -2,
+                        transition: 'all 0.15s ease',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      我的模板
+                    </button>
+                  </>
                 )}
                 {/* 个人库标签已移至独立按钮，此处隐藏 */}
                 {false && allowedAddTabs.includes('personal') && (
@@ -4779,126 +4798,94 @@ function FlowInner() {
               </div>
             ) : addTab === 'templates' ? (
               <div style={{ height: 'min(70vh, 640px)', overflowY: 'auto', overflowX: 'hidden', padding: '12px 18px 18px' }}>
-                <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap: 12, marginBottom: templateScope === 'public' ? 12 : 18 }}>
-                  <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>{templateScope === 'public' ? '公共模板' : '我的模板'}</div>
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap: 8 }}>
-                    {/* 小图标：导出/导入，仅在模板页签显示 */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <button
-                        onClick={exportFlow}
-                        title="导出当前编排为JSON"
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: '50%',
-                          border: '1px solid #e5e7eb',
-                          background: '#fff',
-                          color: '#374151',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#f9fafb';
-                          e.currentTarget.style.borderColor = '#d1d5db';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = '#fff';
-                          e.currentTarget.style.borderColor = '#e5e7eb';
-                        }}
-                      >
-                        <Download size={16} strokeWidth={2} />
-                      </button>
-                      <button
-                        onClick={handleImportClick}
-                        title="导入JSON并复现编排"
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: '50%',
-                          border: '1px solid #e5e7eb',
-                          background: '#fff',
-                          color: '#374151',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#f9fafb';
-                          e.currentTarget.style.borderColor = '#d1d5db';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = '#fff';
-                          e.currentTarget.style.borderColor = '#e5e7eb';
-                        }}
-                      >
-                        <Upload size={16} strokeWidth={2} />
-                      </button>
-                    </div>
-                    <div style={{ display:'flex', alignItems:'center', padding: 2, border: '1px solid #d4d8de', borderRadius: 999, background: '#fff' }}>
-                      <button
-                        onClick={() => setTemplateScope('public')}
-                        style={{
-                          padding: '6px 14px',
-                          borderRadius: 999,
-                          border: 'none',
-                          background: templateScope === 'public' ? '#2563eb' : 'transparent',
-                          color: templateScope === 'public' ? '#fff' : '#374151',
-                          fontSize: 12,
-                          fontWeight: templateScope === 'public' ? 600 : 500,
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >公共模板</button>
-                      <button
-                        onClick={() => setTemplateScope('mine')}
-                        style={{
-                          padding: '6px 14px',
-                          borderRadius: 999,
-                          border: 'none',
-                          background: templateScope === 'mine' ? '#2563eb' : 'transparent',
-                          color: templateScope === 'mine' ? '#fff' : '#374151',
-                          fontSize: 12,
-                          fontWeight: templateScope === 'mine' ? 600 : 500,
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >我的模板</button>
-                    </div>
-                  </div>
-                </div>
                 {templateScope === 'public' && tplIndex ? (
                   <div style={{ marginBottom: 18 }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-                      {BUILTIN_TEMPLATE_CATEGORIES.map(cat => {
-                        const isActive = cat.value === activeBuiltinCategory;
-                        return (
-                          <button
-                            key={cat.value}
-                            onClick={() => setActiveBuiltinCategory(cat.value)}
-                            style={{
-                              padding: '6px 14px',
-                              borderRadius: 999,
-                              border: '1px solid ' + (isActive ? '#2563eb' : '#e5e7eb'),
-                              background: isActive ? '#2563eb' : '#fff',
-                              color: isActive ? '#fff' : '#374151',
-                              fontSize: 12,
-                              fontWeight: isActive ? 600 : 500,
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease',
-                              boxShadow: isActive ? '0 10px 18px rgba(37, 99, 235, 0.18)' : 'none'
-                            }}
-                          >
-                            {cat.label}
-                          </button>
-                        );
-                      })}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 14 }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {BUILTIN_TEMPLATE_CATEGORIES.map(cat => {
+                          const isActive = cat.value === activeBuiltinCategory;
+                          return (
+                            <button
+                              key={cat.value}
+                              onClick={() => setActiveBuiltinCategory(cat.value)}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: 999,
+                                border: '1px solid ' + (isActive ? '#18181b' : '#e5e7eb'),
+                                background: isActive ? '#18181b' : '#fff',
+                                color: isActive ? '#fff' : '#374151',
+                                fontSize: 12,
+                                fontWeight: isActive ? 600 : 500,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                boxShadow: isActive ? '0 10px 18px rgba(0, 0, 0, 0.18)' : 'none'
+                              }}
+                            >
+                              {cat.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={exportFlow}
+                          title="导出当前编排为JSON"
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 999,
+                            border: '1px solid #e5e7eb',
+                            background: '#fff',
+                            color: '#374151',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#f9fafb';
+                            e.currentTarget.style.borderColor = '#d1d5db';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#fff';
+                            e.currentTarget.style.borderColor = '#e5e7eb';
+                          }}
+                        >
+                          <Upload size={14} strokeWidth={2} />
+                          导出
+                        </button>
+                        <button
+                          onClick={handleImportClick}
+                          title="导入JSON并复现编排"
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 999,
+                            border: '1px solid #e5e7eb',
+                            background: '#fff',
+                            color: '#374151',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontWeight: 500,
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#f9fafb';
+                            e.currentTarget.style.borderColor = '#d1d5db';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#fff';
+                            e.currentTarget.style.borderColor = '#e5e7eb';
+                          }}
+                        >
+                          <Download size={14} strokeWidth={2} />
+                          导入
+                        </button>
+                      </div>
                     </div>
                     <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20 }}>
                       {filteredTplIndex.map(item => (
@@ -4919,10 +4906,10 @@ function FlowInner() {
                             overflow: 'hidden'
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.borderColor = '#2563eb';
-                            e.currentTarget.style.background = '#f1f5ff';
+                            e.currentTarget.style.borderColor = '#18181b';
+                            e.currentTarget.style.background = '#f4f4f5';
                             e.currentTarget.style.transform = 'translateY(-2px)';
-                            e.currentTarget.style.boxShadow = '0 18px 36px rgba(37, 99, 235, 0.12)';
+                            e.currentTarget.style.boxShadow = '0 18px 36px rgba(0, 0, 0, 0.12)';
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.borderColor = '#e5e7eb';
@@ -4967,7 +4954,68 @@ function FlowInner() {
                   </div>
                 ) : null}
                 {templateScope === 'mine' ? (
-                  <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20 }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginBottom: 14 }}>
+                      <button
+                        onClick={exportFlow}
+                        title="导出当前编排为JSON"
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: 999,
+                          border: '1px solid #e5e7eb',
+                          background: '#fff',
+                          color: '#374151',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f9fafb';
+                          e.currentTarget.style.borderColor = '#d1d5db';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#fff';
+                          e.currentTarget.style.borderColor = '#e5e7eb';
+                        }}
+                      >
+                        <Upload size={14} strokeWidth={2} />
+                        导出
+                      </button>
+                      <button
+                        onClick={handleImportClick}
+                        title="导入JSON并复现编排"
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: 999,
+                          border: '1px solid #e5e7eb',
+                          background: '#fff',
+                          color: '#374151',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          fontWeight: 500,
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f9fafb';
+                          e.currentTarget.style.borderColor = '#d1d5db';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#fff';
+                          e.currentTarget.style.borderColor = '#e5e7eb';
+                        }}
+                      >
+                        <Download size={14} strokeWidth={2} />
+                        导入
+                      </button>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 20 }}>
                       <AddTemplateCard
                         onAdd={saveCurrentAsTemplate}
                         label={userTplList.length ? '保存当前为新模板' : '创建我的第一个模板'}
@@ -5000,6 +5048,7 @@ function FlowInner() {
                         <TemplatePlaceholder key={`user-placeholder-${idx}`} />
                       ))}
                     </div>
+                  </div>
                 ) : null}
               </div>
             ) : addTab === 'personal' ? (

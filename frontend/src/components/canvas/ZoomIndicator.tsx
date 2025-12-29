@@ -67,12 +67,31 @@ const ZoomIndicator: React.FC = () => {
     };
 
     const resetZoom = () => {
-        const metrics = getViewMetrics();
         setZoom(1.0);
+
+        // 视口变换公式：screen = zoom * (world + pan)
+        // 要让世界坐标原点 (0,0) 显示在屏幕中心：
+        // screenCenter = zoom * (0 + pan) => pan = screenCenter / zoom
+        // 当 zoom = 1 时，pan = screenCenter
+        const metrics = getViewMetrics();
         if (metrics) {
             setPan(metrics.centerX, metrics.centerY);
         } else {
-            setPan(0, 0);
+            // 备用方案：使用画布元素的尺寸
+            const canvas = paper?.view?.element as HTMLCanvasElement | undefined;
+            if (canvas) {
+                const dpr = window.devicePixelRatio || 1;
+                const rect = canvas.getBoundingClientRect();
+                const centerX = (rect.width / 2) * dpr;
+                const centerY = (rect.height / 2) * dpr;
+                setPan(centerX, centerY);
+            } else {
+                // 最后的备用方案：使用窗口尺寸
+                const dpr = window.devicePixelRatio || 1;
+                const centerX = (window.innerWidth / 2) * dpr;
+                const centerY = (window.innerHeight / 2) * dpr;
+                setPan(centerX, centerY);
+            }
         }
         setMenuOpen(false);
     };
