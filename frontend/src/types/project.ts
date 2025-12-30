@@ -112,6 +112,7 @@ export function createEmptyProjectContent(): ProjectContentSnapshot {
       images: [],
       models: [],
       texts: [],
+      videos: [],
     },
     flow: {
       nodes: [],

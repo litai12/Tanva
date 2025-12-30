@@ -388,7 +388,7 @@ class ContextManager implements IContextManager {
         const hasVideo = msg.videoUrl || msg.videoThumbnail;
         if (!hasVideo) return false;
         const messageTime = new Date(msg.timestamp).getTime();
-        return (now - messageTime) > MEMORY_OPTIMIZATION.videoExpiryMs;
+        return now - messageTime > MEMORY_OPTIMIZATION.videoExpiryMs;
       });
 
       if (expiredVideoMessages.length > 0) {

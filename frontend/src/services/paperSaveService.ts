@@ -315,10 +315,12 @@ class PaperSaveService {
     images: ImageAssetSnapshot[];
     models: ModelAssetSnapshot[];
     texts: TextAssetSnapshot[];
+    videos: VideoAssetSnapshot[];
   } {
     const images: ImageAssetSnapshot[] = [];
     const models: ModelAssetSnapshot[] = [];
     const texts: TextAssetSnapshot[] = [];
+    const videos: VideoAssetSnapshot[] = [];
 
     try {
       const instances = (window as any)?.tanvaImageInstances as
@@ -430,7 +432,46 @@ class PaperSaveService {
       console.warn("采集文本实例失败:", error);
     }
 
-    return { images, models, texts };
+    try {
+      const instances = (window as any)?.tanvaVideoInstances as
+        | any[]
+        | undefined;
+      if (Array.isArray(instances)) {
+        instances.forEach((instance) => {
+          const data = instance?.videoData;
+          const bounds = instance?.bounds;
+          const url = data?.url || data?.src;
+          if (!url) return;
+          videos.push({
+            id: instance.id,
+            url,
+            thumbnail: data?.thumbnail,
+            duration: data?.duration,
+            width: data?.width,
+            height: data?.height,
+            fileName: data?.fileName,
+            contentType: data?.contentType,
+            taskId: data?.taskId,
+            status: data?.status,
+            sourceUrl: data?.sourceUrl,
+            metadata: data?.metadata,
+            bounds: {
+              x: bounds?.x ?? 0,
+              y: bounds?.y ?? 0,
+              width: bounds?.width ?? 0,
+              height: bounds?.height ?? 0,
+            },
+            layerId: this.normalizeLayerId(
+              instance?.layerId || instance?.layer?.name
+            ),
+          });
+        });
+      }
+    } catch (error) {
+      console.warn("采集视频实例失败:", error);
+    }
+
+    return { images, models, texts, videos };
   }
 
   private sanitizeAssets(assets: {
