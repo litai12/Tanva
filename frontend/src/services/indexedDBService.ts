@@ -4,20 +4,29 @@
  */
 
 const DB_NAME = 'tanva_unified_storage';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // Store 配置
 export const STORE_NAMES = {
   IMAGE_HISTORY: 'imageHistory',
   PERSONAL_LIBRARY: 'personalLibrary',
+  AI_CHAT_SESSIONS: 'aiChatSessions',
 } as const;
 
 export type StoreName = (typeof STORE_NAMES)[keyof typeof STORE_NAMES];
 
 // 每个 store 的最大记录数
 const MAX_ENTRIES: Record<StoreName, number> = {
-  [STORE_NAMES.IMAGE_HISTORY]: 100,
+  [STORE_NAMES.IMAGE_HISTORY]: 50,
   [STORE_NAMES.PERSONAL_LIBRARY]: 500,
+  [STORE_NAMES.AI_CHAT_SESSIONS]: 50,
+};
+
+// LRU 清理所用的索引名
+const LRU_INDEX_NAMES: Record<StoreName, string> = {
+  [STORE_NAMES.IMAGE_HISTORY]: 'timestamp',
+  [STORE_NAMES.PERSONAL_LIBRARY]: 'updatedAt',
+  [STORE_NAMES.AI_CHAT_SESSIONS]: 'updatedAt',
 };
 
 // 连接池
@@ -71,6 +80,14 @@ function openDatabase(): Promise<IDBDatabase> {
         });
         libraryStore.createIndex('type', 'type', { unique: false });
         libraryStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+      }
+
+      // 创建 aiChatSessions store
+      if (!db.objectStoreNames.contains(STORE_NAMES.AI_CHAT_SESSIONS)) {
+        const chatStore = db.createObjectStore(STORE_NAMES.AI_CHAT_SESSIONS, {
+          keyPath: 'id'
+        });
+        chatStore.createIndex('updatedAt', 'updatedAt', { unique: false });
       }
     };
 
@@ -365,7 +382,7 @@ export async function idbCount(storeName: StoreName): Promise<number> {
 export async function idbDeleteOldest(
   storeName: StoreName,
   deleteCount: number,
-  timestampField: string = 'timestamp'
+  indexName: string = 'timestamp'
 ): Promise<void> {
   if (!idbAvailable || deleteCount <= 0) return;
 
@@ -374,7 +391,7 @@ export async function idbDeleteOldest(
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
-      const index = store.index(timestampField);
+      const index = store.index(indexName);
 
       // 按时间戳升序遍历（最旧的在前）
       const request = index.openCursor();
@@ -408,7 +425,8 @@ export async function idbEnforceLimit(storeName: StoreName): Promise<void> {
   if (count > maxEntries) {
     const deleteCount = count - maxEntries;
     console.log(`[IndexedDB] ${storeName} 超出限制，清理 ${deleteCount} 条旧记录`);
-    await idbDeleteOldest(storeName, deleteCount);
+    const indexName = LRU_INDEX_NAMES[storeName] ?? 'timestamp';
+    await idbDeleteOldest(storeName, deleteCount, indexName);
   }
 }
 

@@ -26,6 +26,14 @@ import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
+import {
+  STORE_NAMES,
+  idbGet,
+  idbPut,
+  isMigrationDone,
+  markMigrationDone,
+  isIndexedDBAvailable,
+} from "@/services/indexedDBService";
 import type { StoredImageAsset } from "@/types/canvas";
 import type {
   AIImageResult,
@@ -46,12 +54,23 @@ import type {
 // 本地存储会话的读取工具（用于无项目或早期回退场景）
 const LOCAL_SESSIONS_KEY = "tanva_aiChat_sessions";
 const LOCAL_ACTIVE_KEY = "tanva_aiChat_activeSessionId";
+const IDB_SESSIONS_KEY = "local_sessions";
+const AI_CHAT_STORE_NAME = STORE_NAMES.AI_CHAT_SESSIONS;
 
 // 🔥 全局待生成图片计数器（防止连续快速生成时重叠）
 let generatingImageCount = 0;
 
 const placeholderLogger = logger.scope("placeholder");
 
+// IndexedDB 存储的会话数据结构
+interface IDBSessionsData {
+  id: string;
+  sessions: SerializedConversationContext[];
+  activeSessionId: string | null;
+  updatedAt: number;
+}
+
+// 从 localStorage 读取（兼容旧数据）
 function readSessionsFromLocalStorage(): {
   sessions: SerializedConversationContext[];
   activeSessionId: string | null;
@@ -67,6 +86,72 @@ function readSessionsFromLocalStorage(): {
   } catch {
     return null;
   }
+}
+
+// 从 IndexedDB 读取会话
+async function readSessionsFromIDB(): Promise<{
+  sessions: SerializedConversationContext[];
+  activeSessionId: string | null;
+} | null> {
+  try {
+    const data = await idbGet<IDBSessionsData>(AI_CHAT_STORE_NAME, IDB_SESSIONS_KEY);
+    if (!data || !Array.isArray(data.sessions) || data.sessions.length === 0) {
+      return null;
+    }
+    return { sessions: data.sessions, activeSessionId: data.activeSessionId };
+  } catch {
+    return null;
+  }
+}
+
+// 写入会话到 IndexedDB
+async function writeSessionsToIDB(
+  sessions: SerializedConversationContext[],
+  activeSessionId: string | null
+): Promise<void> {
+  try {
+    const data: IDBSessionsData = {
+      id: IDB_SESSIONS_KEY,
+      sessions,
+      activeSessionId,
+      updatedAt: Date.now(),
+    };
+    await idbPut(AI_CHAT_STORE_NAME, data);
+  } catch (err) {
+    console.warn("[AIChat] 写入 IndexedDB 失败:", err);
+  }
+}
+
+// 从 IndexedDB 或 localStorage 加载会话（含迁移逻辑）
+async function loadLocalSessions(): Promise<{
+  sessions: SerializedConversationContext[];
+  activeSessionId: string | null;
+} | null> {
+  // 优先从 IndexedDB 读取
+  const idbData = await readSessionsFromIDB();
+  if (idbData) {
+    return idbData;
+  }
+
+  // 检查是否需要从 localStorage 迁移
+  if (!isMigrationDone(AI_CHAT_STORE_NAME) && isIndexedDBAvailable()) {
+    const legacyData = readSessionsFromLocalStorage();
+    if (legacyData && legacyData.sessions.length > 0) {
+      console.log(`[AIChat] 从 localStorage 迁移 ${legacyData.sessions.length} 个会话`);
+      await writeSessionsToIDB(legacyData.sessions, legacyData.activeSessionId);
+      markMigrationDone(AI_CHAT_STORE_NAME);
+      // 清理 localStorage
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem(LOCAL_SESSIONS_KEY);
+        localStorage.removeItem(LOCAL_ACTIVE_KEY);
+      }
+      return legacyData;
+    }
+    markMigrationDone(AI_CHAT_STORE_NAME);
+  }
+
+  // 兜底：尝试从 localStorage 读取
+  return readSessionsFromLocalStorage();
 }
 
 export interface ChatMessage {
@@ -2169,19 +2254,8 @@ export const useAIChatStore = create<AIChatState>()(
                       );
                     }
                   } else {
-                    // 无项目场景：把会话持久化到本地
-                    try {
-                      if (typeof localStorage !== "undefined") {
-                        localStorage.setItem(
-                          "tanva_aiChat_sessions",
-                          JSON.stringify(serializedSessions)
-                        );
-                        localStorage.setItem(
-                          "tanva_aiChat_activeSessionId",
-                          activeSessionId ?? ""
-                        );
-                      }
-                    } catch {}
+                    // 无项目场景：把会话持久化到 IndexedDB
+                    writeSessionsToIDB(serializedSessions, activeSessionId);
                   }
                 }
               } finally {
@@ -6112,15 +6186,17 @@ export const useAIChatStore = create<AIChatState>()(
 
         // 🧠 上下文管理方法实现
         initializeContext: () => {
+          // 异步加载本地会话（IndexedDB 优先，兼容 localStorage）
           if (!hasHydratedSessions) {
-            const stored = readSessionsFromLocalStorage();
-            if (stored && stored.sessions.length > 0) {
-              get().hydratePersistedSessions(
-                stored.sessions,
-                stored.activeSessionId,
-                { markProjectDirty: false }
-              );
-            }
+            loadLocalSessions().then((stored) => {
+              if (stored && stored.sessions.length > 0 && !hasHydratedSessions) {
+                get().hydratePersistedSessions(
+                  stored.sessions,
+                  stored.activeSessionId,
+                  { markProjectDirty: false }
+                );
+              }
+            });
           }
 
           let sessionId = contextManager.getCurrentSessionId();

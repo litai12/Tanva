@@ -1384,9 +1384,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     if (!projectAssets) return;
     if (!paper || !paper.project) return;
+    if (!projectId) return;
 
     // 只允许进行一次基于快照的初始回填，避免用户删除后又被回填复原
-    const hydratedFlagKey = '__tanva_initial_assets_hydrated__';
+    // 注意：该标记必须是“按项目隔离”的，否则切换项目后会误判为已回填，导致图片丢失/不可选（刷新后正常）。
+    const hydratedFlagKey = `__tanva_initial_assets_hydrated__:${projectId}`;
     const alreadyHydrated = typeof window !== 'undefined' && (window as any)[hydratedFlagKey];
     if (alreadyHydrated) return;
 
@@ -1571,6 +1573,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       console.warn('资产回填失败:', error);
     }
   }, [
+    projectId,
     projectAssets,
     imageTool.imageInstances,
     model3DTool.model3DInstances,

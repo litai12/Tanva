@@ -3,7 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import {
   STORE_NAMES,
   idbGetAll,
-  idbPut,
+  idbPutBatch,
   idbDelete,
   idbClear,
   idbEnforceLimit,
@@ -77,22 +77,47 @@ const STORE_NAME = STORE_NAMES.IMAGE_HISTORY;
 let writeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingWrites = new Map<string, ImageHistoryItem>();
 
+const getPersistableHistoryItem = (item: ImageHistoryItem): ImageHistoryItem | null => {
+  const remoteUrl = normalizeValue(item.remoteUrl);
+  if (remoteUrl && remoteUrl.startsWith('http')) {
+    return {
+      ...item,
+      src: remoteUrl,
+      remoteUrl,
+      thumbnail: undefined,
+    };
+  }
+
+  const src = normalizeValue(item.src);
+  if (src && src.startsWith('http')) {
+    return {
+      ...item,
+      src,
+      remoteUrl: item.remoteUrl ?? src,
+      thumbnail: undefined,
+    };
+  }
+
+  // dataURL/base64 等大字段仅保留内存态，不写入 IndexedDB
+  return null;
+};
+
 const flushPendingWrites = async () => {
   if (pendingWrites.size === 0) return;
 
   const items = Array.from(pendingWrites.values());
   pendingWrites.clear();
 
-  for (const item of items) {
-    await idbPut(STORE_NAME, item);
-  }
+  await idbPutBatch(STORE_NAME, items);
 
   // 执行 LRU 清理
   await idbEnforceLimit(STORE_NAME);
 };
 
 const scheduleWrite = (item: ImageHistoryItem) => {
-  pendingWrites.set(item.id, item);
+  const persistable = getPersistableHistoryItem(item);
+  if (!persistable) return;
+  pendingWrites.set(persistable.id, persistable);
 
   if (writeDebounceTimer) {
     clearTimeout(writeDebounceTimer);
@@ -285,10 +310,11 @@ export const useImageHistoryStore = create<ImageHistoryStore>()(
           if (!isMigrationDone(STORE_NAME) && isIndexedDBAvailable()) {
             const legacyData = await migrateFromLocalStorage();
             if (legacyData.length > 0) {
-              // 写入 IndexedDB
-              for (const item of legacyData) {
-                await idbPut(STORE_NAME, item);
-              }
+              // 写入 IndexedDB（仅持久化远程 URL，避免 base64 超配额）
+              const persistableItems = legacyData
+                .map(getPersistableHistoryItem)
+                .filter(Boolean) as ImageHistoryItem[];
+              await idbPutBatch(STORE_NAME, persistableItems);
               // 标记迁移完成
               markMigrationDone(STORE_NAME);
               // 清理 localStorage

@@ -28,6 +28,52 @@ class PaperSaveService {
     return trimmed.startsWith('data:image/') || trimmed.startsWith('blob:');
   }
 
+  /**
+   * 预处理 Paper.js JSON，将 OSS URL 替换为代理 URL
+   * 必须在 importJSON 之前调用，否则图片会使用原始 URL 加载导致 CORS 错误
+   */
+  private preprocessJsonForProxy(jsonString: string): string {
+    if (!jsonString) return jsonString;
+
+    try {
+      // 匹配阿里云 OSS URL 的正则（包括 URL 末尾可能的引号前字符）
+      // 格式: https://xxx.oss-cn-xxx.aliyuncs.com/...
+      // 注意：JSON 中 URL 被双引号包裹，所以用 [^"\s] 来匹配到引号前停止
+      const ossUrlPattern = /(https?:\/\/[^"\s]+\.aliyuncs\.com[^"\s]*)/g;
+
+      console.log('[preprocessJsonForProxy] 开始处理，JSON 长度:', jsonString.length);
+
+      let processedCount = 0;
+      let skippedCount = 0;
+      const result = jsonString.replace(ossUrlPattern, (match) => {
+        // 跳过已经是代理 URL 的
+        if (match.includes('/api/assets/proxy')) {
+          skippedCount++;
+          return match;
+        }
+
+        const proxied = proxifyRemoteAssetUrl(match);
+        if (proxied !== match) {
+          processedCount++;
+          console.log('[preprocessJsonForProxy] 转换:', match.substring(0, 80), '...');
+          return proxied;
+        }
+        console.log('[preprocessJsonForProxy] 未转换:', match.substring(0, 80));
+        return match;
+      });
+
+      console.log(`[preprocessJsonForProxy] 完成: 转换=${processedCount}, 跳过=${skippedCount}`);
+      if (processedCount > 0) {
+        console.log(`🔄 预处理 JSON：已将 ${processedCount} 个 OSS URL 转换为代理 URL`);
+      }
+
+      return result;
+    } catch (error) {
+      console.warn('[PaperSaveService] 预处理 JSON 失败，使用原始内容:', error);
+      return jsonString;
+    }
+  }
+
   private ensureRasterCrossOriginAndProxySources() {
     try {
       if (!this.isPaperProjectReady()) return;
@@ -670,6 +716,8 @@ class PaperSaveService {
    */
   deserializePaperProject(jsonString: string): boolean {
     try {
+      console.log('[deserializePaperProject] 开始，isPaperProjectReady:', this.isPaperProjectReady());
+
       if (!this.isPaperProjectReady()) {
         console.warn('⚠️ Paper.js项目未正确初始化，无法反序列化');
         return false;
@@ -680,15 +728,20 @@ class PaperSaveService {
         return true;
       }
 
-      // Paper.js 的 Project#importJSON 默认是“追加”到当前项目，而不是替换。
-      // 若不先清空，撤销/重做/加载快照会出现旧对象残留、重复图元、选择框漂移（图框分离）等问题。
+      console.log('[deserializePaperProject] JSON 长度:', jsonString.length);
+
+      // Paper.js 的 Project#importJSON 默认是"追加"到当前项目，而不是替换。
       try { (paper.project as any).clear(); } catch {}
 
-      // 导入保存的内容
-      (paper.project as any).importJSON(jsonString);
+      // 【关键】在 importJSON 之前预处理 JSON，将 OSS URL 替换为代理 URL
+      const processedJson = this.preprocessJsonForProxy(jsonString);
 
-      // OSS 图片未配置 CORS 时，Paper.js Raster 在 canvas 场景会被浏览器拦截。
-      // 通过同源 /api/assets/proxy 代理加载，可避免跨域限制。
+      console.log('[deserializePaperProject] 预处理后 JSON 长度:', processedJson.length);
+
+      // 导入保存的内容（使用预处理后的 JSON）
+      (paper.project as any).importJSON(processedJson);
+
+      // 作为后备，再次确保所有 Raster 使用代理 URL（处理动态创建的情况）
       this.ensureRasterCrossOriginAndProxySources();
 
       // 清理系统图层与辅助元素

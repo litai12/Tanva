@@ -4,7 +4,6 @@ import type { Model3DFormat, Model3DCameraState } from '@/services/model3DUpload
 import {
   STORE_NAMES,
   idbGetAll,
-  idbPut,
   idbPutBatch,
   idbDelete,
   idbClear,
@@ -136,7 +135,15 @@ const flushPendingWrites = async () => {
 };
 
 const scheduleWrite = (asset: PersonalLibraryAsset) => {
-  pendingWrites.set(asset.id, asset);
+  const url = typeof asset.url === 'string' ? asset.url.trim() : '';
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return;
+  }
+
+  const normalized = normalizeTimestamps(asset);
+  const thumbnail = isHeavyInlineString(normalized.thumbnail) ? undefined : normalized.thumbnail;
+
+  pendingWrites.set(normalized.id, { ...normalized, url, thumbnail });
   if (writeDebounceTimer) clearTimeout(writeDebounceTimer);
   writeDebounceTimer = setTimeout(flushPendingWrites, 300);
 };
@@ -232,7 +239,18 @@ export const usePersonalLibraryStore = create<PersonalLibraryStore>()(
           if (!isMigrationDone(STORE_NAME) && isIndexedDBAvailable()) {
             const legacyData = await migrateFromLocalStorage();
             if (legacyData.length > 0) {
-              await idbPutBatch(STORE_NAME, legacyData);
+              const persistableAssets = legacyData
+                .map((asset) => {
+                  const url = typeof asset.url === 'string' ? asset.url.trim() : '';
+                  if (!url || !/^https?:\/\//i.test(url)) return null;
+                  const normalized = normalizeTimestamps(asset);
+                  const thumbnail = isHeavyInlineString(normalized.thumbnail)
+                    ? undefined
+                    : normalized.thumbnail;
+                  return { ...normalized, url, thumbnail };
+                })
+                .filter(Boolean) as PersonalLibraryAsset[];
+              await idbPutBatch(STORE_NAME, persistableAssets);
               markMigrationDone(STORE_NAME);
               if (typeof localStorage !== 'undefined') {
                 localStorage.removeItem('personal-library');
