@@ -115,7 +115,6 @@ export class BoundsCalculator {
       const b = this.getPaperItemBounds(item);
       if (b) {
         boundsList.push(b);
-        console.log(`  - 选中Paper元素 ${item.className || item.name || 'unknown'}: ${Math.round(b.x)},${Math.round(b.y)} ${Math.round(b.width)}x${Math.round(b.height)}`);
       }
     }
 

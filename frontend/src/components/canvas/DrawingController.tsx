@@ -17,7 +17,7 @@ import { BoundsCalculator } from '@/utils/BoundsCalculator';
 import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } from '@/utils/paperImageGroupBlock';
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
-import { isRaster } from '@/utils/paperCoords';
+import { isGroup, isRaster } from '@/utils/paperCoords';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
 import ContextMenu from '@/components/ui/context-menu';
 
@@ -3583,76 +3583,99 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           raster.onLoad = wrapper;
         };
 
-        // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
-        // 1. 清理所有没有 raster 的图片组（包括它们的选择框）
-        const orphanGroups: paper.Group[] = [];
-        (paper.project.layers || []).forEach((layer: any) => {
-          const children = layer?.children || [];
-          children.forEach((item: any) => {
-            // 检查是否是图片组但没有有效的 raster
-            if (item?.data?.type === 'image' && item?.data?.imageId) {
-              const hasRaster = item.children?.some((c: any) => 
-                c?.className === 'Raster' || c instanceof (paper as any).Raster
-              );
-              if (!hasRaster) {
-                orphanGroups.push(item);
-              }
-            }
-          });
-        });
-        
-        // 删除所有孤儿图片组
-        orphanGroups.forEach(group => {
-          try {
-            logger.drawing(`🗑️ 清理孤儿图片组: ${group.data?.imageId}`);
-            group.remove();
-          } catch (e) {
-            console.warn('清理孤儿图片组失败:', e);
-          }
-        });
+	        // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
+	        // 1. 清理所有没有 raster 的图片组（包括它们的选择框）
+	        const validImageIdsForCleanup = new Set<string>();
+	        const orphanGroups: paper.Group[] = [];
+	        try {
+	          const imageCandidates = (paper.project as any).getItems?.({
+	            match: (item: any) => item?.data?.type === 'image' && item?.data?.imageId,
+	          }) as paper.Item[] | undefined;
 
-        // 2. 清理所有没有对应图片组的孤儿选择框元素
-        const validImageIds = new Set<string>();
-        (paper.project.layers || []).forEach((layer: any) => {
-          const children = layer?.children || [];
-          children.forEach((item: any) => {
-            if (item?.data?.type === 'image' && item?.data?.imageId) {
-              const hasRaster = item.children?.some((c: any) => 
-                c?.className === 'Raster' || c instanceof (paper as any).Raster
-              );
-              if (hasRaster) {
-                validImageIds.add(item.data.imageId);
-              }
-            }
-          });
-        });
+	          (imageCandidates || []).forEach((item) => {
+	            // ⚠️ 只清理真正的 Group：Raster 自身也可能带有 data.type=image，但不能当作“图片组”删掉
+	            if (!isGroup(item)) return;
 
-        // 清理所有没有对应有效图片的选择框元素
-        (paper.project.layers || []).forEach((layer: any) => {
-          const children = layer?.children || [];
-          children.forEach((item: any) => {
-            // 检查是否是选择框相关元素
-            const isSelectionElement = 
-              item?.data?.type === 'image-selection-area' ||
-              item?.data?.isSelectionBorder ||
-              item?.data?.isResizeHandle;
-            
-            if (isSelectionElement) {
-              const imageId = item?.data?.imageId;
-              if (imageId && !validImageIds.has(imageId)) {
-                try {
-                  logger.drawing(`🗑️ 清理孤儿选择框元素: ${imageId}`);
-                  item.remove();
-                } catch (e) {
-                  console.warn('清理孤儿选择框元素失败:', e);
-                }
-              }
-            }
-          });
-        });
+	            const group = item as paper.Group;
+	            const imageId = (group.data as any)?.imageId;
 
-        // 3. 清理所有选择状态
-        dcClearAllSelections();
+	            const hasRaster = (() => {
+	              try {
+	                const direct = (group.children || []).some((child) => isRaster(child));
+	                if (direct) return true;
+	              } catch {}
+	              try {
+	                const nested = (group as any).getItems?.({
+	                  match: (child: any) => isRaster(child),
+	                }) as paper.Item[] | undefined;
+	                return Array.isArray(nested) && nested.length > 0;
+	              } catch {
+	                return false;
+	              }
+	            })();
+
+	            if (hasRaster) {
+	              if (typeof imageId === 'string' && imageId) {
+	                validImageIdsForCleanup.add(imageId);
+	              }
+	              return;
+	            }
+
+	            orphanGroups.push(group);
+	          });
+	        } catch {}
+
+	        // 删除所有孤儿图片组（保守：只删确认为 Group 且无 Raster 的情况）
+	        orphanGroups.forEach((group) => {
+	          try {
+	            logger.drawing(`🗑️ 清理孤儿图片组: ${String((group.data as any)?.imageId || '')}`);
+	            group.remove();
+	          } catch (e) {
+	            console.warn('清理孤儿图片组失败:', e);
+	          }
+	        });
+
+	        // 2. 清理所有没有对应图片组的孤儿选择框元素
+	        // 收集所有 Raster 的 imageId，避免误删（兼容 Raster 独立存在/嵌套在 Group 中的情况）
+	        try {
+	          const rasters = (paper.project as any).getItems?.({
+	            match: (item: any) => isRaster(item) && (item?.data?.imageId || item?.parent?.data?.imageId),
+	          }) as paper.Item[] | undefined;
+	          (rasters || []).forEach((item: any) => {
+	            const imageId = item?.data?.imageId || item?.parent?.data?.imageId;
+	            if (typeof imageId === 'string' && imageId) {
+	              validImageIdsForCleanup.add(imageId);
+	            }
+	          });
+	        } catch {}
+
+	        // 清理所有没有对应有效图片的选择框元素（全局扫描，避免漏掉嵌套结构）
+	        try {
+	          const selectionItems = (paper.project as any).getItems?.({
+	            match: (item: any) => {
+	              const data = item?.data || {};
+	              const isSelectionElement =
+	                data?.type === 'image-selection-area' ||
+	                data?.isSelectionBorder ||
+	                data?.isResizeHandle ||
+	                data?.isImageHitRect;
+	              if (!isSelectionElement) return false;
+	              const imageId = data?.imageId;
+	              return typeof imageId === 'string' && imageId && !validImageIdsForCleanup.has(imageId);
+	            },
+	          }) as paper.Item[] | undefined;
+
+	          (selectionItems || []).forEach((item) => {
+	            try {
+	              const imageId = (item as any)?.data?.imageId;
+	              logger.drawing(`🗑️ 清理孤儿选择框元素: ${String(imageId || '')}`);
+	            } catch {}
+	            try { item.remove(); } catch {}
+	          });
+	        } catch {}
+
+	        // 3. 清理所有选择状态
+	        dcClearAllSelections();
 
         const imageInstances: any[] = [];
         const textInstances: any[] = [];

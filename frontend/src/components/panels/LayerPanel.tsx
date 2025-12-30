@@ -115,17 +115,10 @@ const LayerPanel: React.FC = () => {
 
         const layer = paper.project.layers.find(l => l.name === `layer_${layerId}`);
         if (!layer) {
-            console.log(`🔍 [scanLayerItems] 未找到图层: layer_${layerId}`);
             return [];
         }
 
         const items: LayerItemData[] = [];
-
-        // 🔍 调试：输出过滤前的所有子元素
-        console.log(`🔍 [scanLayerItems] 图层 ${layerId} 总子元素数量: ${layer.children.length}`);
-        layer.children.forEach((item, idx) => {
-            console.log(`🔍 [scanLayerItems] 子元素[${idx}]: className=${item.className}, data.type=${item.data?.type}, data.isHelper=${item.data?.isHelper}, data.imageId=${item.data?.imageId}`);
-        });
 
         // 获取所有非辅助元素，并反转顺序
         // Paper.js中后面的元素渲染在上方，所以我们需要反转来匹配图层面板的顺序
@@ -139,20 +132,16 @@ const LayerPanel: React.FC = () => {
             // 🔥 修复：图片组的 isHelper 应该是 false，但如果未定义也应该通过
             // 只有明确设置为 true 的才过滤掉
             const shouldFilter = isHelper === true || isGrid || isScalebar || isImageGroupBlock || isImageGroupTitle;
-            console.log(`🔍 [scanLayerItems] 过滤检查: className=${item.className}, isHelper=${isHelper}, shouldFilter=${shouldFilter}`);
             return !shouldFilter;
         }).reverse();
-
-        console.log(`🔍 [scanLayerItems] 图层 ${layerId} 有效元素数量: ${validItems.length}`);
 
         validItems.forEach((item, index) => {
             let type: LayerItemData['type'] = 'path';
             let name = '未命名图元';
 
-            // 🔍 调试：输出每个元素的信息
+            // 确定图元类型 - 使用 className 检查以兼容生产环境
             const isGroup = item.className === 'Group' || item instanceof paper.Group;
             const isPath = item.className === 'Path' || item instanceof paper.Path;
-            console.log(`🔍 [scanLayerItems] 元素[${index}]: className=${item.className}, isGroup=${isGroup}, isPath=${isPath}, data.type=${item.data?.type}`);
 
             // 确定图元类型 - 使用 className 检查以兼容生产环境
             if (isPath) {
@@ -168,7 +157,6 @@ const LayerPanel: React.FC = () => {
             } else if (isGroup) {
                 if (item.data?.type === 'image') {
                     type = 'image';
-                    console.log(`🔍 [scanLayerItems] 识别为图片: ${item.data?.imageId}`);
                 } else if (item.data?.type === '3d-model') {
                     type = 'model3d';
                 } else if (item.data?.type === 'image-placeholder') {
@@ -261,15 +249,8 @@ const LayerPanel: React.FC = () => {
     const updateAllLayerItems = () => {
         const newLayerItems: Record<string, LayerItemData[]> = {};
 
-        // 🔍 调试：输出图层 store 和 Paper.js 图层的对比
-        console.log('🔍 [LayerPanel] 图层 store layers:', layers.map(l => ({ id: l.id, name: l.name })));
-        if (paper.project) {
-            console.log('🔍 [LayerPanel] Paper.js layers:', paper.project.layers.map(l => ({ name: l.name, childrenCount: l.children?.length || 0 })));
-        }
-
         layers.forEach(layer => {
             const items = scanLayerItems(layer.id);
-            console.log(`🔍 [LayerPanel] 扫描图层 ${layer.id} (${layer.name}), 找到 ${items.length} 个图元`);
             newLayerItems[layer.id] = items;
         });
         setLayerItems(newLayerItems);
@@ -763,7 +744,6 @@ const LayerPanel: React.FC = () => {
                 const imageData = raster.canvas.toDataURL('image/png');
                 setSourceImageForEditing(imageData);
                 showDialog();
-                console.log('🎨 从图层面板选择图像进行AI编辑');
             }
         } catch (error) {
             console.error('获取图像数据失败:', error);
@@ -787,14 +767,8 @@ const LayerPanel: React.FC = () => {
 
         // 如果是跨图层移动
         if (sourceLayerId !== targetLayerId) {
-            console.log(`🎯 尝试跨图层移动: ${sourceLayerId} → ${targetLayerId}`);
-            console.log(`📋 可用图层:`, paper.project.layers.map(l => l.name));
-            
             const targetLayer = paper.project.layers.find(l => l.name === `layer_${targetLayerId}`);
             if (targetLayer) {
-                console.log(`🚀 找到目标图层，开始跨图层移动: ${sourceLayerId} → ${targetLayerId}`);
-                console.log(`📊 源图元数据:`, sourceItem.paperItem.data);
-                
                 // 保存原始Paper.js项的引用
                 const originalPaperItem = sourceItem.paperItem;
                 
@@ -821,14 +795,9 @@ const LayerPanel: React.FC = () => {
                 
                 // 同步实例数据
                 syncInstancesAfterMove(originalPaperItem, clonedItem, targetLayerId);
-                
-                console.log(`✅ 跨图层移动完成: ${sourceLayerId} → ${targetLayerId}`);
-            } else {
-                console.error(`❌ 无法找到目标图层: layer_${targetLayerId}`);
             }
         } else {
             // 同一图层内重排序
-            console.log(`📍 同图层内重排序: ${sourceLayerId}`);
             if (placeAbove) {
                 sourceItem.paperItem.insertAbove(targetItem.paperItem); // 修正：placeAbove应该使用insertAbove
             } else {
@@ -843,62 +812,42 @@ const LayerPanel: React.FC = () => {
     // 同步实例数据：在Paper.js图元移动后更新对应的ImageInstance/Model3DInstance
     const syncInstancesAfterMove = (oldPaperItem: paper.Item, newPaperItem: paper.Item, newLayerId: string) => {
         const itemData = oldPaperItem.data;
-        console.log(`🔄 开始同步实例数据:`, { itemData, newLayerId });
-        
+
         if (!itemData) {
-            console.warn('⚠️ 没有itemData，跳过同步');
             return;
         }
 
         // 处理图片实例同步
         if (itemData.type === 'image' && itemData.imageId) {
-            console.log(`🖼️ 开始同步图片实例: ${itemData.imageId}`);
             const imageInstances = (window as any).tanvaImageInstances || [];
-            console.log(`📋 当前图片实例:`, imageInstances.map((img: any) => ({ id: img.id, layerId: img.layerId })));
-            
+
             const imageInstance = imageInstances.find((img: any) => img.id === itemData.imageId);
             if (imageInstance) {
-                console.log(`✅ 找到图片实例，更新图层: ${itemData.imageId} → ${newLayerId}`);
-                const oldLayerId = imageInstance.layerId;
                 imageInstance.layerId = newLayerId;
                 imageInstance.layerIndex = parseInt(newLayerId) || 0;
-                
-                console.log(`🔄 图片实例更新: ${oldLayerId} → ${newLayerId}`);
-                
+
                 // 触发实例更新事件
                 window.dispatchEvent(new CustomEvent('imageInstanceUpdated', {
                     detail: { imageId: itemData.imageId, layerId: newLayerId }
                 }));
-            } else {
-                console.warn(`⚠️ 找不到图片实例: ${itemData.imageId}`);
             }
         }
 
         // 处理3D模型实例同步
         if (itemData.type === '3d-model' && itemData.modelId) {
-            console.log(`🎭 开始同步3D模型实例: ${itemData.modelId}`);
             const model3DInstances = (window as any).tanvaModel3DInstances || [];
-            console.log(`📋 当前3D模型实例:`, model3DInstances.map((model: any) => ({ id: model.id, layerId: model.layerId })));
-            
+
             const modelInstance = model3DInstances.find((model: any) => model.id === itemData.modelId);
             if (modelInstance) {
-                console.log(`✅ 找到3D模型实例，更新图层: ${itemData.modelId} → ${newLayerId}`);
-                const oldLayerId = modelInstance.layerId;
                 modelInstance.layerId = newLayerId;
                 modelInstance.layerIndex = parseInt(newLayerId) || 0;
-                
-                console.log(`🔄 3D模型实例更新: ${oldLayerId} → ${newLayerId}`);
-                
+
                 // 触发实例更新事件
                 window.dispatchEvent(new CustomEvent('model3DInstanceUpdated', {
                     detail: { modelId: itemData.modelId, layerId: newLayerId }
                 }));
-            } else {
-                console.warn(`⚠️ 找不到3D模型实例: ${itemData.modelId}`);
             }
         }
-        
-        console.log(`🏁 实例同步完成`);
     };
 
     // 图元移动到指定图层
@@ -939,8 +888,6 @@ const LayerPanel: React.FC = () => {
 
         // 更新图层项数据
         updateAllLayerItems();
-        
-        console.log(`✅ 图元已移动到图层 ${targetLayerId}`);
     };
 
     const getItemIcon = (type: LayerItemData['type']) => {
