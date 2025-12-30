@@ -1,10 +1,14 @@
-import paper from 'paper';
-import { useProjectContentStore } from '@/stores/projectContentStore';
-import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
-import type { Model3DData } from '@/services/model3DUploadService';
-import { imageUploadService } from '@/services/imageUploadService';
-import { saveMonitor } from '@/utils/saveMonitor';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import paper from "paper";
+import { useProjectContentStore } from "@/stores/projectContentStore";
+import type {
+  ImageAssetSnapshot,
+  ModelAssetSnapshot,
+  TextAssetSnapshot,
+} from "@/types/project";
+import type { Model3DData } from "@/services/model3DUploadService";
+import { imageUploadService } from "@/services/imageUploadService";
+import { saveMonitor } from "@/utils/saveMonitor";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -18,60 +22,14 @@ class PaperSaveService {
   private rasterLoadHooked = new WeakSet<object>();
 
   private isRemoteUrl(value?: string | null): boolean {
-    if (typeof value !== 'string') return false;
+    if (typeof value !== "string") return false;
     return /^https?:\/\//i.test(value.trim());
   }
 
   private isInlineImageSource(value: unknown): value is string {
-    if (typeof value !== 'string') return false;
+    if (typeof value !== "string") return false;
     const trimmed = value.trim();
-    return trimmed.startsWith('data:image/') || trimmed.startsWith('blob:');
-  }
-
-  /**
-   * 预处理 Paper.js JSON，将 OSS URL 替换为代理 URL
-   * 必须在 importJSON 之前调用，否则图片会使用原始 URL 加载导致 CORS 错误
-   */
-  private preprocessJsonForProxy(jsonString: string): string {
-    if (!jsonString) return jsonString;
-
-    try {
-      // 匹配阿里云 OSS URL 的正则（包括 URL 末尾可能的引号前字符）
-      // 格式: https://xxx.oss-cn-xxx.aliyuncs.com/...
-      // 注意：JSON 中 URL 被双引号包裹，所以用 [^"\s] 来匹配到引号前停止
-      const ossUrlPattern = /(https?:\/\/[^"\s]+\.aliyuncs\.com[^"\s]*)/g;
-
-      console.log('[preprocessJsonForProxy] 开始处理，JSON 长度:', jsonString.length);
-
-      let processedCount = 0;
-      let skippedCount = 0;
-      const result = jsonString.replace(ossUrlPattern, (match) => {
-        // 跳过已经是代理 URL 的
-        if (match.includes('/api/assets/proxy')) {
-          skippedCount++;
-          return match;
-        }
-
-        const proxied = proxifyRemoteAssetUrl(match);
-        if (proxied !== match) {
-          processedCount++;
-          console.log('[preprocessJsonForProxy] 转换:', match.substring(0, 80), '...');
-          return proxied;
-        }
-        console.log('[preprocessJsonForProxy] 未转换:', match.substring(0, 80));
-        return match;
-      });
-
-      console.log(`[preprocessJsonForProxy] 完成: 转换=${processedCount}, 跳过=${skippedCount}`);
-      if (processedCount > 0) {
-        console.log(`🔄 预处理 JSON：已将 ${processedCount} 个 OSS URL 转换为代理 URL`);
-      }
-
-      return result;
-    } catch (error) {
-      console.warn('[PaperSaveService] 预处理 JSON 失败，使用原始内容:', error);
-      return jsonString;
-    }
+    return trimmed.startsWith("data:image/") || trimmed.startsWith("blob:");
   }
 
   private ensureRasterCrossOriginAndProxySources() {
@@ -86,14 +44,24 @@ class PaperSaveService {
       if (!Array.isArray(rasters) || rasters.length === 0) return;
 
       rasters.forEach((raster) => {
-        if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
+        if (
+          !raster ||
+          (typeof raster !== "object" && typeof raster !== "function")
+        )
+          return;
 
-        const dataRemoteUrl = typeof raster?.data?.remoteUrl === 'string' ? raster.data.remoteUrl.trim() : '';
-        const sourceString = typeof raster.source === 'string' ? raster.source.trim() : '';
+        const dataRemoteUrl =
+          typeof raster?.data?.remoteUrl === "string"
+            ? raster.data.remoteUrl.trim()
+            : "";
+        const sourceString =
+          typeof raster.source === "string" ? raster.source.trim() : "";
 
         const candidate =
-          (dataRemoteUrl && this.isRemoteUrl(dataRemoteUrl) ? dataRemoteUrl : '') ||
-          (sourceString && this.isRemoteUrl(sourceString) ? sourceString : '');
+          (dataRemoteUrl && this.isRemoteUrl(dataRemoteUrl)
+            ? dataRemoteUrl
+            : "") ||
+          (sourceString && this.isRemoteUrl(sourceString) ? sourceString : "");
 
         if (!candidate || this.isInlineImageSource(candidate)) return;
 
@@ -104,33 +72,47 @@ class PaperSaveService {
           if (shouldProxy) return true;
           try {
             const url = new URL(candidate);
-            if (typeof window !== 'undefined' && url.hostname === window.location.hostname) return true;
-            if (url.hostname.endsWith('.aliyuncs.com')) return true;
+            if (
+              typeof window !== "undefined" &&
+              url.hostname === window.location.hostname
+            )
+              return true;
+            if (url.hostname.endsWith(".aliyuncs.com")) return true;
           } catch {}
           return false;
         })();
 
         if (shouldUseAnonymous) {
-          try { (raster as any).crossOrigin = 'anonymous'; } catch {}
+          try {
+            (raster as any).crossOrigin = "anonymous";
+          } catch {}
         }
 
         if (!shouldProxy) return;
 
-        if (typeof raster.source === 'string') {
+        if (typeof raster.source === "string") {
           raster.source = proxied;
           return;
         }
 
         const maybeImg = raster.source as any;
-        if (maybeImg && typeof maybeImg === 'object' && typeof maybeImg.src === 'string') {
+        if (
+          maybeImg &&
+          typeof maybeImg === "object" &&
+          typeof maybeImg.src === "string"
+        ) {
           if (shouldUseAnonymous) {
-            try { maybeImg.crossOrigin = 'anonymous'; } catch {}
+            try {
+              maybeImg.crossOrigin = "anonymous";
+            } catch {}
           }
-          try { maybeImg.src = proxied; } catch {}
+          try {
+            maybeImg.src = proxied;
+          } catch {}
         }
       });
     } catch (error) {
-      console.warn('[PaperSaveService] 修复 Raster 跨域加载失败:', error);
+      console.warn("[PaperSaveService] 修复 Raster 跨域加载失败:", error);
     }
   }
 
@@ -139,36 +121,36 @@ class PaperSaveService {
       const response = await fetch(blobUrl);
       return await response.blob();
     } catch (error) {
-      console.warn('解析 blob URL 失败:', error);
+      console.warn("解析 blob URL 失败:", error);
       return null;
     }
   }
 
-  private async resolveInlineAssetSource(asset: ImageAssetSnapshot): Promise<
-    | { kind: 'dataUrl'; value: string }
-    | { kind: 'blob'; value: Blob }
-    | null
+  private async resolveInlineAssetSource(
+    asset: ImageAssetSnapshot
+  ): Promise<
+    { kind: "dataUrl"; value: string } | { kind: "blob"; value: Blob } | null
   > {
     const candidates = [asset.localDataUrl, asset.src, asset.url];
     for (const candidate of candidates) {
-      if (!candidate || typeof candidate !== 'string') continue;
+      if (!candidate || typeof candidate !== "string") continue;
       const trimmed = candidate.trim();
       if (!trimmed) continue;
-      if (trimmed.startsWith('data:image/')) {
-        return { kind: 'dataUrl', value: trimmed };
+      if (trimmed.startsWith("data:image/")) {
+        return { kind: "dataUrl", value: trimmed };
       }
-      if (trimmed.startsWith('blob:')) {
+      if (trimmed.startsWith("blob:")) {
         const blob = await this.convertBlobUrlToBlob(trimmed);
         if (blob) {
-          return { kind: 'blob', value: blob };
+          return { kind: "blob", value: blob };
         }
         continue;
       }
       if (!this.isRemoteUrl(trimmed) && trimmed.length > 128) {
-        const compact = trimmed.replace(/\s+/g, '');
+        const compact = trimmed.replace(/\s+/g, "");
         const base64Pattern = /^[A-Za-z0-9+/=]+$/;
         if (base64Pattern.test(compact)) {
-          return { kind: 'dataUrl', value: `data:image/png;base64,${compact}` };
+          return { kind: "dataUrl", value: `data:image/png;base64,${compact}` };
         }
       }
     }
@@ -197,7 +179,11 @@ class PaperSaveService {
   ) {
     if (!assetId) return;
     const instance = instanceMap.get(assetId);
-    if (!instance || !instance.imageData || typeof instance.imageData !== 'object') {
+    if (
+      !instance ||
+      !instance.imageData ||
+      typeof instance.imageData !== "object"
+    ) {
       return;
     }
     try {
@@ -205,11 +191,11 @@ class PaperSaveService {
       if (updates.pendingUpload === false) {
         delete instance.imageData.pendingUpload;
       }
-      if ('localDataUrl' in updates && updates.localDataUrl === undefined) {
+      if ("localDataUrl" in updates && updates.localDataUrl === undefined) {
         delete instance.imageData.localDataUrl;
       }
     } catch (error) {
-      console.warn('同步运行时图片状态失败:', error);
+      console.warn("同步运行时图片状态失败:", error);
     }
   }
 
@@ -229,12 +215,17 @@ class PaperSaveService {
     let failed = 0;
 
     for (const image of assets.images) {
-      const hasRemote = this.isRemoteUrl(image.url) || this.isRemoteUrl(image.src);
+      const hasRemote =
+        this.isRemoteUrl(image.url) || this.isRemoteUrl(image.src);
       if (hasRemote) {
         if (image.pendingUpload) {
           image.pendingUpload = false;
           delete image.localDataUrl;
-          this.syncRuntimeImageAsset(image.id, { pendingUpload: false, localDataUrl: undefined }, runtimeMap);
+          this.syncRuntimeImageAsset(
+            image.id,
+            { pendingUpload: false, localDataUrl: undefined },
+            runtimeMap
+          );
         }
         continue;
       }
@@ -252,16 +243,20 @@ class PaperSaveService {
         };
 
         let uploadResult;
-        if (inlineSource.kind === 'blob') {
+        if (inlineSource.kind === "blob") {
           const blob = inlineSource.value;
-          const file = new File(
-            [blob],
-            uploadOptions.fileName,
-            { type: blob.type || image.contentType || 'image/png' }
+          const file = new File([blob], uploadOptions.fileName, {
+            type: blob.type || image.contentType || "image/png",
+          });
+          uploadResult = await imageUploadService.uploadImageFile(
+            file,
+            uploadOptions
           );
-          uploadResult = await imageUploadService.uploadImageFile(file, uploadOptions);
         } else {
-          uploadResult = await imageUploadService.uploadImageDataUrl(inlineSource.value, uploadOptions);
+          uploadResult = await imageUploadService.uploadImageDataUrl(
+            inlineSource.value,
+            uploadOptions
+          );
         }
 
         if (uploadResult.success && uploadResult.asset?.url) {
@@ -283,7 +278,7 @@ class PaperSaveService {
               pendingUpload: false,
               localDataUrl: undefined,
             },
-            runtimeMap,
+            runtimeMap
           );
           uploaded += 1;
         } else {
@@ -291,7 +286,7 @@ class PaperSaveService {
         }
       } catch (error) {
         failed += 1;
-        console.warn('自动上传本地图片失败:', error);
+        console.warn("自动上传本地图片失败:", error);
       }
     }
 
@@ -307,26 +302,29 @@ class PaperSaveService {
 
   private normalizeLayerId(name?: string | undefined | null): string | null {
     if (!name) return null;
-    if (name.startsWith('layer_')) return name.replace('layer_', '');
+    if (name.startsWith("layer_")) return name.replace("layer_", "");
     return name;
   }
 
-  private gatherAssets(): { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[] } {
+  private gatherAssets(): {
+    images: ImageAssetSnapshot[];
+    models: ModelAssetSnapshot[];
+    texts: TextAssetSnapshot[];
+  } {
     const images: ImageAssetSnapshot[] = [];
     const models: ModelAssetSnapshot[] = [];
     const texts: TextAssetSnapshot[] = [];
-    const collectedImageIds = new Set<string>();
 
-    // 1. 从 tanvaImageInstances 收集图片
     try {
-      const instances = (window as any)?.tanvaImageInstances as any[] | undefined;
+      const instances = (window as any)?.tanvaImageInstances as
+        | any[]
+        | undefined;
       if (Array.isArray(instances)) {
         instances.forEach((instance) => {
           const data = instance?.imageData;
           const bounds = instance?.bounds;
           const url = data?.url || data?.localDataUrl || data?.src;
           if (!url) return;
-          collectedImageIds.add(instance.id);
           images.push({
             id: instance.id,
             url,
@@ -343,75 +341,21 @@ class PaperSaveService {
               width: bounds?.width ?? 0,
               height: bounds?.height ?? 0,
             },
-            layerId: this.normalizeLayerId(instance?.layerId || instance?.layer?.name),
+            layerId: this.normalizeLayerId(
+              instance?.layerId || instance?.layer?.name
+            ),
             src: url,
           });
         });
       }
     } catch (error) {
-      console.warn('采集图片实例失败:', error);
-    }
-
-    // 2. 扫描 Paper.js 中的所有 Raster，补充遗漏的图片
-    try {
-      if (this.isPaperProjectReady()) {
-        const rasterClass = (paper as any).Raster;
-        if (rasterClass) {
-          const rasters = (paper.project as any).getItems?.({ class: rasterClass }) as any[];
-          if (Array.isArray(rasters)) {
-            rasters.forEach((raster: any) => {
-              if (!raster) return;
-              const imageId = raster?.data?.imageId || raster?.parent?.data?.imageId;
-              if (!imageId || collectedImageIds.has(imageId)) return;
-
-              // 获取图片源
-              const source = raster.source;
-              const remoteUrl = raster?.data?.remoteUrl;
-              const url = this.isRemoteUrl(remoteUrl) ? remoteUrl
-                : (typeof source === 'string' && this.isRemoteUrl(source)) ? source
-                : null;
-
-              // 如果没有远程 URL，尝试从 canvas 获取 dataUrl
-              let localDataUrl: string | undefined;
-              if (!url && raster.canvas) {
-                try {
-                  localDataUrl = raster.canvas.toDataURL('image/png');
-                } catch {}
-              }
-
-              const finalUrl = url || localDataUrl;
-              if (!finalUrl) return;
-
-              const bounds = raster.bounds;
-              collectedImageIds.add(imageId);
-              images.push({
-                id: imageId,
-                url: finalUrl,
-                src: finalUrl,
-                fileName: raster?.data?.fileName,
-                width: raster.width,
-                height: raster.height,
-                pendingUpload: !url,
-                localDataUrl: localDataUrl,
-                bounds: {
-                  x: bounds?.x ?? 0,
-                  y: bounds?.y ?? 0,
-                  width: bounds?.width ?? 0,
-                  height: bounds?.height ?? 0,
-                },
-                layerId: this.normalizeLayerId(raster?.layer?.name),
-              });
-              console.log(`📷 从 Paper.js 补充采集图片: ${imageId}`);
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.warn('从 Paper.js 补充采集图片失败:', error);
+      console.warn("采集图片实例失败:", error);
     }
 
     try {
-      const instances = (window as any)?.tanvaModel3DInstances as any[] | undefined;
+      const instances = (window as any)?.tanvaModel3DInstances as
+        | any[]
+        | undefined;
       if (Array.isArray(instances)) {
         instances.forEach((instance) => {
           const data: Model3DData | undefined = instance?.modelData;
@@ -423,25 +367,25 @@ class PaperSaveService {
             url,
             key: data?.key,
             path: url,
-            format: data?.format || 'glb',
-            fileName: data?.fileName || 'model',
-          fileSize: data?.fileSize || 0,
-          defaultScale: data?.defaultScale || { x: 1, y: 1, z: 1 },
-          defaultRotation: data?.defaultRotation || { x: 0, y: 0, z: 0 },
-          timestamp: data?.timestamp || Date.now(),
-          camera: data?.camera,
-          bounds: {
-            x: bounds?.x ?? 0,
-            y: bounds?.y ?? 0,
-            width: bounds?.width ?? 0,
-            height: bounds?.height ?? 0,
+            format: data?.format || "glb",
+            fileName: data?.fileName || "model",
+            fileSize: data?.fileSize || 0,
+            defaultScale: data?.defaultScale || { x: 1, y: 1, z: 1 },
+            defaultRotation: data?.defaultRotation || { x: 0, y: 0, z: 0 },
+            timestamp: data?.timestamp || Date.now(),
+            camera: data?.camera,
+            bounds: {
+              x: bounds?.x ?? 0,
+              y: bounds?.y ?? 0,
+              width: bounds?.width ?? 0,
+              height: bounds?.height ?? 0,
             },
             layerId: this.normalizeLayerId(instance?.layerId),
           });
         });
       }
     } catch (error) {
-      console.warn('采集3D模型实例失败:', error);
+      console.warn("采集3D模型实例失败:", error);
     }
 
     try {
@@ -451,24 +395,26 @@ class PaperSaveService {
           const paperText = item?.paperText;
           const style = item?.style || {};
           const position = paperText?.position;
-          const color = typeof style?.color === 'string'
-            ? style.color
-            : (paperText?.fillColor && typeof paperText.fillColor.toCSS === 'function'
+          const color =
+            typeof style?.color === "string"
+              ? style.color
+              : paperText?.fillColor &&
+                typeof paperText.fillColor.toCSS === "function"
               ? paperText.fillColor.toCSS(true)
-              : '#000000');
+              : "#000000";
           texts.push({
             id: item?.id,
-            content: paperText?.content ?? '',
+            content: paperText?.content ?? "",
             position: {
               x: position?.x ?? 0,
               y: position?.y ?? 0,
             },
             style: {
-              fontFamily: style?.fontFamily || 'sans-serif',
-              fontWeight: style?.fontWeight === 'bold' ? 'bold' : 'normal',
+              fontFamily: style?.fontFamily || "sans-serif",
+              fontWeight: style?.fontWeight === "bold" ? "bold" : "normal",
               fontSize: style?.fontSize ?? 32,
               color,
-              align: style?.align || 'left',
+              align: style?.align || "left",
               italic: !!style?.italic,
             },
             layerId: this.normalizeLayerId(paperText?.layer?.name),
@@ -476,17 +422,21 @@ class PaperSaveService {
         });
       }
     } catch (error) {
-      console.warn('采集文本实例失败:', error);
+      console.warn("采集文本实例失败:", error);
     }
 
     return { images, models, texts };
   }
 
-  private sanitizeAssets(assets: { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[] }) {
+  private sanitizeAssets(assets: {
+    images: ImageAssetSnapshot[];
+    models: ModelAssetSnapshot[];
+    texts: TextAssetSnapshot[];
+  }) {
     const sanitizedImages = assets.images.map((asset) => {
       const next: ImageAssetSnapshot = { ...asset };
       const hasRemoteUrl = this.isRemoteUrl(next.url);
-      const hasRemoteSrc = this.isRemoteUrl(next.src || '');
+      const hasRemoteSrc = this.isRemoteUrl(next.src || "");
 
       if (hasRemoteUrl) {
         next.src = next.url;
@@ -507,7 +457,7 @@ class PaperSaveService {
     return {
       images: sanitizedImages,
       models: sanitizedModels,
-      texts: sanitizedTexts
+      texts: sanitizedTexts,
     };
   }
 
@@ -521,7 +471,8 @@ class PaperSaveService {
 
     try {
       const rasters = (paper.project as any).getItems?.({
-        match: (item: any) => item && (item.className === 'Raster' || item instanceof paper.Raster),
+        match: (item: any) =>
+          item && (item.className === "Raster" || item instanceof paper.Raster),
       }) as paper.Raster[] | undefined;
 
       (rasters || []).forEach((raster: any) => {
@@ -536,27 +487,22 @@ class PaperSaveService {
         const asset = assetMap.get(String(imageId));
         if (!asset) return;
 
-        const remoteUrl = (asset.url && this.isRemoteUrl(asset.url))
-          ? asset.url
-          : asset.src && this.isRemoteUrl(asset.src)
+        const remoteUrl =
+          asset.url && this.isRemoteUrl(asset.url)
+            ? asset.url
+            : asset.src && this.isRemoteUrl(asset.src)
             ? asset.src
             : undefined;
 
         if (remoteUrl) {
-          if (typeof raster.source === 'string' && this.isInlineImageSource(raster.source)) {
-            raster.source = remoteUrl;
-          }
+          // 不要覆盖已经存在的 inline source（data: / blob / base64）
+          // 仅记录 remoteUrl 到 raster.data，作为持久化/恢复用
           if (!raster.data) raster.data = {};
           raster.data.remoteUrl = remoteUrl;
         }
-
-        if (raster.data) {
-          delete raster.data.localDataUrl;
-          delete raster.data.inlineDataUrl;
-        }
       });
     } catch (error) {
-      console.warn('准备Raster资源时出错:', error);
+      console.warn("准备Raster资源时出错:", error);
     }
   }
 
@@ -566,7 +512,7 @@ class PaperSaveService {
   init() {
     if (this.isInitialized) return;
     this.isInitialized = true;
-    console.log('🎨 Paper.js自动保存服务已初始化');
+    console.log("🎨 Paper.js自动保存服务已初始化");
   }
 
   /**
@@ -576,7 +522,7 @@ class PaperSaveService {
     try {
       return !!(paper && paper.project && paper.view);
     } catch (error) {
-      console.warn('Paper.js 项目状态检查失败:', error);
+      console.warn("Paper.js 项目状态检查失败:", error);
       return false;
     }
   }
@@ -593,17 +539,21 @@ class PaperSaveService {
       if (!Array.isArray(rasters) || rasters.length === 0) return;
 
       rasters.forEach((raster) => {
-        if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
+        if (
+          !raster ||
+          (typeof raster !== "object" && typeof raster !== "function")
+        )
+          return;
         if (this.rasterLoadHooked.has(raster)) return;
         this.rasterLoadHooked.add(raster);
 
         const previousOnLoad = raster.onLoad;
         raster.onLoad = function (...args: any[]) {
-          if (typeof previousOnLoad === 'function') {
+          if (typeof previousOnLoad === "function") {
             try {
               previousOnLoad.apply(this, args);
             } catch (error) {
-              console.warn('执行原始 Raster onLoad 失败:', error);
+              console.warn("执行原始 Raster onLoad 失败:", error);
             }
           }
 
@@ -613,7 +563,7 @@ class PaperSaveService {
         };
       });
     } catch (error) {
-      console.warn('[PaperSaveService] 挂接 Raster onLoad 更新失败:', error);
+      console.warn("[PaperSaveService] 挂接 Raster onLoad 更新失败:", error);
     }
   }
 
@@ -623,90 +573,22 @@ class PaperSaveService {
   serializePaperProject(): string | null {
     try {
       if (!this.isPaperProjectReady()) {
-        console.warn('⚠️ Paper.js项目未正确初始化，跳过序列化');
+        console.warn("⚠️ Paper.js项目未正确初始化，跳过序列化");
         return null;
       }
 
-      const project = paper.project as any;
-      const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
-
-      // 导出时剔除系统层与辅助元素，避免 paperJson 巨大导致序列化卡顿/内存峰值
-      // 注意：通过“临时移除→导出→恢复”的方式实现，且在同一同步调用栈内完成，避免可见闪烁。
-      const detachedLayers: Array<{ layer: paper.Layer; index: number }> = [];
-      const detachedHelpers: Array<{ item: paper.Item; parent: paper.Item; index: number }> = [];
-      const previousActiveLayer = paper.project.activeLayer;
-
-      const detachHelpers = (parent: paper.Item) => {
-        const children = (parent as any)?.children as paper.Item[] | undefined;
-        if (!Array.isArray(children) || children.length === 0) return;
-
-        // 从后往前遍历，记录原始 index，方便后续按升序恢复
-        for (let i = children.length - 1; i >= 0; i--) {
-          const child = children[i];
-          if (!child) continue;
-          const data = (child as any).data as any;
-          if (data?.isHelper) {
-            detachedHelpers.push({ item: child, parent, index: i });
-            try { child.remove(); } catch {}
-            continue;
-          }
-          // 只深入非 helper 容器，避免重复拆解 helper group
-          if ((child as any).hasChildren) {
-            detachHelpers(child);
-          }
-        }
-      };
-
-      try {
-        const layers = (paper.project.layers || []).slice();
-        layers.forEach((layer: paper.Layer, index: number) => {
-          const name = (layer as any)?.name || '';
-          if (!SYSTEM_LAYER_NAMES.has(name)) return;
-          detachedLayers.push({ layer, index });
-        });
-
-        // 临时移除系统层
-        detachedLayers.forEach(({ layer }) => {
-          try { layer.remove(); } catch {}
-        });
-
-        // 临时移除所有 helper item（保留用户内容）
-        (paper.project.layers || []).forEach((layer: any) => {
-          const name = layer?.name || '';
-          if (SYSTEM_LAYER_NAMES.has(name)) return;
-          detachHelpers(layer as paper.Layer);
-        });
-
-        const jsonString = project.exportJSON({ asString: true });
-        if (!jsonString || (typeof jsonString === 'string' && jsonString.length === 0)) {
-          return JSON.stringify({ layers: [] });
-        }
-        return jsonString as string;
-      } finally {
-        // 恢复 helper items（逆序插入可保证每个 parent 内按原 index 升序恢复）
-        for (let i = detachedHelpers.length - 1; i >= 0; i--) {
-          const entry = detachedHelpers[i];
-          try {
-            (entry.parent as any).insertChild(entry.index, entry.item);
-          } catch {}
-        }
-
-        // 恢复系统层（按原 index 升序插入）
-        detachedLayers
-          .sort((a, b) => a.index - b.index)
-          .forEach(({ layer, index }) => {
-            try { (paper.project as any).insertLayer(index, layer); } catch {}
-          });
-
-        // 恢复之前的 activeLayer
-        try {
-          if (previousActiveLayer && (previousActiveLayer as any).project === paper.project) {
-            previousActiveLayer.activate();
-          }
-        } catch {}
+      // 直接导出当前项目；导入时再清理系统层/辅助元素
+      const jsonString = (paper.project as any).exportJSON({ asString: true });
+      if (
+        !jsonString ||
+        (typeof jsonString === "string" && jsonString.length === 0)
+      ) {
+        return JSON.stringify({ layers: [] });
       }
+
+      return jsonString as string;
     } catch (error) {
-      console.error('❌ Paper.js项目序列化失败:', error);
+      console.error("❌ Paper.js项目序列化失败:", error);
       return null;
     }
   }
@@ -716,39 +598,34 @@ class PaperSaveService {
    */
   deserializePaperProject(jsonString: string): boolean {
     try {
-      console.log('[deserializePaperProject] 开始，isPaperProjectReady:', this.isPaperProjectReady());
-
       if (!this.isPaperProjectReady()) {
-        console.warn('⚠️ Paper.js项目未正确初始化，无法反序列化');
+        console.warn("⚠️ Paper.js项目未正确初始化，无法反序列化");
         return false;
       }
 
-      if (!jsonString || jsonString.trim() === '') {
-        console.log('📝 空的Paper.js内容，跳过反序列化');
+      if (!jsonString || jsonString.trim() === "") {
+        console.log("📝 空的Paper.js内容，跳过反序列化");
         return true;
       }
 
-      console.log('[deserializePaperProject] JSON 长度:', jsonString.length);
+      // Paper.js 的 Project#importJSON 默认是“追加”到当前项目，而不是替换。
+      // 若不先清空，撤销/重做/加载快照会出现旧对象残留、重复图元、选择框漂移（图框分离）等问题。
+      try {
+        (paper.project as any).clear();
+      } catch {}
 
-      // Paper.js 的 Project#importJSON 默认是"追加"到当前项目，而不是替换。
-      try { (paper.project as any).clear(); } catch {}
+      // 导入保存的内容
+      (paper.project as any).importJSON(jsonString);
 
-      // 【关键】在 importJSON 之前预处理 JSON，将 OSS URL 替换为代理 URL
-      const processedJson = this.preprocessJsonForProxy(jsonString);
-
-      console.log('[deserializePaperProject] 预处理后 JSON 长度:', processedJson.length);
-
-      // 导入保存的内容（使用预处理后的 JSON）
-      (paper.project as any).importJSON(processedJson);
-
-      // 作为后备，再次确保所有 Raster 使用代理 URL（处理动态创建的情况）
+      // OSS 图片未配置 CORS 时，Paper.js Raster 在 canvas 场景会被浏览器拦截。
+      // 通过同源 /api/assets/proxy 代理加载，可避免跨域限制。
       this.ensureRasterCrossOriginAndProxySources();
 
       // 清理系统图层与辅助元素
       const toRemove: paper.Layer[] = [];
       (paper.project.layers || []).forEach((layer: any) => {
-        const name = layer?.name || '';
-        if (name === 'grid' || name === 'background' || name === 'scalebar') {
+        const name = layer?.name || "";
+        if (name === "grid" || name === "background" || name === "scalebar") {
           toRemove.push(layer);
           return;
         }
@@ -760,21 +637,23 @@ class PaperSaveService {
           });
         } catch {}
       });
-      toRemove.forEach(l => l.remove());
+      toRemove.forEach((l) => l.remove());
 
       // Raster 图片是异步加载的：在“冷启动/首次刷新”时，importJSON 后立刻 update 往往赶不上图片解码，
       // 需要为所有 Raster 挂接 onLoad → view.update，避免出现“首次刷新图片不显示、二次刷新才正常”的现象。
       this.ensureRasterLoadUpdates();
 
-      console.log('✅ Paper.js项目反序列化成功');
+      console.log("✅ Paper.js项目反序列化成功");
       // 延迟触发事件，确保 Paper.js 完全初始化
       setTimeout(() => {
-        try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
+        try {
+          window.dispatchEvent(new CustomEvent("paper-project-changed"));
+        } catch {}
       }, 50);
       if (paper.view) (paper.view as any).update();
       return true;
     } catch (error) {
-      console.error('❌ Paper.js项目反序列化失败:', error);
+      console.error("❌ Paper.js项目反序列化失败:", error);
 
       // 尝试触发项目重新初始化
       this.triggerProjectRecovery();
@@ -791,23 +670,31 @@ class PaperSaveService {
     try {
       if (!this.isPaperProjectReady()) return;
 
-      const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
+      const SYSTEM_LAYER_NAMES = new Set(["grid", "background", "scalebar"]);
       const layers = (paper.project.layers || []).slice();
       layers.forEach((layer: any) => {
-        const name = layer?.name || '';
+        const name = layer?.name || "";
         if (SYSTEM_LAYER_NAMES.has(name)) {
           // 保留系统层，但清空其子元素
-          try { layer.removeChildren(); } catch {}
+          try {
+            layer.removeChildren();
+          } catch {}
         } else {
-          try { layer.remove(); } catch {}
+          try {
+            layer.remove();
+          } catch {}
         }
       });
 
       // 更新视图并广播
-      try { (paper.view as any)?.update?.(); } catch {}
-      try { window.dispatchEvent(new CustomEvent('paper-project-cleared')); } catch {}
+      try {
+        (paper.view as any)?.update?.();
+      } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent("paper-project-cleared"));
+      } catch {}
     } catch (e) {
-      console.warn('清空 Paper 项目失败:', e);
+      console.warn("清空 Paper 项目失败:", e);
     }
   }
 
@@ -820,23 +707,29 @@ class PaperSaveService {
     try {
       if (!this.isPaperProjectReady()) return;
 
-      const SYSTEM_LAYER_NAMES = new Set(['grid', 'background', 'scalebar']);
+      const SYSTEM_LAYER_NAMES = new Set(["grid", "background", "scalebar"]);
       const layers = (paper.project.layers || []).slice();
 
       layers.forEach((layer: any) => {
-        const name = layer?.name || '';
+        const name = layer?.name || "";
         if (SYSTEM_LAYER_NAMES.has(name)) {
           // 系统层保持不动（包含网格/坐标轴/底色等）
           return;
         }
-        try { layer.removeChildren(); } catch {}
+        try {
+          layer.removeChildren();
+        } catch {}
       });
 
       // 更新视图并广播清空事件（与 clearProject 保持一致的事件名）
-      try { (paper.view as any)?.update?.(); } catch {}
-      try { window.dispatchEvent(new CustomEvent('paper-project-cleared')); } catch {}
+      try {
+        (paper.view as any)?.update?.();
+      } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent("paper-project-cleared"));
+      } catch {}
     } catch (e) {
-      console.warn('清空画布内容失败:', e);
+      console.warn("清空画布内容失败:", e);
     }
   }
 
@@ -844,15 +737,17 @@ class PaperSaveService {
    * 触发项目恢复机制
    */
   private triggerProjectRecovery() {
-    console.log('🔄 尝试恢复Paper.js项目...');
+    console.log("🔄 尝试恢复Paper.js项目...");
 
     // 发送恢复事件给其他组件
     try {
-      window.dispatchEvent(new CustomEvent('paper-project-recovery-needed', {
-        detail: { timestamp: Date.now() }
-      }));
+      window.dispatchEvent(
+        new CustomEvent("paper-project-recovery-needed", {
+          detail: { timestamp: Date.now() },
+        })
+      );
     } catch (error) {
-      console.warn('发送恢复事件失败:', error);
+      console.warn("发送恢复事件失败:", error);
     }
   }
 
@@ -860,7 +755,10 @@ class PaperSaveService {
     if (this.saveTimeoutId !== null) {
       window.clearTimeout(this.saveTimeoutId);
     }
-    this.saveTimeoutId = window.setTimeout(() => this.executeScheduledSave(), delay);
+    this.saveTimeoutId = window.setTimeout(
+      () => this.executeScheduledSave(),
+      delay
+    );
   }
 
   private executeScheduledSave() {
@@ -869,14 +767,21 @@ class PaperSaveService {
     const now = Date.now();
     const elapsedSinceLastSave = now - this.lastSaveTimestamp;
 
-    if (this.lastSaveTimestamp > 0 && elapsedSinceLastSave < this.MIN_SAVE_INTERVAL) {
+    if (
+      this.lastSaveTimestamp > 0 &&
+      elapsedSinceLastSave < this.MIN_SAVE_INTERVAL
+    ) {
       const wait = this.MIN_SAVE_INTERVAL - elapsedSinceLastSave;
-      console.debug(`[autosave] 距离上次保存仅过去 ${elapsedSinceLastSave}ms，延后 ${wait}ms 后再尝试保存`);
+      console.debug(
+        `[autosave] 距离上次保存仅过去 ${elapsedSinceLastSave}ms，延后 ${wait}ms 后再尝试保存`
+      );
       this.scheduleSaveExecution(wait);
       return;
     }
 
-    const reasonNote = this.pendingSaveReason ? `（来源：${this.pendingSaveReason}）` : '';
+    const reasonNote = this.pendingSaveReason
+      ? `（来源：${this.pendingSaveReason}）`
+      : "";
     console.log(`⏰ Paper.js自动保存延迟时间到，开始执行保存${reasonNote}...`);
 
     const finalize = () => {
@@ -884,8 +789,7 @@ class PaperSaveService {
       this.pendingSaveReason = null;
     };
 
-    this.performSave()
-      .finally(finalize);
+    this.performSave().finally(finalize);
   }
 
   /**
@@ -899,7 +803,7 @@ class PaperSaveService {
       this.scheduledForProjectId = null;
     }
     if (!this.scheduledForProjectId) {
-      console.warn('⚠️ 无活动项目，跳过调度保存');
+      console.warn("⚠️ 无活动项目，跳过调度保存");
       return;
     }
 
@@ -911,7 +815,9 @@ class PaperSaveService {
     const alreadyScheduled = this.saveTimeoutId !== null;
 
     if (!alreadyScheduled) {
-      console.log(`🔔 Paper.js自动保存被触发${reasonLabel ? `（${reasonLabel}）` : ''}`);
+      console.log(
+        `🔔 Paper.js自动保存被触发${reasonLabel ? `（${reasonLabel}）` : ""}`
+      );
     }
 
     this.scheduleSaveExecution(this.SAVE_DELAY);
@@ -929,13 +835,16 @@ class PaperSaveService {
       const contentStore = useProjectContentStore.getState();
 
       if (!contentStore.projectId) {
-        console.warn('没有活动项目，跳过保存');
+        console.warn("没有活动项目，跳过保存");
         return;
       }
 
       // 若在调度后项目已切换，直接丢弃这次保存
-      if (this.scheduledForProjectId && this.scheduledForProjectId !== contentStore.projectId) {
-        console.warn('⚠️ 项目已切换，取消过期的保存任务', {
+      if (
+        this.scheduledForProjectId &&
+        this.scheduledForProjectId !== contentStore.projectId
+      ) {
+        console.warn("⚠️ 项目已切换，取消过期的保存任务", {
           scheduledFor: this.scheduledForProjectId,
           current: contentStore.projectId,
         });
@@ -944,19 +853,22 @@ class PaperSaveService {
 
       // 检查是否正在保存中，避免重复保存
       if (contentStore.saving) {
-        console.warn('⚠️ 保存进行中，跳过重复保存');
+        console.warn("⚠️ 保存进行中，跳过重复保存");
         return;
       }
 
       const gatheredAssets = this.gatherAssets();
       const sanitizedAssets = this.sanitizeAssets(gatheredAssets);
       const normalizedAssets = await this.ensureRemoteAssets(sanitizedAssets);
-      const hasPendingImages = normalizedAssets.images.some((img) => img.pendingUpload);
+      const hasPendingImages = normalizedAssets.images.some(
+        (img) => img.pendingUpload
+      );
 
       if (hasPendingImages) {
         try {
           const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          const pendingMsg =
+            "存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。";
           if (currentError !== pendingMsg) {
             contentStore.setError(pendingMsg);
           }
@@ -964,7 +876,8 @@ class PaperSaveService {
       } else {
         try {
           const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          const pendingMsg =
+            "存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。";
           if (currentError === pendingMsg) {
             contentStore.setError(null);
           }
@@ -977,13 +890,15 @@ class PaperSaveService {
         this.prepareRasterSources(normalizedAssets.images);
         paperJson = this.serializePaperProject();
         // 统计层/元素数量
-        let layerCount = 0; let itemCount = 0;
+        let layerCount = 0;
+        let itemCount = 0;
         try {
           (paper.project.layers || []).forEach((layer: any) => {
-            const name = layer?.name || '';
-            if (name === 'grid' || name === 'background' || name === 'scalebar') return;
+            const name = layer?.name || "";
+            if (name === "grid" || name === "background" || name === "scalebar")
+              return;
             layerCount += 1;
-            itemCount += (layer?.children?.length || 0);
+            itemCount += layer?.children?.length || 0;
           });
         } catch {}
         const meta = {
@@ -992,28 +907,32 @@ class PaperSaveService {
           itemCount,
           savedAt: new Date().toISOString(),
         };
-        saveMonitor.push(contentStore.projectId, 'serialize', meta);
+        saveMonitor.push(contentStore.projectId, "serialize", meta);
       } else {
-        console.warn('⚠️ Paper.js项目状态异常，尝试恢复...');
+        console.warn("⚠️ Paper.js项目状态异常，尝试恢复...");
         this.triggerProjectRecovery();
 
         // 即使 Paper.js 项目有问题，也要保存其他内容
-        console.log('💾 Paper.js项目异常，但仍保存其他项目内容...');
+        console.log("💾 Paper.js项目异常，但仍保存其他项目内容...");
       }
 
-      contentStore.updatePartial({
-        paperJson: paperJson || undefined,
-        meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
-        assets: normalizedAssets,
-        updatedAt: new Date().toISOString()
-      }, { markDirty: true });
-
+      contentStore.updatePartial(
+        {
+          paperJson: paperJson || undefined,
+          meta: paperJson ? { paperJsonLen: paperJson.length } : undefined,
+          assets: normalizedAssets,
+          updatedAt: new Date().toISOString(),
+        },
+        { markDirty: true }
+      );
     } catch (error) {
-      console.error('❌ 更新Paper.js内容失败:', error);
+      console.error("❌ 更新Paper.js内容失败:", error);
 
       // 标记保存错误
       const contentStore = useProjectContentStore.getState();
-      contentStore.setError(error instanceof Error ? error.message : '更新Paper.js内容失败');
+      contentStore.setError(
+        error instanceof Error ? error.message : "更新Paper.js内容失败"
+      );
     } finally {
       // 清理调度状态
       this.scheduledForProjectId = null;

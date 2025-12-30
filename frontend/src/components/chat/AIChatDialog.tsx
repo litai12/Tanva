@@ -3848,6 +3848,15 @@ const AIChatDialog: React.FC = () => {
                                                     poster={
                                                       message.videoThumbnail
                                                     }
+                                                    onError={(e) => {
+                                                      console.error('视频加载失败:', message.videoUrl, e);
+                                                      const target = e.target as HTMLVideoElement;
+                                                      target.style.display = 'none';
+                                                      const errorDiv = target.nextElementSibling as HTMLElement;
+                                                      if (errorDiv) {
+                                                        errorDiv.style.display = 'block';
+                                                      }
+                                                    }}
                                                   >
                                                     <source
                                                       src={message.videoUrl}
@@ -3856,6 +3865,32 @@ const AIChatDialog: React.FC = () => {
                                                     您的浏览器不支持 HTML5 video
                                                     标签
                                                   </video>
+                                                  <div
+                                                    className={`video-error-${message.id} hidden w-full max-w-md p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm`}
+                                                    style={{ display: 'none' }}
+                                                  >
+                                                    <div className='flex items-center gap-2 mb-2'>
+                                                      <span className='text-red-500'>⚠️</span>
+                                                      <span className='font-medium'>视频加载失败</span>
+                                                    </div>
+                                                    <p className='text-xs text-red-600 mb-2'>
+                                                      视频链接可能已过期或无法访问
+                                                    </p>
+                                                    <button
+                                                      onClick={() => {
+                                                        const errorDiv = document.querySelector(`.video-error-${message.id}`) as HTMLElement;
+                                                        const video = errorDiv?.previousElementSibling as HTMLVideoElement;
+                                                        if (video && errorDiv) {
+                                                          video.style.display = 'block';
+                                                          video.load();
+                                                          errorDiv.style.display = 'none';
+                                                        }
+                                                      }}
+                                                      className='px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs rounded transition-colors'
+                                                    >
+                                                      重试加载
+                                                    </button>
+                                                  </div>
                                                   <div className='flex gap-3 text-xs flex-wrap'>
                                                     {/* 分享/复制 */}
                                                     <button

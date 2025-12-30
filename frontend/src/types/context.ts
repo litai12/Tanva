@@ -99,6 +99,10 @@ export interface SerializedChatMessage {
   videoTaskId?: string | null;
   videoStatus?: string | null;
   videoSourceUrl?: string;
+  // 并行生成分组信息（用于在恢复/持久化时保留并行组关系）
+  groupId?: string | null;
+  groupIndex?: number | null;
+  groupTotal?: number | null;
 }
 
 export interface SerializedOperationHistory {
