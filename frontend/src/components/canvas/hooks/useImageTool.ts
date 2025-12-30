@@ -723,12 +723,41 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       // 获取实际的Raster对象来获取真实尺寸
       // 使用 className 检查以兼容生产环境（instanceof 在压缩后可能失效）
       const raster = imageGroup.children.find(child => isRasterItem(child));
-      const actualBounds = raster ? raster.bounds : imageGroup.bounds;
+      const actualBounds = (() => {
+        const direct = raster ? raster.bounds : imageGroup.bounds;
+        if (direct && direct.width > 0 && direct.height > 0) return direct;
 
-      if (actualBounds) {
+        const raw = (raster as any)?.data?.__tanvaBounds || (imageGroup as any)?.data?.__tanvaBounds;
+        if (!raw || typeof raw !== 'object') return direct;
+        const x = (raw as any)?.x;
+        const y = (raw as any)?.y;
+        const width = (raw as any)?.width;
+        const height = (raw as any)?.height;
+        const valid =
+          typeof x === 'number' && Number.isFinite(x) &&
+          typeof y === 'number' && Number.isFinite(y) &&
+          typeof width === 'number' && Number.isFinite(width) &&
+          typeof height === 'number' && Number.isFinite(height) &&
+          width > 0 &&
+          height > 0;
+        if (!valid) return direct;
+        try {
+          return new paper.Rectangle(x, y, width, height);
+        } catch {
+          return direct;
+        }
+      })();
+
+      if (actualBounds && actualBounds.width > 0 && actualBounds.height > 0) {
         // 使用实际的图片尺寸而不是React状态中的尺寸
         const actualWidth = actualBounds.width;
         const actualHeight = actualBounds.height;
+        // 确保 Raster bounds 已有有效尺寸，避免拖拽时把图片“压扁”为0
+        try {
+          if (raster && raster.bounds && (raster.bounds.width <= 0 || raster.bounds.height <= 0)) {
+            raster.bounds = actualBounds.clone();
+          }
+        } catch {}
 
         // 更新组内所有子元素的位置（设置绝对位置，保持尺寸不变）
         imageGroup.children.forEach(child => {
@@ -807,8 +836,36 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
 
     if (isRaster(imageGroup)) {
-      const actualWidth = imageGroup.bounds.width;
-      const actualHeight = imageGroup.bounds.height;
+      const resolvedBounds = (() => {
+        const direct = imageGroup.bounds;
+        if (direct && direct.width > 0 && direct.height > 0) return direct;
+        const raw = (imageGroup.data as any)?.__tanvaBounds;
+        if (!raw || typeof raw !== 'object') return direct;
+        const x = (raw as any)?.x;
+        const y = (raw as any)?.y;
+        const width = (raw as any)?.width;
+        const height = (raw as any)?.height;
+        const valid =
+          typeof x === 'number' && Number.isFinite(x) &&
+          typeof y === 'number' && Number.isFinite(y) &&
+          typeof width === 'number' && Number.isFinite(width) &&
+          typeof height === 'number' && Number.isFinite(height) &&
+          width > 0 &&
+          height > 0;
+        if (!valid) return direct;
+        try {
+          return new paper.Rectangle(x, y, width, height);
+        } catch {
+          return direct;
+        }
+      })();
+
+      if (!resolvedBounds || resolvedBounds.width <= 0 || resolvedBounds.height <= 0) {
+        return;
+      }
+
+      const actualWidth = resolvedBounds.width;
+      const actualHeight = resolvedBounds.height;
       imageGroup.position = new paper.Point(
         newPosition.x + actualWidth / 2,
         newPosition.y + actualHeight / 2

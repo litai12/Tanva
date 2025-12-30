@@ -105,14 +105,47 @@ export const getImagePaperBounds = (imageId: string): paper.Rectangle | null => 
   const item = findImagePaperItem(imageId);
   if (!item) return null;
 
+  const readCachedBounds = (data: any): paper.Rectangle | null => {
+    const raw = data?.__tanvaBounds;
+    if (!raw || typeof raw !== 'object') return null;
+    const x = (raw as any)?.x;
+    const y = (raw as any)?.y;
+    const width = (raw as any)?.width;
+    const height = (raw as any)?.height;
+    const valid =
+      typeof x === 'number' && Number.isFinite(x) &&
+      typeof y === 'number' && Number.isFinite(y) &&
+      typeof width === 'number' && Number.isFinite(width) &&
+      typeof height === 'number' && Number.isFinite(height) &&
+      width > 0 &&
+      height > 0;
+    if (!valid) return null;
+    try {
+      return new paper.Rectangle(x, y, width, height);
+    } catch {
+      return null;
+    }
+  };
+
   if (isGroup(item)) {
     const raster = item.children.find((child) => isRaster(child)) as paper.Raster | undefined;
     const rect = raster?.bounds || item.bounds;
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return rect.clone();
+    }
+    const cached = readCachedBounds((raster as any)?.data) || readCachedBounds((item as any)?.data);
+    if (cached) return cached;
     return rect ? rect.clone() : null;
   }
 
   if (isRaster(item)) {
-    return item.bounds.clone();
+    const rect = item.bounds;
+    if (rect && rect.width > 0 && rect.height > 0) {
+      return rect.clone();
+    }
+    const cached = readCachedBounds((item as any)?.data) || readCachedBounds((item as any)?.parent?.data);
+    if (cached) return cached;
+    return rect ? rect.clone() : null;
   }
 
   return item.bounds ? item.bounds.clone() : null;

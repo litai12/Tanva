@@ -762,15 +762,74 @@ class PaperSaveService {
       });
       toRemove.forEach(l => l.remove());
 
-      // Raster 图片是异步加载的：在“冷启动/首次刷新”时，importJSON 后立刻 update 往往赶不上图片解码，
-      // 需要为所有 Raster 挂接 onLoad → view.update，避免出现“首次刷新图片不显示、二次刷新才正常”的现象。
+      // Raster 图片是异步加载的：在"冷启动/首次刷新"时，importJSON 后立刻 update 往往赶不上图片解码，
+      // 需要为所有 Raster 挂接 onLoad → view.update，避免出现"首次刷新图片不显示、二次刷新才正常"的现象。
       this.ensureRasterLoadUpdates();
 
       console.log('✅ Paper.js项目反序列化成功');
-      // 延迟触发事件，确保 Paper.js 完全初始化
-      setTimeout(() => {
-        try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
-      }, 50);
+
+      // 获取所有 Raster 并等待加载完成后再触发事件
+      const rasterClass = (paper as any).Raster;
+      const allRasters = rasterClass ? (paper.project as any).getItems?.({ class: rasterClass }) as any[] : [];
+      const rasterCount = allRasters?.length || 0;
+      const loadedCount = allRasters?.filter((r: any) => r?.bounds?.width > 0)?.length || 0;
+      console.log(`🔍 [deserialize] Raster 状态: 总数=${rasterCount}, 已加载=${loadedCount}, 未加载=${rasterCount - loadedCount}`);
+
+      // 等待所有 Raster 加载完成后再触发事件
+      const pendingRasters = allRasters?.filter((r: any) => !r?.bounds?.width || r.bounds.width <= 0) || [];
+
+      if (pendingRasters.length === 0) {
+        // 所有图片已加载，直接触发事件
+        console.log('🔍 [deserialize] 所有 Raster 已加载，立即触发事件');
+        setTimeout(() => {
+          try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
+        }, 50);
+      } else {
+        // 有未加载的图片，等待它们加载完成
+        console.log(`🔍 [deserialize] 等待 ${pendingRasters.length} 个 Raster 加载...`);
+        let loadedSoFar = 0;
+        let eventFired = false;
+        const maxWaitTime = 10000; // 最大等待 10 秒
+        const startTime = Date.now();
+
+        const fireEventOnce = () => {
+          if (eventFired) return;
+          eventFired = true;
+          const elapsed = Date.now() - startTime;
+          console.log(`🔍 [deserialize] 触发 paper-project-changed 事件 (耗时 ${elapsed}ms)`);
+          try { window.dispatchEvent(new CustomEvent('paper-project-changed')); } catch {}
+        };
+
+        // 超时兜底
+        const timeoutId = setTimeout(() => {
+          if (!eventFired) {
+            console.warn(`⚠️ [deserialize] Raster 加载超时，强制触发事件`);
+            fireEventOnce();
+          }
+        }, maxWaitTime);
+
+        // 为每个未加载的 Raster 挂接 onLoad
+        pendingRasters.forEach((raster: any) => {
+          const originalOnLoad = raster.onLoad;
+          raster.onLoad = function(this: any, ...args: any[]) {
+            loadedSoFar++;
+            console.log(`🔍 [deserialize] Raster 加载完成 (${loadedSoFar}/${pendingRasters.length})`);
+
+            // 调用原始 onLoad
+            if (typeof originalOnLoad === 'function') {
+              try { originalOnLoad.apply(this, args); } catch {}
+            }
+
+            // 所有图片加载完成，触发事件
+            if (loadedSoFar >= pendingRasters.length) {
+              clearTimeout(timeoutId);
+              // 稍微延迟确保 Paper.js 内部状态更新
+              setTimeout(fireEventOnce, 50);
+            }
+          };
+        });
+      }
+
       if (paper.view) (paper.view as any).update();
       return true;
     } catch (error) {

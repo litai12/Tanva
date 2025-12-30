@@ -3535,6 +3535,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         logger.drawing('🔄 rebuildFromPaper 开始执行...');
 
+        // 🔍 调试：检查 Raster 加载状态
+        const rasterClass = (paper as any).Raster;
+        const allRasters = rasterClass ? (paper.project as any).getItems?.({ class: rasterClass }) as any[] : [];
+        const rasterCount = allRasters?.length || 0;
+        const loadedCount = allRasters?.filter((r: any) => r?.bounds?.width > 0)?.length || 0;
+        console.log(`🔍 [rebuildFromPaper] Raster 状态: 总数=${rasterCount}, 已加载=${loadedCount}, 未加载=${rasterCount - loadedCount}`);
+
         // 避免重复包裹 Raster.onLoad（多次 rebuild 可能导致链式闭包与内存增长）
         const ensureRasterRebuildOnLoad = (raster: any, callback: () => void) => {
           if (!raster) return;
@@ -3752,38 +3759,79 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 const remoteUrl = metadataFromRaster.remoteUrl || (sourceUrl && !sourceUrl.startsWith('data:') ? sourceUrl : undefined);
                 const inlineDataUrl = sourceUrl && sourceUrl.startsWith('data:') ? sourceUrl : undefined;
 
-                // 统一设置raster.data，提前补上id以便后续事件使用
-                raster.data = {
-                  ...(raster.data || {}),
-                  type: 'image',
-                  imageId: ensuredImageId,
-                  ...metadataFromRaster
-                };
+	                // 统一设置raster.data，提前补上id以便后续事件使用
+	                raster.data = {
+	                  ...(raster.data || {}),
+	                  type: 'image',
+	                  imageId: ensuredImageId,
+	                  ...metadataFromRaster
+	                };
 
-                const buildImageInstance = () => {
-                  if (!raster.bounds || raster.bounds.width <= 0 || raster.bounds.height <= 0) {
-                    return null;
-                  }
+	                const resolveRasterBounds = (): paper.Rectangle | null => {
+	                  try {
+	                    const b = raster.bounds as paper.Rectangle | undefined;
+	                    if (b && b.width > 0 && b.height > 0) return b;
+	                  } catch {}
 
-                  const boundsRect = raster.bounds as paper.Rectangle;
-                  const computedMetadata = {
-                    ...metadataFromRaster,
-                    originalWidth: metadataFromRaster.originalWidth || boundsRect.width,
-                    originalHeight: metadataFromRaster.originalHeight || boundsRect.height,
-                    aspectRatio:
+	                  const raw = (raster.data as any)?.__tanvaBounds || (imageGroup.data as any)?.__tanvaBounds;
+	                  if (!raw || typeof raw !== 'object') return null;
+	                  const x = (raw as any)?.x;
+	                  const y = (raw as any)?.y;
+	                  const width = (raw as any)?.width;
+	                  const height = (raw as any)?.height;
+	                  const valid =
+	                    typeof x === 'number' && Number.isFinite(x) &&
+	                    typeof y === 'number' && Number.isFinite(y) &&
+	                    typeof width === 'number' && Number.isFinite(width) &&
+	                    typeof height === 'number' && Number.isFinite(height) &&
+	                    width > 0 &&
+	                    height > 0;
+	                  if (!valid) return null;
+	                  try {
+	                    return new paper.Rectangle(x, y, width, height);
+	                  } catch {
+	                    return null;
+	                  }
+	                };
+
+	                const ensureRasterHasBounds = (): paper.Rectangle | null => {
+	                  const resolved = resolveRasterBounds();
+	                  if (!resolved) return null;
+	                  try {
+	                    const b = raster.bounds as paper.Rectangle | undefined;
+	                    if (!b || b.width <= 0 || b.height <= 0) {
+	                      raster.bounds = resolved.clone();
+	                    }
+	                  } catch {}
+	                  try {
+	                    const b = raster.bounds as paper.Rectangle | undefined;
+	                    if (b && b.width > 0 && b.height > 0) return b;
+	                  } catch {}
+	                  return resolved;
+	                };
+
+	                const buildImageInstance = () => {
+	                  const boundsRect = ensureRasterHasBounds();
+	                  if (!boundsRect || boundsRect.width <= 0 || boundsRect.height <= 0) return null;
+	                  const computedMetadata = {
+	                    ...metadataFromRaster,
+	                    originalWidth: metadataFromRaster.originalWidth || boundsRect.width,
+	                    originalHeight: metadataFromRaster.originalHeight || boundsRect.height,
+	                    aspectRatio:
                       metadataFromRaster.aspectRatio ||
                       (boundsRect.height ? boundsRect.width / boundsRect.height : undefined),
                     remoteUrl: metadataFromRaster.remoteUrl || remoteUrl
                   };
 
-                  ensureImageGroupStructure({
-                    raster,
-                    imageId: ensuredImageId,
-                    group: imageGroup,
-                    metadata: computedMetadata,
-                    ensureImageRect: true,
-                    ensureSelectionArea: true
-                  });
+	                  ensureImageGroupStructure({
+	                    raster,
+	                    imageId: ensuredImageId,
+	                    group: imageGroup,
+	                    bounds: boundsRect,
+	                    metadata: computedMetadata,
+	                    ensureImageRect: true,
+	                    ensureSelectionArea: true
+	                  });
 
                   try { paper.view?.update(); } catch {}
 
@@ -3794,8 +3842,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   const originalWidth = computedMetadata.originalWidth || (raster as any).width || Math.round(boundsRect.width);
                   const originalHeight = computedMetadata.originalHeight || (raster as any).height || Math.round(boundsRect.height);
 
-                  return {
-                    id: ensuredImageId,
+	                  return {
+	                    id: ensuredImageId,
                     imageData: {
                       id: ensuredImageId,
                       url: resolvedUrl,
@@ -3805,25 +3853,27 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       width: Math.round(originalWidth),
                       height: Math.round(originalHeight),
                     },
-                    bounds: {
-                      x: boundsRect.x,
-                      y: boundsRect.y,
-                      width: boundsRect.width,
-                      height: boundsRect.height
-                    },
+	                    bounds: {
+	                      x: boundsRect.x,
+	                      y: boundsRect.y,
+	                      width: boundsRect.width,
+	                      height: boundsRect.height
+	                    },
                     isSelected: false,
                     visible: imageGroup.visible !== false,
                     layerId: layer?.name
-                  };
-                };
+	                  };
+	                };
 
-                const hasValidBounds =
-                  !!raster.bounds && raster.bounds.width > 0 && raster.bounds.height > 0;
+	                const hasValidBounds = (() => {
+	                  const b = ensureRasterHasBounds();
+	                  return !!b && b.width > 0 && b.height > 0;
+	                })();
 
-                if (hasValidBounds) {
-                  const imageInstance = buildImageInstance();
-                  if (imageInstance) {
-                    imageInstances.push(imageInstance);
+	                if (hasValidBounds) {
+	                  const imageInstance = buildImageInstance();
+	                  if (imageInstance) {
+	                    imageInstances.push(imageInstance);
                   }
                 } else {
                   // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
