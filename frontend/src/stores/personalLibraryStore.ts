@@ -1,7 +1,18 @@
 import { create } from 'zustand';
-import { createJSONStorage, persist, subscribeWithSelector } from 'zustand/middleware';
-import { createSafeStorage } from './storageUtils';
+import { subscribeWithSelector } from 'zustand/middleware';
 import type { Model3DFormat, Model3DCameraState } from '@/services/model3DUploadService';
+import {
+  STORE_NAMES,
+  idbGetAll,
+  idbPut,
+  idbPutBatch,
+  idbDelete,
+  idbClear,
+  idbEnforceLimit,
+  isMigrationDone,
+  markMigrationDone,
+  isIndexedDBAvailable,
+} from '@/services/indexedDBService';
 
 export type PersonalAssetType = '2d' | '3d' | 'svg';
 
@@ -48,6 +59,7 @@ type PersonalLibraryUpdate = Partial<Omit<PersonalLibraryAsset, 'type'>>;
 
 export interface PersonalLibraryStore {
   assets: PersonalLibraryAsset[];
+  _hydrated: boolean;
   setAssets: (assets: PersonalLibraryAsset[]) => void;
   mergeAssets: (assets: PersonalLibraryAsset[]) => void;
   addAsset: (asset: PersonalLibraryAsset) => void;
@@ -55,6 +67,7 @@ export interface PersonalLibraryStore {
   removeAsset: (id: string) => void;
   clear: () => void;
   getAssetsByType: (type: PersonalAssetType) => PersonalLibraryAsset[];
+  _hydrateFromIDB: () => Promise<void>;
 }
 
 const sortByUpdatedAt = (assets: PersonalLibraryAsset[]): PersonalLibraryAsset[] =>
@@ -106,73 +119,152 @@ const mergeById = (
   return sortByUpdatedAt(Array.from(map.values()));
 };
 
+// IndexedDB 持久化辅助
+const STORE_NAME = STORE_NAMES.PERSONAL_LIBRARY;
+const MAX_ASSETS = 500;
+
+// 防抖写入
+let writeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingWrites = new Map<string, PersonalLibraryAsset>();
+
+const flushPendingWrites = async () => {
+  if (pendingWrites.size === 0) return;
+  const items = Array.from(pendingWrites.values());
+  pendingWrites.clear();
+  await idbPutBatch(STORE_NAME, items);
+  await idbEnforceLimit(STORE_NAME);
+};
+
+const scheduleWrite = (asset: PersonalLibraryAsset) => {
+  pendingWrites.set(asset.id, asset);
+  if (writeDebounceTimer) clearTimeout(writeDebounceTimer);
+  writeDebounceTimer = setTimeout(flushPendingWrites, 300);
+};
+
+// 从 localStorage 迁移
+const migrateFromLocalStorage = async (): Promise<PersonalLibraryAsset[]> => {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('personal-library');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    const assets = parsed?.state?.assets;
+    if (!Array.isArray(assets) || assets.length === 0) return [];
+    console.log(`[PersonalLibrary] 从 localStorage 迁移 ${assets.length} 条记录`);
+    return assets as PersonalLibraryAsset[];
+  } catch (error) {
+    console.warn('[PersonalLibrary] 迁移数据解析失败:', error);
+    return [];
+  }
+};
+
 export const usePersonalLibraryStore = create<PersonalLibraryStore>()(
   subscribeWithSelector(
-    persist(
-      (set, get) => ({
-        assets: [],
-        setAssets: (assets) =>
-          set(() => ({
-            assets: sortByUpdatedAt(assets.map(normalizeTimestamps)),
-          })),
-        mergeAssets: (assets) =>
-          set((state) => ({
-            assets: mergeById(state.assets, assets),
-          })),
-        addAsset: (asset) =>
-          set((state) => {
-            const nextAsset = normalizeTimestamps(asset);
-            const without = state.assets.filter((item) => item.id !== nextAsset.id);
-            return {
-              assets: sortByUpdatedAt([nextAsset, ...without]),
+    (set, get) => ({
+      assets: [],
+      _hydrated: false,
+
+      setAssets: (assets) => {
+        const normalized = sortByUpdatedAt(assets.map(normalizeTimestamps));
+        set({ assets: normalized });
+        // 批量写入 IndexedDB
+        normalized.forEach(scheduleWrite);
+      },
+
+      mergeAssets: (assets) => {
+        set((state) => {
+          const merged = mergeById(state.assets, assets);
+          // 批量写入 IndexedDB
+          merged.forEach(scheduleWrite);
+          return { assets: merged };
+        });
+      },
+
+      addAsset: (asset) => {
+        set((state) => {
+          const nextAsset = normalizeTimestamps(asset);
+          const without = state.assets.filter((item) => item.id !== nextAsset.id);
+          const newAssets = sortByUpdatedAt([nextAsset, ...without]);
+          // 写入 IndexedDB
+          scheduleWrite(nextAsset);
+          return { assets: newAssets };
+        });
+      },
+      updateAsset: (id, patch) => {
+        set((state) => {
+          const updated = state.assets.map((item) => {
+            if (item.id !== id) return item;
+            const updatedItem = {
+              ...item,
+              ...patch,
+              updatedAt: patch.updatedAt ?? Date.now(),
             };
-          }),
-        updateAsset: (id, patch) =>
-          set((state) => ({
-            assets: sortByUpdatedAt(
-              state.assets.map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      ...patch,
-                      updatedAt: patch.updatedAt ?? Date.now(),
-                    }
-                  : item
-              )
-            ),
-          })),
-        removeAsset: (id) =>
-          set((state) => ({
-            assets: state.assets.filter((item) => item.id !== id),
-          })),
-        clear: () => set({ assets: [] }),
-        getAssetsByType: (type) => get().assets.filter((item) => item.type === type),
-      }),
-      {
-        name: 'personal-library',
-        storage: createJSONStorage<Partial<PersonalLibraryStore>>(() =>
-          createSafeStorage({ storageName: 'personal-library' })
-        ),
-        partialize: (state) => ({
-          assets: state.assets
-            .map((asset) => {
-              const next: any = { ...asset };
-              if (isHeavyInlineString(next.thumbnail)) {
-                delete next.thumbnail;
+            scheduleWrite(updatedItem as PersonalLibraryAsset);
+            return updatedItem;
+          });
+          return { assets: sortByUpdatedAt(updated) };
+        });
+      },
+
+      removeAsset: (id) => {
+        idbDelete(STORE_NAME, id).catch((err) => {
+          console.warn('[PersonalLibrary] 删除失败:', err);
+        });
+        set((state) => ({
+          assets: state.assets.filter((item) => item.id !== id),
+        }));
+      },
+
+      clear: () => {
+        idbClear(STORE_NAME).catch((err) => {
+          console.warn('[PersonalLibrary] 清空失败:', err);
+        });
+        set({ assets: [] });
+      },
+
+      getAssetsByType: (type) => get().assets.filter((item) => item.type === type),
+
+      _hydrateFromIDB: async () => {
+        if (get()._hydrated) return;
+
+        try {
+          // 检查是否需要从 localStorage 迁移
+          if (!isMigrationDone(STORE_NAME) && isIndexedDBAvailable()) {
+            const legacyData = await migrateFromLocalStorage();
+            if (legacyData.length > 0) {
+              await idbPutBatch(STORE_NAME, legacyData);
+              markMigrationDone(STORE_NAME);
+              if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('personal-library');
               }
-              // data/blob URL 刷新后不可用且可能很大，避免持久化无效引用
-              if (
-                typeof next.url === 'string' &&
-                isHeavyInlineString(next.url) &&
-                !/^https?:\/\//i.test(next.url.trim())
-              ) {
-                return null;
-              }
-              return next as PersonalLibraryAsset;
-            })
-            .filter(Boolean) as PersonalLibraryAsset[],
-        }),
+              console.log('[PersonalLibrary] 迁移完成');
+            } else {
+              markMigrationDone(STORE_NAME);
+            }
+          }
+
+          // 从 IndexedDB 加载
+          const items = await idbGetAll<PersonalLibraryAsset>(STORE_NAME);
+          const sorted = sortByUpdatedAt(items);
+
+          set({
+            assets: sorted.slice(0, MAX_ASSETS),
+            _hydrated: true
+          });
+
+          console.log(`[PersonalLibrary] 加载了 ${sorted.length} 条记录`);
+        } catch (error) {
+          console.warn('[PersonalLibrary] 加载失败:', error);
+          set({ _hydrated: true });
+        }
       }
-    )
+    })
   )
 );
+
+// 自动初始化
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    usePersonalLibraryStore.getState()._hydrateFromIDB();
+  }, 150);
+}
