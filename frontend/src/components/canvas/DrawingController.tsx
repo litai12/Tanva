@@ -18,12 +18,13 @@ import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } f
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import { isRaster } from '@/utils/paperCoords';
-import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
+import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import ContextMenu from '@/components/ui/context-menu';
 
 // 导入新的hooks
 import { useImageTool } from './hooks/useImageTool';
 import { useModel3DTool } from './hooks/useModel3DTool';
+import { useVideoTool } from './hooks/useVideoTool';
 import { useDrawingTools } from './hooks/useDrawingTools';
 import { useSelectionTool } from './hooks/useSelectionTool';
 import { usePathEditor } from './hooks/usePathEditor';
@@ -1068,11 +1069,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     ensureDrawingLayer: drawingContext.ensureDrawingLayer,
   });
 
+  // ========== 初始化视频工具Hook ==========
+  const videoTool = useVideoTool({
+    context: drawingContext,
+    canvasRef,
+    eventHandlers: {
+      onVideoSelect: (videoId) => logger.debug('视频选中:', videoId),
+      onVideoDeselect: () => logger.debug('取消视频选择'),
+      onVideoDelete: (videoId) => {
+        logger.debug('视频删除:', videoId);
+        // 可以在这里添加删除后的清理逻辑
+      },
+    },
+  });
+
+  // 内存优化：视频实例也使用 ref
+  const videoInstancesRef = useRef(videoTool.videoInstances);
+  useEffect(() => {
+    videoInstancesRef.current = videoTool.videoInstances;
+  }, [videoTool.videoInstances]);
+
   // ========== 初始化选择工具Hook ==========
   const selectionTool = useSelectionTool({
     zoom,
     imageInstances: imageTool.imageInstances,
     model3DInstances: model3DTool.model3DInstances,
+    videoInstances: videoTool.videoInstances,
     textItems: simpleTextTool.textItems,
     onImageSelect: (imageId, addToSelection) => {
       // 先执行原有选择逻辑
@@ -1178,6 +1200,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       useAIChatStore.getState().setSourceImagesFromCanvas([]);
     },
     onModel3DDeselect: model3DTool.handleModel3DDeselect,
+    onVideoSelect: (videoId, addToSelection) => {
+      videoTool.handleVideoSelect(videoId, addToSelection);
+    },
+    onVideoMultiSelect: (videoIds) => {
+      videoTool.handleVideoMultiSelect(videoIds);
+    },
+    onVideoDeselect: videoTool.handleVideoDeselect,
     onTextSelect: (textId, addToSelection) => {
       if (addToSelection) {
         // 多选模式：保持现有选择
@@ -1204,13 +1233,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const hasSelection = useMemo(() => {
     const imageCount = imageTool.selectedImageIds?.length ?? 0;
     const modelCount = model3DTool.selectedModel3DIds?.length ?? 0;
+    const videoCount = videoTool.selectedVideoIds?.length ?? 0;
     const pathCount =
       (selectionTool.selectedPath ? 1 : 0) + (selectionTool.selectedPaths?.length ?? 0);
     const textCount = selectedTextItems.length;
-    return imageCount > 0 || modelCount > 0 || pathCount > 0 || textCount > 0;
+    return imageCount > 0 || modelCount > 0 || videoCount > 0 || pathCount > 0 || textCount > 0;
   }, [
     imageTool.selectedImageIds,
     model3DTool.selectedModel3DIds,
+    videoTool.selectedVideoIds,
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
     selectedTextItems,
@@ -1566,6 +1597,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
       if (projectAssets.texts?.length) {
         simpleTextTool.hydrateFromSnapshot(projectAssets.texts);
+      }
+      if (projectAssets.videos?.length) {
+        videoTool.hydrateFromSnapshot(projectAssets.videos);
       }
       // 标记为已回填
       try { (window as any)[hydratedFlagKey] = true; } catch {}
@@ -3339,6 +3373,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const dcHydrateModelsFromSnapshot = model3DTool.hydrateFromSnapshot;
   const dcClearAllTextItems = simpleTextTool.clearAllTextItems;
   const dcHydrateTextsFromSnapshot = simpleTextTool.hydrateFromSnapshot;
+  const dcSetVideoInstances = videoTool.setVideoInstances;
+  const dcSetSelectedVideoIds = videoTool.setSelectedVideoIds;
+  const dcHydrateVideosFromSnapshot = videoTool.hydrateFromSnapshot;
   const dcHydrateTextsFromPaperItems = simpleTextTool.hydrateFromPaperItems;
   const dcClearAllSelections = selectionTool.clearAllSelections;
 
@@ -3498,6 +3535,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         dcSetModel3DInstances([]);
         dcSetSelectedModel3DIds([]);
         dcClearAllTextItems();
+        dcSetVideoInstances([]);
+        dcSetSelectedVideoIds([]);
 
         if (assets) {
           if (assets.images?.length) {
@@ -3508,6 +3547,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
           if (assets.texts?.length) {
             dcHydrateTextsFromSnapshot(assets.texts);
+          }
+          if (assets.videos?.length) {
+            dcHydrateVideosFromSnapshot(assets.videos);
           }
         }
       } catch (e) {
@@ -3521,10 +3563,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     dcHydrateImagesFromSnapshot,
     dcHydrateModelsFromSnapshot,
     dcHydrateTextsFromSnapshot,
+    dcHydrateVideosFromSnapshot,
     dcSetImageInstances,
     dcSetModel3DInstances,
+    dcSetVideoInstances,
     dcSetSelectedImageIds,
     dcSetSelectedModel3DIds,
+    dcSetSelectedVideoIds,
   ]);
 
   // 从已反序列化的 Paper 项目重建图片、文字和3D模型实例

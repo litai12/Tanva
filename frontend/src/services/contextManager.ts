@@ -19,6 +19,7 @@ const MEMORY_OPTIMIZATION = {
   maxMessagesPerSession: 100, // 每个会话最多100条消息
   maxImageCacheSize: 5 * 1024 * 1024, // 图片缓存最大5MB
   maxVideoMessagesPerSession: 20, // 每个会话最多保留20条视频消息
+  videoExpiryMs: 24 * 60 * 60 * 1000, // 视频消息24小时后过期
   cleanupIntervalMs: 5 * 60 * 1000, // 每5分钟清理一次
   sessionTimeoutMs: 24 * 60 * 60 * 1000, // 24小时超时
 };
@@ -378,6 +379,41 @@ class ContextManager implements IContextManager {
 
         console.log(
           `🧹 [ContextManager] 会话 ${sessionId} 清理了 ${excess} 条旧视频消息`
+        );
+      }
+
+      // 清理超过24小时的视频消息
+      const now = Date.now();
+      const expiredVideoMessages = context.messages.filter((msg) => {
+        const hasVideo = msg.videoUrl || msg.videoThumbnail;
+        if (!hasVideo) return false;
+        const messageTime = new Date(msg.timestamp).getTime();
+        return (now - messageTime) > MEMORY_OPTIMIZATION.videoExpiryMs;
+      });
+
+      if (expiredVideoMessages.length > 0) {
+        context.messages = context.messages.map((msg) => {
+          const isExpired = expiredVideoMessages.some(
+            (expiredMsg) => expiredMsg.id === msg.id
+          );
+          if (isExpired) {
+            return {
+              ...msg,
+              videoUrl: undefined,
+              videoThumbnail: undefined,
+              videoDuration: undefined,
+              videoReferencedUrls: undefined,
+              videoTaskId: null,
+              videoStatus: null,
+              videoSourceUrl: undefined,
+              videoMetadata: undefined,
+            };
+          }
+          return msg;
+        });
+
+        console.log(
+          `🧹 [ContextManager] 会话 ${sessionId} 清理了 ${expiredVideoMessages.length} 条超过24小时的视频消息`
         );
       }
 

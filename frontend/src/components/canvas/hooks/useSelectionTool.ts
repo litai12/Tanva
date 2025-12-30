@@ -6,19 +6,23 @@
 import { useCallback, useRef, useState } from 'react';
 import paper from 'paper';
 import { logger } from '@/utils/logger';
-import type { ImageInstance, Model3DInstance } from '@/types/canvas';
+import type { ImageInstance, Model3DInstance, VideoInstance } from '@/types/canvas';
 
 interface UseSelectionToolProps {
   zoom: number;
   imageInstances: ImageInstance[];
   model3DInstances: Model3DInstance[];
+  videoInstances: VideoInstance[];
   textItems?: Array<{ id: string; paperText: paper.PointText }>;
   onImageSelect: (imageId: string, addToSelection?: boolean) => void;
   onImageMultiSelect: (imageIds: string[]) => void;
   onModel3DSelect: (modelId: string, addToSelection?: boolean) => void;
   onModel3DMultiSelect: (modelIds: string[]) => void;
+  onVideoSelect: (videoId: string, addToSelection?: boolean) => void;
+  onVideoMultiSelect: (videoIds: string[]) => void;
   onImageDeselect: () => void;
   onModel3DDeselect: () => void;
+  onVideoDeselect: () => void;
   onTextSelect?: (textId: string, addToSelection?: boolean) => void;
   onTextMultiSelect?: (textIds: string[]) => void;
   onTextDeselect?: () => void;
@@ -28,13 +32,17 @@ export const useSelectionTool = ({
   zoom,
   imageInstances,
   model3DInstances,
+  videoInstances,
   textItems = [],
   onImageSelect,
   onImageMultiSelect,
   onModel3DSelect,
   onModel3DMultiSelect,
+  onVideoSelect,
+  onVideoMultiSelect,
   onImageDeselect,
   onModel3DDeselect,
+  onVideoDeselect,
   onTextSelect,
   onTextMultiSelect,
   onTextDeselect
@@ -235,6 +243,7 @@ export const useSelectionTool = ({
     // 先清除所有之前的选择（包括节点）
     onImageDeselect();
     onModel3DDeselect();
+    onVideoDeselect();
     onTextDeselect?.();
 
     // 清除 React Flow 节点选择
@@ -254,6 +263,7 @@ export const useSelectionTool = ({
     // 收集要选择的对象
     const selectedImages: string[] = [];
     const selectedModels: string[] = [];
+    const selectedVideos: string[] = [];
     const selectedTexts: string[] = [];
     const selectedNodeIds: string[] = [];
 
@@ -280,6 +290,22 @@ export const useSelectionTool = ({
         if (selectionRect.intersects(modelBounds)) {
           selectedModels.push(model.id);
           logger.upload('选择框收集3D模型:', model.id);
+        }
+      }
+    }
+
+    // 检查视频实例是否与选择框相交
+    if (selectImages) { // 复用selectImages参数控制视频选择
+      for (const video of videoInstances) {
+        const videoBounds = new paper.Rectangle(video.bounds.x, video.bounds.y, video.bounds.width, video.bounds.height);
+        if (selectionRect.intersects(videoBounds)) {
+          // 检查图层是否可见，只有可见的图层才能被选中
+          if (isLayerVisible(video.id)) {
+            selectedVideos.push(video.id);
+            logger.upload('选择框收集视频:', video.id);
+          } else {
+            logger.debug('选择框：图层不可见，跳过选择:', video.id);
+          }
         }
       }
     }
@@ -351,11 +377,18 @@ export const useSelectionTool = ({
       totalSelected += selectedImages.length;
     }
 
-    // 选择所有框包3D模型
+    // 选择所有框内3D模型
     if (selectedModels.length > 0) {
       onModel3DMultiSelect(selectedModels);
       logger.upload(`选择框选中${selectedModels.length}个3D模型: ${selectedModels.join(', ')}`);
       totalSelected += selectedModels.length;
+    }
+
+    // 选择所有框内视频
+    if (selectedVideos.length > 0) {
+      onVideoMultiSelect(selectedVideos);
+      logger.upload(`选择框选中${selectedVideos.length}个视频: ${selectedVideos.join(', ')}`);
+      totalSelected += selectedVideos.length;
     }
 
     // 选择所有框内文本

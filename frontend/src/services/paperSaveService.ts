@@ -4,6 +4,7 @@ import type {
   ImageAssetSnapshot,
   ModelAssetSnapshot,
   TextAssetSnapshot,
+  VideoAssetSnapshot,
 } from "@/types/project";
 import type { Model3DData } from "@/services/model3DUploadService";
 import { imageUploadService } from "@/services/imageUploadService";
@@ -203,8 +204,9 @@ class PaperSaveService {
     images: ImageAssetSnapshot[];
     models: ModelAssetSnapshot[];
     texts: TextAssetSnapshot[];
+    videos: VideoAssetSnapshot[];
   }) {
-    if (!assets.images.length) {
+    if (!assets.images.length && !assets.videos.length) {
       return assets;
     }
 
@@ -296,6 +298,9 @@ class PaperSaveService {
     if (failed > 0) {
       console.warn(`⚠️ 仍有 ${failed} 张图片缺少远程URL，将以内联数据保存`);
     }
+
+    // 处理视频资产（目前视频主要使用远程URL，不需要额外的上传逻辑）
+    // 这里可以添加视频特定的处理逻辑，比如清理过期的视频URL等
 
     return assets;
   }
@@ -432,6 +437,7 @@ class PaperSaveService {
     images: ImageAssetSnapshot[];
     models: ModelAssetSnapshot[];
     texts: TextAssetSnapshot[];
+    videos: VideoAssetSnapshot[];
   }) {
     const sanitizedImages = assets.images.map((asset) => {
       const next: ImageAssetSnapshot = { ...asset };
@@ -453,11 +459,13 @@ class PaperSaveService {
 
     const sanitizedModels = assets.models.map((model) => ({ ...model }));
     const sanitizedTexts = assets.texts.map((text) => ({ ...text }));
+    const sanitizedVideos = assets.videos.map((video) => ({ ...video }));
 
     return {
       images: sanitizedImages,
       models: sanitizedModels,
       texts: sanitizedTexts,
+      videos: sanitizedVideos,
     };
   }
 
