@@ -10,7 +10,7 @@ const ZoomIndicator: React.FC = () => {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    // 获取 Flow 节点的边界（世界坐标）
+    // 获取 Flow 节点的边界（转换为 Paper.js 世界坐标）
     const getFlowNodeBounds = (): Bounds[] => {
         const out: Bounds[] = [];
         try {
@@ -18,16 +18,18 @@ const ZoomIndicator: React.FC = () => {
             if (!tanvaFlow?.rf) return out;
 
             const nodes = tanvaFlow.rf.getNodes?.() || [];
+            const dpr = window.devicePixelRatio || 1;
 
             for (const node of nodes) {
                 if (!node.position) continue;
 
-                // Flow 节点的位置是世界坐标
-                const nodeWidth = node.data?.boxW ?? node.width ?? 200;
-                const nodeHeight = node.data?.boxH ?? node.height ?? 150;
+                // Flow 节点的位置需要乘以 dpr 转换为 Paper.js 世界坐标
+                // 因为 Flow viewport 是 (panX * zoom) / dpr，而 Paper.js 使用带 dpr 的坐标
+                const nodeWidth = (node.data?.boxW ?? node.width ?? 200) * dpr;
+                const nodeHeight = (node.data?.boxH ?? node.height ?? 150) * dpr;
 
-                const worldX = node.position.x;
-                const worldY = node.position.y;
+                const worldX = node.position.x * dpr;
+                const worldY = node.position.y * dpr;
 
                 if (nodeWidth > 0 && nodeHeight > 0) {
                     out.push({
