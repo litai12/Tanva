@@ -9,6 +9,7 @@
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
+    "@fastify/compress": "^6.4.0",
     "@fastify/cookie": "^9.0.0",
     "@fastify/helmet": "^11.0.0",
     "@fastify/multipart": "^7.0.0",

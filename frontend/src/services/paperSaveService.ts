@@ -269,7 +269,9 @@ class PaperSaveService {
     const images: ImageAssetSnapshot[] = [];
     const models: ModelAssetSnapshot[] = [];
     const texts: TextAssetSnapshot[] = [];
+    const collectedImageIds = new Set<string>();
 
+    // 1. 从 tanvaImageInstances 收集图片
     try {
       const instances = (window as any)?.tanvaImageInstances as any[] | undefined;
       if (Array.isArray(instances)) {
@@ -278,6 +280,7 @@ class PaperSaveService {
           const bounds = instance?.bounds;
           const url = data?.url || data?.localDataUrl || data?.src;
           if (!url) return;
+          collectedImageIds.add(instance.id);
           images.push({
             id: instance.id,
             url,
@@ -301,6 +304,64 @@ class PaperSaveService {
       }
     } catch (error) {
       console.warn('采集图片实例失败:', error);
+    }
+
+    // 2. 扫描 Paper.js 中的所有 Raster，补充遗漏的图片
+    try {
+      if (this.isPaperProjectReady()) {
+        const rasterClass = (paper as any).Raster;
+        if (rasterClass) {
+          const rasters = (paper.project as any).getItems?.({ class: rasterClass }) as any[];
+          if (Array.isArray(rasters)) {
+            rasters.forEach((raster: any) => {
+              if (!raster) return;
+              const imageId = raster?.data?.imageId || raster?.parent?.data?.imageId;
+              if (!imageId || collectedImageIds.has(imageId)) return;
+
+              // 获取图片源
+              const source = raster.source;
+              const remoteUrl = raster?.data?.remoteUrl;
+              const url = this.isRemoteUrl(remoteUrl) ? remoteUrl
+                : (typeof source === 'string' && this.isRemoteUrl(source)) ? source
+                : null;
+
+              // 如果没有远程 URL，尝试从 canvas 获取 dataUrl
+              let localDataUrl: string | undefined;
+              if (!url && raster.canvas) {
+                try {
+                  localDataUrl = raster.canvas.toDataURL('image/png');
+                } catch {}
+              }
+
+              const finalUrl = url || localDataUrl;
+              if (!finalUrl) return;
+
+              const bounds = raster.bounds;
+              collectedImageIds.add(imageId);
+              images.push({
+                id: imageId,
+                url: finalUrl,
+                src: finalUrl,
+                fileName: raster?.data?.fileName,
+                width: raster.width,
+                height: raster.height,
+                pendingUpload: !url,
+                localDataUrl: localDataUrl,
+                bounds: {
+                  x: bounds?.x ?? 0,
+                  y: bounds?.y ?? 0,
+                  width: bounds?.width ?? 0,
+                  height: bounds?.height ?? 0,
+                },
+                layerId: this.normalizeLayerId(raster?.layer?.name),
+              });
+              console.log(`📷 从 Paper.js 补充采集图片: ${imageId}`);
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('从 Paper.js 补充采集图片失败:', error);
     }
 
     try {

@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import fastifyCompress from '@fastify/compress';
 import fastifyCookie from '@fastify/cookie';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
@@ -44,6 +45,11 @@ async function bootstrap() {
   const cookieSecret = configService.get('COOKIE_SECRET') ?? 'dev-cookie-secret';
 
   // 由于 Nest 的 Fastify 类型定义与部分插件的泛型不完全匹配，这里进行类型断言以避免 TS 推断冲突
+  // 启用响应压缩（gzip/brotli）- 可减少 50-70% 网络流量
+  await app.register(fastifyCompress as any, {
+    encodings: ['gzip', 'deflate', 'br'], // 支持 gzip, deflate, brotli
+    threshold: 1024, // 只压缩大于 1KB 的响应
+  });
   await app.register(fastifyHelmet as any, { contentSecurityPolicy: false } as any);
   await app.register(fastifyCookie as any, { secret: cookieSecret } as any);
   await app.register(fastifyMultipart as any);
