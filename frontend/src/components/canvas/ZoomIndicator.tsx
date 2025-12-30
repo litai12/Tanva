@@ -2,13 +2,54 @@ import React, { useState, useRef, useEffect } from 'react';
 import paper from 'paper';
 import { useCanvasStore, useUIStore } from '@/stores';
 import { Button } from '@/components/ui/button';
-import { BoundsCalculator } from '@/utils/BoundsCalculator';
+import { BoundsCalculator, type Bounds } from '@/utils/BoundsCalculator';
 
 const ZoomIndicator: React.FC = () => {
     const { zoom, setZoom, setPan } = useCanvasStore();
     const { focusMode } = useUIStore();
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+
+    // 获取 Flow 节点的边界（世界坐标）
+    const getFlowNodeBounds = (): Bounds[] => {
+        const out: Bounds[] = [];
+        try {
+            const tanvaFlow = (window as any).tanvaFlow;
+            if (!tanvaFlow?.rf) return out;
+
+            const nodes = tanvaFlow.rf.getNodes?.() || [];
+
+            for (const node of nodes) {
+                if (!node.position) continue;
+
+                // Flow 节点的位置是世界坐标
+                const nodeWidth = node.data?.boxW ?? node.width ?? 200;
+                const nodeHeight = node.data?.boxH ?? node.height ?? 150;
+
+                const worldX = node.position.x;
+                const worldY = node.position.y;
+
+                if (nodeWidth > 0 && nodeHeight > 0) {
+                    out.push({
+                        x: worldX,
+                        y: worldY,
+                        width: nodeWidth,
+                        height: nodeHeight,
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('获取 Flow 节点边界失败:', e);
+        }
+        return out;
+    };
+
+    // 获取所有内容的边界（Paper.js + Flow 节点）
+    const getAllContentBounds = (): Bounds[] => {
+        const paperBounds = BoundsCalculator.getPaperDrawingBounds();
+        const flowBounds = getFlowNodeBounds();
+        return [...paperBounds, ...flowBounds];
+    };
 
     const getViewMetrics = () => {
         const view = paper?.view;
@@ -67,32 +108,53 @@ const ZoomIndicator: React.FC = () => {
     };
 
     const resetZoom = () => {
-        setZoom(1.0);
+        const metrics = getViewMetrics();
+        if (!metrics) {
+            // 备用方案：简单重置
+            setZoom(1.0);
+            const dpr = window.devicePixelRatio || 1;
+            const centerX = (window.innerWidth / 2) * dpr;
+            const centerY = (window.innerHeight / 2) * dpr;
+            setPan(centerX, centerY);
+            setMenuOpen(false);
+            return;
+        }
+
+        // 获取画布内容的边界（包含 Flow 节点）
+        const bounds = getAllContentBounds();
+
+        if (bounds.length === 0) {
+            // 没有内容时，将世界坐标原点居中
+            setZoom(1.0);
+            setPan(metrics.centerX, metrics.centerY);
+            setMenuOpen(false);
+            return;
+        }
+
+        // 计算所有元素的联合边界中心点
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const b of bounds) {
+            minX = Math.min(minX, b.x);
+            minY = Math.min(minY, b.y);
+            maxX = Math.max(maxX, b.x + b.width);
+            maxY = Math.max(maxY, b.y + b.height);
+        }
+
+        const contentCenterX = (minX + maxX) / 2;
+        const contentCenterY = (minY + maxY) / 2;
+
+        // 设置缩放为 100%
+        const newZoom = 1.0;
+        setZoom(newZoom);
 
         // 视口变换公式：screen = zoom * (world + pan)
-        // 要让世界坐标原点 (0,0) 显示在屏幕中心：
-        // screenCenter = zoom * (0 + pan) => pan = screenCenter / zoom
-        // 当 zoom = 1 时，pan = screenCenter
-        const metrics = getViewMetrics();
-        if (metrics) {
-            setPan(metrics.centerX, metrics.centerY);
-        } else {
-            // 备用方案：使用画布元素的尺寸
-            const canvas = paper?.view?.element as HTMLCanvasElement | undefined;
-            if (canvas) {
-                const dpr = window.devicePixelRatio || 1;
-                const rect = canvas.getBoundingClientRect();
-                const centerX = (rect.width / 2) * dpr;
-                const centerY = (rect.height / 2) * dpr;
-                setPan(centerX, centerY);
-            } else {
-                // 最后的备用方案：使用窗口尺寸
-                const dpr = window.devicePixelRatio || 1;
-                const centerX = (window.innerWidth / 2) * dpr;
-                const centerY = (window.innerHeight / 2) * dpr;
-                setPan(centerX, centerY);
-            }
-        }
+        // 要让内容中心显示在屏幕中心：
+        // screenCenterX = newZoom * (contentCenterX + panX)
+        // panX = screenCenterX / newZoom - contentCenterX
+        const newPanX = metrics.centerX / newZoom - contentCenterX;
+        const newPanY = metrics.centerY / newZoom - contentCenterY;
+
+        setPan(newPanX, newPanY);
         setMenuOpen(false);
     };
 
@@ -104,7 +166,7 @@ const ZoomIndicator: React.FC = () => {
             return;
         }
 
-        const bounds = BoundsCalculator.getPaperDrawingBounds();
+        const bounds = getAllContentBounds();
         if (bounds.length === 0) {
             // 没有元素时回到中心
             setZoom(1.0);
