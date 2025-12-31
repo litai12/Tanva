@@ -256,13 +256,15 @@ export const authApi = {
     });
     const result = await json<{ ok: boolean; error?: string }>(res);
 
-    // 处理特定的错误信息，转换为用户友好的提示
-    if (!result.ok && result.error) {
-      if (result.error.includes("请等待")) {
+    // 如果后端返回 ok=false，则将其作为异常抛出，统一由调用方在 catch 中展示全局提示
+    if (!result.ok) {
+      const err = result.error || "发送失败";
+      if (err.includes("请等待")) {
         throw new Error("请等待 60 秒后再试");
-      } else if (result.error.includes("BUSINESS_LIMIT_CONTROL")) {
+      } else if (err.includes("BUSINESS_LIMIT_CONTROL")) {
         throw new Error("今日发送过于频繁，每日只允许发送10条短信，请明日再试");
       }
+      throw new Error(err);
     }
 
     return result;

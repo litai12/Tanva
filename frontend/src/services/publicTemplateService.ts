@@ -1,0 +1,190 @@
+import type { FlowTemplate, TemplateIndexEntry } from '@/types/template';
+
+export interface PublicTemplate extends TemplateIndexEntry {
+  templateData?: FlowTemplate;
+  isActive?: boolean;
+  sortOrder?: number;
+  thumbnailSmall?: string;
+  updatedAt?: string;
+}
+
+const API_BASE = '/api';
+
+// 获取公共模板索引
+export async function fetchPublicTemplateIndex(): Promise<TemplateIndexEntry[]> {
+  try {
+    const response = await fetch(`${API_BASE}/templates/index`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.warn('fetchPublicTemplateIndex error:', error);
+    return [];
+  }
+}
+
+// 根据ID获取公共模板数据
+export async function fetchPublicTemplateById(id: string): Promise<FlowTemplate | null> {
+  try {
+    const response = await fetch(`${API_BASE}/templates/${id}`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data as FlowTemplate;
+  } catch (error) {
+    console.warn('fetchPublicTemplateById error:', error);
+    return null;
+  }
+}
+
+// Admin API functions (需要认证)
+const ADMIN_API_BASE = '/api/admin';
+
+export interface CreateTemplateRequest {
+  name: string;
+  category?: string;
+  description?: string;
+  tags?: string[];
+  thumbnail?: string;
+  thumbnailSmall?: string;
+  templateData?: any;
+  templateJsonKey?: string;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export interface UpdateTemplateRequest {
+  name?: string;
+  category?: string;
+  description?: string;
+  tags?: string[];
+  thumbnail?: string;
+  thumbnailSmall?: string;
+  templateData?: any;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export interface TemplateQueryParams {
+  page?: number;
+  pageSize?: number;
+  category?: string;
+  isActive?: boolean;
+  search?: string;
+}
+
+export interface TemplateListResponse {
+  items: PublicTemplate[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+// 创建模板
+export async function createTemplate(data: CreateTemplateRequest): Promise<PublicTemplate> {
+  const response = await fetch(`${ADMIN_API_BASE}/templates`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create template: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// 获取模板列表
+export async function fetchTemplates(params: TemplateQueryParams = {}): Promise<TemplateListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.set('page', params.page.toString());
+  if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString());
+  if (params.category) searchParams.set('category', params.category);
+  if (params.isActive !== undefined) searchParams.set('isActive', params.isActive.toString());
+  if (params.search) searchParams.set('search', params.search);
+
+  const response = await fetch(`${ADMIN_API_BASE}/templates?${searchParams}`, {
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch templates: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// 获取单个模板
+export async function fetchTemplate(id: string): Promise<PublicTemplate> {
+  const response = await fetch(`${ADMIN_API_BASE}/templates/${id}`, {
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch template: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// 更新模板
+export async function updateTemplate(id: string, data: UpdateTemplateRequest): Promise<PublicTemplate> {
+  const response = await fetch(`${ADMIN_API_BASE}/templates/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to update template: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// 删除模板
+export async function deleteTemplate(id: string): Promise<void> {
+  const response = await fetch(`${ADMIN_API_BASE}/templates/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete template: ${response.statusText}`);
+  }
+}
+
+// 获取模板分类
+export async function fetchTemplateCategories(): Promise<string[]> {
+  const response = await fetch(`${ADMIN_API_BASE}/templates/categories`, {
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch categories: ${response.statusText}`);
+  }
+
+  return response.json();
+}
