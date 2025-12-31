@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { Loader2 } from "lucide-react";
+import { authApi } from "@/services/authApi";
+import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
 
 export default function LoginPage() {
   const [tab, setTab] = useState<"password" | "sms">("password");
@@ -13,6 +15,7 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const navigate = useNavigate();
   const { login, loginWithSms, error } = useAuthStore();
   const loadProjects = useProjectStore((s) => s.load);
@@ -58,6 +61,17 @@ export default function LoginPage() {
       setIsSubmitting(false);
     }
   };
+
+  // 发送验证码的冷却（秒）
+  const [sendCooldown, setSendCooldown] = useState(0);
+  useEffect(() => {
+    if (sendCooldown <= 0) return;
+    const t = setInterval(
+      () => setSendCooldown((s) => Math.max(0, s - 1)),
+      1000
+    );
+    return () => clearInterval(t);
+  }, [sendCooldown]);
 
   return (
     <div className='min-h-screen flex items-center justify-center relative overflow-hidden'>
@@ -146,12 +160,12 @@ export default function LoginPage() {
                     )}
                   </Button>
                   <div className='flex justify-between text-sm'>
-                    <Link
-                      to='#'
+                    <button
+                      onClick={() => setIsForgotPasswordOpen(true)}
                       className='text-white/80 hover:text-white transition-all duration-200'
                     >
                       忘记密码
-                    </Link>
+                    </button>
                     <Link
                       to='/auth/register'
                       className='text-white/80 hover:text-white transition-all duration-200'
@@ -181,25 +195,58 @@ export default function LoginPage() {
                       variant='outline'
                       className='whitespace-nowrap flex-shrink-0 min-w-[80px] rounded-xl bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm transition-all duration-200 h-12'
                       onClick={async () => {
+                        if (sendCooldown > 0) return;
                         if (!phone) {
-                          alert("请输入手机号");
+                          window.dispatchEvent(
+                            new CustomEvent("toast", {
+                              detail: {
+                                message: "请输入手机号",
+                                type: "error",
+                              },
+                            })
+                          );
+                          return;
+                        }
+                        if (!/^1[3-9]\d{9}$/.test(phone)) {
+                          window.dispatchEvent(
+                            new CustomEvent("toast", {
+                              detail: {
+                                message: "手机号格式不正确",
+                                type: "error",
+                              },
+                            })
+                          );
                           return;
                         }
                         try {
-                          await fetch("/api/auth/send-sms", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ phone }),
-                            credentials: "include",
-                          });
-                          setCode("336699");
-                          alert("未发送验证码（未开放）");
-                        } catch (e) {
-                          alert("发送失败");
+                          const res = await authApi.sendSms({ phone });
+                          // 如果后端返回调试码（开发模式），自动填充到输入框以便测试
+                          // 不自动填充验证码；始终提示用户手动输入短信收到的验证码
+                          window.dispatchEvent(
+                            new CustomEvent("toast", {
+                              detail: {
+                                message:
+                                  "验证码已发送，请注意查收短信并手动输入",
+                                type: "success",
+                              },
+                            })
+                          );
+                          // 启动 60s 冷却
+                          setSendCooldown(60);
+                        } catch (err: any) {
+                          window.dispatchEvent(
+                            new CustomEvent("toast", {
+                              detail: {
+                                message: err?.message || "发送失败",
+                                type: "error",
+                              },
+                            })
+                          );
                         }
                       }}
+                      disabled={sendCooldown > 0}
                     >
-                      发送
+                      {sendCooldown > 0 ? `重新发送(${sendCooldown}s)` : "发送"}
                     </Button>
                   </div>
                   {error && (
@@ -227,6 +274,16 @@ export default function LoginPage() {
           </div>
         </div>
       </Card>
+
+      {/* 忘记密码模态框 */}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordOpen}
+        onClose={() => setIsForgotPasswordOpen(false)}
+        onSuccess={() => {
+          // 密码重置成功后可以自动切换到密码登录标签页
+          setTab("password");
+        }}
+      />
     </div>
   );
 }
