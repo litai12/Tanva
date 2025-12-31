@@ -2,12 +2,16 @@
  * 图片URL缓存服务
  * 用于避免重复的远程URL转换和上传操作
  * 解决性能问题：每次操作都会重新处理同一张图片
+ *
+ * 优化：dataUrl 存储改为使用 Base64CacheService，避免内存膨胀
  */
+
+import { base64CacheService } from './base64CacheService';
 
 interface CacheEntry {
   url: string;
   timestamp: number;
-  dataUrl?: string; // 可选的 dataUrl 缓存
+  base64CacheId?: string; // 改为存储缓存 ID，而非完整 dataUrl
 }
 
 // 缓存过期时间：30分钟
@@ -86,15 +90,13 @@ class ImageUrlCacheService {
    * @param imageId 图片ID
    * @param url 远程URL
    * @param projectId 项目ID（可选）
-   * @param dataUrl 可选的 dataUrl
    */
-  setCachedUrl(imageId: string, url: string, projectId?: string | null, dataUrl?: string): void {
+  setCachedUrl(imageId: string, url: string, projectId?: string | null): void {
     const key = this.getCacheKey(imageId, projectId);
 
     this.cache.set(key, {
       url,
       timestamp: Date.now(),
-      dataUrl,
     });
 
     console.log(`💾 [ImageUrlCache] 缓存URL: ${imageId} -> ${url.substring(0, 50)}...`);
@@ -106,44 +108,71 @@ class ImageUrlCacheService {
   }
 
   /**
-   * 获取缓存的 dataUrl
+   * 获取缓存的 dataUrl（从 Base64CacheService 获取）
    */
-  getCachedDataUrl(imageId: string, projectId?: string | null): string | null {
+  async getCachedDataUrl(imageId: string, projectId?: string | null): Promise<string | null> {
     const key = this.getCacheKey(imageId, projectId);
     const entry = this.cache.get(key);
 
-    if (entry && this.isValid(entry) && entry.dataUrl) {
-      console.log(`📦 [ImageUrlCache] 命中 dataUrl 缓存: ${imageId}`);
-      return entry.dataUrl;
+    if (entry && this.isValid(entry) && entry.base64CacheId) {
+      // 从 Base64CacheService 获取
+      const dataUrl = await base64CacheService.getBase64(entry.base64CacheId, entry.url);
+      if (dataUrl) {
+        console.log(`📦 [ImageUrlCache] 命中 dataUrl 缓存: ${imageId}`);
+        return dataUrl;
+      }
     }
 
     return null;
   }
 
   /**
-   * 更新缓存的 dataUrl
+   * 更新缓存的 dataUrl（存入 Base64CacheService）
    */
-  updateDataUrl(imageId: string, dataUrl: string, projectId?: string | null): void {
+  async updateDataUrl(imageId: string, dataUrl: string, projectId?: string | null): Promise<void> {
     const key = this.getCacheKey(imageId, projectId);
     const entry = this.cache.get(key);
 
+    // 生成缓存 ID
+    const cacheId = `url-cache-${imageId}-${projectId || 'default'}`;
+
+    // 存入 Base64CacheService
+    await base64CacheService.setBase64(cacheId, dataUrl, {
+      remoteUrl: entry?.url,
+      projectId,
+    });
+
     if (entry) {
-      entry.dataUrl = dataUrl;
-      entry.timestamp = Date.now(); // 刷新时间戳
+      entry.base64CacheId = cacheId;
+      entry.timestamp = Date.now();
+    } else {
+      // 如果没有 entry，创建一个新的
+      this.cache.set(key, {
+        url: '',
+        timestamp: Date.now(),
+        base64CacheId: cacheId,
+      });
     }
   }
 
   /**
-   * 删除特定图片的缓存
+   * 删除特定图片的缓存（同时清理 Base64CacheService）
    */
-  invalidate(imageId: string, projectId?: string | null): void {
+  async invalidate(imageId: string, projectId?: string | null): Promise<void> {
     const key = this.getCacheKey(imageId, projectId);
+    const entry = this.cache.get(key);
+
+    // 清理 Base64CacheService 中的缓存
+    if (entry?.base64CacheId) {
+      await base64CacheService.remove(entry.base64CacheId);
+    }
+
     this.cache.delete(key);
     console.log(`🗑️ [ImageUrlCache] 删除缓存: ${imageId}`);
   }
 
   /**
-   * 清空所有缓存
+   * 清空所有缓存（注意：不清空 Base64CacheService，因为可能被其他地方使用）
    */
   clear(): void {
     this.cache.clear();

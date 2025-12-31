@@ -1517,7 +1517,11 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 if (placeholderId) {
                     removePredictedPlaceholder(placeholderId);
                 }
-                logger.error('图片加载失败');
+                logger.error('图片加载失败', { imageId, rasterSource, error: e });
+                // 🔥 显示用户友好的错误提示
+                window.dispatchEvent(new CustomEvent('toast', {
+                    detail: { message: '图片加载失败，请检查网络或图片链接', type: 'error' }
+                }));
             };
 
             // 触发加载

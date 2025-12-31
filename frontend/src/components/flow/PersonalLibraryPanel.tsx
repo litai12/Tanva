@@ -221,7 +221,12 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
 
   const readDataUrl = async (url: string): Promise<string | null> => {
     try {
-      const response = await fetch(url, { mode: 'cors', credentials: 'include' });
+      // 🔥 修复：对于 OSS 图片，不使用 credentials，避免 CORS 问题
+      const isOssUrl = url.includes('.aliyuncs.com');
+      const response = await fetch(url, {
+        mode: 'cors',
+        credentials: isOssUrl ? 'omit' : 'include'
+      });
       if (!response.ok) return null;
       const blob = await response.blob();
       return await new Promise((resolve, reject) => {
