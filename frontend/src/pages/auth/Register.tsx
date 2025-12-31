@@ -33,35 +33,55 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className='min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-sky-50'>
-      <Card className='w-full max-w-xl p-8'>
-        <div className='flex items-center justify-center mb-6'>
-          <img src='/Logo.svg' className='h-6 mr-2' />
-          <div className='text-2xl font-semibold'>创建账户</div>
+    <div className='min-h-screen flex items-center justify-center relative overflow-hidden'>
+      {/* 视频背景 */}
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        className='absolute inset-0 w-full h-full object-cover z-[1]'
+      >
+        <source src='/OpenVideo.mp4' type='video/mp4' />
+        您的浏览器不支持视频播放。
+      </video>
+
+      {/* 黑色透明蒙版 */}
+      <div className='absolute inset-0 bg-black/50 z-[2]'></div>
+
+      <Card className='w-full max-w-xl p-8 relative z-10 backdrop-blur-md bg-white/10 border border-white/20 shadow-2xl'>
+        <div className='flex items-center justify-center mb-8'>
+          {/* <img src='/LogoText.svg' className='h-8 w-auto brightness-0 invert drop-shadow-lg mr-3' /> */}
+                  <div className='text-2xl font-semibold text-white drop-shadow-md'>注册账号</div>
         </div>
-        <form onSubmit={onSubmit} className='space-y-4'>
+
+        <form onSubmit={onSubmit} className='space-y-6'>
           <Input
             placeholder='请输入手机号（必填）'
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             required
+            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <Input
             placeholder='邮箱（选填）'
             type='email'
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <Input
             placeholder='昵称（选填）'
             value={name}
             onChange={(e) => setName(e.target.value)}
+            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <Input
             placeholder='邀请码（必填）'
             value={invitationCode}
             onChange={(e) => setInvitationCode(e.target.value)}
             required
+            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <Input
             placeholder='设置密码（至少10位，含大小写与数字）'
@@ -69,6 +89,7 @@ export default function RegisterPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
           <Input
             placeholder='确认密码'
@@ -76,14 +97,19 @@ export default function RegisterPage() {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             required
+            className='bg-white/20 border-white/30 text-white placeholder:text-white/70 focus:bg-white/25 focus:border-white/50 transition-all duration-200 rounded-xl h-12'
           />
-          {error && <div className='text-red-500 text-sm'>{error}</div>}
-          <Button type='submit' className='w-full' disabled={loading}>
+          {error && <div className='text-red-400 text-sm drop-shadow-md'>{error}</div>}
+          <Button
+            type='submit'
+            className='w-full bg-white/20 hover:bg-white/30 text-white border border-white/30 rounded-xl h-12 font-medium backdrop-blur-sm transition-all duration-200 disabled:opacity-70 hover:shadow-lg'
+            disabled={loading}
+          >
             {loading ? "提交中..." : "注册"}
           </Button>
-          <div className='text-center text-sm text-slate-500'>
-            已有账号？
-            <Link to='/auth/login' className='text-sky-600'>
+          <div className='text-center text-sm'>
+            <span className='text-white/80 drop-shadow-md'>已有账号？</span>
+            <Link to='/auth/login' className='text-white hover:text-white/90 transition-all duration-200 font-medium ml-1'>
               去登录
             </Link>
           </div>
