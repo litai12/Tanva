@@ -5,7 +5,6 @@ export interface TemplateIndexEntry {
   description?: string;
   tags?: string[];
   thumbnail?: string; // relative path or dataURL
-  path: string; // path to the template JSON in public
 }
 
 export interface TemplateNode {

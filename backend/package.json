@@ -9,6 +9,7 @@
     "lint": "echo 'no lint configured'"
   },
   "dependencies": {
+    "@alicloud/sms-sdk": "^1.1.6",
     "@fastify/compress": "^6.4.0",
     "@fastify/cookie": "^9.0.0",
     "@fastify/helmet": "^11.0.0",
@@ -30,6 +31,7 @@
     "cookie": "^0.6.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
+    "ioredis": "^5.8.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
