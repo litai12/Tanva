@@ -1055,17 +1055,25 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
             };
 
-            // 创建图片的 Raster 对象（先绑定 onLoad 再设置 source，避免极快缓存触发导致丢失回调）
-            const raster = new paper.Raster();
-            try {
-                if (shouldUseAnonymousCrossOrigin(rasterSource)) {
-                    (raster as any).crossOrigin = 'anonymous';
+            // 🔥 创建图片加载函数，支持 CORS 失败后重试
+            const loadRasterWithFallback = (useCrossOrigin: boolean) => {
+                const raster = new paper.Raster();
+                try {
+                    if (useCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
+                        (raster as any).crossOrigin = 'anonymous';
+                    }
+                } catch {}
+                raster.position = targetPosition;
+                if (resolvedRemoteUrl) {
+                    raster.data = { ...(raster.data || {}), remoteUrl: resolvedRemoteUrl };
                 }
-            } catch {}
-            raster.position = targetPosition;
-            if (resolvedRemoteUrl) {
-                raster.data = { ...(raster.data || {}), remoteUrl: resolvedRemoteUrl };
-            }
+
+                return raster;
+            };
+
+            // 创建图片的 Raster 对象
+            let raster = loadRasterWithFallback(true);
+            let hasRetried = false;
 
             // 超时兜底，防止网络问题导致占位框一直存在
             let loadTimeoutId: number | null = window.setTimeout(() => {
@@ -1506,23 +1514,42 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 paper.view.update();
             };
 
-            raster.onError = (e: any) => {
+            // 保存 onLoad 处理器引用（在 onError 之前定义）
+            const onLoadHandler = raster.onLoad;
+
+            // 🔥 定义 onError 处理器（支持 CORS 失败后重试）
+            const onErrorHandler = (e: any) => {
+                // CORS 失败时，尝试不带 crossOrigin 重新加载
+                if (!hasRetried && shouldUseAnonymousCrossOrigin(rasterSource)) {
+                    hasRetried = true;
+                    logger.upload('🔄 CORS 加载失败，尝试不带 crossOrigin 重新加载...');
+                    try { raster.remove(); } catch {}
+
+                    // 创建新的 Raster，不设置 crossOrigin
+                    raster = loadRasterWithFallback(false);
+                    raster.onLoad = onLoadHandler;
+                    raster.onError = onErrorHandler;
+                    raster.source = rasterSource;
+                    return;
+                }
+
                 if (loadTimeoutId !== null) {
                     clearTimeout(loadTimeoutId);
                     loadTimeoutId = null;
                 }
-                // 移除加载指示器
                 removeLoadingIndicator();
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
                 if (placeholderId) {
                     removePredictedPlaceholder(placeholderId);
                 }
                 logger.error('图片加载失败', { imageId, rasterSource, error: e });
-                // 🔥 显示用户友好的错误提示
                 window.dispatchEvent(new CustomEvent('toast', {
                     detail: { message: '图片加载失败，请检查网络或图片链接', type: 'error' }
                 }));
             };
+
+            // 绑定错误处理器
+            raster.onError = onErrorHandler;
 
             // 触发加载
             raster.source = rasterSource;
