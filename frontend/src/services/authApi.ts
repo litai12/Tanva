@@ -78,6 +78,35 @@ async function json<T>(res: Response): Promise<T> {
     try {
       const data = await res.json();
       msg = data?.message || data?.error || msg;
+
+      // 全局处理特定的错误信息
+      if (typeof window !== "undefined") {
+        // 处理短信发送频率限制
+        if (msg.includes("请等待 60 秒后再试")) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "发送过于频繁，请等待60秒后再试",
+                type: "error",
+              },
+            })
+          );
+        }
+        // 处理阿里云业务流控错误
+        else if (
+          msg.includes("isv.BUSINESS_LIMIT_CONTROL") ||
+          msg.includes("触发天级流控")
+        ) {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: "发送过于频繁，请稍后再试",
+                type: "error",
+              },
+            })
+          );
+        }
+      }
     } catch {}
     throw new Error(msg);
   }
@@ -225,7 +254,18 @@ export const authApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    return json<{ ok: boolean }>(res);
+    const result = await json<{ ok: boolean; error?: string }>(res);
+
+    // 处理特定的错误信息，转换为用户友好的提示
+    if (!result.ok && result.error) {
+      if (result.error.includes("请等待")) {
+        throw new Error("请等待 60 秒后再试");
+      } else if (result.error.includes("BUSINESS_LIMIT_CONTROL")) {
+        throw new Error("今日发送过于频繁，每日只允许发送10条短信，请明日再试");
+      }
+    }
+
+    return result;
   },
   async me() {
     if (isMock) {
@@ -341,5 +381,27 @@ export const authApi = {
       credentials: "include",
     });
     return json<{ success: boolean; hasCustomKey: boolean; mode: string }>(res);
+  },
+
+  // 忘记密码重置
+  async resetPassword(payload: {
+    phone: string;
+    code: string;
+    newPassword: string;
+  }) {
+    if (isMock) {
+      await delay(500);
+      // Mock模式下简单验证
+      if (payload.code !== FIXED_SMS_CODE) {
+        throw new Error("验证码错误");
+      }
+      return { success: true };
+    }
+    const res = await fetch(`${base}/api/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return json<{ success: boolean }>(res);
   },
 };

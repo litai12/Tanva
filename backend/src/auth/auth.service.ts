@@ -1,10 +1,15 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
-import * as bcrypt from 'bcryptjs';
-import { UsersService } from '../users/users.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { RegisterDto } from './dto/register.dto';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+} from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "@nestjs/config";
+import * as bcrypt from "bcryptjs";
+import { UsersService } from "../users/users.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { RegisterDto } from "./dto/register.dto";
+import { SmsService } from "./sms.service";
 
 type TokenPair = { accessToken: string; refreshToken: string };
 
@@ -15,19 +20,26 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly smsService: SmsService
   ) {}
 
-  private async signTokens(user: { id: string; email: string; role: string }): Promise<TokenPair> {
+  private async signTokens(user: {
+    id: string;
+    email: string;
+    role: string;
+  }): Promise<TokenPair> {
     const payload = { sub: user.id, email: user.email, role: user.role };
-    const accessTtl = this.config.get<string>('JWT_ACCESS_TTL') || '900s';
-    const refreshTtl = this.config.get<string>('JWT_REFRESH_TTL') || '30d';
+    const accessTtl = this.config.get<string>("JWT_ACCESS_TTL") || "900s";
+    const refreshTtl = this.config.get<string>("JWT_REFRESH_TTL") || "30d";
 
     const accessToken = await this.jwt.signAsync(payload, {
-      secret: this.config.get<string>('JWT_ACCESS_SECRET') || 'dev-access-secret',
+      secret:
+        this.config.get<string>("JWT_ACCESS_SECRET") || "dev-access-secret",
       expiresIn: accessTtl,
     });
     const refreshToken = await this.jwt.signAsync(payload, {
-      secret: this.config.get<string>('JWT_REFRESH_SECRET') || 'dev-refresh-secret',
+      secret:
+        this.config.get<string>("JWT_REFRESH_SECRET") || "dev-refresh-secret",
       expiresIn: refreshTtl,
     });
     return { accessToken, refreshToken };
@@ -35,64 +47,81 @@ export class AuthService {
 
   private cookieOptions(request?: any) {
     // 检测是否通过 HTTPS 访问（Cloudflare Tunnel 会设置 x-forwarded-proto: https）
-    const isHttps = request?.headers?.['x-forwarded-proto'] === 'https' || 
-                    request?.protocol === 'https' ||
-                    this.config.get('COOKIE_SECURE') === 'true';
-    
+    const isHttps =
+      request?.headers?.["x-forwarded-proto"] === "https" ||
+      request?.protocol === "https" ||
+      this.config.get("COOKIE_SECURE") === "true";
+
     // 如果通过 HTTPS（如 Cloudflare Tunnel），使用 secure: true 和 sameSite: 'none'
     // 否则使用 secure: false 和 sameSite: 'lax'（本地开发）
-    const secureEnv = this.config.get('COOKIE_SECURE');
-    const secure = secureEnv ? secureEnv === 'true' : isHttps;
-    
-    const sameSiteEnv = this.config.get('COOKIE_SAMESITE');
-    const sameSite = sameSiteEnv ? sameSiteEnv : (secure ? 'none' : 'lax');
-    
-    const rawDomain = this.config.get<string>('COOKIE_DOMAIN');
+    const secureEnv = this.config.get("COOKIE_SECURE");
+    const secure = secureEnv ? secureEnv === "true" : isHttps;
+
+    const sameSiteEnv = this.config.get("COOKIE_SAMESITE");
+    const sameSite = sameSiteEnv ? sameSiteEnv : secure ? "none" : "lax";
+
+    const rawDomain = this.config.get<string>("COOKIE_DOMAIN");
     // 注意：localhost/127.0.0.1 不能作为 Cookie Domain；开发环境不要设置 domain
     // Cloudflare Tunnel 也不需要设置 domain，让浏览器自动处理
-    const invalidLocal = rawDomain === 'localhost' || rawDomain === '127.0.0.1' || rawDomain === '';
+    const invalidLocal =
+      rawDomain === "localhost" ||
+      rawDomain === "127.0.0.1" ||
+      rawDomain === "";
     const domain = invalidLocal ? undefined : rawDomain;
-    
-    return { httpOnly: true, secure, sameSite, domain, path: '/' } as const;
+
+    return { httpOnly: true, secure, sameSite, domain, path: "/" } as const;
   }
 
   async register(dto: RegisterDto, meta?: { ip?: string; ua?: string }) {
     // 默认强制邀请码，如需关闭可设置 INVITE_REQUIRED=false
-    const inviteRequired = (this.config.get<string>('INVITE_REQUIRED') ?? 'true') === 'true';
+    const inviteRequired =
+      (this.config.get<string>("INVITE_REQUIRED") ?? "true") === "true";
     const trimmedCode = dto.invitationCode?.trim();
 
     if (inviteRequired && !trimmedCode) {
-      throw new BadRequestException('需要邀请码');
+      throw new BadRequestException("需要邀请码");
     }
 
     const hash = await bcrypt.hash(dto.password, 10);
 
     return this.prisma.$transaction(async (tx) => {
-      const existsByPhone = await tx.user.findUnique({ where: { phone: dto.phone } });
-      if (existsByPhone) throw new UnauthorizedException('手机号已注册');
+      const existsByPhone = await tx.user.findUnique({
+        where: { phone: dto.phone },
+      });
+      if (existsByPhone) throw new UnauthorizedException("手机号已注册");
       if (dto.email) {
-        const existsByEmail = await tx.user.findUnique({ where: { email: dto.email.toLowerCase() } });
-        if (existsByEmail) throw new UnauthorizedException('邮箱已存在');
+        const existsByEmail = await tx.user.findUnique({
+          where: { email: dto.email.toLowerCase() },
+        });
+        if (existsByEmail) throw new UnauthorizedException("邮箱已存在");
       }
 
-      let inviteContext:
-        | { inviterUserId?: string; codeId: string }
-        | null = null;
+      let inviteContext: { inviterUserId?: string; codeId: string } | null =
+        null;
 
       if (trimmedCode) {
-        const invite = await tx.invitationCode.findUnique({ where: { code: trimmedCode } });
-        if (!invite) throw new BadRequestException('邀请码不存在');
-        if (invite.status !== 'active') throw new BadRequestException('邀请码不可用');
-        if (invite.usedCount >= invite.maxUses) throw new BadRequestException('邀请码已用完');
+        const invite = await tx.invitationCode.findUnique({
+          where: { code: trimmedCode },
+        });
+        if (!invite) throw new BadRequestException("邀请码不存在");
+        if (invite.status !== "active")
+          throw new BadRequestException("邀请码不可用");
+        if (invite.usedCount >= invite.maxUses)
+          throw new BadRequestException("邀请码已用完");
 
         const updateResult = await tx.invitationCode.updateMany({
-          where: { id: invite.id, status: 'active', usedCount: { lt: invite.maxUses } },
+          where: {
+            id: invite.id,
+            status: "active",
+            usedCount: { lt: invite.maxUses },
+          },
           data: {
             usedCount: { increment: 1 },
-            status: invite.usedCount + 1 >= invite.maxUses ? 'used' : 'active',
+            status: invite.usedCount + 1 >= invite.maxUses ? "used" : "active",
           },
         });
-        if (updateResult.count === 0) throw new BadRequestException('邀请码已被用完');
+        if (updateResult.count === 0)
+          throw new BadRequestException("邀请码已被用完");
 
         inviteContext = {
           inviterUserId: invite.inviterUserId || undefined,
@@ -137,16 +166,19 @@ export class AuthService {
 
   async validateUser(phone: string, password: string) {
     const user = await this.usersService.findByPhone(phone);
-    if (!user) throw new UnauthorizedException('账号或密码错误');
+    if (!user) throw new UnauthorizedException("账号或密码错误");
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('账号或密码错误');
+    if (!ok) throw new UnauthorizedException("账号或密码错误");
     return user;
   }
 
-  async login(user: { id: string; email: string; role: string }, meta?: { ip?: string; ua?: string }) {
+  async login(
+    user: { id: string; email: string; role: string },
+    meta?: { ip?: string; ua?: string }
+  ) {
     const tokens = await this.signTokens(user);
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
-    const refreshTtlSec = this.config.get('JWT_REFRESH_TTL') || '30d';
+    const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
     const expiresAt = new Date(Date.now() + this.parseTtlMs(refreshTtlSec));
     await this.prisma.refreshToken.create({
       data: {
@@ -160,27 +192,64 @@ export class AuthService {
     return tokens;
   }
 
-  async loginWithSms(phone: string, code: string, meta?: { ip?: string; ua?: string }) {
-    if (code !== '336699') throw new UnauthorizedException('验证码错误');
+  async loginWithSms(
+    phone: string,
+    code: string,
+    meta?: { ip?: string; ua?: string }
+  ) {
+    const verify = await this.smsService.verifyCode(phone, code);
+    if (!verify.ok) throw new UnauthorizedException(verify.msg || "验证码错误");
     const user = await this.usersService.findByPhone(phone);
-    if (!user) throw new UnauthorizedException('用户不存在，请先注册');
-    const tokens = await this.login({ id: user.id, email: user.email || '', role: user.role }, meta);
+    if (!user) throw new UnauthorizedException("用户不存在，请先注册");
+    const tokens = await this.login(
+      { id: user.id, email: user.email || "", role: user.role },
+      meta
+    );
     return { user, tokens };
+  }
+
+  async resetPassword(phone: string, code: string, newPassword: string) {
+    // 验证短信验证码
+    const verify = await this.smsService.verifyCode(phone, code);
+    if (!verify.ok) throw new BadRequestException(verify.msg || "验证码错误");
+
+    // 查找用户
+    const user = await this.usersService.findByPhone(phone);
+    if (!user) throw new BadRequestException("用户不存在");
+
+    // 加密新密码
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 更新用户密码
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hashedPassword },
+    });
+
+    return { success: true };
   }
 
   async refresh(userPayload: any, presentedToken: string) {
     const rt = await this.prisma.refreshToken.findFirst({
       where: { userId: userPayload.sub, isRevoked: false },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
-    if (!rt) throw new UnauthorizedException('刷新令牌无效');
+    if (!rt) throw new UnauthorizedException("刷新令牌无效");
     const ok = await bcrypt.compare(presentedToken, rt.tokenHash);
-    if (!ok) throw new UnauthorizedException('刷新令牌无效');
-    if (rt.expiresAt < new Date()) throw new UnauthorizedException('刷新令牌过期');
-    await this.prisma.refreshToken.update({ where: { id: rt.id }, data: { isRevoked: true } });
-    const tokens = await this.signTokens({ id: userPayload.sub, email: userPayload.email, role: userPayload.role });
+    if (!ok) throw new UnauthorizedException("刷新令牌无效");
+    if (rt.expiresAt < new Date())
+      throw new UnauthorizedException("刷新令牌过期");
+    await this.prisma.refreshToken.update({
+      where: { id: rt.id },
+      data: { isRevoked: true },
+    });
+    const tokens = await this.signTokens({
+      id: userPayload.sub,
+      email: userPayload.email,
+      role: userPayload.role,
+    });
     const refreshHash = await bcrypt.hash(tokens.refreshToken, 10);
-    const refreshTtlSec = this.config.get('JWT_REFRESH_TTL') || '30d';
+    const refreshTtlSec = this.config.get("JWT_REFRESH_TTL") || "30d";
     const expiresAt = new Date(Date.now() + this.parseTtlMs(refreshTtlSec));
     await this.prisma.refreshToken.create({
       data: { userId: userPayload.sub, tokenHash: refreshHash, expiresAt },
@@ -189,36 +258,44 @@ export class AuthService {
   }
 
   async logout(userId: string) {
-    await this.prisma.refreshToken.updateMany({ where: { userId, isRevoked: false }, data: { isRevoked: true } });
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, isRevoked: false },
+      data: { isRevoked: true },
+    });
   }
 
   setAuthCookies(reply: any, tokens: TokenPair, request?: any) {
     const base = this.cookieOptions(request);
-    reply.setCookie('access_token', tokens.accessToken, { ...base });
-    const refreshTtl = this.parseTtlMs(this.config.get('JWT_REFRESH_TTL') || '30d');
-    reply.setCookie('refresh_token', tokens.refreshToken, { ...base, maxAge: Math.floor(refreshTtl / 1000) });
+    reply.setCookie("access_token", tokens.accessToken, { ...base });
+    const refreshTtl = this.parseTtlMs(
+      this.config.get("JWT_REFRESH_TTL") || "30d"
+    );
+    reply.setCookie("refresh_token", tokens.refreshToken, {
+      ...base,
+      maxAge: Math.floor(refreshTtl / 1000),
+    });
   }
 
   clearAuthCookies(reply: any, request?: any) {
     const base = this.cookieOptions(request);
-    reply.clearCookie('access_token', base);
-    reply.clearCookie('refresh_token', base);
+    reply.clearCookie("access_token", base);
+    reply.clearCookie("refresh_token", base);
   }
 
   private parseTtlMs(ttl: string | number) {
-    if (typeof ttl === 'number') return ttl * 1000;
+    if (typeof ttl === "number") return ttl * 1000;
     const m = /^([0-9]+)([smhd])$/.exec(ttl);
     if (!m) return Number(ttl) * 1000;
     const n = Number(m[1]);
     const unit = m[2];
     switch (unit) {
-      case 's':
+      case "s":
         return n * 1000;
-      case 'm':
+      case "m":
         return n * 60 * 1000;
-      case 'h':
+      case "h":
         return n * 60 * 60 * 1000;
-      case 'd':
+      case "d":
         return n * 24 * 60 * 60 * 1000;
       default:
         return n * 1000;

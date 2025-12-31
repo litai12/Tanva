@@ -4,13 +4,15 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { SmsLoginDto } from './dto/sms-login.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt.guard';
 import { RefreshAuthGuard } from './guards/refresh.guard';
+import { SmsService } from './sms.service';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly sms: SmsService) {}
 
   @Post('register')
   async register(@Body() dto: RegisterDto, @Req() req: any) {
@@ -33,13 +35,19 @@ export class AuthController {
     return { user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role } };
   }
 
-  // 发送短信（测试环境固定 336699）
+  // 发送短信（生产需要配置阿里云并推荐配置 REDIS_URL；开发时可启用 SMS_DEBUG=true 返回调试码）
   @Post('send-sms')
   @HttpCode(HttpStatus.OK)
   async sendSms(@Body() body: { phone: string }) {
     if (!body?.phone) return { ok: false, error: '缺少手机号' };
-    // 这里仅返回固定验证码，不真正发送
-    return { ok: true, code: '336699' };
+    try {
+      const result = await this.sms.sendCode(body.phone);
+      // 如果启用了调试模式或者没有配置阿里云密钥，会返回 debugCode，方便开发调试
+      if (result.debugCode) return { ok: true, debugCode: result.debugCode };
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message || String(e) };
+    }
   }
 
   // 短信登录（固定验证码 336699）
@@ -52,6 +60,14 @@ export class AuthController {
     });
     this.auth.setAuthCookies(res, tokens, req);
     return { user: { id: user.id, email: user.email, name: user.name, phone: user.phone, role: user.role } };
+  }
+
+  // 忘记密码重置
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    const result = await this.auth.resetPassword(dto.phone, dto.code, dto.newPassword);
+    return result;
   }
 
   @Get('me')
