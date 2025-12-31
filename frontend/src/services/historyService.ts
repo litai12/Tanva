@@ -3,13 +3,14 @@ import { paperSaveService } from '@/services/paperSaveService';
 import type { ProjectContentSnapshot } from '@/types/project';
 
 type Snapshot = {
+  id: number;
   content: ProjectContentSnapshot;
   version: number;
   savedAt: string | null;
   label?: string;
   // 增量存储相关字段
   isIncremental?: boolean;           // 是否为增量快照
-  baseSnapshotIndex?: number;        // 基准快照索引（用于增量恢复）
+  baseSnapshotId?: number;           // 基准快照 ID（用于增量恢复）
   paperJsonDelta?: string;           // paperJson 的增量数据（如果是增量快照）
 };
 
@@ -18,9 +19,7 @@ type HistoryState = {
   present: Snapshot | null;
   future: Snapshot[];
   restoring: boolean;
-  // 增量存储：保留最近一个完整快照作为基准
-  lastFullSnapshot?: Snapshot | null;
-  lastFullSnapshotIndex?: number;
+  nextSnapshotId: number;
 };
 
 // ============ 内存优化配置 ============
@@ -37,13 +36,92 @@ function getProjectId(): string | null {
 function getOrInitState(pid: string): HistoryState {
   let st = projectHistory.get(pid);
   if (!st) {
-    st = { past: [], present: null, future: [], restoring: false, lastFullSnapshot: null, lastFullSnapshotIndex: -1 };
+    st = { past: [], present: null, future: [], restoring: false, nextSnapshotId: 1 };
     projectHistory.set(pid, st);
   }
   return st;
 }
 
 // ============ 增量存储工具函数 ============
+
+function allocateSnapshotId(st: HistoryState): number {
+  return st.nextSnapshotId++;
+}
+
+function isFullSnapshot(snapshot: Snapshot | null | undefined): snapshot is Snapshot {
+  return !!(snapshot && !snapshot.isIncremental && snapshot.content.paperJson && snapshot.content.paperJson.length > 0);
+}
+
+function findLatestFullSnapshotForCommit(st: HistoryState): Snapshot | null {
+  if (isFullSnapshot(st.present)) return st.present!;
+  for (let i = st.past.length - 1; i >= 0; i--) {
+    if (isFullSnapshot(st.past[i])) return st.past[i];
+  }
+  return null;
+}
+
+function getDistanceSinceLatestFullForCommit(st: HistoryState): number | null {
+  if (!st.present) return null;
+  if (isFullSnapshot(st.present)) return 0;
+  let distance = 1; // present（非 full）本身算一步
+  for (let i = st.past.length - 1; i >= 0; i--) {
+    if (isFullSnapshot(st.past[i])) return distance;
+    distance++;
+  }
+  return null;
+}
+
+function findSnapshotById(st: HistoryState, snapshotId: number): Snapshot | null {
+  if (st.present?.id === snapshotId) return st.present;
+  for (const s of st.past) if (s.id === snapshotId) return s;
+  for (const s of st.future) if (s.id === snapshotId) return s;
+  return null;
+}
+
+function dropOldestPastChunk(st: HistoryState): Snapshot[] {
+  const removed: Snapshot[] = [];
+  const first = st.past.shift();
+  if (!first) return removed;
+  removed.push(first);
+
+  // 若移除的是完整快照，则所有依赖该基准的增量快照都会失效，需要同步处理
+  if (isFullSnapshot(first)) {
+    const baseId = first.id;
+
+    // 若 present 依赖该基准，则将 present 物化为完整快照（避免当前状态不可恢复）
+    if (st.present?.isIncremental && st.present.baseSnapshotId === baseId && st.present.paperJsonDelta) {
+      const fullPaperJson = applyStringDelta(first.content.paperJson, st.present.paperJsonDelta);
+      st.present = {
+        ...st.present,
+        content: {
+          ...st.present.content,
+          paperJson: fullPaperJson,
+        },
+        isIncremental: false,
+        baseSnapshotId: undefined,
+        paperJsonDelta: undefined,
+      };
+    }
+
+    // 移除 past/future 中依赖该基准的增量快照
+    const removedFromPast: Snapshot[] = [];
+    st.past = st.past.filter((s) => {
+      const dependent = !!(s.isIncremental && s.baseSnapshotId === baseId);
+      if (dependent) removedFromPast.push(s);
+      return !dependent;
+    });
+    removed.push(...removedFromPast);
+
+    const removedFromFuture: Snapshot[] = [];
+    st.future = st.future.filter((s) => {
+      const dependent = !!(s.isIncremental && s.baseSnapshotId === baseId);
+      if (dependent) removedFromFuture.push(s);
+      return !dependent;
+    });
+    removed.push(...removedFromFuture);
+  }
+  return removed;
+}
 
 /**
  * 计算两个字符串的简单差异（轻量级实现）
@@ -131,23 +209,24 @@ function applyStringDelta(base: string | undefined, deltaData: string): string {
 function createIncrementalSnapshot(
   content: ProjectContentSnapshot,
   st: HistoryState,
-  currentIndex: number
-): { content: ProjectContentSnapshot; isIncremental: boolean; baseIndex?: number; delta?: string } {
+): { content: ProjectContentSnapshot; isIncremental: boolean; baseId?: number; delta?: string } {
   const paperJson = content.paperJson;
 
   // 检查是否应该创建完整快照
-  const shouldCreateFullSnapshot =
-    !st.lastFullSnapshot ||
-    currentIndex % FULL_SNAPSHOT_INTERVAL === 0 ||
-    !paperJson ||
-    paperJson.length < INCREMENTAL_THRESHOLD;
+  if (!paperJson || paperJson.length < INCREMENTAL_THRESHOLD) {
+    return { content, isIncremental: false };
+  }
 
-  if (shouldCreateFullSnapshot) {
+  const baseSnapshot = findLatestFullSnapshotForCommit(st);
+  if (!baseSnapshot) return { content, isIncremental: false };
+
+  const distanceSinceBase = getDistanceSinceLatestFullForCommit(st);
+  if (distanceSinceBase === null || distanceSinceBase >= FULL_SNAPSHOT_INTERVAL - 1) {
     return { content, isIncremental: false };
   }
 
   // 尝试创建增量快照
-  const basePaperJson = st.lastFullSnapshot?.content.paperJson;
+  const basePaperJson = baseSnapshot.content.paperJson;
   const deltaResult = computeStringDelta(basePaperJson, paperJson);
 
   if (deltaResult.type === 'delta' && deltaResult.savings > 0) {
@@ -158,14 +237,13 @@ function createIncrementalSnapshot(
       meta: {
         ...content.meta,
         paperJsonLen: paperJson.length,
-        isIncremental: true,
       },
     };
 
     return {
       content: lightContent,
       isIncremental: true,
-      baseIndex: st.lastFullSnapshotIndex,
+      baseId: baseSnapshot.id,
       delta: deltaResult.data,
     };
   }
@@ -177,13 +255,13 @@ function createIncrementalSnapshot(
  * 恢复增量快照为完整快照
  */
 function resolveIncrementalSnapshot(snapshot: Snapshot, st: HistoryState): Snapshot {
-  if (!snapshot.isIncremental || !snapshot.paperJsonDelta) {
+  if (!snapshot.isIncremental || !snapshot.paperJsonDelta || !snapshot.baseSnapshotId) {
     return snapshot;
   }
 
   // 找到基准快照
-  const baseSnapshot = st.lastFullSnapshot;
-  if (!baseSnapshot?.content.paperJson) {
+  const baseSnapshot = findSnapshotById(st, snapshot.baseSnapshotId);
+  if (!isFullSnapshot(baseSnapshot)) {
     console.warn('[History] 无法找到基准快照，返回原快照');
     return snapshot;
   }
@@ -232,44 +310,35 @@ function getPaperJsonLen(snapshot: Snapshot | null | undefined): number {
 }
 
 function trimHistoryByBudget(st: HistoryState): void {
-  // 使用新的内存计算方式
-  let total = getSnapshotMemorySize(st.present);
-  for (const s of st.past) total += getSnapshotMemorySize(s);
-  for (const s of st.future) total += getSnapshotMemorySize(s);
+  const computeTotal = () => {
+    let total = getSnapshotMemorySize(st.present);
+    for (const s of st.past) total += getSnapshotMemorySize(s);
+    for (const s of st.future) total += getSnapshotMemorySize(s);
+    return total;
+  };
+
+  let total = computeTotal();
 
   if (total <= MAX_TOTAL_PAPER_JSON_CHARS) return;
 
   // 优先丢弃最老的 undo 历史
   while (st.past.length > 0 && total > MAX_TOTAL_PAPER_JSON_CHARS) {
-    const removed = st.past.shift();
-    if (!removed) break;
-    total -= getSnapshotMemorySize(removed);
-
-    // 如果移除的是基准快照，需要更新基准
-    if (!removed.isIncremental && st.past.length > 0) {
-      // 找到下一个完整快照作为新基准
-      for (let i = 0; i < st.past.length; i++) {
-        if (!st.past[i].isIncremental) {
-          st.lastFullSnapshot = st.past[i];
-          st.lastFullSnapshotIndex = i;
-          break;
-        }
-      }
-    }
+    dropOldestPastChunk(st);
+    total = computeTotal();
   }
 
   // 仍超预算时，丢弃最老的 redo 历史
   while (st.future.length > 0 && total > MAX_TOTAL_PAPER_JSON_CHARS) {
     const removed = st.future.shift();
     if (!removed) break;
-    total -= getSnapshotMemorySize(removed);
+    total = computeTotal();
   }
 }
 
 async function captureCurrentSnapshot(
   label?: string,
   options?: { skipSave?: boolean },
-): Promise<Snapshot | null> {
+): Promise<Omit<Snapshot, 'id'> | null> {
   if (!options?.skipSave) {
     try { await paperSaveService.saveImmediately(); } catch {}
   }
@@ -437,12 +506,9 @@ export const historyService = {
       // 初始快照通常已包含 paperJson/资产信息；避免强制 saveImmediately 造成首次 Ctrl+Z 卡顿
       const snap = await captureCurrentSnapshot('initial', { skipSave: true });
       if (snap) {
-        st.present = snap;
+        st.present = { ...snap, id: allocateSnapshotId(st) };
         st.past = [];
         st.future = [];
-        // 初始快照作为基准快照
-        st.lastFullSnapshot = snap;
-        st.lastFullSnapshotIndex = 0;
       }
     }
   },
@@ -454,34 +520,26 @@ export const historyService = {
     if (st.restoring) return;
     const snap = await captureCurrentSnapshot(label);
     if (!snap) return;
-
-    // 计算当前快照索引
-    const currentIndex = st.past.length + 1;
+    const snapWithId: Snapshot = { ...snap, id: allocateSnapshotId(st) };
 
     // 尝试创建增量快照
-    const incrementalResult = createIncrementalSnapshot(snap.content, st, currentIndex);
+    const incrementalResult = createIncrementalSnapshot(snapWithId.content, st);
 
     // 构建最终快照
     const finalSnap: Snapshot = {
-      ...snap,
+      ...snapWithId,
       content: incrementalResult.content,
       isIncremental: incrementalResult.isIncremental,
-      baseSnapshotIndex: incrementalResult.baseIndex,
+      baseSnapshotId: incrementalResult.baseId,
       paperJsonDelta: incrementalResult.delta,
     };
 
     if (st.present) {
       st.past.push(st.present);
-      if (st.past.length > MAX_DEPTH) st.past.shift();
+      while (st.past.length > MAX_DEPTH) dropOldestPastChunk(st);
     }
     st.present = finalSnap;
     st.future = [];
-
-    // 更新基准快照（如果是完整快照）
-    if (!incrementalResult.isIncremental && snap.content.paperJson) {
-      st.lastFullSnapshot = snap;
-      st.lastFullSnapshotIndex = currentIndex;
-    }
 
     trimHistoryByBudget(st);
   },
@@ -524,15 +582,15 @@ export const historyService = {
     const st = projectHistory.get(pid);
     if (!st) return { totalChars: 0, snapshotCount: 0, incrementalCount: 0 };
 
-    let totalChars = getPaperJsonLen(st.present);
+    let totalChars = getSnapshotMemorySize(st.present);
     let incrementalCount = st.present?.isIncremental ? 1 : 0;
 
     for (const s of st.past) {
-      totalChars += s.isIncremental ? (s.paperJsonDelta?.length ?? 0) : getPaperJsonLen(s);
+      totalChars += getSnapshotMemorySize(s);
       if (s.isIncremental) incrementalCount++;
     }
     for (const s of st.future) {
-      totalChars += s.isIncremental ? (s.paperJsonDelta?.length ?? 0) : getPaperJsonLen(s);
+      totalChars += getSnapshotMemorySize(s);
       if (s.isIncremental) incrementalCount++;
     }
 
@@ -551,8 +609,6 @@ export const historyService = {
     if (!st) return;
     st.past = [];
     st.future = [];
-    st.lastFullSnapshot = st.present;
-    st.lastFullSnapshotIndex = 0;
     console.log('[History] 历史记录已清理');
   }
 };

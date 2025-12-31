@@ -1,6 +1,8 @@
 /**
  * 改进的内存监控系统
  * 支持自动清理和主动预防内存溢出
+ *
+ * 优化：降低清理阈值，添加移动端适配，渐进式清理
  */
 
 export interface MemoryStats {
@@ -20,6 +22,8 @@ export interface MemoryStats {
     jsHeapSizeLimit: number;
     supported: boolean;
   };
+  // 新增：设备类型
+  isMobile: boolean;
 }
 
 export interface CleanupAction {
@@ -28,8 +32,19 @@ export interface CleanupAction {
   priority: 'low' | 'medium' | 'high';
 }
 
+// 检测是否为移动端设备
+function detectMobileDevice(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false;
+  }
+  const ua = navigator.userAgent || '';
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+}
+
 export class ImprovedMemoryMonitor {
   private static instance: ImprovedMemoryMonitor;
+  private readonly isMobile: boolean;
+
   private stats: MemoryStats = {
     totalLayers: 0,
     totalItems: 0,
@@ -47,28 +62,56 @@ export class ImprovedMemoryMonitor {
       jsHeapSizeLimit: 0,
       supported: typeof performance !== 'undefined' && 'memory' in performance,
     },
+    isMobile: false,
   };
 
-  // 内存警告阈值
+  // 内存警告阈值（降低以更早预警）
   private readonly WARNING_THRESHOLDS = {
-    totalItems: 5000,
-    gridItems: 3000,
-    poolSize: 1000,
-    timeSinceCleanup: 5 * 60 * 1000, // 5分钟
+    totalItems: 3000,      // 5000 -> 3000
+    gridItems: 2000,       // 3000 -> 2000
+    poolSize: 800,         // 1000 -> 800
+    timeSinceCleanup: 3 * 60 * 1000, // 5分钟 -> 3分钟
   };
 
-  // 内存清理阈值
-  private readonly CLEANUP_THRESHOLDS = {
-    aggressiveCleanup: 0.75,  // 75% 时触发主动清理
-    criticalCleanup: 0.90,    // 90% 时触发强制清理
-  };
+  // 内存清理阈值（根据设备类型动态调整）
+  private getCleanupThresholds() {
+    if (this.isMobile) {
+      // 移动端：更激进的清理策略
+      return {
+        lightCleanup: 0.50,      // 50% 时轻度清理
+        aggressiveCleanup: 0.65, // 65% 时主动清理
+        criticalCleanup: 0.80,   // 80% 时强制清理
+      };
+    }
+    // 桌面端：稍微宽松一些
+    return {
+      lightCleanup: 0.60,      // 60% 时轻度清理（新增）
+      aggressiveCleanup: 0.70, // 70% 时主动清理（75% -> 70%）
+      criticalCleanup: 0.85,   // 85% 时强制清理（90% -> 85%）
+    };
+  }
 
-  private readonly BROWSER_HEAP_ABSOLUTE = 900 * 1024 * 1024; // 约900MB
+  // 绝对内存阈值（根据设备类型）
+  private getAbsoluteHeapLimit(): number {
+    if (this.isMobile) {
+      return 400 * 1024 * 1024; // 移动端 400MB
+    }
+    return 700 * 1024 * 1024;   // 桌面端 700MB（900MB -> 700MB）
+  }
 
   // 清理回调
   private cleanupCallbacks: CleanupAction[] = [];
   private previousWarningState = false;
   private monitoringInterval: number | null = null;
+
+  // 私有构造函数（单例模式）
+  private constructor() {
+    this.isMobile = detectMobileDevice();
+    this.stats.isMobile = this.isMobile;
+    if (this.isMobile) {
+      console.log('[MemoryMonitor] 检测到移动端设备，使用更激进的清理策略');
+    }
+  }
 
   static getInstance(): ImprovedMemoryMonitor {
     if (!ImprovedMemoryMonitor.instance) {
@@ -116,10 +159,13 @@ export class ImprovedMemoryMonitor {
   }
 
   /**
-   * 检查并执行清理
+   * 检查并执行清理（三级清理策略）
    */
   private checkAndCleanup(): void {
     this.updateBrowserMemoryStats();
+    const thresholds = this.getCleanupThresholds();
+    const absoluteLimit = this.getAbsoluteHeapLimit();
+
     const heapUsageRatio =
       this.stats.browserMemory.jsHeapSizeLimit > 0
         ? this.stats.browserMemory.usedJSHeapSize /
@@ -128,18 +174,27 @@ export class ImprovedMemoryMonitor {
 
     const heapUsageMB = this.stats.browserMemory.usedJSHeapSize / (1024 * 1024);
     const heapLimitMB = this.stats.browserMemory.jsHeapSizeLimit / (1024 * 1024);
+    const absoluteLimitMB = absoluteLimit / (1024 * 1024);
 
-    // 检查是否需要清理
-    if (heapUsageRatio > this.CLEANUP_THRESHOLDS.criticalCleanup) {
+    // 同时检查比例阈值和绝对阈值
+    const exceedsAbsoluteLimit = this.stats.browserMemory.usedJSHeapSize > absoluteLimit;
+
+    // 三级清理策略
+    if (heapUsageRatio > thresholds.criticalCleanup || exceedsAbsoluteLimit) {
       console.warn(
-        `[MemoryMonitor] 触发强制清理 (堆内存 ${heapUsageMB.toFixed(0)}MB / ${heapLimitMB.toFixed(0)}MB = ${(heapUsageRatio * 100).toFixed(1)}%)`
+        `[MemoryMonitor] 🔴 触发强制清理 (${heapUsageMB.toFixed(0)}MB / ${heapLimitMB.toFixed(0)}MB = ${(heapUsageRatio * 100).toFixed(1)}%, 绝对上限: ${absoluteLimitMB.toFixed(0)}MB)`
       );
-      this.executeCleanup(true); // 强制清理
-    } else if (heapUsageRatio > this.CLEANUP_THRESHOLDS.aggressiveCleanup) {
+      this.executeCleanup('critical');
+    } else if (heapUsageRatio > thresholds.aggressiveCleanup) {
       console.warn(
-        `[MemoryMonitor] 触发主动清理 (堆内存 ${heapUsageMB.toFixed(0)}MB / ${heapLimitMB.toFixed(0)}MB = ${(heapUsageRatio * 100).toFixed(1)}%)`
+        `[MemoryMonitor] 🟠 触发主动清理 (${heapUsageMB.toFixed(0)}MB / ${heapLimitMB.toFixed(0)}MB = ${(heapUsageRatio * 100).toFixed(1)}%)`
       );
-      this.executeCleanup(false); // 主动清理
+      this.executeCleanup('aggressive');
+    } else if (heapUsageRatio > thresholds.lightCleanup) {
+      console.log(
+        `[MemoryMonitor] 🟡 触发轻度清理 (${heapUsageMB.toFixed(0)}MB / ${heapLimitMB.toFixed(0)}MB = ${(heapUsageRatio * 100).toFixed(1)}%)`
+      );
+      this.executeCleanup('light');
     }
 
     // 检查内存警告状态
@@ -147,17 +202,23 @@ export class ImprovedMemoryMonitor {
   }
 
   /**
-   * 执行清理操作
+   * 执行清理操作（三级清理）
+   * @param level 清理级别：light | aggressive | critical
    */
-  private executeCleanup(isForced: boolean): void {
-    console.log(`[MemoryMonitor] 执行${isForced ? '强制' : '主动'}清理...`);
+  private executeCleanup(level: 'light' | 'aggressive' | 'critical'): void {
+    const levelNames = { light: '轻度', aggressive: '主动', critical: '强制' };
+    console.log(`[MemoryMonitor] 执行${levelNames[level]}清理...`);
 
-    // 执行所有注册的清理回调
+    // 根据清理级别决定执行哪些回调
     for (const action of this.cleanupCallbacks) {
-      // 强制清理时执行所有操作，主动清理时只执行高优先级
-      if (isForced || action.priority === 'high') {
+      const shouldExecute =
+        level === 'critical' ||  // 强制清理：执行所有
+        (level === 'aggressive' && action.priority !== 'low') ||  // 主动清理：high + medium
+        (level === 'light' && action.priority === 'high');  // 轻度清理：仅 high
+
+      if (shouldExecute) {
         try {
-          console.log(`[MemoryMonitor] 执行清理: ${action.name}`);
+          console.log(`[MemoryMonitor] 执行清理: ${action.name} (${action.priority})`);
           action.execute();
         } catch (error) {
           console.error(`[MemoryMonitor] 清理操作失败 (${action.name}):`, error);
@@ -166,7 +227,7 @@ export class ImprovedMemoryMonitor {
     }
 
     // 强制清理时尝试触发垃圾回收
-    if (isForced && typeof (window as any).gc === 'function') {
+    if (level === 'critical' && typeof (window as any).gc === 'function') {
       console.log('[MemoryMonitor] 触发垃圾回收');
       (window as any).gc();
     }
@@ -209,10 +270,14 @@ export class ImprovedMemoryMonitor {
           this.stats.browserMemory.jsHeapSizeLimit
         : 0;
 
+    const thresholds = this.getCleanupThresholds();
+    const absoluteLimit = this.getAbsoluteHeapLimit();
+
+    // 使用动态阈值判断警告
     const heapWarning =
       this.stats.browserMemory.supported &&
-      (heapUsageRatio > 0.85 ||
-        this.stats.browserMemory.usedJSHeapSize > this.BROWSER_HEAP_ABSOLUTE);
+      (heapUsageRatio > thresholds.aggressiveCleanup ||
+        this.stats.browserMemory.usedJSHeapSize > absoluteLimit);
 
     this.stats.memoryWarning =
       this.stats.totalItems > this.WARNING_THRESHOLDS.totalItems ||
@@ -316,11 +381,11 @@ export class ImprovedMemoryMonitor {
   }
 
   /**
-   * 手动触发垃圾回收
+   * 手动触发强制清理
    */
   forceCleanup(): void {
-    console.log('[MemoryMonitor] 手动触发清理');
-    this.executeCleanup(true);
+    console.log('[MemoryMonitor] 手动触发强制清理');
+    this.executeCleanup('critical');
   }
 
   /**

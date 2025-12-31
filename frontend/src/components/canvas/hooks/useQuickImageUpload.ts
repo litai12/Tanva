@@ -11,6 +11,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { imageUploadService } from '@/services/imageUploadService';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { isRaster } from '@/utils/paperCoords';
 import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
@@ -34,7 +35,7 @@ const isRemoteUrl = (value?: string | null): value is string => {
 const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string } => {
     const remoteUrl = isRemoteUrl(asset.url) ? asset.url : isRemoteUrl(asset.src) ? asset.src : undefined;
     if (remoteUrl) {
-        return { source: remoteUrl, remoteUrl };
+        return { source: proxifyRemoteAssetUrl(remoteUrl), remoteUrl };
     }
     const inline = isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : isInlineDataUrl(asset.src) ? asset.src : undefined;
     return { source: inline || asset.url, remoteUrl: undefined };
@@ -885,7 +886,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             return;
         }
 
-        const { source: rasterSource, remoteUrl: resolvedRemoteUrl } = pickRasterSource(asset);
+        const pickedSource = pickRasterSource(asset);
+        let rasterSource = pickedSource.source;
+        const resolvedRemoteUrl = pickedSource.remoteUrl;
         try {
             ensureDrawingLayer();
 
@@ -1073,7 +1076,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             // 创建图片的 Raster 对象
             let raster = loadRasterWithFallback(true);
-            let hasRetried = false;
+            let hasRetriedCrossOrigin = false;
+            let hasRetriedProxyFallback = false;
 
             // 超时兜底，防止网络问题导致占位框一直存在
             let loadTimeoutId: number | null = window.setTimeout(() => {
@@ -1517,11 +1521,29 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             // 保存 onLoad 处理器引用（在 onError 之前定义）
             const onLoadHandler = raster.onLoad;
 
-            // 🔥 定义 onError 处理器（支持 CORS 失败后重试）
+            // 🔥 定义 onError 处理器（支持 proxy/CORS 失败后重试）
             const onErrorHandler = (e: any) => {
+                // 代理失败（如 Host not allowed）时，回退到直接 URL 加载
+                if (
+                    !hasRetriedProxyFallback &&
+                    resolvedRemoteUrl &&
+                    (rasterSource.startsWith('/api/assets/proxy') || rasterSource.startsWith('/assets/proxy'))
+                ) {
+                    hasRetriedProxyFallback = true;
+                    rasterSource = resolvedRemoteUrl;
+                    logger.upload('🔄 Proxy 加载失败，回退到直接 URL 加载...');
+                    try { raster.remove(); } catch {}
+
+                    raster = loadRasterWithFallback(true);
+                    raster.onLoad = onLoadHandler;
+                    raster.onError = onErrorHandler;
+                    raster.source = rasterSource;
+                    return;
+                }
+
                 // CORS 失败时，尝试不带 crossOrigin 重新加载
-                if (!hasRetried && shouldUseAnonymousCrossOrigin(rasterSource)) {
-                    hasRetried = true;
+                if (!hasRetriedCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
+                    hasRetriedCrossOrigin = true;
                     logger.upload('🔄 CORS 加载失败，尝试不带 crossOrigin 重新加载...');
                     try { raster.remove(); } catch {}
 

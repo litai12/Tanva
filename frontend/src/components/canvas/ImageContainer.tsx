@@ -445,7 +445,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   const resolveImageDataUrl = useCallback(async (): Promise<string | null> => {
     // 首先检查缓存的 dataUrl
-    const cachedDataUrl = imageUrlCache.getCachedDataUrl(
+    const cachedDataUrl = await imageUrlCache.getCachedDataUrl(
       imageData.id,
       projectId
     );
@@ -497,7 +497,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       result = await ensureDataUrl(getImageDataForEditing(imageData.id));
       if (result) {
         // 缓存结果
-        imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+        void imageUrlCache.updateDataUrl(imageData.id, result, projectId);
         return result;
       }
     }
@@ -506,7 +506,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     result = await ensureDataUrl(urlSource);
     if (result) {
       // 缓存结果
-      imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+      void imageUrlCache.updateDataUrl(imageData.id, result, projectId);
       return result;
     }
 
@@ -527,7 +527,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         result = await ensureDataUrl(canvasData);
         if (result) {
           // 缓存结果
-          imageUrlCache.updateDataUrl(imageData.id, result, projectId);
+          void imageUrlCache.updateDataUrl(imageData.id, result, projectId);
           return result;
         }
       }

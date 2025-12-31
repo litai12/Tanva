@@ -5,6 +5,7 @@ import { imageUploadService } from '@/services/imageUploadService';
 import { model3DUploadService, type Model3DData } from '@/services/model3DUploadService';
 import { model3DPreviewService } from '@/services/model3DPreviewService';
 import { personalLibraryApi } from '@/services/personalLibraryApi';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -219,13 +220,41 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
     });
   };
 
+  const resolveImageFetchCredentials = (input: string): RequestCredentials => {
+    const value = typeof input === 'string' ? input.trim() : '';
+    if (!value) return 'omit';
+    if (value.startsWith('data:') || value.startsWith('blob:')) return 'omit';
+    if (value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) return 'include';
+    if (!/^https?:\/\//i.test(value)) return 'include';
+    if (typeof window === 'undefined') return 'omit';
+
+    try {
+      const parsed = new URL(value);
+      if (parsed.origin === window.location.origin) return 'include';
+
+      const viteEnv =
+        typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : undefined;
+      const apiBase = typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL.trim() : '';
+      if (apiBase) {
+        try {
+          const apiOrigin = new URL(apiBase.replace(/\/+$/, '')).origin;
+          if (apiOrigin && parsed.origin === apiOrigin) return 'include';
+        } catch {}
+      }
+    } catch {}
+
+    return 'omit';
+  };
+
   const readDataUrl = async (url: string): Promise<string | null> => {
     try {
-      // 🔥 修复：对于 OSS 图片，不使用 credentials，避免 CORS 问题
-      const isOssUrl = url.includes('.aliyuncs.com');
-      const response = await fetch(url, {
+      const trimmed = typeof url === 'string' ? url.trim() : '';
+      if (trimmed.startsWith('data:image/')) return trimmed;
+
+      const fetchUrl = proxifyRemoteAssetUrl(url);
+      const response = await fetch(fetchUrl, {
         mode: 'cors',
-        credentials: isOssUrl ? 'omit' : 'include'
+        credentials: resolveImageFetchCredentials(fetchUrl),
       });
       if (!response.ok) return null;
       const blob = await response.blob();
