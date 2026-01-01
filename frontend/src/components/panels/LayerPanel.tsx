@@ -51,11 +51,15 @@ const LayerPanel: React.FC = () => {
     const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set());
     const [layerItems, setLayerItems] = useState<Record<string, LayerItemData[]>>({});
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
 
     const containerRef = useRef<HTMLDivElement | null>(null);
     const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-gray-800 rounded-full pointer-events-none', []);
     // 缓存缩略图
     const thumbCache = useRef<Record<string, { dataUrl: string; timestamp: number }>>({});
+    // 异步缩略图生成队列
+    const thumbGenerationQueue = useRef<Set<string>>(new Set());
+    const isGeneratingThumb = useRef(false);
 
     // 预测图元重排序后的实际位置，用于指示线显示
     const predictItemInsertPosition = (sourceItemId: string, targetItemId: string, placeAbove: boolean) => {
@@ -121,29 +125,50 @@ const LayerPanel: React.FC = () => {
         const items: LayerItemData[] = [];
 
         // 获取所有非辅助元素，并反转顺序
-        // Paper.js中后面的元素渲染在上方，所以我们需要反转来匹配图层面板的顺序
         const validItems = layer.children.filter(item => {
             const isHelper = item.data?.isHelper;
             const isGrid = item.data?.type === 'grid';
             const isScalebar = item.data?.type === 'scalebar';
-            // 🔥 过滤掉图片组块的边框和标题（它们不应该作为独立元素显示）
             const isImageGroupBlock = item.data?.type === 'image-group';
             const isImageGroupTitle = item.data?.type === 'image-group-title';
-            // 🔥 修复：图片组的 isHelper 应该是 false，但如果未定义也应该通过
-            // 只有明确设置为 true 的才过滤掉
             const shouldFilter = isHelper === true || isGrid || isScalebar || isImageGroupBlock || isImageGroupTitle;
             return !shouldFilter;
         }).reverse();
 
-        validItems.forEach((item, index) => {
+        // 预先计算每种类型的最大编号（O(n) 而非 O(n²)）
+        const typeMaxNumbers: Record<string, number> = {};
+        const typeNames: Record<string, string> = {
+            'circle': '圆形',
+            'rectangle': '矩形',
+            'line': '直线',
+            'path': '路径',
+            'image': '图片',
+            'model3d': '3D模型',
+            'group': '组'
+        };
+
+        // 第一遍：收集已有的最大编号
+        validItems.forEach(item => {
+            if (item.data?.customName) {
+                for (const [type, baseName] of Object.entries(typeNames)) {
+                    const match = item.data.customName.match(new RegExp(`^${baseName}\\s*(\\d+)?$`));
+                    if (match) {
+                        const num = match[1] ? parseInt(match[1], 10) : 1;
+                        typeMaxNumbers[type] = Math.max(typeMaxNumbers[type] || 0, num);
+                        break;
+                    }
+                }
+            }
+        });
+
+        // 第二遍：处理图元
+        validItems.forEach((item) => {
             let type: LayerItemData['type'] = 'path';
             let name = '未命名图元';
 
-            // 确定图元类型 - 使用 className 检查以兼容生产环境
             const isGroup = item.className === 'Group' || item instanceof paper.Group;
             const isPath = item.className === 'Path' || item instanceof paper.Path;
 
-            // 确定图元类型 - 使用 className 检查以兼容生产环境
             if (isPath) {
                 if (item instanceof paper.Path.Circle || item.className === 'Path' && (item as any)._class === 'Circle') {
                     type = 'circle';
@@ -159,11 +184,7 @@ const LayerPanel: React.FC = () => {
                     type = 'image';
                 } else if (item.data?.type === '3d-model') {
                     type = 'model3d';
-                } else if (item.data?.type === 'image-placeholder') {
-                    // 占位符不应该显示，但以防万一
-                    return;
-                } else if (item.data?.type === 'model3d-placeholder') {
-                    // 占位符不应该显示，但以防万一
+                } else if (item.data?.type === 'image-placeholder' || item.data?.type === 'model3d-placeholder') {
                     return;
                 } else {
                     type = 'group';
@@ -174,54 +195,10 @@ const LayerPanel: React.FC = () => {
             if (item.data?.customName) {
                 name = item.data.customName;
             } else {
-                // 如果没有自定义名称，为图元分配一个稳定的名称
-                // 使用图元的Paper.js ID来生成一个稳定但友好的名称
-                const typeNames = {
-                    'circle': '圆形',
-                    'rectangle': '矩形',
-                    'line': '直线',
-                    'path': '路径',
-                    'image': '图片',
-                    'model3d': '3D模型',
-                    'group': '组'
-                };
-
                 const baseName = typeNames[type] || '图元';
-
-                // 查找同类型图元中已有的最大编号，分配下一个编号
-                const sameTypeItems = validItems.filter(otherItem => {
-                    // 确定其他图元的类型
-                    let otherType = 'path';
-                    if (otherItem instanceof paper.Path) {
-                        if (otherItem instanceof paper.Path.Circle) otherType = 'circle';
-                        else if (otherItem instanceof paper.Path.Rectangle) otherType = 'rectangle';
-                        else if (otherItem instanceof paper.Path.Line) otherType = 'line';
-                        else otherType = 'path';
-                    } else if (otherItem instanceof paper.Group) {
-                        if (otherItem.data?.type === 'image') otherType = 'image';
-                        else if (otherItem.data?.type === '3d-model') otherType = 'model3d';
-                        else otherType = 'group';
-                    }
-
-                    return otherType === type && otherItem.data?.customName;
-                });
-
-                // 找出已有名称中的最大编号
-                let maxNumber = 0;
-                sameTypeItems.forEach(otherItem => {
-                    const existingName = otherItem.data?.customName;
-                    if (existingName) {
-                        // 匹配 "类型 数字" 格式的名称
-                        const match = existingName.match(new RegExp(`^${baseName}\\s*(\\d+)?$`));
-                        if (match) {
-                            const num = match[1] ? parseInt(match[1], 10) : 1;
-                            maxNumber = Math.max(maxNumber, num);
-                        }
-                    }
-                });
-
-                // 分配下一个编号
-                const nextNumber = maxNumber + 1;
+                // 直接使用预计算的最大编号 + 1
+                typeMaxNumbers[type] = (typeMaxNumbers[type] || 0) + 1;
+                const nextNumber = typeMaxNumbers[type];
                 name = nextNumber === 1 ? baseName : `${baseName} ${nextNumber}`;
 
                 // 将名称保存到图元的data中
@@ -258,31 +235,42 @@ const LayerPanel: React.FC = () => {
 
     // 监听 Paper.js 的变化
     useEffect(() => {
-        if (!paper.project || !showLayerPanel) return;
+        if (!paper.project || !showLayerPanel) {
+            setIsInitialLoading(true);
+            return;
+        }
 
         let lastUpdateTime = 0;
-        const throttleDelay = 100; // 节流延迟
+        const throttleDelay = 500;
+        let pendingUpdate = false;
 
         const handleChange = () => {
             const now = Date.now();
             if (now - lastUpdateTime > throttleDelay) {
                 updateAllLayerItems();
-                setRefreshTrigger(prev => prev + 1);
                 lastUpdateTime = now;
+                pendingUpdate = false;
+            } else if (!pendingUpdate) {
+                pendingUpdate = true;
+                setTimeout(() => {
+                    updateAllLayerItems();
+                    lastUpdateTime = Date.now();
+                    pendingUpdate = false;
+                }, throttleDelay);
             }
         };
 
-        // 监听项目变化
         paper.project.on('change', handleChange);
 
-        // 初始扫描
-        updateAllLayerItems();
+        // 异步初始扫描 - 让面板先渲染再加载数据
+        requestAnimationFrame(() => {
+            updateAllLayerItems();
+            setIsInitialLoading(false);
+        });
 
-        // 设置定期更新，但频率降低
         const updateInterval = setInterval(() => {
             updateAllLayerItems();
-            setRefreshTrigger(prev => prev + 1);
-        }, 500); // 每500ms检查一次，减少性能开销
+        }, 5000);
 
         return () => {
             paper.project.off('change', handleChange);
@@ -588,57 +576,99 @@ const LayerPanel: React.FC = () => {
         return `data:image/svg+xml;base64,${btoa(svg)}`;
     };
 
+    // 异步生成缩略图
+    const generateThumbAsync = (id: string) => {
+        if (thumbGenerationQueue.current.has(id) || isGeneratingThumb.current) {
+            return;
+        }
+
+        thumbGenerationQueue.current.add(id);
+
+        const processQueue = () => {
+            if (isGeneratingThumb.current || thumbGenerationQueue.current.size === 0) {
+                return;
+            }
+
+            const nextId = thumbGenerationQueue.current.values().next().value;
+            if (!nextId) return;
+
+            thumbGenerationQueue.current.delete(nextId);
+            isGeneratingThumb.current = true;
+
+            requestAnimationFrame(() => {
+                const items = layerItems[nextId] || [];
+                let thumb: string | null = null;
+
+                if (items.length === 1) {
+                    const item = items[0];
+                    if (item.type === 'image') {
+                        thumb = generateImageThumb(item);
+                    } else if (item.type === 'model3d') {
+                        thumb = generate3DModelThumb(item);
+                    }
+                }
+
+                if (!thumb) {
+                    thumb = generateLayerThumb(nextId);
+                }
+
+                if (thumb) {
+                    thumbCache.current[nextId] = { dataUrl: thumb, timestamp: Date.now() };
+                    setRefreshTrigger(prev => prev + 1);
+                }
+
+                isGeneratingThumb.current = false;
+
+                // 处理队列中的下一个
+                if (thumbGenerationQueue.current.size > 0) {
+                    setTimeout(processQueue, 16);
+                }
+            });
+        };
+
+        processQueue();
+    };
+
     const getCachedThumb = (id: string): string | null => {
         const cached = thumbCache.current[id];
         const now = Date.now();
 
-        // 缓存 1秒，避免过于频繁的生成
-        if (cached && (now - cached.timestamp) < 1000) {
+        // 缓存 5秒
+        if (cached && (now - cached.timestamp) < 5000) {
             return cached.dataUrl;
         }
 
-        // 检查是否有内容再生成缩略图
+        // 检查是否有内容
         const items = layerItems[id] || [];
         if (items.length === 0) {
-            return null; // 空图层不生成缩略图
+            return null;
         }
 
-        // 如果图层只有一个图片或3D模型，生成专门的缩略图
-        if (items.length === 1) {
-            const item = items[0];
-            let customThumb: string | null = null;
-
-            if (item.type === 'image') {
-                customThumb = generateImageThumb(item);
-            } else if (item.type === 'model3d') {
-                customThumb = generate3DModelThumb(item);
-            }
-
-            if (customThumb) {
-                thumbCache.current[id] = { dataUrl: customThumb, timestamp: now };
-                return customThumb;
-            }
-        }
-
-        // 回退到默认的Paper.js缩略图
-        const newThumb = generateLayerThumb(id);
-        if (newThumb) {
-            thumbCache.current[id] = { dataUrl: newThumb, timestamp: now };
-            return newThumb;
-        }
-
-        return null;
+        // 异步生成缩略图，先返回 null 显示占位符
+        generateThumbAsync(id);
+        return cached?.dataUrl || null;
     };
 
-    // 定期刷新缩略图
+    // 定期刷新缩略图 - 改为5秒，并使用异步生成
     useEffect(() => {
         if (!showLayerPanel) return;
 
         const interval = setInterval(() => {
-            // 清空缓存并触发重新渲染
-            thumbCache.current = {};
-            setRefreshTrigger(prev => prev + 1);
-        }, 500); // 每500ms刷新一次，更及时
+            // 只清空过期的缓存，不强制刷新所有
+            const now = Date.now();
+            const expiredIds: string[] = [];
+            Object.entries(thumbCache.current).forEach(([id, cache]) => {
+                if (now - cache.timestamp > 5000) {
+                    expiredIds.push(id);
+                }
+            });
+            expiredIds.forEach(id => delete thumbCache.current[id]);
+
+            // 只有当有过期缓存时才触发重新渲染
+            if (expiredIds.length > 0) {
+                setRefreshTrigger(prev => prev + 1);
+            }
+        }, 5000);
 
         return () => clearInterval(interval);
     }, [showLayerPanel]);
