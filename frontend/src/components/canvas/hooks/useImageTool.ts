@@ -1273,33 +1273,151 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       try { useLayerStore.getState().activateLayer(snapshot.layerId); } catch {}
     }
 
-    const start = new paper.Point(snapshot.bounds.x + offsetX, snapshot.bounds.y + offsetY);
-    const end = new paper.Point(
-      snapshot.bounds.x + snapshot.bounds.width + offsetX,
-      snapshot.bounds.y + snapshot.bounds.height + offsetY
-    );
+    // 计算目标位置的 bounds
+    const targetBounds = {
+      x: snapshot.bounds.x + offsetX,
+      y: snapshot.bounds.y + offsetY,
+      width: snapshot.bounds.width,
+      height: snapshot.bounds.height,
+    };
 
-    const placeholder = createImagePlaceholder(start, end);
-    if (!placeholder) return null;
+    // 🔥 直接创建图片，不使用占位框流程，避免异步加载导致的"幽灵框"问题
+    ensureDrawingLayer();
 
-    currentPlaceholderRef.current = placeholder;
+    // 创建 Raster 对象
+    const raster = new paper.Raster();
+    (raster as any).crossOrigin = 'anonymous';
 
-    const asset = {
+    // 预设 bounds 数据，确保图片加载前就有正确的尺寸信息
+    raster.data = {
+      type: 'image',
+      imageId,
+      originalWidth: snapshot.width ?? snapshot.bounds.width,
+      originalHeight: snapshot.height ?? snapshot.bounds.height,
+      aspectRatio: (snapshot.width ?? snapshot.bounds.width) / (snapshot.height ?? snapshot.bounds.height),
+      __tanvaImageInitialized: false,
+      __tanvaBounds: targetBounds,
+    };
+
+    // 🔥 关键：在设置 source 之前先设置初始 bounds，避免"幽灵框"
+    // Paper.js 的 Raster 在加载前 bounds 可能是 0，导致图片不可见
+    try {
+      const initialRect = new paper.Rectangle(
+        targetBounds.x,
+        targetBounds.y,
+        targetBounds.width,
+        targetBounds.height
+      );
+      raster.bounds = initialRect;
+    } catch {}
+
+    // 创建图片组
+    const imageGroup = new paper.Group([raster]);
+    imageGroup.data = {
+      type: 'image',
+      imageId: imageId,
+      isHelper: false
+    };
+
+    // 图片加载完成后的处理
+    raster.onLoad = () => {
+      const alreadyInitialized = Boolean((raster as any)?.data?.__tanvaImageInitialized);
+      if (alreadyInitialized) {
+        // 已初始化，只需恢复 bounds
+        const stored = (raster as any)?.data?.__tanvaBounds;
+        if (stored && stored.width > 0 && stored.height > 0) {
+          const rect = new paper.Rectangle(stored.x, stored.y, stored.width, stored.height);
+          try { raster.bounds = rect.clone(); } catch {}
+        }
+        try { paper.view.update(); } catch {}
+        return;
+      }
+
+      // 使用预设的 bounds
+      const finalBounds = new paper.Rectangle(
+        targetBounds.x,
+        targetBounds.y,
+        targetBounds.width,
+        targetBounds.height
+      );
+
+      raster.bounds = finalBounds;
+
+      // 更新 raster.data 中的原始尺寸（使用实际加载的图片尺寸）
+      raster.data = {
+        ...raster.data,
+        originalWidth: raster.width,
+        originalHeight: raster.height,
+        aspectRatio: raster.width / raster.height,
+      };
+
+      // 添加选择框和控制点
+      addImageSelectionElements(raster, finalBounds, imageId);
+
+      // 标记初始化完成
+      (raster.data as any).__tanvaImageInitialized = true;
+      (raster.data as any).__tanvaBounds = {
+        x: finalBounds.x,
+        y: finalBounds.y,
+        width: finalBounds.width,
+        height: finalBounds.height
+      };
+
+      // 更新 React 状态中的 bounds
+      setImageInstances(prev => prev.map(img =>
+        img.id === imageId ? {
+          ...img,
+          bounds: {
+            x: finalBounds.x,
+            y: finalBounds.y,
+            width: finalBounds.width,
+            height: finalBounds.height
+          },
+          imageData: {
+            ...img.imageData,
+            width: raster.width,
+            height: raster.height,
+          }
+        } : img
+      ));
+
+      try { paperSaveService.triggerAutoSave('clone-image-loaded'); } catch {}
+      paper.view.update();
+    };
+
+    raster.onError = (error: unknown) => {
+      logger.error('克隆图片加载失败', error);
+    };
+
+    // 设置图片源
+    raster.source = source;
+
+    // 创建图片实例（立即添加到状态，不等待加载完成）
+    const newImageInstance: ImageInstance = {
       id: imageId,
-      url: source,
-      src: source,
-      key: snapshot.key,
-      fileName: snapshot.fileName,
-      width: snapshot.width ?? snapshot.bounds.width,
-      height: snapshot.height ?? snapshot.bounds.height,
-      contentType: snapshot.contentType,
-      pendingUpload: snapshot.pendingUpload,
-      localDataUrl: snapshot.localDataUrl,
-    } as StoredImageAsset;
+      imageData: {
+        id: imageId,
+        url: source,
+        src: source,
+        key: snapshot.key,
+        fileName: snapshot.fileName,
+        width: snapshot.width ?? snapshot.bounds.width,
+        height: snapshot.height ?? snapshot.bounds.height,
+        contentType: snapshot.contentType,
+        pendingUpload: snapshot.pendingUpload,
+        localDataUrl: snapshot.localDataUrl,
+      },
+      bounds: targetBounds,
+      isSelected: false,
+      visible: true,
+      layerId: snapshot.layerId ?? paper.project.activeLayer.name
+    };
 
-    handleImageUploaded(asset);
+    setImageInstances(prev => [...prev, newImageInstance]);
+
+    logger.debug('🖼️ 从快照创建图片副本:', imageId);
     return imageId;
-  }, [createImagePlaceholder, handleImageUploaded]);
+  }, [ensureDrawingLayer, addImageSelectionElements]);
 
   return {
     // 状态
