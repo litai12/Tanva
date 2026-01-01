@@ -18,45 +18,55 @@ import { createImageGroupBlock, formatImageGroupTitle, removeGroupBlockTitle } f
 import { contextManager } from '@/services/contextManager';
 import { clipboardService, type CanvasClipboardData, type PathClipboardSnapshot } from '@/services/clipboardService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
-import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
+import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import ContextMenu from '@/components/ui/context-menu';
 
 // 导入新的hooks
-import { useImageTool } from './hooks/useImageTool';
-import { useModel3DTool } from './hooks/useModel3DTool';
-import { useDrawingTools } from './hooks/useDrawingTools';
-import { useSelectionTool } from './hooks/useSelectionTool';
-import { usePathEditor } from './hooks/usePathEditor';
-import { useEraserTool } from './hooks/useEraserTool';
-import { useInteractionController } from './hooks/useInteractionController';
-import { useQuickImageUpload } from './hooks/useQuickImageUpload';
-import { useSimpleTextTool } from './hooks/useSimpleTextTool';
-import { useSnapAlignment } from './hooks/useSnapAlignment';
-import SimpleTextEditor from './SimpleTextEditor';
-import TextSelectionOverlay from './TextSelectionOverlay';
-import { SnapGuideRenderer } from './SnapGuideRenderer';
-import type { DrawingContext, ImageInstance } from '@/types/canvas';
-import { paperSaveService } from '@/services/paperSaveService';
-import { historyService } from '@/services/historyService';
-import type { Model3DData } from '@/services/model3DUploadService';
-import { clientToProject } from '@/utils/paperCoords';
-import { downloadImage, getSuggestedFileName } from '@/utils/downloadHelper';
-import { applyCursorForDrawMode } from '@/utils/cursorStyles';
-import { usePersonalLibraryStore, createPersonalAssetId, type PersonalImageAsset, type PersonalSvgAsset } from '@/stores/personalLibraryStore';
-import { personalLibraryApi } from '@/services/personalLibraryApi';
-import { imageUploadService } from '@/services/imageUploadService';
+import { useImageTool } from "./hooks/useImageTool";
+import { useModel3DTool } from "./hooks/useModel3DTool";
+import { useVideoTool } from "./hooks/useVideoTool";
+import { useDrawingTools } from "./hooks/useDrawingTools";
+import { useSelectionTool } from "./hooks/useSelectionTool";
+import { usePathEditor } from "./hooks/usePathEditor";
+import { useEraserTool } from "./hooks/useEraserTool";
+import { useInteractionController } from "./hooks/useInteractionController";
+import { useQuickImageUpload } from "./hooks/useQuickImageUpload";
+import { useSimpleTextTool } from "./hooks/useSimpleTextTool";
+import { useSnapAlignment } from "./hooks/useSnapAlignment";
+import SimpleTextEditor from "./SimpleTextEditor";
+import TextSelectionOverlay from "./TextSelectionOverlay";
+import { SnapGuideRenderer } from "./SnapGuideRenderer";
+import type { DrawingContext, ImageInstance } from "@/types/canvas";
+import { paperSaveService } from "@/services/paperSaveService";
+import { historyService } from "@/services/historyService";
+import type { Model3DData } from "@/services/model3DUploadService";
+import { clientToProject } from "@/utils/paperCoords";
+import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
+import { applyCursorForDrawMode } from "@/utils/cursorStyles";
+import {
+  usePersonalLibraryStore,
+  createPersonalAssetId,
+  type PersonalImageAsset,
+  type PersonalSvgAsset,
+} from "@/stores/personalLibraryStore";
+import { personalLibraryApi } from "@/services/personalLibraryApi";
+import { imageUploadService } from "@/services/imageUploadService";
 
 const isInlineImageSource = (value: unknown): value is string => {
-  if (typeof value !== 'string') return false;
-  return value.startsWith('data:image') || value.startsWith('blob:');
+  if (typeof value !== "string") return false;
+  return value.startsWith("data:image") || value.startsWith("blob:");
 };
 
 const extractLocalImageData = (imageData: unknown): string | null => {
-  if (!imageData || typeof imageData !== 'object') return null;
-  const candidates = ['localDataUrl', 'dataUrl', 'previewDataUrl'];
+  if (!imageData || typeof imageData !== "object") return null;
+  const candidates = ["localDataUrl", "dataUrl", "previewDataUrl"];
   for (const key of candidates) {
     const candidate = (imageData as Record<string, unknown>)[key];
-    if (typeof candidate === 'string' && candidate.length > 0 && isInlineImageSource(candidate)) {
+    if (
+      typeof candidate === "string" &&
+      candidate.length > 0 &&
+      isInlineImageSource(candidate)
+    ) {
       return candidate;
     }
   }
@@ -65,7 +75,7 @@ const extractLocalImageData = (imageData: unknown): string | null => {
 
 // 提取图片的任何可用源（优先 inline 数据，其次远程 URL）
 const extractAnyImageSource = (imageData: unknown): string | null => {
-  if (!imageData || typeof imageData !== 'object') return null;
+  if (!imageData || typeof imageData !== "object") return null;
   const data = imageData as Record<string, unknown>;
 
   // 优先使用 inline 数据（base64/blob）
@@ -73,10 +83,14 @@ const extractAnyImageSource = (imageData: unknown): string | null => {
   if (localData) return localData;
 
   // 其次使用远程 URL
-  const urlCandidates = ['url', 'src', 'remoteUrl'];
+  const urlCandidates = ["url", "src", "remoteUrl"];
   for (const key of urlCandidates) {
     const candidate = data[key];
-    if (typeof candidate === 'string' && candidate.length > 0 && candidate.startsWith('http')) {
+    if (
+      typeof candidate === "string" &&
+      candidate.length > 0 &&
+      candidate.startsWith("http")
+    ) {
       return candidate;
     }
   }
@@ -87,7 +101,7 @@ const extractAnyImageSource = (imageData: unknown): string | null => {
 const isEditableElement = (el: Element | null): boolean => {
   if (!el) return false;
   const tag = el.tagName?.toLowerCase();
-  if (tag === 'input' || tag === 'textarea') return true;
+  if (tag === "input" || tag === "textarea") return true;
   const anyEl = el as any;
   return !!anyEl?.isContentEditable;
 };
@@ -95,26 +109,35 @@ const isEditableElement = (el: Element | null): boolean => {
 const fileToDataURL = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 };
 
-const normalizeImageFileName = (fileNameCandidate: unknown, contentTypeCandidate: unknown): string => {
+const normalizeImageFileName = (
+  fileNameCandidate: unknown,
+  contentTypeCandidate: unknown
+): string => {
   const candidate =
-    typeof fileNameCandidate === 'string' && fileNameCandidate.trim().length > 0 ? fileNameCandidate.trim() : '';
+    typeof fileNameCandidate === "string" && fileNameCandidate.trim().length > 0
+      ? fileNameCandidate.trim()
+      : "";
   const contentType =
-    typeof contentTypeCandidate === 'string' && contentTypeCandidate.trim().length > 0 ? contentTypeCandidate.trim() : '';
+    typeof contentTypeCandidate === "string" &&
+    contentTypeCandidate.trim().length > 0
+      ? contentTypeCandidate.trim()
+      : "";
 
   const extFromType = (() => {
     const lower = contentType.toLowerCase();
-    if (lower.includes('image/png')) return '.png';
-    if (lower.includes('image/jpeg') || lower.includes('image/jpg')) return '.jpg';
-    if (lower.includes('image/webp')) return '.webp';
-    if (lower.includes('image/gif')) return '.gif';
-    if (lower.includes('image/svg+xml')) return '.svg';
-    return '';
+    if (lower.includes("image/png")) return ".png";
+    if (lower.includes("image/jpeg") || lower.includes("image/jpg"))
+      return ".jpg";
+    if (lower.includes("image/webp")) return ".webp";
+    if (lower.includes("image/gif")) return ".gif";
+    if (lower.includes("image/svg+xml")) return ".svg";
+    return "";
   })();
 
   const hasExt = /\.[a-z0-9]+$/i.test(candidate);
@@ -128,8 +151,8 @@ const normalizeImageFileName = (fileNameCandidate: unknown, contentTypeCandidate
     return extFromType ? `${candidate}${extFromType}` : `${candidate}.png`;
   }
 
-  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
-  return `image_${timestamp}${extFromType || '.png'}`;
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "");
+  return `image_${timestamp}${extFromType || ".png"}`;
 };
 
 const seemsImageUrl = (text: string): boolean => {
@@ -147,10 +170,10 @@ const fetchImagePayload = async (url: string): Promise<string> => {
     clearTimeout(id);
     if (resp.ok) {
       const blob = await resp.blob();
-      if (blob.type.startsWith('image/')) {
+      if (blob.type.startsWith("image/")) {
         payload = await new Promise<string>((resolve, reject) => {
           const fr = new FileReader();
-          fr.onload = () => resolve(String(fr.result || ''));
+          fr.onload = () => resolve(String(fr.result || ""));
           fr.onerror = reject;
           fr.readAsDataURL(blob);
         });
@@ -165,20 +188,26 @@ const fetchImagePayload = async (url: string): Promise<string> => {
 const looksLikeSvgMarkup = (value: string): boolean => {
   const trimmed = value.trim();
   if (!trimmed) return false;
-  if (trimmed.startsWith('<svg')) return true;
-  if (trimmed.startsWith('<?xml') && trimmed.includes('<svg')) return true;
-  return trimmed.includes('<svg');
+  if (trimmed.startsWith("<svg")) return true;
+  if (trimmed.startsWith("<?xml") && trimmed.includes("<svg")) return true;
+  return trimmed.includes("<svg");
 };
 
-const CANVAS_CLIPBOARD_MIME = 'application/x-tanva-canvas';
-const CANVAS_CLIPBOARD_FALLBACK_TEXT = 'Tanva canvas selection';
-const CANVAS_CLIPBOARD_TYPE = 'tanva-canvas';
+const CANVAS_CLIPBOARD_MIME = "application/x-tanva-canvas";
+const CANVAS_CLIPBOARD_FALLBACK_TEXT = "Tanva canvas selection";
+const CANVAS_CLIPBOARD_TYPE = "tanva-canvas";
 
 interface DrawingControllerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
-type ContextMenuTargetType = 'canvas' | 'selection' | 'image' | 'model3d' | 'text' | 'path';
+type ContextMenuTargetType =
+  | "canvas"
+  | "selection"
+  | "image"
+  | "model3d"
+  | "text"
+  | "path";
 
 interface CanvasContextMenuState {
   x: number;
@@ -188,26 +217,38 @@ interface CanvasContextMenuState {
 }
 
 type HitTestTarget =
-  | { type: 'image'; id: string }
-  | { type: 'model3d'; id: string }
-  | { type: 'text'; id?: string }
-  | { type: 'path'; path: paper.Path }
+  | { type: "image"; id: string }
+  | { type: "model3d"; id: string }
+  | { type: "text"; id?: string }
+  | { type: "path"; path: paper.Path }
   | null;
 
 const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
-  const { drawMode, currentColor, fillColor, strokeWidth, isEraser, hasFill, setDrawMode } = useToolStore();
+  const {
+    drawMode,
+    currentColor,
+    fillColor,
+    strokeWidth,
+    isEraser,
+    hasFill,
+    setDrawMode,
+  } = useToolStore();
   const zoom = useCanvasStore((state) => state.zoom);
   const panX = useCanvasStore((state) => state.panX);
   const panY = useCanvasStore((state) => state.panY);
   const { toggleVisibility } = useLayerStore();
-  const { setSourceImageForEditing, showDialog: showAIDialog } = useAIChatStore();
+  const { setSourceImageForEditing, showDialog: showAIDialog } =
+    useAIChatStore();
   const projectId = useProjectContentStore((s) => s.projectId);
   const projectAssets = useProjectContentStore((s) => s.content?.assets);
   const drawingLayerManagerRef = useRef<DrawingLayerManager | null>(null);
   const lastDrawModeRef = useRef<string>(drawMode);
   const [isGroupCapturePending, setIsGroupCapturePending] = useState(false);
-  const [modelCapturePending, setModelCapturePending] = useState<Record<string, boolean>>({});
-  const [contextMenuState, setContextMenuState] = useState<CanvasContextMenuState | null>(null);
+  const [modelCapturePending, setModelCapturePending] = useState<
+    Record<string, boolean>
+  >({});
+  const [contextMenuState, setContextMenuState] =
+    useState<CanvasContextMenuState | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
 
   // 内存优化：使用 ref 存储频繁变化的值，避免闭包重建
@@ -240,24 +281,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // Expose paperSaveService globally for testing (development only)
     if (import.meta.env.DEV) {
       (window as any).testPaperSave = () => {
-        logger.debug('🧪 Testing Paper.js save manually...');
+        logger.debug("🧪 Testing Paper.js save manually...");
         paperSaveService.triggerAutoSave();
       };
 
       (window as any).testPaperState = () => {
-        logger.debug('🔍 Paper.js状态检查:', {
+        logger.debug("🔍 Paper.js状态检查:", {
           hasPaper: !!paper,
           hasProject: !!paper?.project,
           hasView: !!paper?.view,
           projectLayers: paper?.project?.layers?.length || 0,
-          layerNames: paper?.project?.layers?.map(l => l.name) || []
+          layerNames: paper?.project?.layers?.map((l) => l.name) || [],
         });
       };
     }
 
     // 监听 Paper.js 项目恢复事件
     const handleProjectRecovery = (_event: CustomEvent) => {
-      logger.debug('🔄 收到Paper.js项目恢复请求，重新初始化图层管理器...');
+      logger.debug("🔄 收到Paper.js项目恢复请求，重新初始化图层管理器...");
 
       try {
         // 重新创建图层管理器
@@ -268,19 +309,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         // 触发 paper-ready 事件
         setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('paper-ready', {
-            detail: { recovered: true, timestamp: Date.now() }
-          }));
+          window.dispatchEvent(
+            new CustomEvent("paper-ready", {
+              detail: { recovered: true, timestamp: Date.now() },
+            })
+          );
         }, 100);
 
-        logger.debug('✅ Paper.js项目恢复完成');
+        logger.debug("✅ Paper.js项目恢复完成");
       } catch (error) {
-        console.error('❌ Paper.js项目恢复失败:', error);
+        console.error("❌ Paper.js项目恢复失败:", error);
       }
     };
 
     // 添加恢复事件监听器
-    window.addEventListener('paper-project-recovery-needed', handleProjectRecovery as EventListener);
+    window.addEventListener(
+      "paper-project-recovery-needed",
+      handleProjectRecovery as EventListener
+    );
 
     return () => {
       if (drawingLayerManagerRef.current) {
@@ -291,7 +337,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       paperSaveService.cleanup();
 
       // 移除恢复事件监听器
-      window.removeEventListener('paper-project-recovery-needed', handleProjectRecovery as EventListener);
+      window.removeEventListener(
+        "paper-project-recovery-needed",
+        handleProjectRecovery as EventListener
+      );
     };
   }, []);
 
@@ -299,12 +348,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const ensureDrawingLayer = useCallback(() => {
     // 首先检查 Paper.js 项目状态
     if (!paper || !paper.project || !paper.view) {
-      console.warn('⚠️ Paper.js项目未初始化，尝试恢复...');
+      console.warn("⚠️ Paper.js项目未初始化，尝试恢复...");
 
       // 触发项目恢复
-      window.dispatchEvent(new CustomEvent('paper-project-recovery-needed', {
-        detail: { source: 'ensureDrawingLayer', timestamp: Date.now() }
-      }));
+      window.dispatchEvent(
+        new CustomEvent("paper-project-recovery-needed", {
+          detail: { source: "ensureDrawingLayer", timestamp: Date.now() },
+        })
+      );
 
       return null;
     }
@@ -316,14 +367,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     try {
       return drawingLayerManagerRef.current.ensureDrawingLayer();
     } catch (error) {
-      console.error('❌ 确保绘图图层失败:', error);
+      console.error("❌ 确保绘图图层失败:", error);
 
       // 尝试重新创建图层管理器
       try {
         drawingLayerManagerRef.current = new DrawingLayerManager();
         return drawingLayerManagerRef.current.ensureDrawingLayer();
       } catch (retryError) {
-        console.error('❌ 重试创建绘图图层失败:', retryError);
+        console.error("❌ 重试创建绘图图层失败:", retryError);
         return null;
       }
     }
@@ -331,7 +382,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // ========== 初始化绘图上下文 ==========
   const drawingContext: DrawingContext = {
-    ensureDrawingLayer: () => ensureDrawingLayer() ?? useLayerStore.getState().ensureActiveLayer(),
+    ensureDrawingLayer: () =>
+      ensureDrawingLayer() ?? useLayerStore.getState().ensureActiveLayer(),
     zoom,
   };
 
@@ -343,13 +395,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     context: drawingContext,
     canvasRef,
     eventHandlers: {
-      onImageSelect: (imageId) => logger.debug('图片选中:', imageId),
-      onImageDeselect: () => logger.debug('取消图片选择'),
+      onImageSelect: (imageId) => logger.debug("图片选中:", imageId),
+      onImageDeselect: () => logger.debug("取消图片选择"),
       onImageDelete: (imageId) => {
         try {
           // 尝试找到被删除的实例，提取其源数据用于同步到AI对话框
-          const instance = imageInstancesRef.current.find((img) => img.id === imageId);
-          const imageSourceForAI = instance ? extractAnyImageSource(instance.imageData) : null;
+          const instance = imageInstancesRef.current.find(
+            (img) => img.id === imageId
+          );
+          const imageSourceForAI = instance
+            ? extractAnyImageSource(instance.imageData)
+            : null;
           if (!imageSourceForAI) return;
 
           const aiStore = useAIChatStore.getState();
@@ -370,10 +426,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             aiStore.removeImageFromBlending(blendIndex);
           }
         } catch (error) {
-          console.warn('同步删除图片到AI对话框失败:', error);
+          console.warn("同步删除图片到AI对话框失败:", error);
         }
-      }
-    }
+      },
+    },
   });
 
   imageInstancesRef.current = imageTool.imageInstances;
@@ -388,12 +444,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // ========== 监听drawMode变化，处理快速上传 ==========
   useEffect(() => {
     // 只在drawMode变化时触发，避免重复触发
-    if (drawMode === 'quick-image' && lastDrawModeRef.current !== 'quick-image') {
-      logger.tool('触发快速图片上传');
+    if (
+      drawMode === "quick-image" &&
+      lastDrawModeRef.current !== "quick-image"
+    ) {
+      logger.tool("触发快速图片上传");
       quickImageUpload.triggerQuickImageUpload();
       // 触发后立即切换回选择模式
       setTimeout(() => {
-        setDrawMode('select');
+        setDrawMode("select");
       }, 100);
     }
     lastDrawModeRef.current = drawMode;
@@ -403,26 +462,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     const handleQuickImageAdded = (event: CustomEvent) => {
       const imageInstance = event.detail;
-      logger.debug('🎪 [DEBUG] DrawingController收到quickImageAdded事件:', {
+      logger.debug("🎪 [DEBUG] DrawingController收到quickImageAdded事件:", {
         id: imageInstance.id,
         bounds: imageInstance.bounds,
         layerId: imageInstance.layerId,
-        hasRemoteUrl: !!(imageInstance.imageData?.url && !imageInstance.imageData.url.startsWith('data:')),
-        hasInlineData: !!(imageInstance.imageData?.src && imageInstance.imageData.src.startsWith('data:')),
+        hasRemoteUrl: !!(
+          imageInstance.imageData?.url &&
+          !imageInstance.imageData.url.startsWith("data:")
+        ),
+        hasInlineData: !!(
+          imageInstance.imageData?.src &&
+          imageInstance.imageData.src.startsWith("data:")
+        ),
       });
 
       if (imageInstance) {
         imageTool.setImageInstances((prev) => {
-          const alreadyExists = prev.some((inst) => inst.id === imageInstance.id);
+          const alreadyExists = prev.some(
+            (inst) => inst.id === imageInstance.id
+          );
           if (alreadyExists) {
-            logger.debug('ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加', imageInstance.id);
+            logger.debug(
+              "ℹ️ [DEBUG] quickImageAdded: 实例已存在，跳过重复添加",
+              imageInstance.id
+            );
             return prev;
           }
           const next = [...prev, imageInstance];
           // 立即同步到 window，避免“刚发送到画布→立刻保存”时 assets 采集不到新图片
-          try { (window as any).tanvaImageInstances = next; } catch {}
-          logger.upload('快速上传的图片已添加到实例管理');
-          logger.debug('✅ [DEBUG] 图片实例已添加到imageTool管理');
+          try {
+            (window as any).tanvaImageInstances = next;
+          } catch {}
+          logger.upload("快速上传的图片已添加到实例管理");
+          logger.debug("✅ [DEBUG] 图片实例已添加到imageTool管理");
           return next;
         });
 
@@ -430,17 +502,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         try {
           const cached = contextManager.getCachedImage();
           const rawSource = imageInstance.imageData?.src;
-          const inlineSource = isInlineImageSource(rawSource) ? rawSource : null;
+          const inlineSource = isInlineImageSource(rawSource)
+            ? rawSource
+            : null;
           const localDataUrl = extractLocalImageData(imageInstance.imageData);
-          const imageDataForCache = inlineSource || localDataUrl || cached?.imageData || null;
+          const imageDataForCache =
+            inlineSource || localDataUrl || cached?.imageData || null;
           const remoteUrl = (() => {
             if (inlineSource) {
               return imageInstance.imageData?.url ?? cached?.remoteUrl ?? null;
             }
-            if (typeof rawSource === 'string' && rawSource.length > 0) {
+            if (typeof rawSource === "string" && rawSource.length > 0) {
               return rawSource;
             }
-            if (typeof imageInstance.imageData?.url === 'string' && imageInstance.imageData.url.length > 0) {
+            if (
+              typeof imageInstance.imageData?.url === "string" &&
+              imageInstance.imageData.url.length > 0
+            ) {
               return imageInstance.imageData.url;
             }
             return cached?.remoteUrl ?? null;
@@ -451,33 +529,42 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             contextManager.cacheLatestImage(
               dataToCache,
               imageInstance.id,
-              cached?.prompt || '快速上传图片',
+              cached?.prompt || "快速上传图片",
               {
                 bounds: imageInstance.bounds,
                 layerId: imageInstance.layerId,
-                remoteUrl
+                remoteUrl,
               }
             );
-            logger.debug('🧷 已将图片位置信息写入缓存（覆盖为当前实例）:', { id: imageInstance.id, bounds: imageInstance.bounds });
+            logger.debug("🧷 已将图片位置信息写入缓存（覆盖为当前实例）:", {
+              id: imageInstance.id,
+              bounds: imageInstance.bounds,
+            });
           } else {
-            console.warn('⚠️ 未找到可缓存的图像数据，保持现有缓存', {
+            console.warn("⚠️ 未找到可缓存的图像数据，保持现有缓存", {
               imageId: imageInstance.id,
               hasInlineSource: !!inlineSource,
               hasLocalDataUrl: !!localDataUrl,
               hadCachedImage: !!cached?.imageData,
-              hasRemoteUrl: !!remoteUrl
+              hasRemoteUrl: !!remoteUrl,
             });
           }
         } catch (e) {
-          console.warn('写入缓存位置信息失败:', e);
+          console.warn("写入缓存位置信息失败:", e);
         }
       }
     };
 
-    window.addEventListener('quickImageAdded', handleQuickImageAdded as EventListener);
+    window.addEventListener(
+      "quickImageAdded",
+      handleQuickImageAdded as EventListener
+    );
 
     return () => {
-      window.removeEventListener('quickImageAdded', handleQuickImageAdded as EventListener);
+      window.removeEventListener(
+        "quickImageAdded",
+        handleQuickImageAdded as EventListener
+      );
     };
   }, [imageTool.setImageInstances]);
 
@@ -496,12 +583,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           // 先尝试处理画布内的结构化剪贴板数据
           const rawCanvasData =
             clipboardData.getData(CANVAS_CLIPBOARD_MIME) ||
-            clipboardData.getData('application/json');
+            clipboardData.getData("application/json");
           if (rawCanvasData) {
             try {
               const parsed = JSON.parse(rawCanvasData);
               const payload: CanvasClipboardData | null =
-                parsed?.type === CANVAS_CLIPBOARD_TYPE ? parsed.data : (parsed?.images && parsed?.paths ? parsed : null);
+                parsed?.type === CANVAS_CLIPBOARD_TYPE
+                  ? parsed.data
+                  : parsed?.images && parsed?.paths
+                  ? parsed
+                  : null;
               if (payload) {
                 clipboardService.setCanvasData(payload);
                 const handled = handleCanvasPasteRef.current();
@@ -511,7 +602,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 }
               }
             } catch (err) {
-              logger.warn('解析画布剪贴板数据失败', err);
+              logger.warn("解析画布剪贴板数据失败", err);
             }
           }
 
@@ -519,7 +610,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const items = clipboardData.items;
           for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            if (item && item.kind === 'file' && item.type.startsWith('image/')) {
+            if (
+              item &&
+              item.kind === "file" &&
+              item.type.startsWith("image/")
+            ) {
               const file = item.getAsFile();
               if (!file) continue;
 
@@ -530,28 +625,30 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 // 直接复用快速上传放置逻辑，默认落在视口中心
                 await uploadImageToCanvas?.(dataUrl, file.name);
               } catch (err) {
-                console.error('粘贴图片处理失败:', err);
+                console.error("粘贴图片处理失败:", err);
               }
               return; // 已处理首个图片项
             }
           }
 
           // 无图片项时，尝试处理文本中的图片URL
-          const text = clipboardData.getData('text/plain')?.trim();
+          const text = clipboardData.getData("text/plain")?.trim();
           if (text && seemsImageUrl(text)) {
             e.preventDefault();
             try {
               const payload = await fetchImagePayload(text);
               await uploadImageToCanvas?.(payload, undefined);
             } catch (err) {
-              console.error('粘贴URL处理失败:', err);
+              console.error("粘贴URL处理失败:", err);
             }
             return;
           }
 
           // 兜底：若系统剪贴板没有图片/URL/结构化数据，但内存中存在画布剪贴板数据，则执行画布内粘贴
           const canUseInMemoryCanvasPaste =
-            !rawCanvasData && (!text || text === CANVAS_CLIPBOARD_FALLBACK_TEXT) && !!clipboardService.getCanvasData();
+            !rawCanvasData &&
+            (!text || text === CANVAS_CLIPBOARD_FALLBACK_TEXT) &&
+            !!clipboardService.getCanvasData();
           if (canUseInMemoryCanvasPaste) {
             const handled = handleCanvasPasteRef.current();
             if (handled) {
@@ -560,101 +657,133 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
           }
         } catch (err) {
-          console.error('处理粘贴事件出错:', err);
+          console.error("处理粘贴事件出错:", err);
         }
       })();
     };
 
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
   }, [uploadImageToCanvas]);
 
-  const fetchSvgText = useCallback(async (url: string): Promise<string | null> => {
-    const tryFetch = async (init?: RequestInit) => {
-      try {
-        const res = await fetch(url, init);
-        if (!res.ok) return null;
-        const text = await res.text();
-        return looksLikeSvgMarkup(text) ? text : null;
-      } catch {
-        return null;
+  const fetchSvgText = useCallback(
+    async (url: string): Promise<string | null> => {
+      const tryFetch = async (init?: RequestInit) => {
+        try {
+          const res = await fetch(url, init);
+          if (!res.ok) return null;
+          const text = await res.text();
+          return looksLikeSvgMarkup(text) ? text : null;
+        } catch {
+          return null;
+        }
+      };
+
+      return (
+        (await tryFetch({ mode: "cors", credentials: "include" })) ||
+        (await tryFetch({ mode: "cors" })) ||
+        (await tryFetch())
+      );
+    },
+    []
+  );
+
+  const resolveSvgContent = useCallback(
+    async (asset: any): Promise<string | null> => {
+      const inline =
+        typeof asset?.svgContent === "string" ? asset.svgContent.trim() : "";
+      if (inline) return inline;
+
+      const id = typeof asset?.id === "string" ? asset.id : "";
+      if (id) {
+        const stored = usePersonalLibraryStore
+          .getState()
+          .assets.find((item) => item.type === "svg" && item.id === id) as
+          | PersonalSvgAsset
+          | undefined;
+        const storedSvg =
+          typeof stored?.svgContent === "string"
+            ? stored.svgContent.trim()
+            : "";
+        if (storedSvg) return storedSvg;
       }
-    };
 
-    return (
-      (await tryFetch({ mode: 'cors', credentials: 'include' })) ||
-      (await tryFetch({ mode: 'cors' })) ||
-      (await tryFetch())
-    );
-  }, []);
+      const url = typeof asset?.url === "string" ? asset.url.trim() : "";
+      if (url) {
+        return await fetchSvgText(url);
+      }
 
-  const resolveSvgContent = useCallback(async (asset: any): Promise<string | null> => {
-    const inline = typeof asset?.svgContent === 'string' ? asset.svgContent.trim() : '';
-    if (inline) return inline;
+      return null;
+    },
+    [fetchSvgText]
+  );
 
-    const id = typeof asset?.id === 'string' ? asset.id : '';
-    if (id) {
-      const stored = usePersonalLibraryStore
-        .getState()
-        .assets.find((item) => item.type === 'svg' && item.id === id) as PersonalSvgAsset | undefined;
-      const storedSvg = typeof stored?.svgContent === 'string' ? stored.svgContent.trim() : '';
-      if (storedSvg) return storedSvg;
-    }
+  const insertSvgAssetToCanvas = useCallback(
+    async (asset: any, position?: { x: number; y: number }) => {
+      if (!paper?.project || !paper?.view) return;
+      const svgContent = await resolveSvgContent(asset);
+      if (!svgContent) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "SVG 内容为空或无法读取", type: "error" },
+          })
+        );
+        return;
+      }
 
-    const url = typeof asset?.url === 'string' ? asset.url.trim() : '';
-    if (url) {
-      return await fetchSvgText(url);
-    }
+      ensureDrawingLayer();
+      try {
+        useLayerStore.getState().ensureActiveLayer();
+      } catch {}
 
-    return null;
-  }, [fetchSvgText]);
-
-  const insertSvgAssetToCanvas = useCallback(async (asset: any, position?: { x: number; y: number }) => {
-    if (!paper?.project || !paper?.view) return;
-    const svgContent = await resolveSvgContent(asset);
-    if (!svgContent) {
-      window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 内容为空或无法读取', type: 'error' } }));
-      return;
-    }
-
-    ensureDrawingLayer();
-    try {
-      useLayerStore.getState().ensureActiveLayer();
-    } catch {}
-
-    const targetPoint = position
-      ? new paper.Point(position.x, position.y)
-      : paper.view?.center
+      const targetPoint = position
+        ? new paper.Point(position.x, position.y)
+        : paper.view?.center
         ? new paper.Point(paper.view.center.x, paper.view.center.y)
         : new paper.Point(0, 0);
 
-    try {
-      const imported = paper.project.importSVG(svgContent, {
-        insert: false,
-        expandShapes: true,
-        applyMatrix: true,
-      }) as paper.Item;
-
-      paper.project.activeLayer.addChild(imported);
-      imported.position = targetPoint;
-      try { imported.bringToFront(); } catch {}
-
       try {
-        const paths = imported.getItems({ class: paper.Path } as any) as paper.Path[];
-        paths.forEach((path) => {
-          const strokeWidth = path.strokeWidth ?? 1;
-          path.data = { ...(path.data || {}), originalStrokeWidth: strokeWidth };
-        });
-      } catch {}
+        const imported = paper.project.importSVG(svgContent, {
+          insert: false,
+          expandShapes: true,
+          applyMatrix: true,
+        }) as paper.Item;
 
-      paper.view.update();
-      paperSaveService.triggerAutoSave();
-      try { historyService.commit('import-svg').catch(() => {}); } catch {}
-    } catch (error) {
-      console.warn('导入 SVG 失败:', error);
-      window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 导入失败', type: 'error' } }));
-    }
-  }, [ensureDrawingLayer, resolveSvgContent]);
+        paper.project.activeLayer.addChild(imported);
+        imported.position = targetPoint;
+        try {
+          imported.bringToFront();
+        } catch {}
+
+        try {
+          const paths = imported.getItems({
+            class: paper.Path,
+          } as any) as paper.Path[];
+          paths.forEach((path) => {
+            const strokeWidth = path.strokeWidth ?? 1;
+            path.data = {
+              ...(path.data || {}),
+              originalStrokeWidth: strokeWidth,
+            };
+          });
+        } catch {}
+
+        paper.view.update();
+        paperSaveService.triggerAutoSave();
+        try {
+          historyService.commit("import-svg").catch(() => {});
+        } catch {}
+      } catch (error) {
+        console.warn("导入 SVG 失败:", error);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "SVG 导入失败", type: "error" },
+          })
+        );
+      }
+    },
+    [ensureDrawingLayer, resolveSvgContent]
+  );
 
   // ========== 拖拽图片到画布 ==========
   useEffect(() => {
@@ -663,19 +792,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (!canvas) return false;
       const rect = canvas.getBoundingClientRect();
       const { clientX, clientY } = event;
-      return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+      return (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      );
     };
 
     const handleDragOver = (event: DragEvent) => {
       if (!isEventInsideCanvas(event)) return;
       const items = Array.from(event.dataTransfer?.items || []);
-      const _hasImageFile = items.some((item) => item.kind === 'file' && typeof item.type === 'string' && item.type.startsWith('image/'));
-      const _hasPotentialUrl = items.some((item) => item.kind === 'string');
+      const _hasImageFile = items.some(
+        (item) =>
+          item.kind === "file" &&
+          typeof item.type === "string" &&
+          item.type.startsWith("image/")
+      );
+      const _hasPotentialUrl = items.some((item) => item.kind === "string");
       // 只要落在画布上且存在可处理的条目就阻止默认行为，避免浏览器打开文件
       event.preventDefault();
       try {
         if (event.dataTransfer) {
-          event.dataTransfer.dropEffect = 'copy';
+          event.dataTransfer.dropEffect = "copy";
         }
       } catch {
         // ignore
@@ -690,30 +829,45 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const dt = event.dataTransfer;
         if (!dt) return;
 
-        const projectPoint = clientToProject(canvas, event.clientX, event.clientY);
-        const tanvaAssetData = dt.getData('application/x-tanva-asset');
+        const projectPoint = clientToProject(
+          canvas,
+          event.clientX,
+          event.clientY
+        );
+        const tanvaAssetData = dt.getData("application/x-tanva-asset");
         if (tanvaAssetData) {
           try {
             const parsed = JSON.parse(tanvaAssetData);
-            if (parsed?.type === 'svg' && parsed?.url) {
+            if (parsed?.type === "svg" && parsed?.url) {
               event.preventDefault();
               event.stopPropagation();
-              await insertSvgAssetToCanvas(parsed, { x: projectPoint.x, y: projectPoint.y });
+              await insertSvgAssetToCanvas(parsed, {
+                x: projectPoint.x,
+                y: projectPoint.y,
+              });
               return;
             }
             // 🔥 修复：处理从资源库拖拽的 2D 图片
-            if (parsed?.type === '2d' && parsed?.url) {
+            if (parsed?.type === "2d" && parsed?.url) {
               event.preventDefault();
               event.stopPropagation();
-              logger.upload('🖼️ 从资源库拖拽 2D 图片:', parsed);
-              await uploadImageToCanvas?.(parsed.url, parsed.fileName || parsed.name, undefined, { x: projectPoint.x, y: projectPoint.y }, 'manual');
+              logger.upload("🖼️ 从资源库拖拽 2D 图片:", parsed);
+              await uploadImageToCanvas?.(
+                parsed.url,
+                parsed.fileName || parsed.name,
+                undefined,
+                { x: projectPoint.x, y: projectPoint.y },
+                "manual"
+              );
               return;
             }
           } catch (error) {
-            console.warn('解析拖拽资源数据失败:', error);
+            console.warn("解析拖拽资源数据失败:", error);
           }
         }
-        const imageFiles = Array.from(dt.files || []).filter((file) => file.type && file.type.startsWith('image/'));
+        const imageFiles = Array.from(dt.files || []).filter(
+          (file) => file.type && file.type.startsWith("image/")
+        );
 
         if (imageFiles.length > 0) {
           event.preventDefault();
@@ -721,34 +875,46 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const file = imageFiles[0];
           try {
             const dataUrl = await fileToDataURL(file);
-            await uploadImageToCanvas?.(dataUrl, file.name, undefined, { x: projectPoint.x, y: projectPoint.y }, 'manual');
+            await uploadImageToCanvas?.(
+              dataUrl,
+              file.name,
+              undefined,
+              { x: projectPoint.x, y: projectPoint.y },
+              "manual"
+            );
           } catch (err) {
-            console.error('处理拖拽图片失败:', err);
+            console.error("处理拖拽图片失败:", err);
           }
           return;
         }
 
-        const uriList = dt.getData('text/uri-list');
-        const plainText = dt.getData('text/plain');
-        const text = (uriList || plainText || '').trim();
+        const uriList = dt.getData("text/uri-list");
+        const plainText = dt.getData("text/plain");
+        const text = (uriList || plainText || "").trim();
         if (!text || !seemsImageUrl(text)) return;
 
         event.preventDefault();
         event.stopPropagation();
         try {
           const payload = await fetchImagePayload(text);
-          await uploadImageToCanvas?.(payload, undefined, undefined, { x: projectPoint.x, y: projectPoint.y }, 'manual');
+          await uploadImageToCanvas?.(
+            payload,
+            undefined,
+            undefined,
+            { x: projectPoint.x, y: projectPoint.y },
+            "manual"
+          );
         } catch (err) {
-          console.error('拖拽图片链接处理失败:', err);
+          console.error("拖拽图片链接处理失败:", err);
         }
       })();
     };
 
-    window.addEventListener('dragover', handleDragOver);
-    window.addEventListener('drop', handleDrop);
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("drop", handleDrop);
     return () => {
-      window.removeEventListener('dragover', handleDragOver);
-      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("drop", handleDrop);
     };
   }, [canvasRef, insertSvgAssetToCanvas, uploadImageToCanvas]);
 
@@ -760,8 +926,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       void insertSvgAssetToCanvas(asset, detail?.position);
     };
 
-    window.addEventListener('canvas:insert-svg', handleInsertSvg as EventListener);
-    return () => window.removeEventListener('canvas:insert-svg', handleInsertSvg as EventListener);
+    window.addEventListener(
+      "canvas:insert-svg",
+      handleInsertSvg as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "canvas:insert-svg",
+        handleInsertSvg as EventListener
+      );
   }, [insertSvgAssetToCanvas]);
 
   // ========== 监听AI生成图片的快速上传触发事件 ==========
@@ -777,14 +950,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         sourceImages,
         videoInfo,
         placeholderId,
-        preferHorizontal,  // 🔥 新增：是否优先横向排列
+        preferHorizontal, // 🔥 新增：是否优先横向排列
         // 🔥 并行生成分组信息，用于 X4/X8 自动打组
         parallelGroupId,
         parallelGroupIndex,
         parallelGroupTotal,
       } = event.detail;
 
-      logger.debug('🎨 [DEBUG] 收到AI图片快速上传触发事件:', {
+      logger.debug("🎨 [DEBUG] 收到AI图片快速上传触发事件:", {
         fileName,
         hasSelectedBounds: !!selectedImageBounds,
         hasSmartPosition: !!smartPosition,
@@ -807,16 +980,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           operationType,
           sourceImageId,
           sourceImages,
-          { videoInfo, placeholderId, preferHorizontal, parallelGroupId, parallelGroupIndex, parallelGroupTotal }  // 🔥 传递并行分组信息
+          {
+            videoInfo,
+            placeholderId,
+            preferHorizontal,
+            parallelGroupId,
+            parallelGroupIndex,
+            parallelGroupTotal,
+          } // 🔥 传递并行分组信息
         );
-        logger.debug('✅ [DEBUG] 已调用智能排版快速上传处理函数');
+        logger.debug("✅ [DEBUG] 已调用智能排版快速上传处理函数");
       }
     };
 
-    window.addEventListener('triggerQuickImageUpload', handleTriggerQuickUpload as EventListener);
+    window.addEventListener(
+      "triggerQuickImageUpload",
+      handleTriggerQuickUpload as EventListener
+    );
 
     return () => {
-      window.removeEventListener('triggerQuickImageUpload', handleTriggerQuickUpload as EventListener);
+      window.removeEventListener(
+        "triggerQuickImageUpload",
+        handleTriggerQuickUpload as EventListener
+      );
     };
   }, [quickImageUpload]);
 
@@ -829,44 +1015,62 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   // 监听预测占位符事件，提前在画布上标记预计位置与尺寸
   useEffect(() => {
     const handlePredictPlaceholder = (event: CustomEvent) => {
-      logger.tool('🎯 [DrawingController] 收到占位符事件:', event.detail);
+      logger.tool("🎯 [DrawingController] 收到占位符事件:", event.detail);
       const detail = event.detail || {};
-      const action = detail.action || 'add';
+      const action = detail.action || "add";
       const placeholderId = detail.placeholderId as string | undefined;
       const preferSmartLayout = Boolean(detail.preferSmartLayout);
-      const smartPosition = detail.smartPosition as { x: number; y: number } | undefined;
+      const smartPosition = detail.smartPosition as
+        | { x: number; y: number }
+        | undefined;
       const sourceImageId = detail.sourceImageId as string | undefined;
       const sourceImages = detail.sourceImages as string[] | undefined;
 
       if (!placeholderId) {
-        logger.warn('🎯 [DrawingController] 缺少 placeholderId');
+        logger.warn("🎯 [DrawingController] 缺少 placeholderId");
         return;
       }
 
-      if (action === 'remove') {
-        logger.tool('🎯 [DrawingController] 移除占位符:', placeholderId);
+      if (action === "remove") {
+        logger.tool("🎯 [DrawingController] 移除占位符:", placeholderId);
         quickImageUploadRef.current.removePredictedPlaceholder(placeholderId);
         return;
       }
 
       const groupId = detail.groupId as string | undefined;
-      const groupIndex = typeof detail.groupIndex === 'number' ? detail.groupIndex : undefined;
-      const groupTotal = typeof detail.groupTotal === 'number' ? detail.groupTotal : undefined;
+      const groupIndex =
+        typeof detail.groupIndex === "number" ? detail.groupIndex : undefined;
+      const groupTotal =
+        typeof detail.groupTotal === "number" ? detail.groupTotal : undefined;
       const preferHorizontal = Boolean(detail.preferHorizontal);
-      const groupAnchor = detail.groupAnchor as { x: number; y: number } | undefined;
+      const groupAnchor = detail.groupAnchor as
+        | { x: number; y: number }
+        | undefined;
       const center = detail.center as { x: number; y: number } | undefined;
       const width = detail.width as number | undefined;
       const height = detail.height as number | undefined;
       const operationType = detail.operationType as string | undefined;
       const layoutAnchor = groupAnchor || center || smartPosition || null;
 
-      logger.tool('🎯 [DrawingController] 占位符参数:', { center, width, height, operationType, groupId, groupIndex, groupTotal });
+      logger.tool("🎯 [DrawingController] 占位符参数:", {
+        center,
+        width,
+        height,
+        operationType,
+        groupId,
+        groupIndex,
+        groupTotal,
+      });
 
       let resolvedCenter = center;
-      if ((preferSmartLayout || !resolvedCenter) && typeof quickImageUploadRef.current.calculateSmartPosition === 'function') {
-        const smart = smartPosition ??
+      if (
+        (preferSmartLayout || !resolvedCenter) &&
+        typeof quickImageUploadRef.current.calculateSmartPosition === "function"
+      ) {
+        const smart =
+          smartPosition ??
           quickImageUploadRef.current.calculateSmartPosition(
-            operationType || 'generate',
+            operationType || "generate",
             sourceImageId,
             sourceImages,
             placeholderId,
@@ -875,12 +1079,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               groupIndex,
               groupTotal,
               anchorCenter: layoutAnchor,
-              preferHorizontal
+              preferHorizontal,
             }
           );
         if (smart && Number.isFinite(smart.x) && Number.isFinite(smart.y)) {
           resolvedCenter = { x: smart.x, y: smart.y };
-          logger.tool('🎯 [DrawingController] 使用智能排版位置:', resolvedCenter);
+          logger.tool(
+            "🎯 [DrawingController] 使用智能排版位置:",
+            resolvedCenter
+          );
         }
       }
 
@@ -888,12 +1095,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         resolvedCenter = { x: paper.view.center.x, y: paper.view.center.y };
       }
 
-      if (!resolvedCenter || typeof width !== 'number' || typeof height !== 'number') {
-        console.warn('🎯 [DrawingController] 参数不完整，跳过显示');
+      if (
+        !resolvedCenter ||
+        typeof width !== "number" ||
+        typeof height !== "number"
+      ) {
+        console.warn("🎯 [DrawingController] 参数不完整，跳过显示");
         return;
       }
 
-      logger.tool('🎯 [DrawingController] 调用 showPredictedPlaceholder');
+      logger.tool("🎯 [DrawingController] 调用 showPredictedPlaceholder");
       quickImageUploadRef.current.showPredictedPlaceholder({
         placeholderId,
         center: resolvedCenter,
@@ -908,14 +1119,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         groupIndex,
         groupTotal,
         preferHorizontal,
-        groupAnchor: layoutAnchor || undefined
+        groupAnchor: layoutAnchor || undefined,
       });
     };
 
-    window.addEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
-    logger.tool('🎯 [DrawingController] 已注册占位符事件监听器');
+    window.addEventListener(
+      "predictImagePlaceholder",
+      handlePredictPlaceholder as EventListener
+    );
+    logger.tool("🎯 [DrawingController] 已注册占位符事件监听器");
     return () => {
-      window.removeEventListener('predictImagePlaceholder', handlePredictPlaceholder as EventListener);
+      window.removeEventListener(
+        "predictImagePlaceholder",
+        handlePredictPlaceholder as EventListener
+      );
     };
   }, []); // 空依赖数组，只注册一次
 
@@ -926,14 +1143,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const placeholderId = detail.placeholderId as string | undefined;
       const progress = detail.progress as number | undefined;
 
-      if (!placeholderId || typeof progress !== 'number') return;
+      if (!placeholderId || typeof progress !== "number") return;
 
-      quickImageUploadRef.current.updatePlaceholderProgress(placeholderId, progress);
+      quickImageUploadRef.current.updatePlaceholderProgress(
+        placeholderId,
+        progress
+      );
     };
 
-    window.addEventListener('updatePlaceholderProgress', handleUpdateProgress as EventListener);
+    window.addEventListener(
+      "updatePlaceholderProgress",
+      handleUpdateProgress as EventListener
+    );
     return () => {
-      window.removeEventListener('updatePlaceholderProgress', handleUpdateProgress as EventListener);
+      window.removeEventListener(
+        "updatePlaceholderProgress",
+        handleUpdateProgress as EventListener
+      );
     };
   }, []); // 空依赖数组，只注册一次
 
@@ -942,10 +1168,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     context: drawingContext,
     canvasRef,
     eventHandlers: {
-      onModel3DSelect: (modelId) => logger.debug('3D模型选中:', modelId),
-      onModel3DDeselect: () => logger.debug('取消3D模型选择')
+      onModel3DSelect: (modelId) => logger.debug("3D模型选中:", modelId),
+      onModel3DDeselect: () => logger.debug("取消3D模型选择"),
     },
-    setDrawMode
+    setDrawMode,
   });
 
   // 内存优化：3D模型实例也使用 ref
@@ -967,20 +1193,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   useEffect(() => {
     const handleInsertModelFromLibrary = (event: CustomEvent) => {
-      const detail = event.detail as { 
-        modelData?: Partial<Model3DData>; 
-        size?: { width: number; height: number };
-        position?: { start: { x: number; y: number }; end: { x: number; y: number } };
-      } | undefined;
+      const detail = event.detail as
+        | {
+            modelData?: Partial<Model3DData>;
+            size?: { width: number; height: number };
+            position?: {
+              start: { x: number; y: number };
+              end: { x: number; y: number };
+            };
+          }
+        | undefined;
       if (!detail?.modelData) return;
-      
+
       // 如果提供了位置信息，使用提供的位置；否则使用画布中心
       let start: paper.Point;
       let end: paper.Point;
-      
+
       if (detail.position) {
         // 使用提供的位置（例如从图片旁边）
-        start = new paper.Point(detail.position.start.x, detail.position.start.y);
+        start = new paper.Point(
+          detail.position.start.x,
+          detail.position.start.y
+        );
         end = new paper.Point(detail.position.end.x, detail.position.end.y);
       } else {
         // 默认使用画布中心
@@ -990,28 +1224,43 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         start = new paper.Point(center.x - width / 2, center.y - height / 2);
         end = new paper.Point(center.x + width / 2, center.y + height / 2);
       }
-      
+
       const placeholder = create3DModelPlaceholder(start, end);
       if (!placeholder) return;
       currentModel3DPlaceholderRef.current = placeholder;
       const normalized: Model3DData = {
-        url: detail.modelData.url || detail.modelData.path || '',
-        path: detail.modelData.path || detail.modelData.url || '',
+        url: detail.modelData.url || detail.modelData.path || "",
+        path: detail.modelData.path || detail.modelData.url || "",
         key: detail.modelData.key,
-        format: detail.modelData.format || 'glb',
-        fileName: detail.modelData.fileName || '模型.glb',
+        format: detail.modelData.format || "glb",
+        fileName: detail.modelData.fileName || "模型.glb",
         fileSize: detail.modelData.fileSize ?? 0,
         defaultScale: detail.modelData.defaultScale || { x: 1, y: 1, z: 1 },
-        defaultRotation: detail.modelData.defaultRotation || { x: 0, y: 0, z: 0 },
+        defaultRotation: detail.modelData.defaultRotation || {
+          x: 0,
+          y: 0,
+          z: 0,
+        },
         timestamp: detail.modelData.timestamp || Date.now(),
         camera: detail.modelData.camera,
       };
       handleModel3DUploaded(normalized);
     };
 
-    window.addEventListener('canvas:insert-model3d', handleInsertModelFromLibrary as EventListener);
-    return () => window.removeEventListener('canvas:insert-model3d', handleInsertModelFromLibrary as EventListener);
-  }, [create3DModelPlaceholder, currentModel3DPlaceholderRef, handleModel3DUploaded]);
+    window.addEventListener(
+      "canvas:insert-model3d",
+      handleInsertModelFromLibrary as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "canvas:insert-model3d",
+        handleInsertModelFromLibrary as EventListener
+      );
+  }, [
+    create3DModelPlaceholder,
+    currentModel3DPlaceholderRef,
+    handleModel3DUploaded,
+  ]);
 
   // ========== 初始化绘图工具Hook ==========
   const drawingTools = useDrawingTools({
@@ -1023,43 +1272,43 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     hasFill,
     eventHandlers: {
       onPathCreate: (path) => {
-        logger.debug('路径创建:', path);
+        logger.debug("路径创建:", path);
       },
       onPathComplete: (path) => {
-        logger.debug('路径完成:', path);
+        logger.debug("路径完成:", path);
 
         // 检查 Paper.js 项目状态后再触发保存
         if (paper && paper.project && paper.view) {
           paperSaveService.triggerAutoSave();
         } else {
-          console.warn('⚠️ Paper.js项目状态异常，跳过自动保存');
+          console.warn("⚠️ Paper.js项目状态异常，跳过自动保存");
         }
       },
       onDrawStart: (mode) => {
-        logger.debug('开始绘制:', mode);
+        logger.debug("开始绘制:", mode);
       },
       onDrawEnd: (mode) => {
-        logger.debug('结束绘制:', mode);
+        logger.debug("结束绘制:", mode);
 
         // 检查 Paper.js 项目状态后再触发保存
         if (paper && paper.project && paper.view) {
           paperSaveService.triggerAutoSave();
         } else {
-          console.warn('⚠️ Paper.js项目状态异常，跳过自动保存');
+          console.warn("⚠️ Paper.js项目状态异常，跳过自动保存");
         }
-      }
-    }
+      },
+    },
   });
 
   // ========== 初始化路径编辑器Hook ==========
   const pathEditor = usePathEditor({
-    zoom
+    zoom,
   });
 
   // ========== 初始化橡皮擦工具Hook ==========
   const eraserTool = useEraserTool({
     context: drawingContext,
-    strokeWidth
+    strokeWidth,
   });
 
   // ========== 初始化简单文本工具Hook ==========
@@ -1068,33 +1317,61 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     ensureDrawingLayer: drawingContext.ensureDrawingLayer,
   });
 
+  // ========== 初始化视频工具Hook ==========
+  const videoTool = useVideoTool({
+    context: drawingContext,
+    canvasRef,
+    eventHandlers: {
+      onVideoSelect: (videoId) => logger.debug("视频选中:", videoId),
+      onVideoDeselect: () => logger.debug("取消视频选择"),
+      onVideoDelete: (videoId) => {
+        logger.debug("视频删除:", videoId);
+        // 可以在这里添加删除后的清理逻辑
+      },
+    },
+  });
+
+  // 内存优化：视频实例也使用 ref
+  const videoInstancesRef = useRef(videoTool.videoInstances);
+  useEffect(() => {
+    videoInstancesRef.current = videoTool.videoInstances;
+  }, [videoTool.videoInstances]);
+
   // ========== 初始化选择工具Hook ==========
   const selectionTool = useSelectionTool({
     zoom,
     imageInstances: imageTool.imageInstances,
     model3DInstances: model3DTool.model3DInstances,
+    videoInstances: videoTool.videoInstances,
     textItems: simpleTextTool.textItems,
     onImageSelect: (imageId, addToSelection) => {
       // 先执行原有选择逻辑
       imageTool.handleImageSelect(imageId, addToSelection);
       try {
         // 在当前实例列表中查找该图片，获取其最新bounds
-        const img = imageTool.imageInstances.find(i => i.id === imageId);
+        const img = imageTool.imageInstances.find((i) => i.id === imageId);
         if (img && img.bounds) {
           const cachedBeforeSelect = contextManager.getCachedImage();
           const primarySource = img.imageData?.src ?? img.imageData?.url;
-          const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
+          const inlineSource = isInlineImageSource(primarySource)
+            ? primarySource
+            : null;
           const localDataUrl = extractLocalImageData(img.imageData);
           // 🔥 不再使用 cachedBeforeSelect?.imageData 作为 fallback，避免显示错误的图片
           const imageDataForCache = inlineSource || localDataUrl || null;
           const remoteUrl = (() => {
             if (inlineSource) {
-              return img.imageData?.url ?? cachedBeforeSelect?.remoteUrl ?? null;
+              return (
+                img.imageData?.url ?? cachedBeforeSelect?.remoteUrl ?? null
+              );
             }
-            if (typeof primarySource === 'string' && primarySource.length > 0) {
+            if (typeof primarySource === "string" && primarySource.length > 0) {
               return primarySource;
             }
-            if (typeof img.imageData?.url === 'string' && img.imageData.url.length > 0) {
+            if (
+              typeof img.imageData?.url === "string" &&
+              img.imageData.url.length > 0
+            ) {
               return img.imageData.url;
             }
             return null; // 🔥 不再使用 cachedBeforeSelect?.remoteUrl
@@ -1106,20 +1383,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             contextManager.cacheLatestImage(
               dataToCache,
               img.id,
-              '用户选择的图片',
+              "用户选择的图片",
               {
                 bounds: img.bounds,
                 layerId: img.layerId,
-                remoteUrl
+                remoteUrl,
               }
             );
-            logger.debug('📌 已基于选中图片更新缓存位置:', { id: img.id, bounds: img.bounds });
+            logger.debug("📌 已基于选中图片更新缓存位置:", {
+              id: img.id,
+              bounds: img.bounds,
+            });
           } else {
-            console.warn('⚠️ 选中图片缺少可缓存的数据，跳过缓存更新', {
+            console.warn("⚠️ 选中图片缺少可缓存的数据，跳过缓存更新", {
               imageId,
               hasInlineSource: !!inlineSource,
               hasLocalDataUrl: !!localDataUrl,
-              hasRemoteUrl: !!remoteUrl
+              hasRemoteUrl: !!remoteUrl,
             });
           }
 
@@ -1138,16 +1418,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
             // 添加当前选中的图片
             if (imageSourceForAI) allSelectedImages.push(imageSourceForAI);
-            useAIChatStore.getState().setSourceImagesFromCanvas(allSelectedImages);
+            useAIChatStore
+              .getState()
+              .setSourceImagesFromCanvas(allSelectedImages);
           } else {
             // 单选模式：只设置当前图片
             if (imageSourceForAI) {
-              useAIChatStore.getState().setSourceImagesFromCanvas([imageSourceForAI]);
+              useAIChatStore
+                .getState()
+                .setSourceImagesFromCanvas([imageSourceForAI]);
             }
           }
         }
       } catch (e) {
-        console.warn('更新缓存位置失败:', e);
+        console.warn("更新缓存位置失败:", e);
       }
     },
     onImageMultiSelect: (imageIds) => {
@@ -1158,7 +1442,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         const selectedImages: string[] = [];
         for (const id of imageIds) {
-          const img = imageTool.imageInstances.find(i => i.id === id);
+          const img = imageTool.imageInstances.find((i) => i.id === id);
           if (img) {
             const imageData = extractAnyImageSource(img.imageData);
             if (imageData) selectedImages.push(imageData);
@@ -1166,7 +1450,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
         useAIChatStore.getState().setSourceImagesFromCanvas(selectedImages);
       } catch (e) {
-        console.warn('同步多选图片到AI对话框失败:', e);
+        console.warn("同步多选图片到AI对话框失败:", e);
       }
     },
     onModel3DSelect: model3DTool.handleModel3DSelect,
@@ -1178,6 +1462,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       useAIChatStore.getState().setSourceImagesFromCanvas([]);
     },
     onModel3DDeselect: model3DTool.handleModel3DDeselect,
+    onVideoSelect: (videoId, addToSelection) => {
+      videoTool.handleVideoSelect(videoId, addToSelection);
+    },
+    onVideoMultiSelect: (videoIds) => {
+      videoTool.handleVideoMultiSelect(videoIds);
+    },
+    onVideoDeselect: videoTool.handleVideoDeselect,
     onTextSelect: (textId, addToSelection) => {
       if (addToSelection) {
         // 多选模式：保持现有选择
@@ -1193,24 +1484,36 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     },
     onTextDeselect: () => {
       simpleTextTool.deselectText();
-    }
+    },
   });
 
   const selectedTextItems = useMemo(
-    () => simpleTextTool.textItems.filter((item) => item.isSelected && item.paperText),
+    () =>
+      simpleTextTool.textItems.filter(
+        (item) => item.isSelected && item.paperText
+      ),
     [simpleTextTool.textItems]
   );
 
   const hasSelection = useMemo(() => {
     const imageCount = imageTool.selectedImageIds?.length ?? 0;
     const modelCount = model3DTool.selectedModel3DIds?.length ?? 0;
+    const videoCount = videoTool.selectedVideoIds?.length ?? 0;
     const pathCount =
-      (selectionTool.selectedPath ? 1 : 0) + (selectionTool.selectedPaths?.length ?? 0);
+      (selectionTool.selectedPath ? 1 : 0) +
+      (selectionTool.selectedPaths?.length ?? 0);
     const textCount = selectedTextItems.length;
-    return imageCount > 0 || modelCount > 0 || pathCount > 0 || textCount > 0;
+    return (
+      imageCount > 0 ||
+      modelCount > 0 ||
+      videoCount > 0 ||
+      pathCount > 0 ||
+      textCount > 0
+    );
   }, [
     imageTool.selectedImageIds,
     model3DTool.selectedModel3DIds,
+    videoTool.selectedVideoIds,
     selectionTool.selectedPath,
     selectionTool.selectedPaths,
     selectedTextItems,
@@ -1285,33 +1588,43 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   useEffect(() => {
     const handlePaperCleared = () => {
-      logger.debug('🧹 收到 paper-project-cleared 事件，重置前端实例状态');
+      logger.debug("🧹 收到 paper-project-cleared 事件，重置前端实例状态");
 
       resetImageInstances([]);
       resetSelectedImageIds([]);
       if (imagePlaceholderRef?.current) {
-        try { imagePlaceholderRef.current.remove(); } catch {}
+        try {
+          imagePlaceholderRef.current.remove();
+        } catch {}
         imagePlaceholderRef.current = null;
       }
 
       resetModelInstances([]);
       resetModelSelections([]);
       if (modelPlaceholderRef?.current) {
-        try { modelPlaceholderRef.current.remove(); } catch {}
+        try {
+          modelPlaceholderRef.current.remove();
+        } catch {}
         modelPlaceholderRef.current = null;
       }
 
       clearTextItems();
       clearSelections();
 
-      try { (window as any).tanvaImageInstances = []; } catch {}
-      try { (window as any).tanvaModel3DInstances = []; } catch {}
-      try { (window as any).tanvaTextItems = []; } catch {}
+      try {
+        (window as any).tanvaImageInstances = [];
+      } catch {}
+      try {
+        (window as any).tanvaModel3DInstances = [];
+      } catch {}
+      try {
+        (window as any).tanvaTextItems = [];
+      } catch {}
     };
 
-    window.addEventListener('paper-project-cleared', handlePaperCleared);
+    window.addEventListener("paper-project-cleared", handlePaperCleared);
     return () => {
-      window.removeEventListener('paper-project-cleared', handlePaperCleared);
+      window.removeEventListener("paper-project-cleared", handlePaperCleared);
     };
   }, [
     resetImageInstances,
@@ -1321,7 +1634,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     clearTextItems,
     clearSelections,
     imagePlaceholderRef,
-    modelPlaceholderRef
+    modelPlaceholderRef,
   ]);
 
   // 记录上一次处理的 projectId，避免重复清空
@@ -1351,7 +1664,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     lastProcessedProjectIdRef.current = projectId;
     clearingInProgressRef.current = true;
 
-    logger.debug('🔄 项目ID变化，清空所有实例:', projectId);
+    logger.debug("🔄 项目ID变化，清空所有实例:", projectId);
 
     // 直接同步执行，但使用稳定的函数引用
     try {
@@ -1389,22 +1702,34 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 只允许进行一次基于快照的初始回填，避免用户删除后又被回填复原
     // 注意：该标记必须是“按项目隔离”的，否则切换项目后会误判为已回填，导致图片丢失/不可选（刷新后正常）。
     const hydratedFlagKey = `__tanva_initial_assets_hydrated__:${projectId}`;
-    const alreadyHydrated = typeof window !== 'undefined' && (window as any)[hydratedFlagKey];
+    const alreadyHydrated =
+      typeof window !== "undefined" && (window as any)[hydratedFlagKey];
     if (alreadyHydrated) return;
 
     // 如果已经从 paperJson 恢复过内容，则这次也不需要 snapshot 回填
-    const restoredFromPaper = typeof window !== 'undefined' && (window as any).tanvaPaperRestored;
+    const restoredFromPaper =
+      typeof window !== "undefined" && (window as any).tanvaPaperRestored;
     if (restoredFromPaper) {
-      logger.debug('🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复');
-      try { (window as any).tanvaPaperRestored = false; } catch {}
+      logger.debug(
+        "🛑 检测到已从 paperJson 恢复，跳过 snapshot 回填以避免重复"
+      );
+      try {
+        (window as any).tanvaPaperRestored = false;
+      } catch {}
       // 视为已回填一次，避免后续空场景再次触发
-      try { (window as any)[hydratedFlagKey] = true; } catch {}
+      try {
+        (window as any)[hydratedFlagKey] = true;
+      } catch {}
 
       // paperJson 恢复只会还原 Paper 场景，不会重建图片/3D/文本的运行时实例。
       // 若不补齐 imageTool.imageInstances，选择/拖拽会退化为“框选矩形”，表现为图片拖不动。
       try {
         if (imageTool.imageInstances.length === 0) {
-          const imageSnapshots: ImageAssetSnapshot[] = Array.isArray(projectAssets.images) ? projectAssets.images : [];
+          const imageSnapshots: ImageAssetSnapshot[] = Array.isArray(
+            projectAssets.images
+          )
+            ? projectAssets.images
+            : [];
           const snapshotMap = new Map<string, ImageAssetSnapshot>();
           imageSnapshots.forEach((snap) => {
             if (snap?.id) snapshotMap.set(snap.id, snap);
@@ -1413,7 +1738,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const restoredImageGroups = (() => {
             try {
               const items = (paper.project as any).getItems?.({
-                match: (item: any) => item?.data?.type === 'image' && item?.data?.imageId,
+                match: (item: any) =>
+                  item?.data?.type === "image" && item?.data?.imageId,
               }) as paper.Item[] | undefined;
               const list = Array.isArray(items) ? items : [];
 
@@ -1423,7 +1749,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 const imageId = item?.data?.imageId;
                 if (!imageId) continue;
                 const existing = byId.get(imageId);
-                const isGroupLike = (it: any) => it?.className === 'Group' || it instanceof paper.Group;
+                const isGroupLike = (it: any) =>
+                  it?.className === "Group" || it instanceof paper.Group;
                 if (!existing) {
                   byId.set(imageId, item);
                   continue;
@@ -1450,12 +1777,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   (child: any) => child && isRaster(child)
                 ) as paper.Raster | undefined)
               : isRaster(item)
-                ? (item as paper.Raster)
-                : undefined;
+              ? (item as paper.Raster)
+              : undefined;
 
             const resolvedBounds = (() => {
-              const paperBounds = (raster as any)?.bounds || (item as any)?.bounds;
-              if (paperBounds && paperBounds.width > 0 && paperBounds.height > 0) {
+              const paperBounds =
+                (raster as any)?.bounds || (item as any)?.bounds;
+              if (
+                paperBounds &&
+                paperBounds.width > 0 &&
+                paperBounds.height > 0
+              ) {
                 return paperBounds as paper.Rectangle;
               }
               if (snapshot?.bounds) {
@@ -1487,17 +1819,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     originalWidth: snapshot?.width,
                     originalHeight: snapshot?.height,
                     aspectRatio:
-                      snapshot?.width && snapshot?.height ? snapshot.width / snapshot.height : undefined,
+                      snapshot?.width && snapshot?.height
+                        ? snapshot.width / snapshot.height
+                        : undefined,
                     remoteUrl: snapshot?.url,
                   },
                 });
               } catch (error) {
-                console.warn('重建图片组结构失败:', error);
+                console.warn("重建图片组结构失败:", error);
               }
             } else if (raster) {
               // 至少保证 raster.data 上有 imageId，便于后续命中检测/预览逻辑工作
               try {
-                raster.data = { ...(raster.data || {}), type: 'image', imageId };
+                raster.data = {
+                  ...(raster.data || {}),
+                  type: "image",
+                  imageId,
+                };
               } catch {}
             }
 
@@ -1505,13 +1843,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               snapshot?.url ||
               snapshot?.src ||
               snapshot?.localDataUrl ||
-              (typeof (raster as any)?.source === 'string' ? (raster as any).source : null);
+              (typeof (raster as any)?.source === "string"
+                ? (raster as any).source
+                : null);
 
             if (!source) return;
 
             const layerName = (item as any)?.layer?.name;
             const derivedLayerId =
-              typeof layerName === 'string' && layerName.startsWith('layer_') ? layerName.replace('layer_', '') : undefined;
+              typeof layerName === "string" && layerName.startsWith("layer_")
+                ? layerName.replace("layer_", "")
+                : undefined;
 
             reconstructed.push({
               id: imageId,
@@ -1542,11 +1884,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           if (reconstructed.length > 0) {
             imageTool.setImageInstances(reconstructed);
             imageTool.setSelectedImageIds([]);
-            try { paper.view.update(); } catch {}
+            try {
+              paper.view.update();
+            } catch {}
           }
         }
       } catch (error) {
-        console.warn('paperJson 恢复后重建图片实例失败:', error);
+        console.warn("paperJson 恢复后重建图片实例失败:", error);
       }
       return;
     }
@@ -1567,10 +1911,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (projectAssets.texts?.length) {
         simpleTextTool.hydrateFromSnapshot(projectAssets.texts);
       }
+      if (projectAssets.videos?.length) {
+        videoTool.hydrateFromSnapshot(projectAssets.videos);
+      }
       // 标记为已回填
-      try { (window as any)[hydratedFlagKey] = true; } catch {}
+      try {
+        (window as any)[hydratedFlagKey] = true;
+      } catch {}
     } catch (error) {
-      console.warn('资产回填失败:', error);
+      console.warn("资产回填失败:", error);
     }
   }, [
     projectId,
@@ -1596,21 +1945,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   const handleScreenshot = useCallback(async () => {
     try {
-      logger.debug('🖼️ 用户触发截图...');
+      logger.debug("🖼️ 用户触发截图...");
 
       // 延迟一点，确保UI状态稳定
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // 使用 ref 获取最新实例，避免闭包捕获大量数据
       const currentImageInstances = imageInstancesRef.current;
       const currentModel3DInstances = model3DInstancesRef.current;
 
       // 调试信息
-      logger.debug('截图前的状态:', {
+      logger.debug("截图前的状态:", {
         imageCount: currentImageInstances.length,
         model3DCount: currentModel3DInstances.length,
         images: currentImageInstances,
-        models: currentModel3DInstances
+        models: currentModel3DInstances,
       });
 
       // 使用带回调的截图模式，同时下载和传入AI对话框
@@ -1629,24 +1978,30 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       const manualSelection = {
         paperItems: Array.from(selectedPaperItemsSet),
-        imageIds: Array.isArray(currentSelectedImageIds) ? [...currentSelectedImageIds] : [],
-        modelIds: Array.isArray(currentSelectedModelIds) ? [...currentSelectedModelIds] : [],
+        imageIds: Array.isArray(currentSelectedImageIds)
+          ? [...currentSelectedImageIds]
+          : [],
+        modelIds: Array.isArray(currentSelectedModelIds)
+          ? [...currentSelectedModelIds]
+          : [],
       };
 
       const result = await AutoScreenshotService.captureAutoScreenshot(
         currentImageInstances,
         currentModel3DInstances,
         {
-          format: 'png',
+          format: "png",
           quality: 0.92,
           scale: 2,
           padding: 0, // 无边距，与内容尺寸完全一致
           autoDownload: true, // 同时下载文件，方便检查质量
-          filename: 'artboard-screenshot',
+          filename: "artboard-screenshot",
           selection: manualSelection,
           // 截图完成后的回调，直接传入AI聊天
           onComplete: (dataUrl: string, filename: string) => {
-            logger.debug('🎨 截图完成，同时下载文件和传入AI对话框...', { filename });
+            logger.debug("🎨 截图完成，同时下载文件和传入AI对话框...", {
+              filename,
+            });
 
             // 将截图设置为AI编辑源图片
             setSourceImageForEditing(dataUrl);
@@ -1654,27 +2009,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             // 显示AI对话框
             showAIDialog();
 
-            logger.debug('✅ 截图已下载到本地并传入AI对话框');
-          }
+            logger.debug("✅ 截图已下载到本地并传入AI对话框");
+          },
         }
       );
 
       if (result.success) {
-        logger.debug('✅ 截图成功生成:', result.filename);
-        logger.debug('截图成功！已下载到本地并传入AI对话框:', result.filename);
+        logger.debug("✅ 截图成功生成:", result.filename);
+        logger.debug("截图成功！已下载到本地并传入AI对话框:", result.filename);
       } else {
-        logger.error('❌ 截图失败:', result.error);
-        console.error('截图失败:', result.error);
+        logger.error("❌ 截图失败:", result.error);
+        console.error("截图失败:", result.error);
         alert(`截图失败: ${result.error}`);
       }
-
     } catch (error) {
-      logger.error('截图过程出错:', error);
-      console.error('截图过程出错:', error);
-      alert('截图失败，请重试');
+      logger.error("截图过程出错:", error);
+      console.error("截图过程出错:", error);
+      alert("截图失败，请重试");
     } finally {
       // 无论成功失败，都切换回选择模式
-      setDrawMode('select');
+      setDrawMode("select");
     }
   }, [
     currentSelectedPath,
@@ -1685,12 +2039,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 改用 refs，避免每次实例变化都重建回调
     setDrawMode,
     setSourceImageForEditing,
-    showAIDialog
+    showAIDialog,
   ]);
 
   // 监听截图工具的激活
   useEffect(() => {
-    if (drawMode === 'screenshot') {
+    if (drawMode === "screenshot") {
       // 当选择截图工具时，立即执行截图
       handleScreenshot();
     }
@@ -1706,7 +2060,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const selectedModelInstances = useMemo(() => {
     if (!model3DTool.selectedModel3DIds?.length) return [];
     const set = new Set(model3DTool.selectedModel3DIds);
-    return model3DTool.model3DInstances.filter((instance) => set.has(instance.id));
+    return model3DTool.model3DInstances.filter((instance) =>
+      set.has(instance.id)
+    );
   }, [model3DTool.model3DInstances, model3DTool.selectedModel3DIds]);
 
   const selectedPaperItems = useMemo(() => {
@@ -1721,13 +2077,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (paperText) set.add(paperText);
     });
     return Array.from(set);
-  }, [selectionTool.selectedPath, selectionTool.selectedPaths, selectedTextItems]);
+  }, [
+    selectionTool.selectedPath,
+    selectionTool.selectedPaths,
+    selectedTextItems,
+  ]);
 
   const selectedGroupBlocks = useMemo(() => {
     const items: paper.Path[] = [];
     const push = (path: paper.Path | null | undefined) => {
       if (!path) return;
-      if (path.data?.type !== 'image-group') return;
+      if (path.data?.type !== "image-group") return;
       items.push(path);
     };
     push(selectionTool.selectedPath);
@@ -1741,7 +2101,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const items: paper.Path[] = [];
     const push = (path: paper.Path | null | undefined) => {
       if (!path) return;
-      if (path.data?.type === 'image-group') return;
+      if (path.data?.type === "image-group") return;
       items.push(path);
     };
     push(selectionTool.selectedPath);
@@ -1757,7 +2117,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const raw = (block.data as any)?.imageIds;
       if (!Array.isArray(raw)) return;
       raw.forEach((id) => {
-        if (typeof id === 'string' && id.trim()) ids.add(id.trim());
+        if (typeof id === "string" && id.trim()) ids.add(id.trim());
       });
     });
     return Array.from(ids);
@@ -1766,16 +2126,20 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const groupableImageIds = useMemo(() => {
     const ids = new Set<string>();
     (imageTool.selectedImageIds ?? []).forEach((id) => {
-      if (typeof id === 'string' && id.trim()) ids.add(id.trim());
+      if (typeof id === "string" && id.trim()) ids.add(id.trim());
     });
     selectedGroupImageIds.forEach((id) => ids.add(id));
     return Array.from(ids);
   }, [imageTool.selectedImageIds, selectedGroupImageIds]);
 
-  const groupSelectionCount = selectedImageInstances.length + selectedModelInstances.length + selectedPaperItems.length;
+  const groupSelectionCount =
+    selectedImageInstances.length +
+    selectedModelInstances.length +
+    selectedPaperItems.length;
   const isGroupSelection = groupSelectionCount >= 2;
   const showSelectionGroupToolbar =
-    isGroupSelection || (selectedGroupBlocks.length === 1 && groupSelectionCount === 1);
+    isGroupSelection ||
+    (selectedGroupBlocks.length === 1 && groupSelectionCount === 1);
   const canGroupImages =
     groupSelectionCount >= 2 &&
     groupableImageIds.length >= 2 &&
@@ -1794,151 +2158,192 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     );
     if (bounds.isEmpty) return null;
     return bounds;
-  }, [showSelectionGroupToolbar, selectedImageInstances, selectedModelInstances, selectedPaperItems]);
+  }, [
+    showSelectionGroupToolbar,
+    selectedImageInstances,
+    selectedModelInstances,
+    selectedPaperItems,
+  ]);
 
-  const paperRectToScreen = useCallback((rect: { x: number; y: number; width: number; height: number } | null) => {
-    if (!rect || !paper.view) return null;
-    try {
-      const dpr = window.devicePixelRatio || 1;
-      const topLeft = paper.view.projectToView(new paper.Point(rect.x, rect.y));
-      const bottomRight = paper.view.projectToView(new paper.Point(rect.x + rect.width, rect.y + rect.height));
-      if (
-        !Number.isFinite(topLeft.x) ||
-        !Number.isFinite(topLeft.y) ||
-        !Number.isFinite(bottomRight.x) ||
-        !Number.isFinite(bottomRight.y)
-      ) {
+  const paperRectToScreen = useCallback(
+    (rect: { x: number; y: number; width: number; height: number } | null) => {
+      if (!rect || !paper.view) return null;
+      try {
+        const dpr = window.devicePixelRatio || 1;
+        const topLeft = paper.view.projectToView(
+          new paper.Point(rect.x, rect.y)
+        );
+        const bottomRight = paper.view.projectToView(
+          new paper.Point(rect.x + rect.width, rect.y + rect.height)
+        );
+        if (
+          !Number.isFinite(topLeft.x) ||
+          !Number.isFinite(topLeft.y) ||
+          !Number.isFinite(bottomRight.x) ||
+          !Number.isFinite(bottomRight.y)
+        ) {
+          return null;
+        }
+        return {
+          x: topLeft.x / dpr,
+          y: topLeft.y / dpr,
+          width: (bottomRight.x - topLeft.x) / dpr,
+          height: (bottomRight.y - topLeft.y) / dpr,
+        };
+      } catch (error) {
+        console.warn("Group toolbar 坐标转换失败:", error);
         return null;
       }
+    },
+    [zoom, panX, panY]
+  );
+
+  const groupScreenBounds = useMemo(
+    () => paperRectToScreen(groupPaperBounds),
+    [groupPaperBounds, paperRectToScreen]
+  );
+
+  const getCameraSmartPosition = useCallback(
+    (bounds?: { x: number; y: number; width: number; height: number }) => {
+      if (!bounds) return undefined;
+      const gap = Math.max(48, Math.min(160, bounds.height * 0.25));
       return {
-        x: topLeft.x / dpr,
-        y: topLeft.y / dpr,
-        width: (bottomRight.x - topLeft.x) / dpr,
-        height: (bottomRight.y - topLeft.y) / dpr,
+        x: bounds.x + bounds.width / 2,
+        y: bounds.y + bounds.height / 2 + bounds.height + gap,
       };
-    } catch (error) {
-      console.warn('Group toolbar 坐标转换失败:', error);
-      return null;
-    }
-  }, [zoom, panX, panY]);
+    },
+    []
+  );
 
-  const groupScreenBounds = useMemo(() => paperRectToScreen(groupPaperBounds), [groupPaperBounds, paperRectToScreen]);
-
-  const getCameraSmartPosition = useCallback((bounds?: { x: number; y: number; width: number; height: number }) => {
-    if (!bounds) return undefined;
-    const gap = Math.max(48, Math.min(160, bounds.height * 0.25));
-    return {
-      x: bounds.x + bounds.width / 2,
-      y: bounds.y + bounds.height / 2 + bounds.height + gap,
-    };
-  }, []);
-
-  const executeGroupCapture = useCallback(async (options?: { sendToDialog?: boolean }) => {
-    const hasCaptureTarget = isGroupSelection || selectedGroupBlocks.length > 0;
-    if (!hasCaptureTarget || !groupPaperBounds) return;
-    if (isGroupCapturePending) return;
-    setIsGroupCapturePending(true);
-    const sendToDialog = options?.sendToDialog ?? false;
-    try {
-      const captureImageIds = Array.from(
-        new Set([...(imageTool.selectedImageIds ?? []), ...selectedGroupImageIds])
-      );
-      const capturePaperItems = selectedPaperItems.filter(
-        (item) => (item as any)?.data?.type !== 'image-group'
-      );
-      const selection = {
-        paperItems: capturePaperItems,
-        imageIds: captureImageIds,
-        modelIds: [...(model3DTool.selectedModel3DIds ?? [])],
-      };
-      const result = await AutoScreenshotService.captureAutoScreenshot(
-        imageTool.imageInstances,
-        model3DTool.model3DInstances,
-        {
-          format: 'png',
-          includeBackground: false,
-          autoDownload: false,
-          selection,
-        }
-      );
-
-      if (result.success && result.dataUrl) {
-        const captureBounds = result.bounds ?? groupPaperBounds;
-        const boundsPayload = {
-          x: captureBounds.x,
-          y: captureBounds.y,
-          width: captureBounds.width,
-          height: captureBounds.height,
+  const executeGroupCapture = useCallback(
+    async (options?: { sendToDialog?: boolean }) => {
+      const hasCaptureTarget =
+        isGroupSelection || selectedGroupBlocks.length > 0;
+      if (!hasCaptureTarget || !groupPaperBounds) return;
+      if (isGroupCapturePending) return;
+      setIsGroupCapturePending(true);
+      const sendToDialog = options?.sendToDialog ?? false;
+      try {
+        const captureImageIds = Array.from(
+          new Set([
+            ...(imageTool.selectedImageIds ?? []),
+            ...selectedGroupImageIds,
+          ])
+        );
+        const capturePaperItems = selectedPaperItems.filter(
+          (item) => (item as any)?.data?.type !== "image-group"
+        );
+        const selection = {
+          paperItems: capturePaperItems,
+          imageIds: captureImageIds,
+          modelIds: [...(model3DTool.selectedModel3DIds ?? [])],
         };
-        const smartPosition = getCameraSmartPosition(boundsPayload);
-        const shouldAddToCanvas = !sendToDialog;
-
-        if (shouldAddToCanvas) {
-          if (quickImageUpload.handleQuickImageUploaded) {
-            await quickImageUpload.handleQuickImageUploaded(
-              result.dataUrl,
-              `group-${Date.now()}.png`,
-              boundsPayload,
-              smartPosition,
-              'camera'
-            );
-          } else {
-            window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-              detail: {
-                imageData: result.dataUrl,
-                fileName: `group-${Date.now()}.png`,
-                selectedImageBounds: boundsPayload,
-                smartPosition,
-                operationType: 'camera',
-              }
-            }));
+        const result = await AutoScreenshotService.captureAutoScreenshot(
+          imageTool.imageInstances,
+          model3DTool.model3DInstances,
+          {
+            format: "png",
+            includeBackground: false,
+            autoDownload: false,
+            selection,
           }
-        }
+        );
 
-        if (sendToDialog) {
-          setSourceImageForEditing(result.dataUrl);
-          showAIDialog();
-        }
+        if (result.success && result.dataUrl) {
+          const captureBounds = result.bounds ?? groupPaperBounds;
+          const boundsPayload = {
+            x: captureBounds.x,
+            y: captureBounds.y,
+            width: captureBounds.width,
+            height: captureBounds.height,
+          };
+          const smartPosition = getCameraSmartPosition(boundsPayload);
+          const shouldAddToCanvas = !sendToDialog;
 
-        const successMessage = sendToDialog ? '组合图层已发送到对话框' : '已生成组合图层';
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: successMessage, type: 'success' }
-        }));
-      } else {
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: result.error || '组合失败，请重试', type: 'error' }
-        }));
+          if (shouldAddToCanvas) {
+            if (quickImageUpload.handleQuickImageUploaded) {
+              await quickImageUpload.handleQuickImageUploaded(
+                result.dataUrl,
+                `group-${Date.now()}.png`,
+                boundsPayload,
+                smartPosition,
+                "camera"
+              );
+            } else {
+              window.dispatchEvent(
+                new CustomEvent("triggerQuickImageUpload", {
+                  detail: {
+                    imageData: result.dataUrl,
+                    fileName: `group-${Date.now()}.png`,
+                    selectedImageBounds: boundsPayload,
+                    smartPosition,
+                    operationType: "camera",
+                  },
+                })
+              );
+            }
+          }
+
+          if (sendToDialog) {
+            setSourceImageForEditing(result.dataUrl);
+            showAIDialog();
+          }
+
+          const successMessage = sendToDialog
+            ? "组合图层已发送到对话框"
+            : "已生成组合图层";
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: successMessage, type: "success" },
+            })
+          );
+        } else {
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: result.error || "组合失败，请重试",
+                type: "error",
+              },
+            })
+          );
+        }
+      } catch (error) {
+        console.error("Group capture failed:", error);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "组合失败，请重试", type: "error" },
+          })
+        );
+      } finally {
+        setIsGroupCapturePending(false);
       }
-    } catch (error) {
-      console.error('Group capture failed:', error);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '组合失败，请重试', type: 'error' }
-      }));
-    } finally {
-      setIsGroupCapturePending(false);
-    }
-  }, [
-    isGroupSelection,
-    selectedGroupBlocks.length,
-    selectedGroupImageIds,
-    groupPaperBounds,
-    isGroupCapturePending,
-    imageTool.imageInstances,
-    model3DTool.model3DInstances,
-    imageTool.selectedImageIds,
-    model3DTool.selectedModel3DIds,
-    selectedPaperItems,
-    quickImageUpload.handleQuickImageUploaded,
-    getCameraSmartPosition,
-    setSourceImageForEditing,
-    showAIDialog,
-  ]);
+    },
+    [
+      isGroupSelection,
+      selectedGroupBlocks.length,
+      selectedGroupImageIds,
+      groupPaperBounds,
+      isGroupCapturePending,
+      imageTool.imageInstances,
+      model3DTool.model3DInstances,
+      imageTool.selectedImageIds,
+      model3DTool.selectedModel3DIds,
+      selectedPaperItems,
+      quickImageUpload.handleQuickImageUploaded,
+      getCameraSmartPosition,
+      setSourceImageForEditing,
+      showAIDialog,
+    ]
+  );
 
   const handleGroupCapture = useCallback(() => {
     if (selectedGroupBlocks.length > 0 && selectedGroupImageIds.length > 0) {
       try {
         handleImageMultiSelect([
-          ...new Set([...(imageTool.selectedImageIds ?? []), ...selectedGroupImageIds]),
+          ...new Set([
+            ...(imageTool.selectedImageIds ?? []),
+            ...selectedGroupImageIds,
+          ]),
         ]);
       } catch {}
     }
@@ -1958,12 +2363,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     if (!block) {
       const message =
-        reason === 'different-layers'
-          ? '当前选中的图片不在同一图层，无法组合'
-          : reason === 'missing-images'
-            ? '部分图片未找到，无法组合'
-            : '组合失败，请重试';
-      window.dispatchEvent(new CustomEvent('toast', { detail: { message, type: 'error' } }));
+        reason === "different-layers"
+          ? "当前选中的图片不在同一图层，无法组合"
+          : reason === "missing-images"
+          ? "部分图片未找到，无法组合"
+          : "组合失败，请重试";
+      window.dispatchEvent(
+        new CustomEvent("toast", { detail: { message, type: "error" } })
+      );
       return;
     }
 
@@ -1977,9 +2384,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 先删除标题
         const groupId = (old.data as any)?.groupId;
         if (groupId) {
-          try { removeGroupBlockTitle(groupId); } catch {}
+          try {
+            removeGroupBlockTitle(groupId);
+          } catch {}
         }
-        try { old.remove(); } catch {}
+        try {
+          old.remove();
+        } catch {}
       });
     } catch {}
 
@@ -1993,15 +2404,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       selectionTool.setSelectedPaths([]);
     } catch {}
 
-    try { paper.view.update(); } catch {}
-    historyService.commit('group-images').catch(() => {});
-    try { paperSaveService.triggerAutoSave('group-images'); } catch {}
-  }, [
-    canGroupImages,
-    groupableImageIds,
-    selectedGroupBlocks,
-    selectionTool,
-  ]);
+    try {
+      paper.view.update();
+    } catch {}
+    historyService.commit("group-images").catch(() => {});
+    try {
+      paperSaveService.triggerAutoSave("group-images");
+    } catch {}
+  }, [canGroupImages, groupableImageIds, selectedGroupBlocks, selectionTool]);
 
   const handleUngroupImages = useCallback(() => {
     if (!selectedGroupBlocks.length) return;
@@ -2012,121 +2422,150 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 先删除标题
         const groupId = (block.data as any)?.groupId;
         if (groupId) {
-          try { removeGroupBlockTitle(groupId); } catch {}
+          try {
+            removeGroupBlockTitle(groupId);
+          } catch {}
         }
-        try { block.remove(); } catch {}
+        try {
+          block.remove();
+        } catch {}
       });
-      try { paper.view.update(); } catch {}
-      historyService.commit('ungroup-images').catch(() => {});
-      try { paperSaveService.triggerAutoSave('ungroup-images'); } catch {}
+      try {
+        paper.view.update();
+      } catch {}
+      historyService.commit("ungroup-images").catch(() => {});
+      try {
+        paperSaveService.triggerAutoSave("ungroup-images");
+      } catch {}
     } catch {}
   }, [selectedGroupBlocks, selectionTool]);
 
-  const handleModelCapture = useCallback(async (modelId: string) => {
-    let abort = false;
-    setModelCapturePending((prev) => {
-      if (prev[modelId]) {
-        abort = true;
-        return prev;
-      }
-      return { ...prev, [modelId]: true };
-    });
-    if (abort) return;
-
-    const targetModel = model3DTool.model3DInstances.find((model) => model.id === modelId);
-    if (!targetModel) {
+  const handleModelCapture = useCallback(
+    async (modelId: string) => {
+      let abort = false;
       setModelCapturePending((prev) => {
-        const next = { ...prev };
-        delete next[modelId];
-        return next;
-      });
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '未找到对应的3D模型', type: 'error' },
-      }));
-      return;
-    }
-
-    try {
-      const selection = {
-        paperItems: [] as paper.Item[],
-        imageIds: [] as string[],
-        modelIds: [modelId],
-      };
-      const result = await AutoScreenshotService.captureAutoScreenshot(
-        imageTool.imageInstances,
-        model3DTool.model3DInstances,
-        {
-          format: 'png',
-          includeBackground: false,
-          autoDownload: false,
-          selection,
+        if (prev[modelId]) {
+          abort = true;
+          return prev;
         }
+        return { ...prev, [modelId]: true };
+      });
+      if (abort) return;
+
+      const targetModel = model3DTool.model3DInstances.find(
+        (model) => model.id === modelId
       );
+      if (!targetModel) {
+        setModelCapturePending((prev) => {
+          const next = { ...prev };
+          delete next[modelId];
+          return next;
+        });
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "未找到对应的3D模型", type: "error" },
+          })
+        );
+        return;
+      }
 
-      if (result.success && result.dataUrl) {
-        const captureBounds = result.bounds ?? targetModel.bounds;
-        const boundsPayload = {
-          x: captureBounds.x,
-          y: captureBounds.y,
-          width: captureBounds.width,
-          height: captureBounds.height,
+      try {
+        const selection = {
+          paperItems: [] as paper.Item[],
+          imageIds: [] as string[],
+          modelIds: [modelId],
         };
-        const fileName = `model-${Date.now()}.png`;
-        const smartPosition = getCameraSmartPosition(boundsPayload);
+        const result = await AutoScreenshotService.captureAutoScreenshot(
+          imageTool.imageInstances,
+          model3DTool.model3DInstances,
+          {
+            format: "png",
+            includeBackground: false,
+            autoDownload: false,
+            selection,
+          }
+        );
 
-        if (quickImageUpload.handleQuickImageUploaded) {
-          await quickImageUpload.handleQuickImageUploaded(
-            result.dataUrl,
-            fileName,
-            boundsPayload,
-            smartPosition,
-            'camera'
+        if (result.success && result.dataUrl) {
+          const captureBounds = result.bounds ?? targetModel.bounds;
+          const boundsPayload = {
+            x: captureBounds.x,
+            y: captureBounds.y,
+            width: captureBounds.width,
+            height: captureBounds.height,
+          };
+          const fileName = `model-${Date.now()}.png`;
+          const smartPosition = getCameraSmartPosition(boundsPayload);
+
+          if (quickImageUpload.handleQuickImageUploaded) {
+            await quickImageUpload.handleQuickImageUploaded(
+              result.dataUrl,
+              fileName,
+              boundsPayload,
+              smartPosition,
+              "camera"
+            );
+          } else {
+            window.dispatchEvent(
+              new CustomEvent("triggerQuickImageUpload", {
+                detail: {
+                  imageData: result.dataUrl,
+                  fileName,
+                  selectedImageBounds: boundsPayload,
+                  smartPosition,
+                  operationType: "camera",
+                },
+              })
+            );
+          }
+
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "已生成3D截图", type: "success" },
+            })
           );
         } else {
-          window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
-            detail: {
-              imageData: result.dataUrl,
-              fileName,
-              selectedImageBounds: boundsPayload,
-              smartPosition,
-              operationType: 'camera',
-            }
-          }));
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: {
+                message: result.error || "截图失败，请重试",
+                type: "error",
+              },
+            })
+          );
         }
-
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '已生成3D截图', type: 'success' }
-        }));
-      } else {
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: result.error || '截图失败，请重试', type: 'error' }
-        }));
+      } catch (error) {
+        console.error("3D capture failed:", error);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "截图失败，请重试", type: "error" },
+          })
+        );
+      } finally {
+        setModelCapturePending((prev) => {
+          const next = { ...prev };
+          delete next[modelId];
+          return next;
+        });
       }
-    } catch (error) {
-      console.error('3D capture failed:', error);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '截图失败，请重试', type: 'error' }
-      }));
-    } finally {
-      setModelCapturePending((prev) => {
-        const next = { ...prev };
-        delete next[modelId];
-        return next;
-      });
-    }
-  }, [
-    imageTool.imageInstances,
-    model3DTool.model3DInstances,
-    quickImageUpload.handleQuickImageUploaded,
-    getCameraSmartPosition,
-  ]);
+    },
+    [
+      imageTool.imageInstances,
+      model3DTool.model3DInstances,
+      quickImageUpload.handleQuickImageUploaded,
+      getCameraSmartPosition,
+    ]
+  );
 
-  const handleModelSelectFromOverlay = useCallback((modelId: string, addToSelection: boolean = false) => {
-    if (!addToSelection) {
-      clearSelections();
-    }
-    model3DTool.handleModel3DSelect(modelId, addToSelection);
-  }, [clearSelections, model3DTool]);
+  const handleModelSelectFromOverlay = useCallback(
+    (modelId: string, addToSelection: boolean = false) => {
+      if (!addToSelection) {
+        clearSelections();
+      }
+      model3DTool.handleModel3DSelect(modelId, addToSelection);
+    },
+    [clearSelections, model3DTool]
+  );
 
   // ========== 初始化交互控制器Hook ==========
   useInteractionController({
@@ -2142,129 +2581,193 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     performErase: eraserTool.performErase,
     setDrawMode,
     isEraser,
-    snapAlignment
+    snapAlignment,
   });
 
-  const collectCanvasClipboardData = useCallback((): CanvasClipboardData | null => {
-    const selectedImageIdsSet = new Set<string>(
-      (imageTool.selectedImageIds && imageTool.selectedImageIds.length > 0
-        ? imageTool.selectedImageIds
-        : imageTool.imageInstances.filter((img) => img.isSelected).map((img) => img.id)) ?? []
-    );
-    const imageSnapshots: ImageAssetSnapshot[] = imageTool.imageInstances
-      .filter((img) => selectedImageIdsSet.has(img.id))
-      .map((img) => {
-        const source = img.imageData.localDataUrl || img.imageData.src || img.imageData.url;
-        if (!source) {
-          console.warn('图片缺少可复制的资源，已跳过', img.id);
-          return null;
-        }
-        return {
-          id: img.id,
-          url: img.imageData.url || source,
-          src: img.imageData.src || source,
-          key: img.imageData.key,
-          fileName: img.imageData.fileName,
-          width: img.imageData.width ?? img.bounds.width,
-          height: img.imageData.height ?? img.bounds.height,
-          contentType: img.imageData.contentType,
-          pendingUpload: img.imageData.pendingUpload,
-          localDataUrl: img.imageData.localDataUrl,
-          bounds: { ...img.bounds },
-          layerId: img.layerId ?? null,
-        } as ImageAssetSnapshot;
-      })
-      .filter((snapshot): snapshot is ImageAssetSnapshot => snapshot !== null);
+  const collectCanvasClipboardData =
+    useCallback((): CanvasClipboardData | null => {
+      const selectedImageIdsSet = new Set<string>(
+        (imageTool.selectedImageIds && imageTool.selectedImageIds.length > 0
+          ? imageTool.selectedImageIds
+          : imageTool.imageInstances
+              .filter((img) => img.isSelected)
+              .map((img) => img.id)) ?? []
+      );
+      const imageSnapshots: ImageAssetSnapshot[] = imageTool.imageInstances
+        .filter((img) => selectedImageIdsSet.has(img.id))
+        .map((img) => {
+          const source =
+            img.imageData.localDataUrl ||
+            img.imageData.src ||
+            img.imageData.url;
+          if (!source) {
+            console.warn("图片缺少可复制的资源，已跳过", img.id);
+            return null;
+          }
+          return {
+            id: img.id,
+            url: img.imageData.url || source,
+            src: img.imageData.src || source,
+            key: img.imageData.key,
+            fileName: img.imageData.fileName,
+            width: img.imageData.width ?? img.bounds.width,
+            height: img.imageData.height ?? img.bounds.height,
+            contentType: img.imageData.contentType,
+            pendingUpload: img.imageData.pendingUpload,
+            localDataUrl: img.imageData.localDataUrl,
+            bounds: { ...img.bounds },
+            layerId: img.layerId ?? null,
+          } as ImageAssetSnapshot;
+        })
+        .filter(
+          (snapshot): snapshot is ImageAssetSnapshot => snapshot !== null
+        );
 
-    const selectedModelIdsSet = new Set<string>(
-      (model3DTool.selectedModel3DIds && model3DTool.selectedModel3DIds.length > 0
-        ? model3DTool.selectedModel3DIds
-        : model3DTool.model3DInstances.filter((model) => model.isSelected).map((model) => model.id)) ?? []
-    );
-    const modelSnapshots: ModelAssetSnapshot[] = model3DTool.model3DInstances
-      .filter((model) => selectedModelIdsSet.has(model.id))
-      .map((model) => ({
-        id: model.id,
-        url: model.modelData.url,
-        key: model.modelData.key,
-        format: model.modelData.format,
-        fileName: model.modelData.fileName,
-        fileSize: model.modelData.fileSize,
-        defaultScale: model.modelData.defaultScale,
-        defaultRotation: model.modelData.defaultRotation,
-        timestamp: model.modelData.timestamp,
-        path: model.modelData.path ?? model.modelData.url,
-        bounds: { ...model.bounds },
-        layerId: model.layerId ?? null,
-      }));
+      const selectedModelIdsSet = new Set<string>(
+        (model3DTool.selectedModel3DIds &&
+        model3DTool.selectedModel3DIds.length > 0
+          ? model3DTool.selectedModel3DIds
+          : model3DTool.model3DInstances
+              .filter((model) => model.isSelected)
+              .map((model) => model.id)) ?? []
+      );
+      const modelSnapshots: ModelAssetSnapshot[] = model3DTool.model3DInstances
+        .filter((model) => selectedModelIdsSet.has(model.id))
+        .map((model) => ({
+          id: model.id,
+          url: model.modelData.url,
+          key: model.modelData.key,
+          format: model.modelData.format,
+          fileName: model.modelData.fileName,
+          fileSize: model.modelData.fileSize,
+          defaultScale: model.modelData.defaultScale,
+          defaultRotation: model.modelData.defaultRotation,
+          timestamp: model.modelData.timestamp,
+          path: model.modelData.path ?? model.modelData.url,
+          bounds: { ...model.bounds },
+          layerId: model.layerId ?? null,
+        }));
 
-    const pathSet = new Set<paper.Path>();
-    if (selectionTool.selectedPath) pathSet.add(selectionTool.selectedPath);
-    if (Array.isArray(selectionTool.selectedPaths)) {
-      selectionTool.selectedPaths.forEach((p) => {
-        if (p) pathSet.add(p);
+      const pathSet = new Set<paper.Path>();
+      if (selectionTool.selectedPath) pathSet.add(selectionTool.selectedPath);
+      if (Array.isArray(selectionTool.selectedPaths)) {
+        selectionTool.selectedPaths.forEach((p) => {
+          if (p) pathSet.add(p);
+        });
+      }
+      try {
+        const selected = Array.isArray(paper.project?.selectedItems)
+          ? paper.project!.selectedItems
+          : [];
+        selected
+          .filter((item): item is paper.Path => item instanceof paper.Path)
+          .forEach((path) => pathSet.add(path));
+      } catch {
+        // ignore
+      }
+      const pathSnapshots: PathClipboardSnapshot[] = Array.from(pathSet)
+        .filter(
+          (path) =>
+            !!path && path.isInserted() && !(path.data && path.data.isHelper)
+        )
+        .map((path) => ({
+          json: path.exportJSON({ asString: true }),
+          layerName: path.layer?.name,
+          position: { x: path.position.x, y: path.position.y },
+          strokeWidth: path.data?.originalStrokeWidth ?? path.strokeWidth,
+          strokeColor: path.strokeColor
+            ? path.strokeColor.toCSS(true)
+            : undefined,
+          fillColor: path.fillColor ? path.fillColor.toCSS(true) : undefined,
+        }));
+      logger.debug("准备复制的路径数量:", pathSnapshots.length, {
+        setSize: pathSet.size,
       });
-    }
-    try {
-      const selected = Array.isArray(paper.project?.selectedItems) ? paper.project!.selectedItems : [];
-      selected.filter((item): item is paper.Path => item instanceof paper.Path).forEach((path) => pathSet.add(path));
-    } catch {
-      // ignore
-    }
-    const pathSnapshots: PathClipboardSnapshot[] = Array.from(pathSet)
-      .filter((path) => !!path && path.isInserted() && !(path.data && path.data.isHelper))
-      .map((path) => ({
-        json: path.exportJSON({ asString: true }),
-        layerName: path.layer?.name,
-        position: { x: path.position.x, y: path.position.y },
-        strokeWidth: path.data?.originalStrokeWidth ?? path.strokeWidth,
-        strokeColor: path.strokeColor ? path.strokeColor.toCSS(true) : undefined,
-        fillColor: path.fillColor ? path.fillColor.toCSS(true) : undefined,
-      }));
-    logger.debug('准备复制的路径数量:', pathSnapshots.length, { setSize: pathSet.size });
 
-    const textSnapshots: TextAssetSnapshot[] = (simpleTextTool.textItems || [])
-      .filter((item) => item.isSelected)
-      .map((item) => ({
-        id: item.id,
-        content: item.paperText.content ?? '',
-        position: { x: item.paperText.position.x, y: item.paperText.position.y },
-        style: { ...item.style },
-        layerId: item.paperText.layer?.name ?? null,
-      }));
+      const textSnapshots: TextAssetSnapshot[] = (
+        simpleTextTool.textItems || []
+      )
+        .filter((item) => item.isSelected)
+        .map((item) => ({
+          id: item.id,
+          content: item.paperText.content ?? "",
+          position: {
+            x: item.paperText.position.x,
+            y: item.paperText.position.y,
+          },
+          style: { ...item.style },
+          layerId: item.paperText.layer?.name ?? null,
+        }));
 
-    const hasAny =
-      imageSnapshots.length > 0 ||
-      modelSnapshots.length > 0 ||
-      pathSnapshots.length > 0 ||
-      textSnapshots.length > 0;
+      const selectedVideoIdsSet = new Set<string>(
+        (videoTool.selectedVideoIds && videoTool.selectedVideoIds.length > 0
+          ? videoTool.selectedVideoIds
+          : videoTool.videoInstances
+              .filter((video) => video.isSelected)
+              .map((video) => video.id)) ?? []
+      );
+      const videoSnapshots: VideoAssetSnapshot[] = videoTool.videoInstances
+        .filter((video) => selectedVideoIdsSet.has(video.id))
+        .map((video) => {
+          if (!video.videoData.url) {
+            console.warn("视频缺少可复制的资源，已跳过", video.id);
+            return null;
+          }
+          return {
+            id: video.id,
+            url: video.videoData.url,
+            thumbnail: video.videoData.thumbnail,
+            duration: video.videoData.duration,
+            width: video.videoData.width ?? video.bounds.width,
+            height: video.videoData.height ?? video.bounds.height,
+            fileName: video.videoData.fileName,
+            contentType: video.videoData.contentType,
+            taskId: video.videoData.taskId,
+            status: video.videoData.status,
+            bounds: { ...video.bounds },
+            layerId: video.layerId ?? null,
+          } as VideoAssetSnapshot;
+        })
+        .filter(
+          (snapshot): snapshot is VideoAssetSnapshot => snapshot !== null
+        );
 
-    if (!hasAny) return null;
+      const hasAny =
+        imageSnapshots.length > 0 ||
+        modelSnapshots.length > 0 ||
+        pathSnapshots.length > 0 ||
+        textSnapshots.length > 0 ||
+        videoSnapshots.length > 0;
 
-    return {
-      images: imageSnapshots,
-      models: modelSnapshots,
-      texts: textSnapshots,
-      paths: pathSnapshots,
-    };
-  }, [
-    imageTool.imageInstances,
-    imageTool.selectedImageIds,
-    model3DTool.model3DInstances,
-    model3DTool.selectedModel3DIds,
-    selectionTool.selectedPath,
-    selectionTool.selectedPaths,
-    simpleTextTool.textItems,
-  ]);
+      if (!hasAny) return null;
+
+      return {
+        images: imageSnapshots,
+        models: modelSnapshots,
+        texts: textSnapshots,
+        videos: videoSnapshots,
+        paths: pathSnapshots,
+      };
+    }, [
+      imageTool.imageInstances,
+      imageTool.selectedImageIds,
+      model3DTool.model3DInstances,
+      model3DTool.selectedModel3DIds,
+      videoTool.videoInstances,
+      videoTool.selectedVideoIds,
+      selectionTool.selectedPath,
+      selectionTool.selectedPaths,
+      simpleTextTool.textItems,
+    ]);
 
   const handleCanvasCopy = useCallback(() => {
     const payload = collectCanvasClipboardData();
     if (!payload) {
-      logger.debug('复制失败：未找到可复制的画布对象');
+      logger.debug("复制失败：未找到可复制的画布对象");
       return false;
     }
     clipboardService.setCanvasData(payload);
-    logger.debug('画布内容已复制到剪贴板:', {
+    logger.debug("画布内容已复制到剪贴板:", {
       images: payload.images.length,
       models: payload.models.length,
       texts: payload.texts.length,
@@ -2276,7 +2779,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const handleCanvasPaste = useCallback(() => {
     const payload = clipboardService.getCanvasData();
     if (!payload) return false;
-    logger.debug('尝试从剪贴板粘贴画布内容:', {
+    logger.debug("尝试从剪贴板粘贴画布内容:", {
       images: payload.images.length,
       models: payload.models.length,
       texts: payload.texts.length,
@@ -2303,9 +2806,14 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const newTextIds: string[] = [];
     payload.texts.forEach((snapshot) => {
       if (snapshot.layerId) {
-        try { useLayerStore.getState().activateLayer(snapshot.layerId); } catch {}
+        try {
+          useLayerStore.getState().activateLayer(snapshot.layerId);
+        } catch {}
       }
-      const point = new paper.Point(snapshot.position.x + offset.x, snapshot.position.y + offset.y);
+      const point = new paper.Point(
+        snapshot.position.x + offset.x,
+        snapshot.position.y + offset.y
+      );
       const created = createSimpleText(point, snapshot.content, snapshot.style);
       if (created) {
         newTextIds.push(created.id);
@@ -2319,7 +2827,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         const prevLayer = paper.project.activeLayer;
         if (snapshot.layerName) {
-          const targetLayer = paper.project.layers.find((layer) => layer.name === snapshot.layerName);
+          const targetLayer = paper.project.layers.find(
+            (layer) => layer.name === snapshot.layerName
+          );
           if (targetLayer) targetLayer.activate();
           else drawingContext.ensureDrawingLayer();
         }
@@ -2331,14 +2841,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const items = Array.isArray(imported) ? imported : [imported];
         items.forEach((item) => {
           if (!(item instanceof paper.Path)) {
-            try { item.remove(); } catch {}
+            try {
+              item.remove();
+            } catch {}
             return;
           }
 
           paper.project.activeLayer.addChild(item);
           item.translate(offsetVector);
           item.visible = true;
-          try { item.bringToFront(); } catch {}
+          try {
+            item.bringToFront();
+          } catch {}
 
           const selectedBefore = item.selected;
           if (selectedBefore) {
@@ -2346,15 +2860,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             item.fullySelected = false;
           }
 
-          const strokeWidth = snapshot.strokeWidth ?? item.data?.originalStrokeWidth ?? item.strokeWidth ?? 1;
+          const strokeWidth =
+            snapshot.strokeWidth ??
+            item.data?.originalStrokeWidth ??
+            item.strokeWidth ??
+            1;
           item.strokeWidth = strokeWidth;
-          item.data = { ...(item.data || {}), originalStrokeWidth: strokeWidth };
+          item.data = {
+            ...(item.data || {}),
+            originalStrokeWidth: strokeWidth,
+          };
 
           if (snapshot.strokeColor) {
-            try { item.strokeColor = new paper.Color(snapshot.strokeColor); } catch {}
+            try {
+              item.strokeColor = new paper.Color(snapshot.strokeColor);
+            } catch {}
           }
-          if (typeof snapshot.fillColor === 'string') {
-            try { item.fillColor = new paper.Color(snapshot.fillColor); } catch {}
+          if (typeof snapshot.fillColor === "string") {
+            try {
+              item.fillColor = new paper.Color(snapshot.fillColor);
+            } catch {}
           }
 
           if (selectedBefore) {
@@ -2363,7 +2888,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
           newPaths.push(item);
-          logger.debug('粘贴重建路径:', {
+          logger.debug("粘贴重建路径:", {
             layer: item.layer?.name,
             strokeWidth: item.strokeWidth,
             originalStrokeWidth: strokeWidth,
@@ -2380,7 +2905,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           prevLayer.activate();
         }
       } catch (error) {
-        console.warn('粘贴路径失败:', error);
+        console.warn("粘贴路径失败:", error);
       }
     });
 
@@ -2391,24 +2916,30 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       newTextIds.length > 0;
 
     if (!hasNew) {
-      logger.debug('粘贴失败：剪贴板数据为空或无法重建对象');
+      logger.debug("粘贴失败：剪贴板数据为空或无法重建对象");
       return false;
     }
 
-    logger.debug('粘贴创建的对象数量:', {
+    logger.debug("粘贴创建的对象数量:", {
       images: newImageIds.length,
       models: newModelIds.length,
       paths: newPaths.length,
       texts: newTextIds.length,
     });
 
-    if (newImageIds.length > 0 && typeof handleImageMultiSelect === 'function') {
+    if (
+      newImageIds.length > 0 &&
+      typeof handleImageMultiSelect === "function"
+    ) {
       handleImageMultiSelect(newImageIds);
     } else {
       setSelectedImageIds([]);
     }
 
-    if (newModelIds.length > 0 && typeof handleModel3DMultiSelect === 'function') {
+    if (
+      newModelIds.length > 0 &&
+      typeof handleModel3DMultiSelect === "function"
+    ) {
       handleModel3DMultiSelect(newModelIds);
     } else {
       setSelectedModel3DIds([]);
@@ -2416,8 +2947,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     if (newPaths.length > 0) {
       newPaths.forEach((path) => {
-        try { path.selected = true; path.fullySelected = true; } catch {}
-        try { selectToolHandlePathSelect?.(path); } catch {}
+        try {
+          path.selected = true;
+          path.fullySelected = true;
+        } catch {}
+        try {
+          selectToolHandlePathSelect?.(path);
+        } catch {}
       });
       setSelectedPaths?.(newPaths);
       setSelectedPath?.(newPaths[newPaths.length - 1]);
@@ -2430,9 +2966,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       selectSimpleText(newTextIds[newTextIds.length - 1]);
     }
 
-    try { paper.view.update(); } catch {}
-    try { historyService.commit('paste-canvas').catch(() => {}); } catch {}
-    try { paperSaveService.triggerAutoSave(); } catch {}
+    try {
+      paper.view.update();
+    } catch {}
+    try {
+      historyService.commit("paste-canvas").catch(() => {});
+    } catch {}
+    try {
+      paperSaveService.triggerAutoSave();
+    } catch {}
 
     return true;
   }, [
@@ -2463,34 +3005,46 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       if (!canvas) return;
       const target = event.target as Node | null;
       if (target && canvas.contains(target)) {
-        clipboardService.setActiveZone('canvas');
+        clipboardService.setActiveZone("canvas");
       }
     };
-    window.addEventListener('pointerdown', handlePointerDown, { capture: true });
-    return () => window.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+    window.addEventListener("pointerdown", handlePointerDown, {
+      capture: true,
+    });
+    return () =>
+      window.removeEventListener("pointerdown", handlePointerDown, {
+        capture: true,
+      });
   }, [canvasRef]);
 
   // 在按下复制/粘贴快捷键前标记画布为激活区域，防止 Flow 层截获
   useEffect(() => {
     const handleKeyPreCapture = (event: KeyboardEvent) => {
-      const key = event.key?.toLowerCase?.() || '';
-      if ((key !== 'c' && key !== 'v') || !(event.metaKey || event.ctrlKey)) return;
+      const key = event.key?.toLowerCase?.() || "";
+      if ((key !== "c" && key !== "v") || !(event.metaKey || event.ctrlKey))
+        return;
       if (!hasSelectionRef.current && !clipboardService.getCanvasData()) return;
 
-      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
       const canvas = canvasRef.current;
       const fromCanvas = !!canvas && path.includes(canvas);
       const fromFlowOverlay = path.some((el) => {
-        return el instanceof Element && el.classList?.contains('tanva-flow-overlay');
+        return (
+          el instanceof Element && el.classList?.contains("tanva-flow-overlay")
+        );
       });
       if (!fromCanvas || fromFlowOverlay) {
         return; // 不在画布区域的快捷键，不强制切换到画布
       }
 
-      clipboardService.setActiveZone('canvas');
+      clipboardService.setActiveZone("canvas");
     };
-    window.addEventListener('keydown', handleKeyPreCapture, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyPreCapture, { capture: true });
+    window.addEventListener("keydown", handleKeyPreCapture, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handleKeyPreCapture, {
+        capture: true,
+      });
   }, []);
 
   // 复制事件：同步画布选择到系统剪贴板，避免默认粘贴落入外部内容
@@ -2501,11 +3055,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (isEditableElement(active) || editingTextId) return;
 
         // 若当前剪贴板激活区为 Flow，且事件不是从画布冒泡上来，则让 Flow 处理
-        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        const path =
+          typeof event.composedPath === "function" ? event.composedPath() : [];
         const canvas = canvasRef.current;
         const fromCanvas = !!canvas && path.includes(canvas);
         const zone = clipboardService.getZone();
-        if (zone !== 'canvas' && !fromCanvas) return;
+        if (zone !== "canvas" && !fromCanvas) return;
 
         const handled = handleCanvasCopy();
         if (!handled) return;
@@ -2521,19 +3076,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         if (event.clipboardData) {
           event.clipboardData.setData(CANVAS_CLIPBOARD_MIME, serialized);
-          event.clipboardData.setData('application/json', serialized);
-          event.clipboardData.setData('text/plain', CANVAS_CLIPBOARD_FALLBACK_TEXT);
+          event.clipboardData.setData("application/json", serialized);
+          event.clipboardData.setData(
+            "text/plain",
+            CANVAS_CLIPBOARD_FALLBACK_TEXT
+          );
           event.preventDefault();
-        } else if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        } else if (
+          typeof navigator !== "undefined" &&
+          navigator.clipboard?.writeText
+        ) {
           void navigator.clipboard.writeText(serialized).catch(() => {});
         }
       } catch (error) {
-        logger.warn('复制画布到系统剪贴板失败', error);
+        logger.warn("复制画布到系统剪贴板失败", error);
       }
     };
 
-    window.addEventListener('copy', handleCopyEvent);
-    return () => window.removeEventListener('copy', handleCopyEvent);
+    window.addEventListener("copy", handleCopyEvent);
+    return () => window.removeEventListener("copy", handleCopyEvent);
   }, [handleCanvasCopy, editingTextId]);
 
   useEffect(() => {
@@ -2547,25 +3108,32 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       // });
       if (event.defaultPrevented) return;
 
-      const isCopy = (event.key === 'c' || event.key === 'C') && (event.metaKey || event.ctrlKey);
-      const isPaste = (event.key === 'v' || event.key === 'V') && (event.metaKey || event.ctrlKey);
+      const isCopy =
+        (event.key === "c" || event.key === "C") &&
+        (event.metaKey || event.ctrlKey);
+      const isPaste =
+        (event.key === "v" || event.key === "V") &&
+        (event.metaKey || event.ctrlKey);
       if (!isCopy && !isPaste) return;
 
       const active = document.activeElement as Element | null;
       const tagName = active?.tagName?.toLowerCase();
       const isEditable =
         !!active &&
-        ((tagName === 'input' || tagName === 'textarea') || (active as any).isContentEditable);
+        (tagName === "input" ||
+          tagName === "textarea" ||
+          (active as any).isContentEditable);
 
       if (isEditable || editingTextId) return;
 
-      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
       const canvas = canvasRef.current;
       const fromCanvas = !!canvas && path.includes(canvas);
       const zone = clipboardService.getZone();
 
       if (isCopy) {
-        if (zone !== 'canvas' && !fromCanvas) return;
+        if (zone !== "canvas" && !fromCanvas) return;
         const handled = handleCanvasCopy();
         if (handled) {
           // 继续让浏览器触发原生 copy 事件以写入系统剪贴板
@@ -2574,262 +3142,336 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       if (isPaste) {
-        if (zone !== 'canvas' && !fromCanvas) return;
+        if (zone !== "canvas" && !fromCanvas) return;
         // 交由原生 paste 事件处理（可读取系统剪贴板内容），避免内存剪贴板抢占外部粘贴
         return;
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [handleCanvasCopy, handleCanvasPaste, editingTextId]);
 
   // ========== 图元顺序调整处理 ==========
-  const adjustItemOrderWithinLayer = useCallback((
-    itemType: 'image' | '3d-model',
-    targetId: string,
-    direction: 'up' | 'down',
-  ) => {
-    try {
-      if (!paper?.project) return;
-      const idKey = itemType === 'image' ? 'imageId' : 'modelId';
-      const group = paper.project.layers.flatMap((layer) =>
-        layer.children.filter((child) =>
-          child.data?.type === itemType && child.data?.[idKey] === targetId,
-        )
-      )[0];
+  const adjustItemOrderWithinLayer = useCallback(
+    (
+      itemType: "image" | "3d-model",
+      targetId: string,
+      direction: "up" | "down"
+    ) => {
+      try {
+        if (!paper?.project) return;
+        const idKey = itemType === "image" ? "imageId" : "modelId";
+        const group = paper.project.layers.flatMap((layer) =>
+          layer.children.filter(
+            (child) =>
+              child.data?.type === itemType && child.data?.[idKey] === targetId
+          )
+        )[0];
 
-      if (!(group instanceof paper.Group) || !group.layer) {
-        console.warn(`未找到可调整顺序的 ${itemType} 元素`, targetId);
-        return;
+        if (!(group instanceof paper.Group) || !group.layer) {
+          console.warn(`未找到可调整顺序的 ${itemType} 元素`, targetId);
+          return;
+        }
+
+        const siblings = group.layer.children.filter(
+          (child) => child.data?.type === itemType && child.data?.[idKey]
+        );
+        const currentIndex = siblings.indexOf(group);
+        if (currentIndex === -1) return;
+
+        if (direction === "up") {
+          if (currentIndex >= siblings.length - 1) return;
+          const nextItem = siblings[currentIndex + 1];
+          group.insertAbove(nextItem);
+        } else {
+          if (currentIndex <= 0) return;
+          const prevItem = siblings[currentIndex - 1];
+          group.insertBelow(prevItem);
+        }
+
+        try {
+          paper.view.update();
+        } catch {}
+        try {
+          paperSaveService.triggerAutoSave("item-reorder");
+        } catch {}
+        try {
+          historyService
+            .commit(`${itemType}-${direction}-layer`)
+            .catch(() => {});
+        } catch {}
+      } catch (error) {
+        console.error("调整元素顺序失败:", error);
       }
+    },
+    []
+  );
 
-      const siblings = group.layer.children.filter(
-        (child) => child.data?.type === itemType && child.data?.[idKey],
-      );
-      const currentIndex = siblings.indexOf(group);
-      if (currentIndex === -1) return;
+  const handleImageLayerMoveUp = useCallback(
+    (imageId: string) => {
+      adjustItemOrderWithinLayer("image", imageId, "up");
+    },
+    [adjustItemOrderWithinLayer]
+  );
 
-      if (direction === 'up') {
-        if (currentIndex >= siblings.length - 1) return;
-        const nextItem = siblings[currentIndex + 1];
-        group.insertAbove(nextItem);
-      } else {
-        if (currentIndex <= 0) return;
-        const prevItem = siblings[currentIndex - 1];
-        group.insertBelow(prevItem);
-      }
+  const handleImageLayerMoveDown = useCallback(
+    (imageId: string) => {
+      adjustItemOrderWithinLayer("image", imageId, "down");
+    },
+    [adjustItemOrderWithinLayer]
+  );
 
-      try { paper.view.update(); } catch {}
-      try { paperSaveService.triggerAutoSave('item-reorder'); } catch {}
-      try { historyService.commit(`${itemType}-${direction}-layer`).catch(() => {}); } catch {}
-    } catch (error) {
-      console.error('调整元素顺序失败:', error);
-    }
-  }, []);
+  const handleModelLayerMoveUp = useCallback(
+    (modelId: string) => {
+      adjustItemOrderWithinLayer("3d-model", modelId, "up");
+    },
+    [adjustItemOrderWithinLayer]
+  );
 
-  const handleImageLayerMoveUp = useCallback((imageId: string) => {
-    adjustItemOrderWithinLayer('image', imageId, 'up');
-  }, [adjustItemOrderWithinLayer]);
-
-  const handleImageLayerMoveDown = useCallback((imageId: string) => {
-    adjustItemOrderWithinLayer('image', imageId, 'down');
-  }, [adjustItemOrderWithinLayer]);
-
-  const handleModelLayerMoveUp = useCallback((modelId: string) => {
-    adjustItemOrderWithinLayer('3d-model', modelId, 'up');
-  }, [adjustItemOrderWithinLayer]);
-
-  const handleModelLayerMoveDown = useCallback((modelId: string) => {
-    adjustItemOrderWithinLayer('3d-model', modelId, 'down');
-  }, [adjustItemOrderWithinLayer]);
+  const handleModelLayerMoveDown = useCallback(
+    (modelId: string) => {
+      adjustItemOrderWithinLayer("3d-model", modelId, "down");
+    },
+    [adjustItemOrderWithinLayer]
+  );
 
   // 处理图片图层可见性切换
-  const handleImageToggleVisibility = useCallback((imageId: string) => {
-    try {
-      // 找到对应的Paper.js图层组
-      const imageGroup = paper.project.layers.flatMap(layer =>
-        layer.children.filter(child =>
-          child.data?.type === 'image' && child.data?.imageId === imageId
-        )
-      )[0];
+  const handleImageToggleVisibility = useCallback(
+    (imageId: string) => {
+      try {
+        // 找到对应的Paper.js图层组
+        const imageGroup = paper.project.layers.flatMap((layer) =>
+          layer.children.filter(
+            (child) =>
+              child.data?.type === "image" && child.data?.imageId === imageId
+          )
+        )[0];
 
-      if (imageGroup instanceof paper.Group) {
-        // 获取图片所在的图层
-        const currentLayer = imageGroup.layer;
-        if (currentLayer) {
-          // 从图层名称获取图层store ID (layer_${id} -> id)
-          const layerStoreId = currentLayer.name.replace('layer_', '');
-          
-          // 调用图层store的切换可见性函数
-          toggleVisibility(layerStoreId);
-          
-          logger.debug(`👁️ 切换图层可见性: ${currentLayer.name} (storeId: ${layerStoreId})`);
+        if (imageGroup instanceof paper.Group) {
+          // 获取图片所在的图层
+          const currentLayer = imageGroup.layer;
+          if (currentLayer) {
+            // 从图层名称获取图层store ID (layer_${id} -> id)
+            const layerStoreId = currentLayer.name.replace("layer_", "");
+
+            // 调用图层store的切换可见性函数
+            toggleVisibility(layerStoreId);
+
+            logger.debug(
+              `👁️ 切换图层可见性: ${currentLayer.name} (storeId: ${layerStoreId})`
+            );
+          } else {
+            console.warn("图片没有关联的图层");
+          }
         } else {
-          console.warn('图片没有关联的图层');
+          console.warn("未找到对应的图片图层组");
         }
-      } else {
-        console.warn('未找到对应的图片图层组');
+      } catch (error) {
+        console.error("切换图层可见性失败:", error);
       }
-    } catch (error) {
-      console.error('切换图层可见性失败:', error);
-    }
-  }, [toggleVisibility]);
+    },
+    [toggleVisibility]
+  );
 
-  const handleDownloadImage = useCallback(async (imageId: string) => {
-    try {
-      const instance = imageTool.imageInstances.find((img) => img.id === imageId);
-      if (!instance) {
-        console.warn('下载失败：未找到图片实例', imageId);
-        return;
-      }
-
-      let dataUrl: string | null = null;
-      if (typeof imageTool.getImageDataForEditing === 'function') {
-        try {
-          dataUrl = imageTool.getImageDataForEditing(imageId);
-        } catch (error) {
-          console.warn('获取高质量图片数据失败，尝试备用地址', error);
+  const handleDownloadImage = useCallback(
+    async (imageId: string) => {
+      try {
+        const instance = imageTool.imageInstances.find(
+          (img) => img.id === imageId
+        );
+        if (!instance) {
+          console.warn("下载失败：未找到图片实例", imageId);
+          return;
         }
-      }
 
-      if (!dataUrl) {
-        dataUrl =
-          instance.imageData?.localDataUrl ||
-          instance.imageData?.src ||
-          instance.imageData?.url ||
-          null;
-      }
+        let dataUrl: string | null = null;
+        if (typeof imageTool.getImageDataForEditing === "function") {
+          try {
+            dataUrl = imageTool.getImageDataForEditing(imageId);
+          } catch (error) {
+            console.warn("获取高质量图片数据失败，尝试备用地址", error);
+          }
+        }
 
-      if (!dataUrl) {
-        console.warn('下载失败：缺少可用的图片数据', imageId);
-        window.dispatchEvent(new CustomEvent('toast', {
-          detail: { message: '无法获取图像数据，下载失败', type: 'error' }
-        }));
-        return;
-      }
+        if (!dataUrl) {
+          dataUrl =
+            instance.imageData?.localDataUrl ||
+            instance.imageData?.src ||
+            instance.imageData?.url ||
+            null;
+        }
 
-      const fileName = getSuggestedFileName(instance.imageData?.fileName, 'image');
-      downloadImage(dataUrl, fileName);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '已开始下载图片', type: 'success' }
-      }));
-    } catch (error) {
-      console.error('下载图片失败:', error);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '下载失败，请稍后再试', type: 'error' }
-      }));
-    }
-  }, [imageTool.imageInstances, imageTool.getImageDataForEditing]);
+        if (!dataUrl) {
+          console.warn("下载失败：缺少可用的图片数据", imageId);
+          window.dispatchEvent(
+            new CustomEvent("toast", {
+              detail: { message: "无法获取图像数据，下载失败", type: "error" },
+            })
+          );
+          return;
+        }
+
+        const fileName = getSuggestedFileName(
+          instance.imageData?.fileName,
+          "image"
+        );
+        downloadImage(dataUrl, fileName);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "已开始下载图片", type: "success" },
+          })
+        );
+      } catch (error) {
+        console.error("下载图片失败:", error);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "下载失败，请稍后再试", type: "error" },
+          })
+        );
+      }
+    },
+    [imageTool.imageInstances, imageTool.getImageDataForEditing]
+  );
 
   // 添加选中的路径到个人库（转换为SVG）
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
 
-  const handleAddImageToLibrary = useCallback(async (imageId: string) => {
-    const instance = imageTool.imageInstances.find((img) => img.id === imageId);
-    if (!instance) {
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '未找到图像，无法添加到库', type: 'error' }
-      }));
-      return;
-    }
+  const handleAddImageToLibrary = useCallback(
+    async (imageId: string) => {
+      const instance = imageTool.imageInstances.find(
+        (img) => img.id === imageId
+      );
+      if (!instance) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "未找到图像，无法添加到库", type: "error" },
+          })
+        );
+        return;
+      }
 
-    const source = extractAnyImageSource(instance.imageData);
-    if (!source) {
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '无法获取图像数据，无法添加到库', type: 'error' }
-      }));
-      return;
-    }
-
-    try {
-      let uploadedUrl: string | null = null;
-      let uploadedMeta: { width?: number; height?: number; fileName?: string; contentType?: string } | null = null;
-      let fileSize: number | undefined;
+      const source = extractAnyImageSource(instance.imageData);
+      if (!source) {
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: {
+              message: "无法获取图像数据，无法添加到库",
+              type: "error",
+            },
+          })
+        );
+        return;
+      }
 
       try {
-        let credentials: RequestCredentials | undefined;
-        if (source.startsWith('http')) {
-          try {
-            const origin = new URL(source).origin;
-            credentials = origin === window.location.origin ? 'include' : 'omit';
-          } catch {
-            credentials = 'omit';
-          }
-        }
+        let uploadedUrl: string | null = null;
+        let uploadedMeta: {
+          width?: number;
+          height?: number;
+          fileName?: string;
+          contentType?: string;
+        } | null = null;
+        let fileSize: number | undefined;
 
-        const response = await fetch(source, credentials ? { credentials } : undefined);
-        if (response.ok) {
-          const blob = await response.blob();
-          const fileName = normalizeImageFileName(
-            instance.imageData?.fileName,
-            blob.type || instance.imageData?.contentType
+        try {
+          let credentials: RequestCredentials | undefined;
+          if (source.startsWith("http")) {
+            try {
+              const origin = new URL(source).origin;
+              credentials =
+                origin === window.location.origin ? "include" : "omit";
+            } catch {
+              credentials = "omit";
+            }
+          }
+
+          const response = await fetch(
+            source,
+            credentials ? { credentials } : undefined
           );
-          const file = new File([blob], fileName, {
-            type: blob.type || instance.imageData?.contentType || 'image/png',
-          });
-          fileSize = file.size;
-          const uploadResult = await imageUploadService.uploadImageFile(file, {
-            dir: 'uploads/personal-library/images/',
-          });
-          if (uploadResult.success && uploadResult.asset?.url) {
-            uploadedUrl = uploadResult.asset.url;
-            uploadedMeta = {
-              width: uploadResult.asset.width,
-              height: uploadResult.asset.height,
-              fileName: uploadResult.asset.fileName ?? file.name,
-              contentType: uploadResult.asset.contentType ?? file.type,
-            };
+          if (response.ok) {
+            const blob = await response.blob();
+            const fileName = normalizeImageFileName(
+              instance.imageData?.fileName,
+              blob.type || instance.imageData?.contentType
+            );
+            const file = new File([blob], fileName, {
+              type: blob.type || instance.imageData?.contentType || "image/png",
+            });
+            fileSize = file.size;
+            const uploadResult = await imageUploadService.uploadImageFile(
+              file,
+              {
+                dir: "uploads/personal-library/images/",
+              }
+            );
+            if (uploadResult.success && uploadResult.asset?.url) {
+              uploadedUrl = uploadResult.asset.url;
+              uploadedMeta = {
+                width: uploadResult.asset.width,
+                height: uploadResult.asset.height,
+                fileName: uploadResult.asset.fileName ?? file.name,
+                contentType: uploadResult.asset.contentType ?? file.type,
+              };
+            }
           }
+        } catch (error) {
+          logger.debug("图片发送到库：上传失败，尝试降级为直接引用URL", error);
         }
+
+        // 兜底：上传失败时，若已有远程 URL，直接用原 URL
+        const finalUrl =
+          uploadedUrl || (source.startsWith("http") ? source : null);
+        if (!finalUrl) {
+          throw new Error("无法获得可持久化的图像地址");
+        }
+
+        const assetId = createPersonalAssetId("pl2d");
+        const now = Date.now();
+        const fileName = normalizeImageFileName(
+          uploadedMeta?.fileName || instance.imageData?.fileName,
+          uploadedMeta?.contentType || instance.imageData?.contentType
+        );
+        const imageAsset: PersonalImageAsset = {
+          id: assetId,
+          type: "2d",
+          name: fileName.replace(/\.[^/.]+$/, "") || "未命名图片",
+          url: finalUrl,
+          thumbnail: finalUrl,
+          width: uploadedMeta?.width ?? instance.imageData?.width,
+          height: uploadedMeta?.height ?? instance.imageData?.height,
+          fileName,
+          fileSize,
+          contentType:
+            uploadedMeta?.contentType ?? instance.imageData?.contentType,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        addAsset(imageAsset);
+        void personalLibraryApi.upsert(imageAsset).catch((error) => {
+          console.warn("[PersonalLibrary] 同步图片资源到后端失败:", error);
+        });
+
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "已添加到个人库", type: "success" },
+          })
+        );
       } catch (error) {
-        logger.debug('图片发送到库：上传失败，尝试降级为直接引用URL', error);
+        console.error("添加到库失败:", error);
+        window.dispatchEvent(
+          new CustomEvent("toast", {
+            detail: { message: "添加到库失败，请重试", type: "error" },
+          })
+        );
       }
-
-      // 兜底：上传失败时，若已有远程 URL，直接用原 URL
-      const finalUrl = uploadedUrl || (source.startsWith('http') ? source : null);
-      if (!finalUrl) {
-        throw new Error('无法获得可持久化的图像地址');
-      }
-
-      const assetId = createPersonalAssetId('pl2d');
-      const now = Date.now();
-      const fileName = normalizeImageFileName(
-        uploadedMeta?.fileName || instance.imageData?.fileName,
-        uploadedMeta?.contentType || instance.imageData?.contentType
-      );
-      const imageAsset: PersonalImageAsset = {
-        id: assetId,
-        type: '2d',
-        name: fileName.replace(/\.[^/.]+$/, '') || '未命名图片',
-        url: finalUrl,
-        thumbnail: finalUrl,
-        width: uploadedMeta?.width ?? instance.imageData?.width,
-        height: uploadedMeta?.height ?? instance.imageData?.height,
-        fileName,
-        fileSize,
-        contentType: uploadedMeta?.contentType ?? instance.imageData?.contentType,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      addAsset(imageAsset);
-      void personalLibraryApi.upsert(imageAsset).catch((error) => {
-        console.warn('[PersonalLibrary] 同步图片资源到后端失败:', error);
-      });
-
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '已添加到个人库', type: 'success' }
-      }));
-    } catch (error) {
-      console.error('添加到库失败:', error);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '添加到库失败，请重试', type: 'error' }
-      }));
-    }
-  }, [addAsset, imageTool.imageInstances]);
+    },
+    [addAsset, imageTool.imageInstances]
+  );
 
   const handleAddPathsToLibrary = useCallback(async () => {
     // 收集所有选中的路径
@@ -2846,9 +3488,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
 
     if (pathsToExport.length === 0) {
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '没有选中的线条路径', type: 'warning' }
-      }));
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "没有选中的线条路径", type: "warning" },
+        })
+      );
       return;
     }
 
@@ -2866,7 +3510,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       }
 
       if (!combinedBounds) {
-        throw new Error('无法计算路径边界');
+        throw new Error("无法计算路径边界");
       }
 
       // 添加一些padding
@@ -2877,51 +3521,65 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       const offsetY = combinedBounds.y - padding;
 
       // 生成SVG内容
-      const svgPaths = pathsToExport.map((path) => {
-        // 克隆路径并调整位置
-        const clonedPath = path.clone({ insert: false });
-        clonedPath.translate(new paper.Point(-offsetX, -offsetY));
+      const svgPaths = pathsToExport
+        .map((path) => {
+          // 克隆路径并调整位置
+          const clonedPath = path.clone({ insert: false });
+          clonedPath.translate(new paper.Point(-offsetX, -offsetY));
 
-        // 获取路径的SVG表示
-        const pathData = clonedPath.pathData;
-        const strokeColor = path.strokeColor ? path.strokeColor.toCSS(true) : '#000000';
-        const strokeWidth = path.data?.originalStrokeWidth ?? path.strokeWidth ?? 2;
-        const fillColor = path.fillColor ? path.fillColor.toCSS(true) : 'none';
+          // 获取路径的SVG表示
+          const pathData = clonedPath.pathData;
+          const strokeColor = path.strokeColor
+            ? path.strokeColor.toCSS(true)
+            : "#000000";
+          const strokeWidth =
+            path.data?.originalStrokeWidth ?? path.strokeWidth ?? 2;
+          const fillColor = path.fillColor
+            ? path.fillColor.toCSS(true)
+            : "none";
 
-        clonedPath.remove();
+          clonedPath.remove();
 
-        return `<path d="${pathData}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="round" stroke-linejoin="round"/>`;
-      }).join('\n  ');
+          return `<path d="${pathData}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="round" stroke-linejoin="round"/>`;
+        })
+        .join("\n  ");
 
       const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   ${svgPaths}
 </svg>`;
 
       // 将SVG转换为Blob并上传
-      const svgBlob = new Blob([svgContent], { type: 'image/svg+xml' });
-      const svgFile = new File([svgBlob], `path_${Date.now()}.svg`, { type: 'image/svg+xml' });
+      const svgBlob = new Blob([svgContent], { type: "image/svg+xml" });
+      const svgFile = new File([svgBlob], `path_${Date.now()}.svg`, {
+        type: "image/svg+xml",
+      });
 
       // 上传SVG文件
       const uploadResult = await imageUploadService.uploadImageFile(svgFile, {
-        dir: 'uploads/personal-library/svg/',
+        dir: "uploads/personal-library/svg/",
       });
 
       if (!uploadResult.success || !uploadResult.asset) {
-        throw new Error(uploadResult.error || 'SVG上传失败');
+        throw new Error(uploadResult.error || "SVG上传失败");
       }
 
       // 创建个人库资产
-      const assetId = createPersonalAssetId('plsvg');
+      const assetId = createPersonalAssetId("plsvg");
       const now = Date.now();
       const svgAsset: PersonalSvgAsset = {
         id: assetId,
-        type: 'svg',
-        name: `线条 ${new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`,
+        type: "svg",
+        name: `线条 ${new Date().toLocaleString("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`,
         url: uploadResult.asset.url,
         thumbnail: uploadResult.asset.url,
         fileName: svgFile.name,
         fileSize: svgFile.size,
-        contentType: 'image/svg+xml',
+        contentType: "image/svg+xml",
         width,
         height,
         svgContent,
@@ -2934,19 +3592,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       // 同步到后端
       void personalLibraryApi.upsert(svgAsset).catch((error) => {
-        console.warn('[PersonalLibrary] 同步SVG资源到后端失败:', error);
+        console.warn("[PersonalLibrary] 同步SVG资源到后端失败:", error);
       });
 
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '已添加到个人库', type: 'success' }
-      }));
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "已添加到个人库", type: "success" },
+        })
+      );
 
-      logger.debug('SVG已添加到个人库:', { assetId, width, height, pathCount: pathsToExport.length });
+      logger.debug("SVG已添加到个人库:", {
+        assetId,
+        width,
+        height,
+        pathCount: pathsToExport.length,
+      });
     } catch (error) {
-      console.error('添加到库失败:', error);
-      window.dispatchEvent(new CustomEvent('toast', {
-        detail: { message: '添加到库失败，请重试', type: 'error' }
-      }));
+      console.error("添加到库失败:", error);
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "添加到库失败，请重试", type: "error" },
+        })
+      );
     }
   }, [selectionTool.selectedPath, selectionTool.selectedPaths, addAsset]);
 
@@ -2955,139 +3622,169 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleAddSelectedPathsToLibrary = () => {
       void handleAddPathsToLibrary();
     };
-    window.addEventListener('canvas:add-selected-paths-to-library', handleAddSelectedPathsToLibrary as EventListener);
+    window.addEventListener(
+      "canvas:add-selected-paths-to-library",
+      handleAddSelectedPathsToLibrary as EventListener
+    );
     return () => {
-      window.removeEventListener('canvas:add-selected-paths-to-library', handleAddSelectedPathsToLibrary as EventListener);
+      window.removeEventListener(
+        "canvas:add-selected-paths-to-library",
+        handleAddSelectedPathsToLibrary as EventListener
+      );
     };
   }, [handleAddPathsToLibrary]);
 
-  const resolveContextTarget = useCallback((event: MouseEvent): HitTestTarget => {
-    const canvas = canvasRef.current;
-    if (!canvas || !paper?.project) return null;
+  const resolveContextTarget = useCallback(
+    (event: MouseEvent): HitTestTarget => {
+      const canvas = canvasRef.current;
+      if (!canvas || !paper?.project) return null;
 
-    const projectPoint = clientToProject(canvas, event.clientX, event.clientY);
-    const zoomValue = Math.max(zoomRef.current || 1, 0.01);
-    const tolerance = 6 / zoomValue;
+      const projectPoint = clientToProject(
+        canvas,
+        event.clientX,
+        event.clientY
+      );
+      const zoomValue = Math.max(zoomRef.current || 1, 0.01);
+      const tolerance = 6 / zoomValue;
 
-    let hitResult: paper.HitResult | null = null;
-    try {
-      hitResult = paper.project.hitTest(projectPoint, {
-        segments: true,
-        stroke: true,
-        fill: true,
-        bounds: true,
-        tolerance,
-        handles: false,
-      });
-    } catch {
-      hitResult = null;
-    }
-
-    if (!hitResult?.item) return null;
-
-    let current: paper.Item | null = hitResult.item;
-    while (current) {
-      const data = current.data || {};
-
-      // 检查是否在占位框内部（占位框的子元素不应该被单独选中）
-      // 🔥 使用 placeholderGroupId 而不是 placeholderGroup 引用
-      if (data.placeholderGroupId || data.placeholderType) {
-        // 这是占位框的子元素，不应该被选中
-        return null;
+      let hitResult: paper.HitResult | null = null;
+      try {
+        hitResult = paper.project.hitTest(projectPoint, {
+          segments: true,
+          stroke: true,
+          fill: true,
+          bounds: true,
+          tolerance,
+          handles: false,
+        });
+      } catch {
+        hitResult = null;
       }
 
-      if (data.isHelper || data.isSelectionHelper || data.isResizeHandle) {
-        current = current.parent;
-        continue;
-      }
-      if ((data.type === 'image-placeholder' || data.type === '3d-model-placeholder' || data.type === 'selection-box')) {
-        current = current.parent;
-        continue;
-      }
-      if ((data.type === 'image-selection-area' || data.type === '3d-model-selection-area') && current.parent) {
-        current = current.parent;
-        continue;
-      }
+      if (!hitResult?.item) return null;
 
-      if (data.type === 'image' && data.imageId) {
-        return { type: 'image', id: data.imageId };
-      }
-      if (data.type === '3d-model' && data.modelId) {
-        return { type: 'model3d', id: data.modelId };
-      }
-      if (data.type === 'text' && data.textId) {
-        return { type: 'text', id: data.textId };
-      }
-      if (current instanceof paper.PointText) {
-        const textId = data.textId || current.data?.textId;
-        return { type: 'text', id: textId };
-      }
-      if (current instanceof paper.Path && !data.isHelper) {
-        const layerName = current.layer?.name;
-        if (layerName === 'grid' || layerName === 'background') {
+      let current: paper.Item | null = hitResult.item;
+      while (current) {
+        const data = current.data || {};
+
+        // 检查是否在占位框内部（占位框的子元素不应该被单独选中）
+        // 🔥 使用 placeholderGroupId 而不是 placeholderGroup 引用
+        if (data.placeholderGroupId || data.placeholderType) {
+          // 这是占位框的子元素，不应该被选中
+          return null;
+        }
+
+        if (data.isHelper || data.isSelectionHelper || data.isResizeHandle) {
           current = current.parent;
           continue;
         }
-        return { type: 'path', path: current };
+        if (
+          data.type === "image-placeholder" ||
+          data.type === "3d-model-placeholder" ||
+          data.type === "selection-box"
+        ) {
+          current = current.parent;
+          continue;
+        }
+        if (
+          (data.type === "image-selection-area" ||
+            data.type === "3d-model-selection-area") &&
+          current.parent
+        ) {
+          current = current.parent;
+          continue;
+        }
+
+        if (data.type === "image" && data.imageId) {
+          return { type: "image", id: data.imageId };
+        }
+        if (data.type === "3d-model" && data.modelId) {
+          return { type: "model3d", id: data.modelId };
+        }
+        if (data.type === "text" && data.textId) {
+          return { type: "text", id: data.textId };
+        }
+        if (current instanceof paper.PointText) {
+          const textId = data.textId || current.data?.textId;
+          return { type: "text", id: textId };
+        }
+        if (current instanceof paper.Path && !data.isHelper) {
+          const layerName = current.layer?.name;
+          if (layerName === "grid" || layerName === "background") {
+            current = current.parent;
+            continue;
+          }
+          return { type: "path", path: current };
+        }
+
+        current = current.parent;
       }
 
-      current = current.parent;
-    }
+      return null;
+    },
+    [canvasRef]
+  );
 
-    return null;
-  }, [canvasRef]);
+  const ensureSelectionForTarget = useCallback(
+    (target: HitTestTarget) => {
+      if (!target) return;
 
-  const ensureSelectionForTarget = useCallback((target: HitTestTarget) => {
-    if (!target) return;
-
-    if (target.type === 'image' && target.id) {
-      const alreadySelected = selectionSnapshotRef.current.imageIds.includes(target.id);
-      if (!alreadySelected) {
-        clearSelections();
-        deselectSimpleText();
-        imageTool.handleImageSelect(target.id);
+      if (target.type === "image" && target.id) {
+        const alreadySelected = selectionSnapshotRef.current.imageIds.includes(
+          target.id
+        );
+        if (!alreadySelected) {
+          clearSelections();
+          deselectSimpleText();
+          imageTool.handleImageSelect(target.id);
+        }
+        return;
       }
-      return;
-    }
 
-    if (target.type === 'model3d' && target.id) {
-      const alreadySelected = selectionSnapshotRef.current.modelIds.includes(target.id);
-      if (!alreadySelected) {
-        clearSelections();
-        deselectSimpleText();
-        model3DTool.handleModel3DSelect(target.id);
+      if (target.type === "model3d" && target.id) {
+        const alreadySelected = selectionSnapshotRef.current.modelIds.includes(
+          target.id
+        );
+        if (!alreadySelected) {
+          clearSelections();
+          deselectSimpleText();
+          model3DTool.handleModel3DSelect(target.id);
+        }
+        return;
       }
-      return;
-    }
 
-    if (target.type === 'text' && target.id) {
-      if (selectionSnapshotRef.current.textId !== target.id) {
-        clearSelections();
-        selectSimpleText(target.id);
+      if (target.type === "text" && target.id) {
+        if (selectionSnapshotRef.current.textId !== target.id) {
+          clearSelections();
+          selectSimpleText(target.id);
+        }
+        return;
       }
-      return;
-    }
 
-    if (target.type === 'path') {
-      const alreadySelected = selectionSnapshotRef.current.paths.some((path) => path === target.path);
-      if (!alreadySelected) {
-        clearSelections();
-        deselectSimpleText();
-        selectToolHandlePathSelect(target.path);
-        setSelectedPath(target.path);
-    setSelectedPaths([target.path]);
+      if (target.type === "path") {
+        const alreadySelected = selectionSnapshotRef.current.paths.some(
+          (path) => path === target.path
+        );
+        if (!alreadySelected) {
+          clearSelections();
+          deselectSimpleText();
+          selectToolHandlePathSelect(target.path);
+          setSelectedPath(target.path);
+          setSelectedPaths([target.path]);
+        }
       }
-    }
-  }, [
-    clearSelections,
-    deselectSimpleText,
-    imageTool.handleImageSelect,
-    model3DTool.handleModel3DSelect,
-    selectSimpleText,
-    selectToolHandlePathSelect,
-    setSelectedPath,
-    setSelectedPaths,
-  ]);
+    },
+    [
+      clearSelections,
+      deselectSimpleText,
+      imageTool.handleImageSelect,
+      model3DTool.handleModel3DSelect,
+      selectSimpleText,
+      selectToolHandlePathSelect,
+      setSelectedPath,
+      setSelectedPaths,
+    ]
+  );
 
   useEffect(() => {
     const canvasElement = canvasRef.current;
@@ -3101,10 +3798,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           x: event.clientX,
           y: event.clientY,
           type: target.type as ContextMenuTargetType,
-          targetId: 'id' in target ? target.id : undefined,
+          targetId: "id" in target ? target.id : undefined,
         });
       } else {
-        const fallbackType: ContextMenuTargetType = hasSelectionRef.current ? 'selection' : 'canvas';
+        const fallbackType: ContextMenuTargetType = hasSelectionRef.current
+          ? "selection"
+          : "canvas";
         setContextMenuState({
           x: event.clientX,
           y: event.clientY,
@@ -3115,9 +3814,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       event.stopPropagation();
     };
 
-    canvasElement.addEventListener('contextmenu', handleContextMenu);
+    canvasElement.addEventListener("contextmenu", handleContextMenu);
     return () => {
-      canvasElement.removeEventListener('contextmenu', handleContextMenu);
+      canvasElement.removeEventListener("contextmenu", handleContextMenu);
     };
   }, [canvasRef, ensureSelectionForTarget, resolveContextTarget]);
 
@@ -3125,7 +3824,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     let didDelete = false;
 
     const pathTargets: paper.Path[] = [];
-    if (selectionTool.selectedPath) pathTargets.push(selectionTool.selectedPath);
+    if (selectionTool.selectedPath)
+      pathTargets.push(selectionTool.selectedPath);
     if (Array.isArray(selectionTool.selectedPaths)) {
       selectionTool.selectedPaths.forEach((path) => {
         if (path && !pathTargets.includes(path)) {
@@ -3142,7 +3842,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         let node: any = path;
         while (node) {
           // 检查是否有 placeholderGroupId（新方式）或直接是占位符类型
-          if (node.data?.type === 'image-placeholder' || node.data?.type === '3d-model-placeholder') {
+          if (
+            node.data?.type === "image-placeholder" ||
+            node.data?.type === "3d-model-placeholder"
+          ) {
             foundPlaceholderGroup = node as paper.Group;
             break;
           }
@@ -3160,22 +3863,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             removedPlaceholders.add(foundPlaceholderGroup);
           }
         } else {
-          try { target.remove(); didDelete = true; } catch {}
+          try {
+            target.remove();
+            didDelete = true;
+          } catch {}
         }
       });
       setSelectedPaths([]);
       setSelectedPath(null);
     }
 
-    if ((imageTool.selectedImageIds?.length ?? 0) > 0 && typeof imageTool.handleImageDelete === 'function') {
+    if (
+      (imageTool.selectedImageIds?.length ?? 0) > 0 &&
+      typeof imageTool.handleImageDelete === "function"
+    ) {
       imageTool.selectedImageIds!.forEach((id) => {
-        try { imageTool.handleImageDelete?.(id); didDelete = true; } catch {}
+        try {
+          imageTool.handleImageDelete?.(id);
+          didDelete = true;
+        } catch {}
       });
     }
 
-    if ((model3DTool.selectedModel3DIds?.length ?? 0) > 0 && typeof model3DTool.handleModel3DDelete === 'function') {
+    if (
+      (model3DTool.selectedModel3DIds?.length ?? 0) > 0 &&
+      typeof model3DTool.handleModel3DDelete === "function"
+    ) {
       model3DTool.selectedModel3DIds!.forEach((id) => {
-        try { model3DTool.handleModel3DDelete?.(id); didDelete = true; } catch {}
+        try {
+          model3DTool.handleModel3DDelete?.(id);
+          didDelete = true;
+        } catch {}
       });
     }
 
@@ -3201,8 +3919,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     }
 
     if (didDelete) {
-      try { paper.view.update(); } catch {}
-      try { historyService.commit('delete-selection-contextmenu').catch(() => {}); } catch {}
+      try {
+        paper.view.update();
+      } catch {}
+      try {
+        historyService.commit("delete-selection-contextmenu").catch(() => {});
+      } catch {}
       clearSelections();
       deselectSimpleText();
     }
@@ -3230,7 +3952,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const contextMenuItems = useMemo(() => {
     if (!contextMenuState) return [];
 
-    const canCopy = hasSelection && contextMenuState.type !== 'canvas';
+    const canCopy = hasSelection && contextMenuState.type !== "canvas";
     const canPaste = !!clipboardService.getCanvasData();
 
     const items: Array<{
@@ -3240,73 +3962,87 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       disabled?: boolean;
     }> = [
       {
-        label: '复制',
-        icon: <Copy className="w-4 h-4" />,
-        onClick: () => { handleCanvasCopy(); },
+        label: "复制",
+        icon: <Copy className='w-4 h-4' />,
+        onClick: () => {
+          handleCanvasCopy();
+        },
         disabled: !canCopy,
       },
       {
-        label: '粘贴',
-        icon: <ClipboardPaste className="w-4 h-4" />,
-        onClick: () => { handleCanvasPaste(); },
+        label: "粘贴",
+        icon: <ClipboardPaste className='w-4 h-4' />,
+        onClick: () => {
+          handleCanvasPaste();
+        },
         disabled: !canPaste,
       },
     ];
 
-    if (contextMenuState.type === 'image' && contextMenuState.targetId) {
+    if (contextMenuState.type === "image" && contextMenuState.targetId) {
       const targetId = contextMenuState.targetId;
       items.push(
         {
-          label: '下载图片',
-          icon: <Download className="w-4 h-4" />,
+          label: "下载图片",
+          icon: <Download className='w-4 h-4' />,
           onClick: () => handleDownloadImage(targetId),
         },
         {
-          label: '添加到库',
-          icon: <FolderPlus className="w-4 h-4" />,
-          onClick: () => { void handleAddImageToLibrary(targetId); },
+          label: "添加到库",
+          icon: <FolderPlus className='w-4 h-4' />,
+          onClick: () => {
+            void handleAddImageToLibrary(targetId);
+          },
         },
         {
-          label: '上移一层',
-          icon: <ArrowUp className="w-4 h-4" />,
+          label: "上移一层",
+          icon: <ArrowUp className='w-4 h-4' />,
           onClick: () => handleImageLayerMoveUp(targetId),
         },
         {
-          label: '下移一层',
-          icon: <ArrowDown className="w-4 h-4" />,
+          label: "下移一层",
+          icon: <ArrowDown className='w-4 h-4' />,
           onClick: () => handleImageLayerMoveDown(targetId),
-        },
+        }
       );
-    } else if (contextMenuState.type === 'model3d' && contextMenuState.targetId) {
+    } else if (
+      contextMenuState.type === "model3d" &&
+      contextMenuState.targetId
+    ) {
       const targetId = contextMenuState.targetId;
       items.push(
         {
-          label: '上移一层',
-          icon: <ArrowUp className="w-4 h-4" />,
+          label: "上移一层",
+          icon: <ArrowUp className='w-4 h-4' />,
           onClick: () => handleModelLayerMoveUp(targetId),
         },
         {
-          label: '下移一层',
-          icon: <ArrowDown className="w-4 h-4" />,
+          label: "下移一层",
+          icon: <ArrowDown className='w-4 h-4' />,
           onClick: () => handleModelLayerMoveDown(targetId),
-        },
+        }
       );
     }
 
     // 当选中路径时，显示"添加到库"选项
-    const hasSelectedPaths = !!(selectionTool.selectedPath || (selectionTool.selectedPaths && selectionTool.selectedPaths.length > 0));
-    if (contextMenuState.type === 'path' || hasSelectedPaths) {
+    const hasSelectedPaths = !!(
+      selectionTool.selectedPath ||
+      (selectionTool.selectedPaths && selectionTool.selectedPaths.length > 0)
+    );
+    if (contextMenuState.type === "path" || hasSelectedPaths) {
       items.push({
-        label: '添加到库',
-        icon: <FolderPlus className="w-4 h-4" />,
-        onClick: () => { void handleAddPathsToLibrary(); },
+        label: "添加到库",
+        icon: <FolderPlus className='w-4 h-4' />,
+        onClick: () => {
+          void handleAddPathsToLibrary();
+        },
         disabled: !hasSelectedPaths,
       });
     }
 
     items.push({
-      label: '删除',
-      icon: <Trash2 className="w-4 h-4" />,
+      label: "删除",
+      icon: <Trash2 className='w-4 h-4' />,
       onClick: handleDeleteSelection,
       disabled: !hasSelection,
     });
@@ -3339,6 +4075,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const dcHydrateModelsFromSnapshot = model3DTool.hydrateFromSnapshot;
   const dcClearAllTextItems = simpleTextTool.clearAllTextItems;
   const dcHydrateTextsFromSnapshot = simpleTextTool.hydrateFromSnapshot;
+  const dcSetVideoInstances = videoTool.setVideoInstances;
+  const dcSetSelectedVideoIds = videoTool.setSelectedVideoIds;
+  const dcHydrateVideosFromSnapshot = videoTool.hydrateFromSnapshot;
   const dcHydrateTextsFromPaperItems = simpleTextTool.hydrateFromPaperItems;
   const dcClearAllSelections = selectionTool.clearAllSelections;
 
@@ -3346,32 +4085,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     const syncVisibilityStates = () => {
       // 同步图片可见性
-      dcSetImageInstances(prev => prev.map(image => {
-        const paperGroup = paper.project.layers.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === 'image' && child.data?.imageId === image.id
-          )
-        )[0];
+      dcSetImageInstances((prev) =>
+        prev.map((image) => {
+          const paperGroup = paper.project.layers.flatMap((layer) =>
+            layer.children.filter(
+              (child) =>
+                child.data?.type === "image" && child.data?.imageId === image.id
+            )
+          )[0];
 
-        if (paperGroup) {
-          return { ...image, visible: paperGroup.visible };
-        }
-        return image;
-      }));
+          if (paperGroup) {
+            return { ...image, visible: paperGroup.visible };
+          }
+          return image;
+        })
+      );
 
       // 同步3D模型可见性
-      dcSetModel3DInstances(prev => prev.map(model => {
-        const paperGroup = paper.project.layers.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === '3d-model' && child.data?.modelId === model.id
-          )
-        )[0];
+      dcSetModel3DInstances((prev) =>
+        prev.map((model) => {
+          const paperGroup = paper.project.layers.flatMap((layer) =>
+            layer.children.filter(
+              (child) =>
+                child.data?.type === "3d-model" &&
+                child.data?.modelId === model.id
+            )
+          )[0];
 
-        if (paperGroup) {
-          return { ...model, visible: paperGroup.visible };
-        }
-        return model;
-      }));
+          if (paperGroup) {
+            return { ...model, visible: paperGroup.visible };
+          }
+          return model;
+        })
+      );
     };
 
     // 监听图层可见性变化事件
@@ -3379,51 +4125,72 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       syncVisibilityStates();
     };
 
-    window.addEventListener('layerVisibilityChanged', handleVisibilitySync);
+    window.addEventListener("layerVisibilityChanged", handleVisibilitySync);
 
     return () => {
-      window.removeEventListener('layerVisibilityChanged', handleVisibilitySync);
+      window.removeEventListener(
+        "layerVisibilityChanged",
+        handleVisibilitySync
+      );
     };
   }, [dcSetImageInstances, dcSetModel3DInstances]);
 
   // 将图片和3D模型实例暴露给图层面板使用
   useEffect(() => {
-    try { (window as any).tanvaImageInstances = imageTool.imageInstances; } catch {}
-    try { (window as any).tanvaModel3DInstances = model3DTool.model3DInstances; } catch {}
-    try { (window as any).tanvaTextItems = simpleTextTool.textItems; } catch {}
-  }, [imageTool.imageInstances, model3DTool.model3DInstances, simpleTextTool.textItems]);
+    try {
+      (window as any).tanvaImageInstances = imageTool.imageInstances;
+    } catch {}
+    try {
+      (window as any).tanvaModel3DInstances = model3DTool.model3DInstances;
+    } catch {}
+    try {
+      (window as any).tanvaTextItems = simpleTextTool.textItems;
+    } catch {}
+  }, [
+    imageTool.imageInstances,
+    model3DTool.model3DInstances,
+    simpleTextTool.textItems,
+  ]);
 
   // 组件卸载时清理全局引用，避免残留导致无法释放
   useEffect(() => {
     return () => {
-      try { (window as any).tanvaImageInstances = []; } catch {}
-      try { (window as any).tanvaModel3DInstances = []; } catch {}
-      try { (window as any).tanvaTextItems = []; } catch {}
+      try {
+        (window as any).tanvaImageInstances = [];
+      } catch {}
+      try {
+        (window as any).tanvaModel3DInstances = [];
+      } catch {}
+      try {
+        (window as any).tanvaTextItems = [];
+      } catch {}
     };
   }, []);
 
   // 监听图层顺序变化并更新图像的layerId
   useEffect(() => {
     const updateImageLayerIds = () => {
-      dcSetImageInstances(prev => prev.map(image => {
-        const imageGroup = paper.project?.layers?.flatMap(layer =>
-          layer.children.filter(child =>
-            child.data?.type === 'image' &&
-            child.data?.imageId === image.id
-          )
-        )[0];
+      dcSetImageInstances((prev) =>
+        prev.map((image) => {
+          const imageGroup = paper.project?.layers?.flatMap((layer) =>
+            layer.children.filter(
+              (child) =>
+                child.data?.type === "image" && child.data?.imageId === image.id
+            )
+          )[0];
 
-        if (imageGroup && imageGroup.layer) {
-          const layerName = imageGroup.layer.name;
-          if (layerName && layerName.startsWith('layer_')) {
-            const newLayerId = layerName.replace('layer_', '');
-            if (newLayerId !== image.layerId) {
-              return { ...image, layerId: newLayerId };
+          if (imageGroup && imageGroup.layer) {
+            const layerName = imageGroup.layer.name;
+            if (layerName && layerName.startsWith("layer_")) {
+              const newLayerId = layerName.replace("layer_", "");
+              if (newLayerId !== image.layerId) {
+                return { ...image, layerId: newLayerId };
+              }
             }
           }
-        }
-        return image;
-      }));
+          return image;
+        })
+      );
     };
 
     // 监听图层变化事件
@@ -3431,13 +4198,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       updateImageLayerIds();
     };
 
-    window.addEventListener('layerOrderChanged', handleLayerOrderChanged);
+    window.addEventListener("layerOrderChanged", handleLayerOrderChanged);
 
     // 移除定期检查 - 使用事件驱动替代轮询，避免内存泄漏和性能问题
     // 原因：setInterval 会持续消耗资源，且 layerOrderChanged 事件已经能覆盖大部分场景
 
     return () => {
-      window.removeEventListener('layerOrderChanged', handleLayerOrderChanged);
+      window.removeEventListener("layerOrderChanged", handleLayerOrderChanged);
     };
   }, [dcSetImageInstances]);
 
@@ -3446,44 +4213,64 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     // 处理图片实例更新
     const handleImageInstanceUpdate = (event: CustomEvent) => {
       const { imageId, layerId } = event.detail;
-      logger.debug(`🔄 DrawingController收到图片实例更新事件: ${imageId} → 图层${layerId}`);
-      
-      dcSetImageInstances(prev => prev.map(image => {
-        if (image.id === imageId) {
-          return { 
-            ...image, 
-            layerId: layerId,
-            layerIndex: parseInt(layerId) || 0 
-          };
-        }
-        return image;
-      }));
+      logger.debug(
+        `🔄 DrawingController收到图片实例更新事件: ${imageId} → 图层${layerId}`
+      );
+
+      dcSetImageInstances((prev) =>
+        prev.map((image) => {
+          if (image.id === imageId) {
+            return {
+              ...image,
+              layerId: layerId,
+              layerIndex: parseInt(layerId) || 0,
+            };
+          }
+          return image;
+        })
+      );
     };
 
     // 处理3D模型实例更新
     const handleModel3DInstanceUpdate = (event: CustomEvent) => {
       const { modelId, layerId } = event.detail;
-      logger.debug(`🔄 DrawingController收到3D模型实例更新事件: ${modelId} → 图层${layerId}`);
-      
-      dcSetModel3DInstances(prev => prev.map(model => {
-        if (model.id === modelId) {
-          return { 
-            ...model, 
-            layerId: layerId,
-            layerIndex: parseInt(layerId) || 0 
-          };
-        }
-        return model;
-      }));
+      logger.debug(
+        `🔄 DrawingController收到3D模型实例更新事件: ${modelId} → 图层${layerId}`
+      );
+
+      dcSetModel3DInstances((prev) =>
+        prev.map((model) => {
+          if (model.id === modelId) {
+            return {
+              ...model,
+              layerId: layerId,
+              layerIndex: parseInt(layerId) || 0,
+            };
+          }
+          return model;
+        })
+      );
     };
 
     // 添加事件监听器
-    window.addEventListener('imageInstanceUpdated', handleImageInstanceUpdate as EventListener);
-    window.addEventListener('model3DInstanceUpdated', handleModel3DInstanceUpdate as EventListener);
+    window.addEventListener(
+      "imageInstanceUpdated",
+      handleImageInstanceUpdate as EventListener
+    );
+    window.addEventListener(
+      "model3DInstanceUpdated",
+      handleModel3DInstanceUpdate as EventListener
+    );
 
     return () => {
-      window.removeEventListener('imageInstanceUpdated', handleImageInstanceUpdate as EventListener);
-      window.removeEventListener('model3DInstanceUpdated', handleModel3DInstanceUpdate as EventListener);
+      window.removeEventListener(
+        "imageInstanceUpdated",
+        handleImageInstanceUpdate as EventListener
+      );
+      window.removeEventListener(
+        "model3DInstanceUpdated",
+        handleModel3DInstanceUpdate as EventListener
+      );
     };
   }, [dcSetImageInstances, dcSetModel3DInstances]);
 
@@ -3498,6 +4285,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         dcSetModel3DInstances([]);
         dcSetSelectedModel3DIds([]);
         dcClearAllTextItems();
+        dcSetVideoInstances([]);
+        dcSetSelectedVideoIds([]);
 
         if (assets) {
           if (assets.images?.length) {
@@ -3509,22 +4298,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           if (assets.texts?.length) {
             dcHydrateTextsFromSnapshot(assets.texts);
           }
+          if (assets.videos?.length) {
+            dcHydrateVideosFromSnapshot(assets.videos);
+          }
         }
       } catch (e) {
-        console.warn('历史恢复回填失败:', e);
+        console.warn("历史恢复回填失败:", e);
       }
     };
-    window.addEventListener('history-restore', handler as EventListener);
-    return () => window.removeEventListener('history-restore', handler as EventListener);
+    window.addEventListener("history-restore", handler as EventListener);
+    return () =>
+      window.removeEventListener("history-restore", handler as EventListener);
   }, [
     dcClearAllTextItems,
     dcHydrateImagesFromSnapshot,
     dcHydrateModelsFromSnapshot,
     dcHydrateTextsFromSnapshot,
+    dcHydrateVideosFromSnapshot,
     dcSetImageInstances,
     dcSetModel3DInstances,
+    dcSetVideoInstances,
     dcSetSelectedImageIds,
     dcSetSelectedModel3DIds,
+    dcSetSelectedVideoIds,
   ]);
 
   // 从已反序列化的 Paper 项目重建图片、文字和3D模型实例
@@ -3533,7 +4329,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         if (!paper || !paper.project) return;
 
-        logger.drawing('🔄 rebuildFromPaper 开始执行...');
+        logger.drawing("🔄 rebuildFromPaper 开始执行...");
 
         // 🔍 调试：检查 Raster 加载状态
         const rasterClass = (paper as any).Raster;
@@ -3543,7 +4339,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         console.log(`🔍 [rebuildFromPaper] Raster 状态: 总数=${rasterCount}, 已加载=${loadedCount}, 未加载=${rasterCount - loadedCount}`);
 
         // 避免重复包裹 Raster.onLoad（多次 rebuild 可能导致链式闭包与内存增长）
-        const ensureRasterRebuildOnLoad = (raster: any, callback: () => void) => {
+        const ensureRasterRebuildOnLoad = (
+          raster: any,
+          callback: () => void
+        ) => {
           if (!raster) return;
           const anyRaster = raster as any;
           anyRaster.__tanvaRebuildOnLoadCallback = callback;
@@ -3566,23 +4365,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             function (this: any, ...args: any[]) {
               try {
                 const cb = (this as any).__tanvaRebuildOnLoadCallback;
-                if (typeof cb === 'function') {
+                if (typeof cb === "function") {
                   // 释放闭包引用，避免长期占用内存
                   (this as any).__tanvaRebuildOnLoadCallback = null;
                   cb();
                 }
               } catch (err) {
-                console.warn('Raster rebuild onLoad callback failed:', err);
+                console.warn("Raster rebuild onLoad callback failed:", err);
               }
 
               try {
                 const original = (this as any).__tanvaOriginalOnLoad;
                 const selfWrapper = (this as any).__tanvaRebuildOnLoadWrapper;
-                if (typeof original === 'function' && original !== selfWrapper) {
+                if (
+                  typeof original === "function" &&
+                  original !== selfWrapper
+                ) {
                   original.apply(this, args);
                 }
               } catch (err) {
-                console.warn('Raster original onLoad failed:', err);
+                console.warn("Raster original onLoad failed:", err);
               }
             };
 
@@ -3590,7 +4392,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           raster.onLoad = wrapper;
         };
 
-	        // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
+        // 🔥 修复：在重建前清理所有孤儿选择框和无效图片组
 	        // 1. 清理所有没有 raster 的图片组（包括它们的选择框）
 	        const validImageIdsForCleanup = new Set<string>();
 	        const orphanGroups: paper.Group[] = [];
@@ -3600,7 +4402,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	          }) as paper.Item[] | undefined;
 
 	          (imageCandidates || []).forEach((item) => {
-	            // ⚠️ 只清理真正的 Group：Raster 自身也可能带有 data.type=image，但不能当作“图片组”删掉
+	            // ⚠️ 只清理真正的 Group：Raster 自身也可能带有 data.type=image，但不能当作"图片组"删掉
 	            if (!isGroup(item)) return;
 
 	            const group = item as paper.Group;
@@ -3688,44 +4490,68 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         const textInstances: any[] = [];
         const model3DInstances: any[] = [];
         const seenImageGroupTitles = new Set<string>();
-        const seenImageIds = new Set<string>();  // 🔥 防止重复添加同一个图片
+        const seenImageIds = new Set<string>(); // 🔥 防止重复添加同一个图片
 
         // 扫描所有图层
         (paper.project.layers || []).forEach((layer: any) => {
-          logger.drawing(`🔍 扫描图层: ${layer?.name || '未命名'}, 子元素数量: ${layer?.children?.length || 0}`);
+          logger.drawing(
+            `🔍 扫描图层: ${layer?.name || "未命名"}, 子元素数量: ${
+              layer?.children?.length || 0
+            }`
+          );
           const children = layer?.children || [];
           children.forEach((item: any) => {
             // 🔍 调试：输出每个元素的信息
-            logger.drawing(`  📦 元素: className=${item?.className}, type=${item?.data?.type}, imageId=${item?.data?.imageId}`);
+            logger.drawing(
+              `  📦 元素: className=${item?.className}, type=${item?.data?.type}, imageId=${item?.data?.imageId}`
+            );
 
             // ========== 处理图片 ==========
             let imageGroup: any | null = null;
-            if (item?.data?.type === 'image' && item?.data?.imageId) {
+            if (item?.data?.type === "image" && item?.data?.imageId) {
               imageGroup = item;
-              logger.drawing(`    ✅ 识别为图片组 (type=image): ${item?.data?.imageId}`);
-            } else if (item?.className === 'Raster' || item instanceof (paper as any).Raster) {
+              logger.drawing(
+                `    ✅ 识别为图片组 (type=image): ${item?.data?.imageId}`
+              );
+            } else if (
+              item?.className === "Raster" ||
+              item instanceof (paper as any).Raster
+            ) {
               // 兼容只有 Raster 的情况
-              logger.drawing('    🖼️ 发现 Raster 元素');
+              logger.drawing("    🖼️ 发现 Raster 元素");
 
               // 🔥 如果 Raster 已经有 imageId，说明它正在等待 onLoad 处理，跳过
               if (item?.data?.imageId) {
-                logger.drawing(`    ⏭️ Raster 已有 imageId，跳过: ${item.data.imageId}`);
+                logger.drawing(
+                  `    ⏭️ Raster 已有 imageId，跳过: ${item.data.imageId}`
+                );
                 return;
               }
 
-              imageGroup = item.parent && item.parent.className === 'Group' ? item.parent : null;
-              if (imageGroup && !(imageGroup.data && imageGroup.data.type === 'image')) {
+              imageGroup =
+                item.parent && item.parent.className === "Group"
+                  ? item.parent
+                  : null;
+              if (
+                imageGroup &&
+                !(imageGroup.data && imageGroup.data.type === "image")
+              ) {
                 // 为旧内容补上标记
                 if (!imageGroup.data) imageGroup.data = {};
-                imageGroup.data.type = 'image';
-                imageGroup.data.imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-                logger.drawing(`    ✅ 为 Raster 补充标记: ${imageGroup.data.imageId}`);
+                imageGroup.data.type = "image";
+                imageGroup.data.imageId = `img_${Date.now()}_${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`;
+                logger.drawing(
+                  `    ✅ 为 Raster 补充标记: ${imageGroup.data.imageId}`
+                );
               }
             }
 
             if (imageGroup) {
               const raster = imageGroup.children.find(
-                (c: any) => c.className === 'Raster' || c instanceof (paper as any).Raster
+                (c: any) =>
+                  c.className === "Raster" || c instanceof (paper as any).Raster
               ) as paper.Raster | undefined;
 
               if (raster) {
@@ -3742,24 +4568,36 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 seenImageIds.add(ensuredImageId);
 
                 if (!imageGroup.data) imageGroup.data = {};
-                imageGroup.data.type = 'image';
+                imageGroup.data.type = "image";
                 imageGroup.data.imageId = ensuredImageId;
 
                 const metadataFromRaster = {
-                  originalWidth: raster.data?.originalWidth as number | undefined,
-                  originalHeight: raster.data?.originalHeight as number | undefined,
+                  originalWidth: raster.data?.originalWidth as
+                    | number
+                    | undefined,
+                  originalHeight: raster.data?.originalHeight as
+                    | number
+                    | undefined,
                   fileName: raster.data?.fileName as string | undefined,
                   uploadMethod: raster.data?.uploadMethod as string | undefined,
                   aspectRatio: raster.data?.aspectRatio as number | undefined,
-                  remoteUrl: raster.data?.remoteUrl as string | undefined
+                  remoteUrl: raster.data?.remoteUrl as string | undefined,
                 };
 
                 // 记录来源：优先使用远程URL，其次使用非data的source，最后使用内联data
-                const sourceUrl = typeof raster.source === 'string' ? raster.source : undefined;
-                const remoteUrl = metadataFromRaster.remoteUrl || (sourceUrl && !sourceUrl.startsWith('data:') ? sourceUrl : undefined);
-                const inlineDataUrl = sourceUrl && sourceUrl.startsWith('data:') ? sourceUrl : undefined;
+                const sourceUrl =
+                  typeof raster.source === "string" ? raster.source : undefined;
+                const remoteUrl =
+                  metadataFromRaster.remoteUrl ||
+                  (sourceUrl && !sourceUrl.startsWith("data:")
+                    ? sourceUrl
+                    : undefined);
+                const inlineDataUrl =
+                  sourceUrl && sourceUrl.startsWith("data:")
+                    ? sourceUrl
+                    : undefined;
 
-	                // 统一设置raster.data，提前补上id以便后续事件使用
+                // 统一设置raster.data，提前补上id以便后续事件使用
 	                raster.data = {
 	                  ...(raster.data || {}),
 	                  type: 'image',
@@ -3819,8 +4657,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                    originalHeight: metadataFromRaster.originalHeight || boundsRect.height,
 	                    aspectRatio:
                       metadataFromRaster.aspectRatio ||
-                      (boundsRect.height ? boundsRect.width / boundsRect.height : undefined),
-                    remoteUrl: metadataFromRaster.remoteUrl || remoteUrl
+                      (boundsRect.height
+                        ? boundsRect.width / boundsRect.height
+                        : undefined),
+                    remoteUrl: metadataFromRaster.remoteUrl || remoteUrl,
                   };
 
 	                  ensureImageGroupStructure({
@@ -3833,14 +4673,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	                    ensureSelectionArea: true
 	                  });
 
-                  try { paper.view?.update(); } catch {}
+                  try {
+                    paper.view?.update();
+                  } catch {}
 
-                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? '';
+                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
                   const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
 
                   // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
-                  const originalWidth = computedMetadata.originalWidth || (raster as any).width || Math.round(boundsRect.width);
-                  const originalHeight = computedMetadata.originalHeight || (raster as any).height || Math.round(boundsRect.height);
+                  const originalWidth =
+                    computedMetadata.originalWidth ||
+                    (raster as any).width ||
+                    Math.round(boundsRect.width);
+                  const originalHeight =
+                    computedMetadata.originalHeight ||
+                    (raster as any).height ||
+                    Math.round(boundsRect.height);
 
 	                  return {
 	                    id: ensuredImageId,
@@ -3877,7 +4725,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   }
                 } else {
                   // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
-                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? '';
+                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
                   const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
 
                   imageInstances.push({
@@ -3887,99 +4735,120 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       url: resolvedUrl,
                       src: resolvedSrc,
                       fileName: metadataFromRaster.fileName,
-                      pendingUpload: raster.data?.pendingUpload ?? false
+                      pendingUpload: raster.data?.pendingUpload ?? false,
                     },
                     bounds: {
                       x: raster.position?.x ?? 0,
                       y: raster.position?.y ?? 0,
                       width: 0,
-                      height: 0
+                      height: 0,
                     },
                     isSelected: false,
                     visible: imageGroup.visible !== false,
-                    layerId: layer?.name
+                    layerId: layer?.name,
                   });
 
-	                  ensureRasterRebuildOnLoad(raster, () => {
-	                    const loadedInstance = buildImageInstance();
-	                    if (!loadedInstance) return;
+                  ensureRasterRebuildOnLoad(raster, () => {
+                    const loadedInstance = buildImageInstance();
+                    if (!loadedInstance) return;
 
-	                    dcSetImageInstances((prev) => {
-	                      const updated = [...prev];
-	                      const index = updated.findIndex(img => img.id === ensuredImageId);
-	                      if (index >= 0) {
-	                        updated[index] = {
-	                          ...updated[index],
-	                          ...loadedInstance,
-	                          imageData: {
-	                            ...updated[index].imageData,
-	                            ...loadedInstance.imageData
-	                          }
-	                        };
-	                      } else {
-	                        updated.push(loadedInstance);
-	                      }
-	                      try { (window as any).tanvaImageInstances = updated; } catch {}
-	                      return updated;
-	                    });
-	                    try { paper.view?.update(); } catch {}
-	                  });
-	                }
-	              }
-	            }
+                    dcSetImageInstances((prev) => {
+                      const updated = [...prev];
+                      const index = updated.findIndex(
+                        (img) => img.id === ensuredImageId
+                      );
+                      if (index >= 0) {
+                        updated[index] = {
+                          ...updated[index],
+                          ...loadedInstance,
+                          imageData: {
+                            ...updated[index].imageData,
+                            ...loadedInstance.imageData,
+                          },
+                        };
+                      } else {
+                        updated.push(loadedInstance);
+                      }
+                      try {
+                        (window as any).tanvaImageInstances = updated;
+                      } catch {}
+                      return updated;
+                    });
+                    try {
+                      paper.view?.update();
+                    } catch {}
+                  });
+                }
+              }
+            }
 
-	            // ========== 处理文字 ==========
-	            if (item?.className === 'PointText' || item instanceof (paper as any).PointText) {
-	              const pointText = item as any;
-	              // 跳过辅助文本
-	              if (pointText.data?.isHelper) return;
+            // ========== 处理文字 ==========
+            if (
+              item?.className === "PointText" ||
+              item instanceof (paper as any).PointText
+            ) {
+              const pointText = item as any;
+              // 跳过辅助文本
+              if (pointText.data?.isHelper) return;
 
-	              // 图片组标题：不归文本工具接管；同时做一次修复/去重，避免保存后出现重复标题
-	              const groupId = pointText.data?.groupId;
-	              if (typeof groupId === 'string' && groupId) {
-	                if (!pointText.data) pointText.data = {};
-	                pointText.data.type = 'image-group-title';
-	                pointText.data.isHelper = false;
-	                try {
-	                  const nextTitle = formatImageGroupTitle(String(pointText.content || ''));
-	                  if (nextTitle && pointText.content !== nextTitle) {
-	                    pointText.content = nextTitle;
-	                  }
-	                } catch {}
-	                if (seenImageGroupTitles.has(groupId)) {
-	                  try { pointText.remove(); } catch {}
-	                } else {
-	                  seenImageGroupTitles.add(groupId);
-	                }
-	                return;
-	              }
+              // 图片组标题：不归文本工具接管；同时做一次修复/去重，避免保存后出现重复标题
+              const groupId = pointText.data?.groupId;
+              if (typeof groupId === "string" && groupId) {
+                if (!pointText.data) pointText.data = {};
+                pointText.data.type = "image-group-title";
+                pointText.data.isHelper = false;
+                try {
+                  const nextTitle = formatImageGroupTitle(
+                    String(pointText.content || "")
+                  );
+                  if (nextTitle && pointText.content !== nextTitle) {
+                    pointText.content = nextTitle;
+                  }
+                } catch {}
+                if (seenImageGroupTitles.has(groupId)) {
+                  try {
+                    pointText.remove();
+                  } catch {}
+                } else {
+                  seenImageGroupTitles.add(groupId);
+                }
+                return;
+              }
 
-	              // 只接管真正的文本工具文本；其他 PointText（未来可能的标注/刻度等）跳过
-	              if (pointText.data?.type && pointText.data.type !== 'text') {
-	                return;
-	              }
+              // 只接管真正的文本工具文本；其他 PointText（未来可能的标注/刻度等）跳过
+              if (pointText.data?.type && pointText.data.type !== "text") {
+                return;
+              }
 
-	              // 生成或使用已有的 text ID
-	              let textId = pointText.data?.textId;
-	              if (!textId) {
-	                textId = `text_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-	                if (!pointText.data) pointText.data = {};
+              // 生成或使用已有的 text ID
+              let textId = pointText.data?.textId;
+              if (!textId) {
+                textId = `text_${Date.now()}_${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`;
+                if (!pointText.data) pointText.data = {};
                 pointText.data.textId = textId;
               }
 
               // 确保设置 type 标记（关键！用于点击检测）
               if (!pointText.data.type) {
-                pointText.data.type = 'text';
+                pointText.data.type = "text";
               }
 
               // 提取样式信息
               const style = {
-                fontFamily: pointText.fontFamily || 'sans-serif',
-                fontWeight: (pointText.fontWeight === 'bold' || pointText.fontWeight === '700') ? 'bold' : 'normal',
+                fontFamily: pointText.fontFamily || "sans-serif",
+                fontWeight:
+                  pointText.fontWeight === "bold" ||
+                  pointText.fontWeight === "700"
+                    ? "bold"
+                    : "normal",
                 fontSize: pointText.fontSize || 24,
-                color: pointText.fillColor ? pointText.fillColor.toCSS(true) : '#000000',
-                align: 'left',
-                italic: pointText.fontStyle === 'italic' || false,
+                color: pointText.fillColor
+                  ? pointText.fillColor.toCSS(true)
+                  : "#000000",
+                align: "left",
+                italic: pointText.fontStyle === "italic" || false,
               };
 
               // 构建文字实例
@@ -3993,13 +4862,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
 
             // ========== 处理3D模型 ==========
-            if (item?.data?.type === '3d-model' && item?.data?.modelId) {
+            if (item?.data?.type === "3d-model" && item?.data?.modelId) {
               const model3DGroup = item;
               const modelId = model3DGroup.data.modelId;
 
               // 从group中查找占位符矩形来获取bounds
-              const placeholder = model3DGroup.children?.find((c: any) =>
-                c?.data?.isPlaceholder || c?.className === 'Path'
+              const placeholder = model3DGroup.children?.find(
+                (c: any) => c?.data?.isPlaceholder || c?.className === "Path"
               );
 
               if (placeholder && placeholder.bounds) {
@@ -4007,18 +4876,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
                 // 从data中恢复模型数据
                 const stored = model3DGroup.data?.modelData || {};
-                const resolvedUrl = stored.url || model3DGroup.data?.url || model3DGroup.data?.path || '';
-                const resolvedPath = stored.path || model3DGroup.data?.path || resolvedUrl;
+                const resolvedUrl =
+                  stored.url ||
+                  model3DGroup.data?.url ||
+                  model3DGroup.data?.path ||
+                  "";
+                const resolvedPath =
+                  stored.path || model3DGroup.data?.path || resolvedUrl;
                 const modelData = {
                   url: resolvedUrl,
                   path: resolvedPath,
                   key: stored.key ?? model3DGroup.data?.key,
-                  format: stored.format || model3DGroup.data?.format || 'glb',
-                  fileName: stored.fileName || model3DGroup.data?.fileName || 'model',
+                  format: stored.format || model3DGroup.data?.format || "glb",
+                  fileName:
+                    stored.fileName || model3DGroup.data?.fileName || "model",
                   fileSize: stored.fileSize ?? model3DGroup.data?.fileSize ?? 0,
-                  defaultScale: stored.defaultScale || model3DGroup.data?.defaultScale || { x: 1, y: 1, z: 1 },
-                  defaultRotation: stored.defaultRotation || model3DGroup.data?.defaultRotation || { x: 0, y: 0, z: 0 },
-                  timestamp: stored.timestamp ?? model3DGroup.data?.timestamp ?? Date.now(),
+                  defaultScale: stored.defaultScale ||
+                    model3DGroup.data?.defaultScale || { x: 1, y: 1, z: 1 },
+                  defaultRotation: stored.defaultRotation ||
+                    model3DGroup.data?.defaultRotation || { x: 0, y: 0, z: 0 },
+                  timestamp:
+                    stored.timestamp ??
+                    model3DGroup.data?.timestamp ??
+                    Date.now(),
                   camera: stored.camera || model3DGroup.data?.camera,
                 };
 
@@ -4032,33 +4912,45 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     model3DGroup.data.fileName = modelData.fileName;
                     model3DGroup.data.fileSize = modelData.fileSize;
                     model3DGroup.data.defaultScale = modelData.defaultScale;
-                    model3DGroup.data.defaultRotation = modelData.defaultRotation;
+                    model3DGroup.data.defaultRotation =
+                      modelData.defaultRotation;
                     model3DGroup.data.timestamp = modelData.timestamp;
-                    model3DGroup.data.bounds = { x: b.x, y: b.y, width: b.width, height: b.height };
-                    model3DGroup.data.layerId = layer?.name ?? model3DGroup.data.layerId ?? null;
+                    model3DGroup.data.bounds = {
+                      x: b.x,
+                      y: b.y,
+                      width: b.width,
+                      height: b.height,
+                    };
+                    model3DGroup.data.layerId =
+                      layer?.name ?? model3DGroup.data.layerId ?? null;
                     model3DGroup.data.camera = modelData.camera;
                   }
                 } catch (error) {
-                  console.warn('刷新3D模型数据失败:', error);
+                  console.warn("刷新3D模型数据失败:", error);
                 }
 
                 // 确保存在选择区域（用于点击检测）
-                const hasSelectionArea = !!model3DGroup.children?.find((c: any) =>
-                  c?.data?.type === '3d-model-selection-area'
+                const hasSelectionArea = !!model3DGroup.children?.find(
+                  (c: any) => c?.data?.type === "3d-model-selection-area"
                 );
                 if (!hasSelectionArea) {
                   try {
                     const selectionArea = new (paper as any).Path.Rectangle({
-                      rectangle: new (paper as any).Rectangle(b.x, b.y, b.width, b.height),
+                      rectangle: new (paper as any).Rectangle(
+                        b.x,
+                        b.y,
+                        b.width,
+                        b.height
+                      ),
                       fillColor: new (paper as any).Color(0, 0, 0, 0.001), // 几乎透明但可点击
                       strokeColor: null,
                       selected: false,
                       visible: true,
                     });
                     selectionArea.data = {
-                      type: '3d-model-selection-area',
+                      type: "3d-model-selection-area",
                       modelId: modelId,
-                      isHelper: true
+                      isHelper: true,
                     };
                     model3DGroup.addChild(selectionArea);
                   } catch {}
@@ -4081,19 +4973,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 更新图片实例
         // 🔥 修复：只保留在 Paper.js 中实际存在的图片实例，移除已不存在的实例
         dcSetImageInstances((prev) => {
-          const prevMap = new Map(prev.map(item => [item.id, item]));
+          const prevMap = new Map(prev.map((item) => [item.id, item]));
           const merged: typeof prev = [];
-          const validImageIds = new Set(imageInstances.map(inst => inst.id));
+          const validImageIds = new Set(imageInstances.map((inst) => inst.id));
 
-          imageInstances.forEach(instance => {
+          imageInstances.forEach((instance) => {
             const previous = prevMap.get(instance.id);
             if (previous) {
               prevMap.delete(instance.id);
             }
 
-            const boundsToUse = previous && previous.bounds.width > 0 && previous.bounds.height > 0
-              ? previous.bounds
-              : instance.bounds;
+            const boundsToUse =
+              previous &&
+              previous.bounds.width > 0 &&
+              previous.bounds.height > 0
+                ? previous.bounds
+                : instance.bounds;
 
             merged.push({
               ...instance,
@@ -4101,10 +4996,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               bounds: boundsToUse,
               imageData: {
                 ...(instance.imageData || {}),
-                ...(previous?.imageData || {})
+                ...(previous?.imageData || {}),
               },
               isSelected: false,
-              visible: instance.visible
+              visible: instance.visible,
             });
           });
 
@@ -4115,20 +5010,26 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             logger.drawing(`🗑️ 清理了 ${removedCount} 个已不存在的图片实例`);
           }
 
-          try { (window as any).tanvaImageInstances = merged; } catch {}
+          try {
+            (window as any).tanvaImageInstances = merged;
+          } catch {}
           return merged;
         });
         dcSetSelectedImageIds([]);
         if (imageInstances.length > 0) {
-          logger.debug(`🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`);
+          logger.debug(
+            `🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`
+          );
         } else {
           // 即使没有图片实例，也要确保清空状态
-          logger.debug('🧩 已清空所有图片实例');
+          logger.debug("🧩 已清空所有图片实例");
         }
 
         // 更新文字实例
         dcHydrateTextsFromPaperItems(textInstances);
-        try { (window as any).tanvaTextItems = textInstances; } catch {}
+        try {
+          (window as any).tanvaTextItems = textInstances;
+        } catch {}
         if (textInstances.length > 0) {
           logger.debug(`📝 已从 Paper 恢复 ${textInstances.length} 个文字实例`);
         }
@@ -4137,56 +5038,80 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         if (model3DInstances.length > 0) {
           dcSetModel3DInstances(model3DInstances);
           dcSetSelectedModel3DIds([]);
-          try { (window as any).tanvaModel3DInstances = model3DInstances; } catch {}
-          logger.debug(`🎮 已从 Paper 恢复 ${model3DInstances.length} 个3D模型实例`);
+          try {
+            (window as any).tanvaModel3DInstances = model3DInstances;
+          } catch {}
+          logger.debug(
+            `🎮 已从 Paper 恢复 ${model3DInstances.length} 个3D模型实例`
+          );
         }
 
         // 输出总结
-        const total = imageInstances.length + textInstances.length + model3DInstances.length;
+        const total =
+          imageInstances.length +
+          textInstances.length +
+          model3DInstances.length;
         if (total > 0) {
-          logger.debug(`✅ 从 Paper.js 共恢复 ${total} 个实例（图片${imageInstances.length}，文字${textInstances.length}，3D${model3DInstances.length}）`);
+          logger.debug(
+            `✅ 从 Paper.js 共恢复 ${total} 个实例（图片${imageInstances.length}，文字${textInstances.length}，3D${model3DInstances.length}）`
+          );
         }
       } catch (e) {
-        console.warn('从Paper重建实例失败:', e);
+        console.warn("从Paper重建实例失败:", e);
       }
-	    };
+    };
 
-	    let rafId: number | null = null;
-	    const scheduleRebuild = () => {
-	      if (rafId !== null) return;
-	      rafId = requestAnimationFrame(() => {
-	        rafId = null;
-	        rebuildFromPaper();
-	      });
-	    };
+    let rafId: number | null = null;
+    const scheduleRebuild = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        rebuildFromPaper();
+      });
+    };
 
-	    window.addEventListener('paper-project-changed', scheduleRebuild as EventListener);
-	    return () => {
-	      window.removeEventListener('paper-project-changed', scheduleRebuild as EventListener);
-	      if (rafId !== null) {
-	        cancelAnimationFrame(rafId);
-	      }
-	    };
-	  }, [
-	    dcClearAllSelections,
-	    dcHydrateTextsFromPaperItems,
-	    dcSetImageInstances,
-	    dcSetModel3DInstances,
-	    dcSetSelectedImageIds,
-	    dcSetSelectedModel3DIds,
-	  ]);
+    window.addEventListener(
+      "paper-project-changed",
+      scheduleRebuild as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "paper-project-changed",
+        scheduleRebuild as EventListener
+      );
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [
+    dcClearAllSelections,
+    dcHydrateTextsFromPaperItems,
+    dcSetImageInstances,
+    dcSetModel3DInstances,
+    dcSetSelectedImageIds,
+    dcSetSelectedModel3DIds,
+  ]);
 
   // 历史快速回放（仅图片 bounds）：避免 undo/redo 时全量重建导致全图闪烁
-	  useEffect(() => {
-	    const handler = (event: Event) => {
-	      const detail = (event as CustomEvent)?.detail as any;
-	      const images = detail?.images as ImageAssetSnapshot[] | undefined;
-	      if (!Array.isArray(images) || images.length === 0) return;
-	      try { dcApplyImageBoundsFromSnapshot?.(images); } catch {}
-	    };
-	    window.addEventListener('history:apply-image-snapshot', handler as EventListener);
-	    return () => window.removeEventListener('history:apply-image-snapshot', handler as EventListener);
-	  }, [dcApplyImageBoundsFromSnapshot]);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail as any;
+      const images = detail?.images as ImageAssetSnapshot[] | undefined;
+      if (!Array.isArray(images) || images.length === 0) return;
+      try {
+        dcApplyImageBoundsFromSnapshot?.(images);
+      } catch {}
+    };
+    window.addEventListener(
+      "history:apply-image-snapshot",
+      handler as EventListener
+    );
+    return () =>
+      window.removeEventListener(
+        "history:apply-image-snapshot",
+        handler as EventListener
+      );
+  }, [dcApplyImageBoundsFromSnapshot]);
 
   // 监听图层面板的选择事件
   const dcHandleLayerImageSelect = imageTool.handleImageSelect;
@@ -4196,18 +5121,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handleLayerItemSelected = (event: CustomEvent) => {
       const { item, type, itemId } = event.detail;
 
-      logger.debug('收到图层面板选择事件:', type, itemId);
+      logger.debug("收到图层面板选择事件:", type, itemId);
 
       // 清除之前的所有选择
       dcClearAllSelections();
 
       // 根据类型进行相应的选择处理
-      if (type === 'image') {
+      if (type === "image") {
         const imageData = item.data;
         if (imageData?.imageId) {
           dcHandleLayerImageSelect(imageData.imageId);
         }
-      } else if (type === 'model3d') {
+      } else if (type === "model3d") {
         const modelData = item.data;
         if (modelData?.modelId) {
           dcHandleLayerModel3DSelect(modelData.modelId);
@@ -4218,13 +5143,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     // 添加事件监听器
-    window.addEventListener('layerItemSelected', handleLayerItemSelected as EventListener);
+    window.addEventListener(
+      "layerItemSelected",
+      handleLayerItemSelected as EventListener
+    );
 
     return () => {
       // 清理事件监听器
-      window.removeEventListener('layerItemSelected', handleLayerItemSelected as EventListener);
+      window.removeEventListener(
+        "layerItemSelected",
+        handleLayerItemSelected as EventListener
+      );
     };
-  }, [dcClearAllSelections, dcHandleLayerImageSelect, dcHandleLayerModel3DSelect, selectToolHandlePathSelect]);
+  }, [
+    dcClearAllSelections,
+    dcHandleLayerImageSelect,
+    dcHandleLayerModel3DSelect,
+    selectToolHandlePathSelect,
+  ]);
 
   return (
     <>
@@ -4263,7 +5199,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       {/* 图片UI覆盖层实例 */}
       {imageTool.imageInstances.map((image) => {
-        
         return (
           <ImageContainer
             key={image.id}
@@ -4283,10 +5218,16 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
             onSelect={() => imageTool.handleImageSelect(image.id)}
-            onMove={(newPosition) => imageTool.handleImageMove(image.id, newPosition)}
-            onResize={(newBounds) => imageTool.handleImageResize(image.id, newBounds)}
+            onMove={(newPosition) =>
+              imageTool.handleImageMove(image.id, newPosition)
+            }
+            onResize={(newBounds) =>
+              imageTool.handleImageResize(image.id, newBounds)
+            }
             onDelete={(imageId) => imageTool.handleImageDelete?.(imageId)}
-            onToggleVisibility={(imageId) => handleImageToggleVisibility(imageId)}
+            onToggleVisibility={(imageId) =>
+              handleImageToggleVisibility(imageId)
+            }
             getImageDataForEditing={imageTool.getImageDataForEditing}
             showIndividualTools={!isGroupSelection}
           />
@@ -4295,7 +5236,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       {/* 3D模型渲染实例 */}
       {model3DTool.model3DInstances.map((model) => {
-        
         return (
           <Model3DContainer
             key={model.id}
@@ -4306,15 +5246,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             visible={model.visible}
             drawMode={drawMode}
             isSelectionDragging={selectionTool.isSelectionDragging}
-            onMove={(newPosition) => model3DTool.handleModel3DMove(model.id, newPosition)}
-            onResize={(newBounds) => model3DTool.handleModel3DResize(model.id, newBounds)}
+            onMove={(newPosition) =>
+              model3DTool.handleModel3DMove(model.id, newPosition)
+            }
+            onResize={(newBounds) =>
+              model3DTool.handleModel3DResize(model.id, newBounds)
+            }
             onDeselect={() => model3DTool.handleModel3DDeselect()}
-            onCameraChange={(camera) => model3DTool.handleModel3DCameraChange(model.id, camera)}
+            onCameraChange={(camera) =>
+              model3DTool.handleModel3DCameraChange(model.id, camera)
+            }
             onDelete={() => model3DTool.handleModel3DDelete(model.id)}
             onCapture={() => handleModelCapture(model.id)}
             isCapturePending={!!modelCapturePending[model.id]}
             showIndividualTools={!isGroupSelection}
-            onSelect={(addToSelection) => handleModelSelectFromOverlay(model.id, !!addToSelection)}
+            onSelect={(addToSelection) =>
+              handleModelSelectFromOverlay(model.id, !!addToSelection)
+            }
           />
         );
       })}

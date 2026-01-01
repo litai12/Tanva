@@ -7,119 +7,113 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
 model User {
-  id                       String       @id @default(uuid())
-  email                    String?      @unique
-  phone                    String       @unique
-  passwordHash             String
-  name                     String?
-  avatarUrl                String?
-  role                     String       @default("user")
-  status                   String       @default("active")
-  invitedById              String?
-  invitedBy                User?        @relation("UserInvitedBy", fields: [invitedById], references: [id])
-  invites                  User[]       @relation("UserInvitedBy")
-  googleCustomApiKey       String?      // 用户自定义的 Google Gemini API Key
-  googleKeyMode            String       @default("official")  // "official" 或 "custom"
-  googleOfficialVerified   Boolean      @default(false)
-  googleOfficialVerifiedAt DateTime?
-  lastLoginAt              DateTime?
-  createdAt                DateTime     @default(now())
-  updatedAt                DateTime     @updatedAt
-  refreshTokens            RefreshToken[]
-  projects                 Project[]
-  creditAccount            CreditAccount?
-  apiUsageRecords          ApiUsageRecord[]
-  invitationCodes          InvitationCode[]
-  invitationRedemptions    InvitationRedemption[] @relation("InvitationRedemptionInvitee")
+  id                         String                 @id @default(uuid())
+  email                      String?                @unique
+  phone                      String                 @unique
+  passwordHash               String
+  name                       String?
+  avatarUrl                  String?
+  role                       String                 @default("user")
+  status                     String                 @default("active")
+  googleCustomApiKey         String?
+  googleKeyMode              String                 @default("official")
+  googleOfficialVerified     Boolean                @default(false)
+  googleOfficialVerifiedAt   DateTime?
+  lastLoginAt                DateTime?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  invitedById                String?
+  apiUsageRecords            ApiUsageRecord[]
+  creditAccount              CreditAccount?
+  globalImageHistory         GlobalImageHistory[]
+  invitationCodes            InvitationCode[]
+  invitationRedemptions      InvitationRedemption[] @relation("InvitationRedemptionInvitee")
   invitationRedemptionsGiven InvitationRedemption[] @relation("InvitationRedemptionInviter")
-  globalImageHistory       GlobalImageHistory[]
+  projects                   Project[]
+  refreshTokens              RefreshToken[]
+  invitedBy                  User?                  @relation("UserInvitedBy", fields: [invitedById], references: [id])
+  invites                    User[]                 @relation("UserInvitedBy")
 }
 
 model RefreshToken {
-  id         String   @id @default(uuid())
-  user       User     @relation(fields: [userId], references: [id])
-  userId     String
-  tokenHash  String
-  userAgent  String?
-  ip         String?
-  isRevoked  Boolean  @default(false)
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  userAgent String?
+  ip        String?
+  isRevoked Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 
   @@index([userId, isRevoked])
 }
 
 model Project {
-  id         String   @id @default(uuid())
-  user       User     @relation(fields: [userId], references: [id])
-  userId     String
-  name       String
-  ossPrefix  String
-  mainKey    String
-  thumbnailUrl String?
-  contentVersion Int    @default(1)
-  contentJson  Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id             String   @id @default(uuid())
+  userId         String
+  name           String
+  ossPrefix      String
+  mainKey        String
+  thumbnailUrl   String?
+  contentVersion Int      @default(1)
+  contentJson    Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id])
 }
 
-// ==================== 积分系统 ====================
-
-// 用户积分账户
 model CreditAccount {
-  id                String   @id @default(uuid())
-  user              User     @relation(fields: [userId], references: [id])
-  userId            String   @unique
-  balance           Int      @default(0)        // 当前积分余额
-  totalEarned       Int      @default(0)        // 历史总获得积分
-  totalSpent        Int      @default(0)        // 历史总消费积分
-  lastDailyRewardAt DateTime?                   // 上次领取每日奖励时间
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                String              @id @default(uuid())
+  userId            String              @unique
+  balance           Int                 @default(0)
+  totalEarned       Int                 @default(0)
+  totalSpent        Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  lastDailyRewardAt DateTime?
+  user              User                @relation(fields: [userId], references: [id])
   transactions      CreditTransaction[]
 }
 
-// 积分交易记录
 model CreditTransaction {
-  id              String   @id @default(uuid())
-  account         CreditAccount @relation(fields: [accountId], references: [id])
-  accountId       String
-  type            String               // "earn" | "spend" | "refund" | "admin_adjust"
-  amount          Int                  // 正数为增加，负数为扣除
-  balanceBefore   Int                  // 交易前余额
-  balanceAfter    Int                  // 交易后余额
-  description     String               // 交易描述
-  apiUsageId      String?              // 关联的API使用记录ID（可选）
-  metadata        Json?                // 额外元数据
-  createdAt       DateTime @default(now())
+  id            String        @id @default(uuid())
+  accountId     String
+  type          String
+  amount        Int
+  balanceBefore Int
+  balanceAfter  Int
+  description   String
+  apiUsageId    String?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  account       CreditAccount @relation(fields: [accountId], references: [id])
 
   @@index([accountId, createdAt])
   @@index([type])
 }
 
-// API 使用记录
 model ApiUsageRecord {
-  id              String   @id @default(uuid())
-  user            User     @relation(fields: [userId], references: [id])
-  userId          String
-  serviceType     String               // 服务类型: "gemini-3-pro-image", "gemini-2.5-image", "sora-sd", "sora-hd", "gemini-text"
-  serviceName     String               // 服务名称（显示用）
-  provider        String               // AI提供商: "gemini", "sora", "midjourney" 等
-  model           String?              // 使用的模型
-  creditsUsed     Int                  // 消耗的积分
-  inputTokens     Int?                 // 输入token数（文字服务）
-  outputTokens    Int?                 // 输出token数（文字服务）
-  inputImageCount Int?                 // 输入图片数
-  outputImageCount Int?                // 输出图片数
-  requestParams   Json?                // 请求参数快照
-  responseStatus  String               // "success" | "failed" | "pending"
-  errorMessage    String?              // 错误信息（如果失败）
-  processingTime  Int?                 // 处理时间（毫秒）
-  ipAddress       String?              // 请求IP
-  userAgent       String?              // 用户代理
-  createdAt       DateTime @default(now())
+  id               String   @id @default(uuid())
+  userId           String
+  serviceType      String
+  serviceName      String
+  provider         String
+  model            String?
+  creditsUsed      Int
+  inputTokens      Int?
+  outputTokens     Int?
+  inputImageCount  Int?
+  outputImageCount Int?
+  requestParams    Json?
+  responseStatus   String
+  errorMessage     String?
+  processingTime   Int?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
   @@index([serviceType])
@@ -127,96 +121,142 @@ model ApiUsageRecord {
   @@index([responseStatus])
 }
 
-// 积分定价配置
 model CreditPricing {
-  id              String   @id @default(uuid())
-  serviceType     String   @unique      // 服务类型标识
-  serviceName     String               // 服务显示名称
-  provider        String               // AI提供商
-  creditsPerCall  Int                  // 每次调用消耗积分
-  description     String?              // 服务描述
-  isActive        Boolean  @default(true)
-  maxInputTokens  Int?                 // 最大输入token（文字服务限制）
-  maxContextLength Int?                // 最大上下文长度
-  metadata        Json?                // 额外配置
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String   @id @default(uuid())
+  serviceType      String   @unique
+  serviceName      String
+  provider         String
+  creditsPerCall   Int
+  description      String?
+  isActive         Boolean  @default(true)
+  maxInputTokens   Int?
+  maxContextLength Int?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
-// 积分充值套餐
 model CreditPackage {
-  id              String   @id @default(uuid())
-  name            String               // 套餐名称
-  credits         Int                  // 积分数量
-  price           Decimal  @db.Decimal(10, 2)  // 价格（元）
-  bonusCredits    Int      @default(0) // 赠送积分
-  description     String?              // 套餐描述
-  isActive        Boolean  @default(true)
-  sortOrder       Int      @default(0) // 排序
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id           String   @id @default(uuid())
+  name         String
+  credits      Int
+  price        Decimal  @db.Decimal(10, 2)
+  bonusCredits Int      @default(0)
+  description  String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
-
-// ==================== 邀请码 ====================
 
 model InvitationCode {
-  id           String    @id @default(uuid())
-  code         String    @unique
-  status       String    @default("active") // active / disabled / used
-  maxUses      Int       @default(1)
-  usedCount    Int       @default(0)
-  inviter      User?     @relation(fields: [inviterUserId], references: [id])
+  id            String                 @id @default(uuid())
+  code          String                 @unique
+  status        String                 @default("active")
+  maxUses       Int                    @default(1)
+  usedCount     Int                    @default(0)
   inviterUserId String?
-  metadata     Json?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  redemptions  InvitationRedemption[]
+  metadata      Json?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  inviter       User?                  @relation(fields: [inviterUserId], references: [id])
+  redemptions   InvitationRedemption[]
 
   @@index([status])
 }
 
 model InvitationRedemption {
-  id             String   @id @default(uuid())
-  code           InvitationCode @relation(fields: [codeId], references: [id])
-  codeId         String
-  invitee        User     @relation("InvitationRedemptionInvitee", fields: [inviteeUserId], references: [id])
-  inviteeUserId  String
-  inviter        User?    @relation("InvitationRedemptionInviter", fields: [inviterUserId], references: [id])
-  inviterUserId  String?
-  metadata       Json?
-  createdAt      DateTime @default(now())
+  id            String         @id @default(uuid())
+  codeId        String
+  inviteeUserId String
+  inviterUserId String?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  code          InvitationCode @relation(fields: [codeId], references: [id])
+  invitee       User           @relation("InvitationRedemptionInvitee", fields: [inviteeUserId], references: [id])
+  inviter       User?          @relation("InvitationRedemptionInviter", fields: [inviterUserId], references: [id])
 
   @@index([codeId])
   @@index([inviteeUserId])
 }
 
-// ==================== 全局图片历史 ====================
-
 model GlobalImageHistory {
-  id              String   @id @default(uuid())
-  user            User     @relation(fields: [userId], references: [id])
-  userId          String
-  imageUrl        String               // OSS 远程链接
-  prompt          String?              // 生成提示词
-  sourceType      String               // generate/generatePro/midjourney/3d 等
-  sourceProjectId String?              // 来源项目ID
-  sourceProjectName String?            // 来源项目名称
-  metadata        Json?                // 扩展信息（模型参数等）
-  createdAt       DateTime @default(now())
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId            String
+  imageUrl          String
+  prompt            String?
+  sourceType        String
+  sourceProjectId   String?
+  sourceProjectName String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([sourceType])
 }
 
-// ==================== 系统设置 ====================
+model PublicTemplate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  category       String?
+  description    String?
+  tags           String[]
+  thumbnail      String?
+  templateData   Json     @default("{}")
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  thumbnailSmall String?
+
+  @@index([category], map: "idx_publictemplate_category")
+  @@index([thumbnailSmall], map: "idx_publictemplate_thumbnailsmall")
+}
 
 model SystemSetting {
   id          String   @id @default(uuid())
-  key         String   @unique      // 设置键名，如 "sora2_provider"
-  value       String                // 设置值
-  description String?               // 设置描述
-  metadata    Json?                 // 额外元数据
-  updatedBy   String?               // 最后更新者ID
+  key         String   @unique
+  value       String
+  description String?
+  metadata    Json?
+  updatedBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model postgres_log {
+  log_time               DateTime? @db.Timestamptz(3)
+  user_name              String?
+  database_name          String?
+  process_id             Int?
+  connection_from        String?
+  session_id             String
+  session_line_num       BigInt
+  command_tag            String?
+  session_start_time     DateTime? @db.Timestamptz(6)
+  virtual_transaction_id String?
+  transaction_id         BigInt?
+  error_severity         String?
+  sql_state_code         String?
+  message                String?
+  detail                 String?
+  hint                   String?
+  internal_query         String?
+  internal_query_pos     Int?
+  context                String?
+  query                  String?
+  query_pos              Int?
+  location               String?
+  application_name       String?
+  backend_type           String?
+  leader_pid             Int?
+  query_id               BigInt?
+
+  @@ignore
 }

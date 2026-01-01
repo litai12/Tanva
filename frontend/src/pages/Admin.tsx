@@ -25,6 +25,15 @@ import {
   type InvitationCode,
   type SystemSetting,
 } from "@/services/adminApi";
+import {
+  fetchTemplates,
+  fetchTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+  fetchTemplateCategories,
+} from "@/services/publicTemplateService";
+import type { PublicTemplate } from "@/services/publicTemplateService";
 
 // 统计卡片组件
 function StatCard({
@@ -600,8 +609,10 @@ function ApiRecordsTab() {
                       </span>
                     </td>
                     <td className='px-4 py-3 text-right font-medium'>
-                      {record.responseStatus === 'failed' ? (
-                        <span className='text-green-600'>已退还 {record.creditsUsed}</span>
+                      {record.responseStatus === "failed" ? (
+                        <span className='text-green-600'>
+                          已退还 {record.creditsUsed}
+                        </span>
                       ) : (
                         record.creditsUsed
                       )}
@@ -900,10 +911,596 @@ function InvitesTab() {
 
 // Sora2 供应商选项
 const SORA2_PROVIDER_OPTIONS = [
-  { value: "auto", label: "自动切换", description: "优先使用极速Sora2，失败后自动切换到普通Sora2" },
-  { value: "v2", label: "极速Sora2", description: "强制使用极速Sora2 (t8star.cn)" },
-  { value: "legacy", label: "普通Sora2", description: "强制使用普通Sora2 (147ai.com)" },
+  {
+    value: "auto",
+    label: "自动切换",
+    description: "优先使用极速Sora2，失败后自动切换到普通Sora2",
+  },
+  {
+    value: "v2",
+    label: "极速Sora2",
+    description: "强制使用极速Sora2 (t8star.cn)",
+  },
+  {
+    value: "legacy",
+    label: "普通Sora2",
+    description: "强制使用普通Sora2 (147ai.com)",
+  },
 ];
+
+// 公共模板管理 Tab
+function TemplatesTab() {
+  const [templates, setTemplates] = useState<PublicTemplate[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [isActive, setIsActive] = useState<boolean | undefined>(undefined);
+  const [categories, setCategories] = useState<string[]>([]);
+
+  // 创建/编辑模态框状态
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<PublicTemplate | null>(
+    null
+  );
+  const [formData, setFormData] = useState({
+    name: "",
+    category: "",
+    description: "",
+    thumbnail: "",
+    thumbnailSmall: "",
+    templateData: "",
+    templateJsonKey: undefined as string | undefined,
+    isActive: true,
+  });
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [jsonFileName, setJsonFileName] = useState<string | null>(null);
+  const [imageFileName, setImageFileName] = useState<string | null>(null);
+  const [smallImageFileName, setSmallImageFileName] = useState<string | null>(
+    null
+  );
+
+  const loadTemplates = async () => {
+    setLoading(true);
+    try {
+      const result = await fetchTemplates({
+        page,
+        pageSize: 20,
+        category: category || undefined,
+        isActive,
+        search: search || undefined,
+      });
+      setTemplates(result.items);
+      setPagination(result);
+    } catch (error) {
+      console.error("加载模板失败:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const result = await fetchTemplateCategories();
+      setCategories(result);
+    } catch (error) {
+      console.error("加载分类失败:", error);
+    }
+  };
+
+  useEffect(() => {
+    loadTemplates();
+    loadCategories();
+  }, [page, category, isActive, search]);
+
+  const handleCreate = () => {
+    setEditingTemplate(null);
+    setFormData({
+      name: "",
+      category: "",
+      description: "",
+      thumbnail: "",
+      thumbnailSmall: "",
+      templateData: "",
+      templateJsonKey: undefined,
+      isActive: true,
+    });
+    setJsonFileName(null);
+    setImageFileName(null);
+    setModalOpen(true);
+  };
+
+  const handleEdit = async (template: PublicTemplate) => {
+    const fullTemplate = await fetchTemplate(template.id);
+    setEditingTemplate(fullTemplate);
+    setFormData({
+      name: fullTemplate.name,
+      category: fullTemplate.category || "",
+      description: fullTemplate.description || "",
+      thumbnail: fullTemplate.thumbnail || "",
+      thumbnailSmall: fullTemplate.thumbnailSmall || "",
+      templateData: JSON.stringify(fullTemplate.templateData, null, 2),
+      templateJsonKey: undefined,
+      isActive: fullTemplate.isActive ?? true,
+    });
+    setJsonFileName(null);
+    setImageFileName(null);
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    try {
+      let payload: any = {
+        name: formData.name,
+        category: formData.category || undefined,
+        description: formData.description || undefined,
+        thumbnail: formData.thumbnail || undefined,
+        thumbnailSmall: formData.thumbnailSmall || undefined,
+        isActive: formData.isActive,
+      };
+
+      if (formData.templateJsonKey) {
+        payload.templateJsonKey = formData.templateJsonKey;
+      } else {
+        let templateData;
+        try {
+          templateData = JSON.parse(formData.templateData);
+        } catch (e) {
+          alert("模板数据必须是有效的JSON格式");
+          return;
+        }
+        payload.templateData = templateData;
+      }
+
+      if (editingTemplate) {
+        await updateTemplate(editingTemplate.id, payload);
+      } else {
+        await createTemplate(payload);
+      }
+
+      setModalOpen(false);
+      loadTemplates();
+    } catch (error: any) {
+      alert(error.message || "保存失败");
+    }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`确定要删除模板"${name}"吗？此操作无法撤销。`)) return;
+
+    try {
+      await deleteTemplate(id);
+      loadTemplates();
+    } catch (error: any) {
+      alert(error.message || "删除失败");
+    }
+  };
+
+  // 读取 JSON 文件并填充到模板数据
+  const handleJsonFileChange = async (file?: File) => {
+    if (!file) return;
+    setJsonFileName(file.name);
+    try {
+      const urlOrKey = await uploadFileToOSS(file, "templates/json/");
+      // presign strategy returns host/key url; we need the key to let backend fetch
+      // extract key from returned url (host/.../key)
+      const key = urlOrKey.replace(/^https?:\/\/[^/]+\/?/, "");
+      setFormData({ ...formData, templateJsonKey: key, templateData: "" });
+    } catch (err: any) {
+      console.error("JSON 上传失败:", err);
+      alert("JSON 上传失败");
+    }
+  };
+
+  // 上传图片到 OSS（使用 presign）
+  const uploadFileToOSS = async (
+    file: File,
+    dir = "templates/thumbs/"
+  ): Promise<string> => {
+    const token = localStorage.getItem("authToken");
+    const resp = await fetch("/api/uploads/presign", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ dir }),
+    });
+    if (!resp.ok) throw new Error("获取上传凭证失败");
+    const presign = await resp.json();
+    const key = `${presign.dir}${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
+    const form = new FormData();
+    form.append("key", key);
+    form.append("policy", presign.policy);
+    form.append("OSSAccessKeyId", presign.accessId);
+    form.append("signature", presign.signature);
+    form.append("file", file);
+
+    const uploadResp = await fetch(presign.host, {
+      method: "POST",
+      body: form,
+    });
+    if (!uploadResp.ok) {
+      throw new Error("上传图片到OSS失败");
+    }
+    return `${presign.host}/${key}`;
+  };
+
+  const handleImageFileChange = async (file?: File) => {
+    if (!file) return;
+    setIsUploadingImage(true);
+    setImageFileName(file.name);
+    try {
+      const url = await uploadFileToOSS(file, "templates/thumbs/");
+      setFormData({ ...formData, thumbnail: url });
+    } catch (err: any) {
+      console.error("图片上传失败:", err);
+      alert("图片上传失败");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const handleSmallImageFileChange = async (file?: File) => {
+    if (!file) return;
+    setIsUploadingImage(true);
+    setSmallImageFileName(file.name);
+    try {
+      const url = await uploadFileToOSS(file, "templates/thumbs_small/");
+      setFormData({ ...formData, thumbnailSmall: url });
+    } catch (err: any) {
+      console.error("小缩略图上传失败:", err);
+      alert("小缩略图上传失败");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className='mb-4 flex gap-2 flex-wrap'>
+        <Input
+          placeholder='搜索模板名称/描述'
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className='max-w-xs'
+        />
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value=''>全部分类</option>
+          {categories.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+        </select>
+        <select
+          value={isActive === undefined ? "" : isActive.toString()}
+          onChange={(e) =>
+            setIsActive(
+              e.target.value === "" ? undefined : e.target.value === "true"
+            )
+          }
+          className='border rounded px-3 py-2 text-sm'
+        >
+          <option value=''>全部状态</option>
+          <option value='true'>启用</option>
+          <option value='false'>禁用</option>
+        </select>
+        <Button onClick={() => setPage(1)}>搜索</Button>
+        <Button onClick={handleCreate}>创建模板</Button>
+      </div>
+
+      <div className='bg-white rounded-lg border overflow-hidden'>
+        <div className='max-h-[800px] overflow-auto'>
+          <table className='w-full text-sm'>
+            <thead className='bg-gray-50'>
+              <tr>
+                <th className='px-4 py-3 text-left'>模板</th>
+                <th className='px-4 py-3 text-left'>分类</th>
+                <th className='px-4 py-3 text-left'>状态</th>
+                <th className='px-4 py-3 text-left'>更新时间</th>
+                <th className='px-4 py-3 text-left'>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className='px-4 py-8 text-center text-gray-500'
+                  >
+                    加载中...
+                  </td>
+                </tr>
+              ) : templates.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className='px-4 py-8 text-center text-gray-500'
+                  >
+                    暂无数据
+                  </td>
+                </tr>
+              ) : (
+                templates.map((template) => (
+                  <tr key={template.id} className='border-t hover:bg-gray-50'>
+                    <td className='px-4 py-3'>
+                      <div>
+                        <div className='font-medium'>{template.name}</div>
+                        {template.description && (
+                          <div className='text-xs text-gray-500 mt-1'>
+                            {template.description}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className='px-4 py-3'>
+                      {template.category && (
+                        <span className='px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs'>
+                          {template.category}
+                        </span>
+                      )}
+                    </td>
+
+                    <td className='px-4 py-3'>
+                      <span
+                        className={`px-2 py-1 rounded text-xs ${
+                          template.isActive
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {template.isActive ? "启用" : "禁用"}
+                      </span>
+                    </td>
+                    <td className='px-4 py-3 text-xs text-gray-500'>
+                      {template.updatedAt
+                        ? new Date(template.updatedAt).toLocaleString()
+                        : ""}
+                    </td>
+                    <td className='px-4 py-3'>
+                      <div className='flex gap-1'>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() => handleEdit(template)}
+                        >
+                          编辑
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          onClick={() =>
+                            handleDelete(template.id, template.name)
+                          }
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {pagination && (
+        <div className='mt-4 flex items-center justify-center gap-4'>
+          <span className='text-sm text-gray-500'>
+            共 {pagination.total} 条记录
+          </span>
+          <div className='flex items-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === 1}
+              onClick={() => setPage(page - 1)}
+            >
+              上一页
+            </Button>
+            <span className='px-4 py-2 text-sm'>
+              {page} / {pagination.totalPages}
+            </span>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page === pagination.totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 创建/编辑模态框 */}
+      {modalOpen && (
+        <div className='fixed inset-0 bg-black/50 flex items-center justify-center z-50'>
+          <div className='bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-auto'>
+            <h3 className='text-lg font-semibold mb-4'>
+              {editingTemplate ? "编辑模板" : "创建模板"}
+            </h3>
+            <div className='space-y-4'>
+              <div className='grid grid-cols-2 gap-4'>
+                <div>
+                  <label className='block text-sm text-gray-600 mb-1'>
+                    模板名称 *
+                  </label>
+                  <Input
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                    placeholder='输入模板名称'
+                  />
+                </div>
+                <div>
+                  <label className='block text-sm text-gray-600 mb-1'>
+                    分类（可输入新分类）
+                  </label>
+                  <div className='flex gap-2'>
+                    <input
+                      list='template-categories'
+                      value={formData.category}
+                      onChange={(e) =>
+                        setFormData({ ...formData, category: e.target.value })
+                      }
+                      className='w-full border rounded px-3 py-2'
+                      placeholder='选择或输入分类'
+                    />
+                    {/* 如果输入的新分类不在已有列表中，显示添加按钮 */}
+                    {formData.category &&
+                      !categories.includes(formData.category) && (
+                        <button
+                          type='button'
+                          className='px-3 py-2 bg-blue-600 text-white rounded'
+                          onClick={async () => {
+                            try {
+                              const token = localStorage.getItem("authToken");
+                              const res = await fetch(
+                                "/api/admin/templates/categories",
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    category: formData.category,
+                                  }),
+                                }
+                              );
+                              if (!res.ok) throw new Error("添加分类失败");
+                              const data = await res.json();
+                              if (data?.success) {
+                                await loadCategories();
+                                alert("分类已添加");
+                              } else {
+                                alert(data?.message || "添加分类失败");
+                              }
+                            } catch (err: any) {
+                              console.error("添加分类失败", err);
+                              alert("添加分类失败");
+                            }
+                          }}
+                        >
+                          添加
+                        </button>
+                      )}
+                  </div>
+                  <datalist id='template-categories'>
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+
+              <div>
+                <label className='block text-sm text-gray-600 mb-1'>描述</label>
+                <Input
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
+                  placeholder='输入模板描述'
+                />
+              </div>
+
+              <div>
+                <label className='block text-sm text-gray-600 mb-1'>
+                  缩略图 (图片上传)
+                </label>
+                <input
+                  type='file'
+                  accept='image/*'
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImageFileChange(f);
+                  }}
+                />
+                {imageFileName && (
+                  <div className='text-xs text-gray-500 mt-1'>
+                    已选择: {imageFileName}{" "}
+                    {isUploadingImage ? "(上传中...)" : ""}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className='block text-sm text-gray-600 mb-1'>
+                  小缩略图 (40x40)
+                </label>
+                <input
+                  type='file'
+                  accept='image/*'
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleSmallImageFileChange(f);
+                  }}
+                />
+                {smallImageFileName && (
+                  <div className='text-xs text-gray-500 mt-1'>
+                    已选择: {smallImageFileName}{" "}
+                    {isUploadingImage ? "(上传中...)" : ""}
+                  </div>
+                )}
+              </div>
+
+              <div className='flex items-center gap-4'>
+                <label className='flex items-center gap-2'>
+                  <input
+                    type='checkbox'
+                    checked={formData.isActive}
+                    onChange={(e) =>
+                      setFormData({ ...formData, isActive: e.target.checked })
+                    }
+                  />
+                  <span className='text-sm text-gray-600'>启用</span>
+                </label>
+              </div>
+
+              <div>
+                <label className='block text-sm text-gray-600 mb-1'>
+                  模板数据 (JSON 文件上传) *
+                </label>
+                <input
+                  type='file'
+                  accept='application/json'
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleJsonFileChange(f);
+                  }}
+                />
+                {jsonFileName && (
+                  <div className='text-xs text-gray-500 mt-1'>
+                    已选择: {jsonFileName}
+                  </div>
+                )}
+              </div>
+
+              <div className='flex gap-2 justify-end'>
+                <Button variant='outline' onClick={() => setModalOpen(false)}>
+                  取消
+                </Button>
+                <Button onClick={handleSave}>保存</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // 系统设置 Tab
 function SettingsTab() {
@@ -960,7 +1557,8 @@ function SettingsTab() {
       <div className='bg-white rounded-lg border p-6 shadow-sm'>
         <h3 className='text-lg font-semibold mb-4'>Sora2 视频生成设置</h3>
         <p className='text-sm text-gray-500 mb-4'>
-          选择视频生成时使用的 API 供应商。自动模式会优先使用极速Sora2，失败后自动切换到普通Sora2。
+          选择视频生成时使用的 API
+          供应商。自动模式会优先使用极速Sora2，失败后自动切换到普通Sora2。
         </p>
         <div className='space-y-3'>
           {SORA2_PROVIDER_OPTIONS.map((option) => (
@@ -982,7 +1580,9 @@ function SettingsTab() {
               />
               <div>
                 <div className='font-medium'>{option.label}</div>
-                <div className='text-sm text-gray-500'>{option.description}</div>
+                <div className='text-sm text-gray-500'>
+                  {option.description}
+                </div>
               </div>
             </label>
           ))}
@@ -1018,7 +1618,9 @@ function SettingsTab() {
                       {setting.value}
                     </span>
                   </td>
-                  <td className='px-4 py-2 text-gray-500'>{setting.description || "-"}</td>
+                  <td className='px-4 py-2 text-gray-500'>
+                    {setting.description || "-"}
+                  </td>
                   <td className='px-4 py-2 text-xs text-gray-400'>
                     {new Date(setting.updatedAt).toLocaleString()}
                   </td>
@@ -1037,7 +1639,13 @@ export default function Admin() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "users" | "api-stats" | "api-records" | "invites" | "settings"
+    | "dashboard"
+    | "users"
+    | "api-stats"
+    | "api-records"
+    | "invites"
+    | "settings"
+    | "templates"
   >("dashboard");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1081,6 +1689,7 @@ export default function Admin() {
     { key: "api-stats", label: "API统计" },
     { key: "api-records", label: "API记录" },
     { key: "invites", label: "邀请码" },
+    { key: "templates", label: "公共模板" },
     { key: "settings", label: "系统设置" },
   ] as const;
 
@@ -1156,6 +1765,7 @@ export default function Admin() {
         {activeTab === "api-stats" && <ApiStatsTab />}
         {activeTab === "api-records" && <ApiRecordsTab />}
         {activeTab === "invites" && <InvitesTab />}
+        {activeTab === "templates" && <TemplatesTab />}
         {activeTab === "settings" && <SettingsTab />}
       </main>
     </div>

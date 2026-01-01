@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { useAuthStore } from '@/stores/authStore';
 import { tokenRefreshManager } from '@/services/tokenRefreshManager';
 import { X } from 'lucide-react';
+import { authApi } from '@/services/authApi';
 
 type LoginModalProps = {
   onSuccess?: () => void;
@@ -83,6 +84,12 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
   if (!isOpen) return null;
 
   const displayError = localError || authError;
+  const [sendCooldown, setSendCooldown] = useState(0);
+  useEffect(() => {
+    if (sendCooldown <= 0) return;
+    const t = setInterval(() => setSendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [sendCooldown]);
 
   const modalContent = (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center">
@@ -173,25 +180,28 @@ export default function LoginModal({ onSuccess }: LoginModalProps) {
                   variant="outline"
                   className="whitespace-nowrap flex-shrink-0 min-w-[64px] rounded-xl"
                   onClick={async () => {
+                    if (sendCooldown > 0) return;
                     if (!phone) {
-                      setLocalError('请输入手机号');
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '请输入手机号', type: 'error' } }));
+                      return;
+                    }
+                    if (!/^1[3-9]\d{9}$/.test(phone)) {
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '手机号格式不正确', type: 'error' } }));
                       return;
                     }
                     try {
-                      await fetch('/api/auth/send-sms', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ phone }),
-                        credentials: 'include',
-                      });
-                      setCode('336699');
-                      alert('未发送验证码（未开放）');
-                    } catch {
-                      setLocalError('发送失败');
+                      const res = await authApi.sendSms({ phone });
+                      // 不自动填充验证码；始终提示用户手动输入短信收到的验证码
+                      setLocalError(null);
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '验证码已发送，请注意查收短信并手动输入', type: 'success' } }));
+                      setSendCooldown(60);
+                    } catch (err: any) {
+                      window.dispatchEvent(new CustomEvent('toast', { detail: { message: err?.message || '发送失败', type: 'error' } }));
                     }
                   }}
+                  disabled={sendCooldown > 0}
                 >
-                  发送
+                  {sendCooldown > 0 ? `重新发送(${sendCooldown}s)` : '发送'}
                 </Button>
               </div>
             )}

@@ -37,6 +37,12 @@ Auth (`/api/auth`):
 - `POST /api/auth/login` { phone, password } → sets HttpOnly cookies
 - `POST /api/auth/send-sms` { phone } → returns fixed code `336699` in dev
 - `POST /api/auth/login-sms` { phone, code } → sets cookies
+  - New behavior: if ALI credentials are provided and `REDIS_URL` is configured, server will send real SMS and store codes in Redis.
+  - Environment variables:
+    - `ALI_ACCESS_KEY_ID`, `ALI_ACCESS_KEY_SECRET`, `ALI_SIGN_NAME`, `ALI_TEMPLATE_CODE` — 阿里云短信配置
+    - `REDIS_URL` — 可选，推荐用于生产（跨实例共享验证码）
+    - `SMS_DEBUG` — 可选，true 时 `send-sms` 会返回 `debugCode`（便于本地调试）
+    - `SMS_CODE_TTL` — 验证码有效期（秒，默认 300）
 - `GET /api/auth/me` (Cookie `access_token` required)
 - `POST /api/auth/refresh` (Cookie `refresh_token` required) → rotates refresh token
 - `POST /api/auth/logout` (Cookie `refresh_token` required) → clears cookies

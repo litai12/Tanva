@@ -1428,6 +1428,10 @@ const serializeConversation = async (
         videoReferencedUrls: message.videoReferencedUrls,
         videoTaskId: message.videoTaskId ?? undefined,
         videoStatus: message.videoStatus ?? undefined,
+        // 保留并行分组信息，确保刷新/持久化后仍能恢复为同一组
+        groupId: message.groupId ?? undefined,
+        groupIndex: message.groupIndex ?? undefined,
+        groupTotal: message.groupTotal ?? undefined,
       };
 
       return serialized;
@@ -1553,6 +1557,10 @@ const deserializeConversation = (
         imageData: baseImage,
         imageRemoteUrl: remoteUrl,
         thumbnail,
+        // 恢复并行分组信息，保证刷新后同组消息仍能被识别并一起渲染
+        groupId: (message as any).groupId ?? undefined,
+        groupIndex: (message as any).groupIndex ?? undefined,
+        groupTotal: (message as any).groupTotal ?? undefined,
         expectsImageOutput: message.expectsImageOutput,
         sourceImageData: message.sourceImageData,
         sourceImagesData: message.sourceImagesData,

@@ -91,6 +91,66 @@ export interface Model3DToolEventHandlers {
   onModel3DDelete?: (modelId: string) => void;
 }
 
+// 视频资产类型
+export interface StoredVideoAsset {
+  id: string;
+  url: string;
+  thumbnail?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  fileName?: string;
+  contentType?: string;
+  taskId?: string | null;
+  status?: string | null;
+  sourceUrl?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface VideoInstance {
+  id: string;
+  videoData: StoredVideoAsset;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  isSelected: boolean;
+  visible: boolean;
+  layerId?: string;
+  selectionRect?: paper.Path;
+}
+
+// 视频拖拽状态类型
+export interface VideoDragState {
+  isVideoDragging: boolean;
+  dragVideoId: string | null;
+  videoDragStartPoint: paper.Point | null;
+  videoDragStartBounds: { x: number; y: number } | null;
+  groupVideoIds?: string[];
+  groupStartBounds?: Record<string, { x: number; y: number }>;
+}
+
+// 视频调整大小状态类型
+export interface VideoResizeState {
+  isVideoResizing: boolean;
+  resizeVideoId: string | null;
+  resizeDirection: string | null;
+  resizeStartBounds: paper.Rectangle | null;
+  resizeStartPoint: paper.Point | null;
+}
+
+// 视频工具事件处理器类型
+export interface VideoToolEventHandlers {
+  onVideoSelect?: (videoId: string) => void;
+  onVideoMultiSelect?: (videoIds: string[]) => void;  // 批量选择
+  onVideoDeselect?: () => void;
+  onVideoMove?: (videoId: string, newPosition: { x: number; y: number }) => void;
+  onVideoResize?: (videoId: string, newBounds: { x: number; y: number; width: number; height: number }) => void;
+  onVideoDelete?: (videoId: string) => void;
+}
+
 // 绘图工具状态类型
 export interface DrawingToolState {
   currentPath: ExtendedPath | null;

@@ -1,6 +1,6 @@
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
-import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
+import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
 import { saveMonitor } from '@/utils/saveMonitor';
@@ -217,6 +217,7 @@ class PaperSaveService {
     images: ImageAssetSnapshot[];
     models: ModelAssetSnapshot[];
     texts: TextAssetSnapshot[];
+    videos: VideoAssetSnapshot[];
   }) {
     if (!assets.images.length) {
       return assets;
@@ -311,10 +312,11 @@ class PaperSaveService {
     return name;
   }
 
-  private gatherAssets(): { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[] } {
+  private gatherAssets(): { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[]; videos: VideoAssetSnapshot[] } {
     const images: ImageAssetSnapshot[] = [];
     const models: ModelAssetSnapshot[] = [];
     const texts: TextAssetSnapshot[] = [];
+    const videos: VideoAssetSnapshot[] = [];
     const collectedImageIds = new Set<string>();
 
     // 1. 从 tanvaImageInstances 收集图片
@@ -479,10 +481,10 @@ class PaperSaveService {
       console.warn('采集文本实例失败:', error);
     }
 
-    return { images, models, texts };
+    return { images, models, texts, videos };
   }
 
-  private sanitizeAssets(assets: { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[] }) {
+  private sanitizeAssets(assets: { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[]; videos: VideoAssetSnapshot[] }) {
     const sanitizedImages = assets.images.map((asset) => {
       const next: ImageAssetSnapshot = { ...asset };
       const hasRemoteUrl = this.isRemoteUrl(next.url);
@@ -503,11 +505,13 @@ class PaperSaveService {
 
     const sanitizedModels = assets.models.map((model) => ({ ...model }));
     const sanitizedTexts = assets.texts.map((text) => ({ ...text }));
+    const sanitizedVideos = assets.videos.map((video) => ({ ...video }));
 
     return {
       images: sanitizedImages,
       models: sanitizedModels,
-      texts: sanitizedTexts
+      texts: sanitizedTexts,
+      videos: sanitizedVideos
     };
   }
 

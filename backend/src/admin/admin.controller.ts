@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Body,
   Query,
@@ -16,6 +17,7 @@ import { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { AdminService } from './admin.service';
 import { CreditsService } from '../credits/credits.service';
+import { TemplateService } from './services/template.service';
 import {
   UsersQueryDto,
   ApiUsageStatsQueryDto,
@@ -23,6 +25,11 @@ import {
   UpdateUserStatusDto,
   UpdateUserRoleDto,
 } from './dto/admin.dto';
+import {
+  CreateTemplateDto,
+  UpdateTemplateDto,
+  TemplateQueryDto,
+} from './dto/template.dto';
 
 interface AuthenticatedUser {
   id: string;
@@ -39,6 +46,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly creditsService: CreditsService,
+    private readonly templateService: TemplateService,
   ) {}
 
   /**
@@ -202,5 +210,95 @@ export class AdminController {
       dto.description,
       dto.metadata,
     );
+  }
+
+  // ==================== 公共模板管理 ====================
+
+  @Post('templates')
+  @ApiOperation({ summary: '创建公共模板' })
+  async createTemplate(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: CreateTemplateDto,
+  ) {
+    this.checkAdmin(req);
+    return this.templateService.createTemplate(dto, req.user.id);
+  }
+
+  @Get('templates')
+  @ApiOperation({ summary: '获取公共模板列表' })
+  async getTemplates(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: TemplateQueryDto,
+  ) {
+    this.checkAdmin(req);
+    return this.templateService.getTemplates(query);
+  }
+
+  @Get('templates/:id')
+  @ApiOperation({ summary: '获取单个公共模板详情' })
+  async getTemplate(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    this.checkAdmin(req);
+    return this.templateService.getTemplateById(id);
+  }
+
+  @Patch('templates/:id')
+  @ApiOperation({ summary: '更新公共模板' })
+  async updateTemplate(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateTemplateDto,
+  ) {
+    this.checkAdmin(req);
+    return this.templateService.updateTemplate(id, dto, req.user.id);
+  }
+
+  @Delete('templates/:id')
+  @ApiOperation({ summary: '删除公共模板' })
+  async deleteTemplate(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    this.checkAdmin(req);
+    return this.templateService.deleteTemplate(id);
+  }
+
+  @Get('templates/categories')
+  @ApiOperation({ summary: '获取所有模板分类' })
+  async getTemplateCategories(@Request() req: AuthenticatedRequest) {
+    this.checkAdmin(req);
+    return this.templateService.getTemplateCategories();
+  }
+
+  @Post('templates/categories')
+  @ApiOperation({ summary: '添加新的模板分类' })
+  async addTemplateCategory(
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: { category: string },
+  ) {
+    this.checkAdmin(req);
+    const key = 'template_categories';
+    // 读取现有设置
+    const existing = await this.adminService.getSetting(key);
+    let list: string[] = [];
+    if (existing && existing.value) {
+      try {
+        const parsed = JSON.parse(existing.value);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch (e) {
+        // ignore
+      }
+    }
+    if (!dto?.category || !dto.category.trim()) {
+      return { success: false, message: '分类不能为空' };
+    }
+    const cat = dto.category.trim();
+    if (!list.includes(cat)) {
+      list.push(cat);
+      await this.adminService.upsertSetting(key, JSON.stringify(list), req.user.id, '模板分类');
+    }
+    return { success: true, categories: list.sort() };
   }
 }

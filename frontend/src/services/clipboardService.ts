@@ -1,4 +1,4 @@
-import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot } from '@/types/project';
+import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import type { TemplateEdge, TemplateNode } from '@/types/template';
 
 export type ClipboardZone = 'canvas' | 'flow';
@@ -16,6 +16,7 @@ export interface CanvasClipboardData {
   images: ImageAssetSnapshot[];
   models: ModelAssetSnapshot[];
   texts: TextAssetSnapshot[];
+  videos: VideoAssetSnapshot[];
   paths: PathClipboardSnapshot[];
 }
 

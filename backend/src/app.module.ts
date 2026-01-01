@@ -13,6 +13,7 @@ import { AdminModule } from './admin/admin.module';
 import { InvitesModule } from './invites/invites.module';
 import { PersonalLibraryModule } from './personal-library/personal-library.module';
 import { GlobalImageHistoryModule } from './global-image-history/global-image-history.module';
+import { TemplatesModule } from './templates/templates.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { GlobalImageHistoryModule } from './global-image-history/global-image-hi
     InvitesModule,  // 邀请码模块
     PersonalLibraryModule, // 个人库资源持久化
     GlobalImageHistoryModule, // 全局图片历史
+    TemplatesModule, // 公共模板模块
   ],
 })
 export class AppModule {}

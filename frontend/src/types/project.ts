@@ -40,10 +40,33 @@ export interface TextAssetSnapshot {
   layerId?: string | null;
 }
 
+export interface VideoAssetSnapshot {
+  id: string;
+  url: string;
+  thumbnail?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  fileName?: string;
+  contentType?: string;
+  taskId?: string | null;
+  status?: string | null;
+  sourceUrl?: string;
+  metadata?: Record<string, any>;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  layerId?: string | null;
+}
+
 export interface ProjectAssetsSnapshot {
   images: ImageAssetSnapshot[];
   models: ModelAssetSnapshot[];
   texts: TextAssetSnapshot[];
+  videos: VideoAssetSnapshot[];
 }
 
 export interface CanvasViewStateSnapshot {
@@ -89,6 +112,7 @@ export function createEmptyProjectContent(): ProjectContentSnapshot {
       images: [],
       models: [],
       texts: [],
+      videos: [],
     },
     flow: {
       nodes: [],
