@@ -420,8 +420,23 @@ const LayerPanel: React.FC = () => {
                     item.visible = visible;
                 });
 
-                // 返回 data URL
-                return thumbCanvas.toDataURL('image/png', 1.0);
+                // 返回 data URL，处理跨域污染错误
+                try {
+                    return thumbCanvas.toDataURL('image/png', 1.0);
+                } catch (e) {
+                    // SecurityError: canvas 被跨域图片污染，无法导出
+                    if (e instanceof SecurityError || 
+                        (e instanceof Error && (
+                            e.message.includes('insecure') || 
+                            e.message.includes('Tainted') ||
+                            e.message.includes('tainted')
+                        ))) {
+                        logger.debug(`图层 ${id} 包含跨域图片，无法生成缩略图`);
+                        return null;
+                    }
+                    // 其他错误继续抛出，由外层 catch 处理
+                    throw e;
+                }
             } finally {
                 // 恢复原始活动图层
                 if (originalActiveLayer && originalActiveLayer !== pl) {
@@ -430,7 +445,12 @@ const LayerPanel: React.FC = () => {
             }
         } catch (e) {
             // 跨域污染错误只打印一次警告，避免刷屏
-            if (e instanceof Error && e.message.includes('Tainted')) {
+            if (e instanceof SecurityError || 
+                (e instanceof Error && (
+                    e.message.includes('insecure') || 
+                    e.message.includes('Tainted') ||
+                    e.message.includes('tainted')
+                ))) {
                 logger.debug(`图层 ${id} 包含跨域图片，无法生成缩略图`);
             } else {
                 console.error(`生成图层 ${id} 缩略图失败:`, e);

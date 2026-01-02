@@ -125,16 +125,10 @@ export async function refreshProjectThumbnail(
     });
 
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-    console.log(
-      `%c🖼️ THUMBNAIL GENERATED | ${elapsed}s | Project: ${projectId.slice(0, 8)}...`,
-      'background: #4CAF50; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px; border-radius: 4px;'
-    );
+    console.log(`THUMBNAIL GENERATED | ${elapsed}s | Project: ${projectId.slice(0, 8)}...`);
   } catch (error) {
     const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-    console.log(
-      `%c❌ THUMBNAIL FAILED | ${elapsed}s | Project: ${projectId.slice(0, 8)}...`,
-      'background: #f44336; color: white; font-size: 14px; font-weight: bold; padding: 4px 8px; border-radius: 4px;'
-    );
+    console.log(`THUMBNAIL FAILED | ${elapsed}s | Project: ${projectId.slice(0, 8)}...`);
     logger.warn?.('⚠️ Thumbnail refresh error', { projectId, error });
   } finally {
     inFlight.delete(projectId);

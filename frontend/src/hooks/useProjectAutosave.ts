@@ -45,7 +45,7 @@ export function useProjectAutosave(projectId: string | null) {
   const performSave = async (currentProjectId: string, currentContent: any, currentVersion: number, savedAtCounter: number, attempt: number = 1) => {
     // 检查保存锁，防止并发保存
     if (savingLockRef.current) {
-      console.log('⏸️ 保存已在进行中，跳过本次保存');
+      console.log('保存已在进行中，跳过本次保存');
       return;
     }
 
@@ -92,10 +92,10 @@ export function useProjectAutosave(projectId: string | null) {
         cachedAt: new Date().toISOString(),
       }).catch(() => {});
 
-      console.log(`✅ 项目保存成功 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS})`);
+      console.log(`项目保存成功 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS})`);
 
     } catch (err: any) {
-      console.warn(`❌ 项目保存失败 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
+      console.warn(`项目保存失败 (尝试 ${attempt}/${MAX_RETRY_ATTEMPTS}):`, err);
 
       const rawMessage = err?.message || '';
       const errorMessage = rawMessage.includes('413') || rawMessage.toLowerCase().includes('too large')
@@ -109,7 +109,7 @@ export function useProjectAutosave(projectId: string | null) {
 
       // 如果还有重试机会，则安排重试
       if (attempt < MAX_RETRY_ATTEMPTS) {
-        console.log(`⏰ 将在 ${RETRY_DELAY}ms 后重试保存 (${attempt + 1}/${MAX_RETRY_ATTEMPTS})`);
+        console.log(`将在 ${RETRY_DELAY}ms 后重试保存 (${attempt + 1}/${MAX_RETRY_ATTEMPTS})`);
 
         retryTimerRef.current = window.setTimeout(() => {
           // 重新检查当前状态，确保项目和内容没有变化
@@ -138,7 +138,7 @@ export function useProjectAutosave(projectId: string | null) {
     intervalTimerRef.current = window.setInterval(() => {
       const store = useProjectContentStore.getState();
       if (store.projectId === projectId && store.dirty && !store.saving && store.content) {
-        console.log('⏰ 定时自动保存触发');
+        console.log('定时自动保存触发');
         performSave(projectId, store.content, store.version, store.dirtyCounter);
       }
     }, AUTOSAVE_INTERVAL);
@@ -165,7 +165,7 @@ export function useProjectAutosave(projectId: string | null) {
     debounceTimerRef.current = window.setTimeout(() => {
       const store = useProjectContentStore.getState();
       if (store.projectId === projectId && store.dirty && !store.saving && store.content) {
-        console.log('🔄 防抖自动保存触发（用户停止操作 5 秒）');
+        console.log('防抖自动保存触发（用户停止操作 5 秒）');
         performSave(projectId, store.content, store.version, store.dirtyCounter);
       }
     }, DEBOUNCE_DELAY);
