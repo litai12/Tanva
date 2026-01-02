@@ -3375,11 +3375,11 @@ export const useAIChatStore = create<AIChatState>()(
               }
             }
 
-            if (result.success && result.data) {
-              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
-              const inlineImageData = result.data.imageData;
-              // 编辑成功 - 更新消息内容和状态
-              const messageContent =
+	            if (result.success && result.data) {
+	              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+	              const inlineImageData = result.data.imageData;
+	              // 编辑成功 - 更新消息内容和状态
+	              const messageContent =
                 result.data.textResponse ||
                 (result.data.hasImage
                   ? `已编辑图像: ${prompt}`
@@ -3430,59 +3430,29 @@ export const useAIChatStore = create<AIChatState>()(
                     progress: 100,
                     error: null,
                   };
-                }
-              }
+	                }
+	              }
 
-              let uploadedAssets:
-                | { remoteUrl?: string; thumbnail?: string }
-                | undefined;
-              if (inlineImageData) {
-                uploadedAssets = await registerMessageImageHistory({
-                  aiMessageId,
-                  prompt,
-                  result: result.data,
-                  operationType: "edit",
-                });
-              }
+	              const placementImageData = resolveImageForPlacement({
+	                inlineData: inlineImageData,
+	                result: result.data,
+	                uploadedAssets: undefined, // 不等待上传，确保优先使用 base64 立即上画布
+	                fallbackRemote: imageRemoteUrl ?? null,
+	              });
 
-              if (uploadedAssets?.remoteUrl) {
-                result.data.metadata = {
-                  ...result.data.metadata,
-                  imageUrl: uploadedAssets.remoteUrl,
-                };
-                result.data.imageData = undefined;
-              }
+	              if (!placementImageData) {
+	                removePredictivePlaceholder();
+	                return;
+	              }
 
-              set({ lastGeneratedImage: result.data });
+	              // 先更新 lastGeneratedImage，不等待上传/历史记录
+	              set({ lastGeneratedImage: result.data });
 
-              cacheGeneratedImageResult({
-                messageId: aiMessageId,
-                prompt,
-                result: result.data,
-                assets: uploadedAssets,
-                inlineImageData,
-              });
-
-              await get().refreshSessions();
-              logProcessStep(metrics, "editImage history recorded");
-
-              const placementImageData = resolveImageForPlacement({
-                inlineData: inlineImageData,
-                result: result.data,
-                uploadedAssets,
-                fallbackRemote: imageRemoteUrl ?? null,
-              });
-
-              if (!placementImageData) {
-                removePredictivePlaceholder();
-                return;
-              }
-
-              // 自动添加到画布
-              const addImageToCanvas = (
-                aiResult: AIImageResult,
-                imageSrc: string,
-                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
+	              // 自动添加到画布
+	              const addImageToCanvas = (
+	                aiResult: AIImageResult,
+	                imageSrc: string,
+	                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
               ) => {
                 const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
@@ -3535,22 +3505,104 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               // 🔥 传递并行编辑分组信息，用于自动打组
-              const editParallelGroupInfo = isParallelEdit && groupId ? {
-                groupId,
-                groupIndex,
-                groupTotal,
-              } : undefined;
+	              const editParallelGroupInfo = isParallelEdit && groupId ? {
+	                groupId,
+	                groupIndex,
+	                groupTotal,
+	              } : undefined;
 
-              setTimeout(() => {
-                if (result.data) {
-                  addImageToCanvas(result.data, placementImageData, editParallelGroupInfo);
-                }
-              }, 100);
+	              // 并行编辑：为每张图加递增延迟，避免同时上画布导致冲突
+	              const baseDelay = 100;
+	              const perImageDelay = 300;
+	              const totalDelay = baseDelay + groupIndex * perImageDelay;
 
-              // 触发占位符进度完结 & 移除
-              get().updateMessageStatus(aiMessageId, {
-                isGenerating: false,
-                progress: 100,
+	              setTimeout(() => {
+	                if (result.data) {
+	                  addImageToCanvas(result.data, placementImageData, editParallelGroupInfo);
+	                }
+	              }, totalDelay);
+
+	              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
+	              if (inlineImageData) {
+	                registerMessageImageHistory({
+	                  aiMessageId,
+	                  prompt,
+	                  result: result.data,
+	                  operationType: "edit",
+	                })
+	                  .then((assets) => {
+	                    cacheGeneratedImageResult({
+	                      messageId: aiMessageId,
+	                      prompt,
+	                      result: result.data!,
+	                      assets,
+	                      inlineImageData,
+	                    });
+
+	                    // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
+	                    const canvasDisplayDelay = totalDelay + 1000;
+	                    const memoryOptimizationDelay = canvasDisplayDelay + 2000;
+
+	                    setTimeout(() => {
+	                      const currentState = get();
+	                      const message = currentState.messages.find(
+	                        (m) => m.id === aiMessageId
+	                      );
+	                      if (!message) return;
+
+	                      const hasThumbnail =
+	                        message.thumbnail && message.thumbnail.length > 0;
+	                      const hasRemoteUrl =
+	                        message.imageRemoteUrl &&
+	                        message.imageRemoteUrl.startsWith("http");
+	                      const imageDataSize = message.imageData?.length || 0;
+	                      const thumbnailSize = message.thumbnail?.length || 0;
+
+	                      if (
+	                        hasThumbnail &&
+	                        hasRemoteUrl &&
+	                        imageDataSize > thumbnailSize * 2
+	                      ) {
+	                        get().updateMessage(aiMessageId, (msg) => ({
+	                          ...msg,
+	                          imageData: undefined,
+	                        }));
+
+	                        const context = contextManager.getCurrentContext();
+	                        if (context) {
+	                          const target = context.messages.find(
+	                            (m) => m.id === aiMessageId
+	                          );
+	                          if (target) {
+	                            target.imageData = undefined;
+	                          }
+	                        }
+	                      }
+	                    }, memoryOptimizationDelay);
+	                  })
+	                  .catch((error) => {
+	                    console.warn(
+	                      "⚠️ [editImage] 上传图片历史记录失败:",
+	                      error
+	                    );
+	                  });
+	              } else {
+	                cacheGeneratedImageResult({
+	                  messageId: aiMessageId,
+	                  prompt,
+	                  result: result.data,
+	                  assets: undefined,
+	                  inlineImageData,
+	                });
+	              }
+
+	              await get().refreshSessions();
+	              logProcessStep(metrics, "editImage sessions refreshed");
+
+	              // 触发占位符进度完结 & 移除
+	              get().updateMessageStatus(aiMessageId, {
+	                isGenerating: false,
+	                progress: 100,
                 error: null,
               });
 
@@ -3846,11 +3898,11 @@ export const useAIChatStore = create<AIChatState>()(
 
             clearInterval(progressInterval);
 
-            if (result.success && result.data) {
-              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
-              const inlineImageData = result.data.imageData;
-              const messageContent =
-                result.data.textResponse ||
+	            if (result.success && result.data) {
+	              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+	              const inlineImageData = result.data.imageData;
+	              const messageContent =
+	                result.data.textResponse ||
                 (result.data.hasImage
                   ? `已融合图像: ${prompt}`
                   : `无法融合图像: ${prompt}`);
@@ -3901,51 +3953,29 @@ export const useAIChatStore = create<AIChatState>()(
                     progress: 100,
                     error: null,
                   };
-                }
-              }
+	                }
+	              }
 
-              let uploadedAssets:
-                | { remoteUrl?: string; thumbnail?: string }
-                | undefined;
-              if (inlineImageData) {
-                uploadedAssets = await registerMessageImageHistory({
-                  aiMessageId,
-                  prompt,
-                  result: result.data,
-                  operationType: "blend",
-                });
-              }
+	              const placementImageData = resolveImageForPlacement({
+	                inlineData: inlineImageData,
+	                result: result.data,
+	                uploadedAssets: undefined, // 不等待上传，确保优先使用 base64 立即上画布
+	                fallbackRemote: imageRemoteUrl ?? null,
+	              });
 
-              if (uploadedAssets?.remoteUrl) {
-                result.data.metadata = {
-                  ...result.data.metadata,
-                  imageUrl: uploadedAssets.remoteUrl,
-                };
-                result.data.imageData = undefined;
-              }
+	              if (!placementImageData) {
+	                removePredictivePlaceholder();
+	                return;
+	              }
 
-              set({ lastGeneratedImage: result.data });
+	              // 先更新 lastGeneratedImage，不等待上传/历史记录
+	              set({ lastGeneratedImage: result.data });
 
-              await get().refreshSessions();
-              logProcessStep(metrics, "blendImages history recorded");
-
-              const placementImageData = resolveImageForPlacement({
-                inlineData: inlineImageData,
-                result: result.data,
-                uploadedAssets,
-                fallbackRemote: imageRemoteUrl ?? null,
-              });
-
-              if (!placementImageData) {
-                removePredictivePlaceholder();
-                return;
-              }
-
-              const addImageToCanvas = (
-                aiResult: AIImageResult,
-                imageSrc: string,
-                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
-              ) => {
+	              const addImageToCanvas = (
+	                aiResult: AIImageResult,
+	                imageSrc: string,
+	                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
+	              ) => {
                 const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
                 }`;
@@ -3990,22 +4020,104 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               // 🔥 传递并行融合分组信息，用于自动打组
-              const blendParallelGroupInfo = isParallelBlend && groupId ? {
-                groupId,
-                groupIndex,
-                groupTotal,
-              } : undefined;
+	              const blendParallelGroupInfo = isParallelBlend && groupId ? {
+	                groupId,
+	                groupIndex,
+	                groupTotal,
+	              } : undefined;
 
-              setTimeout(() => {
-                if (result.data) {
-                  addImageToCanvas(result.data, placementImageData, blendParallelGroupInfo);
-                }
-              }, 100);
+	              // 并行融合：为每张图加递增延迟，避免同时上画布导致冲突
+	              const baseDelay = 100;
+	              const perImageDelay = 300;
+	              const totalDelay = baseDelay + groupIndex * perImageDelay;
 
-              // 触发占位符进度完结 & 移除
-              get().updateMessageStatus(aiMessageId, {
-                isGenerating: false,
-                progress: 100,
+	              setTimeout(() => {
+	                if (result.data) {
+	                  addImageToCanvas(result.data, placementImageData, blendParallelGroupInfo);
+	                }
+	              }, totalDelay);
+
+	              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
+	              if (inlineImageData) {
+	                registerMessageImageHistory({
+	                  aiMessageId,
+	                  prompt,
+	                  result: result.data,
+	                  operationType: "blend",
+	                })
+	                  .then((assets) => {
+	                    cacheGeneratedImageResult({
+	                      messageId: aiMessageId,
+	                      prompt,
+	                      result: result.data!,
+	                      assets,
+	                      inlineImageData,
+	                    });
+
+	                    // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
+	                    const canvasDisplayDelay = totalDelay + 1000;
+	                    const memoryOptimizationDelay = canvasDisplayDelay + 2000;
+
+	                    setTimeout(() => {
+	                      const currentState = get();
+	                      const message = currentState.messages.find(
+	                        (m) => m.id === aiMessageId
+	                      );
+	                      if (!message) return;
+
+	                      const hasThumbnail =
+	                        message.thumbnail && message.thumbnail.length > 0;
+	                      const hasRemoteUrl =
+	                        message.imageRemoteUrl &&
+	                        message.imageRemoteUrl.startsWith("http");
+	                      const imageDataSize = message.imageData?.length || 0;
+	                      const thumbnailSize = message.thumbnail?.length || 0;
+
+	                      if (
+	                        hasThumbnail &&
+	                        hasRemoteUrl &&
+	                        imageDataSize > thumbnailSize * 2
+	                      ) {
+	                        get().updateMessage(aiMessageId, (msg) => ({
+	                          ...msg,
+	                          imageData: undefined,
+	                        }));
+
+	                        const context = contextManager.getCurrentContext();
+	                        if (context) {
+	                          const target = context.messages.find(
+	                            (m) => m.id === aiMessageId
+	                          );
+	                          if (target) {
+	                            target.imageData = undefined;
+	                          }
+	                        }
+	                      }
+	                    }, memoryOptimizationDelay);
+	                  })
+	                  .catch((error) => {
+	                    console.warn(
+	                      "⚠️ [blendImages] 上传图片历史记录失败:",
+	                      error
+	                    );
+	                  });
+	              } else {
+	                cacheGeneratedImageResult({
+	                  messageId: aiMessageId,
+	                  prompt,
+	                  result: result.data,
+	                  assets: undefined,
+	                  inlineImageData,
+	                });
+	              }
+
+	              await get().refreshSessions();
+	              logProcessStep(metrics, "blendImages sessions refreshed");
+
+	              // 触发占位符进度完结 & 移除
+	              get().updateMessageStatus(aiMessageId, {
+	                isGenerating: false,
+	                progress: 100,
                 error: null,
               });
 

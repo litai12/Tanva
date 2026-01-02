@@ -423,20 +423,61 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
   // 获取图片真实像素尺寸
   useEffect(() => {
-    setNaturalSize(null);
-    const src = imageData.url || imageData.src || imageData.localDataUrl;
-    if (!src) return;
+    const metaWidth = imageData.width;
+    const metaHeight = imageData.height;
+    if (
+      typeof metaWidth === "number" &&
+      Number.isFinite(metaWidth) &&
+      metaWidth > 0 &&
+      typeof metaHeight === "number" &&
+      Number.isFinite(metaHeight) &&
+      metaHeight > 0
+    ) {
+      setNaturalSize({ width: Math.round(metaWidth), height: Math.round(metaHeight) });
+      return;
+    }
 
+    // 仅在需要展示分辨率（选中态）且缺少元数据时才加载图片，避免重复请求/解码
+    if (!isSelected) {
+      setNaturalSize(null);
+      return;
+    }
+
+    const src = imageData.url || imageData.src || imageData.localDataUrl;
+    if (!src) {
+      setNaturalSize(null);
+      return;
+    }
+
+    let canceled = false;
     const img = new Image();
     img.onload = () => {
+      if (canceled) return;
       const w = img.naturalWidth || img.width;
       const h = img.naturalHeight || img.height;
       if (w > 0 && h > 0) {
         setNaturalSize({ width: w, height: h });
       }
     };
+    img.onerror = () => {
+      if (canceled) return;
+      setNaturalSize(null);
+    };
     img.src = src;
-  }, [imageData.url, imageData.src, imageData.localDataUrl]);
+
+    return () => {
+      canceled = true;
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [
+    imageData.width,
+    imageData.height,
+    imageData.url,
+    imageData.src,
+    imageData.localDataUrl,
+    isSelected,
+  ]);
 
   // 使用实时坐标进行屏幕坐标转换
   const screenBounds = useMemo(() => {

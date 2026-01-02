@@ -1391,22 +1391,23 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 };
 
                 // 添加到全局图片实例管理
-                const newImageInstance = {
-                    id: imageId,
-                    imageData: {
-                        id: imageId,
-                        url: asset.url,
-                        src: asset.url,
-                        localDataUrl: asset.localDataUrl,
-                        key: asset.key,
-                        fileName: fileName,
-                        width: raster.bounds.width,
-                        height: raster.bounds.height,
-                        contentType: asset.contentType,
-                    },
-                    bounds: {
-                        x: raster.bounds.x,
-                        y: raster.bounds.y,
+	                const newImageInstance = {
+	                    id: imageId,
+	                    imageData: {
+	                        id: imageId,
+	                        url: asset.url,
+	                        src: asset.url,
+	                        localDataUrl: asset.localDataUrl,
+	                        key: asset.key,
+	                        fileName: fileName,
+	                        // width/height 代表图片原始像素尺寸（用于信息展示/资产元数据），不要用显示 bounds
+	                        width: Math.round(originalWidth),
+	                        height: Math.round(originalHeight),
+	                        contentType: asset.contentType,
+	                    },
+	                    bounds: {
+	                        x: raster.bounds.x,
+	                        y: raster.bounds.y,
                         width: raster.bounds.width,
                         height: raster.bounds.height
                     },

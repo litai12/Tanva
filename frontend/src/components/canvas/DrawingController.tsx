@@ -937,11 +937,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       );
   }, [insertSvgAssetToCanvas]);
 
-  // ========== 监听AI生成图片的快速上传触发事件 ==========
-  useEffect(() => {
-    const handleTriggerQuickUpload = (event: CustomEvent) => {
-      const {
-        imageData,
+	  // ========== 监听AI生成图片的快速上传触发事件 ==========
+	  useEffect(() => {
+	    const handleTriggerQuickUpload = (event: CustomEvent) => {
+	      const {
+	        imageData,
         fileName,
         selectedImageBounds,
         smartPosition,
@@ -968,30 +968,62 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         parallelGroupId,
         parallelGroupIndex,
         parallelGroupTotal,
-      });
+	      });
 
-      if (imageData && quickImageUpload.handleQuickImageUploaded) {
-        // 直接调用快速上传的处理函数，传递智能排版相关参数
-        quickImageUpload.handleQuickImageUploaded(
-          imageData,
-          fileName,
-          selectedImageBounds,
-          smartPosition,
-          operationType,
-          sourceImageId,
-          sourceImages,
-          {
-            videoInfo,
-            placeholderId,
-            preferHorizontal,
-            parallelGroupId,
-            parallelGroupIndex,
-            parallelGroupTotal,
-          } // 🔥 传递并行分组信息
-        );
-        logger.debug("✅ [DEBUG] 已调用智能排版快速上传处理函数");
-      }
-    };
+	      if (imageData && quickImageUpload.handleQuickImageUploaded) {
+	        const handle = () => {
+	          // 直接调用快速上传的处理函数，传递智能排版相关参数
+	          quickImageUpload.handleQuickImageUploaded(
+	            imageData,
+	            fileName,
+	            selectedImageBounds,
+	            smartPosition,
+	            operationType,
+	            sourceImageId,
+	            sourceImages,
+	            {
+	              videoInfo,
+	              placeholderId,
+	              preferHorizontal,
+	              parallelGroupId,
+	              parallelGroupIndex,
+	              parallelGroupTotal,
+	            } // 🔥 传递并行分组信息
+	          );
+	          logger.debug("✅ [DEBUG] 已调用智能排版快速上传处理函数");
+	        };
+
+	        try {
+	          handle();
+	        } catch (error) {
+	          logger.error("❌ [DEBUG] 智能排版快速上传处理失败:", error);
+
+	          // Paper.js 初始化期间可能会抛错：等待 paper-ready 后重试一次（不阻塞事件派发）
+	          let retried = false;
+	          const retryOnce = () => {
+	            if (retried) return;
+	            retried = true;
+	            try {
+	              handle();
+	            } catch (retryError) {
+	              logger.error("❌ [DEBUG] 重试快速上传仍失败:", retryError);
+	              if (placeholderId) {
+	                try {
+	                  quickImageUpload.removePredictedPlaceholder(placeholderId);
+	                } catch {}
+	              }
+	            }
+	          };
+
+	          try {
+	            window.addEventListener("paper-ready", retryOnce as EventListener, {
+	              once: true,
+	            });
+	          } catch {}
+	          setTimeout(retryOnce, 300);
+	        }
+	      }
+	    };
 
     window.addEventListener(
       "triggerQuickImageUpload",
