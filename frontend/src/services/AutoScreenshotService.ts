@@ -992,6 +992,7 @@ export class AutoScreenshotService {
 
   /**
    * 绘制Paper.js光栅图像
+   * 注意：需要处理跨域图片，避免污染 canvas
    */
   private static async drawPaperRaster(ctx: CanvasRenderingContext2D, raster: paper.Raster): Promise<void> {
     if (!raster.image || !raster.bounds) return;
@@ -999,9 +1000,42 @@ export class AutoScreenshotService {
     try {
       ctx.save();
       
+      // 检查是否是跨域图片，如果是则重新加载以设置 crossOrigin
+      let imageToDraw: CanvasImageSource = raster.image;
+      
+      // 如果 raster.image 是 HTMLImageElement 且是跨域图片，需要重新加载
+      if (raster.image instanceof HTMLImageElement) {
+        const imgSrc = raster.image.src;
+        // 检查是否是跨域 URL（不是 data: 或 blob:）
+        if (imgSrc && !/^data:/i.test(imgSrc) && !/^blob:/i.test(imgSrc)) {
+          // 检查是否已经设置了 crossOrigin（通过检查 complete 状态和 naturalWidth）
+          // 如果图片已经加载完成但没有 crossOrigin，需要重新加载
+          const needsReload = !raster.image.crossOrigin || 
+            (raster.image.complete && raster.image.naturalWidth === 0);
+          
+          if (needsReload) {
+            try {
+              // 尝试使用代理 URL 重新加载图片，确保设置 crossOrigin
+              const proxiedSrc = proxifyRemoteAssetUrl(imgSrc);
+              const cleanImg = await this.loadImageFromSrc(proxiedSrc);
+              imageToDraw = cleanImg;
+              logger.debug('✅ 跨域图片已重新加载（设置 crossOrigin）', { src: imgSrc });
+            } catch (loadError) {
+              // 如果重新加载失败，记录警告但继续使用原图片
+              // 这可能会导致 canvas 被污染，但至少不会完全失败
+              logger.warn('⚠️ 跨域图片重新加载失败，使用原图片（可能导致截图失败）:', {
+                src: imgSrc,
+                error: loadError
+              });
+              imageToDraw = raster.image;
+            }
+          }
+        }
+      }
+      
       // 绘制图像到指定边界
       ctx.drawImage(
-        raster.image,
+        imageToDraw,
         raster.bounds.x,
         raster.bounds.y,
         raster.bounds.width,
@@ -1011,6 +1045,7 @@ export class AutoScreenshotService {
       ctx.restore();
     } catch (error) {
       logger.warn('绘制Paper.js光栅图像失败:', error);
+      // 不抛出错误，继续处理其他元素
     }
   }
 
@@ -1476,21 +1511,45 @@ export class AutoScreenshotService {
 
     const mimeType = options.format === 'jpeg' ? 'image/jpeg' : 'image/png';
 
-    // 生成数据URL
-    let dataUrl = options.format === 'jpeg' 
-      ? canvas.toDataURL(mimeType, options.quality)
-      : canvas.toDataURL(mimeType);
+    // 生成数据URL（捕获 SecurityError，通常由跨域图片导致 canvas 被污染引起）
+    let dataUrl: string;
+    try {
+      dataUrl = options.format === 'jpeg' 
+        ? canvas.toDataURL(mimeType, options.quality)
+        : canvas.toDataURL(mimeType);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'SecurityError') {
+        logger.error('❌ 截图生成失败: SecurityError: The operation is insecure.', {
+          message: 'Canvas 可能包含跨域图片资源，导致无法导出。请确保所有图片资源都有正确的 CORS 头。',
+          error
+        });
+        throw new Error('SecurityError: The operation is insecure.');
+      }
+      throw error;
+    }
 
-    // 生成Blob
-    let blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error('无法生成Blob'));
-        }
-      }, mimeType, options.quality);
-    });
+    // 生成Blob（同样需要捕获 SecurityError）
+    let blob: Blob;
+    try {
+      blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('无法生成Blob'));
+          }
+        }, mimeType, options.quality);
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'SecurityError') {
+        logger.error('❌ Blob 生成失败: SecurityError: The operation is insecure.', {
+          message: 'Canvas 可能包含跨域图片资源，导致无法导出。请确保所有图片资源都有正确的 CORS 头。',
+          error
+        });
+        throw new Error('SecurityError: The operation is insecure.');
+      }
+      throw error;
+    }
 
     // PNG 才需要透明背景裁剪
     let resultBounds: ContentBounds = { ...bounds };

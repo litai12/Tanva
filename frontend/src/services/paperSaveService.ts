@@ -364,7 +364,8 @@ class PaperSaveService {
             rasters.forEach((raster: any) => {
               if (!raster) return;
               const imageId = raster?.data?.imageId || raster?.parent?.data?.imageId;
-              if (!imageId || collectedImageIds.has(imageId)) return;
+              // 🔥 过滤掉占位符 ID，避免将占位符当作实际图片采集
+              if (!imageId || collectedImageIds.has(imageId) || imageId.startsWith('ai-placeholder-msg_')) return;
 
               // 获取图片源
               const source = raster.source;

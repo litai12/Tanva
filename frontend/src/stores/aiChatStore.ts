@@ -2781,13 +2781,7 @@ export const useAIChatStore = create<AIChatState>()(
               // 步骤2：立即计算 placementImageData（使用 base64）
               // 步骤3：立即发送到画布（使用 base64）
               // 步骤4：异步上传到OSS（后台进行，不阻塞显示）
-
-              // 步骤1：触发占位符进度完结（对话框显示已在上面完成）
-              get().updateMessageStatus(aiMessageId, {
-                isGenerating: false,
-                progress: 100,
-                error: null,
-              });
+              // 注意：消息状态已在步骤1中更新（generationStatus: { isGenerating: false, progress: 100 }），无需重复更新
 
               // 步骤2：立即计算 placementImageData（使用 base64，不等待上传）
               const placementImageData = resolveImageForPlacement({
@@ -3441,9 +3435,16 @@ export const useAIChatStore = create<AIChatState>()(
 	              });
 
 	              if (!placementImageData) {
+	                console.warn(
+	                  "⚠️ [editImage] 没有可用的图像源，无法显示到画布"
+	                );
 	                removePredictivePlaceholder();
 	                return;
 	              }
+
+	              console.log(
+	                "✅ [editImage] 步骤1-2完成：对话框已更新，placementImageData已计算"
+	              );
 
 	              // 先更新 lastGeneratedImage，不等待上传/历史记录
 	              set({ lastGeneratedImage: result.data });
@@ -3452,6 +3453,7 @@ export const useAIChatStore = create<AIChatState>()(
 	              const addImageToCanvas = (
 	                aiResult: AIImageResult,
 	                imageSrc: string,
+	                isParallel: boolean = false,
 	                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
               ) => {
                 const fileName = `${prompt.substring(0, 20)}.${
@@ -3518,19 +3520,26 @@ export const useAIChatStore = create<AIChatState>()(
 
 	              setTimeout(() => {
 	                if (result.data) {
-	                  addImageToCanvas(result.data, placementImageData, editParallelGroupInfo);
+	                  console.log(
+	                    `✅ [editImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelEdit})`
+	                  );
+	                  addImageToCanvas(result.data, placementImageData, isParallelEdit, editParallelGroupInfo);
 	                }
 	              }, totalDelay);
 
 	              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
 	              if (inlineImageData) {
-	                registerMessageImageHistory({
+	              registerMessageImageHistory({
 	                  aiMessageId,
 	                  prompt,
 	                  result: result.data,
 	                  operationType: "edit",
 	                })
 	                  .then((assets) => {
+	                    console.log(
+	                      "✅ [editImage] 步骤4完成：图片已上传到OSS，remoteUrl:",
+	                      assets?.remoteUrl?.substring(0, 50)
+	                    );
 	                    cacheGeneratedImageResult({
 	                      messageId: aiMessageId,
 	                      prompt,
@@ -3597,16 +3606,7 @@ export const useAIChatStore = create<AIChatState>()(
 	              }
 
 	              await get().refreshSessions();
-	              logProcessStep(metrics, "editImage sessions refreshed");
-
-	              // 触发占位符进度完结 & 移除
-	              get().updateMessageStatus(aiMessageId, {
-	                isGenerating: false,
-	                progress: 100,
-                error: null,
-              });
-
-              logProcessStep(metrics, "editImage completed");
+	              logProcessStep(metrics, "editImage completed");
 
               // 取消自动关闭对话框 - 保持对话框打开状态
               // setTimeout(() => {
@@ -3810,15 +3810,42 @@ export const useAIChatStore = create<AIChatState>()(
           try {
             const cached = contextManager.getCachedImage();
             const offsetHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+            const offsetVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
             let center: { x: number; y: number } | null = null;
+            let layoutAnchor: { x: number; y: number } | null = null;
 
-            if (cached?.bounds) {
+            // 🔥 统一并行模式的位置计算逻辑
+            if (isParallelBlend) {
+              // 并行融合：根据 groupIndex 计算不同的位置，避免重叠
+              let baseX: number;
+              let baseY: number;
+
+              if (cached?.bounds) {
+                baseX = cached.bounds.x + cached.bounds.width / 2;
+                baseY = cached.bounds.y + cached.bounds.height / 2 + offsetVertical;
+              } else {
+                const viewCenter = getViewCenter();
+                baseX = viewCenter?.x ?? 0;
+                baseY = viewCenter?.y ?? 0;
+              }
+
+              layoutAnchor = { x: baseX, y: baseY };
               center = {
-                x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
-                y: cached.bounds.y + cached.bounds.height / 2,
+                x: baseX + groupIndex * offsetHorizontal,
+                y: baseY,
               };
             } else {
-              center = getViewCenter();
+              // 单张融合：使用原有逻辑
+              if (cached?.bounds) {
+                center = {
+                  x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
+                  y: cached.bounds.y + cached.bounds.height / 2,
+                };
+                layoutAnchor = { ...center };
+              } else {
+                center = getViewCenter();
+                layoutAnchor = center ? { ...center } : null;
+              }
             }
 
             if (center) {
@@ -3837,6 +3864,11 @@ export const useAIChatStore = create<AIChatState>()(
                 preferSmartLayout: true,
                 sourceImages,
                 smartPosition: center ? { ...center } : undefined,
+                groupId,
+                groupIndex,
+                groupTotal,
+                preferHorizontal: isParallelBlend,
+                groupAnchor: layoutAnchor || undefined,
               });
             }
           } catch (error) {
@@ -3964,9 +3996,16 @@ export const useAIChatStore = create<AIChatState>()(
 	              });
 
 	              if (!placementImageData) {
+	                console.warn(
+	                  "⚠️ [blendImages] 没有可用的图像源，无法显示到画布"
+	                );
 	                removePredictivePlaceholder();
 	                return;
 	              }
+
+	              console.log(
+	                "✅ [blendImages] 步骤1-2完成：对话框已更新，placementImageData已计算"
+	              );
 
 	              // 先更新 lastGeneratedImage，不等待上传/历史记录
 	              set({ lastGeneratedImage: result.data });
@@ -3974,6 +4013,7 @@ export const useAIChatStore = create<AIChatState>()(
 	              const addImageToCanvas = (
 	                aiResult: AIImageResult,
 	                imageSrc: string,
+	                isParallel: boolean = false,
 	                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
 	              ) => {
                 const fileName = `${prompt.substring(0, 20)}.${
@@ -4033,19 +4073,26 @@ export const useAIChatStore = create<AIChatState>()(
 
 	              setTimeout(() => {
 	                if (result.data) {
-	                  addImageToCanvas(result.data, placementImageData, blendParallelGroupInfo);
+	                  console.log(
+	                    `✅ [blendImages] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelBlend})`
+	                  );
+	                  addImageToCanvas(result.data, placementImageData, isParallelBlend, blendParallelGroupInfo);
 	                }
 	              }, totalDelay);
 
 	              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
 	              if (inlineImageData) {
-	                registerMessageImageHistory({
+	              registerMessageImageHistory({
 	                  aiMessageId,
 	                  prompt,
 	                  result: result.data,
 	                  operationType: "blend",
 	                })
 	                  .then((assets) => {
+	                    console.log(
+	                      "✅ [blendImages] 步骤4完成：图片已上传到OSS，remoteUrl:",
+	                      assets?.remoteUrl?.substring(0, 50)
+	                    );
 	                    cacheGeneratedImageResult({
 	                      messageId: aiMessageId,
 	                      prompt,
@@ -4112,16 +4159,7 @@ export const useAIChatStore = create<AIChatState>()(
 	              }
 
 	              await get().refreshSessions();
-	              logProcessStep(metrics, "blendImages sessions refreshed");
-
-	              // 触发占位符进度完结 & 移除
-	              get().updateMessageStatus(aiMessageId, {
-	                isGenerating: false,
-	                progress: 100,
-                error: null,
-              });
-
-              logProcessStep(metrics, "blendImages completed");
+	              logProcessStep(metrics, "blendImages completed");
 
               // 取消自动关闭对话框 - 保持对话框打开状态
               // setTimeout(() => {
