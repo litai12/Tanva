@@ -429,7 +429,12 @@ const LayerPanel: React.FC = () => {
                 }
             }
         } catch (e) {
-            console.error(`生成图层 ${id} 缩略图失败:`, e);
+            // 跨域污染错误只打印一次警告，避免刷屏
+            if (e instanceof Error && e.message.includes('Tainted')) {
+                logger.debug(`图层 ${id} 包含跨域图片，无法生成缩略图`);
+            } else {
+                console.error(`生成图层 ${id} 缩略图失败:`, e);
+            }
             return null;
         }
     };
@@ -612,8 +617,13 @@ const LayerPanel: React.FC = () => {
                     thumb = generateLayerThumb(nextId);
                 }
 
+                // 无论成功还是失败都缓存结果，避免跨域污染导致的无限重试
+                // 失败时缓存空字符串，显示占位符
+                thumbCache.current[nextId] = {
+                    dataUrl: thumb || '',
+                    timestamp: Date.now()
+                };
                 if (thumb) {
-                    thumbCache.current[nextId] = { dataUrl: thumb, timestamp: Date.now() };
                     setRefreshTrigger(prev => prev + 1);
                 }
 
