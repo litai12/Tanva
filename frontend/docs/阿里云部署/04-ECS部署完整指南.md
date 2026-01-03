@@ -192,8 +192,7 @@ sudo nano /home/ubuntu/tanva/.env.production
 ```env
 VITE_AI_LANGUAGE=zh
 VITE_AUTH_MODE=server
-VITE_API_BASE=https://tai.tanva.tgtai.com/api  # 👈 替换为你的域名
-VITE_API_URL=https://tai.tanva.tgtai.com       # 👈 替换为你的域名
+VITE_API_BASE_URL=https://your-backend-domain.com  # 👈 替换为你的后端域名（不要包含 /api）
 ```
 
 保存文件: `Ctrl + O` → `Enter` → `Ctrl + X`
