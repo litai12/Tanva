@@ -67,7 +67,9 @@ export const globalImageHistoryApi = {
     return json(res);
   },
 
-  async create(dto: CreateGlobalImageHistoryDto): Promise<GlobalImageHistoryItem> {
+  async create(
+    dto: CreateGlobalImageHistoryDto
+  ): Promise<GlobalImageHistoryItem> {
     const res = await fetchWithAuth(`${base}/api/global-image-history`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

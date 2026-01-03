@@ -14,17 +14,20 @@ const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 每 30 分钟检查一次
 
 // 后端基础地址
 const viteEnv =
-  typeof import.meta !== 'undefined' && (import.meta as any).env
+  typeof import.meta !== "undefined" && (import.meta as any).env
     ? (import.meta as any).env
     : undefined;
 
 const base =
   viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
-    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, '')
-    : 'http://localhost:4000';
+    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+    : "http://localhost:4000";
 
 // 事件类型
-export type TokenEvent = 'token-refreshed' | 'token-refresh-failed' | 'login-required';
+export type TokenEvent =
+  | "token-refreshed"
+  | "token-refresh-failed"
+  | "login-required";
 
 type TokenEventCallback = (event: TokenEvent, data?: any) => void;
 
@@ -49,16 +52,19 @@ class TokenRefreshManager {
     this.startPeriodicCheck();
 
     // 监听页面可见性变化，页面重新可见时检查 token
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    if (typeof document !== "undefined") {
+      document.addEventListener(
+        "visibilitychange",
+        this.handleVisibilityChange
+      );
     }
 
     // 监听 auth-expired 事件（来自 authFetch）
-    if (typeof window !== 'undefined') {
-      window.addEventListener('auth-expired', this.handleAuthExpired);
+    if (typeof window !== "undefined") {
+      window.addEventListener("auth-expired", this.handleAuthExpired);
     }
 
-    console.log('[TokenRefreshManager] 初始化完成');
+    console.log("[TokenRefreshManager] 初始化完成");
   }
 
   /**
@@ -70,17 +76,20 @@ class TokenRefreshManager {
       this.refreshTimer = null;
     }
 
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    if (typeof document !== "undefined") {
+      document.removeEventListener(
+        "visibilitychange",
+        this.handleVisibilityChange
+      );
     }
 
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('auth-expired', this.handleAuthExpired);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("auth-expired", this.handleAuthExpired);
     }
 
     this.initialized = false;
     this.listeners.clear();
-    console.log('[TokenRefreshManager] 已销毁');
+    console.log("[TokenRefreshManager] 已销毁");
   }
 
   /**
@@ -99,7 +108,7 @@ class TokenRefreshManager {
       try {
         cb(event, data);
       } catch (e) {
-        console.error('[TokenRefreshManager] 事件回调错误:', e);
+        console.error("[TokenRefreshManager] 事件回调错误:", e);
       }
     });
   }
@@ -108,7 +117,7 @@ class TokenRefreshManager {
    * 页面可见性变化处理
    */
   private handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === "visible") {
       // 页面重新可见，检查是否需要刷新
       this.checkAndRefresh();
     }
@@ -118,8 +127,8 @@ class TokenRefreshManager {
    * 处理 auth-expired 事件
    */
   private handleAuthExpired = () => {
-    console.log('[TokenRefreshManager] 收到 auth-expired 事件');
-    this.emit('login-required', { reason: 'token-expired' });
+    console.log("[TokenRefreshManager] 收到 auth-expired 事件");
+    this.emit("login-required", { reason: "token-expired" });
   };
 
   /**
@@ -147,7 +156,11 @@ class TokenRefreshManager {
       return true;
     }
 
-    console.log(`[TokenRefreshManager] Token 即将过期（剩余 ${Math.round(timeUntilExpire / 60000)} 分钟），开始刷新`);
+    console.log(
+      `[TokenRefreshManager] Token 即将过期（剩余 ${Math.round(
+        timeUntilExpire / 60000
+      )} 分钟），开始刷新`
+    );
     return this.refresh();
   }
 
@@ -156,7 +169,7 @@ class TokenRefreshManager {
    */
   async refresh(): Promise<boolean> {
     if (this.isRefreshing) {
-      console.log('[TokenRefreshManager] 刷新正在进行中，跳过');
+      console.log("[TokenRefreshManager] 刷新正在进行中，跳过");
       return false;
     }
 
@@ -164,28 +177,28 @@ class TokenRefreshManager {
 
     try {
       const res = await fetch(`${base}/api/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
+        method: "POST",
+        credentials: "include",
       });
 
       if (res.ok) {
         this.lastRefreshTime = Date.now();
-        console.log('[TokenRefreshManager] Token 刷新成功');
-        this.emit('token-refreshed');
+        console.log("[TokenRefreshManager] Token 刷新成功");
+        this.emit("token-refreshed");
         return true;
       } else {
-        console.warn('[TokenRefreshManager] Token 刷新失败:', res.status);
-        this.emit('token-refresh-failed', { status: res.status });
+        console.warn("[TokenRefreshManager] Token 刷新失败:", res.status);
+        this.emit("token-refresh-failed", { status: res.status });
 
         // 如果是 401，说明 refresh token 也过期了
         if (res.status === 401) {
-          this.emit('login-required', { reason: 'refresh-token-expired' });
+          this.emit("login-required", { reason: "refresh-token-expired" });
         }
         return false;
       }
     } catch (e) {
-      console.error('[TokenRefreshManager] Token 刷新网络错误:', e);
-      this.emit('token-refresh-failed', { error: e });
+      console.error("[TokenRefreshManager] Token 刷新网络错误:", e);
+      this.emit("token-refresh-failed", { error: e });
       return false;
     } finally {
       this.isRefreshing = false;
@@ -197,7 +210,7 @@ class TokenRefreshManager {
    */
   onLoginSuccess() {
     this.lastRefreshTime = Date.now();
-    console.log('[TokenRefreshManager] 登录成功，重置刷新时间');
+    console.log("[TokenRefreshManager] 登录成功，重置刷新时间");
   }
 
   /**

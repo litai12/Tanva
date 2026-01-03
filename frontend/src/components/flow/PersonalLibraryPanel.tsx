@@ -1,11 +1,22 @@
-import React from 'react';
-import { Download, Image as ImageIcon, Trash2, Upload, Box, Send, FileCode } from 'lucide-react';
-import './PersonalLibraryPanel.css';
-import { imageUploadService } from '@/services/imageUploadService';
-import { model3DUploadService, type Model3DData } from '@/services/model3DUploadService';
-import { model3DPreviewService } from '@/services/model3DPreviewService';
-import { personalLibraryApi } from '@/services/personalLibraryApi';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import React from "react";
+import {
+  Download,
+  Image as ImageIcon,
+  Trash2,
+  Upload,
+  Box,
+  Send,
+  FileCode,
+} from "lucide-react";
+import "./PersonalLibraryPanel.css";
+import { imageUploadService } from "@/services/imageUploadService";
+import {
+  model3DUploadService,
+  type Model3DData,
+} from "@/services/model3DUploadService";
+import { model3DPreviewService } from "@/services/model3DPreviewService";
+import { personalLibraryApi } from "@/services/personalLibraryApi";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -14,13 +25,13 @@ import {
   type PersonalImageAsset,
   type PersonalModelAsset,
   type PersonalSvgAsset,
-} from '@/stores/personalLibraryStore';
-import type { StoredImageAsset } from '@/types/canvas';
+} from "@/stores/personalLibraryStore";
+import type { StoredImageAsset } from "@/types/canvas";
 
 const TYPE_TABS: Array<{ value: PersonalAssetType; label: string }> = [
-  { value: '2d', label: '2D 图库' },
-  { value: '3d', label: '3D 模型' },
-  { value: 'svg', label: 'SVG 线条' },
+  { value: "2d", label: "2D 图库" },
+  { value: "3d", label: "3D 模型" },
+  { value: "svg", label: "SVG 线条" },
 ];
 
 interface PersonalLibraryPanelProps {
@@ -28,7 +39,7 @@ interface PersonalLibraryPanelProps {
 }
 
 const formatSize = (bytes?: number): string => {
-  if (!bytes && bytes !== 0) return '-';
+  if (!bytes && bytes !== 0) return "-";
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
@@ -38,8 +49,10 @@ const formatDate = (timestamp: number): string => {
   return new Date(timestamp).toLocaleString();
 };
 
-const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '12px 18px 18px' }) => {
-  const [activeType, setActiveType] = React.useState<PersonalAssetType>('2d');
+const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
+  padding = "12px 18px 18px",
+}) => {
+  const [activeType, setActiveType] = React.useState<PersonalAssetType>("2d");
   const [isUploading, setUploading] = React.useState(false);
   const addAsset = usePersonalLibraryStore((state) => state.addAsset);
   const removeAsset = usePersonalLibraryStore((state) => state.removeAsset);
@@ -54,12 +67,14 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
   const handleModelThumbnailUpdate = React.useCallback(
     (assetId: string, thumbnail: string) => {
       updateAsset(assetId, { thumbnail });
-      const current = usePersonalLibraryStore.getState().assets.find((item) => item.id === assetId);
+      const current = usePersonalLibraryStore
+        .getState()
+        .assets.find((item) => item.id === assetId);
       if (current) {
         void personalLibraryApi
           .upsert({ ...(current as any), thumbnail, updatedAt: Date.now() })
           .catch((error) => {
-            console.warn('[PersonalLibrary] 同步 3D 缩略图到后端失败:', error);
+            console.warn("[PersonalLibrary] 同步 3D 缩略图到后端失败:", error);
           });
       }
     },
@@ -79,7 +94,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
       })
       .catch((error) => {
         if (!cancelled) {
-          console.warn('[PersonalLibrary] 拉取个人库失败:', error);
+          console.warn("[PersonalLibrary] 拉取个人库失败:", error);
         }
       });
     return () => {
@@ -87,25 +102,41 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
     };
   }, [mergeAssets]);
 
-  const accept = activeType === '2d' ? 'image/png,image/jpeg,image/jpg,image/gif,image/webp' : activeType === '3d' ? '.glb,.gltf' : '';
-  const uploadLabel = activeType === '2d' ? '上传图片' : activeType === '3d' ? '上传 3D 模型' : '';
-  const showUploadButton = activeType !== 'svg';
+  const accept =
+    activeType === "2d"
+      ? "image/png,image/jpeg,image/jpg,image/gif,image/webp"
+      : activeType === "3d"
+      ? ".glb,.gltf"
+      : "";
+  const uploadLabel =
+    activeType === "2d"
+      ? "上传图片"
+      : activeType === "3d"
+      ? "上传 3D 模型"
+      : "";
+  const showUploadButton = activeType !== "svg";
 
   const resetFileInput = () => {
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = "";
     }
   };
 
   const triggerUpload = () => fileInputRef.current?.click();
 
   const upsertImageAsset = React.useCallback(
-    (file: File, asset: NonNullable<Awaited<ReturnType<typeof imageUploadService.uploadImageFile>>['asset']>) => {
-      const id = createPersonalAssetId('pl2d');
+    (
+      file: File,
+      asset: NonNullable<
+        Awaited<ReturnType<typeof imageUploadService.uploadImageFile>>["asset"]
+      >
+    ) => {
+      const id = createPersonalAssetId("pl2d");
       const imageAsset: PersonalImageAsset = {
         id,
-        type: '2d',
-        name: file.name.replace(/\.[^/.]+$/, '') || asset.fileName || '未命名图片',
+        type: "2d",
+        name:
+          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || "未命名图片",
         url: asset.url,
         thumbnail: asset.url,
         width: asset.width,
@@ -118,7 +149,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
       };
       addAsset(imageAsset);
       void personalLibraryApi.upsert(imageAsset).catch((error) => {
-        console.warn('[PersonalLibrary] 同步图片资源到后端失败:', error);
+        console.warn("[PersonalLibrary] 同步图片资源到后端失败:", error);
       });
     },
     [addAsset]
@@ -127,14 +158,19 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
   const upsertModelAsset = React.useCallback(
     (
       file: File,
-      asset: NonNullable<Awaited<ReturnType<typeof model3DUploadService.uploadModelFile>>['asset']>
+      asset: NonNullable<
+        Awaited<
+          ReturnType<typeof model3DUploadService.uploadModelFile>
+        >["asset"]
+      >
     ) => {
-      const id = createPersonalAssetId('pl3d');
+      const id = createPersonalAssetId("pl3d");
       const now = Date.now();
       const modelAsset: PersonalModelAsset = {
         id,
-        type: '3d',
-        name: file.name.replace(/\.[^/.]+$/, '') || asset.fileName || '未命名模型',
+        type: "3d",
+        name:
+          file.name.replace(/\.[^/.]+$/, "") || asset.fileName || "未命名模型",
         url: asset.url,
         fileName: asset.fileName ?? file.name,
         fileSize: asset.fileSize ?? file.size,
@@ -153,38 +189,40 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
             }
           })
           .catch((error) => {
-            console.warn('[PersonalLibrary] 3D 预览生成失败:', error);
+            console.warn("[PersonalLibrary] 3D 预览生成失败:", error);
           });
       }
       void personalLibraryApi.upsert(modelAsset).catch((error) => {
-        console.warn('[PersonalLibrary] 同步 3D 资源到后端失败:', error);
+        console.warn("[PersonalLibrary] 同步 3D 资源到后端失败:", error);
       });
     },
     [addAsset, handleModelThumbnailUpdate]
   );
 
-  const handleUploadFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadFiles = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
     setUploading(true);
     try {
-      if (activeType === '2d') {
+      if (activeType === "2d") {
         const result = await imageUploadService.uploadImageFile(file, {
-          dir: 'uploads/personal-library/images/',
+          dir: "uploads/personal-library/images/",
         });
         if (!result.success || !result.asset) {
-          alert(result.error || '图片上传失败，请重试');
+          alert(result.error || "图片上传失败，请重试");
           return;
         }
         upsertImageAsset(file, result.asset);
       } else {
         const result = await model3DUploadService.uploadModelFile(file, {
-          dir: 'uploads/personal-library/models/',
+          dir: "uploads/personal-library/models/",
         });
         if (!result.success || !result.asset) {
-          alert(result.error || '3D 模型上传失败，请重试');
+          alert(result.error || "3D 模型上传失败，请重试");
           return;
         }
         upsertModelAsset(file, result.asset);
@@ -197,16 +235,16 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
 
   const handleDownload = (asset: PersonalLibraryAsset) => {
     try {
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = asset.url;
       link.download = asset.fileName || asset.name;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } catch {
-      window.open(asset.url, '_blank', 'noopener,noreferrer');
+      window.open(asset.url, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -216,68 +254,80 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
     }
     removeAsset(asset.id);
     void personalLibraryApi.remove(asset.id).catch((error) => {
-      console.warn('[PersonalLibrary] 删除个人库资源失败:', error);
+      console.warn("[PersonalLibrary] 删除个人库资源失败:", error);
     });
   };
 
   const resolveImageFetchCredentials = (input: string): RequestCredentials => {
-    const value = typeof input === 'string' ? input.trim() : '';
-    if (!value) return 'omit';
-    if (value.startsWith('data:') || value.startsWith('blob:')) return 'omit';
-    if (value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) return 'include';
-    if (!/^https?:\/\//i.test(value)) return 'include';
-    if (typeof window === 'undefined') return 'omit';
+    const value = typeof input === "string" ? input.trim() : "";
+    if (!value) return "omit";
+    if (value.startsWith("data:") || value.startsWith("blob:")) return "omit";
+    if (
+      value.startsWith("/") ||
+      value.startsWith("./") ||
+      value.startsWith("../")
+    )
+      return "include";
+    if (!/^https?:\/\//i.test(value)) return "include";
+    if (typeof window === "undefined") return "omit";
 
     try {
       const parsed = new URL(value);
-      if (parsed.origin === window.location.origin) return 'include';
+      if (parsed.origin === window.location.origin) return "include";
 
       const viteEnv =
-        typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : undefined;
-      const apiBase = typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL.trim() : '';
+        typeof import.meta !== "undefined" && (import.meta as any).env
+          ? (import.meta as any).env
+          : undefined;
+      const apiBase =
+        typeof env.VITE_API_BASE_URL === "string"
+          ? env.VITE_API_BASE_URL.trim()
+          : "";
       if (apiBase) {
         try {
-          const apiOrigin = new URL(apiBase.replace(/\/+$/, '')).origin;
-          if (apiOrigin && parsed.origin === apiOrigin) return 'include';
+          const apiOrigin = new URL(apiBase.replace(/\/+$/, "")).origin;
+          if (apiOrigin && parsed.origin === apiOrigin) return "include";
         } catch {}
       }
     } catch {}
 
-    return 'omit';
+    return "omit";
   };
 
   const readDataUrl = async (url: string): Promise<string | null> => {
     try {
-      const trimmed = typeof url === 'string' ? url.trim() : '';
-      if (trimmed.startsWith('data:image/')) return trimmed;
+      const trimmed = typeof url === "string" ? url.trim() : "";
+      if (trimmed.startsWith("data:image/")) return trimmed;
 
       const fetchUrl = proxifyRemoteAssetUrl(url);
       const response = await fetch(fetchUrl, {
-        mode: 'cors',
+        mode: "cors",
         credentials: resolveImageFetchCredentials(fetchUrl),
       });
       if (!response.ok) return null;
       const blob = await response.blob();
       return await new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onload = () =>
+          resolve(typeof reader.result === "string" ? reader.result : null);
         reader.onerror = () => reject(reader.error);
         reader.readAsDataURL(blob);
       });
     } catch (error) {
-      console.warn('[PersonalLibrary] 将远程图片转换为 DataURL 失败:', error);
+      console.warn("[PersonalLibrary] 将远程图片转换为 DataURL 失败:", error);
       return null;
     }
   };
 
   const handleSendToCanvas = async (asset: PersonalLibraryAsset) => {
     if (!asset.url) {
-      alert('资源缺少可用的链接，无法发送到画板');
+      alert("资源缺少可用的链接，无法发送到画板");
       return;
     }
-    if (asset.type === '2d') {
+    if (asset.type === "2d") {
       const inlineData =
-        typeof asset.thumbnail === 'string' && asset.thumbnail.startsWith('data:')
+        typeof asset.thumbnail === "string" &&
+        asset.thumbnail.startsWith("data:")
           ? asset.thumbnail
           : null;
       const dataUrl = inlineData || (await readDataUrl(asset.url));
@@ -297,19 +347,23 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
           };
 
       window.dispatchEvent(
-        new CustomEvent('triggerQuickImageUpload', {
-            detail: {
-              imageData: payload,
-              fileName: displayFileName,
-              operationType: 'manual',
-            },
-          })
+        new CustomEvent("triggerQuickImageUpload", {
+          detail: {
+            imageData: payload,
+            fileName: displayFileName,
+            operationType: "manual",
+          },
+        })
       );
-      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '图片已发送到画板', type: 'success' } }));
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "图片已发送到画板", type: "success" },
+        })
+      );
       return;
     }
 
-    if (asset.type === '3d') {
+    if (asset.type === "3d") {
       const modelData: Model3DData = {
         url: asset.url,
         key: asset.key,
@@ -323,21 +377,25 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
         camera: asset.camera,
       };
       window.dispatchEvent(
-        new CustomEvent('canvas:insert-model3d', {
+        new CustomEvent("canvas:insert-model3d", {
           detail: {
             modelData,
           },
         })
       );
-      window.dispatchEvent(new CustomEvent('toast', { detail: { message: '3D 模型已发送到画板', type: 'success' } }));
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "3D 模型已发送到画板", type: "success" },
+        })
+      );
     }
 
-    if (asset.type === 'svg') {
+    if (asset.type === "svg") {
       const svgAsset = asset as PersonalSvgAsset;
       const displayFileName = svgAsset.fileName || `${svgAsset.name}.svg`;
 
       window.dispatchEvent(
-        new CustomEvent('canvas:insert-svg', {
+        new CustomEvent("canvas:insert-svg", {
           detail: {
             fileName: displayFileName,
             asset: {
@@ -352,57 +410,79 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
           },
         })
       );
-      window.dispatchEvent(new CustomEvent('toast', { detail: { message: 'SVG 已发送到画板', type: 'success' } }));
+      window.dispatchEvent(
+        new CustomEvent("toast", {
+          detail: { message: "SVG 已发送到画板", type: "success" },
+        })
+      );
     }
   };
 
   return (
-    <div style={{ height: 'min(70vh, 640px)', overflowY: 'auto', overflowX: 'hidden', padding }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+    <div
+      style={{
+        height: "min(70vh, 640px)",
+        overflowY: "auto",
+        overflowX: "hidden",
+        padding,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 16,
+        }}
+      >
         <div>
-          <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>个人库</div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+          <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>
+            个人库
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
             支持上传 2D 图片与 3D 模型，随时复用与下载
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: "flex", gap: 8 }}>
           {showUploadButton && (
             <button
               onClick={triggerUpload}
               disabled={isUploading}
               style={{
-                display: 'flex',
-                alignItems: 'center',
+                display: "flex",
+                alignItems: "center",
                 gap: 6,
-                padding: '8px 14px',
+                padding: "8px 14px",
                 borderRadius: 999,
-                border: '1px solid #c7d2fe',
-                background: isUploading ? '#e0e7ff' : '#eef2ff',
-                color: '#4338ca',
+                border: "1px solid #c7d2fe",
+                background: isUploading ? "#e0e7ff" : "#eef2ff",
+                color: "#4338ca",
                 fontSize: 12,
                 fontWeight: 600,
-                cursor: isUploading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.15s ease',
+                cursor: isUploading ? "not-allowed" : "pointer",
+                transition: "all 0.15s ease",
               }}
             >
               <Upload size={16} strokeWidth={2} />
-              {isUploading ? '上传中…' : uploadLabel}
+              {isUploading ? "上传中…" : uploadLabel}
             </button>
           )}
           <input
             ref={fileInputRef}
-            type="file"
+            type='file'
             accept={accept}
             onChange={handleUploadFiles}
-            style={{ display: 'none' }}
+            style={{ display: "none" }}
           />
         </div>
       </div>
 
       {/* 分隔线 */}
-      <div style={{ height: 1, background: '#e5e7eb', marginBottom: 16 }} />
+      <div style={{ height: 1, background: "#e5e7eb", marginBottom: 16 }} />
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
+      <div
+        style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}
+      >
         {TYPE_TABS.map((tab) => {
           const isActive = tab.value === activeType;
           return (
@@ -410,16 +490,18 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
               key={tab.value}
               onClick={() => setActiveType(tab.value)}
               style={{
-                padding: '6px 16px',
+                padding: "6px 16px",
                 borderRadius: 999,
-                border: '1px solid ' + (isActive ? '#0ea5e9' : '#e5e7eb'),
-                background: isActive ? '#0ea5e9' : '#fff',
-                color: isActive ? '#fff' : '#374151',
+                border: "1px solid " + (isActive ? "#0ea5e9" : "#e5e7eb"),
+                background: isActive ? "#0ea5e9" : "#fff",
+                color: isActive ? "#fff" : "#374151",
                 fontSize: 12,
                 fontWeight: isActive ? 600 : 500,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                boxShadow: isActive ? '0 10px 18px rgba(14, 165, 233, 0.25)' : 'none',
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                boxShadow: isActive
+                  ? "0 10px 18px rgba(14, 165, 233, 0.25)"
+                  : "none",
               }}
             >
               {tab.label}
@@ -431,71 +513,81 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
       {assets.length === 0 ? (
         <div
           style={{
-            border: '1px dashed #cbd5f5',
+            border: "1px dashed #cbd5f5",
             borderRadius: 16,
             padding: 36,
-            textAlign: 'center',
-            color: '#6b7280',
-            background: '#f8fafc',
+            textAlign: "center",
+            color: "#6b7280",
+            background: "#f8fafc",
           }}
         >
           <div style={{ fontSize: 16, fontWeight: 600 }}>
-            {activeType === '2d' ? '暂未上传图片' : activeType === '3d' ? '暂未上传 3D 模型' : '暂无 SVG 线条'}
+            {activeType === "2d"
+              ? "暂未上传图片"
+              : activeType === "3d"
+              ? "暂未上传 3D 模型"
+              : "暂无 SVG 线条"}
           </div>
           <div style={{ fontSize: 13, marginTop: 8 }}>
-            {activeType === 'svg'
-              ? '在画布上选中线条后，右键选择「添加到库」即可保存'
-              : '点击右上角上传按钮即可添加资源'}
+            {activeType === "svg"
+              ? "在画布上选中线条后，右键选择「添加到库」即可保存"
+              : "点击右上角上传按钮即可添加资源"}
           </div>
         </div>
       ) : (
         <div
           style={{
-            display: 'grid',
+            display: "grid",
             gridTemplateColumns:
-              assets.length <= 1 ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(360px, 1fr))',
+              assets.length <= 1
+                ? "repeat(2, minmax(0, 1fr))"
+                : "repeat(auto-fit, minmax(360px, 1fr))",
             gap: 20,
-            justifyContent: 'flex-start',
+            justifyContent: "flex-start",
           }}
         >
           {assets.map((asset) => {
-            const is2d = asset.type === '2d';
-            const isSvg = asset.type === 'svg';
-            const is3d = asset.type === '3d';
+            const is2d = asset.type === "2d";
+            const isSvg = asset.type === "svg";
+            const is3d = asset.type === "3d";
             return (
               <div
                 key={asset.id}
                 style={{
-                  border: '1px solid #e5e7eb',
+                  border: "1px solid #e5e7eb",
                   borderRadius: 12,
-                  background: '#fff',
+                  background: "#fff",
                   padding: 16,
                   paddingBottom: 64,
-                  display: 'flex',
+                  display: "flex",
                   gap: 14,
                   minHeight: 150,
-                  position: 'relative',
-                  overflow: 'hidden',
-                  width: '100%',
+                  position: "relative",
+                  overflow: "hidden",
+                  width: "100%",
                 }}
               >
                 <div
                   style={{
-                    flex: '0 0 44%',
+                    flex: "0 0 44%",
                     borderRadius: 10,
-                    overflow: 'hidden',
-                    background: is2d || isSvg ? '#f3f4f6' : '#0f172a',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
+                    overflow: "hidden",
+                    background: is2d || isSvg ? "#f3f4f6" : "#0f172a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
                   }}
                 >
-                  {(is2d || isSvg) ? (
+                  {is2d || isSvg ? (
                     <img
                       src={asset.thumbnail || asset.url}
                       alt={asset.name}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                      }}
                     />
                   ) : (
                     <ModelAssetPreview
@@ -508,10 +600,10 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                   style={{
                     flex: 1,
                     minWidth: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    overflow: 'hidden',
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    overflow: "hidden",
                   }}
                 >
                   <div>
@@ -519,10 +611,10 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                       style={{
                         fontSize: 15,
                         fontWeight: 600,
-                        color: '#111827',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
+                        color: "#111827",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                       title={asset.name}
                     >
@@ -531,64 +623,68 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                     <div
                       style={{
                         fontSize: 12,
-                        color: '#6b7280',
+                        color: "#6b7280",
                         marginTop: 4,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                       title={asset.fileName}
                     >
                       {asset.fileName}
                     </div>
-                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 8 }}>
+                    <div
+                      style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}
+                    >
                       {is2d
-                        ? `${(asset as PersonalImageAsset).width ?? '-'} × ${(
-                            asset as PersonalImageAsset
-                          ).height ?? '-'}`
+                        ? `${(asset as PersonalImageAsset).width ?? "-"} × ${
+                            (asset as PersonalImageAsset).height ?? "-"
+                          }`
                         : isSvg
-                        ? `${(asset as PersonalSvgAsset).width ?? '-'} × ${(
-                            asset as PersonalSvgAsset
-                          ).height ?? '-'}`
+                        ? `${(asset as PersonalSvgAsset).width ?? "-"} × ${
+                            (asset as PersonalSvgAsset).height ?? "-"
+                          }`
                         : (asset as PersonalModelAsset).format?.toUpperCase()}
-                      {' · '}
+                      {" · "}
                       {formatSize(asset.fileSize)}
                     </div>
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                    <div
+                      style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}
+                    >
                       更新时间：{formatDate(asset.updatedAt)}
                     </div>
                   </div>
                   <div
                     style={{
-                      position: 'absolute',
+                      position: "absolute",
                       right: 16,
                       bottom: 16,
-                      display: 'flex',
+                      display: "flex",
                       gap: 8,
-                      alignItems: 'center',
+                      alignItems: "center",
                     }}
                   >
                     <button
-                      type="button"
+                      type='button'
                       onClick={() => void handleSendToCanvas(asset)}
-                      title="发送到画布"
-                      className="personal-library-action-button personal-library-action-button--send"
+                      title='发送到画布'
+                      className='personal-library-action-button personal-library-action-button--send'
                     >
                       <Send size={16} strokeWidth={2} />
                     </button>
                     <button
-                      type="button"
+                      type='button'
                       onClick={() => handleDownload(asset)}
-                      title="下载"
-                      className="personal-library-action-button personal-library-action-button--download"
+                      title='下载'
+                      className='personal-library-action-button personal-library-action-button--download'
                     >
                       <Download size={16} strokeWidth={2} />
                     </button>
                     <button
-                      type="button"
+                      type='button'
                       onClick={() => handleRemoveAsset(asset)}
-                      className="personal-library-action-button personal-library-action-button--delete"
-                      title="删除资源"
+                      className='personal-library-action-button personal-library-action-button--delete'
+                      title='删除资源'
                     >
                       <Trash2 size={16} strokeWidth={2} />
                     </button>
@@ -597,17 +693,17 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                 {is3d && (
                   <div
                     style={{
-                      position: 'absolute',
+                      position: "absolute",
                       top: 12,
                       left: 12,
-                      background: 'rgba(255,255,255,0.85)',
-                      color: '#0f172a',
+                      background: "rgba(255,255,255,0.85)",
+                      color: "#0f172a",
                       borderRadius: 999,
-                      padding: '2px 8px',
+                      padding: "2px 8px",
                       fontSize: 11,
                       fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
+                      display: "flex",
+                      alignItems: "center",
                       gap: 4,
                     }}
                   >
@@ -618,17 +714,17 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                 {is2d && (
                   <div
                     style={{
-                      position: 'absolute',
+                      position: "absolute",
                       top: 12,
                       left: 12,
-                      background: 'rgba(255,255,255,0.85)',
-                      color: '#0f172a',
+                      background: "rgba(255,255,255,0.85)",
+                      color: "#0f172a",
                       borderRadius: 999,
-                      padding: '2px 8px',
+                      padding: "2px 8px",
                       fontSize: 11,
                       fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
+                      display: "flex",
+                      alignItems: "center",
                       gap: 4,
                     }}
                   >
@@ -639,17 +735,17 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({ padding = '
                 {isSvg && (
                   <div
                     style={{
-                      position: 'absolute',
+                      position: "absolute",
                       top: 12,
                       left: 12,
-                      background: 'rgba(255,255,255,0.85)',
-                      color: '#0f172a',
+                      background: "rgba(255,255,255,0.85)",
+                      color: "#0f172a",
                       borderRadius: 999,
-                      padding: '2px 8px',
+                      padding: "2px 8px",
                       fontSize: 11,
                       fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
+                      display: "flex",
+                      alignItems: "center",
                       gap: 4,
                     }}
                   >
@@ -673,8 +769,13 @@ interface ModelAssetPreviewProps {
   onThumbnailReady: (id: string, thumbnail: string) => void;
 }
 
-const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({ asset, onThumbnailReady }) => {
-  const [previewSrc, setPreviewSrc] = React.useState<string | null>(asset.thumbnail ?? null);
+const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({
+  asset,
+  onThumbnailReady,
+}) => {
+  const [previewSrc, setPreviewSrc] = React.useState<string | null>(
+    asset.thumbnail ?? null
+  );
   const [isLoading, setIsLoading] = React.useState(false);
   const [hasFailed, setHasFailed] = React.useState(false);
   const requestStartedRef = React.useRef(false);
@@ -704,7 +805,7 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({ asset, onThumbnai
       })
       .catch((error) => {
         if (cancelled) return;
-        console.warn('[PersonalLibrary] 3D 预览生成失败:', error);
+        console.warn("[PersonalLibrary] 3D 预览生成失败:", error);
         setHasFailed(true);
       })
       .finally(() => {
@@ -722,7 +823,7 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({ asset, onThumbnai
       <img
         src={previewSrc}
         alt={`${asset.name} 预览`}
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
     );
   }
@@ -730,23 +831,29 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({ asset, onThumbnai
   return (
     <div
       style={{
-        width: '100%',
-        height: '100%',
-        background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#fff',
+        width: "100%",
+        height: "100%",
+        background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#fff",
         padding: 12,
         gap: 6,
-        textAlign: 'center',
+        textAlign: "center",
       }}
     >
       <Box size={24} />
-      <div style={{ fontSize: 12, opacity: 0.85 }}>{asset.format?.toUpperCase() || '3D'}</div>
-      {isLoading && <div style={{ fontSize: 11, opacity: 0.9 }}>预览生成中…</div>}
-      {hasFailed && !isLoading && <div style={{ fontSize: 11, opacity: 0.75 }}>无法生成预览</div>}
+      <div style={{ fontSize: 12, opacity: 0.85 }}>
+        {asset.format?.toUpperCase() || "3D"}
+      </div>
+      {isLoading && (
+        <div style={{ fontSize: 11, opacity: 0.9 }}>预览生成中…</div>
+      )}
+      {hasFailed && !isLoading && (
+        <div style={{ fontSize: 11, opacity: 0.75 }}>无法生成预览</div>
+      )}
     </div>
   );
 };

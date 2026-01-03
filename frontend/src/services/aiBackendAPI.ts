@@ -1009,7 +1009,10 @@ export async function generateWan26T2VViaAPI(request: {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming("generate-wan2-6-t2v", startedAt, { success: false, status: response.status });
+      logApiTiming("generate-wan2-6-t2v", startedAt, {
+        success: false,
+        status: response.status,
+      });
       return {
         success: false,
         error: {
@@ -1075,7 +1078,10 @@ export async function generateWan26I2VViaAPI(request: {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming("generate-wan2-6-i2v", startedAt, { success: false, status: response.status });
+      logApiTiming("generate-wan2-6-i2v", startedAt, {
+        success: false,
+        status: response.status,
+      });
       return {
         success: false,
         error: {
@@ -1134,7 +1140,10 @@ export async function generateWan26ViaAPI(request: {
       imgUrl: request.imgUrl,
       audioUrl: request.audioUrl,
       parameters: {
-        resolution: request.parameters?.resolution as "720P" | "1080P" | undefined,
+        resolution: request.parameters?.resolution as
+          | "720P"
+          | "1080P"
+          | undefined,
         duration: request.parameters?.duration as 5 | 10 | 15 | undefined,
         shot_type: request.parameters?.shot_type,
       },
@@ -1189,7 +1198,10 @@ export async function generateWan26R2VViaAPI(request: {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logApiTiming("generate-wan2-6-r2v", startedAt, { success: false, status: response.status });
+      logApiTiming("generate-wan2-6-r2v", startedAt, {
+        success: false,
+        status: response.status,
+      });
       return {
         success: false,
         error: {
