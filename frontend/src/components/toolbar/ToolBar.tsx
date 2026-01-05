@@ -330,12 +330,12 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   };
 
   // 根据模式获取激活状态的按钮样式
-  const inactiveButtonStyle = "bg-white/70 dark:bg-slate-800/70 text-gray-700 dark:text-slate-300 border-transparent hover:bg-gray-800/10 dark:hover:bg-white/10 hover:border-gray-800/20 dark:hover:border-white/20";
+  const inactiveButtonStyle = "bg-white/70 text-gray-700 border-transparent hover:bg-gray-800/10 hover:border-gray-800/20";
   const getActiveButtonStyle = (isActive: boolean) => {
     if (!isActive) {
       return inactiveButtonStyle;
     }
-    return "bg-gray-800 dark:bg-blue-600 text-white shadow-md";
+    return "bg-gray-800 text-white";
   };
 
   // 获取绘图子面板按钮样式（绘图工具展开菜单中的按钮）

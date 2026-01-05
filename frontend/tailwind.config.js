@@ -1,6 +1,5 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'class',
   content: [
     "./src/**/*.{html,js,jsx,ts,tsx}",
     "./index.html"
@@ -36,16 +35,16 @@ export default {
         '180': '1.8',
       },
       backgroundColor: {
-        // Apple Liquid Glass 背景色 - 动态变量版本
-        'liquid-glass': 'rgba(var(--liquid-bg), 0.08)',
-        'liquid-glass-light': 'rgba(var(--liquid-bg), 0.06)',
-        'liquid-glass-hover': 'rgba(var(--liquid-bg), 0.12)',
-        'liquid-glass-active': 'rgba(var(--liquid-bg), 0.15)',
+        // Apple Liquid Glass 背景色 - 降低透明度版本
+        'liquid-glass': 'rgba(255, 255, 255, 0.08)',
+        'liquid-glass-light': 'rgba(255, 255, 255, 0.06)',
+        'liquid-glass-hover': 'rgba(255, 255, 255, 0.12)',
+        'liquid-glass-active': 'rgba(255, 255, 255, 0.15)',
       },
       borderColor: {
-        // Apple Liquid Glass 边框色 - 动态变量版本
-        'liquid-glass': 'rgba(var(--liquid-border), 0.1)',
-        'liquid-glass-light': 'rgba(var(--liquid-border), 0.08)',
+        // Apple Liquid Glass 边框色 - 中性灰色版本
+        'liquid-glass': 'rgba(0, 0, 0, 0.1)',
+        'liquid-glass-light': 'rgba(0, 0, 0, 0.08)',
       }
     },
   },

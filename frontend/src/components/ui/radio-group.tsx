@@ -53,34 +53,34 @@ const RadioCard = React.forwardRef<
 >(({ className, value, title, description, icon, accentColor = "slate", ...props }, ref) => {
   const colorStyles: Record<string, { border: string; bg: string; iconText: string; checkText: string }> = {
     slate: {
-      border: "data-[state=checked]:border-slate-900 dark:data-[state=checked]:border-blue-500",
-      bg: "data-[state=checked]:bg-slate-50 dark:data-[state=checked]:bg-blue-950/20",
-      iconText: "text-slate-600 dark:text-slate-400",
-      checkText: "text-slate-900 dark:text-blue-400"
+      border: "data-[state=checked]:border-slate-900",
+      bg: "data-[state=checked]:bg-slate-50",
+      iconText: "text-slate-600",
+      checkText: "text-slate-900"
     },
     blue: {
       border: "data-[state=checked]:border-blue-500",
-      bg: "data-[state=checked]:bg-blue-50 dark:data-[state=checked]:bg-blue-950/30",
-      iconText: "text-blue-600 dark:text-blue-400",
-      checkText: "text-blue-600 dark:text-blue-400"
+      bg: "data-[state=checked]:bg-blue-50",
+      iconText: "text-blue-600",
+      checkText: "text-blue-600"
     },
     green: {
       border: "data-[state=checked]:border-green-500",
-      bg: "data-[state=checked]:bg-green-50 dark:data-[state=checked]:bg-green-950/30",
-      iconText: "text-green-600 dark:text-green-400",
-      checkText: "text-green-600 dark:text-green-400"
+      bg: "data-[state=checked]:bg-green-50",
+      iconText: "text-green-600",
+      checkText: "text-green-600"
     },
     amber: {
       border: "data-[state=checked]:border-amber-500",
-      bg: "data-[state=checked]:bg-amber-50 dark:data-[state=checked]:bg-amber-950/30",
-      iconText: "text-amber-600 dark:text-amber-400",
-      checkText: "text-amber-600 dark:text-amber-400"
+      bg: "data-[state=checked]:bg-amber-50",
+      iconText: "text-amber-600",
+      checkText: "text-amber-600"
     },
     orange: {
       border: "data-[state=checked]:border-orange-500",
-      bg: "data-[state=checked]:bg-orange-50 dark:data-[state=checked]:bg-orange-950/30",
-      iconText: "text-orange-600 dark:text-orange-400",
-      checkText: "text-orange-600 dark:text-orange-400"
+      bg: "data-[state=checked]:bg-orange-50",
+      iconText: "text-orange-600",
+      checkText: "text-orange-600"
     }
   }
   
@@ -92,7 +92,7 @@ const RadioCard = React.forwardRef<
       value={value}
       className={cn(
         "relative rounded-xl border-2 p-4 text-left transition-all cursor-pointer",
-        "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700",
+        "border-slate-200 bg-white hover:border-slate-300",
         colors.border,
         colors.bg,
         className
@@ -103,10 +103,10 @@ const RadioCard = React.forwardRef<
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             {icon && <span className={colors.iconText}>{icon}</span>}
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</span>
+            <span className="text-sm font-medium text-slate-700">{title}</span>
           </div>
           {description && (
-            <div className="text-xs text-slate-500 dark:text-slate-400">{description}</div>
+            <div className="text-xs text-slate-500">{description}</div>
           )}
         </div>
         <RadioGroupPrimitive.Indicator className="flex-shrink-0">

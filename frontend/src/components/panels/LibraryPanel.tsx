@@ -49,19 +49,19 @@ const getTypeLabel = (
       return {
         label: "2D",
         icon: <ImageIcon className='w-3 h-3' />,
-        bgColor: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300",
+        bgColor: "bg-blue-100 text-blue-700",
       };
     case "3d":
       return {
         label: "3D",
         icon: <Box className='w-3 h-3' />,
-        bgColor: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300",
+        bgColor: "bg-purple-100 text-purple-700",
       };
     default:
       return {
         label: "矢量",
         icon: <ImageIcon className='w-3 h-3' />,
-        bgColor: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300",
+        bgColor: "bg-green-100 text-green-700",
       };
   }
 };

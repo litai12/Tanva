@@ -56,38 +56,6 @@
   user-select: none;
 }
 
-/* ==================== MiniMap Dark Mode ==================== */
-.react-flow__minimap {
-  background-color: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #e5e7eb;
-}
-
-.dark .react-flow__minimap {
-  background-color: rgba(26, 26, 26, 0.85);
-  border-color: #333;
-}
-
-.dark .react-flow__minimap-mask {
-  fill: rgba(255, 255, 255, 0.08);
-}
-
-.dark .react-flow__minimap-node {
-  fill: #2d2d2d;
-  stroke: #404040;
-}
-
-.tanva-minimap-image-rect {
-  fill: #10b98155;
-}
-
-.dark .tanva-minimap-image-rect {
-  fill: #10b98188;
-}
-
 .tanva-textnote-editor[contenteditable="true"]:empty:before {
   content: attr(data-placeholder);
   color: #cbd5f5;

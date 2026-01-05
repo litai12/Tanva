@@ -21,16 +21,16 @@ export default function AutosaveStatus() {
 
   const { label, className } = useMemo(() => {
     if (saving) {
-      return { label: '保存中…', className: 'text-sky-600 dark:text-sky-400' };
+      return { label: '保存中…', className: 'text-sky-600' };
     }
     if (lastError) {
-      return { label: `保存失败：${lastError}`, className: 'text-red-500 dark:text-red-400' };
+      return { label: `保存失败：${lastError}`, className: 'text-red-500' };
     }
     if (dirty) {
-      return { label: '有未保存更改', className: 'text-amber-600 dark:text-amber-400' };
+      return { label: '有未保存更改', className: 'text-amber-600' };
     }
     if (lastSavedAt) {
-      return { label: `已保存 ${formatSavedTime(lastSavedAt)}`, className: 'text-emerald-600 dark:text-emerald-400' };
+      return { label: `已保存 ${formatSavedTime(lastSavedAt)}`, className: 'text-emerald-600' };
     }
     return { label: '', className: '' };
   }, [saving, dirty, lastSavedAt, lastError]);

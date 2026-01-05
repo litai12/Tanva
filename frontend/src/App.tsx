@@ -5,7 +5,6 @@ import PromptOptimizerDemo from '@/pages/PromptOptimizerDemo';
 import Sora2Test from '@/pages/Sora2Test';
 import ProjectAutosaveManager from '@/components/autosave/ProjectAutosaveManager';
 import SaveDebugPanel from '@/components/autosave/SaveDebugPanel';
-import ThemeManager from '@/components/layout/ThemeManager';
 import { useProjectStore } from '@/stores/projectStore';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import LoginModal from '@/components/auth/LoginModal';
@@ -171,7 +170,6 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen">
-      <ThemeManager />
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
