@@ -6100,6 +6100,7 @@ function FlowInner() {
   const showFlowPanel = useUIStore((s) => s.showFlowPanel);
   const flowUIEnabled = useUIStore((s) => s.flowUIEnabled);
   const focusMode = useUIStore((s) => s.focusMode);
+  const theme = useUIStore((s) => s.theme);
 
   const FlowToolbar =
     flowUIEnabled && showFlowPanel ? (
@@ -6631,6 +6632,7 @@ function FlowInner() {
       <ReactFlow
         nodes={nodesWithHandlers}
         edges={edges}
+        colorMode={theme === "system" ? "system" : theme}
         onNodesChange={onNodesChangeWithHistory}
         onEdgesChange={onEdgesChangeWithHistory}
         onNodeDragStart={(event, node) => {

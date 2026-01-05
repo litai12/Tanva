@@ -15,6 +15,7 @@ interface UIState {
   showFlowPanel: boolean; // Flow 工具面板
   flowUIEnabled: boolean; // 是否渲染Flow相关UI（主工具按钮+浮动面板）
   mode: 'chat' | 'node'; // 全局模式
+  theme: 'light' | 'dark' | 'system'; // 主题
   flowEraserActive: boolean; // 节点擦除工具开关（仅 Node 模式）
   focusMode: boolean; // 专注模式 - 仅隐藏顶部导航栏和 AI 对话框
   showSandboxPanel: boolean; // Paper.js 沙盒面板
@@ -36,6 +37,7 @@ interface UIState {
   setFlowUIEnabled: (enabled: boolean) => void;
   toggleMode: () => void;
   setMode: (m: 'chat' | 'node') => void;
+  setTheme: (t: 'light' | 'dark' | 'system') => void;
   toggleFlowEraser: () => void;
   setFlowEraser: (v: boolean) => void;
   toggleFocusMode: () => void;
@@ -75,6 +77,7 @@ const persistedUIPreferences = (() => {
       showFlowPanel,
       flowUIEnabled,
       mode,
+      theme,
       flowEraserActive,
       focusMode,
       showSandboxPanel,
@@ -90,6 +93,7 @@ const persistedUIPreferences = (() => {
       showFlowPanel,
       flowUIEnabled,
       mode,
+      theme: theme ?? 'light',
       flowEraserActive,
       focusMode,
       showSandboxPanel,
@@ -114,6 +118,7 @@ export const useUIStore = create<UIState>()(
       showFlowPanel: persistedUIPreferences?.showFlowPanel ?? false,
       flowUIEnabled: persistedUIPreferences?.flowUIEnabled ?? false,
       mode: persistedUIPreferences?.mode ?? 'chat',
+      theme: persistedUIPreferences?.theme ?? 'light',
       flowEraserActive: persistedUIPreferences?.flowEraserActive ?? false,
       focusMode: persistedUIPreferences?.focusMode ?? false,
       showSandboxPanel: persistedUIPreferences?.showSandboxPanel ?? false,
@@ -133,6 +138,7 @@ export const useUIStore = create<UIState>()(
       setFlowUIEnabled: (enabled) => set({ flowUIEnabled: !!enabled }),
       toggleMode: () => set((state) => ({ mode: state.mode === 'chat' ? 'node' : 'chat' })),
       setMode: (m) => set({ mode: m }),
+      setTheme: (t) => set({ theme: t }),
       toggleFlowEraser: () => set((state) => ({ flowEraserActive: !state.flowEraserActive })),
       setFlowEraser: (v) => set({ flowEraserActive: !!v }),
       toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
@@ -175,6 +181,7 @@ export const useUIStore = create<UIState>()(
         showFlowPanel: state.showFlowPanel,
         flowUIEnabled: state.flowUIEnabled,
         mode: state.mode,
+        theme: state.theme,
         flowEraserActive: state.flowEraserActive,
         focusMode: state.focusMode,
         showSandboxPanel: state.showSandboxPanel,

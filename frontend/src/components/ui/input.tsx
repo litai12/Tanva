@@ -3,15 +3,27 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 export interface InputProps
-  extends React.InputHTMLAttributes<HTMLInputElement> {}
+  extends React.InputHTMLAttributes<HTMLInputElement> {
+  variant?: "default" | "settings"
+}
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, variant = "default", ...props }, ref) => {
+    const variantClasses = {
+      default: "border-input dark:border-slate-800 focus-visible:ring-1 focus-visible:ring-ring",
+      settings: "border-slate-200 dark:border-slate-700 focus:border-slate-400 dark:focus:border-slate-500 focus:ring-0"
+    }
+    
     return (
       <input
         type={type}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-9 w-full rounded-lg border bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 transition-colors",
+          "file:border-0 file:bg-transparent file:text-sm file:font-medium",
+          "placeholder:text-slate-400 dark:placeholder:text-slate-500",
+          "focus:outline-none",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          variantClasses[variant],
           className
         )}
         ref={ref}

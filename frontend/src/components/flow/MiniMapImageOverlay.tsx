@@ -188,11 +188,11 @@ const MiniMapImageOverlay: React.FC = () => {
       {images.map((img) => (
         <rect
           key={img.id}
+          className="tanva-minimap-image-rect"
           x={img.x}
           y={img.y}
           width={Math.max(0, img.width)}
           height={Math.max(0, img.height)}
-          fill="#10b98155" // 绿色半透明，无描边
           rx={2}
           ry={2}
         />
