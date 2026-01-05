@@ -72,7 +72,7 @@ export default function ManualSaveButton() {
       type="button"
       onClick={handleSave}
       disabled={!projectId || saving}
-      className="rounded border border-sky-500 bg-sky-50 px-2 py-1 text-xs text-sky-600 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
     >
       {saving ? '保存中…' : '保存'}
     </button>
