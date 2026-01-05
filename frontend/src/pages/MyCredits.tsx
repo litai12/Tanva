@@ -39,7 +39,7 @@ const SimpleLineChart: React.FC<{
   color?: string;
   height?: number;
 }> = ({ data, color = '#3b82f6', height = 120 }) => {
-  if (data.length === 0) return <div className="text-xs text-slate-400 text-center py-8">暂无数据</div>;
+  if (data.length === 0) return <div className="py-8 text-xs text-center text-slate-400">暂无数据</div>;
 
   const maxValue = Math.max(...data.map(d => d.value), 1);
   const minValue = Math.min(...data.map(d => d.value), 0);
@@ -231,7 +231,7 @@ const MyCredits: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
         <div className="text-slate-500">加载中...</div>
       </div>
     );
@@ -240,16 +240,16 @@ const MyCredits: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur-xl border-slate-200/60">
+        <div className="flex items-center justify-between max-w-4xl px-4 py-4 mx-auto">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => navigate(-1)}
-              className="h-9 w-9 p-0 rounded-full"
+              className="p-0 rounded-full h-9 w-9"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="w-5 h-5" />
             </Button>
             <h1 className="text-lg font-semibold text-slate-800">我的积分</h1>
           </div>
@@ -257,24 +257,24 @@ const MyCredits: React.FC = () => {
             variant="ghost"
             size="sm"
             onClick={() => loadData()}
-            className="h-9 w-9 p-0 rounded-full"
+            className="p-0 rounded-full h-9 w-9"
           >
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-4xl px-4 py-6 mx-auto space-y-6">
         {/* 积分概览卡片 */}
-        <div className="bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl p-6 text-white shadow-xl">
+        <div className="p-6 text-white shadow-xl bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl">
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-blue-100 text-sm mb-1">可用积分</div>
+              <div className="mb-1 text-sm text-blue-100 select-none">可用积分</div>
               <div className="text-5xl font-bold">{credits?.balance || 0}</div>
             </div>
             <div className="flex flex-col items-end gap-3">
-              <div className="bg-white/20 rounded-2xl p-3">
-                <Zap className="h-8 w-8" />
+              <div className="p-3 bg-white/20 rounded-2xl">
+                <Zap className="w-8 h-8" />
               </div>
               <Button
                 variant="outline"
@@ -301,17 +301,17 @@ const MyCredits: React.FC = () => {
               </Button>
             </div>
           </div>
-          <div className="mt-6 grid grid-cols-3 gap-4">
-            <div className="bg-white/10 rounded-xl p-3">
-              <div className="text-blue-100 text-xs">累计获得</div>
+          <div className="grid grid-cols-3 gap-4 mt-6">
+            <div className="p-3 bg-white/10 rounded-xl">
+              <div className="text-xs text-blue-100">累计获得</div>
               <div className="text-xl font-semibold">+{credits?.totalEarned || 0}</div>
             </div>
-            <div className="bg-white/10 rounded-xl p-3">
-              <div className="text-blue-100 text-xs">累计消耗</div>
+            <div className="p-3 bg-white/10 rounded-xl">
+              <div className="text-xs text-blue-100">累计消耗</div>
               <div className="text-xl font-semibold">-{credits?.totalSpent || 0}</div>
             </div>
-            <div className="bg-white/10 rounded-xl p-3">
-              <div className="text-blue-100 text-xs">今日消耗</div>
+            <div className="p-3 bg-white/10 rounded-xl">
+              <div className="text-xs text-blue-100">今日消耗</div>
               <div className="text-xl font-semibold">-{todaySpent}</div>
             </div>
           </div>
@@ -336,7 +336,7 @@ const MyCredits: React.FC = () => {
                     : "text-slate-600 hover:bg-slate-100"
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="w-4 h-4" />
                 {tab.label}
               </button>
             );
@@ -347,7 +347,7 @@ const MyCredits: React.FC = () => {
         {activeTab === 'overview' && (
           <div className="space-y-6">
             {/* 消耗趋势图 */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm">
+            <div className="p-5 bg-white shadow-sm rounded-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium text-slate-700">消耗趋势（最近14天）</h3>
                 <div className="text-xs text-slate-500">本周消耗: {weekSpent} 积分</div>
@@ -356,10 +356,10 @@ const MyCredits: React.FC = () => {
             </div>
 
             {/* 服务使用统计 */}
-            <div className="bg-white rounded-2xl p-5 shadow-sm">
-              <h3 className="font-medium text-slate-700 mb-4">服务使用统计</h3>
+            <div className="p-5 bg-white shadow-sm rounded-2xl">
+              <h3 className="mb-4 font-medium text-slate-700">服务使用统计</h3>
               {usageByService.length === 0 ? (
-                <div className="text-center text-slate-400 py-8 text-sm">暂无使用记录</div>
+                <div className="py-8 text-sm text-center text-slate-400">暂无使用记录</div>
               ) : (
                 <div className="space-y-3 max-h-[280px] overflow-y-auto">
                   {usageByService.map(service => {
@@ -367,15 +367,15 @@ const MyCredits: React.FC = () => {
                     const percentage = (service.credits / maxCredits) * 100;
                     return (
                       <div key={service.serviceType}>
-                        <div className="flex items-center justify-between text-sm mb-1">
+                        <div className="flex items-center justify-between mb-1 text-sm">
                           <span className="text-slate-600">{service.serviceName}</span>
                           <span className="text-slate-500">
                             {service.count} 次 / {service.credits} 积分
                           </span>
                         </div>
-                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                           <div
-                            className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all"
+                            className="h-full transition-all rounded-full bg-gradient-to-r from-blue-400 to-blue-600"
                             style={{ width: `${percentage}%` }}
                           />
                         </div>
@@ -390,27 +390,27 @@ const MyCredits: React.FC = () => {
 
         {/* 交易记录 Tab */}
         {activeTab === 'transactions' && (
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
             <div className="p-4 border-b border-slate-100">
               <h3 className="font-medium text-slate-700">交易记录</h3>
             </div>
             {transactions.length === 0 ? (
-              <div className="text-center text-slate-400 py-12 text-sm">暂无交易记录</div>
+              <div className="py-12 text-sm text-center text-slate-400">暂无交易记录</div>
             ) : (
               <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
                 {transactions.slice(0, 50).map(tx => {
                   const isPositive = tx.amount > 0;
                   return (
-                    <div key={tx.id} className="px-4 py-3 flex items-center justify-between">
+                    <div key={tx.id} className="flex items-center justify-between px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className={cn(
                           "w-8 h-8 rounded-full flex items-center justify-center",
                           isPositive ? "bg-green-100" : "bg-orange-100"
                         )}>
                           {isPositive ? (
-                            <TrendingUp className="h-4 w-4 text-green-600" />
+                            <TrendingUp className="w-4 h-4 text-green-600" />
                           ) : (
-                            <TrendingDown className="h-4 w-4 text-orange-600" />
+                            <TrendingDown className="w-4 h-4 text-orange-600" />
                           )}
                         </div>
                         <div>
@@ -436,12 +436,12 @@ const MyCredits: React.FC = () => {
 
         {/* API 使用 Tab */}
         {activeTab === 'usage' && (
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="overflow-hidden bg-white shadow-sm rounded-2xl">
             <div className="p-4 border-b border-slate-100">
               <h3 className="font-medium text-slate-700">API 调用记录</h3>
             </div>
             {apiUsage.length === 0 ? (
-              <div className="text-center text-slate-400 py-12 text-sm">暂无调用记录</div>
+              <div className="py-12 text-sm text-center text-slate-400">暂无调用记录</div>
             ) : (
               <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
                 {apiUsage.slice(0, 50).map(record => (

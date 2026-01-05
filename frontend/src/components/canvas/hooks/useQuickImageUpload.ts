@@ -250,6 +250,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const horizontalStep = Math.max(spacingHorizontal, expectedWidth + 16);
         const maxAttempts = 50;
 
+        // 🔍 [DEBUG-问题1] 打印间距配置值
+        console.log(`🔍 [DEBUG-问题1-间距配置] imageId: ${currentImageId}`, {
+            spacingHorizontal,
+            spacingVertical,
+            horizontalStep,
+            verticalStep,
+            expectedWidth,
+            expectedHeight,
+            operationType,
+            preferHorizontal,
+            desiredPosition: { x: desiredPosition.x.toFixed(1), y: desiredPosition.y.toFixed(1) }
+        });
+
         const doesOverlap = (point: paper.Point) => {
             const halfWidth = expectedWidth / 2;
             const halfHeight = expectedHeight / 2;
@@ -259,7 +272,19 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
             const bottom = point.y + halfHeight;
 
             const images = getAllCanvasImages();
-            return images.some(img => {
+            
+            // 🔍 [DEBUG-问题4] 打印当前画布上所有图片（含 pending）
+            console.log(`🔍 [DEBUG-问题4-竞态检测] 检测重叠时的画布图片列表 (共 ${images.length} 张):`, 
+                images.map(img => ({
+                    id: img.id.substring(0, 30),
+                    x: img.x.toFixed(1),
+                    y: img.y.toFixed(1),
+                    w: img.width.toFixed(0),
+                    h: img.height.toFixed(0)
+                }))
+            );
+
+            const overlappingImg = images.find(img => {
                 if (img.id === currentImageId) return false;
                 const imgHalfWidth = img.width / 2;
                 const imgHalfHeight = img.height / 2;
@@ -268,8 +293,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const imgTop = img.y - imgHalfHeight;
                 const imgBottom = img.y + imgHalfHeight;
 
-                return !(right <= imgLeft || left >= imgRight || bottom <= imgTop || top >= imgBottom);
+                const isOverlapping = !(right <= imgLeft || left >= imgRight || bottom <= imgTop || top >= imgBottom);
+                if (isOverlapping) {
+                    console.log(`⚠️ [DEBUG-问题2-重叠检测] 发现重叠! 当前图片与 ${img.id.substring(0, 30)} 重叠`, {
+                        current: { left: left.toFixed(1), right: right.toFixed(1), top: top.toFixed(1), bottom: bottom.toFixed(1) },
+                        existing: { left: imgLeft.toFixed(1), right: imgRight.toFixed(1), top: imgTop.toFixed(1), bottom: imgBottom.toFixed(1) }
+                    });
+                }
+                return isOverlapping;
             });
+
+            return !!overlappingImg;
         };
 
         let position = desiredPosition.clone();
@@ -280,13 +314,33 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             // 🔥 如果指定了横向排列优先，或者是 edit/blend 类型，则横向偏移
             if (preferHorizontal || operationType === 'edit' || operationType === 'blend') {
+                // 🔍 [DEBUG-问题2] 打印累积偏移
+                console.log(`🔄 [DEBUG-问题2-累积偏移] 第 ${attempts} 次偏移 (横向): +${horizontalStep}px`, {
+                    beforeX: position.x.toFixed(1),
+                    afterX: (position.x + horizontalStep).toFixed(1)
+                });
                 position = position.add(new paper.Point(horizontalStep, 0));
             } else {
-                // generate/manual 默认向下偏移
+                // 🔍 [DEBUG-问题2] 打印累积偏移
+                console.log(`🔄 [DEBUG-问题2-累积偏移] 第 ${attempts} 次偏移 (纵向): +${verticalStep}px`, {
+                    beforeY: position.y.toFixed(1),
+                    afterY: (position.y + verticalStep).toFixed(1)
+                });
                 position = position.add(new paper.Point(0, verticalStep));
             }
         }
 
+        // 🔍 [DEBUG] 最终位置
+        const totalOffset = {
+            x: position.x - desiredPosition.x,
+            y: position.y - desiredPosition.y
+        };
+        console.log(`✅ [DEBUG-findNonOverlapping结果] imageId: ${currentImageId?.substring(0, 30)}`, {
+            原始位置: { x: desiredPosition.x.toFixed(1), y: desiredPosition.y.toFixed(1) },
+            最终位置: { x: position.x.toFixed(1), y: position.y.toFixed(1) },
+            总偏移量: { x: totalOffset.x.toFixed(1), y: totalOffset.y.toFixed(1) },
+            偏移次数: attempts
+        });
 
         return position;
     }, [getAllCanvasImages]);
@@ -322,15 +376,34 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const spacingV = getSpacingVertical();
                 const viewCenter = paper.view?.center ?? new paper.Point(0, 0);
 
+                // 🔍 [DEBUG-calculateSmartPosition] 打印基础参数
+                console.log(`📐 [DEBUG-calculateSmartPosition-generate] 开始计算位置`, {
+                    currentImageId: currentImageId?.substring(0, 30),
+                    spacingH,
+                    spacingV,
+                    viewCenter: { x: viewCenter.x.toFixed(1), y: viewCenter.y.toFixed(1) },
+                    layoutContext: layoutContext ? {
+                        groupId: layoutContext.groupId?.substring(0, 20),
+                        groupIndex: layoutContext.groupIndex,
+                        groupTotal: layoutContext.groupTotal,
+                        anchorCenter: layoutContext.anchorCenter
+                    } : null
+                });
+
                 // 如果已有同名占位符，直接复用其位置，避免重复计算导致跳动
                 if (currentImageId && currentImageId.startsWith('ai-placeholder-')) {
                     const placeholder = predictedPlaceholdersRef.current.get(currentImageId);
                     if (placeholder && placeholder.data?.bounds) {
                         const bounds = placeholder.data.bounds;
-                        return {
+                        const result = {
                             x: bounds.x + bounds.width / 2,
                             y: bounds.y + bounds.height / 2
                         };
+                        console.log(`📐 [DEBUG-calculateSmartPosition] 复用已有占位符位置`, {
+                            placeholderId: currentImageId.substring(0, 30),
+                            result
+                        });
+                        return result;
                     }
                 }
 
@@ -350,6 +423,9 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     } else {
                         generationLayoutRef.current.baseAnchor = { x: viewCenter.x, y: viewCenter.y };
                     }
+                    console.log(`📐 [DEBUG-calculateSmartPosition] 初始化全局锚点`, {
+                        baseAnchor: generationLayoutRef.current.baseAnchor
+                    });
                 }
                 const anchor = generationLayoutRef.current.baseAnchor ?? { x: viewCenter.x, y: viewCenter.y };
 
@@ -358,10 +434,28 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 const rowIndex = assignment.rowIndex + Math.floor(groupIndex / columns);
                 const colIndex = Math.min(columns - 1, Math.max(0, groupIndex % columns));
 
-                return {
+                const result = {
                     x: anchor.x + (colIndex - (columns - 1) / 2) * spacingH,
                     y: anchor.y + rowIndex * spacingV
                 };
+
+                // 🔍 [DEBUG-calculateSmartPosition] 打印 X4 模式的详细计算
+                console.log(`📐 [DEBUG-calculateSmartPosition-X4计算] imageId: ${currentImageId?.substring(0, 30)}`, {
+                    groupId: groupId?.substring(0, 20),
+                    groupIndex,
+                    groupTotal,
+                    columns,
+                    rowIndex,
+                    colIndex,
+                    anchor: { x: anchor.x.toFixed(1), y: anchor.y.toFixed(1) },
+                    spacingH,
+                    spacingV,
+                    计算公式_X: `${anchor.x.toFixed(1)} + (${colIndex} - ${(columns - 1) / 2}) * ${spacingH} = ${result.x.toFixed(1)}`,
+                    计算公式_Y: `${anchor.y.toFixed(1)} + ${rowIndex} * ${spacingV} = ${result.y.toFixed(1)}`,
+                    最终位置: { x: result.x.toFixed(1), y: result.y.toFixed(1) }
+                });
+
+                return result;
             }
 
             case 'edit': {
@@ -926,6 +1020,23 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     videoInfo: extraOptions?.videoInfo,
                     placeholderId
                 };
+                
+                // 🔍 [DEBUG-问题4] 注册前打印 pendingImagesRef 状态
+                console.log(`📝 [DEBUG-问题4-registerPending] 注册待加载图片: ${imageId.substring(0, 30)}`, {
+                    注册前pendingImages数量: pendingImagesRef.current.length,
+                    当前pending列表: pendingImagesRef.current.map(p => ({
+                        id: p.id.substring(0, 25),
+                        x: p.x.toFixed(1),
+                        y: p.y.toFixed(1)
+                    })),
+                    新增entry: {
+                        x: entry.x.toFixed(1),
+                        y: entry.y.toFixed(1),
+                        w: entry.expectedWidth,
+                        h: entry.expectedHeight
+                    }
+                });
+                
                 upsertPendingImage(entry);
                 return entry;
             };
@@ -939,6 +1050,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 
             const baseWidth = expectedWidth;
             const baseHeight = expectedHeight;
+
+            // 🔍 [DEBUG-问题3] 打印位置计算分支
+            console.log(`🎯 [DEBUG-问题3-位置分支] imageId: ${imageId.substring(0, 30)}`, {
+                hasSmartPosition: !!smartPosition,
+                hasPlaceholderCenter: !!placeholderCenter,
+                hasOperationType: !!operationType,
+                placeholderId,
+                smartPosition: smartPosition ? { x: smartPosition.x.toFixed(1), y: smartPosition.y.toFixed(1) } : null,
+                placeholderCenter: placeholderCenter ? { x: placeholderCenter.x.toFixed(1), y: placeholderCenter.y.toFixed(1) } : null,
+                placeholderBounds: placeholderBounds ? {
+                    x: placeholderBounds.x.toFixed(1),
+                    y: placeholderBounds.y.toFixed(1),
+                    w: placeholderBounds.width.toFixed(0),
+                    h: placeholderBounds.height.toFixed(0)
+                } : null
+            });
 
             if (smartPosition) {
                 const desiredPoint = new paper.Point(smartPosition.x, smartPosition.y);
@@ -1150,7 +1277,13 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 }
 
                 // 🔥 从待加载列表中移除此图片
+                // 🔍 [DEBUG-问题4] 打印移除前的 pending 状态
+                console.log(`🗑️ [DEBUG-问题4-移除pending] 图片加载完成，从 pendingImagesRef 移除: ${imageId.substring(0, 30)}`, {
+                    移除前数量: pendingImagesRef.current.length,
+                    移除前列表: pendingImagesRef.current.map(p => p.id.substring(0, 25))
+                });
                 pendingImagesRef.current = pendingImagesRef.current.filter(p => p.id !== imageId);
+                
                 // 获取原始尺寸
                 const originalWidth = raster.width;
                 const originalHeight = raster.height;
@@ -1167,12 +1300,31 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 let targetBounds = null;
                 let boundsSource: 'placeholder' | 'selected' | null = null;
 
+                // 🔍 [DEBUG-问题3] 详细打印占位符查找过程
+                console.log(`🔍 [DEBUG-问题3-占位符查找开始] imageId: ${imageId.substring(0, 30)}`, {
+                    placeholderId,
+                    targetPosition: { x: targetPosition.x.toFixed(1), y: targetPosition.y.toFixed(1) },
+                    originalSize: { w: originalWidth, h: originalHeight },
+                    predictedPlaceholdersRef数量: predictedPlaceholdersRef.current.size,
+                    所有占位符IDs: Array.from(predictedPlaceholdersRef.current.keys()).map(k => k.substring(0, 30))
+                });
+
                 if (placeholderId) {
                     logger.upload(`🔍 [raster.onLoad] 查找占位符: ${placeholderId}`);
                     placeholder = findImagePlaceholder(placeholderId);
                     if (placeholder && placeholder.data?.bounds) {
                         targetBounds = placeholder.data.bounds;
                         boundsSource = 'placeholder';
+                        // 🔍 [DEBUG-问题3] 找到占位符
+                        console.log(`✅ [DEBUG-问题3-占位符找到] 通过 findImagePlaceholder 找到`, {
+                            placeholderId,
+                            bounds: {
+                                x: targetBounds.x.toFixed(1),
+                                y: targetBounds.y.toFixed(1),
+                                w: targetBounds.width.toFixed(0),
+                                h: targetBounds.height.toFixed(0)
+                            }
+                        });
                         logger.upload('✅ [raster.onLoad] 找到占位符，bounds:', targetBounds);
                     } else {
                         const placeholderFromRef = predictedPlaceholdersRef.current.get(placeholderId);
@@ -1180,9 +1332,26 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                             placeholder = placeholderFromRef;
                             targetBounds = placeholderFromRef.data.bounds;
                             boundsSource = 'placeholder';
+                            // 🔍 [DEBUG-问题3] 从 ref 找到占位符
+                            console.log(`✅ [DEBUG-问题3-占位符找到] 通过 predictedPlaceholdersRef 找到`, {
+                                placeholderId,
+                                bounds: {
+                                    x: targetBounds.x.toFixed(1),
+                                    y: targetBounds.y.toFixed(1),
+                                    w: targetBounds.width.toFixed(0),
+                                    h: targetBounds.height.toFixed(0)
+                                }
+                            });
                             logger.upload(`✅ [raster.onLoad] 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`, targetBounds);
                             logger.upload(`🎯 从 predictedPlaceholdersRef 找到占位符: ${placeholderId}`);
                         } else {
+                            // 🔍 [DEBUG-问题3] 未找到占位符 - 这是问题3的关键点
+                            console.warn(`❌ [DEBUG-问题3-占位符未找到] placeholderId: ${placeholderId}`, {
+                                findImagePlaceholder结果: !!placeholder,
+                                predictedPlaceholdersRef中是否存在: predictedPlaceholdersRef.current.has(placeholderId),
+                                当前ref中的所有ID: Array.from(predictedPlaceholdersRef.current.keys()),
+                                将使用的targetPosition: { x: targetPosition.x.toFixed(1), y: targetPosition.y.toFixed(1) }
+                            });
                             logger.upload(`⚠️ [raster.onLoad] 未找到占位符 ${placeholderId}，当前占位符数量: ${predictedPlaceholdersRef.current.size}`);
                             logger.upload(`⚠️ 未找到占位符 ${placeholderId}，将使用智能位置计算`);
                         }
@@ -1302,6 +1471,22 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     displayHeight
                 );
                 raster.position = finalPosition;
+
+                // 🔍 [DEBUG-最终结果] 打印图片最终渲染位置
+                console.log(`🎨 [DEBUG-最终渲染位置] imageId: ${imageId.substring(0, 30)}`, {
+                    finalPosition: { x: finalPosition.x.toFixed(1), y: finalPosition.y.toFixed(1) },
+                    displaySize: { w: displayWidth.toFixed(0), h: displayHeight.toFixed(0) },
+                    originalSize: { w: originalWidth, h: originalHeight },
+                    rasterBounds: {
+                        x: raster.bounds.x.toFixed(1),
+                        y: raster.bounds.y.toFixed(1),
+                        w: raster.bounds.width.toFixed(0),
+                        h: raster.bounds.height.toFixed(0)
+                    },
+                    boundsSource,
+                    placeholderId,
+                    operationType
+                });
 
                 // 存储元数据
                 raster.data = {

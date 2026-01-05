@@ -166,8 +166,8 @@ const MidjourneyActionButtons: React.FC<MidjourneyActionButtonsProps> = ({
   }
 
   return (
-    <div className='mt-2 pt-2 border-t border-slate-200'>
-      <div className='text-xs text-slate-500 mb-2'>Midjourney 操作</div>
+    <div className='pt-2 mt-2 border-t border-slate-200'>
+      <div className='mb-2 text-xs text-slate-500'>Midjourney 操作</div>
       <div className='flex flex-wrap gap-2'>
         {actionableButtons.map((button) => {
           const isLoading = loadingId === button.customId;
@@ -2534,9 +2534,9 @@ const AIChatDialog: React.FC = () => {
             )}
           >
             {isHistoryLocked ? (
-              <Lock className='h-3 w-3' />
+              <Lock className='w-3 h-3' />
             ) : (
-              <Unlock className='h-3 w-3' />
+              <Unlock className='w-3 h-3' />
             )}
           </button>
         )}
@@ -2634,11 +2634,11 @@ const AIChatDialog: React.FC = () => {
                       <img
                         src={sourceImageForEditing}
                         alt='编辑图像'
-                        className='w-16 h-16 object-cover rounded border shadow-sm'
+                        className='object-cover w-16 h-16 border rounded shadow-sm'
                       />
                       <button
                         onClick={handleRemoveSourceImage}
-                        className='absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity'
+                        className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
                         title='删除图片'
                       >
                         <X className='w-2.5 h-2.5' />
@@ -2652,11 +2652,11 @@ const AIChatDialog: React.FC = () => {
                       <img
                         src={sourceImageForAnalysis}
                         alt='分析图像'
-                        className='w-16 h-16 object-cover rounded border shadow-sm'
+                        className='object-cover w-16 h-16 border rounded shadow-sm'
                       />
                       <button
                         onClick={() => setSourceImageForAnalysis(null)}
-                        className='absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity'
+                        className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
                         title='删除图片'
                       >
                         <X className='w-2.5 h-2.5' />
@@ -2670,7 +2670,7 @@ const AIChatDialog: React.FC = () => {
                       <img
                         src={imageData}
                         alt={`融合图片 ${index + 1}`}
-                        className='w-16 h-16 object-cover rounded border shadow-sm'
+                        className='object-cover w-16 h-16 border rounded shadow-sm'
                       />
                       {/* 图像序号角标 */}
                       <div
@@ -2681,7 +2681,7 @@ const AIChatDialog: React.FC = () => {
                       </div>
                       <button
                         onClick={() => removeImageFromBlending(index)}
-                        className='absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity'
+                        className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
                         title={`删除图片 ${index + 1}`}
                       >
                         <X className='w-2.5 h-2.5' />
@@ -2696,7 +2696,7 @@ const AIChatDialog: React.FC = () => {
                     sourceImagesForBlending.length === 0) ? (
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className='w-16 h-16 border-2 border-dashed border-gray-300 hover:border-blue-400 rounded flex items-center justify-center transition-colors group'
+                      className='flex items-center justify-center w-16 h-16 transition-colors border-2 border-gray-300 border-dashed rounded hover:border-blue-400 group'
                       title='添加更多图片'
                     >
                       <Plus className='w-6 h-6 text-gray-400 group-hover:text-blue-500' />
@@ -2709,7 +2709,7 @@ const AIChatDialog: React.FC = () => {
             <div className='relative'>
               {/* PDF 文件 @ 标签提示 - 位于输入框上方 */}
               {sourcePdfForAnalysis && (
-                <div className='mb-2 flex items-center justify-start'>
+                <div className='flex items-center justify-start mb-2'>
                   <div className='relative group'>
                     <div
                       className={cn(
@@ -2728,7 +2728,7 @@ const AIChatDialog: React.FC = () => {
                     </div>
                     <button
                       onClick={() => setSourcePdfForAnalysis(null)}
-                      className='absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity'
+                      className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
                       title='删除 PDF'
                     >
                       <X className='w-2.5 h-2.5' />
@@ -2755,8 +2755,8 @@ const AIChatDialog: React.FC = () => {
               />
 
               {/* 左侧按钮组 */}
-              <div className='absolute left-2 bottom-2 flex items-center gap-2'>
-                <div
+              <div className='absolute flex items-center gap-2 left-2 bottom-2'>
+                {/* <div
                   className={cn(
                     "flex h-7 items-center gap-0.5 rounded-full border border-liquid-glass bg-liquid-glass px-1 shadow-liquid-glass backdrop-blur-liquid backdrop-saturate-125",
                     generationStatus.isGenerating && "opacity-90"
@@ -2789,7 +2789,7 @@ const AIChatDialog: React.FC = () => {
                       </button>
                     );
                   })}
-                </div>
+                </div> */}
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -2799,7 +2799,7 @@ const AIChatDialog: React.FC = () => {
                       disabled={false}
                       data-dropdown-trigger='true'
                       className={cn(
-                        "h-7 pl-2 pr-3 flex items-center gap-1 rounded-full text-xs transition-all duration-200",
+                        "h-7 pl-2 pr-3 flex select-none items-center gap-1 rounded-full text-xs transition-all duration-200",
                         "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
                         manualAIMode !== "auto"
                           ? "bg-gray-100 text-gray-800 border-gray-200"
@@ -2862,18 +2862,51 @@ const AIChatDialog: React.FC = () => {
                   </DropdownMenuContent>
                 </DropdownMenu>
                 {MULTIPLIER_ENABLED_MODES.includes(manualAIMode) && (
-                  <button
-                    type='button'
-                    onClick={handleCycleAutoMultiplier}
-                    className={cn(
-                      "h-7 px-1 text-[11px] font-semibold text-slate-700 transition-colors duration-150",
-                      "hover:text-slate-900 active:translate-y-[0.5px]"
-                    )}
-                    title='倍数：点击依次切换 X1 / X2 / X4 / X8'
-                    aria-label={`倍数 X${autoModeMultiplier}`}
-                  >
-                    X{autoModeMultiplier}
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type='button'
+                        className={cn(
+                          "h-7 px-2 text-[11px] font-semibold text-slate-700 transition-colors duration-150",
+                          "hover:text-slate-900 active:translate-y-[0.5px]"
+                        )}
+                        title='选择生成倍数'
+                        aria-label={`倍数 X${autoModeMultiplier}`}
+                      >
+                        X{autoModeMultiplier}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align='start'
+                      side={dropdownSide}
+                      sideOffset={8}
+                      className='min-w-[80px] rounded-lg border border-slate-200 bg-white/95 shadow-lg backdrop-blur-md'
+                    >
+                      <DropdownMenuLabel className='px-3 py-2 text-[11px] uppercase tracking-wide text-slate-400'>
+                        生成倍数
+                      </DropdownMenuLabel>
+                      {AUTO_MODE_MULTIPLIERS.map((multiplier) => {
+                        const isActive = autoModeMultiplier === multiplier;
+                        return (
+                          <DropdownMenuItem
+                            key={multiplier}
+                            onClick={() => setAutoModeMultiplier(multiplier)}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 text-xs",
+                              isActive
+                                ? "bg-gray-100 text-gray-800"
+                                : "text-slate-600"
+                            )}
+                          >
+                            <span className='font-medium'>X{multiplier}</span>
+                            {isActive && (
+                              <Check className='h-3.5 w-3.5 text-gray-600' />
+                            )}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </div>
 
@@ -2963,7 +2996,7 @@ const AIChatDialog: React.FC = () => {
                 createPortal(
                   <div
                     ref={aspectPanelRef}
-                    className='rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass'
+                    className='border rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass'
                     style={{
                       position: "fixed",
                       top: aspectPos.top,
@@ -3020,7 +3053,7 @@ const AIChatDialog: React.FC = () => {
                 createPortal(
                   <div
                     ref={imageSizePanelRef}
-                    className='rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass'
+                    className='border rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass'
                     style={{
                       position: "fixed",
                       top: imageSizePos.top,
@@ -3069,7 +3102,7 @@ const AIChatDialog: React.FC = () => {
                 createPortal(
                   <div
                     ref={thinkingLevelPanelRef}
-                    className='rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass'
+                    className='border rounded-xl bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass shadow-liquid-glass'
                     style={{
                       position: "fixed",
                       top: thinkingLevelPos.top,
@@ -3198,18 +3231,18 @@ const AIChatDialog: React.FC = () => {
                     onClick={() => {
                       fileInputRef.current?.click();
                     }}
-                    className='flex items-center gap-2 px-3 py-2 text-sm cursor-pointer text-gray-700 hover:bg-gray-50'
+                    className='flex items-center gap-2 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50'
                   >
-                    <Image className='h-4 w-4' />
+                    <Image className='w-4 h-4' />
                     <span>上传图片</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
                       pdfInputRef.current?.click();
                     }}
-                    className='flex items-center gap-2 px-3 py-2 text-sm cursor-pointer text-gray-700 hover:bg-gray-50'
+                    className='flex items-center gap-2 px-3 py-2 text-sm text-gray-700 cursor-pointer hover:bg-gray-50'
                   >
-                    <FileText className='h-4 w-4' />
+                    <FileText className='w-4 h-4' />
                     <span>上传PDF</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -3314,9 +3347,9 @@ const AIChatDialog: React.FC = () => {
 
           {/* 错误提示 */}
           {generationStatus.error && (
-            <div className='mt-4 order-3'>
-              <div className='flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg'>
-                <AlertCircle className='h-4 w-4 text-red-600 flex-shrink-0' />
+            <div className='order-3 mt-4'>
+              <div className='flex items-center gap-2 p-3 border border-red-200 rounded-lg bg-red-50'>
+                <AlertCircle className='flex-shrink-0 w-4 h-4 text-red-600' />
                 <span className='text-sm text-red-800'>
                   {generationStatus.error}
                 </span>
@@ -3359,9 +3392,9 @@ const AIChatDialog: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className='space-y-1.5 mr-1 pb-6'>
-                <div className='mb-1 flex flex-wrap items-center justify-between gap-2'>
+                <div className='flex flex-wrap items-center justify-between gap-2 mb-1'>
                   <div className='flex flex-wrap items-center gap-2'>
-                    <span className='text-xs text-gray-500 font-medium'>
+                    <span className='text-xs font-medium text-gray-500'>
                       聊天历史记录
                     </span>
                     <div className='flex items-center gap-2'>
@@ -3378,7 +3411,7 @@ const AIChatDialog: React.FC = () => {
                         disabled={
                           sessions.length === 0 || generationStatus.isGenerating
                         }
-                        className='h-7 text-xs border border-gray-200 rounded-md bg-white/90 px-2 py-0 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50'
+                        className='px-2 py-0 text-xs border border-gray-200 rounded-md h-7 bg-white/90 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50'
                       >
                         {sessions.length === 0 ? (
                           <option value=''>暂无会话</option>
@@ -3417,7 +3450,7 @@ const AIChatDialog: React.FC = () => {
                   {/* 🧠 上下文状态指示器 */}
                   <div className='flex items-center space-x-2'>
                     {isIterativeMode() && (
-                      <span className='text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full'>
+                      <span className='px-2 py-1 text-xs text-blue-800 bg-blue-100 rounded-full'>
                         🔄 迭代模式
                       </span>
                     )}
@@ -3515,9 +3548,9 @@ const AIChatDialog: React.FC = () => {
                         <div
                           className={`ai-image-placeholder ${imageSize}`}
                         >
-                          <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-1 text-xs text-slate-500'>
+                          <div className='relative z-10 flex flex-col items-center justify-center w-full h-full gap-1 text-xs text-slate-500'>
                             <Loader2 className='w-4 h-4 animate-spin text-slate-400' />
-                            <span className='font-medium text-center px-1'>
+                            <span className='px-1 font-medium text-center'>
                               {message.groupIndex !== undefined
                                 ? `${message.groupIndex + 1}/${
                                     message.groupTotal || "?"
@@ -3542,7 +3575,7 @@ const AIChatDialog: React.FC = () => {
                     <div key={group.groupId} className='mb-2'>
                       {/* 用户消息 */}
                       {userMessage && (
-                        <div className='p-2 text-sm text-black ml-3 mr-1'>
+                        <div className='p-2 ml-3 mr-1 text-sm text-black'>
                           <div
                             className={cn(
                               "relative text-sm text-black markdown-content leading-relaxed",
@@ -3559,7 +3592,7 @@ const AIChatDialog: React.FC = () => {
 
                       {/* AI 消息 - 并行组横向布局 */}
                       {group.aiMessages.length > 0 && (
-                        <div className='p-2 text-sm text-black mr-3'>
+                        <div className='p-2 mr-3 text-sm text-black'>
                           {/* 🔥 并行组：横向排列图片 */}
                           {group.isParallelGroup ? (
                             <>
@@ -3705,12 +3738,12 @@ const AIChatDialog: React.FC = () => {
                                         </p>
                                       ),
                                       ul: ({ children }) => (
-                                        <ul className='list-disc list-inside mb-1 ml-2 text-sm'>
+                                        <ul className='mb-1 ml-2 text-sm list-disc list-inside'>
                                           {children}
                                         </ul>
                                       ),
                                       ol: ({ children }) => (
-                                        <ol className='list-decimal list-inside mb-1 ml-2 text-sm'>
+                                        <ol className='mb-1 ml-2 text-sm list-decimal list-inside'>
                                           {children}
                                         </ol>
                                       ),
@@ -3720,17 +3753,17 @@ const AIChatDialog: React.FC = () => {
                                         </li>
                                       ),
                                       h1: ({ children }) => (
-                                        <h1 className='text-lg font-bold mb-2 mt-2'>
+                                        <h1 className='mt-2 mb-2 text-lg font-bold'>
                                           {children}
                                         </h1>
                                       ),
                                       h2: ({ children }) => (
-                                        <h2 className='text-base font-bold mb-1 mt-1'>
+                                        <h2 className='mt-1 mb-1 text-base font-bold'>
                                           {children}
                                         </h2>
                                       ),
                                       h3: ({ children }) => (
-                                        <h3 className='text-base font-bold mb-1'>
+                                        <h3 className='mb-1 text-base font-bold'>
                                           {children}
                                         </h3>
                                       ),
@@ -3740,17 +3773,17 @@ const AIChatDialog: React.FC = () => {
                                           props.className?.includes("language-")
                                         );
                                         return inline ? (
-                                          <code className='bg-gray-100 px-1 rounded text-xs'>
+                                          <code className='px-1 text-xs bg-gray-100 rounded'>
                                             {children}
                                           </code>
                                         ) : (
-                                          <pre className='bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1'>
+                                          <pre className='p-1 mb-1 overflow-x-auto text-xs bg-gray-100 rounded'>
                                             <code>{children}</code>
                                           </pre>
                                         );
                                       },
                                       blockquote: ({ children }) => (
-                                        <blockquote className='border-l-2 border-gray-300 pl-2 italic text-xs mb-1'>
+                                        <blockquote className='pl-2 mb-1 text-xs italic border-l-2 border-gray-300'>
                                           {children}
                                         </blockquote>
                                       ),
@@ -3779,8 +3812,8 @@ const AIChatDialog: React.FC = () => {
 
                                   {message.webSearchResult
                                     ?.hasSearchResults && (
-                                    <div className='mt-2 pt-2 border-t border-gray-100'>
-                                      <div className='text-xs text-gray-500 mb-1'>
+                                    <div className='pt-2 mt-2 border-t border-gray-100'>
+                                      <div className='mb-1 text-xs text-gray-500'>
                                         信息来源：
                                       </div>
                                       <div className='space-y-1'>
@@ -3823,7 +3856,7 @@ const AIChatDialog: React.FC = () => {
                                   {/* 🔥 错误显示 - AI 消息级别的错误 */}
                                   {message.type === "ai" &&
                                     message.generationStatus?.error && (
-                                      <div className='mb-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700'>
+                                      <div className='p-2 mb-2 text-xs text-red-700 border border-red-200 rounded bg-red-50'>
                                         ⚠️ {message.generationStatus.error}
                                       </div>
                                     )}
@@ -3835,13 +3868,13 @@ const AIChatDialog: React.FC = () => {
                                         {aiHeader}
                                         {aiTextContent}
                                         <div className='mt-3'>
-                                          <div className='inline-block rounded-lg p-3 bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass'>
+                                          <div className='inline-block p-3 border rounded-lg bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border-liquid-glass-light shadow-liquid-glass'>
                                             <div className='flex flex-col items-center gap-3'>
                                               {message.videoUrl ? (
                                                 <>
                                                   <video
                                                     controls
-                                                    className='w-full max-w-md rounded-lg border shadow-sm'
+                                                    className='w-full max-w-md border rounded-lg shadow-sm'
                                                     style={{
                                                       maxHeight: "400px",
                                                     }}
@@ -3873,7 +3906,7 @@ const AIChatDialog: React.FC = () => {
                                                       <span className='text-red-500'>⚠️</span>
                                                       <span className='font-medium'>视频加载失败</span>
                                                     </div>
-                                                    <p className='text-xs text-red-600 mb-2'>
+                                                    <p className='mb-2 text-xs text-red-600'>
                                                       视频链接可能已过期或无法访问
                                                     </p>
                                                     <button
@@ -3886,12 +3919,12 @@ const AIChatDialog: React.FC = () => {
                                                           errorDiv.style.display = 'none';
                                                         }
                                                       }}
-                                                      className='px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs rounded transition-colors'
+                                                      className='px-3 py-1 text-xs text-red-700 transition-colors bg-red-100 rounded hover:bg-red-200'
                                                     >
                                                       重试加载
                                                     </button>
                                                   </div>
-                                                  <div className='flex gap-3 text-xs flex-wrap'>
+                                                  <div className='flex flex-wrap gap-3 text-xs'>
                                                     {/* 分享/复制 */}
                                                     <button
                                                       onClick={async () => {
@@ -3918,7 +3951,7 @@ const AIChatDialog: React.FC = () => {
                                                         }
                                                       }}
                                                       title='分享链接'
-                                                      className='w-9 h-9 rounded-full bg-white text-purple-500 border border-purple-100 flex items-center justify-center shadow-sm hover:bg-purple-50 transition-colors'
+                                                      className='flex items-center justify-center text-purple-500 transition-colors bg-white border border-purple-100 rounded-full shadow-sm w-9 h-9 hover:bg-purple-50'
                                                     >
                                                       <Share2 className='w-3.5 h-3.5' />
                                                     </button>
@@ -4032,7 +4065,7 @@ const AIChatDialog: React.FC = () => {
                                                         }
                                                       }}
                                                       title='下载视频'
-                                                      className='w-9 h-9 rounded-full bg-white text-blue-500 border border-gray-200 flex items-center justify-center shadow-sm hover:bg-gray-800/10 transition-colors'
+                                                      className='flex items-center justify-center text-blue-500 transition-colors bg-white border border-gray-200 rounded-full shadow-sm w-9 h-9 hover:bg-gray-800/10'
                                                     >
                                                       <Download className='w-3.5 h-3.5' />
                                                     </button>
@@ -4062,8 +4095,8 @@ const AIChatDialog: React.FC = () => {
                                                   )}
                                                 </>
                                               ) : (
-                                                <div className='ai-image-placeholder w-48 h-32'>
-                                                  <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-slate-500'>
+                                                <div className='w-48 h-32 ai-image-placeholder'>
+                                                  <div className='relative z-10 flex flex-col items-center justify-center w-full h-full gap-2 text-xs text-slate-500'>
                                                     <Loader2 className='w-5 h-5 animate-spin text-slate-400' />
                                                     <span className='font-medium'>
                                                       {generationStatus?.stage ||
@@ -4124,7 +4157,7 @@ const AIChatDialog: React.FC = () => {
                                                         <img
                                                           src={imageSrc}
                                                           alt='AI生成的图像'
-                                                          className='w-32 h-32 object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer'
+                                                          className='object-cover w-32 h-32 transition-shadow border rounded-lg shadow-sm cursor-pointer hover:shadow-md'
                                                           onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleImagePreview(
@@ -4139,8 +4172,8 @@ const AIChatDialog: React.FC = () => {
                                                     if (!expectsImageOutput)
                                                       return null;
                                                     return (
-                                                      <div className='ai-image-placeholder w-32 h-32'>
-                                                        <div className='relative z-10 h-full w-full flex flex-col items-center justify-center gap-2 text-xs text-slate-500'>
+                                                      <div className='w-32 h-32 ai-image-placeholder'>
+                                                        <div className='relative z-10 flex flex-col items-center justify-center w-full h-full gap-2 text-xs text-slate-500'>
                                                           <Loader2 className='w-5 h-5 animate-spin text-slate-400' />
                                                           <span className='font-medium'>
                                                             {generationStatus?.stage ||
@@ -4192,7 +4225,7 @@ const AIChatDialog: React.FC = () => {
                                                   )}
                                               </>
                                             ) : (
-                                              <div className='flex gap-3 items-start'>
+                                              <div className='flex items-start gap-3'>
                                                 <div className='flex-shrink-0'>
                                                   {message.sourceImageData && (
                                                     <div className='mb-2'>
@@ -4201,7 +4234,7 @@ const AIChatDialog: React.FC = () => {
                                                           message.sourceImageData
                                                         }
                                                         alt='源图像'
-                                                        className='w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                        className='object-cover w-16 h-16 transition-shadow border rounded shadow-sm cursor-pointer hover:shadow-md'
                                                         onClick={(e) => {
                                                           e.stopPropagation();
                                                           handleImagePreview(
@@ -4234,7 +4267,7 @@ const AIChatDialog: React.FC = () => {
                                                                   alt={`融合图像 ${
                                                                     index + 1
                                                                   }`}
-                                                                  className='w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                                  className='object-cover w-8 h-8 transition-shadow border rounded shadow-sm cursor-pointer hover:shadow-md'
                                                                   onClick={(
                                                                     e
                                                                   ) => {
@@ -4282,7 +4315,7 @@ const AIChatDialog: React.FC = () => {
                                             "bg-liquid-glass-light backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass-light shadow-liquid-glass"
                                         )}
                                       >
-                                        <div className='flex gap-3 items-start'>
+                                        <div className='flex items-start gap-3'>
                                           {/* 左边：图像 */}
                                           <div className='flex-shrink-0'>
                                             {message.sourceImageData && (
@@ -4290,7 +4323,7 @@ const AIChatDialog: React.FC = () => {
                                                 <img
                                                   src={message.sourceImageData}
                                                   alt='源图像'
-                                                  className='w-16 h-16 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                  className='object-cover w-16 h-16 transition-shadow border rounded shadow-sm cursor-pointer hover:shadow-md'
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleImagePreview(
@@ -4318,7 +4351,7 @@ const AIChatDialog: React.FC = () => {
                                                             alt={`融合图像 ${
                                                               index + 1
                                                             }`}
-                                                            className='w-8 h-8 object-cover rounded border shadow-sm cursor-pointer hover:shadow-md transition-shadow'
+                                                            className='object-cover w-8 h-8 transition-shadow border rounded shadow-sm cursor-pointer hover:shadow-md'
                                                             onClick={(e) => {
                                                               e.stopPropagation();
                                                               handleImagePreview(
@@ -4361,12 +4394,12 @@ const AIChatDialog: React.FC = () => {
                                                     </p>
                                                   ),
                                                   ul: ({ children }) => (
-                                                    <ul className='list-disc list-inside mb-1 ml-2 text-sm'>
+                                                    <ul className='mb-1 ml-2 text-sm list-disc list-inside'>
                                                       {children}
                                                     </ul>
                                                   ),
                                                   ol: ({ children }) => (
-                                                    <ol className='list-decimal list-inside mb-1 ml-2 text-sm'>
+                                                    <ol className='mb-1 ml-2 text-sm list-decimal list-inside'>
                                                       {children}
                                                     </ol>
                                                   ),
@@ -4376,17 +4409,17 @@ const AIChatDialog: React.FC = () => {
                                                     </li>
                                                   ),
                                                   h1: ({ children }) => (
-                                                    <h1 className='text-lg font-bold mb-2 mt-2'>
+                                                    <h1 className='mt-2 mb-2 text-lg font-bold'>
                                                       {children}
                                                     </h1>
                                                   ),
                                                   h2: ({ children }) => (
-                                                    <h2 className='text-base font-bold mb-1 mt-1'>
+                                                    <h2 className='mt-1 mb-1 text-base font-bold'>
                                                       {children}
                                                     </h2>
                                                   ),
                                                   h3: ({ children }) => (
-                                                    <h3 className='text-base font-bold mb-1'>
+                                                    <h3 className='mb-1 text-base font-bold'>
                                                       {children}
                                                     </h3>
                                                   ),
@@ -4401,11 +4434,11 @@ const AIChatDialog: React.FC = () => {
                                                       )
                                                     );
                                                     return inline ? (
-                                                      <code className='bg-gray-100 px-1 rounded text-xs'>
+                                                      <code className='px-1 text-xs bg-gray-100 rounded'>
                                                         {children}
                                                       </code>
                                                     ) : (
-                                                      <pre className='bg-gray-100 p-1 rounded text-xs overflow-x-auto mb-1'>
+                                                      <pre className='p-1 mb-1 overflow-x-auto text-xs bg-gray-100 rounded'>
                                                         <code>{children}</code>
                                                       </pre>
                                                     );
@@ -4413,7 +4446,7 @@ const AIChatDialog: React.FC = () => {
                                                   blockquote: ({
                                                     children,
                                                   }) => (
-                                                    <blockquote className='border-l-2 border-gray-300 pl-2 italic text-xs mb-1'>
+                                                    <blockquote className='pl-2 mb-1 text-xs italic border-l-2 border-gray-300'>
                                                       {children}
                                                     </blockquote>
                                                   ),
@@ -4469,12 +4502,12 @@ const AIChatDialog: React.FC = () => {
                                             </p>
                                           ),
                                           ul: ({ children }) => (
-                                            <ul className='list-disc list-inside mb-1 ml-2 text-sm'>
+                                            <ul className='mb-1 ml-2 text-sm list-disc list-inside'>
                                               {children}
                                             </ul>
                                           ),
                                           ol: ({ children }) => (
-                                            <ol className='list-decimal list-inside mb-1 ml-2 text-sm'>
+                                            <ol className='mb-1 ml-2 text-sm list-decimal list-inside'>
                                               {children}
                                             </ol>
                                           ),
@@ -4484,7 +4517,7 @@ const AIChatDialog: React.FC = () => {
                                             </li>
                                           ),
                                           h1: ({ children }) => (
-                                            <h1 className='text-base font-bold mb-1 mt-1'>
+                                            <h1 className='mt-1 mb-1 text-base font-bold'>
                                               {children}
                                             </h1>
                                           ),
