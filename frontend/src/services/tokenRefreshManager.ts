@@ -13,14 +13,9 @@ const REFRESH_BEFORE_EXPIRE_MS = 60 * 60 * 1000; // 提前 1 小时刷新
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // 每 30 分钟检查一次
 
 // 后端基础地址
-const viteEnv =
-  typeof import.meta !== "undefined" && (import.meta as any).env
-    ? (import.meta as any).env
-    : undefined;
-
 const base =
-  viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
-    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+  import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
+    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000";
 
 // 事件类型

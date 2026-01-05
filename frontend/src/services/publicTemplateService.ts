@@ -1,4 +1,4 @@
-import type { FlowTemplate, TemplateIndexEntry } from '@/types/template';
+import type { FlowTemplate, TemplateIndexEntry } from "@/types/template";
 
 export interface PublicTemplate extends TemplateIndexEntry {
   templateData?: FlowTemplate;
@@ -8,27 +8,35 @@ export interface PublicTemplate extends TemplateIndexEntry {
   updatedAt?: string;
 }
 
-const API_BASE = '/api';
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL &&
+  import.meta.env.VITE_API_BASE_URL.trim().length > 0
+    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
+    : "http://localhost:4000";
 
 // 获取公共模板索引
-export async function fetchPublicTemplateIndex(): Promise<TemplateIndexEntry[]> {
+export async function fetchPublicTemplateIndex(): Promise<
+  TemplateIndexEntry[]
+> {
   try {
-    const response = await fetch(`${API_BASE}/templates/index`);
+    const response = await fetch(`${API_BASE}/api/templates/index`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     const data = await response.json();
     return Array.isArray(data) ? data : [];
   } catch (error) {
-    console.warn('fetchPublicTemplateIndex error:', error);
+    console.warn("fetchPublicTemplateIndex error:", error);
     return [];
   }
 }
 
 // 根据ID获取公共模板数据
-export async function fetchPublicTemplateById(id: string): Promise<FlowTemplate | null> {
+export async function fetchPublicTemplateById(
+  id: string
+): Promise<FlowTemplate | null> {
   try {
-    const response = await fetch(`${API_BASE}/templates/${id}`);
+    const response = await fetch(`${API_BASE}/api/templates/${id}`);
     if (!response.ok) {
       if (response.status === 404) {
         return null;
@@ -38,13 +46,10 @@ export async function fetchPublicTemplateById(id: string): Promise<FlowTemplate 
     const data = await response.json();
     return data as FlowTemplate;
   } catch (error) {
-    console.warn('fetchPublicTemplateById error:', error);
+    console.warn("fetchPublicTemplateById error:", error);
     return null;
   }
 }
-
-// Admin API functions (需要认证)
-const ADMIN_API_BASE = '/api/admin';
 
 export interface CreateTemplateRequest {
   name: string;
@@ -88,12 +93,14 @@ export interface TemplateListResponse {
 }
 
 // 创建模板
-export async function createTemplate(data: CreateTemplateRequest): Promise<PublicTemplate> {
-  const response = await fetch(`${ADMIN_API_BASE}/templates`, {
-    method: 'POST',
+export async function createTemplate(
+  data: CreateTemplateRequest
+): Promise<PublicTemplate> {
+  const response = await fetch(`${API_BASE}/api/admin/templates`, {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
     },
     body: JSON.stringify(data),
   });
@@ -106,19 +113,25 @@ export async function createTemplate(data: CreateTemplateRequest): Promise<Publi
 }
 
 // 获取模板列表
-export async function fetchTemplates(params: TemplateQueryParams = {}): Promise<TemplateListResponse> {
+export async function fetchTemplates(
+  params: TemplateQueryParams = {}
+): Promise<TemplateListResponse> {
   const searchParams = new URLSearchParams();
-  if (params.page) searchParams.set('page', params.page.toString());
-  if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString());
-  if (params.category) searchParams.set('category', params.category);
-  if (params.isActive !== undefined) searchParams.set('isActive', params.isActive.toString());
-  if (params.search) searchParams.set('search', params.search);
+  if (params.page) searchParams.set("page", params.page.toString());
+  if (params.pageSize) searchParams.set("pageSize", params.pageSize.toString());
+  if (params.category) searchParams.set("category", params.category);
+  if (params.isActive !== undefined)
+    searchParams.set("isActive", params.isActive.toString());
+  if (params.search) searchParams.set("search", params.search);
 
-  const response = await fetch(`${ADMIN_API_BASE}/templates?${searchParams}`, {
-    headers: {
-      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-    },
-  });
+  const response = await fetch(
+    `${API_BASE}/api/admin/templates?${searchParams}`,
+    {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+      },
+    }
+  );
 
   if (!response.ok) {
     throw new Error(`Failed to fetch templates: ${response.statusText}`);
@@ -129,9 +142,9 @@ export async function fetchTemplates(params: TemplateQueryParams = {}): Promise<
 
 // 获取单个模板
 export async function fetchTemplate(id: string): Promise<PublicTemplate> {
-  const response = await fetch(`${ADMIN_API_BASE}/templates/${id}`, {
+  const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
     headers: {
-      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
     },
   });
 
@@ -143,12 +156,15 @@ export async function fetchTemplate(id: string): Promise<PublicTemplate> {
 }
 
 // 更新模板
-export async function updateTemplate(id: string, data: UpdateTemplateRequest): Promise<PublicTemplate> {
-  const response = await fetch(`${ADMIN_API_BASE}/templates/${id}`, {
-    method: 'PATCH',
+export async function updateTemplate(
+  id: string,
+  data: UpdateTemplateRequest
+): Promise<PublicTemplate> {
+  const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
+    method: "PATCH",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
     },
     body: JSON.stringify(data),
   });
@@ -162,10 +178,10 @@ export async function updateTemplate(id: string, data: UpdateTemplateRequest): P
 
 // 删除模板
 export async function deleteTemplate(id: string): Promise<void> {
-  const response = await fetch(`${ADMIN_API_BASE}/templates/${id}`, {
-    method: 'DELETE',
+  const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
+    method: "DELETE",
     headers: {
-      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
     },
   });
 
@@ -176,9 +192,9 @@ export async function deleteTemplate(id: string): Promise<void> {
 
 // 获取模板分类
 export async function fetchTemplateCategories(): Promise<string[]> {
-  const response = await fetch(`${ADMIN_API_BASE}/templates/categories`, {
+  const response = await fetch(`${API_BASE}/api/templates/categories`, {
     headers: {
-      'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
     },
   });
 

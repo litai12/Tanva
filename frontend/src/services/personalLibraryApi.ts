@@ -4,14 +4,9 @@ import type {
   PersonalAssetType,
 } from "@/stores/personalLibraryStore";
 
-const viteEnv =
-  typeof import.meta !== "undefined" && (import.meta as any).env
-    ? (import.meta as any).env
-    : undefined;
-
 const base =
-  viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
-    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+  import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
+    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000";
 
 async function json<T>(res: Response): Promise<T> {

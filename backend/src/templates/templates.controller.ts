@@ -22,6 +22,12 @@ export class TemplatesController {
     }
     return template.templateData;
   }
+
+  @Get('categories')
+  @ApiOperation({ summary: '获取公共模板分类（前端使用）' })
+  async getCategories() {
+    return this.templateService.getTemplateCategories();
+  }
 }
 
 

@@ -1855,16 +1855,19 @@ function FlowInner() {
   const [builtinCategories, setBuiltinCategories] = React.useState<string[]>(
     []
   );
-  const [activeBuiltinCategory, setActiveBuiltinCategory] =
-    React.useState<string>("");
+  // 支持多个分类开关（多选），空数组表示未筛选（显示全部）
+  const [activeBuiltinCategories, setActiveBuiltinCategories] = React.useState<
+    string[]
+  >([]);
 
   const filteredTplIndex = React.useMemo(() => {
     if (!tplIndex) return [];
-    if (!activeBuiltinCategory) return tplIndex;
-    return tplIndex.filter(
-      (item) => (item.category || "其他") === activeBuiltinCategory
+    if (!activeBuiltinCategories || activeBuiltinCategories.length === 0)
+      return tplIndex;
+    return tplIndex.filter((item) =>
+      activeBuiltinCategories.includes(item.category || "其他")
     );
-  }, [tplIndex, activeBuiltinCategory]);
+  }, [tplIndex, activeBuiltinCategories]);
 
   const getPlaceholderCount = React.useCallback(
     (len: number, opts?: { columns?: number; minVisible?: number }) => {
@@ -7188,11 +7191,18 @@ function FlowInner() {
                         style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                       >
                         {builtinCategories.map((cat) => {
-                          const isActive = cat === activeBuiltinCategory;
+                          const isActive = activeBuiltinCategories.includes(cat);
                           return (
                             <button
                               key={cat}
-                              onClick={() => setActiveBuiltinCategory(cat)}
+                              onClick={() =>
+                                setActiveBuiltinCategories((prev) => {
+                                  if (prev.includes(cat)) {
+                                    return prev.filter((c) => c !== cat);
+                                  }
+                                  return [...prev, cat];
+                                })
+                              }
                               style={{
                                 padding: "6px 14px",
                                 borderRadius: 999,

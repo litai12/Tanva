@@ -291,13 +291,9 @@ const LibraryPanel: React.FC = () => {
       const parsed = new URL(value);
       if (parsed.origin === window.location.origin) return "include";
 
-      const viteEnv =
-        typeof import.meta !== "undefined" && (import.meta as any).env
-          ? (import.meta as any).env
-          : undefined;
       const apiBase =
-        typeof viteEnv?.VITE_API_BASE_URL === "string"
-          ? env.VITE_API_BASE_URL.trim()
+        typeof import.meta.env.VITE_API_BASE_URL === "string"
+          ? import.meta.env.VITE_API_BASE_URL.trim()
           : "";
       if (apiBase) {
         try {

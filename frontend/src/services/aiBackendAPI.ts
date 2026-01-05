@@ -22,13 +22,10 @@ import { fetchWithAuth } from "./authFetch";
 import { logger } from "@/utils/logger";
 
 // 后端基础地址，统一从 .env 读取；无配置则默认 http://localhost:4000
-const viteEnv =
-  typeof import.meta !== "undefined" && (import.meta as any).env
-    ? (import.meta as any).env
-    : undefined;
 const API_BASE_URL =
-  (viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
-    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+  (import.meta.env.VITE_API_BASE_URL &&
+  import.meta.env.VITE_API_BASE_URL.trim().length > 0
+    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000") + "/api";
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const RUNNINGHUB_IMAGE_MODEL = "runninghub-su-effect";

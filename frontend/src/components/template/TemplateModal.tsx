@@ -18,7 +18,10 @@ import {
   generateId,
 } from "@/services/templateStore";
 import SharedTemplateCard from "./SharedTemplateCard";
-import { fetchTemplateCategories } from "@/services/publicTemplateService";
+import {
+  fetchTemplateCategories,
+  fetchTemplates,
+} from "@/services/publicTemplateService";
 // import { useReactFlow } from 'reactflow'; // 暂时注释，因为FloatingHeader不在ReactFlow上下文中
 
 interface TemplateModalProps {
@@ -298,6 +301,10 @@ export default function TemplateModal({
   const [builtinCategories, setBuiltinCategories] = useState<string[]>([]);
   const [activeBuiltinCategory, setActiveBuiltinCategory] =
     useState<string>("");
+  // 支持多个分类开关（多选），空数组表示未筛选（显示全部）
+  const [activeBuiltinCategories, setActiveBuiltinCategories] = useState<
+    string[]
+  >([]);
   const [tplIndex, setTplIndex] = useState<TemplateIndexEntry[] | null>(null);
   const [userTplList, setUserTplList] = useState<
     Array<{
@@ -315,11 +322,12 @@ export default function TemplateModal({
 
   const filteredTplIndex = useMemo(() => {
     if (!tplIndex) return [];
-    if (!activeBuiltinCategory) return tplIndex;
-    return tplIndex.filter(
-      (item) => (item.category || "其他") === activeBuiltinCategory
+    if (!activeBuiltinCategories || activeBuiltinCategories.length === 0)
+      return tplIndex;
+    return tplIndex.filter((item) =>
+      activeBuiltinCategories.includes(item.category || "其他")
     );
-  }, [tplIndex, activeBuiltinCategory]);
+  }, [tplIndex, activeBuiltinCategories]);
 
   const getPlaceholderCount = useCallback(
     (len: number, opts?: { columns?: number; minVisible?: number }) => {
@@ -393,6 +401,74 @@ export default function TemplateModal({
       cancelled = true;
     };
   }, [isOpen]);
+
+  // 根据所选分类从后端拉取模板（支持多选）
+  useEffect(() => {
+    if (!isOpen || templateScope !== "public") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // 未选中任何分类：始终使用内置索引（全部），即使 tplIndex 已存在也要恢复全部列表
+        if (!activeBuiltinCategories || activeBuiltinCategories.length === 0) {
+          const idx = await loadBuiltInTemplateIndex();
+          const normalizedIdx = idx.map((item) => ({
+            ...item,
+            category: item.category || "其他",
+          }));
+          if (!cancelled) setTplIndex(normalizedIdx);
+          return;
+        }
+
+        // 有选中分类：并行请求每个分类（后端按单分类支持），合并结果去重
+        const promises = activeBuiltinCategories.map((cat) =>
+          fetchTemplates({
+            category: cat,
+            isActive: true,
+            pageSize: 1000,
+          }).catch(() => null)
+        );
+        const results = await Promise.all(promises);
+        const items: any[] = [];
+        results.forEach((res) => {
+          if (!res) return;
+          const arr = Array.isArray((res as any).items) ? (res as any).items : [];
+          arr.forEach((it: any) => items.push(it));
+        });
+        // unique by id
+        const map = new Map<string, any>();
+        items.forEach((it) => {
+          if (it && it.id) {
+            map.set(it.id, it);
+          }
+        });
+        const normalized = Array.from(map.values()).map((it: any) => ({
+          id: it.id,
+          name: it.name,
+          category: it.category || "其他",
+          description: it.description,
+          tags: it.tags,
+          thumbnail: it.thumbnail || it.thumbnailSmall,
+          updatedAt: it.updatedAt || it.updated_at || "",
+        }));
+        if (!cancelled) {
+          setTplIndex(normalized);
+        }
+      } catch (e) {
+        // fallback to built-in index
+        try {
+          const idx = await loadBuiltInTemplateIndex();
+          const normalizedIdx = idx.map((item) => ({
+            ...item,
+            category: item.category || "其他",
+          }));
+          if (!cancelled) setTplIndex(normalizedIdx);
+        } catch {}
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, templateScope, activeBuiltinCategories]);
 
   const instantiateTemplateAt = useCallback(
     async (tpl: FlowTemplate) => {
@@ -598,11 +674,18 @@ export default function TemplateModal({
                   }}
                 >
                   {builtinCategories.map((cat) => {
-                    const isActive = cat === activeBuiltinCategory;
+                    const isActive = activeBuiltinCategories.includes(cat);
                     return (
                       <button
                         key={cat}
-                        onClick={() => setActiveBuiltinCategory(cat)}
+                        onClick={() =>
+                          setActiveBuiltinCategories((prev) => {
+                            if (prev.includes(cat)) {
+                              return prev.filter((c) => c !== cat);
+                            }
+                            return [...prev, cat];
+                          })
+                        }
                         style={{
                           padding: "6px 14px",
                           borderRadius: 999,

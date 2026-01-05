@@ -12,19 +12,15 @@ export type GoogleApiKeyInfo = {
   mode: "official" | "custom";
 };
 
-const viteEnv =
-  typeof import.meta !== "undefined" && (import.meta as any).env
-    ? (import.meta as any).env
-    : undefined;
-const isMock = viteEnv?.VITE_AUTH_MODE === "mock";
+const isMock = import.meta.env.VITE_AUTH_MODE === "mock";
 
 // 后端基础地址，统一从 .env 中读取：
 // 例如在 .env.development / .env.production 中配置：
 // VITE_API_BASE_URL="https://your-backend-domain.com"
 // 如果不配置，则默认 http://localhost:4000
 const base =
-  viteEnv?.VITE_API_BASE_URL && viteEnv.VITE_API_BASE_URL.trim().length > 0
-    ? viteEnv.VITE_API_BASE_URL.replace(/\/+$/, "")
+  import.meta.env.VITE_API_BASE_URL && import.meta.env.VITE_API_BASE_URL.trim().length > 0
+    ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000";
 
 // Simple localStorage-based mock helpers
