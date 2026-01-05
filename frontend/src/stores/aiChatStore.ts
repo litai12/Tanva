@@ -1956,30 +1956,10 @@ export const useAIChatStore = create<AIChatState>()(
             ...msg,
             imageRemoteUrl: assets.remoteUrl || msg.imageRemoteUrl,
             thumbnail: assets.thumbnail ?? msg.thumbnail,
-            // 🔥 内存优化：延迟清理 imageData (base64)
-            // 此时 remoteUrl 已经有了，为了防止 UI 闪烁，我们不立即清空
-            // 稍后通过延迟任务处理
+            // 🔥 关键修复：不清空 imageData，保留 base64 用于对话框和画布显示
+            // 即使有 remoteUrl，也保留 imageData，这样对话框和画布都能正常显示
+            // imageData: assets.remoteUrl ? undefined : msg.imageData
           }));
-
-          // 开启延迟清理任务，防止内存溢出
-          const memoryOptimizationDelay = 5000; // 5秒后清理 base64
-          setTimeout(() => {
-            get().updateMessage(aiMessageId, (msg) => {
-              if (msg.imageRemoteUrl && msg.imageData) {
-                console.log(`🧹 [AIChat] 延迟清理消息 ${aiMessageId} 的大型 base64 数据 (已上传)`);
-                return { ...msg, imageData: undefined };
-              }
-              return msg;
-            });
-
-            const context = contextManager.getCurrentContext();
-            if (context) {
-              const target = context.messages.find((m) => m.id === aiMessageId);
-              if (target && target.imageRemoteUrl) {
-                target.imageData = undefined;
-              }
-            }
-          }, memoryOptimizationDelay);
 
           const context = contextManager.getCurrentContext();
           if (context) {
@@ -1987,6 +1967,10 @@ export const useAIChatStore = create<AIChatState>()(
             if (target) {
               target.imageRemoteUrl = assets.remoteUrl || target.imageRemoteUrl;
               target.thumbnail = assets.thumbnail ?? target.thumbnail;
+              // 🔥 关键修复：不清空 imageData，保留 base64
+              // if (assets.remoteUrl) {
+              //   target.imageData = undefined;
+              // }
             }
           }
         }
