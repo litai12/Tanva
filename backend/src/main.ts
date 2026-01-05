@@ -150,8 +150,8 @@ async function bootstrap() {
   );
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('TAI API')
-    .setDescription('Backend API for TAI')
+    .setTitle('Tnavas API')
+    .setDescription('Backend API for Tnavas')
     .setVersion('0.1.0')
     .addCookieAuth('access_token')
     .build();
@@ -165,6 +165,8 @@ async function bootstrap() {
   console.log(`API listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
   // eslint-disable-next-line no-console
   console.log('RunningHub key (startup check):', configService.get('RUNNINGHUB_API_KEY') ? 'loaded' : 'missing');
+  // eslint-disable-next-line no-console
+  console.log(`Swagger UI: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/api/docs#/`);
 }
 
 bootstrap();
