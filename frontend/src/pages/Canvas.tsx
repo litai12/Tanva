@@ -50,8 +50,7 @@ const Canvas: React.FC = () => {
             <GlobalZoomCapture />
             <canvas
                 ref={canvasRef}
-                className="absolute inset-0 w-full h-full"
-                style={{ background: 'white' }}
+                className="absolute inset-0 w-full h-full bg-background"
             />
 
             {/* Paper.js 管理器 */}

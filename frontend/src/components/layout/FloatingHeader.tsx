@@ -35,7 +35,10 @@ import {
     EyeOff,
     Code,
     FolderOpen,
-    Send
+    Send,
+    Sun,
+    Moon,
+    Monitor
 } from 'lucide-react';
 import MemoryDebugPanel from '@/components/debug/MemoryDebugPanel';
 import HistoryDebugPanel from '@/components/debug/HistoryDebugPanel';
@@ -86,6 +89,8 @@ const FloatingHeader: React.FC = () => {
         focusMode,
         snapAlignmentEnabled,
         toggleSnapAlignment,
+        theme,
+        setTheme,
     } = useUIStore();
 
     const {
@@ -529,10 +534,10 @@ const FloatingHeader: React.FC = () => {
             case 'workspace':
                 return (
                     <div className="pb-6 space-y-6">
-                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
+                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 backdrop-blur">
                             <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
                                         <span>你好，{displayName}</span>
                                         <span
                                             className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
@@ -546,7 +551,7 @@ const FloatingHeader: React.FC = () => {
                                         </span>
                                     </div>
                                     {secondaryId && (
-                                        <div className="mt-1 text-xs truncate text-muted-foreground">
+                                        <div className="mt-1 text-xs truncate text-muted-foreground dark:text-slate-400">
                                             {secondaryId}
                                         </div>
                                     )}
@@ -555,20 +560,20 @@ const FloatingHeader: React.FC = () => {
                                     <ManualSaveButton />
                                 </div>
                             </div>
-                            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
+                            <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground dark:text-slate-400">
                                 <span>自动保存</span>
-                                <span className="text-slate-600">
+                                <span className="text-slate-600 dark:text-slate-300">
                                     <AutosaveStatus />
                                 </span>
                             </div>
                         </div>
 
                         {/* 积分信息卡片 */}
-                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 bg-gradient-to-br from-blue-50 to-indigo-50">
+                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-700 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
                             <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-2">
-                                    <Sparkles className="w-4 h-4 text-blue-600" />
-                                    <span className="text-sm font-medium text-slate-700">我的积分</span>
+                                    <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">我的积分</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <Button
@@ -577,7 +582,7 @@ const FloatingHeader: React.FC = () => {
                                         className={cn(
                                             "h-7 px-2 text-xs",
                                             dailyRewardStatus?.canClaim === false
-                                                ? "text-slate-600 border-slate-300 bg-white/70 hover:bg-white"
+                                                ? "text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600 bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-700"
                                                 : "bg-blue-600 hover:bg-blue-700 text-white"
                                         )}
                                         disabled={
@@ -602,7 +607,7 @@ const FloatingHeader: React.FC = () => {
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="px-2 text-xs text-gray-800 h-7 hover:text-gray-900 hover:bg-gray-800/10"
+                                        className="px-2 text-xs text-gray-800 dark:text-gray-200 h-7 hover:text-gray-900 dark:hover:text-white hover:bg-gray-800/10 dark:hover:bg-white/10"
                                         onClick={() => {
                                             setIsSettingsOpen(false);
                                             window.open('/my-credits', '_blank');
@@ -613,33 +618,33 @@ const FloatingHeader: React.FC = () => {
                                 </div>
                             </div>
                             {creditsLoading ? (
-                                <div className="text-xs text-slate-500">加载中...</div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">加载中...</div>
                             ) : creditsInfo ? (
                                 <div className="space-y-3">
                                     <div className="flex items-baseline gap-2">
-                                        <span className="text-3xl font-bold text-blue-600">{creditsInfo.balance}</span>
-                                        <span className="text-xs select-none text-slate-500">可用积分</span>
+                                        <span className="text-3xl font-bold text-blue-600 dark:text-blue-400">{creditsInfo.balance}</span>
+                                        <span className="text-xs select-none text-slate-500 dark:text-slate-400">可用积分</span>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200/60">
+                                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
                                         <div>
-                                            <div className="text-xs text-slate-500">累计获得</div>
-                                            <div className="text-sm font-medium text-green-600">+{creditsInfo.totalEarned}</div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400">累计获得</div>
+                                            <div className="text-sm font-medium text-green-600 dark:text-green-400">+{creditsInfo.totalEarned}</div>
                                         </div>
                                         <div>
-                                            <div className="text-xs text-slate-500">累计消耗</div>
-                                            <div className="text-sm font-medium text-orange-600">-{creditsInfo.totalSpent}</div>
+                                            <div className="text-xs text-slate-500 dark:text-slate-400">累计消耗</div>
+                                            <div className="text-sm font-medium text-orange-600 dark:text-orange-400">-{creditsInfo.totalSpent}</div>
                                         </div>
                                     </div>
                                 </div>
                             ) : (
-                                <div className="text-xs text-slate-500">暂无积分信息</div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">暂无积分信息</div>
                             )}
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2">
                             <Button
                                 variant="outline"
-                                className="h-10 text-sm rounded-lg"
+                                className="h-10 text-sm rounded-lg dark:border-slate-700 dark:hover:bg-slate-800"
                                 onClick={() => {
                                     setIsSettingsOpen(false);
                                     openModal();
@@ -650,7 +655,7 @@ const FloatingHeader: React.FC = () => {
                             </Button>
                             <Button
                                 variant="outline"
-                                className="h-10 text-sm rounded-lg"
+                                className="h-10 text-sm rounded-lg dark:border-slate-700 dark:hover:bg-slate-800"
                                 onClick={() => navigate('/')}
                             >
                                 <Home className="w-4 h-4 mr-2" />
@@ -661,14 +666,14 @@ const FloatingHeader: React.FC = () => {
                         <div className="grid gap-3 sm:grid-cols-2">
                             <Button
                                 variant="outline"
-                                className="h-10 text-sm rounded-lg"
+                                className="h-10 text-sm rounded-lg dark:border-slate-700 dark:hover:bg-slate-800"
                                 onClick={() => setIsGlobalHistoryOpen(true)}
                             >
                                 <History className="w-4 h-4 mr-2" />
                                 全局图片历史
                             </Button>
                             <Button
-                                className="h-10 text-sm text-white bg-red-500 rounded-lg hover:bg-red-600"
+                                className="h-10 text-sm text-white bg-red-500 rounded-lg dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700"
                                 onClick={handleClearCanvas}
                             >
                                 <Trash2 className="w-4 h-4 mr-2" />
@@ -680,52 +685,80 @@ const FloatingHeader: React.FC = () => {
             case 'appearance':
                 return (
                     <div className="pb-6 space-y-6">
-                        <div className="flex items-center justify-between p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
+                        <div className="flex items-center justify-between p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
                             <div>
-                                <Label className="text-sm font-medium text-slate-700">保存视图设置</Label>
-                                <div className="mt-1 text-xs text-slate-500">保存当前网格样式与颜色，刷新后保持一致</div>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">保存视图设置</Label>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">保存当前网格样式与颜色，刷新后保持一致</div>
                                 {saveFeedback === 'success' && (
-                                    <div className="mt-1 text-xs text-green-600">已保存</div>
+                                    <div className="mt-1 text-xs text-green-600 dark:text-green-400">已保存</div>
                                 )}
                                 {saveFeedback === 'error' && (
-                                    <div className="mt-1 text-xs text-red-600">保存失败，请重试</div>
+                                    <div className="mt-1 text-xs text-red-600 dark:text-red-400">保存失败，请重试</div>
                                 )}
                             </div>
                             <Button
-                                className="text-sm text-white rounded-lg h-9 bg-slate-900 hover:bg-slate-800"
+                                className="text-sm text-white rounded-lg h-9 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                                 onClick={handleSaveAppearanceSettings}
                             >
                                 保存设置
                             </Button>
                         </div>
 
-                        <div className="p-5 space-y-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
+                        <div className="p-5 space-y-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
+                            <div className="flex flex-col gap-4">
+                                <div>
+                                    <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">深色模式</Label>
+                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">选择应用的外观主题</div>
+                                </div>
+                                <ToggleGroup
+                                    type="single"
+                                    value={theme}
+                                    onValueChange={(val) => val && setTheme(val as 'light' | 'dark' | 'system')}
+                                    className="justify-start"
+                                >
+                                    <ToggleGroupItem value="light" className="flex items-center gap-2 px-3 py-2">
+                                        <Sun className="w-4 h-4" />
+                                        <span>浅色</span>
+                                    </ToggleGroupItem>
+                                    <ToggleGroupItem value="dark" className="flex items-center gap-2 px-3 py-2">
+                                        <Moon className="w-4 h-4" />
+                                        <span>深色</span>
+                                    </ToggleGroupItem>
+                                    <ToggleGroupItem value="system" className="flex items-center gap-2 px-3 py-2">
+                                        <Monitor className="w-4 h-4" />
+                                        <span>系统</span>
+                                    </ToggleGroupItem>
+                                </ToggleGroup>
+                            </div>
+                        </div>
+
+                        <div className="p-5 space-y-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                    <Label className="text-sm font-medium text-slate-700">显示背景网格</Label>
-                                    <div className="mt-1 text-xs text-slate-500">在画布中启用网格辅助对齐</div>
+                                    <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">显示背景网格</Label>
+                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">在画布中启用网格辅助对齐</div>
                                 </div>
                                 <Switch
                                     checked={showGrid}
                                     onCheckedChange={toggleGrid}
-                                    className="border-slate-200 bg-slate-100 data-[state=unchecked]:bg-slate-200"
+                                    className="border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 data-[state=unchecked]:bg-slate-200 dark:data-[state=unchecked]:bg-slate-700"
                                 />
                             </div>
 
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                    <Label className="text-sm font-medium text-slate-700">自动吸附对齐</Label>
-                                    <div className="mt-1 text-xs text-slate-500">拖动元素时自动吸附到其他元素边缘</div>
+                                    <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">自动吸附对齐</Label>
+                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">拖动元素时自动吸附到其他元素边缘</div>
                                 </div>
                                 <Switch
                                     checked={snapAlignmentEnabled}
                                     onCheckedChange={toggleSnapAlignment}
-                                    className="border-slate-200 bg-slate-100 data-[state=unchecked]:bg-slate-200"
+                                    className="border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 data-[state=unchecked]:bg-slate-200 dark:data-[state=unchecked]:bg-slate-700"
                                 />
                             </div>
 
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                <Label className="text-sm font-medium text-slate-700">网格样式</Label>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">网格样式</Label>
                                 <ToggleGroup
                                     type="single"
                                     value={gridStyle}
@@ -737,7 +770,7 @@ const FloatingHeader: React.FC = () => {
                             </div>
 
                             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                                <Label className="text-sm font-medium text-slate-700">网格间距(px)</Label>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">网格间距(px)</Label>
                                 <Input
                                     type="number"
                                     min={1}
@@ -757,13 +790,13 @@ const FloatingHeader: React.FC = () => {
                         </div>
 
                         {/* 缩放灵敏度设置 */}
-                        <div className="p-5 space-y-4 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
+                        <div className="p-5 space-y-4 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
                             <div>
-                                <Label className="text-sm font-medium text-slate-700">滚轮缩放灵敏度</Label>
-                                <div className="mt-1 text-xs text-slate-500">调整鼠标滚轮/触控板缩放的响应速度，值越小越平滑</div>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">滚轮缩放灵敏度</Label>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">调整鼠标滚轮/触控板缩放的响应速度，值越小越平滑</div>
                             </div>
                             <div className="flex items-center gap-4">
-                                <span className="w-8 text-xs text-slate-500">慢</span>
+                                <span className="w-8 text-xs text-slate-500 dark:text-slate-400">慢</span>
                                 <input
                                     type="range"
                                     min={1}
@@ -771,29 +804,29 @@ const FloatingHeader: React.FC = () => {
                                     step={1}
                                     value={zoomSensitivity}
                                     onChange={(e) => setZoomSensitivity(Number(e.target.value))}
-                                    className="flex-1 h-2 rounded-lg appearance-none cursor-pointer bg-slate-200 accent-slate-900"
+                                    className="flex-1 h-2 rounded-lg appearance-none cursor-pointer bg-slate-200 dark:bg-slate-700 accent-slate-900 dark:accent-slate-100"
                                 />
-                                <span className="w-8 text-xs text-slate-500">快</span>
-                                <span className="w-6 text-sm font-medium text-center text-slate-700">{zoomSensitivity}</span>
+                                <span className="w-8 text-xs text-slate-500 dark:text-slate-400">快</span>
+                                <span className="w-6 text-sm font-medium text-center text-slate-700 dark:text-slate-200">{zoomSensitivity}</span>
                             </div>
                         </div>
 
-                        <div className="p-5 space-y-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
+                        <div className="p-5 space-y-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
                             <div>
-                                <Label className="text-sm font-medium text-slate-700">颜色</Label>
-                                <div className="mt-1 text-xs text-slate-500">调整网格线与画布底色</div>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">颜色</Label>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">调整网格线与画布底色</div>
                             </div>
                             <div className="flex flex-col gap-4">
-                                <div className="flex flex-col gap-3 p-3 border rounded-xl border-slate-100 bg-slate-50/70 sm:flex-row sm:items-center sm:justify-between">
-                                    <Label className="text-xs font-medium text-slate-600">网格颜色</Label>
+                                <div className="flex flex-col gap-3 p-3 border rounded-xl border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 sm:flex-row sm:items-center sm:justify-between">
+                                    <Label className="text-xs font-medium text-slate-600 dark:text-slate-400">网格颜色</Label>
                                     <div className="flex items-center gap-3">
                                         <input
                                             type="color"
                                             value={gridColor}
                                             onChange={(e) => setGridColor(e.target.value)}
-                                            className="border rounded-lg cursor-pointer h-9 w-9 border-slate-200"
+                                            className="bg-transparent border rounded-lg cursor-pointer h-9 w-9 border-slate-200 dark:border-slate-700"
                                         />
-                                        <span className="font-mono text-xs text-slate-500">{gridColor}</span>
+                                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{gridColor}</span>
                                     </div>
                                 </div>
                                 {/* 画布底色功能暂时隐藏 */}
@@ -820,10 +853,10 @@ const FloatingHeader: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex flex-col gap-4 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-4 p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <Label className="text-sm font-medium text-slate-700">AI 对话框样式</Label>
-                                <div className="mt-1 text-xs text-slate-500">展开或最大化时的背景样式</div>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">AI 对话框样式</Label>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">展开或最大化时的背景样式</div>
                             </div>
                             <ToggleGroup
                                 type="single"
@@ -839,24 +872,24 @@ const FloatingHeader: React.FC = () => {
             case 'ai':
                 return (
                     <div className="pb-6 space-y-6">
-                        <div className="flex flex-col gap-4 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-4 p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <Label className="text-sm font-medium text-slate-700">仅图像模式</Label>
-                                <div className="mt-1 text-xs text-slate-500">禁用文字结果，仅输出图像</div>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">仅图像模式</Label>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">禁用文字结果，仅输出图像</div>
                             </div>
                             <Switch
                                 checked={imageOnly}
                                 onCheckedChange={setImageOnly}
-                                className="border-slate-200 bg-slate-100 data-[state=unchecked]:bg-slate-200"
+                                className="border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 data-[state=unchecked]:bg-slate-200 dark:data-[state=unchecked]:bg-slate-700"
                             />
                         </div>
 
-                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
+                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
                             <div className="flex items-start gap-2 mb-4">
-                                <Send className="w-4 h-4 text-blue-600" />
+                                <Send className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                 <div>
-                                    <Label className="text-sm font-medium text-slate-700">发送快捷键</Label>
-                                    <div className="mt-1 text-xs text-slate-500">选择聊天输入框的发送习惯</div>
+                                    <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">发送快捷键</Label>
+                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">选择聊天输入框的发送习惯</div>
                                 </div>
                             </div>
                             <RadioGroup
@@ -875,8 +908,8 @@ const FloatingHeader: React.FC = () => {
                             </RadioGroup>
                         </div>
 
-                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
-                            <Label className="block mb-4 text-sm font-medium text-slate-700">AI 提供商</Label>
+                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
+                            <Label className="block mb-4 text-sm font-medium text-slate-700 dark:text-slate-200">AI 提供商</Label>
                             <RadioGroup
                                 value={aiProvider}
                                 onValueChange={setAIProvider}
@@ -904,29 +937,29 @@ const FloatingHeader: React.FC = () => {
                         </div>
 
                         {/* Google API Key 设置 */}
-                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur">
+                        <div className="p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur">
                             <div className="flex items-center gap-2 mb-2">
-                                <Key className="w-4 h-4 text-green-600" />
-                                <Label className="text-sm font-medium text-slate-700">Google Gemini API Key</Label>
+                                <Key className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">Google Gemini API Key</Label>
                             </div>
-                            <div className="mb-4 text-xs text-slate-500">
+                            <div className="mb-4 text-xs text-slate-500 dark:text-slate-400">
                                 在「国际版」下输入自己的 Google API Key 进行生图，不消耗积分。不输入则使用系统默认 Key（消耗积分）。
                             </div>
 
                             {/* 当前状态显示 */}
-                            <div className="p-3 mb-4 border rounded-xl bg-slate-50 border-slate-100">
+                            <div className="p-3 mb-4 border rounded-xl bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800">
                                 <div className="flex items-center justify-between">
-                                    <div className="text-xs text-slate-600">
+                                    <div className="text-xs text-slate-600 dark:text-slate-400">
                                         当前模式：
                                         <span className={cn(
                                             "ml-1 font-medium",
-                                            googleApiKeyInfo.mode === 'custom' ? "text-green-600" : "text-blue-600"
+                                            googleApiKeyInfo.mode === 'custom' ? "text-green-600 dark:text-green-400" : "text-blue-600 dark:text-blue-400"
                                         )}>
                                             {googleApiKeyInfo.mode === 'custom' ? '使用自定义 Key' : '使用系统默认 Key'}
                                         </span>
                                     </div>
                                     {googleApiKeyInfo.hasCustomKey && googleApiKeyInfo.maskedKey && (
-                                        <div className="font-mono text-xs text-slate-500">
+                                        <div className="font-mono text-xs text-slate-500 dark:text-slate-400">
                                             {googleApiKeyInfo.maskedKey}
                                         </div>
                                     )}
@@ -942,7 +975,7 @@ const FloatingHeader: React.FC = () => {
                                         onChange={(e) => setGoogleApiKeyInput(e.target.value)}
                                         placeholder={googleApiKeyInfo.hasCustomKey ? '输入新的 Key 以更新...' : '输入 Google Gemini API Key...'}
                                         variant="settings"
-                                        className="pr-10 font-mono"
+                                        className="pr-10 font-mono dark:bg-slate-800 dark:border-slate-700"
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter' && googleApiKeyInput.trim()) {
                                                 handleSaveGoogleApiKey();
@@ -953,7 +986,7 @@ const FloatingHeader: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setShowGoogleApiKey(!showGoogleApiKey)}
-                                        className="absolute p-1 -translate-y-1/2 right-2 top-1/2 text-slate-400 hover:text-slate-600"
+                                        className="absolute p-1 -translate-y-1/2 right-2 top-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                                         title={showGoogleApiKey ? '隐藏' : '显示'}
                                     >
                                         {showGoogleApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -964,7 +997,7 @@ const FloatingHeader: React.FC = () => {
                                     <Button
                                         size="md"
                                         className={cn(
-                                            "flex-1 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800",
+                                            "flex-1 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200",
                                             googleApiKeySaving && "opacity-70"
                                         )}
                                         disabled={googleApiKeySaving || !googleApiKeyInput.trim()}
@@ -977,7 +1010,7 @@ const FloatingHeader: React.FC = () => {
                                             variant="outline"
                                             size="sm"
                                             className={cn(
-                                                "rounded-lg text-sm border-red-200 text-red-600 hover:bg-red-50",
+                                                "rounded-lg text-sm border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20",
                                                 googleApiKeySaving && "opacity-70"
                                             )}
                                             disabled={googleApiKeySaving}
@@ -990,10 +1023,10 @@ const FloatingHeader: React.FC = () => {
 
                                 {/* 反馈信息 */}
                                 {googleApiKeyFeedback === 'success' && (
-                                    <div className="text-xs text-green-600">已保存</div>
+                                    <div className="text-xs text-green-600 dark:text-green-400">已保存</div>
                                 )}
                                 {googleApiKeyFeedback === 'error' && (
-                                    <div className="text-xs text-red-600">保存失败，请重试</div>
+                                    <div className="text-xs text-red-600 dark:text-red-400">保存失败，请重试</div>
                                 )}
                             </div>
                         </div>
@@ -1003,13 +1036,13 @@ const FloatingHeader: React.FC = () => {
                 return (
                     <div className="pb-6 space-y-6">
                         {import.meta.env.DEV && (
-                            <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                    <Label className="text-sm font-medium text-slate-700">内存监控</Label>
-                                    <div className="mt-1 text-xs text-slate-500">仅开发模式可用的调试工具</div>
+                                    <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">内存监控</Label>
+                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">仅开发模式可用的调试工具</div>
                                 </div>
                                 <Button
-                                    className="text-sm text-white rounded-lg bg-slate-900 hover:bg-slate-800"
+                                    className="text-sm text-white rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                                     onClick={() => setShowMemoryDebug(!showMemoryDebug)}
                                 >
                                     <Activity className="w-4 h-4 mr-2" />
@@ -1018,13 +1051,13 @@ const FloatingHeader: React.FC = () => {
                             </div>
                         )}
                         {import.meta.env.DEV && (
-                            <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                    <Label className="text-sm font-medium text-slate-700">历史记录调试</Label>
-                                    <div className="mt-1 text-xs text-slate-500">查看撤销/重做栈内容与快照详情</div>
+                                    <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">历史记录调试</Label>
+                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">查看撤销/重做栈内容与快照详情</div>
                                 </div>
                                 <Button
-                                    className="text-sm text-white rounded-lg bg-slate-900 hover:bg-slate-800"
+                                    className="text-sm text-white rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                                     onClick={() => setShowHistoryDebug(!showHistoryDebug)}
                                 >
                                     <History className="w-4 h-4 mr-2" />
@@ -1032,13 +1065,13 @@ const FloatingHeader: React.FC = () => {
                                 </Button>
                             </div>
                         )}
-                        <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <Label className="text-sm font-medium text-slate-700">Paper.js 沙盒</Label>
-                                <div className="mt-1 text-xs text-slate-500">打开 Paper.js 代码调试工作台</div>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">Paper.js 沙盒</Label>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">打开 Paper.js 代码调试工作台</div>
                             </div>
                             <Button
-                                className="text-sm text-white rounded-lg bg-slate-900 hover:bg-slate-800"
+                                className="text-sm text-white rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                                 onClick={() => {
                                     const { toggleSandboxPanel } = useUIStore.getState();
                                     toggleSandboxPanel();
@@ -1049,14 +1082,14 @@ const FloatingHeader: React.FC = () => {
                                 打开沙盒
                             </Button>
                         </div>
-                        <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 bg-white/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-3 p-5 border shadow-sm rounded-2xl border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <Label className="text-sm font-medium text-slate-700">退出登录</Label>
-                                <div className="mt-1 text-xs text-slate-500">注销当前账号并返回登录页</div>
+                                <Label className="text-sm font-medium text-slate-700 dark:text-slate-200">退出登录</Label>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">注销当前账号并返回登录页</div>
                             </div>
                             <Button
                                 className={cn(
-                                    "rounded-lg text-sm bg-red-500 text-white hover:bg-red-600",
+                                    "rounded-lg text-sm bg-red-500 text-white hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700",
                                     loading ? "opacity-70" : ""
                                 )}
                                 disabled={loading}
@@ -1094,18 +1127,19 @@ return (
                         src="/LogoText.svg"
                         alt="Logo"
                         draggable="false"
+                        className="dark:invert dark:brightness-200"
                         style={{ imageRendering: 'auto', WebkitFontSmoothing: 'antialiased' }}
                     />
                 </div>
                 {/* 分隔线 */}
-                <div className="w-px h-5 bg-gray-300/40" />
+                <div className="w-px h-5 bg-gray-300/40 dark:bg-slate-700/50" />
 
                 {/* 项目名称与快速切换 */}
                 <div className="items-center hidden gap-1 sm:flex">
                     {editingTitle ? (
                         <input
                             autoFocus
-                            className="h-6 text-sm px-2 rounded border border-slate-300 bg-white/90 min-w-[200px] max-w-[380px]"
+                            className="h-6 text-sm px-2 rounded border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-800/90 text-slate-900 dark:text-slate-100 min-w-[200px] max-w-[380px] focus:outline-none focus:ring-1 focus:ring-blue-500"
                             value={titleInput}
                             onChange={(e) => setTitleInput(e.target.value)}
                             onBlur={commitTitle}
@@ -1118,16 +1152,16 @@ return (
                     ) : (
                         <DropdownMenu>
                             <DropdownMenuTrigger
-                                className="flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none hover:bg-slate-100"
+                                className="flex items-center gap-1 px-2 py-1 transition-colors bg-transparent border-none rounded-full cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-800/60"
                                 onDoubleClick={(event) => {
                                     event.preventDefault();
                                     event.stopPropagation();
                                     setEditingTitle(true);
                                 }}
                             >
-                                <ChevronDown className="w-4 h-4 text-slate-500" />
+                                <ChevronDown className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                                 <span
-                                    className="truncate text-sm text-gray-800 max-w-[260px]"
+                                    className="truncate text-sm text-gray-800 dark:text-slate-200 max-w-[260px]"
                                     title="双击重命名"
                                 >
                                     {currentProject?.name || '未命名'}
@@ -1136,15 +1170,15 @@ return (
                             <DropdownMenuContent
                                 align="start"
                                 sideOffset={12}
-                                className="min-w-[220px] rounded-xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg overflow-hidden"
+                                className="min-w-[220px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 py-1.5 shadow-lg dark:shadow-2xl overflow-hidden"
                             >
-                                <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-medium text-slate-400">
+                                <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">
                                     切换项目
                                 </DropdownMenuLabel>
-                                <DropdownMenuSeparator className="mb-1" />
+                                <DropdownMenuSeparator className="mb-1 dark:bg-slate-800" />
                                 <div className="max-h-[340px] overflow-y-auto space-y-0.5">
                                 {recentProjects.length === 0 ? (
-                                    <DropdownMenuItem disabled className="cursor-default text-slate-400">
+                                    <DropdownMenuItem disabled className="cursor-default text-slate-400 dark:text-slate-600">
                                         暂无项目
                                     </DropdownMenuItem>
                                 ) : (
@@ -1155,25 +1189,25 @@ return (
                                                     event.preventDefault();
                                                     handleQuickSwitch(project.id);
                                                 }}
-                                                className="flex items-center justify-between gap-3 px-2 py-1 text-sm"
+                                                className="flex items-center justify-between gap-3 px-2 py-1 text-sm dark:focus:bg-slate-800"
                                             >
-                                                <span className="truncate text-slate-700">
+                                                <span className="truncate text-slate-700 dark:text-slate-300">
                                                     {project.name || '未命名'}
                                                 </span>
                                                 {project.id === currentProject?.id && (
-                                                    <Check className="w-4 h-4 text-blue-600" />
+                                                    <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                                 )}
                                             </DropdownMenuItem>
                                         ))
                                     )}
                                 </div>
-                                <DropdownMenuSeparator className="my-1" />
+                                <DropdownMenuSeparator className="my-1 dark:bg-slate-800" />
                                 <DropdownMenuItem
                                     onClick={(event) => {
                                         event.preventDefault();
                                         openModal();
                                     }}
-                                    className="flex items-center gap-2 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
+                                    className="flex items-center gap-2 px-2 py-1 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 dark:focus:bg-slate-800"
                                 >
                                     <FolderOpen className="w-4 h-4" />
                                     打开/管理文件
@@ -1183,7 +1217,7 @@ return (
                                         event.preventDefault();
                                         await create();
                                     }}
-                                    className="flex items-center justify-between gap-3 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
+                                    className="flex items-center justify-between gap-3 px-2 py-1 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 dark:focus:bg-slate-800"
                                 >
                                     <span className="flex items-center gap-2">
                                         <span className="inline-flex items-center justify-center w-4 h-4 text-xs border border-current rounded-full">+</span>
@@ -1289,15 +1323,15 @@ return (
 
             {isSettingsOpen && typeof document !== 'undefined' && createPortal(
                 <div
-                    className="fixed inset-0 z-[1000] flex items-center justify-center bg-transparent px-4"
+                    className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/5 dark:bg-black/20 backdrop-blur-sm px-4"
                     onClick={() => setIsSettingsOpen(false)}
                 >
                     <div
-                        className="relative flex h-[90vh] max-h-[700px] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_32px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl"
+                        className="relative flex h-[90vh] max-h-[700px] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200/80 dark:border-slate-700/50 bg-white/95 dark:bg-slate-900/95 shadow-[0_32px_80px_rgba(15,23,42,0.18)] backdrop-blur-xl"
                         onClick={(event) => event.stopPropagation()}
                     >
                         <div className="flex flex-1 h-full pt-4 overflow-hidden sm:pt-0">
-                            <aside className="hidden w-56 h-full py-6 pr-2 border-r shrink-0 border-slate-200/80 bg-white/95 sm:flex sm:flex-col">
+                            <aside className="hidden w-56 h-full py-6 pr-2 border-r shrink-0 border-slate-200/80 dark:border-slate-700/50 bg-white/95 dark:bg-slate-900/95 sm:flex sm:flex-col">
                                 {SETTINGS_SECTIONS.map((section) => {
                                     const Icon = section.icon;
                                     const isActive = activeSettingsSection === section.id;
@@ -1309,8 +1343,8 @@ return (
                                             className={cn(
                                                 "mx-3 mb-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors border",
                                                 isActive
-                                                    ? "bg-[#3a4c64] text-white border-[#3a4c64] shadow-sm"
-                                                    : "text-slate-600 hover:bg-slate-50 border-transparent"
+                                                    ? "bg-[#3a4c64] dark:bg-blue-600 text-white border-[#3a4c64] dark:border-blue-600 shadow-sm"
+                                                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border-transparent"
                                             )}
                                         >
                                             <Icon className="w-4 h-4" />
@@ -1332,8 +1366,8 @@ return (
                                                 className={cn(
                                                     "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors",
                                                     isActive
-                                                        ? "border-[#3a4c64] bg-[#3a4c64] text-white shadow-sm"
-                                                        : "border-slate-200 bg-white/90 text-slate-600"
+                                                        ? "border-[#3a4c64] dark:border-blue-600 bg-[#3a4c64] dark:bg-blue-600 text-white shadow-sm"
+                                                        : "border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-400"
                                                 )}
                                             >
                                                 <Icon className="w-3 h-3" />
