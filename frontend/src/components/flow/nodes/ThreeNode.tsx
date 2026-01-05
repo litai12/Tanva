@@ -150,7 +150,33 @@ function ThreeNodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
-    return () => { clearTimeout(t); if (renderPendingRef.current) cancelAnimationFrame(renderPendingRef.current); };
+    return () => {
+      clearTimeout(t);
+      if (renderPendingRef.current) cancelAnimationFrame(renderPendingRef.current);
+      
+      // 🔥 彻底销毁 Three.js 资源，防止 OOM
+      if (rendererRef.current) {
+        rendererRef.current.dispose();
+        rendererRef.current.forceContextLoss();
+        rendererRef.current.domElement.remove();
+      }
+      if (sceneRef.current) {
+        sceneRef.current.traverse((object) => {
+          if (object instanceof THREE.Mesh) {
+            object.geometry?.dispose();
+            if (Array.isArray(object.material)) {
+              object.material.forEach(mat => mat.dispose());
+            } else {
+              object.material?.dispose();
+            }
+          }
+        });
+        sceneRef.current.clear();
+      }
+      if (controlsRef.current) {
+        controlsRef.current.dispose();
+      }
+    };
   }, [initIfNeeded]);
 
   const onResize = (w: number, h: number) => {
