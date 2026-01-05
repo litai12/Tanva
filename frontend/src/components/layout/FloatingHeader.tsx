@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioCard } from '@/components/ui/radio-group';
+import { ToggleButtonGroup } from '@/components/ui/segmented-control';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
     LogOut,
@@ -708,7 +709,6 @@ const FloatingHeader: React.FC = () => {
                                 <Switch
                                     checked={showGrid}
                                     onCheckedChange={toggleGrid}
-                                    className="border-slate-200 bg-slate-100 data-[state=unchecked]:bg-slate-200"
                                 />
                             </div>
 
@@ -720,23 +720,25 @@ const FloatingHeader: React.FC = () => {
                                 <Switch
                                     checked={snapAlignmentEnabled}
                                     onCheckedChange={toggleSnapAlignment}
-                                    className="border-slate-200 bg-slate-100 data-[state=unchecked]:bg-slate-200"
                                 />
                             </div>
 
-                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
                                 <Label className="text-sm font-medium text-slate-700">网格样式</Label>
-                                <ToggleGroup
-                                    type="single"
-                                    value={gridStyle}
-                                    onValueChange={(val) => val && setGridStyle(val as GridStyle)}
-                                >
-                                    <ToggleGroupItem value={GridStyle.LINES}>网格</ToggleGroupItem>
-                                    <ToggleGroupItem value={GridStyle.SOLID}>纯色</ToggleGroupItem>
-                                </ToggleGroup>
+                                <div className="mt-3">
+                                    <ToggleButtonGroup
+                                        options={[
+                                            { value: GridStyle.LINES, label: '网格' },
+                                            { value: GridStyle.SOLID, label: '纯色' }
+                                        ]}
+                                        value={gridStyle}
+                                        onValueChange={(val) => setGridStyle(val as GridStyle)}
+                                        size="sm"
+                                    />
+                                </div>
                             </div>
 
-                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
                                 <Label className="text-sm font-medium text-slate-700">网格间距(px)</Label>
                                 <Input
                                     type="number"
@@ -751,7 +753,7 @@ const FloatingHeader: React.FC = () => {
                                         if (e.key === 'Escape') setGridSizeInput(String(gridSize));
                                         e.stopPropagation();
                                     }}
-                                    className="w-24"
+                                    className="mt-2"
                                 />
                             </div>
                         </div>
@@ -847,7 +849,6 @@ const FloatingHeader: React.FC = () => {
                             <Switch
                                 checked={imageOnly}
                                 onCheckedChange={setImageOnly}
-                                className="border-slate-200 bg-slate-100 data-[state=unchecked]:bg-slate-200"
                             />
                         </div>
 
@@ -1307,10 +1308,10 @@ return (
                                             type="button"
                                             onClick={() => setActiveSettingsSection(section.id)}
                                             className={cn(
-                                                "mx-3 mb-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors border",
+                                                "mx-3 mb-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors",
                                                 isActive
-                                                    ? "bg-[#3a4c64] text-white border-[#3a4c64] shadow-sm"
-                                                    : "text-slate-600 hover:bg-slate-50 border-transparent"
+                                                    ? "bg-white text-blue-600 shadow-sm"
+                                                    : "text-slate-600 hover:bg-white/70"
                                             )}
                                         >
                                             <Icon className="w-4 h-4" />
@@ -1332,7 +1333,7 @@ return (
                                                 className={cn(
                                                     "flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors",
                                                     isActive
-                                                        ? "border-[#3a4c64] bg-[#3a4c64] text-white shadow-sm"
+                                                        ? "border-gray-800 bg-gray-800 text-white shadow-sm"
                                                         : "border-slate-200 bg-white/90 text-slate-600"
                                                 )}
                                             >
