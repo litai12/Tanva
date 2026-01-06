@@ -5128,6 +5128,15 @@ function FlowInner() {
         imageDatas = collectImages(imgEdges);
       }
 
+      console.log(`[Flow Debug] Node ${nodeId} (${node.type}) 准备运行:`, {
+        prompt: prompt.substring(0, 50) + "...",
+        imageDatasCount: imageDatas.length,
+        imageDatas: imageDatas.map((img) => img?.substring(0, 50) + "..."),
+        imgEdges: currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "img")
+          .map((e) => ({ source: e.source, handle: e.targetHandle })),
+      });
+
       const aspectRatioValue = (() => {
         const raw = (node.data as any)?.aspectRatio;
         return typeof raw === "string" && raw.trim().length
