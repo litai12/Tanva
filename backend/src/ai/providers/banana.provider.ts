@@ -1,5 +1,9 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   IAIProvider,
   ImageGenerationRequest,
@@ -15,43 +19,43 @@ import {
   TextResult,
   ToolSelectionResult,
   PaperJSResult,
-} from './ai-provider.interface';
+} from "./ai-provider.interface";
 
 const DEFAULT_TOOLS = [
-  'generateImage',
-  'editImage',
-  'blendImages',
-  'analyzeImage',
-  'chatResponse',
-  'generateVideo',
-  'generatePaperJS',
+  "generateImage",
+  "editImage",
+  "blendImages",
+  "analyzeImage",
+  "chatResponse",
+  "generateVideo",
+  "generatePaperJS",
 ] as const;
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
-  generateImage: '生成新的图像',
-  editImage: '编辑现有图像',
-  blendImages: '融合多张图像',
-  analyzeImage: '分析图像内容',
-  chatResponse: '文本对话或聊天',
-  generateVideo: '生成视频',
-  generatePaperJS: '生成 Paper.js 矢量图形代码',
+  generateImage: "生成新的图像",
+  editImage: "编辑现有图像",
+  blendImages: "融合多张图像",
+  analyzeImage: "分析图像内容",
+  chatResponse: "文本对话或聊天",
+  generateVideo: "生成视频",
+  generatePaperJS: "生成 Paper.js 矢量图形代码",
 };
 
 const VECTOR_KEYWORDS = [
-  '矢量',
-  '矢量图',
-  '矢量化',
-  'vector',
-  'vectorize',
-  'vectorization',
-  'svg',
-  'paperjs',
-  'paper.js',
-  'svg path',
-  '路径代码',
-  'path code',
-  'vector graphic',
-  'vectorgraphics',
+  "矢量",
+  "矢量图",
+  "矢量化",
+  "vector",
+  "vectorize",
+  "vectorization",
+  "svg",
+  "paperjs",
+  "paper.js",
+  "svg path",
+  "路径代码",
+  "path code",
+  "vector graphic",
+  "vectorgraphics",
 ];
 
 /**
@@ -63,37 +67,37 @@ const VECTOR_KEYWORDS = [
 export class BananaProvider implements IAIProvider {
   private readonly logger = new Logger(BananaProvider.name);
   private apiKey: string | null = null;
-  private readonly apiBaseUrl = 'https://api1.147ai.com/v1beta/models';
-  private readonly DEFAULT_MODEL = 'gemini-3-pro-image-preview';
+  private readonly apiBaseUrl = "https://api1.147ai.com/v1beta/models";
+  private readonly DEFAULT_MODEL = "gemini-3-pro-image-preview";
   private readonly DEFAULT_TIMEOUT = 300000; // 5分钟
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
 
   // 降级模型映射：Pro模型 -> 2.5模型（与国内极速版一致）
   private readonly FALLBACK_MODELS: Record<string, string> = {
-    'gemini-3-pro-image-preview': 'gemini-2.5-flash-image',
-    'gemini-3-pro-preview': 'gemini-2.5-flash',
-    'banana-gemini-3-pro-preview': 'gemini-2.5-flash',
-    'banana-gemini-3-pro-image-preview': 'gemini-2.5-flash-image',
+    "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
+    "gemini-3-pro-preview": "gemini-2.5-flash",
+    "banana-gemini-3-pro-preview": "gemini-2.5-flash",
+    "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
   };
 
   constructor(private readonly config: ConfigService) {}
 
   async initialize(): Promise<void> {
-    this.apiKey = this.config.get<string>('BANANA_API_KEY') ?? null;
+    this.apiKey = this.config.get<string>("BANANA_API_KEY") ?? null;
 
     if (!this.apiKey) {
-      this.logger.warn('Banana API key not configured.');
+      this.logger.warn("Banana API key not configured.");
       return;
     }
 
-    this.logger.log('Banana API provider initialized successfully');
+    this.logger.log("Banana API provider initialized successfully");
   }
 
   private ensureApiKey(): string {
     if (!this.apiKey) {
       throw new ServiceUnavailableException(
-        '147 API key not configured on the server.'
+        "147 API key not configured on the server."
       );
     }
     return this.apiKey;
@@ -102,7 +106,7 @@ export class BananaProvider implements IAIProvider {
   private normalizeModelName(model: string): string {
     // 移除banana-前缀，确保API能识别模型名称
     // banana-gemini-3-pro-image-preview -> gemini-3-pro-image-preview
-    return model.startsWith('banana-') ? model.substring(7) : model;
+    return model.startsWith("banana-") ? model.substring(7) : model;
   }
 
   /**
@@ -115,17 +119,17 @@ export class BananaProvider implements IAIProvider {
   private shouldFallback(error: Error): boolean {
     const message = error.message.toLowerCase();
     return (
-      message.includes('500') ||
-      message.includes('502') ||
-      message.includes('503') ||
-      message.includes('504') ||
-      message.includes('timeout') ||
-      message.includes('model') && message.includes('not') ||
-      message.includes('unavailable') ||
-      message.includes('rate limit') ||
-      message.includes('quota') ||
-      message.includes('overloaded') ||
-      message.includes('capacity')
+      message.includes("500") ||
+      message.includes("502") ||
+      message.includes("503") ||
+      message.includes("504") ||
+      message.includes("timeout") ||
+      (message.includes("model") && message.includes("not")) ||
+      message.includes("unavailable") ||
+      message.includes("rate limit") ||
+      message.includes("quota") ||
+      message.includes("overloaded") ||
+      message.includes("capacity")
     );
   }
 
@@ -136,17 +140,21 @@ export class BananaProvider implements IAIProvider {
    */
   private getFallbackModel(currentModel: string): string | null {
     const normalized = this.normalizeModelName(currentModel);
-    return this.FALLBACK_MODELS[normalized] || this.FALLBACK_MODELS[currentModel] || null;
+    return (
+      this.FALLBACK_MODELS[normalized] ||
+      this.FALLBACK_MODELS[currentModel] ||
+      null
+    );
   }
 
   private inferMimeTypeFromBase64(data: string): string {
     const headerChecks = [
-      { prefix: 'iVBORw0KGgo', mime: 'image/png' },
-      { prefix: '/9j/', mime: 'image/jpeg' },
-      { prefix: 'R0lGOD', mime: 'image/gif' },
-      { prefix: 'UklGR', mime: 'image/webp' },
-      { prefix: 'Qk', mime: 'image/bmp' },
-      { prefix: 'JVBERi', mime: 'application/pdf' }, // PDF 文件 (%PDF-)
+      { prefix: "iVBORw0KGgo", mime: "image/png" },
+      { prefix: "/9j/", mime: "image/jpeg" },
+      { prefix: "R0lGOD", mime: "image/gif" },
+      { prefix: "UklGR", mime: "image/webp" },
+      { prefix: "Qk", mime: "image/bmp" },
+      { prefix: "JVBERi", mime: "application/pdf" }, // PDF 文件 (%PDF-)
     ];
 
     const head = data.substring(0, 20);
@@ -156,10 +164,13 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    return 'image/png';
+    return "image/png";
   }
 
-  private async normalizeFileInputAsync(fileInput: string, context: string): Promise<{ data: string; mimeType: string }> {
+  private async normalizeFileInputAsync(
+    fileInput: string,
+    context: string
+  ): Promise<{ data: string; mimeType: string }> {
     if (!fileInput || fileInput.trim().length === 0) {
       throw new Error(`${context} file payload is empty`);
     }
@@ -167,35 +178,52 @@ export class BananaProvider implements IAIProvider {
     let trimmed = fileInput.trim();
 
     // 添加调试日志
-    this.logger.debug(`[normalizeFileInputAsync] ${context}: input length=${trimmed.length}, starts with: ${trimmed.substring(0, 80)}...`);
+    this.logger.debug(
+      `[normalizeFileInputAsync] ${context}: input length=${
+        trimmed.length
+      }, starts with: ${trimmed.substring(0, 80)}...`
+    );
 
     // 🔥 修复：处理前端错误格式 data:image/xxx;base64,https://...
     // 前端可能错误地将 URL 包装成 data URL 格式
-    const malformedDataUrlMatch = trimmed.match(/^data:image\/[\w.+-]+;base64,(https?:\/\/.+)$/i);
+    const malformedDataUrlMatch = trimmed.match(
+      /^data:image\/[\w.+-]+;base64,(https?:\/\/.+)$/i
+    );
     if (malformedDataUrlMatch) {
-      this.logger.warn(`[normalizeFileInputAsync] Detected malformed data URL with embedded HTTP URL, extracting URL...`);
+      this.logger.warn(
+        `[normalizeFileInputAsync] Detected malformed data URL with embedded HTTP URL, extracting URL...`
+      );
       trimmed = malformedDataUrlMatch[1];
     }
 
     // 支持 HTTP/HTTPS URL - 自动下载并转换为 Base64
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      this.logger.log(`[normalizeFileInputAsync] Fetching image from URL for ${context}: ${trimmed.substring(0, 100)}...`);
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+      this.logger.log(
+        `[normalizeFileInputAsync] Fetching image from URL for ${context}: ${trimmed.substring(
+          0,
+          100
+        )}...`
+      );
       try {
         const response = await fetch(trimmed, {
           headers: {
-            'User-Agent': 'Tanva-AI-Backend/1.0',
+            "User-Agent": "Tanva-AI-Backend/1.0",
           },
         });
         if (!response.ok) {
-          throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+          throw new Error(
+            `Failed to fetch image: ${response.status} ${response.statusText}`
+          );
         }
-        const contentType = response.headers.get('content-type') || 'image/png';
+        const contentType = response.headers.get("content-type") || "image/png";
         const arrayBuffer = await response.arrayBuffer();
-        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+        const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
         // 从 content-type 提取 mimeType
-        const mimeType = contentType.split(';')[0].trim();
-        this.logger.log(`[normalizeFileInputAsync] Fetched image successfully: ${base64Data.length} chars, mimeType: ${mimeType}`);
+        const mimeType = contentType.split(";")[0].trim();
+        this.logger.log(
+          `[normalizeFileInputAsync] Fetched image successfully: ${base64Data.length} chars, mimeType: ${mimeType}`
+        );
 
         return {
           data: base64Data,
@@ -203,29 +231,40 @@ export class BananaProvider implements IAIProvider {
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`[normalizeFileInputAsync] Failed to fetch ${context} image from URL: ${message}`);
-        throw new Error(`Failed to fetch ${context} image from URL: ${message}`);
+        this.logger.error(
+          `[normalizeFileInputAsync] Failed to fetch ${context} image from URL: ${message}`
+        );
+        throw new Error(
+          `Failed to fetch ${context} image from URL: ${message}`
+        );
       }
     }
 
     // 支持 data:image/* 和 data:application/pdf 格式
-    if (trimmed.startsWith('data:image/') || trimmed.startsWith('data:application/pdf')) {
-      const match = trimmed.match(/^data:((?:image\/[\w.+-]+)|(?:application\/pdf));base64,(.+)$/i);
+    if (
+      trimmed.startsWith("data:image/") ||
+      trimmed.startsWith("data:application/pdf")
+    ) {
+      const match = trimmed.match(
+        /^data:((?:image\/[\w.+-]+)|(?:application\/pdf));base64,(.+)$/i
+      );
       if (!match) {
         throw new Error(`Invalid data URL format for ${context} file`);
       }
 
       const [, mimeType, base64Data] = match;
-      const sanitized = base64Data.replace(/\s+/g, '');
+      const sanitized = base64Data.replace(/\s+/g, "");
 
       return {
         data: sanitized,
-        mimeType: mimeType || 'image/png',
+        mimeType: mimeType || "image/png",
       };
     }
 
-    const withoutQuotes = trimmed.replace(/^"+|"+$/g, '').replace(/^'+|'+$/g, '');
-    const sanitized = withoutQuotes.replace(/\s+/g, '');
+    const withoutQuotes = trimmed
+      .replace(/^"+|"+$/g, "")
+      .replace(/^'+|'+$/g, "");
+    const sanitized = withoutQuotes.replace(/\s+/g, "");
     const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
 
     if (!base64Regex.test(sanitized)) {
@@ -239,7 +278,6 @@ export class BananaProvider implements IAIProvider {
       mimeType: this.inferMimeTypeFromBase64(sanitized),
     };
   }
-
 
   private async withRetry<T>(
     operation: () => Promise<T>,
@@ -263,7 +301,9 @@ export class BananaProvider implements IAIProvider {
 
         if (attempt < maxRetries) {
           // 使用递增延迟
-          const delay = this.RETRY_DELAYS[attempt - 1] || this.RETRY_DELAYS[this.RETRY_DELAYS.length - 1];
+          const delay =
+            this.RETRY_DELAYS[attempt - 1] ||
+            this.RETRY_DELAYS[this.RETRY_DELAYS.length - 1];
           this.logger.warn(
             `${operationType} attempt ${attempt} failed: ${lastError.message}, retrying in ${delay}ms...`
           );
@@ -283,10 +323,7 @@ export class BananaProvider implements IAIProvider {
     operationType?: string
   ): Promise<T> {
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error('Request timeout')),
-        timeoutMs
-      )
+      setTimeout(() => reject(new Error("Request timeout")), timeoutMs)
     );
 
     const startTime = Date.now();
@@ -294,12 +331,16 @@ export class BananaProvider implements IAIProvider {
     try {
       const result = await Promise.race([promise, timeoutPromise]);
       const duration = Date.now() - startTime;
-      this.logger.log(`${operationType || 'API call'} succeeded in ${duration}ms`);
+      this.logger.log(
+        `${operationType || "API call"} succeeded in ${duration}ms`
+      );
       return result;
     } catch (error) {
       const duration = Date.now() - startTime;
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.error(`${operationType || 'API call'} failed after ${duration}ms: ${message}`);
+      this.logger.error(
+        `${operationType || "API call"} failed after ${duration}ms: ${message}`
+      );
       throw error;
     }
   }
@@ -308,7 +349,8 @@ export class BananaProvider implements IAIProvider {
     // 已经是完整的 content 结构时直接返回
     if (Array.isArray(input)) {
       const allContentObjects = input.every(
-        (item) => item && typeof item === 'object' && 'role' in item && 'parts' in item
+        (item) =>
+          item && typeof item === "object" && "role" in item && "parts" in item
       );
 
       if (allContentObjects) {
@@ -316,28 +358,33 @@ export class BananaProvider implements IAIProvider {
       }
 
       const parts = input.map((part) => {
-        if (typeof part === 'string') {
+        if (typeof part === "string") {
           return { text: part };
         }
 
-        if (part && typeof part === 'object' && !('role' in part) && !('parts' in part)) {
+        if (
+          part &&
+          typeof part === "object" &&
+          !("role" in part) &&
+          !("parts" in part)
+        ) {
           return part;
         }
 
         return { text: String(part) };
       });
 
-      return [{ role: 'user', parts }];
+      return [{ role: "user", parts }];
     }
 
-    if (input && typeof input === 'object') {
-      if ('role' in input && 'parts' in input) {
+    if (input && typeof input === "object") {
+      if ("role" in input && "parts" in input) {
         return [input];
       }
 
       return [
         {
-          role: 'user',
+          role: "user",
           parts: [input],
         },
       ];
@@ -345,10 +392,10 @@ export class BananaProvider implements IAIProvider {
 
     return [
       {
-        role: 'user',
+        role: "user",
         parts: [
           {
-            text: typeof input === 'string' ? input : String(input),
+            text: typeof input === "string" ? input : String(input),
           },
         ],
       },
@@ -357,7 +404,7 @@ export class BananaProvider implements IAIProvider {
 
   private sanitizeApiKey(apiKey: string): string {
     // 147 API 要求直接使用 sk- 开头的密钥，如果误带 Bearer 则去掉
-    return apiKey.replace(/^Bearer\s+/i, '').trim();
+    return apiKey.replace(/^Bearer\s+/i, "").trim();
   }
 
   private async makeRequest(
@@ -369,43 +416,46 @@ export class BananaProvider implements IAIProvider {
     const url = `${this.apiBaseUrl}/${model}:generateContent`;
 
     const headers = {
-      'Authorization': this.sanitizeApiKey(apiKey),
-      'Content-Type': 'application/json',
+      Authorization: this.sanitizeApiKey(apiKey),
+      "Content-Type": "application/json",
     };
 
     // 构建请求体，更好地支持Gemini API格式
+    // 147 API 可能不支持 safetySettings，暂时移除
     const body: any = {
       contents: this.buildContents(contents),
-      safetySettings: [
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
-      ],
     };
 
     // 添加生成配置
     if (config) {
-      body.generationConfig = {};
-      if (config.responseModalities) {
-        body.generationConfig.responseModalities = config.responseModalities;
-      }
-      if (config.imageConfig) {
-        body.generationConfig.imageConfig = config.imageConfig;
-      }
+      // generationConfig 只包含 thinking_level
       if (config.thinking_level) {
-        body.generationConfig.thinking_level = config.thinking_level;
+        body.generationConfig = {
+          thinking_level: config.thinking_level,
+        };
       }
+
+      // imageConfig 应该是顶级参数
+      if (config.imageConfig) {
+        body.imageConfig = config.imageConfig;
+      }
+
+      // responseModalities 应该是顶级参数
+      if (config.responseModalities) {
+        body.responseModalities = config.responseModalities;
+      }
+
       if (config.tools) {
         body.tools = config.tools;
       }
     }
 
-    this.logger.debug(`Making request to ${url}`, { body: JSON.stringify(body).substring(0, 200) });
+    this.logger.debug(`Making request to ${url}`, {
+      body: JSON.stringify(body).substring(0, 200),
+    });
 
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers,
       body: JSON.stringify(body),
     });
@@ -419,7 +469,7 @@ export class BananaProvider implements IAIProvider {
     }
 
     const data = await response.json();
-    return this.parseResponse(data, 'API call');
+    return this.parseResponse(data, "API call");
   }
 
   private parseResponse(
@@ -428,25 +478,30 @@ export class BananaProvider implements IAIProvider {
   ): { imageBytes: string | null; textResponse: string } {
     this.logger.debug(`Parsing ${operationType} response...`);
 
-    let textResponse: string = '';
+    let textResponse: string = "";
     let imageBytes: string | null = null;
 
     try {
       if (data?.candidates?.[0]?.content?.parts) {
         const parts = data.candidates[0].content.parts;
         for (const part of parts) {
-          if (part.text && typeof part.text === 'string') {
+          if (part.text && typeof part.text === "string") {
             textResponse += part.text;
           }
 
-          if (part.inlineData?.data && typeof part.inlineData.data === 'string') {
-            imageBytes = part.inlineData.data.replace(/\s+/g, '');
+          if (
+            part.inlineData?.data &&
+            typeof part.inlineData.data === "string"
+          ) {
+            imageBytes = part.inlineData.data.replace(/\s+/g, "");
           }
         }
       }
 
       this.logger.log(
-        `${operationType} parsing completed: text: ${textResponse.length} chars, has image: ${!!imageBytes}`
+        `${operationType} parsing completed: text: ${
+          textResponse.length
+        } chars, has image: ${!!imageBytes}`
       );
 
       return { imageBytes: imageBytes || null, textResponse };
@@ -459,61 +514,85 @@ export class BananaProvider implements IAIProvider {
   async generateImage(
     request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    this.logger.log(`Generating image with prompt: ${request.prompt.substring(0, 50)}...`);
+    this.logger.log(
+      `Generating image with prompt: ${request.prompt.substring(0, 50)}...`
+    );
 
-    const originalModel = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    const originalModel = this.normalizeModelName(
+      request.model || this.DEFAULT_MODEL
+    );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
     for (let round = 0; round < 2; round++) {
       try {
-        this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
-
-        const result = await this.withRetry(
-          async () => {
-            return await this.withTimeout(
-              (async () => {
-                const config: any = {
-                  responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
-                };
-
-                // 配置 imageConfig（aspectRatio 和 imageSize）
-                if (request.aspectRatio || request.imageSize) {
-                  config.imageConfig = {};
-                  if (request.aspectRatio) {
-                    config.imageConfig.aspectRatio = request.aspectRatio;
-                  }
-                  if (request.imageSize) {
-                    config.imageConfig.imageSize = request.imageSize;
-                  }
-                }
-
-                // 配置 thinking_level（Gemini 3 特性，降级后不使用）
-                if (request.thinkingLevel && !usedFallback) {
-                  config.thinking_level = request.thinkingLevel;
-                }
-
-                return await this.makeRequest(currentModel, request.prompt, config);
-              })(),
-              this.DEFAULT_TIMEOUT,
-              'Image generation'
-            );
-          },
-          'Image generation'
+        this.logger.debug(
+          `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
         );
 
+        const result = await this.withRetry(async () => {
+          return await this.withTimeout(
+            (async () => {
+              const config: any = {
+                responseModalities: request.imageOnly
+                  ? ["IMAGE"]
+                  : ["TEXT", "IMAGE"],
+              };
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                config.imageConfig = {};
+                if (request.aspectRatio) {
+                  config.imageConfig.aspectRatio = request.aspectRatio;
+                }
+                if (request.imageSize) {
+                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
+                  const sizeMap: Record<string, string> = {
+                    "1K": "1024x1024",
+                    "2K": "2048x2048",
+                    "4K": "4096x4096",
+                  };
+                  config.imageConfig.imageSize =
+                    sizeMap[request.imageSize] || request.imageSize;
+                }
+              }
+
+              // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+              if (request.thinkingLevel && !usedFallback) {
+                config.thinking_level = request.thinkingLevel;
+              }
+
+              return await this.makeRequest(
+                currentModel,
+                [{ text: request.prompt }],
+                config
+              );
+            })(),
+            this.DEFAULT_TIMEOUT,
+            "Image generation"
+          );
+        }, "Image generation");
+
         if (usedFallback) {
-          this.logger.log(`🔄 [FALLBACK SUCCESS] Image generation succeeded with fallback model: ${currentModel}`);
+          this.logger.log(
+            `🔄 [FALLBACK SUCCESS] Image generation succeeded with fallback model: ${currentModel}`
+          );
         }
 
         return {
           success: true,
           data: {
             imageData: result.imageBytes || undefined,
-            textResponse: result.textResponse || '',
+            textResponse: result.textResponse || "",
             hasImage: !!result.imageBytes,
-            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+            metadata: usedFallback
+              ? {
+                  fallbackUsed: true,
+                  originalModel,
+                  fallbackModel: currentModel,
+                }
+              : undefined,
           },
         };
       } catch (error) {
@@ -533,11 +612,11 @@ export class BananaProvider implements IAIProvider {
         }
 
         // 无法降级或降级后仍然失败
-        this.logger.error('Image generation failed:', error);
+        this.logger.error("Image generation failed:", error);
         return {
           success: false,
           error: {
-            code: 'GENERATION_FAILED',
+            code: "GENERATION_FAILED",
             message: err.message,
             details: error,
           },
@@ -549,8 +628,8 @@ export class BananaProvider implements IAIProvider {
     return {
       success: false,
       error: {
-        code: 'GENERATION_FAILED',
-        message: 'Unexpected error in image generation',
+        code: "GENERATION_FAILED",
+        message: "Unexpected error in image generation",
       },
     };
   }
@@ -558,75 +637,98 @@ export class BananaProvider implements IAIProvider {
   async editImage(
     request: ImageEditRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    this.logger.log(`Editing image with prompt: ${request.prompt.substring(0, 50)}...`);
+    this.logger.log(
+      `Editing image with prompt: ${request.prompt.substring(0, 50)}...`
+    );
 
     // 使用异步版本支持 HTTP URL
-    const { data: imageData, mimeType } = await this.normalizeFileInputAsync(request.sourceImage, 'edit');
-    const originalModel = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    const { data: imageData, mimeType } = await this.normalizeFileInputAsync(
+      request.sourceImage,
+      "edit"
+    );
+    const originalModel = this.normalizeModelName(
+      request.model || this.DEFAULT_MODEL
+    );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
     for (let round = 0; round < 2; round++) {
       try {
-        this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
-
-        const result = await this.withRetry(
-          async () => {
-            return await this.withTimeout(
-              (async () => {
-                const config: any = {
-                  responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
-                };
-
-                // 配置 imageConfig（aspectRatio 和 imageSize）
-                if (request.aspectRatio || request.imageSize) {
-                  config.imageConfig = {};
-                  if (request.aspectRatio) {
-                    config.imageConfig.aspectRatio = request.aspectRatio;
-                  }
-                  if (request.imageSize) {
-                    config.imageConfig.imageSize = request.imageSize;
-                  }
-                }
-
-                // 配置 thinking_level（Gemini 3 特性，降级后不使用）
-                if (request.thinkingLevel && !usedFallback) {
-                  config.thinking_level = request.thinkingLevel;
-                }
-
-                return await this.makeRequest(
-                  currentModel,
-                  [
-                    { text: request.prompt },
-                    {
-                      inlineData: {
-                        mimeType,
-                        data: imageData,
-                      },
-                    },
-                  ],
-                  config
-                );
-              })(),
-              this.DEFAULT_TIMEOUT,
-              'Image edit'
-            );
-          },
-          'Image edit'
+        this.logger.debug(
+          `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
         );
 
+        const result = await this.withRetry(async () => {
+          return await this.withTimeout(
+            (async () => {
+              const config: any = {
+                responseModalities: request.imageOnly
+                  ? ["IMAGE"]
+                  : ["TEXT", "IMAGE"],
+              };
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                config.imageConfig = {};
+                if (request.aspectRatio) {
+                  config.imageConfig.aspectRatio = request.aspectRatio;
+                }
+                if (request.imageSize) {
+                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
+                  const sizeMap: Record<string, string> = {
+                    "1K": "1024x1024",
+                    "2K": "2048x2048",
+                    "4K": "4096x4096",
+                  };
+                  config.imageConfig.imageSize =
+                    sizeMap[request.imageSize] || request.imageSize;
+                }
+              }
+
+              // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+              if (request.thinkingLevel && !usedFallback) {
+                config.thinking_level = request.thinkingLevel;
+              }
+
+              return await this.makeRequest(
+                currentModel,
+                [
+                  { text: request.prompt },
+                  {
+                    inlineData: {
+                      mimeType,
+                      data: imageData,
+                    },
+                  },
+                ],
+                config
+              );
+            })(),
+            this.DEFAULT_TIMEOUT,
+            "Image edit"
+          );
+        }, "Image edit");
+
         if (usedFallback) {
-          this.logger.log(`🔄 [FALLBACK SUCCESS] Image edit succeeded with fallback model: ${currentModel}`);
+          this.logger.log(
+            `🔄 [FALLBACK SUCCESS] Image edit succeeded with fallback model: ${currentModel}`
+          );
         }
 
         return {
           success: true,
           data: {
             imageData: result.imageBytes || undefined,
-            textResponse: result.textResponse || '',
+            textResponse: result.textResponse || "",
             hasImage: !!result.imageBytes,
-            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+            metadata: usedFallback
+              ? {
+                  fallbackUsed: true,
+                  originalModel,
+                  fallbackModel: currentModel,
+                }
+              : undefined,
           },
         };
       } catch (error) {
@@ -646,11 +748,11 @@ export class BananaProvider implements IAIProvider {
         }
 
         // 无法降级或降级后仍然失败
-        this.logger.error('Image edit failed:', error);
+        this.logger.error("Image edit failed:", error);
         return {
           success: false,
           error: {
-            code: 'EDIT_FAILED',
+            code: "EDIT_FAILED",
             message: err.message,
             details: error,
           },
@@ -662,8 +764,8 @@ export class BananaProvider implements IAIProvider {
     return {
       success: false,
       error: {
-        code: 'EDIT_FAILED',
-        message: 'Unexpected error in image edit',
+        code: "EDIT_FAILED",
+        message: "Unexpected error in image edit",
       },
     };
   }
@@ -672,7 +774,9 @@ export class BananaProvider implements IAIProvider {
     request: ImageBlendRequest
   ): Promise<AIProviderResponse<ImageResult>> {
     this.logger.log(
-      `Blending ${request.sourceImages.length} images with prompt: ${request.prompt.substring(0, 50)}...`
+      `Blending ${
+        request.sourceImages.length
+      } images with prompt: ${request.prompt.substring(0, 50)}...`
     );
 
     // 使用异步版本支持 HTTP URL
@@ -689,63 +793,81 @@ export class BananaProvider implements IAIProvider {
       },
     }));
 
-    const originalModel = this.normalizeModelName(request.model || this.DEFAULT_MODEL);
+    const originalModel = this.normalizeModelName(
+      request.model || this.DEFAULT_MODEL
+    );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
     for (let round = 0; round < 2; round++) {
       try {
-        this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
-
-        const result = await this.withRetry(
-          async () => {
-            return await this.withTimeout(
-              (async () => {
-                const config: any = {
-                  responseModalities: request.imageOnly ? ['IMAGE'] : ['TEXT', 'IMAGE'],
-                };
-
-                // 配置 imageConfig（aspectRatio 和 imageSize）
-                if (request.aspectRatio || request.imageSize) {
-                  config.imageConfig = {};
-                  if (request.aspectRatio) {
-                    config.imageConfig.aspectRatio = request.aspectRatio;
-                  }
-                  if (request.imageSize) {
-                    config.imageConfig.imageSize = request.imageSize;
-                  }
-                }
-
-                // 配置 thinking_level（Gemini 3 特性，降级后不使用）
-                if (request.thinkingLevel && !usedFallback) {
-                  config.thinking_level = request.thinkingLevel;
-                }
-
-                return await this.makeRequest(
-                  currentModel,
-                  [{ text: request.prompt }, ...imageParts],
-                  config
-                );
-              })(),
-              this.DEFAULT_TIMEOUT,
-              'Image blend'
-            );
-          },
-          'Image blend'
+        this.logger.debug(
+          `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
         );
 
+        const result = await this.withRetry(async () => {
+          return await this.withTimeout(
+            (async () => {
+              const config: any = {
+                responseModalities: request.imageOnly
+                  ? ["IMAGE"]
+                  : ["TEXT", "IMAGE"],
+              };
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                config.imageConfig = {};
+                if (request.aspectRatio) {
+                  config.imageConfig.aspectRatio = request.aspectRatio;
+                }
+                if (request.imageSize) {
+                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
+                  const sizeMap: Record<string, string> = {
+                    "1K": "1024x1024",
+                    "2K": "2048x2048",
+                    "4K": "4096x4096",
+                  };
+                  config.imageConfig.imageSize =
+                    sizeMap[request.imageSize] || request.imageSize;
+                }
+              }
+
+              // 配置 thinking_level（Gemini 3 特性，降级后不使用）
+              if (request.thinkingLevel && !usedFallback) {
+                config.thinking_level = request.thinkingLevel;
+              }
+
+              return await this.makeRequest(
+                currentModel,
+                [{ text: request.prompt }, ...imageParts],
+                config
+              );
+            })(),
+            this.DEFAULT_TIMEOUT,
+            "Image blend"
+          );
+        }, "Image blend");
+
         if (usedFallback) {
-          this.logger.log(`🔄 [FALLBACK SUCCESS] Image blend succeeded with fallback model: ${currentModel}`);
+          this.logger.log(
+            `🔄 [FALLBACK SUCCESS] Image blend succeeded with fallback model: ${currentModel}`
+          );
         }
 
         return {
           success: true,
           data: {
             imageData: result.imageBytes || undefined,
-            textResponse: result.textResponse || '',
+            textResponse: result.textResponse || "",
             hasImage: !!result.imageBytes,
-            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+            metadata: usedFallback
+              ? {
+                  fallbackUsed: true,
+                  originalModel,
+                  fallbackModel: currentModel,
+                }
+              : undefined,
           },
         };
       } catch (error) {
@@ -765,11 +887,11 @@ export class BananaProvider implements IAIProvider {
         }
 
         // 无法降级或降级后仍然失败
-        this.logger.error('Image blend failed:', error);
+        this.logger.error("Image blend failed:", error);
         return {
           success: false,
           error: {
-            code: 'BLEND_FAILED',
+            code: "BLEND_FAILED",
             message: err.message,
             details: error,
           },
@@ -781,8 +903,8 @@ export class BananaProvider implements IAIProvider {
     return {
       success: false,
       error: {
-        code: 'BLEND_FAILED',
-        message: 'Unexpected error in image blend',
+        code: "BLEND_FAILED",
+        message: "Unexpected error in image blend",
       },
     };
   }
@@ -794,14 +916,19 @@ export class BananaProvider implements IAIProvider {
 
     try {
       // 使用异步版本支持 HTTP URL
-      const { data: fileData, mimeType } = await this.normalizeFileInputAsync(request.sourceImage, 'analysis');
+      const { data: fileData, mimeType } = await this.normalizeFileInputAsync(
+        request.sourceImage,
+        "analysis"
+      );
       // 🔥 使用 gemini-3-pro-image-preview 进行文件分析
-      const model = this.normalizeModelName(request.model || 'gemini-3-pro-image-preview');
+      const model = this.normalizeModelName(
+        request.model || "gemini-3-pro-image-preview"
+      );
       this.logger.log(`📊 Using model: ${model}, mimeType: ${mimeType}`);
 
       // 根据文件类型生成不同的提示词
-      const isPdf = mimeType === 'application/pdf';
-      const fileTypeDesc = isPdf ? 'PDF document' : 'image';
+      const isPdf = mimeType === "application/pdf";
+      const fileTypeDesc = isPdf ? "PDF document" : "image";
 
       const analysisPrompt = request.prompt
         ? `Please analyze the following ${fileTypeDesc} (respond in ${request.prompt})`
@@ -826,13 +953,15 @@ export class BananaProvider implements IAIProvider {
               );
             })(),
             this.DEFAULT_TIMEOUT,
-            'File analysis'
+            "File analysis"
           ),
-        'File analysis',
+        "File analysis",
         2
       );
 
-      this.logger.log(`✅ File analysis succeeded: ${result.textResponse.length} characters`);
+      this.logger.log(
+        `✅ File analysis succeeded: ${result.textResponse.length} characters`
+      );
 
       return {
         success: true,
@@ -842,12 +971,13 @@ export class BananaProvider implements IAIProvider {
         },
       };
     } catch (error) {
-      this.logger.error('❌ File analysis failed:', error);
+      this.logger.error("❌ File analysis failed:", error);
       return {
         success: false,
         error: {
-          code: 'ANALYSIS_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to analyze file',
+          code: "ANALYSIS_FAILED",
+          message:
+            error instanceof Error ? error.message : "Failed to analyze file",
           details: error,
         },
       };
@@ -860,52 +990,63 @@ export class BananaProvider implements IAIProvider {
     this.logger.log(`🤖 Generating text response using Banana (147) API...`);
 
     // 文本生成默认使用 gemini-2.5-flash，如果指定了 Pro 模型则使用降级策略
-    const originalModel = this.normalizeModelName(request.model || 'gemini-2.5-flash');
+    const originalModel = this.normalizeModelName(
+      request.model || "gemini-2.5-flash"
+    );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
     for (let round = 0; round < 2; round++) {
       try {
-        this.logger.log(`📝 Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
+        this.logger.log(
+          `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
+        );
 
         const apiConfig: any = {
-          responseModalities: ['TEXT']
+          responseModalities: ["TEXT"],
         };
 
         if (request.enableWebSearch) {
           apiConfig.tools = [{ googleSearch: {} }];
-          this.logger.log('🔍 Web search enabled');
+          this.logger.log("🔍 Web search enabled");
         }
 
-        const result = await this.withRetry(
-          async () => {
-            return await this.withTimeout(
-              (async () => {
-                return await this.makeRequest(
-                  currentModel,
-                  request.prompt,
-                  apiConfig
-                );
-              })(),
-              this.DEFAULT_TIMEOUT,
-              'Text generation'
-            );
-          },
-          'Text generation'
-        );
+        const result = await this.withRetry(async () => {
+          return await this.withTimeout(
+            (async () => {
+              return await this.makeRequest(
+                currentModel,
+                request.prompt,
+                apiConfig
+              );
+            })(),
+            this.DEFAULT_TIMEOUT,
+            "Text generation"
+          );
+        }, "Text generation");
 
         if (usedFallback) {
-          this.logger.log(`🔄 [FALLBACK SUCCESS] Text generation succeeded with fallback model: ${currentModel}`);
+          this.logger.log(
+            `🔄 [FALLBACK SUCCESS] Text generation succeeded with fallback model: ${currentModel}`
+          );
         } else {
-          this.logger.log(`✅ Text generation succeeded with ${result.textResponse.length} characters`);
+          this.logger.log(
+            `✅ Text generation succeeded with ${result.textResponse.length} characters`
+          );
         }
 
         return {
           success: true,
           data: {
             text: result.textResponse,
-            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+            metadata: usedFallback
+              ? {
+                  fallbackUsed: true,
+                  originalModel,
+                  fallbackModel: currentModel,
+                }
+              : undefined,
           },
         };
       } catch (error) {
@@ -925,11 +1066,11 @@ export class BananaProvider implements IAIProvider {
         }
 
         // 无法降级或降级后仍然失败
-        this.logger.error('❌ Text generation failed:', error);
+        this.logger.error("❌ Text generation failed:", error);
         return {
           success: false,
           error: {
-            code: 'TEXT_GENERATION_FAILED',
+            code: "TEXT_GENERATION_FAILED",
             message: err.message,
             details: error,
           },
@@ -941,40 +1082,52 @@ export class BananaProvider implements IAIProvider {
     return {
       success: false,
       error: {
-        code: 'TEXT_GENERATION_FAILED',
-        message: 'Unexpected error in text generation',
+        code: "TEXT_GENERATION_FAILED",
+        message: "Unexpected error in text generation",
       },
     };
   }
 
-  private sanitizeAvailableTools(tools?: string[], allowVector: boolean = true): string[] {
-    const base = Array.isArray(tools) && tools.length ? tools : [...DEFAULT_TOOLS];
+  private sanitizeAvailableTools(
+    tools?: string[],
+    allowVector: boolean = true
+  ): string[] {
+    const base =
+      Array.isArray(tools) && tools.length ? tools : [...DEFAULT_TOOLS];
     const unique = Array.from(new Set(base.filter(Boolean)));
-    const filtered = allowVector ? unique : unique.filter((tool) => tool !== 'generatePaperJS');
+    const filtered = allowVector
+      ? unique
+      : unique.filter((tool) => tool !== "generatePaperJS");
 
     if (filtered.length > 0) {
       return filtered;
     }
 
-    return allowVector ? [...DEFAULT_TOOLS] : [...DEFAULT_TOOLS.filter((tool) => tool !== 'generatePaperJS')];
+    return allowVector
+      ? [...DEFAULT_TOOLS]
+      : [...DEFAULT_TOOLS.filter((tool) => tool !== "generatePaperJS")];
   }
 
   private hasVectorIntent(prompt: string): boolean {
     if (!prompt) return false;
     const lower = prompt.toLowerCase();
-    return VECTOR_KEYWORDS.some((keyword) => lower.includes(keyword.toLowerCase()));
+    return VECTOR_KEYWORDS.some((keyword) =>
+      lower.includes(keyword.toLowerCase())
+    );
   }
 
   private formatToolList(tools: string[]): string {
     return tools
-      .map((tool) => `- ${tool}: ${TOOL_DESCRIPTIONS[tool] || '辅助对话'}`)
-      .join('\n');
+      .map((tool) => `- ${tool}: ${TOOL_DESCRIPTIONS[tool] || "辅助对话"}`)
+      .join("\n");
   }
 
   async selectTool(
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
-    this.logger.log('🎯 Selecting tool with Banana (147) API using gemini-2.5-flash...');
+    this.logger.log(
+      "🎯 Selecting tool with Banana (147) API using gemini-2.5-flash..."
+    );
 
     try {
       const maxAttempts = 3;
@@ -982,18 +1135,25 @@ export class BananaProvider implements IAIProvider {
       let lastError: unknown;
 
       const hasVectorIntent = this.hasVectorIntent(request.prompt);
-      const tools = this.sanitizeAvailableTools(request.availableTools, hasVectorIntent);
+      const tools = this.sanitizeAvailableTools(
+        request.availableTools,
+        hasVectorIntent
+      );
       const toolListText = this.formatToolList(tools);
-      const vectorRule = tools.includes('generatePaperJS')
-        ? `只有当用户明确提到以下关键词之一（${VECTOR_KEYWORDS.join(', ')}）或直接要求输出 SVG/Paper.js 矢量代码时，才选择 generatePaperJS；仅描述形状、几何或线条但未出现这些关键词时，不要选择 generatePaperJS，优先 generateImage 或 chatResponse。`
-        : '';
+      const vectorRule = tools.includes("generatePaperJS")
+        ? `只有当用户明确提到以下关键词之一（${VECTOR_KEYWORDS.join(
+            ", "
+          )}）或直接要求输出 SVG/Paper.js 矢量代码时，才选择 generatePaperJS；仅描述形状、几何或线条但未出现这些关键词时，不要选择 generatePaperJS，优先 generateImage 或 chatResponse。`
+        : "";
 
       const systemPrompt = `你是一个AI助手工具选择器。根据用户的输入，选择最合适的工具执行。
 
 可用工具:
 ${toolListText}
 
-${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能判断最合适的工具。例如：
+${
+  vectorRule ? `${vectorRule}\n\n` : ""
+}请根据用户的实际需求，智能判断最合适的工具。例如：
 - 用户明确提到“矢量”“vector”“svg”“paperjs”等关键词，或要求输出矢量代码 → generatePaperJS
 - 用户要求生成图像、照片、画作等 → generateImage
 - 用户要求编辑、修改现有图像 → editImage
@@ -1013,17 +1173,14 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
         try {
           // 使用与基础版完全相同的调用方式：两条独立的 contents
           const result = await this.makeRequest(
-            'gemini-2.5-flash',
-            [
-              { text: systemPrompt },
-              { text: `用户输入: ${request.prompt}` },
-            ],
-            { responseModalities: ['TEXT'] }
+            "gemini-2.5-flash",
+            [{ text: systemPrompt }, { text: `用户输入: ${request.prompt}` }],
+            { responseModalities: ["TEXT"] }
           );
 
           if (!result.textResponse) {
-            this.logger.warn('Tool selection response did not contain text.');
-            throw new Error('Empty response');
+            this.logger.warn("Tool selection response did not contain text.");
+            throw new Error("Empty response");
           }
 
           // 解析AI的JSON响应 - 与基础版逻辑一致
@@ -1031,43 +1188,62 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
             let jsonText = result.textResponse.trim();
 
             // 移除 markdown 代码块标记
-            if (jsonText.startsWith('```json')) {
-              jsonText = jsonText.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
-            } else if (jsonText.startsWith('```')) {
-              jsonText = jsonText.replace(/^```\s*/i, '').replace(/\s*```$/, '');
+            if (jsonText.startsWith("```json")) {
+              jsonText = jsonText
+                .replace(/^```json\s*/i, "")
+                .replace(/\s*```$/, "");
+            } else if (jsonText.startsWith("```")) {
+              jsonText = jsonText
+                .replace(/^```\s*/i, "")
+                .replace(/\s*```$/, "");
             }
 
             const parsed = JSON.parse(jsonText.trim());
-            const rawSelected = parsed.selectedTool || 'chatResponse';
-            const selectedTool =
-              tools.includes(rawSelected) ? rawSelected : (tools.includes('chatResponse') ? 'chatResponse' : tools[0]);
+            const rawSelected = parsed.selectedTool || "chatResponse";
+            const selectedTool = tools.includes(rawSelected)
+              ? rawSelected
+              : tools.includes("chatResponse")
+              ? "chatResponse"
+              : tools[0];
 
-            this.logger.log(`✅ Tool selected: ${selectedTool}`, { hasVectorIntent });
+            this.logger.log(`✅ Tool selected: ${selectedTool}`, {
+              hasVectorIntent,
+            });
 
             return {
               success: true,
               data: {
                 selectedTool,
                 reasoning: parsed.reasoning || vectorRule,
-                confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.85,
+                confidence:
+                  typeof parsed.confidence === "number"
+                    ? parsed.confidence
+                    : 0.85,
               },
             };
           } catch (parseError) {
-            this.logger.warn(`Failed to parse tool selection JSON: ${result.textResponse}`);
+            this.logger.warn(
+              `Failed to parse tool selection JSON: ${result.textResponse}`
+            );
             // 降级：如果解析失败，默认返回文本对话
             return {
               success: true,
               data: {
-                selectedTool: tools.includes('chatResponse') ? 'chatResponse' : tools[0],
-                reasoning: 'Fallback due to invalid JSON response',
+                selectedTool: tools.includes("chatResponse")
+                  ? "chatResponse"
+                  : tools[0],
+                reasoning: "Fallback due to invalid JSON response",
                 confidence: 0.5,
               },
             };
           }
         } catch (error) {
           lastError = error;
-          const message = error instanceof Error ? error.message : String(error);
-          this.logger.warn(`Tool selection attempt ${attempt}/${maxAttempts} failed: ${message}`);
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn(
+            `Tool selection attempt ${attempt}/${maxAttempts} failed: ${message}`
+          );
           if (attempt < maxAttempts) {
             await new Promise((resolve) => setTimeout(resolve, delayMs));
           }
@@ -1075,25 +1251,30 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
       }
 
       const message =
-        lastError instanceof Error ? lastError.message : 'Unknown error occurred during tool selection.';
+        lastError instanceof Error
+          ? lastError.message
+          : "Unknown error occurred during tool selection.";
       this.logger.error(`All tool selection attempts failed: ${message}`);
 
       // 最后的降级方案：返回文本对话
       return {
         success: true,
         data: {
-          selectedTool: tools.includes('chatResponse') ? 'chatResponse' : tools[0],
-          reasoning: 'Fallback due to repeated failures',
+          selectedTool: tools.includes("chatResponse")
+            ? "chatResponse"
+            : tools[0],
+          reasoning: "Fallback due to repeated failures",
           confidence: 0.4,
         },
       };
     } catch (error) {
-      this.logger.error('❌ Tool selection failed:', error);
+      this.logger.error("❌ Tool selection failed:", error);
       return {
         success: false,
         error: {
-          code: 'TOOL_SELECTION_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to select tool',
+          code: "TOOL_SELECTION_FAILED",
+          message:
+            error instanceof Error ? error.message : "Failed to select tool",
           details: error,
         },
       };
@@ -1106,9 +1287,9 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
 
   getProviderInfo() {
     return {
-      name: 'Banana API',
-      version: '1.0',
-      supportedModels: ['gemini-3-pro-image-preview', 'gemini-2.5-flash'],
+      name: "Banana API",
+      version: "1.0",
+      supportedModels: ["gemini-3-pro-image-preview", "gemini-2.5-flash"],
     };
   }
 
@@ -1116,24 +1297,38 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
     sourceImage: string;
     prompt?: string;
     model?: string;
-    thinkingLevel?: 'high' | 'low';
+    thinkingLevel?: "high" | "low";
     canvasWidth?: number;
     canvasHeight?: number;
-    style?: 'simple' | 'detailed' | 'artistic';
-  }): Promise<AIProviderResponse<{ code: string; imageAnalysis: string; explanation?: string; model: string }>> {
-    this.logger.log('🖼️ Converting image to vector with Banana (147) API...');
+    style?: "simple" | "detailed" | "artistic";
+  }): Promise<
+    AIProviderResponse<{
+      code: string;
+      imageAnalysis: string;
+      explanation?: string;
+      model: string;
+    }>
+  > {
+    this.logger.log("🖼️ Converting image to vector with Banana (147) API...");
 
     try {
       // 使用异步版本支持 HTTP URL
-      const { data: sourceData, mimeType } = await this.normalizeFileInputAsync(request.sourceImage, 'analysis');
-      const originalModel = this.normalizeModelName(request.model || 'gemini-3-pro-preview');
+      const { data: sourceData, mimeType } = await this.normalizeFileInputAsync(
+        request.sourceImage,
+        "analysis"
+      );
+      const originalModel = this.normalizeModelName(
+        request.model || "gemini-3-pro-preview"
+      );
       let currentModel = originalModel;
       let usedFallback = false;
 
       // 尝试主模型，失败时按降级模型重试
       for (let round = 0; round < 2; round++) {
         try {
-          this.logger.debug(`Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
+          this.logger.debug(
+            `Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
+          );
 
           // Step 1: 图像分析
           const analysisPrompt = `请详细分析这个图像，并用中文描述以下内容（用于生成矢量图）：
@@ -1143,7 +1338,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
 4. 风格特征
 5. 关键细节和元素
 
-${request.prompt ? `额外要求：${request.prompt}` : ''}`;
+${request.prompt ? `额外要求：${request.prompt}` : ""}`;
 
           const analysisResult = await this.withRetry(
             () =>
@@ -1159,21 +1354,21 @@ ${request.prompt ? `额外要求：${request.prompt}` : ''}`;
                       },
                     },
                   ],
-                  { responseModalities: ['TEXT'] }
+                  { responseModalities: ["TEXT"] }
                 ),
                 this.DEFAULT_TIMEOUT,
-                'Image analysis for img2vector'
+                "Image analysis for img2vector"
               ),
-            'Image analysis for img2vector'
+            "Image analysis for img2vector"
           );
 
           const imageAnalysis = analysisResult.textResponse?.trim();
           if (!imageAnalysis) {
-            throw new Error('Image analysis returned empty response');
+            throw new Error("Image analysis returned empty response");
           }
 
           // Step 2: 生成 Paper.js 代码
-          const styleGuide = this.getStyleGuide(request.style || 'detailed');
+          const styleGuide = this.getStyleGuide(request.style || "detailed");
           const vectorPrompt = `你是一个paper.js代码专家。根据以下图像分析结果，生成纯净的paper.js矢量代码。
 
 ${styleGuide}
@@ -1190,22 +1385,20 @@ ${imageAnalysis}
           const vectorResult = await this.withRetry(
             () =>
               this.withTimeout(
-                this.makeRequest(
-                  currentModel,
-                  [{ text: vectorPrompt }],
-                  {
-                    responseModalities: ['TEXT'],
-                    ...(request.thinkingLevel && !usedFallback ? { thinking_level: request.thinkingLevel } : {}),
-                  }
-                ),
+                this.makeRequest(currentModel, [{ text: vectorPrompt }], {
+                  responseModalities: ["TEXT"],
+                  ...(request.thinkingLevel && !usedFallback
+                    ? { thinking_level: request.thinkingLevel }
+                    : {}),
+                }),
                 this.DEFAULT_TIMEOUT,
-                'Paper.js code generation from img2vector'
+                "Paper.js code generation from img2vector"
               ),
-            'Paper.js code generation from img2vector'
+            "Paper.js code generation from img2vector"
           );
 
           if (!vectorResult.textResponse) {
-            throw new Error('No code response from API');
+            throw new Error("No code response from API");
           }
 
           const cleanedCode = this.cleanCodeResponse(vectorResult.textResponse);
@@ -1215,7 +1408,7 @@ ${imageAnalysis}
               `🔄 [FALLBACK SUCCESS] img2vector succeeded with fallback model: ${currentModel}`
             );
           } else {
-            this.logger.log('✅ img2vector conversion succeeded');
+            this.logger.log("✅ img2vector conversion succeeded");
           }
 
           return {
@@ -1223,7 +1416,7 @@ ${imageAnalysis}
             data: {
               code: cleanedCode,
               imageAnalysis,
-              explanation: '矢量图已根据图像分析结果生成',
+              explanation: "矢量图已根据图像分析结果生成",
               model: currentModel,
             },
           };
@@ -1242,11 +1435,11 @@ ${imageAnalysis}
             }
           }
 
-          this.logger.error('❌ img2vector conversion failed:', error);
+          this.logger.error("❌ img2vector conversion failed:", error);
           return {
             success: false,
             error: {
-              code: 'IMG2VECTOR_FAILED',
+              code: "IMG2VECTOR_FAILED",
               message: err.message,
               details: error,
             },
@@ -1258,24 +1451,27 @@ ${imageAnalysis}
       return {
         success: false,
         error: {
-          code: 'IMG2VECTOR_FAILED',
-          message: 'Unexpected error in img2vector',
+          code: "IMG2VECTOR_FAILED",
+          message: "Unexpected error in img2vector",
         },
       };
     } catch (error) {
-      this.logger.error('❌ img2vector conversion failed:', error);
+      this.logger.error("❌ img2vector conversion failed:", error);
       return {
         success: false,
         error: {
-          code: 'IMG2VECTOR_FAILED',
-          message: error instanceof Error ? error.message : 'Failed to convert image to vector',
+          code: "IMG2VECTOR_FAILED",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Failed to convert image to vector",
           details: error,
         },
       };
     }
   }
 
-  private getStyleGuide(style: 'simple' | 'detailed' | 'artistic'): string {
+  private getStyleGuide(style: "simple" | "detailed" | "artistic"): string {
     const guides = {
       simple: `风格指南：简洁风格
 - 使用基本形状（圆形、矩形、线条）
@@ -1303,17 +1499,17 @@ ${imageAnalysis}
     let cleaned = text.trim();
 
     // 移除 markdown 代码块
-    if (cleaned.startsWith('```')) {
+    if (cleaned.startsWith("```")) {
       // 匹配 ```javascript, ```js, ```paperjs 等
-      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
-      cleaned = cleaned.replace(/\s*```$/i, '');
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, "");
+      cleaned = cleaned.replace(/\s*```$/i, "");
     }
 
     // 再次清理，以防多层包装
     cleaned = cleaned.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, '');
-      cleaned = cleaned.replace(/\s*```$/i, '');
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:javascript|js|paperjs)?\s*/i, "");
+      cleaned = cleaned.replace(/\s*```$/i, "");
     }
 
     return cleaned.trim();
@@ -1330,17 +1526,21 @@ ${imageAnalysis}
     // 将系统提示词和用户输入拼接
     const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
-    const originalModel = this.normalizeModelName(request.model || 'gemini-3-pro-preview');
+    const originalModel = this.normalizeModelName(
+      request.model || "gemini-3-pro-preview"
+    );
     let currentModel = originalModel;
     let usedFallback = false;
 
     // 尝试使用主模型，失败后降级
     for (let round = 0; round < 2; round++) {
       try {
-        this.logger.log(`📝 Using model: ${currentModel}${usedFallback ? ' (fallback)' : ''}`);
+        this.logger.log(
+          `📝 Using model: ${currentModel}${usedFallback ? " (fallback)" : ""}`
+        );
 
         const apiConfig: any = {
-          responseModalities: ['TEXT']
+          responseModalities: ["TEXT"],
         };
 
         // 配置 thinking_level（Gemini 3 特性，降级后不使用）
@@ -1348,41 +1548,48 @@ ${imageAnalysis}
           apiConfig.thinking_level = request.thinkingLevel;
         }
 
-        const result = await this.withRetry(
-          async () => {
-            return await this.withTimeout(
-              (async () => {
-                return await this.makeRequest(
-                  currentModel,
-                  finalPrompt,
-                  apiConfig
-                );
-              })(),
-              this.DEFAULT_TIMEOUT,
-              'Paper.js code generation'
-            );
-          },
-          'Paper.js code generation'
-        );
+        const result = await this.withRetry(async () => {
+          return await this.withTimeout(
+            (async () => {
+              return await this.makeRequest(
+                currentModel,
+                finalPrompt,
+                apiConfig
+              );
+            })(),
+            this.DEFAULT_TIMEOUT,
+            "Paper.js code generation"
+          );
+        }, "Paper.js code generation");
 
         if (!result.textResponse) {
-          throw new Error('No code response from API');
+          throw new Error("No code response from API");
         }
 
         // 清理响应，移除 markdown 代码块包装
         const cleanedCode = this.cleanCodeResponse(result.textResponse);
 
         if (usedFallback) {
-          this.logger.log(`🔄 [FALLBACK SUCCESS] Paper.js code generation succeeded with fallback model: ${currentModel}`);
+          this.logger.log(
+            `🔄 [FALLBACK SUCCESS] Paper.js code generation succeeded with fallback model: ${currentModel}`
+          );
         } else {
-          this.logger.log(`✅ Paper.js code generation succeeded with ${cleanedCode.length} characters`);
+          this.logger.log(
+            `✅ Paper.js code generation succeeded with ${cleanedCode.length} characters`
+          );
         }
 
         return {
           success: true,
           data: {
             code: cleanedCode,
-            metadata: usedFallback ? { fallbackUsed: true, originalModel, fallbackModel: currentModel } : undefined,
+            metadata: usedFallback
+              ? {
+                  fallbackUsed: true,
+                  originalModel,
+                  fallbackModel: currentModel,
+                }
+              : undefined,
           },
         };
       } catch (error) {
@@ -1402,11 +1609,11 @@ ${imageAnalysis}
         }
 
         // 无法降级或降级后仍然失败
-        this.logger.error('❌ Paper.js code generation failed:', error);
+        this.logger.error("❌ Paper.js code generation failed:", error);
         return {
           success: false,
           error: {
-            code: 'PAPERJS_GENERATION_FAILED',
+            code: "PAPERJS_GENERATION_FAILED",
             message: err.message,
             details: error,
           },
@@ -1418,8 +1625,8 @@ ${imageAnalysis}
     return {
       success: false,
       error: {
-        code: 'PAPERJS_GENERATION_FAILED',
-        message: 'Unexpected error in Paper.js code generation',
+        code: "PAPERJS_GENERATION_FAILED",
+        message: "Unexpected error in Paper.js code generation",
       },
     };
   }
