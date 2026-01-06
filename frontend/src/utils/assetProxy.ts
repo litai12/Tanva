@@ -23,22 +23,30 @@ function isAssetProxyPath(pathname: string): boolean {
   return pathname === "/api/assets/proxy" || pathname === "/assets/proxy";
 }
 
+// 是否启用前端代理 OSS 资源（可通过 VITE_PROXY_ASSETS 控制，默认 true）
+function shouldProxyAssets(): boolean {
+  const raw = import.meta.env.VITE_PROXY_ASSETS as string | undefined;
+  if (typeof raw === "string") {
+    const v = raw.trim().toLowerCase();
+    if (v === "false" || v === "0" || v === "no") return false;
+    return true;
+  }
+  return true;
+}
+
 export function proxifyRemoteAssetUrl(input: string): string {
   const value = typeof input === "string" ? input.trim() : "";
   if (!value) return input;
 
   const apiBase = getApiBaseUrl();
-  // 环境开关：直接使用 OSS 原始 URL，减少前端内存与 base64 占用
-  // 在 frontend/.env 中设置 VITE_USE_DIRECT_OSS=true 启用
-  const useDirectOss =
-    String(import.meta.env.VITE_USE_DIRECT_OSS || "").toLowerCase() === "true";
+  const proxyEnabled = shouldProxyAssets();
 
   // 已经是同源相对 proxy 的，生产环境下补齐后端域名（静态部署无反向代理时需要）
   if (
     value.startsWith("/api/assets/proxy") ||
     value.startsWith("/assets/proxy")
   ) {
-    // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
+    // 图片资源使用前端 5173 端口（开发模式），其他 API 保持使用后端配置
     const frontendBase = import.meta.env.DEV
       ? "http://localhost:5173"
       : apiBase;
@@ -50,12 +58,8 @@ export function proxifyRemoteAssetUrl(input: string): string {
   try {
     const url = new URL(value);
 
-    // 若启用直接使用 OSS，则直接返回原始 URL（不代理）
-    if (useDirectOss) return value;
-
-    // 如果已经是 proxy URL（可能来自旧数据：localhost / 旧域名 / 同源绝对地址），统一重写到配置的后端域名
+    // 如果已经是 proxy URL（可能来自旧数据：localhost / 旧域名 / 同源绝对地址），统一重写到配置的前端/后端域名
     if (isAssetProxyPath(url.pathname)) {
-      // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
       const frontendBase = import.meta.env.DEV
         ? "http://localhost:5173"
         : apiBase;
@@ -65,15 +69,21 @@ export function proxifyRemoteAssetUrl(input: string): string {
 
     if (url.hostname === window.location.hostname) return input;
 
-    // 默认仅代理 OSS/aliyuncs 公网资源，避免把任意外部 URL 变成依赖后端的"通用代理"
+    // 默认仅考虑代理 OSS/aliyuncs 公网资源，避免把任意外部 URL 变成依赖后端的"通用代理"
     if (!url.hostname.endsWith(".aliyuncs.com")) {
       return input;
+    }
+
+    // 当显式关闭代理时（VITE_PROXY_ASSETS=false），直接使用 OSS 原始 URL，
+    // 避免占用前端内存缓存与重复的 base64/占位替换。
+    if (!proxyEnabled) {
+      return value;
     }
   } catch {
     return input;
   }
 
-  // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
+  // 图片资源使用前端 5173 端口（开发）或后端 apiBase（生产），通过 proxy 转发
   const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
   return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
 }
