@@ -1,27 +1,51 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException, OnModuleInit } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
 
 @Injectable()
-export class ProjectsService {
+export class ProjectsService implements OnModuleInit {
   private thumbnailColumnChecked = false;
   private thumbnailColumnAvailable = false;
 
   constructor(private prisma: PrismaService, private oss: OssService) {}
 
+  async onModuleInit() {
+    // 启动时检查并确保列存在
+    try {
+      await this.ensureThumbnailColumn();
+    } catch (e) {
+      console.warn('[ProjectsService] onModuleInit ensureThumbnailColumn failed:', e);
+    }
+  }
+
   async list(userId: string) {
-    await this.ensureThumbnailColumn();
-    const projects = await this.prisma.project.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+    // 关键优化：使用 select 只获取列表需要的字段，排除可能巨大的 contentJson
+    const projects = await this.prisma.project.findMany({ 
+      where: { userId }, 
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        ossPrefix: true,
+        mainKey: true,
+        thumbnailUrl: true,
+        contentVersion: true,
+        createdAt: true,
+        updatedAt: true,
+      }
+    });
+
     return projects.map((p) => ({
       ...p,
       mainUrl: p.mainKey ? this.oss.publicUrl(p.mainKey) : undefined,
+      // 如果没有获取 contentJson，extractThumbnail 将只依赖 thumbnailUrl 列
       thumbnailUrl: this.extractThumbnail(p) || undefined,
     }));
   }
 
   async create(userId: string, name?: string) {
-    await this.ensureThumbnailColumn();
     const project = await this.prisma.project.create({ data: { userId, name: name || '未命名项目', ossPrefix: '', mainKey: '' } });
     const prefix = `projects/${userId}/${project.id}/`;
     const mainKey = `${prefix}project.json`;
@@ -59,15 +83,27 @@ export class ProjectsService {
   }
 
   async get(userId: string, id: string) {
-    await this.ensureThumbnailColumn();
-    const p = await this.prisma.project.findUnique({ where: { id } });
+    // 优化：获取单个项目元数据时也排除 contentJson
+    const p = await this.prisma.project.findUnique({ 
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        ossPrefix: true,
+        mainKey: true,
+        thumbnailUrl: true,
+        contentVersion: true,
+        createdAt: true,
+        updatedAt: true,
+      }
+    });
     if (!p) throw new NotFoundException('项目不存在');
     if (p.userId !== userId) throw new UnauthorizedException();
     return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
   }
 
   async update(userId: string, id: string, payload: { name?: string; thumbnailUrl?: string | null }) {
-    await this.ensureThumbnailColumn();
     const p = await this.prisma.project.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('项目不存在');
     if (p.userId !== userId) throw new UnauthorizedException();
@@ -123,7 +159,6 @@ export class ProjectsService {
   }
 
   async getContent(userId: string, id: string) {
-    await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
     if (project.userId !== userId) throw new UnauthorizedException();
@@ -155,7 +190,6 @@ export class ProjectsService {
   }
 
   async updateContent(userId: string, id: string, content: unknown, version?: number) {
-    await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
     if (project.userId !== userId) throw new UnauthorizedException();
