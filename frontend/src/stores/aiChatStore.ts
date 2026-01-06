@@ -94,7 +94,10 @@ async function readSessionsFromIDB(): Promise<{
   activeSessionId: string | null;
 } | null> {
   try {
-    const data = await idbGet<IDBSessionsData>(AI_CHAT_STORE_NAME, IDB_SESSIONS_KEY);
+    const data = await idbGet<IDBSessionsData>(
+      AI_CHAT_STORE_NAME,
+      IDB_SESSIONS_KEY
+    );
     if (!data || !Array.isArray(data.sessions) || data.sessions.length === 0) {
       return null;
     }
@@ -137,7 +140,9 @@ async function loadLocalSessions(): Promise<{
   if (!isMigrationDone(AI_CHAT_STORE_NAME) && isIndexedDBAvailable()) {
     const legacyData = readSessionsFromLocalStorage();
     if (legacyData && legacyData.sessions.length > 0) {
-      console.log(`[AIChat] 从 localStorage 迁移 ${legacyData.sessions.length} 个会话`);
+      console.log(
+        `[AIChat] 从 localStorage 迁移 ${legacyData.sessions.length} 个会话`
+      );
       await writeSessionsToIDB(legacyData.sessions, legacyData.activeSessionId);
       markMigrationDone(AI_CHAT_STORE_NAME);
       // 清理 localStorage
@@ -1187,7 +1192,8 @@ const computeVideoSmartPosition = (): { x: number; y: number } | undefined => {
   try {
     const cached = contextManager.getCachedImage();
     if (cached?.bounds) {
-      const offsetVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
+      const offsetVertical =
+        useUIStore.getState().smartPlacementOffsetVertical || 552;
       return {
         x: cached.bounds.x + cached.bounds.width / 2,
         y: cached.bounds.y + cached.bounds.height / 2 + offsetVertical,
@@ -2516,8 +2522,10 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             const cached = contextManager.getCachedImage();
-            const offsetHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
-            const offsetVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
+            const offsetHorizontal =
+              useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+            const offsetVertical =
+              useUIStore.getState().smartPlacementOffsetVertical || 552;
             let center: { x: number; y: number } | null = null;
 
             // 🔥 检查是否是并行生成的一部分
@@ -2547,7 +2555,8 @@ export const useAIChatStore = create<AIChatState>()(
               if (cached?.bounds) {
                 // 基于缓存图片位置，在其下方开始新的一行
                 baseX = cached.bounds.x + cached.bounds.width / 2;
-                baseY = cached.bounds.y + cached.bounds.height / 2 + offsetVertical;
+                baseY =
+                  cached.bounds.y + cached.bounds.height / 2 + offsetVertical;
               } else {
                 const viewCenter = getViewCenter();
                 baseX = viewCenter?.x ?? 0;
@@ -2572,7 +2581,10 @@ export const useAIChatStore = create<AIChatState>()(
               // 单张生成：使用原有逻辑
               if (cached?.bounds) {
                 center = {
-                  x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
+                  x:
+                    cached.bounds.x +
+                    cached.bounds.width / 2 +
+                    offsetHorizontal,
                   y: cached.bounds.y + cached.bounds.height / 2,
                 };
                 layoutAnchor = { ...center };
@@ -2583,7 +2595,10 @@ export const useAIChatStore = create<AIChatState>()(
               } else {
                 center = getViewCenter();
                 layoutAnchor = center ? { ...center } : null;
-                placeholderLogger.debug("🎯 [generateImage] 使用视口中心:", center);
+                placeholderLogger.debug(
+                  "🎯 [generateImage] 使用视口中心:",
+                  center
+                );
               }
             }
 
@@ -2733,8 +2748,10 @@ export const useAIChatStore = create<AIChatState>()(
                     ? {
                         ...msg,
                         content: messageContent,
-                        imageData: inlineImageData,
-                        thumbnail: inlineImageData
+                        imageData: imageRemoteUrl ? undefined : inlineImageData,
+                        thumbnail: imageRemoteUrl
+                          ? imageRemoteUrl
+                          : inlineImageData
                           ? ensureDataUrl(inlineImageData)
                           : msg.thumbnail,
                         imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
@@ -2784,12 +2801,28 @@ export const useAIChatStore = create<AIChatState>()(
               // 注意：消息状态已在步骤1中更新（generationStatus: { isGenerating: false, progress: 100 }），无需重复更新
 
               // 步骤2：立即计算 placementImageData（使用 base64，不等待上传）
-              const placementImageData = resolveImageForPlacement({
-                inlineData: inlineImageData,
-                result: result.data,
-                uploadedAssets: undefined, // 不使用 uploadedAssets，确保使用 base64
-                fallbackRemote: imageRemoteUrl ?? null,
-              });
+              // Prefer remote URL for canvas placement to avoid base64 memory usage.
+              let placementImageData: string | null = null;
+              try {
+                const remoteCandidate =
+                  imageRemoteUrl ??
+                  getResultImageRemoteUrl(result.data) ??
+                  null;
+                if (remoteCandidate) {
+                  placementImageData = remoteCandidate;
+                } else {
+                  const inlineCandidate =
+                    normalizeInlineImageData(inlineImageData) ??
+                    normalizeInlineImageData(result.data?.imageData) ??
+                    normalizeInlineImageData(undefined);
+                  if (inlineCandidate) {
+                    placementImageData = ensureDataUrl(inlineCandidate);
+                  }
+                }
+              } catch (err) {
+                console.warn("⚠️ resolve placement image failed:", err);
+                placementImageData = null;
+              }
 
               // 如果没有可用的图像源，记录原因并返回
               if (!placementImageData) {
@@ -2812,7 +2845,11 @@ export const useAIChatStore = create<AIChatState>()(
                 aiResult: AIImageResult,
                 imageSrc: string,
                 isParallel: boolean = false,
-                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
+                parallelGroupInfo?: {
+                  groupId: string;
+                  groupIndex: number;
+                  groupTotal: number;
+                }
               ) => {
                 const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
@@ -2865,12 +2902,20 @@ export const useAIChatStore = create<AIChatState>()(
                     `✅ [generateImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallel})`
                   );
                   // 🔥 传递并行生成分组信息，用于 X4/X8 自动打组
-                  const parallelGroupInfo = isParallel && groupId ? {
-                    groupId,
-                    groupIndex,
-                    groupTotal,
-                  } : undefined;
-                  addImageToCanvas(result.data, placementImageData, isParallel, parallelGroupInfo);
+                  const parallelGroupInfo =
+                    isParallel && groupId
+                      ? {
+                          groupId,
+                          groupIndex,
+                          groupTotal,
+                        }
+                      : undefined;
+                  addImageToCanvas(
+                    result.data,
+                    placementImageData,
+                    isParallel,
+                    parallelGroupInfo
+                  );
                 }
               }, totalDelay); // 递增延迟，避免并行图片同时添加到画布
 
@@ -3189,7 +3234,8 @@ export const useAIChatStore = create<AIChatState>()(
             } catch {}
 
             const cached = contextManager.getCachedImage();
-            const offsetHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+            const offsetHorizontal =
+              useUIStore.getState().smartPlacementOffsetHorizontal || 522;
             let center: { x: number; y: number } | null = null;
 
             if (cached?.bounds) {
@@ -3369,11 +3415,11 @@ export const useAIChatStore = create<AIChatState>()(
               }
             }
 
-	            if (result.success && result.data) {
-	              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
-	              const inlineImageData = result.data.imageData;
-	              // 编辑成功 - 更新消息内容和状态
-	              const messageContent =
+            if (result.success && result.data) {
+              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+              const inlineImageData = result.data.imageData;
+              // 编辑成功 - 更新消息内容和状态
+              const messageContent =
                 result.data.textResponse ||
                 (result.data.hasImage
                   ? `已编辑图像: ${prompt}`
@@ -3386,8 +3432,10 @@ export const useAIChatStore = create<AIChatState>()(
                     ? {
                         ...msg,
                         content: messageContent,
-                        imageData: inlineImageData,
-                        thumbnail: inlineImageData
+                        imageData: imageRemoteUrl ? undefined : inlineImageData,
+                        thumbnail: imageRemoteUrl
+                          ? imageRemoteUrl
+                          : inlineImageData
                           ? ensureDataUrl(inlineImageData)
                           : msg.thumbnail,
                         imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
@@ -3424,37 +3472,55 @@ export const useAIChatStore = create<AIChatState>()(
                     progress: 100,
                     error: null,
                   };
-	                }
-	              }
+                }
+              }
 
-	              const placementImageData = resolveImageForPlacement({
-	                inlineData: inlineImageData,
-	                result: result.data,
-	                uploadedAssets: undefined, // 不等待上传，确保优先使用 base64 立即上画布
-	                fallbackRemote: imageRemoteUrl ?? null,
-	              });
+              // Prefer remote URL for canvas placement to avoid base64 memory usage.
+              let placementImageData: string | null = null;
+              try {
+                const remoteCandidate =
+                  imageRemoteUrl ??
+                  getResultImageRemoteUrl(result.data) ??
+                  null;
+                if (remoteCandidate) {
+                  placementImageData = remoteCandidate;
+                } else {
+                  const inlineCandidate =
+                    normalizeInlineImageData(inlineImageData) ??
+                    normalizeInlineImageData(result.data?.imageData) ??
+                    normalizeInlineImageData(undefined);
+                  if (inlineCandidate) {
+                    placementImageData = ensureDataUrl(inlineCandidate);
+                  }
+                }
+              } catch (err) {
+                console.warn("⚠️ resolve placement image failed:", err);
+                placementImageData = null;
+              }
 
-	              if (!placementImageData) {
-	                console.warn(
-	                  "⚠️ [editImage] 没有可用的图像源，无法显示到画布"
-	                );
-	                removePredictivePlaceholder();
-	                return;
-	              }
+              if (!placementImageData) {
+                console.warn("⚠️ [editImage] 没有可用的图像源，无法显示到画布");
+                removePredictivePlaceholder();
+                return;
+              }
 
-	              console.log(
-	                "✅ [editImage] 步骤1-2完成：对话框已更新，placementImageData已计算"
-	              );
+              console.log(
+                "✅ [editImage] 步骤1-2完成：对话框已更新，placementImageData已计算"
+              );
 
-	              // 先更新 lastGeneratedImage，不等待上传/历史记录
-	              set({ lastGeneratedImage: result.data });
+              // 先更新 lastGeneratedImage，不等待上传/历史记录
+              set({ lastGeneratedImage: result.data });
 
-	              // 自动添加到画布
-	              const addImageToCanvas = (
-	                aiResult: AIImageResult,
-	                imageSrc: string,
-	                isParallel: boolean = false,
-	                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
+              // 自动添加到画布
+              const addImageToCanvas = (
+                aiResult: AIImageResult,
+                imageSrc: string,
+                isParallel: boolean = false,
+                parallelGroupInfo?: {
+                  groupId: string;
+                  groupIndex: number;
+                  groupTotal: number;
+                }
               ) => {
                 const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
@@ -3507,106 +3573,111 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               // 🔥 传递并行编辑分组信息，用于自动打组
-	              const editParallelGroupInfo = isParallelEdit && groupId ? {
-	                groupId,
-	                groupIndex,
-	                groupTotal,
-	              } : undefined;
+              const editParallelGroupInfo =
+                isParallelEdit && groupId
+                  ? {
+                      groupId,
+                      groupIndex,
+                      groupTotal,
+                    }
+                  : undefined;
 
-	              // 并行编辑：为每张图加递增延迟，避免同时上画布导致冲突
-	              const baseDelay = 100;
-	              const perImageDelay = 300;
-	              const totalDelay = baseDelay + groupIndex * perImageDelay;
+              // 并行编辑：为每张图加递增延迟，避免同时上画布导致冲突
+              const baseDelay = 100;
+              const perImageDelay = 300;
+              const totalDelay = baseDelay + groupIndex * perImageDelay;
 
-	              setTimeout(() => {
-	                if (result.data) {
-	                  console.log(
-	                    `✅ [editImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelEdit})`
-	                  );
-	                  addImageToCanvas(result.data, placementImageData, isParallelEdit, editParallelGroupInfo);
-	                }
-	              }, totalDelay);
+              setTimeout(() => {
+                if (result.data) {
+                  console.log(
+                    `✅ [editImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelEdit})`
+                  );
+                  addImageToCanvas(
+                    result.data,
+                    placementImageData,
+                    isParallelEdit,
+                    editParallelGroupInfo
+                  );
+                }
+              }, totalDelay);
 
-	              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
-	              if (inlineImageData) {
-	              registerMessageImageHistory({
-	                  aiMessageId,
-	                  prompt,
-	                  result: result.data,
-	                  operationType: "edit",
-	                })
-	                  .then((assets) => {
-	                    console.log(
-	                      "✅ [editImage] 步骤4完成：图片已上传到OSS，remoteUrl:",
-	                      assets?.remoteUrl?.substring(0, 50)
-	                    );
-	                    cacheGeneratedImageResult({
-	                      messageId: aiMessageId,
-	                      prompt,
-	                      result: result.data!,
-	                      assets,
-	                      inlineImageData,
-	                    });
+              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
+              if (inlineImageData) {
+                registerMessageImageHistory({
+                  aiMessageId,
+                  prompt,
+                  result: result.data,
+                  operationType: "edit",
+                })
+                  .then((assets) => {
+                    console.log(
+                      "✅ [editImage] 步骤4完成：图片已上传到OSS，remoteUrl:",
+                      assets?.remoteUrl?.substring(0, 50)
+                    );
+                    cacheGeneratedImageResult({
+                      messageId: aiMessageId,
+                      prompt,
+                      result: result.data!,
+                      assets,
+                      inlineImageData,
+                    });
 
-	                    // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
-	                    const canvasDisplayDelay = totalDelay + 1000;
-	                    const memoryOptimizationDelay = canvasDisplayDelay + 2000;
+                    // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
+                    const canvasDisplayDelay = totalDelay + 1000;
+                    const memoryOptimizationDelay = canvasDisplayDelay + 2000;
 
-	                    setTimeout(() => {
-	                      const currentState = get();
-	                      const message = currentState.messages.find(
-	                        (m) => m.id === aiMessageId
-	                      );
-	                      if (!message) return;
+                    setTimeout(() => {
+                      const currentState = get();
+                      const message = currentState.messages.find(
+                        (m) => m.id === aiMessageId
+                      );
+                      if (!message) return;
 
-	                      const hasThumbnail =
-	                        message.thumbnail && message.thumbnail.length > 0;
-	                      const hasRemoteUrl =
-	                        message.imageRemoteUrl &&
-	                        message.imageRemoteUrl.startsWith("http");
-	                      const imageDataSize = message.imageData?.length || 0;
-	                      const thumbnailSize = message.thumbnail?.length || 0;
+                      const hasThumbnail =
+                        message.thumbnail && message.thumbnail.length > 0;
+                      const hasRemoteUrl =
+                        message.imageRemoteUrl &&
+                        message.imageRemoteUrl.startsWith("http");
+                      const imageDataSize = message.imageData?.length || 0;
+                      const thumbnailSize = message.thumbnail?.length || 0;
 
-	                      if (
-	                        hasThumbnail &&
-	                        hasRemoteUrl &&
-	                        imageDataSize > thumbnailSize * 2
-	                      ) {
-	                        get().updateMessage(aiMessageId, (msg) => ({
-	                          ...msg,
-	                          imageData: undefined,
-	                        }));
+                      if (
+                        hasThumbnail &&
+                        hasRemoteUrl &&
+                        imageDataSize > thumbnailSize * 2
+                      ) {
+                        get().updateMessage(aiMessageId, (msg) => ({
+                          ...msg,
+                          imageData: undefined,
+                        }));
 
-	                        const context = contextManager.getCurrentContext();
-	                        if (context) {
-	                          const target = context.messages.find(
-	                            (m) => m.id === aiMessageId
-	                          );
-	                          if (target) {
-	                            target.imageData = undefined;
-	                          }
-	                        }
-	                      }
-	                    }, memoryOptimizationDelay);
-	                  })
-	                  .catch((error) => {
-	                    console.warn(
-	                      "⚠️ [editImage] 上传图片历史记录失败:",
-	                      error
-	                    );
-	                  });
-	              } else {
-	                cacheGeneratedImageResult({
-	                  messageId: aiMessageId,
-	                  prompt,
-	                  result: result.data,
-	                  assets: undefined,
-	                  inlineImageData,
-	                });
-	              }
+                        const context = contextManager.getCurrentContext();
+                        if (context) {
+                          const target = context.messages.find(
+                            (m) => m.id === aiMessageId
+                          );
+                          if (target) {
+                            target.imageData = undefined;
+                          }
+                        }
+                      }
+                    }, memoryOptimizationDelay);
+                  })
+                  .catch((error) => {
+                    console.warn("⚠️ [editImage] 上传图片历史记录失败:", error);
+                  });
+              } else {
+                cacheGeneratedImageResult({
+                  messageId: aiMessageId,
+                  prompt,
+                  result: result.data,
+                  assets: undefined,
+                  inlineImageData,
+                });
+              }
 
-	              await get().refreshSessions();
-	              logProcessStep(metrics, "editImage completed");
+              await get().refreshSessions();
+              logProcessStep(metrics, "editImage completed");
 
               // 取消自动关闭对话框 - 保持对话框打开状态
               // setTimeout(() => {
@@ -3809,8 +3880,10 @@ export const useAIChatStore = create<AIChatState>()(
 
           try {
             const cached = contextManager.getCachedImage();
-            const offsetHorizontal = useUIStore.getState().smartPlacementOffsetHorizontal || 522;
-            const offsetVertical = useUIStore.getState().smartPlacementOffsetVertical || 552;
+            const offsetHorizontal =
+              useUIStore.getState().smartPlacementOffsetHorizontal || 522;
+            const offsetVertical =
+              useUIStore.getState().smartPlacementOffsetVertical || 552;
             let center: { x: number; y: number } | null = null;
             let layoutAnchor: { x: number; y: number } | null = null;
 
@@ -3822,7 +3895,8 @@ export const useAIChatStore = create<AIChatState>()(
 
               if (cached?.bounds) {
                 baseX = cached.bounds.x + cached.bounds.width / 2;
-                baseY = cached.bounds.y + cached.bounds.height / 2 + offsetVertical;
+                baseY =
+                  cached.bounds.y + cached.bounds.height / 2 + offsetVertical;
               } else {
                 const viewCenter = getViewCenter();
                 baseX = viewCenter?.x ?? 0;
@@ -3838,7 +3912,10 @@ export const useAIChatStore = create<AIChatState>()(
               // 单张融合：使用原有逻辑
               if (cached?.bounds) {
                 center = {
-                  x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
+                  x:
+                    cached.bounds.x +
+                    cached.bounds.width / 2 +
+                    offsetHorizontal,
                   y: cached.bounds.y + cached.bounds.height / 2,
                 };
                 layoutAnchor = { ...center };
@@ -3930,11 +4007,11 @@ export const useAIChatStore = create<AIChatState>()(
 
             clearInterval(progressInterval);
 
-	            if (result.success && result.data) {
-	              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
-	              const inlineImageData = result.data.imageData;
-	              const messageContent =
-	                result.data.textResponse ||
+            if (result.success && result.data) {
+              const imageRemoteUrl = getResultImageRemoteUrl(result.data);
+              const inlineImageData = result.data.imageData;
+              const messageContent =
+                result.data.textResponse ||
                 (result.data.hasImage
                   ? `已融合图像: ${prompt}`
                   : `无法融合图像: ${prompt}`);
@@ -3946,8 +4023,10 @@ export const useAIChatStore = create<AIChatState>()(
                     ? {
                         ...msg,
                         content: messageContent,
-                        imageData: inlineImageData,
-                        thumbnail: inlineImageData
+                        imageData: imageRemoteUrl ? undefined : inlineImageData,
+                        thumbnail: imageRemoteUrl
+                          ? imageRemoteUrl
+                          : inlineImageData
                           ? ensureDataUrl(inlineImageData)
                           : msg.thumbnail,
                         imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
@@ -3985,37 +4064,58 @@ export const useAIChatStore = create<AIChatState>()(
                     progress: 100,
                     error: null,
                   };
-	                }
-	              }
+                }
+              }
 
-	              const placementImageData = resolveImageForPlacement({
-	                inlineData: inlineImageData,
-	                result: result.data,
-	                uploadedAssets: undefined, // 不等待上传，确保优先使用 base64 立即上画布
-	                fallbackRemote: imageRemoteUrl ?? null,
-	              });
+              // Prefer remote URL for canvas placement to avoid base64 memory usage.
+              let placementImageData: string | null = null;
+              try {
+                const remoteCandidate =
+                  imageRemoteUrl ??
+                  undefined ??
+                  getResultImageRemoteUrl(result.data) ??
+                  null;
+                if (remoteCandidate) {
+                  placementImageData = remoteCandidate;
+                } else {
+                  const inlineCandidate =
+                    normalizeInlineImageData(inlineImageData) ??
+                    normalizeInlineImageData(result.data?.imageData) ??
+                    normalizeInlineImageData(undefined);
+                  if (inlineCandidate) {
+                    placementImageData = ensureDataUrl(inlineCandidate);
+                  }
+                }
+              } catch (err) {
+                console.warn("⚠️ resolve placement image failed:", err);
+                placementImageData = null;
+              }
 
-	              if (!placementImageData) {
-	                console.warn(
-	                  "⚠️ [blendImages] 没有可用的图像源，无法显示到画布"
-	                );
-	                removePredictivePlaceholder();
-	                return;
-	              }
+              if (!placementImageData) {
+                console.warn(
+                  "⚠️ [blendImages] 没有可用的图像源，无法显示到画布"
+                );
+                removePredictivePlaceholder();
+                return;
+              }
 
-	              console.log(
-	                "✅ [blendImages] 步骤1-2完成：对话框已更新，placementImageData已计算"
-	              );
+              console.log(
+                "✅ [blendImages] 步骤1-2完成：对话框已更新，placementImageData已计算"
+              );
 
-	              // 先更新 lastGeneratedImage，不等待上传/历史记录
-	              set({ lastGeneratedImage: result.data });
+              // 先更新 lastGeneratedImage，不等待上传/历史记录
+              set({ lastGeneratedImage: result.data });
 
-	              const addImageToCanvas = (
-	                aiResult: AIImageResult,
-	                imageSrc: string,
-	                isParallel: boolean = false,
-	                parallelGroupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
-	              ) => {
+              const addImageToCanvas = (
+                aiResult: AIImageResult,
+                imageSrc: string,
+                isParallel: boolean = false,
+                parallelGroupInfo?: {
+                  groupId: string;
+                  groupIndex: number;
+                  groupTotal: number;
+                }
+              ) => {
                 const fileName = `${prompt.substring(0, 20)}.${
                   aiResult.metadata?.outputFormat || "png"
                 }`;
@@ -4060,106 +4160,114 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               // 🔥 传递并行融合分组信息，用于自动打组
-	              const blendParallelGroupInfo = isParallelBlend && groupId ? {
-	                groupId,
-	                groupIndex,
-	                groupTotal,
-	              } : undefined;
+              const blendParallelGroupInfo =
+                isParallelBlend && groupId
+                  ? {
+                      groupId,
+                      groupIndex,
+                      groupTotal,
+                    }
+                  : undefined;
 
-	              // 并行融合：为每张图加递增延迟，避免同时上画布导致冲突
-	              const baseDelay = 100;
-	              const perImageDelay = 300;
-	              const totalDelay = baseDelay + groupIndex * perImageDelay;
+              // 并行融合：为每张图加递增延迟，避免同时上画布导致冲突
+              const baseDelay = 100;
+              const perImageDelay = 300;
+              const totalDelay = baseDelay + groupIndex * perImageDelay;
 
-	              setTimeout(() => {
-	                if (result.data) {
-	                  console.log(
-	                    `✅ [blendImages] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelBlend})`
-	                  );
-	                  addImageToCanvas(result.data, placementImageData, isParallelBlend, blendParallelGroupInfo);
-	                }
-	              }, totalDelay);
+              setTimeout(() => {
+                if (result.data) {
+                  console.log(
+                    `✅ [blendImages] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelBlend})`
+                  );
+                  addImageToCanvas(
+                    result.data,
+                    placementImageData,
+                    isParallelBlend,
+                    blendParallelGroupInfo
+                  );
+                }
+              }, totalDelay);
 
-	              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
-	              if (inlineImageData) {
-	              registerMessageImageHistory({
-	                  aiMessageId,
-	                  prompt,
-	                  result: result.data,
-	                  operationType: "blend",
-	                })
-	                  .then((assets) => {
-	                    console.log(
-	                      "✅ [blendImages] 步骤4完成：图片已上传到OSS，remoteUrl:",
-	                      assets?.remoteUrl?.substring(0, 50)
-	                    );
-	                    cacheGeneratedImageResult({
-	                      messageId: aiMessageId,
-	                      prompt,
-	                      result: result.data!,
-	                      assets,
-	                      inlineImageData,
-	                    });
+              // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
+              if (inlineImageData) {
+                registerMessageImageHistory({
+                  aiMessageId,
+                  prompt,
+                  result: result.data,
+                  operationType: "blend",
+                })
+                  .then((assets) => {
+                    console.log(
+                      "✅ [blendImages] 步骤4完成：图片已上传到OSS，remoteUrl:",
+                      assets?.remoteUrl?.substring(0, 50)
+                    );
+                    cacheGeneratedImageResult({
+                      messageId: aiMessageId,
+                      prompt,
+                      result: result.data!,
+                      assets,
+                      inlineImageData,
+                    });
 
-	                    // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
-	                    const canvasDisplayDelay = totalDelay + 1000;
-	                    const memoryOptimizationDelay = canvasDisplayDelay + 2000;
+                    // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
+                    const canvasDisplayDelay = totalDelay + 1000;
+                    const memoryOptimizationDelay = canvasDisplayDelay + 2000;
 
-	                    setTimeout(() => {
-	                      const currentState = get();
-	                      const message = currentState.messages.find(
-	                        (m) => m.id === aiMessageId
-	                      );
-	                      if (!message) return;
+                    setTimeout(() => {
+                      const currentState = get();
+                      const message = currentState.messages.find(
+                        (m) => m.id === aiMessageId
+                      );
+                      if (!message) return;
 
-	                      const hasThumbnail =
-	                        message.thumbnail && message.thumbnail.length > 0;
-	                      const hasRemoteUrl =
-	                        message.imageRemoteUrl &&
-	                        message.imageRemoteUrl.startsWith("http");
-	                      const imageDataSize = message.imageData?.length || 0;
-	                      const thumbnailSize = message.thumbnail?.length || 0;
+                      const hasThumbnail =
+                        message.thumbnail && message.thumbnail.length > 0;
+                      const hasRemoteUrl =
+                        message.imageRemoteUrl &&
+                        message.imageRemoteUrl.startsWith("http");
+                      const imageDataSize = message.imageData?.length || 0;
+                      const thumbnailSize = message.thumbnail?.length || 0;
 
-	                      if (
-	                        hasThumbnail &&
-	                        hasRemoteUrl &&
-	                        imageDataSize > thumbnailSize * 2
-	                      ) {
-	                        get().updateMessage(aiMessageId, (msg) => ({
-	                          ...msg,
-	                          imageData: undefined,
-	                        }));
+                      if (
+                        hasThumbnail &&
+                        hasRemoteUrl &&
+                        imageDataSize > thumbnailSize * 2
+                      ) {
+                        get().updateMessage(aiMessageId, (msg) => ({
+                          ...msg,
+                          imageData: undefined,
+                        }));
 
-	                        const context = contextManager.getCurrentContext();
-	                        if (context) {
-	                          const target = context.messages.find(
-	                            (m) => m.id === aiMessageId
-	                          );
-	                          if (target) {
-	                            target.imageData = undefined;
-	                          }
-	                        }
-	                      }
-	                    }, memoryOptimizationDelay);
-	                  })
-	                  .catch((error) => {
-	                    console.warn(
-	                      "⚠️ [blendImages] 上传图片历史记录失败:",
-	                      error
-	                    );
-	                  });
-	              } else {
-	                cacheGeneratedImageResult({
-	                  messageId: aiMessageId,
-	                  prompt,
-	                  result: result.data,
-	                  assets: undefined,
-	                  inlineImageData,
-	                });
-	              }
+                        const context = contextManager.getCurrentContext();
+                        if (context) {
+                          const target = context.messages.find(
+                            (m) => m.id === aiMessageId
+                          );
+                          if (target) {
+                            target.imageData = undefined;
+                          }
+                        }
+                      }
+                    }, memoryOptimizationDelay);
+                  })
+                  .catch((error) => {
+                    console.warn(
+                      "⚠️ [blendImages] 上传图片历史记录失败:",
+                      error
+                    );
+                  });
+              } else {
+                cacheGeneratedImageResult({
+                  messageId: aiMessageId,
+                  prompt,
+                  result: result.data,
+                  assets: undefined,
+                  inlineImageData,
+                });
+              }
 
-	              await get().refreshSessions();
-	              logProcessStep(metrics, "blendImages completed");
+              await get().refreshSessions();
+              logProcessStep(metrics, "blendImages completed");
 
               // 取消自动关闭对话框 - 保持对话框打开状态
               // setTimeout(() => {
@@ -4289,8 +4397,10 @@ export const useAIChatStore = create<AIChatState>()(
                     ? {
                         ...msg,
                         content: messageContent,
-                        imageData: inlineImageData,
-                        thumbnail: inlineImageData
+                        imageData: imageRemoteUrl ? undefined : inlineImageData,
+                        thumbnail: imageRemoteUrl
+                          ? imageRemoteUrl
+                          : inlineImageData
                           ? ensureDataUrl(inlineImageData)
                           : msg.thumbnail,
                         imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
@@ -4313,8 +4423,12 @@ export const useAIChatStore = create<AIChatState>()(
                 );
                 if (messageRef) {
                   messageRef.content = messageContent;
-                  messageRef.imageData = inlineImageData;
-                  if (inlineImageData) {
+                  messageRef.imageData = imageRemoteUrl
+                    ? undefined
+                    : inlineImageData;
+                  if (imageRemoteUrl) {
+                    messageRef.thumbnail = imageRemoteUrl;
+                  } else if (inlineImageData) {
                     messageRef.thumbnail = ensureDataUrl(inlineImageData);
                   }
                   messageRef.imageRemoteUrl =
@@ -5653,7 +5767,10 @@ export const useAIChatStore = create<AIChatState>()(
             } else if (state.sourceImagesForBlending.length >= 2) {
               // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
               selectedTool = "blendImages";
-              logProcessStep(metrics, "multi-image detected, using blendImages");
+              logProcessStep(
+                metrics,
+                "multi-image detected, using blendImages"
+              );
             } else {
               // 完全靠 AI 来判断工具选择，包括矢量图生成
               logProcessStep(metrics, "tool selection start");
@@ -5992,8 +6109,10 @@ export const useAIChatStore = create<AIChatState>()(
               if (state.sourceImageForAnalysis) {
                 explicitImageCount += 1;
               }
-              const totalImageCount = explicitImageCount + (cachedImage ? 1 : 0);
-              const toolSelectionContext = contextManager.buildContextPrompt(input);
+              const totalImageCount =
+                explicitImageCount + (cachedImage ? 1 : 0);
+              const toolSelectionContext =
+                contextManager.buildContextPrompt(input);
 
               const toolSelectionRequest = {
                 userInput: input,
@@ -6014,9 +6133,12 @@ export const useAIChatStore = create<AIChatState>()(
               };
 
               try {
-                const toolSelectionResult = await aiImageService.selectTool(toolSelectionRequest);
+                const toolSelectionResult = await aiImageService.selectTool(
+                  toolSelectionRequest
+                );
                 if (toolSelectionResult.success && toolSelectionResult.data) {
-                  selectedTool = toolSelectionResult.data.selectedTool as AvailableTool;
+                  selectedTool = toolSelectionResult.data
+                    .selectedTool as AvailableTool;
                   console.log(`🎯 [工具选择] AI 选择了: ${selectedTool}`);
                 } else {
                   console.warn("⚠️ 工具选择失败，默认使用 chatResponse");
@@ -6031,13 +6153,21 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 🔥 第二步：根据选择的工具决定是否应用 multiplier
           // 只有图片生成相关工具才支持并行生成
-          const imageGenerationTools: AvailableTool[] = ["generateImage", "editImage", "blendImages"];
-          const isImageGenerationTool = selectedTool && imageGenerationTools.includes(selectedTool);
+          const imageGenerationTools: AvailableTool[] = [
+            "generateImage",
+            "editImage",
+            "blendImages",
+          ];
+          const isImageGenerationTool =
+            selectedTool && imageGenerationTools.includes(selectedTool);
 
-          const multiplier: AutoModeMultiplier =
-            isImageGenerationTool ? state.autoModeMultiplier : 1;
+          const multiplier: AutoModeMultiplier = isImageGenerationTool
+            ? state.autoModeMultiplier
+            : 1;
 
-          console.log(`🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}`);
+          console.log(
+            `🔧 [处理流程] 工具: ${selectedTool}, multiplier: ${multiplier}`
+          );
 
           // 🔥 第三步：根据 multiplier 决定是单次还是并行执行
           if (multiplier === 1) {
@@ -6347,7 +6477,11 @@ export const useAIChatStore = create<AIChatState>()(
           // 异步加载本地会话（IndexedDB 优先，兼容 localStorage）
           if (!hasHydratedSessions) {
             loadLocalSessions().then((stored) => {
-              if (stored && stored.sessions.length > 0 && !hasHydratedSessions) {
+              if (
+                stored &&
+                stored.sessions.length > 0 &&
+                !hasHydratedSessions
+              ) {
                 get().hydratePersistedSessions(
                   stored.sessions,
                   stored.activeSessionId,

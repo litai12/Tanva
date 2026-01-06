@@ -294,6 +294,13 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
     try {
       const trimmed = typeof url === "string" ? url.trim() : "";
       if (trimmed.startsWith("data:image/")) return trimmed;
+      // 如果是 OSS 公网资源，优先直接返回远程 URL，避免转换为 data URL 占用内存。
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.hostname.endsWith(".aliyuncs.com")) {
+          return trimmed;
+        }
+      } catch {}
 
       const fetchUrl = proxifyRemoteAssetUrl(url);
       const response = await fetch(fetchUrl, {
