@@ -28,6 +28,10 @@ export function proxifyRemoteAssetUrl(input: string): string {
   if (!value) return input;
 
   const apiBase = getApiBaseUrl();
+  // 环境开关：直接使用 OSS 原始 URL，减少前端内存与 base64 占用
+  // 在 frontend/.env 中设置 VITE_USE_DIRECT_OSS=true 启用
+  const useDirectOss =
+    String(import.meta.env.VITE_USE_DIRECT_OSS || "").toLowerCase() === "true";
 
   // 已经是同源相对 proxy 的，生产环境下补齐后端域名（静态部署无反向代理时需要）
   if (
@@ -35,7 +39,9 @@ export function proxifyRemoteAssetUrl(input: string): string {
     value.startsWith("/assets/proxy")
   ) {
     // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
-    const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
+    const frontendBase = import.meta.env.DEV
+      ? "http://localhost:5173"
+      : apiBase;
     return frontendBase ? `${frontendBase}${value}` : value;
   }
 
@@ -44,10 +50,15 @@ export function proxifyRemoteAssetUrl(input: string): string {
   try {
     const url = new URL(value);
 
+    // 若启用直接使用 OSS，则直接返回原始 URL（不代理）
+    if (useDirectOss) return value;
+
     // 如果已经是 proxy URL（可能来自旧数据：localhost / 旧域名 / 同源绝对地址），统一重写到配置的后端域名
     if (isAssetProxyPath(url.pathname)) {
       // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
-      const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
+      const frontendBase = import.meta.env.DEV
+        ? "http://localhost:5173"
+        : apiBase;
       if (frontendBase) return `${frontendBase}${url.pathname}${url.search}`;
       return `${url.pathname}${url.search}`;
     }
