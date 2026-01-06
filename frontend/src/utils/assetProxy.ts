@@ -34,7 +34,9 @@ export function proxifyRemoteAssetUrl(input: string): string {
     value.startsWith("/api/assets/proxy") ||
     value.startsWith("/assets/proxy")
   ) {
-    return apiBase ? `${apiBase}${value}` : value;
+    // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
+    const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
+    return frontendBase ? `${frontendBase}${value}` : value;
   }
 
   if (!/^https?:\/\//i.test(value)) return input;
@@ -44,7 +46,9 @@ export function proxifyRemoteAssetUrl(input: string): string {
 
     // 如果已经是 proxy URL（可能来自旧数据：localhost / 旧域名 / 同源绝对地址），统一重写到配置的后端域名
     if (isAssetProxyPath(url.pathname)) {
-      if (apiBase) return `${apiBase}${url.pathname}${url.search}`;
+      // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
+      const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
+      if (frontendBase) return `${frontendBase}${url.pathname}${url.search}`;
       return `${url.pathname}${url.search}`;
     }
 
@@ -58,5 +62,7 @@ export function proxifyRemoteAssetUrl(input: string): string {
     return input;
   }
 
-  return `${apiBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
+  // 图片资源使用前端 5173 端口，其他 API 保持使用后端配置
+  const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
+  return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
 }
