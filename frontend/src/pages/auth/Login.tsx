@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useAuthStore } from "@/stores/authStore";
-import { useProjectStore } from "@/stores/projectStore";
 import { Loader2 } from "lucide-react";
 import { authApi } from "@/services/authApi";
 import ForgotPasswordModal from "@/components/auth/ForgotPasswordModal";
@@ -17,33 +16,17 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const navigate = useNavigate();
-  const { login, loginWithSms, error } = useAuthStore();
-  const loadProjects = useProjectStore((s) => s.load);
+  const { login, loginWithSms, error, user } = useAuthStore();
+
+  useEffect(() => {
+    if (user) {
+      navigate("/app", { replace: true });
+    }
+  }, [user, navigate]);
 
   const _isMock =
     (typeof import.meta !== "undefined" &&
       (import.meta as any).env?.VITE_AUTH_MODE) === "mock";
-
-  const ensureProjectPrepared = async () => {
-    await loadProjects();
-    const store = useProjectStore.getState();
-
-    if (!store.currentProjectId) {
-      if (store.projects.length === 0) {
-        try {
-          const created = await store.create("未命名");
-          store.open(created.id);
-        } catch (err) {
-          console.error("自动创建项目失败:", err);
-        }
-      } else {
-        const fallback = store.projects[0];
-        if (fallback) {
-          store.open(fallback.id);
-        }
-      }
-    }
-  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,8 +37,7 @@ export default function LoginPage() {
       } else {
         await loginWithSms(phone, code || "");
       }
-      await ensureProjectPrepared();
-      navigate("/app", { replace: true });
+      // 登录成功后，useEffect 会处理跳转到 /app
     } catch (err) {
       console.error("登录失败:", err);
       setIsSubmitting(false);
