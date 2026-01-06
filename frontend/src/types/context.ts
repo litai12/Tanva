@@ -199,7 +199,7 @@ export interface ContextConfig {
 
 // 默认配置
 export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
-  maxMessages: 50,
+  maxMessages: 100, // 从 50 增加到 100，与 MEMORY_OPTIMIZATION 保持一致
   maxOperations: 20,
   maxImageHistory: 10,
   sessionTimeout: 24 * 60 * 60 * 1000, // 24小时

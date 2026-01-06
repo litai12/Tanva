@@ -70,6 +70,56 @@ interface IDBSessionsData {
   updatedAt: number;
 }
 
+// 内存优化常量 (P0 修复)
+const MAX_MESSAGES_PER_SESSION = 100;
+const MAX_IMAGE_BASE64_SIZE = 2 * 1024 * 1024; // 2MB 以上的 Base64 考虑清理
+
+// 内存优化：清理消息中的大型 Base64 (P0 修复)
+const optimizeMessagesMemory = (messages: ChatMessage[]): ChatMessage[] => {
+  return messages.map((msg, index) => {
+    // 只有在满足以下条件时才清理 imageData:
+    // 1. 不是最后几条活跃消息 (保留最近3条以便快速交互)
+    // 2. 已经有了远程 URL 或 缩略图
+    // 3. imageData 超过阈值
+    const isOldMessage = index < messages.length - 3;
+    const hasAlternative = !!(
+      (msg.imageRemoteUrl && msg.imageRemoteUrl.startsWith("http")) ||
+      (msg.thumbnail && msg.thumbnail.length > 0)
+    );
+
+    if (isOldMessage && hasAlternative) {
+      const nextMsg = { ...msg };
+      let changed = false;
+
+      if (msg.imageData && msg.imageData.length > MAX_IMAGE_BASE64_SIZE) {
+        nextMsg.imageData = undefined;
+        changed = true;
+      }
+
+      if (
+        msg.sourceImageData &&
+        msg.sourceImageData.length > MAX_IMAGE_BASE64_SIZE
+      ) {
+        nextMsg.sourceImageData = undefined;
+        changed = true;
+      }
+
+      if (Array.isArray(msg.sourceImagesData)) {
+        const filtered = msg.sourceImagesData.filter(
+          (img) => !img || img.length <= MAX_IMAGE_BASE64_SIZE
+        );
+        if (filtered.length !== msg.sourceImagesData.length) {
+          nextMsg.sourceImagesData = filtered;
+          changed = true;
+        }
+      }
+
+      return changed ? nextMsg : msg;
+    }
+    return msg;
+  });
+};
+
 // 从 localStorage 读取（兼容旧数据）
 function readSessionsFromLocalStorage(): {
   sessions: SerializedConversationContext[];
@@ -2113,11 +2163,23 @@ export const useAIChatStore = create<AIChatState>()(
             storedMessage = contextManager.addMessage(message);
           }
 
-          set((state) => ({
-            messages: state.messages.some((msg) => msg.id === storedMessage!.id)
+          set((state) => {
+            let nextMessages = state.messages.some(
+              (msg) => msg.id === storedMessage!.id
+            )
               ? state.messages
-              : [...state.messages, storedMessage!],
-          }));
+              : [...state.messages, storedMessage!];
+
+            // 🛑 硬性限制消息数量 (P0 修复)
+            if (nextMessages.length > MAX_MESSAGES_PER_SESSION) {
+              nextMessages = nextMessages.slice(-MAX_MESSAGES_PER_SESSION);
+            }
+
+            // 🧹 内存优化：清理旧消息中的大型 Base64 (P0 修复)
+            nextMessages = optimizeMessagesMemory(nextMessages);
+
+            return { messages: nextMessages };
+          });
           return storedMessage!;
         },
 
@@ -2137,16 +2199,18 @@ export const useAIChatStore = create<AIChatState>()(
 
         updateMessageStatus: (messageId, status) => {
           set((state) => ({
-            messages: state.messages.map((msg) =>
-              msg.id === messageId
-                ? {
-                    ...msg,
-                    generationStatus: {
-                      ...msg.generationStatus,
-                      ...status,
-                    } as any,
-                  }
-                : msg
+            messages: optimizeMessagesMemory(
+              state.messages.map((msg) =>
+                msg.id === messageId
+                  ? {
+                      ...msg,
+                      generationStatus: {
+                        ...msg.generationStatus,
+                        ...status,
+                      } as any,
+                    }
+                  : msg
+              )
             ),
           }));
 
@@ -2186,11 +2250,14 @@ export const useAIChatStore = create<AIChatState>()(
         },
 
         updateMessage: (messageId, updater) => {
-          set((state) => ({
-            messages: state.messages.map((msg) =>
+          set((state) => {
+            const nextMessages = state.messages.map((msg) =>
               msg.id === messageId ? updater({ ...msg }) : msg
-            ),
-          }));
+            );
+            return {
+              messages: optimizeMessagesMemory(nextMessages),
+            };
+          });
 
           const context = contextManager.getCurrentContext();
           if (context) {
@@ -2743,27 +2810,29 @@ export const useAIChatStore = create<AIChatState>()(
 
               // 🔥 更新消息内容和完成状态
               set((state) => ({
-                messages: state.messages.map((msg) =>
-                  msg.id === aiMessageId
-                    ? {
-                        ...msg,
-                        content: messageContent,
-                        imageData: imageRemoteUrl ? undefined : inlineImageData,
-                        thumbnail: imageRemoteUrl
-                          ? imageRemoteUrl
-                          : inlineImageData
-                          ? ensureDataUrl(inlineImageData)
-                          : msg.thumbnail,
-                        imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
-                        metadata: result.data?.metadata,
-                        provider: state.aiProvider,
-                        generationStatus: {
-                          isGenerating: false,
-                          progress: 100,
-                          error: null,
-                        },
-                      }
-                    : msg
+                messages: optimizeMessagesMemory(
+                  state.messages.map((msg) =>
+                    msg.id === aiMessageId
+                      ? {
+                          ...msg,
+                          content: messageContent,
+                          imageData: imageRemoteUrl ? undefined : inlineImageData,
+                          thumbnail: imageRemoteUrl
+                            ? imageRemoteUrl
+                            : inlineImageData
+                            ? ensureDataUrl(inlineImageData)
+                            : msg.thumbnail,
+                          imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                          metadata: result.data?.metadata,
+                          provider: state.aiProvider,
+                          generationStatus: {
+                            isGenerating: false,
+                            progress: 100,
+                            error: null,
+                          },
+                        }
+                      : msg
+                  )
                 ),
               }));
               logProcessStep(metrics, "editImage message updated");
@@ -3427,27 +3496,29 @@ export const useAIChatStore = create<AIChatState>()(
 
               // 🔥 更新消息内容和完成状态
               set((state) => ({
-                messages: state.messages.map((msg) =>
-                  msg.id === aiMessageId
-                    ? {
-                        ...msg,
-                        content: messageContent,
-                        imageData: imageRemoteUrl ? undefined : inlineImageData,
-                        thumbnail: imageRemoteUrl
-                          ? imageRemoteUrl
-                          : inlineImageData
-                          ? ensureDataUrl(inlineImageData)
-                          : msg.thumbnail,
-                        imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
-                        metadata: result.data?.metadata,
-                        provider: state.aiProvider,
-                        generationStatus: {
-                          isGenerating: false,
-                          progress: 100,
-                          error: null,
-                        },
-                      }
-                    : msg
+                messages: optimizeMessagesMemory(
+                  state.messages.map((msg) =>
+                    msg.id === aiMessageId
+                      ? {
+                          ...msg,
+                          content: messageContent,
+                          imageData: imageRemoteUrl ? undefined : inlineImageData,
+                          thumbnail: imageRemoteUrl
+                            ? imageRemoteUrl
+                            : inlineImageData
+                            ? ensureDataUrl(inlineImageData)
+                            : msg.thumbnail,
+                          imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                          metadata: result.data?.metadata,
+                          provider: state.aiProvider,
+                          generationStatus: {
+                            isGenerating: false,
+                            progress: 100,
+                            error: null,
+                          },
+                        }
+                      : msg
+                  )
                 ),
               }));
 
@@ -4018,27 +4089,29 @@ export const useAIChatStore = create<AIChatState>()(
 
               // 🔥 更新消息内容和完成状态
               set((state) => ({
-                messages: state.messages.map((msg) =>
-                  msg.id === aiMessageId
-                    ? {
-                        ...msg,
-                        content: messageContent,
-                        imageData: imageRemoteUrl ? undefined : inlineImageData,
-                        thumbnail: imageRemoteUrl
-                          ? imageRemoteUrl
-                          : inlineImageData
-                          ? ensureDataUrl(inlineImageData)
-                          : msg.thumbnail,
-                        imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
-                        metadata: result.data?.metadata,
-                        provider: state.aiProvider,
-                        generationStatus: {
-                          isGenerating: false,
-                          progress: 100,
-                          error: null,
-                        },
-                      }
-                    : msg
+                messages: optimizeMessagesMemory(
+                  state.messages.map((msg) =>
+                    msg.id === aiMessageId
+                      ? {
+                          ...msg,
+                          content: messageContent,
+                          imageData: imageRemoteUrl ? undefined : inlineImageData,
+                          thumbnail: imageRemoteUrl
+                            ? imageRemoteUrl
+                            : inlineImageData
+                            ? ensureDataUrl(inlineImageData)
+                            : msg.thumbnail,
+                          imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                          metadata: result.data?.metadata,
+                          provider: state.aiProvider,
+                          generationStatus: {
+                            isGenerating: false,
+                            progress: 100,
+                            error: null,
+                          },
+                        }
+                      : msg
+                  )
                 ),
               }));
               logProcessStep(metrics, "blendImages message updated");
@@ -4392,27 +4465,29 @@ export const useAIChatStore = create<AIChatState>()(
                   : `无法生成图像: ${prompt}`);
 
               set((state) => ({
-                messages: state.messages.map((msg) =>
-                  msg.id === aiMessage.id
-                    ? {
-                        ...msg,
-                        content: messageContent,
-                        imageData: imageRemoteUrl ? undefined : inlineImageData,
-                        thumbnail: imageRemoteUrl
-                          ? imageRemoteUrl
-                          : inlineImageData
-                          ? ensureDataUrl(inlineImageData)
-                          : msg.thumbnail,
-                        imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
-                        metadata: result.data?.metadata,
-                        provider: "midjourney",
-                        generationStatus: {
-                          isGenerating: false,
-                          progress: 100,
-                          error: null,
-                        },
-                      }
-                    : msg
+                messages: optimizeMessagesMemory(
+                  state.messages.map((msg) =>
+                    msg.id === aiMessage.id
+                      ? {
+                          ...msg,
+                          content: messageContent,
+                          imageData: imageRemoteUrl ? undefined : inlineImageData,
+                          thumbnail: imageRemoteUrl
+                            ? imageRemoteUrl
+                            : inlineImageData
+                            ? ensureDataUrl(inlineImageData)
+                            : msg.thumbnail,
+                          imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                          metadata: result.data?.metadata,
+                          provider: "midjourney",
+                          generationStatus: {
+                            isGenerating: false,
+                            progress: 100,
+                            error: null,
+                          },
+                        }
+                      : msg
+                  )
                 ),
               }));
 
@@ -4615,18 +4690,20 @@ export const useAIChatStore = create<AIChatState>()(
             if (result.success && result.data) {
               // 🔥 更新消息内容和完成状态
               set((state) => ({
-                messages: state.messages.map((msg) =>
-                  msg.id === aiMessageId
-                    ? {
-                        ...msg,
-                        content: result.data!.analysis,
-                        generationStatus: {
-                          isGenerating: false,
-                          progress: 100,
-                          error: null,
-                        },
-                      }
-                    : msg
+                messages: optimizeMessagesMemory(
+                  state.messages.map((msg) =>
+                    msg.id === aiMessageId
+                      ? {
+                          ...msg,
+                          content: result.data!.analysis,
+                          generationStatus: {
+                            isGenerating: false,
+                            progress: 100,
+                            error: null,
+                          },
+                        }
+                      : msg
+                  )
                 ),
               }));
 
@@ -4966,19 +5043,21 @@ export const useAIChatStore = create<AIChatState>()(
             if (result.success && result.data) {
               // 🔥 更新消息内容和完成状态
               set((state) => ({
-                messages: state.messages.map((msg) =>
-                  msg.id === aiMessageId
-                    ? {
-                        ...msg,
-                        content: result.data!.text,
-                        webSearchResult: result.data!.webSearchResult,
-                        generationStatus: {
-                          isGenerating: false,
-                          progress: 100,
-                          error: null,
-                        },
-                      }
-                    : msg
+                messages: optimizeMessagesMemory(
+                  state.messages.map((msg) =>
+                    msg.id === aiMessageId
+                      ? {
+                          ...msg,
+                          content: result.data!.text,
+                          webSearchResult: result.data!.webSearchResult,
+                          generationStatus: {
+                            isGenerating: false,
+                            progress: 100,
+                            error: null,
+                          },
+                        }
+                      : msg
+                  )
                 ),
               }));
 
