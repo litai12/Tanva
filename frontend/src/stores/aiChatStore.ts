@@ -6584,29 +6584,37 @@ export const useAIChatStore = create<AIChatState>()(
             enableWebSearch: state.enableWebSearch,
           };
 
+          // 🔥 判断是否需要并行生成（仅图片生成相关模式支持）
+          const isImageGenerationMode = ["generate", "edit", "blend"].includes(manualMode);
+          const multiplier: AutoModeMultiplier = isImageGenerationMode
+            ? state.autoModeMultiplier
+            : 1;
+
+          console.log(`🔧 [processUserInputV2] 模式: ${manualMode}, multiplier: ${multiplier}`);
+
           // 🔥 创建用户消息
-          get().addMessage({
+          const userMessage = get().addMessage({
             type: "user",
             content: input,
           });
 
-          // 🔥 创建 AI 占位消息
-          // 注意：auto 模式下初始不设置 expectsImageOutput，等后端返回工具类型后再决定
-          // 只有明确选择生图/编辑/融合模式时才预设 expectsImageOutput: true
-          const aiMessage = get().addMessage({
-            type: "ai",
-            content: "正在处理...",
-            generationStatus: {
-              isGenerating: true,
-              progress: 10,
-              error: null,
-              stage: "调用 AI",
-            },
-            expectsImageOutput:
-              manualMode === "generate" ||
-              manualMode === "edit" ||
-              manualMode === "blend",
-          });
+          // 🔥 根据 multiplier 决定单次还是并行执行
+          if (multiplier === 1) {
+            // ======== 单次执行路径 ========
+            // 🔥 创建 AI 占位消息
+            // 注意：auto 模式下初始不设置 expectsImageOutput，等后端返回工具类型后再决定
+            // 只有明确选择生图/编辑/融合模式时才预设 expectsImageOutput: true
+            const aiMessage = get().addMessage({
+              type: "ai",
+              content: "正在处理...",
+              generationStatus: {
+                isGenerating: true,
+                progress: 10,
+                error: null,
+                stage: "调用 AI",
+              },
+              expectsImageOutput: isImageGenerationMode,
+            });
 
           try {
             console.log("🚀 [统一Chat流式] 发送请求:", {
@@ -6691,10 +6699,36 @@ export const useAIChatStore = create<AIChatState>()(
 
                 console.log("🖼️ [流式] 收到图片");
 
+                // 🔥 确定操作类型
+                const operationType =
+                  currentTool === "editImage"
+                    ? "edit"
+                    : currentTool === "blendImages"
+                    ? "blend"
+                    : "generate";
+
+                // 🔥 处理图片数据：优先使用远程 URL，否则使用 base64
+                const isRemoteImageUrl =
+                  typeof imageData === "string" &&
+                  /^https?:\/\//i.test(imageData);
+                const inlineImageData = isRemoteImageUrl ? undefined : imageData;
+                const imageRemoteUrl = isRemoteImageUrl ? imageData : undefined;
+
+                // 🔥 生成 thumbnail
+                const thumbnail = imageRemoteUrl
+                  ? imageRemoteUrl
+                  : inlineImageData
+                  ? ensureDataUrl(inlineImageData)
+                  : undefined;
+
+                // 🔥 更新消息状态（包含 thumbnail 和 imageRemoteUrl）
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
                   content: text || "图片生成完成",
-                  imageData,
+                  imageData: imageRemoteUrl ? undefined : inlineImageData,
+                  thumbnail,
+                  imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
+                  provider: state.aiProvider,
                   generationStatus: {
                     isGenerating: false,
                     progress: 100,
@@ -6702,6 +6736,19 @@ export const useAIChatStore = create<AIChatState>()(
                     stage: "完成",
                   },
                 }));
+
+                // 🔥 修复1: 更新 lastGeneratedImage 状态
+                const aiImageResult: AIImageResult = {
+                  id: aiMessage.id,
+                  imageData: inlineImageData || imageRemoteUrl || "",
+                  hasImage: true,
+                  textResponse: text,
+                  prompt: input,
+                  model: state.aiProvider || "unknown",
+                  createdAt: new Date(),
+                };
+                set({ lastGeneratedImage: aiImageResult });
+                console.log("✅ [流式] lastGeneratedImage 已更新");
 
                 // 派发图片生成事件
                 window.dispatchEvent(
@@ -6718,14 +6765,125 @@ export const useAIChatStore = create<AIChatState>()(
                 // 记录到历史
                 contextManager.addImageHistory({
                   prompt: input,
-                  operationType:
-                    currentTool === "editImage"
-                      ? "edit"
-                      : currentTool === "blendImages"
-                      ? "blend"
-                      : "generate",
+                  operationType,
                   imageData,
                 });
+
+                // 🔥 同步图片到画布 - 触发 triggerQuickImageUpload 事件
+                const fileName = `${input.substring(0, 20)}.png`;
+                const imagePayload = buildImagePayloadForUpload(
+                  imageData,
+                  fileName
+                );
+
+                console.log(
+                  "🎨 [流式] 同步图片到画布, operationType:",
+                  operationType
+                );
+
+                window.dispatchEvent(
+                  new CustomEvent("triggerQuickImageUpload", {
+                    detail: {
+                      imageData: imagePayload,
+                      fileName: fileName,
+                      operationType,
+                      smartPosition: undefined,
+                      sourceImageId: undefined,
+                      sourceImages: undefined,
+                      placeholderId: undefined,
+                    },
+                  })
+                );
+
+                // 🔥 修复2: 异步上传图片历史记录并缓存（后台进行，不阻塞显示）
+                if (inlineImageData) {
+                  registerMessageImageHistory({
+                    aiMessageId: aiMessage.id,
+                    prompt: input,
+                    result: aiImageResult,
+                    operationType,
+                  })
+                    .then((assets) => {
+                      console.log(
+                        "✅ [流式] 图片已上传到OSS，remoteUrl:",
+                        assets?.remoteUrl?.substring(0, 50)
+                      );
+
+                      // 缓存生成结果
+                      cacheGeneratedImageResult({
+                        messageId: aiMessage.id,
+                        prompt: input,
+                        result: aiImageResult,
+                        assets,
+                        inlineImageData,
+                      });
+
+                      // 更新消息的 imageRemoteUrl
+                      if (assets?.remoteUrl) {
+                        get().updateMessage(aiMessage.id, (msg) => ({
+                          ...msg,
+                          imageRemoteUrl: assets.remoteUrl,
+                          thumbnail: assets.thumbnail || msg.thumbnail,
+                        }));
+                      }
+
+                      // 🔥 修复3: 内存优化 - 延迟清空 imageData，只保留 thumbnail
+                      const memoryOptimizationDelay = 3000;
+                      setTimeout(() => {
+                        const currentState = get();
+                        const message = currentState.messages.find(
+                          (m) => m.id === aiMessage.id
+                        );
+                        if (!message) return;
+
+                        const hasThumbnail =
+                          message.thumbnail && message.thumbnail.length > 0;
+                        const hasRemoteUrl =
+                          message.imageRemoteUrl &&
+                          message.imageRemoteUrl.startsWith("http");
+                        const imageDataSize = message.imageData?.length || 0;
+                        const thumbnailSize = message.thumbnail?.length || 0;
+
+                        // 只有当有缩略图和远程URL，且imageData明显大于thumbnail时才清理
+                        if (
+                          hasThumbnail &&
+                          hasRemoteUrl &&
+                          imageDataSize > thumbnailSize * 2
+                        ) {
+                          console.log(
+                            "🧹 [流式] 内存优化：清空 imageData，保留 thumbnail"
+                          );
+                          get().updateMessage(aiMessage.id, (msg) => ({
+                            ...msg,
+                            imageData: undefined,
+                          }));
+
+                          // 同步到 contextManager
+                          const context = contextManager.getCurrentContext();
+                          if (context) {
+                            const target = context.messages.find(
+                              (m) => m.id === aiMessage.id
+                            );
+                            if (target) {
+                              target.imageData = undefined;
+                            }
+                          }
+                        }
+                      }, memoryOptimizationDelay);
+                    })
+                    .catch((error) => {
+                      console.warn("⚠️ [流式] 上传图片历史记录失败:", error);
+                    });
+                } else if (imageRemoteUrl) {
+                  // 如果已经是远程URL，直接缓存
+                  cacheGeneratedImageResult({
+                    messageId: aiMessage.id,
+                    prompt: input,
+                    result: aiImageResult,
+                    assets: { remoteUrl: imageRemoteUrl },
+                    inlineImageData: undefined,
+                  });
+                }
               },
 
               // 视频事件
@@ -6877,6 +7035,69 @@ export const useAIChatStore = create<AIChatState>()(
                 stage: "已终止",
               },
             }));
+          }
+          } else {
+            // ======== 并行生成路径 (multiplier > 1) ========
+            const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            console.log(`🚀 [processUserInputV2 并行生成] 开始并行生成 ${multiplier} 张图片，groupId: ${groupId}`);
+
+            // 更新用户消息，添加 group 信息
+            get().updateMessage(userMessage.id, (msg) => ({
+              ...msg,
+              groupId,
+              groupIndex: 0,
+              groupTotal: multiplier,
+            }));
+
+            // 🔥 预先创建所有 AI 占位消息
+            const aiMessageIds: string[] = [];
+            for (let i = 0; i < multiplier; i++) {
+              const aiMsg = get().addMessage({
+                type: "ai",
+                content: `正在生成第 ${i + 1}/${multiplier} 张...`,
+                generationStatus: {
+                  isGenerating: true,
+                  progress: 5,
+                  error: null,
+                  stage: "准备中",
+                },
+                groupId,
+                groupIndex: i,
+                groupTotal: multiplier,
+                expectsImageOutput: true,
+              });
+              aiMessageIds.push(aiMsg.id);
+            }
+
+            // 并行执行多个生成任务
+            const promises = aiMessageIds.map((aiMessageId, index) =>
+              get()
+                .executeParallelImageGeneration(input, {
+                  groupId,
+                  groupIndex: index,
+                  groupTotal: multiplier,
+                  userMessageId: userMessage.id,
+                  aiMessageId,
+                })
+                .catch((error) => {
+                  console.error(`❌ [并行生成] 第 ${index + 1} 个任务失败:`, error);
+                  // 更新失败状态
+                  get().updateMessageStatus(aiMessageId, {
+                    isGenerating: false,
+                    error: error instanceof Error ? error.message : "生成失败",
+                  });
+                  return null;
+                })
+            );
+
+            // 等待所有任务完成
+            Promise.allSettled(promises).then((results) => {
+              const successCount = results.filter(
+                (r) => r.status === "fulfilled" && r.value !== null
+              ).length;
+              console.log(`✅ [processUserInputV2 并行生成] 完成，成功 ${successCount}/${multiplier}`);
+              get().refreshSessions();
+            });
           }
         },
 
