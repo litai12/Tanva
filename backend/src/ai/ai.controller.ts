@@ -464,24 +464,62 @@ export class AiController {
         // 纯文本对话 - 流式输出
         const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
 
-        const textStream = this.imageGeneration.generateTextResponseStream({
-          prompt: dto.prompt,
-          model: textModel,
-          enableWebSearch: dto.enableWebSearch,
-          customApiKey,
-        });
+        // 如果使用非 Gemini provider（如 banana），使用 provider 的非流式方法并转换为流式输出
+        if (providerName && !this.isGeminiProvider(providerName)) {
+          const provider = this.factory.getProvider(textModel, providerName);
+          if (provider) {
+            this.logger.log(`Using ${providerName} provider for text generation (non-streaming, will simulate streaming)`);
+            
+            const result = await provider.generateText({
+              prompt: dto.prompt,
+              model: textModel,
+              enableWebSearch: dto.enableWebSearch,
+            });
 
-        let chunkCount = 0;
-        for await (const chunk of textStream) {
-          chunkCount++;
-          fullText += chunk;
-          this.logger.debug(`📝 SSE chunk #${chunkCount}: ${chunk.length} chars`);
-          sendEvent({
-            type: 'chunk',
-            text: chunk,
+            if (result.success && result.data?.text) {
+              // 将非流式结果转换为流式输出（逐字符发送以模拟流式效果）
+              const text = result.data.text;
+              const chunkSize = 10; // 每次发送10个字符
+              
+              for (let i = 0; i < text.length; i += chunkSize) {
+                const chunk = text.substring(i, i + chunkSize);
+                fullText += chunk;
+                sendEvent({
+                  type: 'chunk',
+                  text: chunk,
+                });
+                // 添加小延迟以模拟流式效果
+                await new Promise(resolve => setTimeout(resolve, 10));
+              }
+            } else {
+              throw new InternalServerErrorException(
+                result.error?.message || 'Text generation failed'
+              );
+            }
+          } else {
+            throw new ServiceUnavailableException(`Provider ${providerName} not available`);
+          }
+        } else {
+          // 使用 Gemini provider 的流式输出
+          const textStream = this.imageGeneration.generateTextResponseStream({
+            prompt: dto.prompt,
+            model: textModel,
+            enableWebSearch: dto.enableWebSearch,
+            customApiKey,
           });
+
+          let chunkCount = 0;
+          for await (const chunk of textStream) {
+            chunkCount++;
+            fullText += chunk;
+            this.logger.debug(`📝 SSE chunk #${chunkCount}: ${chunk.length} chars`);
+            sendEvent({
+              type: 'chunk',
+              text: chunk,
+            });
+          }
+          this.logger.log(`📝 SSE total chunks: ${chunkCount}, total chars: ${fullText.length}`);
         }
-        this.logger.log(`📝 SSE total chunks: ${chunkCount}, total chars: ${fullText.length}`);
 
         // 发送完成事件
         sendEvent({
