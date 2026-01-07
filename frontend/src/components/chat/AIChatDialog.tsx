@@ -3779,6 +3779,18 @@ const AIChatDialog: React.FC = () => {
                                 hasReferenceImages ||
                                 expectsImageOutput ||
                                 isImageTaskInFlight;
+
+                              // 🔍 调试：占位图显示条件
+                              if (isAiMessage && generationStatus?.isGenerating) {
+                                console.log("🔍 [UI渲染] AI消息状态:", {
+                                  messageId: message.id,
+                                  expectsImageOutput,
+                                  hasGeneratedImage,
+                                  showImageLayout,
+                                  isGenerating: generationStatus?.isGenerating,
+                                  stage: generationStatus?.stage,
+                                });
+                              }
                               const showVideoLayout =
                                 hasGeneratedVideo ||
                                 expectsVideoOutput ||
