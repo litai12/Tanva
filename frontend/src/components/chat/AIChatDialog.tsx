@@ -2762,7 +2762,7 @@ const AIChatDialog: React.FC = () => {
                 className={cn(
                   "resize-none px-4 pb-12 min-h-[80px] max-h-[260px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
                 )}
-                rows={1}
+                rows={2}
               />
 
               {/* 左侧按钮组 */}
