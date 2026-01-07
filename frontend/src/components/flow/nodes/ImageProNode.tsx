@@ -32,15 +32,23 @@ const MIN_IMAGE_WIDTH = 150;
 const MAX_IMAGE_WIDTH = 600;
 const DEFAULT_IMAGE_WIDTH = 296;
 
-const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, onDragLeave, onDoubleClick, width, height }: {
+// 角点样式常量
+const CORNER_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  width: 10,
+  height: 10,
+  borderRadius: '50%',
+  background: '#3b82f6',
+  zIndex: 20,
+};
+
+const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, onDragLeave, onDoubleClick }: {
   displaySrc?: string;
   isDragOver: boolean;
   onDrop: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDoubleClick: () => void;
-  width: number;
-  height: number;
 }) => (
   <div
     onDrop={onDrop}
@@ -49,8 +57,8 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, o
     onDoubleClick={onDoubleClick}
     style={{
       position: 'relative',
-      width: width,
-      height: height,
+      width: '100%',
+      height: '100%',
       background: isDragOver ? '#e0f2fe' : displaySrc ? 'transparent' : '#f8f9fa',
       borderRadius: 12,
       overflow: 'hidden',
@@ -182,6 +190,11 @@ function ImageProNodeInner({ id, data, selected }: Props) {
   const onDragLeave = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+  }, []);
+
+  // 双击上传
+  const handleDoubleClick = React.useCallback(() => {
+    inputRef.current?.click();
   }, []);
 
   // 粘贴处理
@@ -343,16 +356,6 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     [imageWidth, id]
   );
 
-  // 角点样式
-  const cornerStyle: React.CSSProperties = {
-    position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: '50%',
-    background: '#3b82f6',
-    zIndex: 20,
-  };
-
   return (
     <div
       ref={containerRef}
@@ -395,41 +398,39 @@ function ImageProNodeInner({ id, data, selected }: Props) {
           />
         )}
 
-        {/* 图片区域 */}
-        <ImageContent
-          displaySrc={displaySrc}
-          isDragOver={isDragOver}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDoubleClick={() => {
-            inputRef.current?.click();
-          }}
-          width={imageWidth}
-          height={imageHeight}
-        />
+        {/* 图片区域 - 父容器控制大小 */}
+        <div style={{ width: imageWidth, height: imageHeight }}>
+          <ImageContent
+            displaySrc={displaySrc}
+            isDragOver={isDragOver}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDoubleClick={handleDoubleClick}
+          />
+        </div>
 
         {/* 选中时的四个角点 */}
         {selected && (
           <>
             <div
               className="nodrag"
-              style={{ ...cornerStyle, top: -5, left: -5, cursor: 'nwse-resize' }}
+              style={{ ...CORNER_STYLE, top: -5, left: -5, cursor: 'nwse-resize' }}
               onMouseDown={handleResizeStart('top-left')}
             />
             <div
               className="nodrag"
-              style={{ ...cornerStyle, top: -5, right: -5, cursor: 'nesw-resize' }}
+              style={{ ...CORNER_STYLE, top: -5, right: -5, cursor: 'nesw-resize' }}
               onMouseDown={handleResizeStart('top-right')}
             />
             <div
               className="nodrag"
-              style={{ ...cornerStyle, bottom: -5, left: -5, cursor: 'nesw-resize' }}
+              style={{ ...CORNER_STYLE, bottom: -5, left: -5, cursor: 'nesw-resize' }}
               onMouseDown={handleResizeStart('bottom-left')}
             />
             <div
               className="nodrag"
-              style={{ ...cornerStyle, bottom: -5, right: -5, cursor: 'nwse-resize' }}
+              style={{ ...CORNER_STYLE, bottom: -5, right: -5, cursor: 'nwse-resize' }}
               onMouseDown={handleResizeStart('bottom-right')}
             />
           </>

@@ -317,6 +317,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
     e.preventDefault();
   }, []);
 
+  const handleDoubleClick = React.useCallback(() => {
+    inputRef.current?.click();
+  }, []);
+
   const onPaste = React.useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -484,9 +488,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         displaySrc={displaySrc}
         onDrop={onDrop}
         onDragOver={onDragOver}
-        onDoubleClick={() => {
-          inputRef.current?.click();
-        }}
+        onDoubleClick={handleDoubleClick}
       />
 
       <Handle
