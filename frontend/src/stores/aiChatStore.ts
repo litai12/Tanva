@@ -1779,6 +1779,8 @@ interface AIChatState {
     messageId: string,
     updater: (message: ChatMessage) => ChatMessage
   ) => void;
+  // 🔥 中断所有正在生成的任务
+  cancelAllGenerations: () => void;
   refreshSessions: (options?: {
     persistToLocal?: boolean;
     markProjectDirty?: boolean;
@@ -1879,7 +1881,9 @@ interface AIChatState {
   executeProcessFlow: (
     input: string,
     isRetry?: boolean,
-    groupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
+    groupInfo?: { groupId: string; groupIndex: number; groupTotal: number },
+    existingUserMessageId?: string,
+    existingAiMessageId?: string
   ) => Promise<void>;
 
   // 🔥 并行图片生成（使用预创建的消息）
@@ -2276,6 +2280,35 @@ export const useAIChatStore = create<AIChatState>()(
               context.messages[index] = updater({ ...context.messages[index] });
             }
           }
+        },
+
+        // 🔥 中断所有正在生成的任务
+        cancelAllGenerations: () => {
+          const state = get();
+          const generatingMessages = state.messages.filter(
+            (msg) => msg.type === "ai" && msg.generationStatus?.isGenerating
+          );
+
+          generatingMessages.forEach((msg) => {
+            get().updateMessageStatus(msg.id, {
+              isGenerating: false,
+              error: "已中断",
+              stage: "已中断",
+            });
+          });
+
+          // 重置全局生成状态
+          set({
+            generationStatus: {
+              isGenerating: false,
+              progress: 0,
+              error: null,
+            },
+          });
+
+          console.log(
+            `🛑 [中断] 已中断 ${generatingMessages.length} 个生成任务`
+          );
         },
 
         refreshSessions: async (options) => {
@@ -5742,7 +5775,9 @@ export const useAIChatStore = create<AIChatState>()(
             groupId: string;
             groupIndex: number;
             groupTotal: number;
-          }
+          },
+          existingUserMessageId?: string,
+          existingAiMessageId?: string
         ) => {
           const state = get();
           const metrics = createProcessMetrics();
@@ -5760,7 +5795,22 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 预先创建用户消息与占位AI消息，提供即时反馈
           let pendingUserMessage: ChatMessage;
-          if (isParallelMode && !isFirstInGroup) {
+
+          // 🔥 如果已经传入了用户消息 ID，则复用它
+          if (existingUserMessageId) {
+            const existingMsg = get().messages.find(
+              (m) => m.id === existingUserMessageId
+            );
+            if (existingMsg) {
+              pendingUserMessage = existingMsg;
+            } else {
+              // fallback: 如果找不到则创建新的
+              pendingUserMessage = get().addMessage({
+                type: "user",
+                content: input,
+              });
+            }
+          } else if (isParallelMode && !isFirstInGroup) {
             // 并行模式下，非第一个任务复用第一个任务的用户消息（不重复创建）
             const existingUserMsg = get().messages.find(
               (m) =>
@@ -5789,28 +5839,59 @@ export const useAIChatStore = create<AIChatState>()(
             });
           }
 
-          const pendingAiMessage = get().addMessage({
-            type: "ai",
-            content: isParallelMode
-              ? `正在生成第 ${(groupInfo?.groupIndex ?? 0) + 1}/${
-                  groupInfo?.groupTotal ?? 1
-                } 张...`
-              : "正在处理中...",
-            generationStatus: {
-              isGenerating: true,
-              progress: 5,
-              error: null,
-              stage: "等待响应",
-            },
-            // 🔥 明确设置 expectsImageOutput: false，避免在工具选择完成前显示图片占位框
-            expectsImageOutput: false,
-            expectsVideoOutput: false,
-            ...(groupInfo && {
-              groupId: groupInfo.groupId,
-              groupIndex: groupInfo.groupIndex,
-              groupTotal: groupInfo.groupTotal,
-            }),
-          });
+          // 🔥 如果已经传入了 AI 消息 ID，则复用它；否则创建新的
+          let pendingAiMessage: ChatMessage;
+          if (existingAiMessageId) {
+            const existingAiMsg = get().messages.find(
+              (m) => m.id === existingAiMessageId
+            );
+            if (existingAiMsg) {
+              pendingAiMessage = existingAiMsg;
+              // 更新状态为"正在处理中"
+              get().updateMessageStatus(existingAiMessageId, {
+                isGenerating: true,
+                progress: 10,
+                stage: "正在分析请求...",
+              });
+            } else {
+              // fallback: 如果找不到则创建新的
+              pendingAiMessage = get().addMessage({
+                type: "ai",
+                content: "正在处理中...",
+                generationStatus: {
+                  isGenerating: true,
+                  progress: 5,
+                  error: null,
+                  stage: "等待响应",
+                },
+                expectsImageOutput: false,
+                expectsVideoOutput: false,
+              });
+            }
+          } else {
+            pendingAiMessage = get().addMessage({
+              type: "ai",
+              content: isParallelMode
+                ? `正在生成第 ${(groupInfo?.groupIndex ?? 0) + 1}/${
+                    groupInfo?.groupTotal ?? 1
+                  } 张...`
+                : "正在处理中...",
+              generationStatus: {
+                isGenerating: true,
+                progress: 5,
+                error: null,
+                stage: "等待响应",
+              },
+              // 🔥 明确设置 expectsImageOutput: false，避免在工具选择完成前显示图片占位框
+              expectsImageOutput: false,
+              expectsVideoOutput: false,
+              ...(groupInfo && {
+                groupId: groupInfo.groupId,
+                groupIndex: groupInfo.groupIndex,
+                groupTotal: groupInfo.groupTotal,
+              }),
+            });
+          }
 
           const messageOverride: MessageOverride = {
             userMessageId: pendingUserMessage.id,
@@ -6191,6 +6272,26 @@ export const useAIChatStore = create<AIChatState>()(
 
           get().refreshSessions();
 
+          // 🔥 立即添加用户消息，让用户输入马上出现在对话记录里
+          const userMessage = get().addMessage({
+            type: "user",
+            content: input,
+          });
+          const userMessageId = userMessage.id;
+
+          // 🔥 立即添加 AI 占位消息，显示"正在处理..."
+          const aiPlaceholder = get().addMessage({
+            type: "ai",
+            content: "正在处理您的请求...",
+            generationStatus: {
+              isGenerating: true,
+              progress: 5,
+              error: null,
+              stage: "准备中",
+            },
+          });
+          const aiPlaceholderId = aiPlaceholder.id;
+
           // 🔥 第一步：先进行工具选择，判断用户意图
           // 只有确定是图片相关操作后，才应用 multiplier
           const manualMode = state.manualAIMode;
@@ -6294,8 +6395,9 @@ export const useAIChatStore = create<AIChatState>()(
           // 🔥 第三步：根据 multiplier 决定是单次还是并行执行
           if (multiplier === 1) {
             // 单次执行 - 使用完整的 executeProcessFlow（会跳过重复的工具选择）
+            // 传入已创建的用户消息 ID，避免重复创建
             try {
-              await get().executeProcessFlow(input, false);
+              await get().executeProcessFlow(input, false, undefined, userMessageId, aiPlaceholderId);
             } catch (error) {
               let errorMessage =
                 error instanceof Error ? error.message : "处理失败";
@@ -6336,14 +6438,18 @@ export const useAIChatStore = create<AIChatState>()(
               `🚀 [并行生成] 开始并行生成 ${multiplier} 张图片，groupId: ${groupId}, 工具: ${selectedTool}`
             );
 
-            // 🔥 先创建用户消息，避免竞态条件
-            const userMessage = get().addMessage({
-              type: "user",
-              content: input,
+            // 🔥 更新已创建的用户消息，添加 group 信息
+            get().updateMessage(userMessageId, (msg) => ({
+              ...msg,
               groupId,
               groupIndex: 0,
               groupTotal: multiplier,
-            });
+            }));
+
+            // 🔥 删除之前创建的单个占位消息（因为并行模式需要创建多个）
+            set((state) => ({
+              messages: state.messages.filter((m) => m.id !== aiPlaceholderId),
+            }));
 
             // 🔥 预先创建所有 AI 占位消息
             const aiMessageIds: string[] = [];
@@ -6372,7 +6478,7 @@ export const useAIChatStore = create<AIChatState>()(
                   groupId,
                   groupIndex: index,
                   groupTotal: multiplier,
-                  userMessageId: userMessage.id,
+                  userMessageId,
                   aiMessageId,
                 })
                 .catch((error) => {

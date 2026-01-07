@@ -300,6 +300,7 @@ const AIChatDialog: React.FC = () => {
     sendShortcut,
     executeMidjourneyAction,
     expandedPanelStyle,
+    cancelAllGenerations,
     // 直接调用的图像处理方法（用于重新发送）
     editImage,
     blendImages,
@@ -2004,12 +2005,16 @@ const AIChatDialog: React.FC = () => {
       }
     });
 
+    // 调用 store 的中断方法，确保全局状态也被重置
+    cancelAllGenerations();
+
     // 减少待处理任务计数
     setPendingTaskCount(0);
-  }, [isStreaming, messages, updateMessage]);
+  }, [isStreaming, messages, updateMessage, cancelAllGenerations]);
 
   // 判断是否正在等待响应（用于显示中断按钮）
   const isWaitingForResponse =
+    pendingTaskCount > 0 ||
     isStreaming ||
     generationStatus.isGenerating ||
     messages.some(
@@ -3803,10 +3808,6 @@ const AIChatDialog: React.FC = () => {
                                   <span className='text-sm font-bold text-black'>
                                     Tanvas
                                   </span>
-                                  {/* 🔥 等待响应时显示 spinner */}
-                                  {isWaitingForResponse && (
-                                    <Loader2 className='w-4 h-4 animate-spin text-slate-400' />
-                                  )}
                                   {message.webSearchResult
                                     ?.hasSearchResults && (
                                     <div className='flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full'>
@@ -3817,7 +3818,13 @@ const AIChatDialog: React.FC = () => {
                                 </div>
                               ) : null;
                               const aiTextContent = isAiMessage ? (
-                                <div className='text-sm leading-relaxed text-black break-words markdown-content'>
+                                <div className='relative text-sm leading-relaxed text-black break-words markdown-content'>
+                                  {/* 🔥 等待响应时在内容左侧显示 spinner */}
+                                  {isWaitingForResponse && (
+                                    <span className='absolute -left-4 top-0.5'>
+                                      <Loader2 className='w-4 h-4 animate-spin text-slate-400' />
+                                    </span>
+                                  )}
                                   <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
                                     components={{
