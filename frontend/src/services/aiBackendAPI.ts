@@ -1228,3 +1228,541 @@ export async function generateWan26R2VViaAPI(request: {
     };
   }
 }
+
+// ==================== 统一 Chat 接口 ====================
+
+/**
+ * 统一 Chat 模式
+ */
+export type UnifiedChatMode =
+  | "auto"
+  | "text"
+  | "generate"
+  | "edit"
+  | "blend"
+  | "analyze"
+  | "video"
+  | "vector"
+  | "pdf";
+
+/**
+ * 统一 Chat 工具类型
+ */
+export type UnifiedChatTool =
+  | "generateImage"
+  | "editImage"
+  | "blendImages"
+  | "analyzeImage"
+  | "chatResponse"
+  | "generateVideo"
+  | "generatePaperJS"
+  | "analyzePdf";
+
+/**
+ * 统一 Chat 附件
+ */
+export interface UnifiedChatAttachments {
+  images?: string[]; // base64 图片数组
+  pdf?: string; // base64 PDF
+  pdfFileName?: string;
+}
+
+/**
+ * 图片生成选项
+ */
+export interface UnifiedImageOptions {
+  aspectRatio?:
+    | "1:1"
+    | "2:3"
+    | "3:2"
+    | "3:4"
+    | "4:3"
+    | "4:5"
+    | "5:4"
+    | "9:16"
+    | "16:9"
+    | "21:9";
+  imageSize?: "1K" | "2K" | "4K";
+  outputFormat?: "jpeg" | "png" | "webp";
+  thinkingLevel?: "high" | "low";
+  imageOnly?: boolean;
+}
+
+/**
+ * 视频生成选项
+ */
+export interface UnifiedVideoOptions {
+  quality?: "hd" | "sd";
+  aspectRatio?: "16:9" | "9:16";
+  duration?: "10" | "15" | "25";
+  referenceImageUrls?: string[];
+}
+
+/**
+ * 矢量图生成选项
+ */
+export interface UnifiedVectorOptions {
+  thinkingLevel?: "high" | "low";
+  canvasWidth?: number;
+  canvasHeight?: number;
+}
+
+/**
+ * 统一 Chat 请求
+ */
+export interface UnifiedChatRequest {
+  prompt: string;
+  mode?: UnifiedChatMode;
+  attachments?: UnifiedChatAttachments;
+  aiProvider?: SupportedAIProvider;
+  model?: string;
+  imageOptions?: UnifiedImageOptions;
+  videoOptions?: UnifiedVideoOptions;
+  vectorOptions?: UnifiedVectorOptions;
+  context?: string;
+  enableWebSearch?: boolean;
+  providerOptions?: Record<string, unknown>;
+}
+
+/**
+ * 统一 Chat 响应数据
+ */
+export interface UnifiedChatResponseData {
+  text?: string;
+  imageData?: string;
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  code?: string;
+  explanation?: string;
+  analysis?: string;
+  metadata?: Record<string, unknown>;
+  webSearchResult?: unknown;
+}
+
+/**
+ * 统一 Chat 响应
+ */
+export interface UnifiedChatResponse {
+  success: boolean;
+  tool: UnifiedChatTool;
+  data: UnifiedChatResponseData;
+  reasoning?: string;
+  model?: string;
+  provider?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * 统一 Chat API - 整合所有 AI 功能的单一入口
+ *
+ * 优势：
+ * - 前端只需一次 API 调用
+ * - 后端自动判断意图并执行对应操作
+ * - 统一的请求和响应格式
+ *
+ * @example
+ * // 文生图
+ * const result = await unifiedChatViaAPI({
+ *   prompt: "画一只可爱的猫",
+ *   mode: "auto", // 后端自动判断为 generateImage
+ * });
+ *
+ * @example
+ * // 图片编辑
+ * const result = await unifiedChatViaAPI({
+ *   prompt: "把背景改成蓝色",
+ *   attachments: { images: [base64Image] },
+ *   mode: "edit",
+ * });
+ *
+ * @example
+ * // 文本对话
+ * const result = await unifiedChatViaAPI({
+ *   prompt: "你好",
+ *   mode: "text",
+ * });
+ */
+export async function unifiedChatViaAPI(
+  request: UnifiedChatRequest
+): Promise<AIServiceResponse<UnifiedChatResponse>> {
+  const startedAt = getTimestamp();
+
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/ai/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("unified-chat", startedAt, {
+        success: false,
+        status: response.status,
+        mode: request.mode,
+        provider: request.aiProvider,
+      });
+      return {
+        success: false,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorData?.message || `HTTP ${response.status}`,
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    const data: UnifiedChatResponse = await response.json();
+
+    logApiTiming("unified-chat", startedAt, {
+      success: data.success,
+      tool: data.tool,
+      mode: request.mode,
+      provider: request.aiProvider,
+      model: data.model,
+    });
+
+    // 如果后端返回了错误
+    if (!data.success) {
+      return {
+        success: false,
+        error: {
+          code: data.error?.code || "CHAT_ERROR",
+          message: data.error?.message || "Chat failed",
+          timestamp: new Date(),
+        },
+      };
+    }
+
+    // 处理图片数据格式 - 确保带 data URI 前缀
+    if (data.data.imageData) {
+      const imageData = data.data.imageData;
+      if (!imageData.startsWith("data:")) {
+        data.data.imageData = `data:image/png;base64,${imageData}`;
+      }
+    }
+
+    return {
+      success: true,
+      data,
+    };
+  } catch (error) {
+    logApiTiming("unified-chat", startedAt, {
+      success: false,
+      mode: request.mode,
+      provider: request.aiProvider,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return {
+      success: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+        timestamp: new Date(),
+      },
+    };
+  }
+}
+
+/**
+ * 将统一 Chat 响应转换为 AIImageResult 格式
+ * 用于兼容现有的消息系统
+ */
+export function mapUnifiedChatToImageResult(
+  response: UnifiedChatResponse,
+  prompt: string
+): AIImageResult {
+  return {
+    id: generateUUID(),
+    imageData: response.data.imageData,
+    textResponse:
+      response.data.text ||
+      response.data.analysis ||
+      response.data.explanation,
+    prompt,
+    model: response.model || "unknown",
+    createdAt: new Date(),
+    hasImage: !!response.data.imageData,
+    metadata: {
+      tool: response.tool,
+      provider: response.provider,
+      ...(response.data.metadata || {}),
+    },
+  };
+}
+
+// ==================== SSE 流式 Chat 接口 ====================
+
+/**
+ * SSE 事件类型
+ */
+export type SSEEventType =
+  | "start" // 开始处理
+  | "tool" // 工具选择完成
+  | "chunk" // 文本内容块
+  | "image" // 图片数据
+  | "video" // 视频数据
+  | "code" // 代码数据
+  | "done" // 完成
+  | "error"; // 错误
+
+/**
+ * SSE 事件数据
+ */
+export interface SSEEventData {
+  type: SSEEventType;
+
+  // start 事件
+  tool?: UnifiedChatTool;
+  model?: string;
+  provider?: string;
+
+  // chunk 事件 - 增量文本
+  text?: string;
+
+  // image 事件
+  imageData?: string;
+
+  // video 事件
+  videoUrl?: string;
+  thumbnailUrl?: string;
+
+  // code 事件
+  code?: string;
+  explanation?: string;
+
+  // done 事件 - 完整响应
+  data?: UnifiedChatResponseData;
+  reasoning?: string;
+
+  // error 事件
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+/**
+ * SSE 流式回调函数类型
+ */
+export interface SSECallbacks {
+  /** 开始处理时调用 */
+  onStart?: (data: {
+    tool: UnifiedChatTool;
+    model?: string;
+    provider?: string;
+  }) => void;
+
+  /** 收到文本块时调用 */
+  onChunk?: (text: string) => void;
+
+  /** 收到图片时调用 */
+  onImage?: (data: { imageData: string; text?: string }) => void;
+
+  /** 收到视频时调用 */
+  onVideo?: (data: { videoUrl: string; thumbnailUrl?: string }) => void;
+
+  /** 收到代码时调用 */
+  onCode?: (data: { code: string; explanation?: string }) => void;
+
+  /** 完成时调用 */
+  onDone?: (data: UnifiedChatResponseData) => void;
+
+  /** 错误时调用 */
+  onError?: (error: { code: string; message: string }) => void;
+}
+
+/**
+ * 统一 Chat SSE 流式 API
+ * 支持实时文字流式输出，适用于纯文本对话和图片分析
+ *
+ * @example
+ * // 流式文本对话
+ * await unifiedChatStreamViaAPI(
+ *   { prompt: "你好", mode: "text" },
+ *   {
+ *     onChunk: (text) => console.log("收到文本:", text),
+ *     onDone: (data) => console.log("完成:", data),
+ *   }
+ * );
+ */
+export async function unifiedChatStreamViaAPI(
+  request: UnifiedChatRequest,
+  callbacks: SSECallbacks
+): Promise<void> {
+  const startedAt = getTimestamp();
+
+  try {
+    // 使用 credentials: 'include' 携带 cookie 认证（与 fetchWithAuth 保持一致）
+    const response = await fetch(`${API_BASE_URL}/ai/chat-stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      logApiTiming("unified-chat-stream", startedAt, {
+        success: false,
+        status: response.status,
+        mode: request.mode,
+        provider: request.aiProvider,
+      });
+
+      callbacks.onError?.({
+        code: `HTTP_${response.status}`,
+        message: errorData?.message || `HTTP ${response.status}`,
+      });
+      return;
+    }
+
+    if (!response.body) {
+      callbacks.onError?.({
+        code: "NO_BODY",
+        message: "Response body is null",
+      });
+      return;
+    }
+
+    // 读取 SSE 流
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // 解析 SSE 数据行
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // 保留未完整的行
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const jsonStr = line.slice(6);
+          if (jsonStr.trim()) {
+            try {
+              const event: SSEEventData = JSON.parse(jsonStr);
+              handleSSEEvent(event, callbacks);
+            } catch (parseError) {
+              console.warn("SSE parse error:", parseError, "line:", line);
+            }
+          }
+        }
+      }
+    }
+
+    // 处理剩余的 buffer
+    if (buffer.startsWith("data: ")) {
+      const jsonStr = buffer.slice(6);
+      if (jsonStr.trim()) {
+        try {
+          const event: SSEEventData = JSON.parse(jsonStr);
+          handleSSEEvent(event, callbacks);
+        } catch (parseError) {
+          console.warn("SSE parse error (final):", parseError);
+        }
+      }
+    }
+
+    logApiTiming("unified-chat-stream", startedAt, {
+      success: true,
+      mode: request.mode,
+      provider: request.aiProvider,
+    });
+  } catch (error) {
+    logApiTiming("unified-chat-stream", startedAt, {
+      success: false,
+      mode: request.mode,
+      provider: request.aiProvider,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+
+    callbacks.onError?.({
+      code: "NETWORK_ERROR",
+      message: error instanceof Error ? error.message : "Network error",
+    });
+  }
+}
+
+/**
+ * 处理单个 SSE 事件
+ */
+function handleSSEEvent(event: SSEEventData, callbacks: SSECallbacks): void {
+  switch (event.type) {
+    case "start":
+      callbacks.onStart?.({
+        tool: event.tool!,
+        model: event.model,
+        provider: event.provider,
+      });
+      break;
+
+    case "chunk":
+      if (event.text) {
+        callbacks.onChunk?.(event.text);
+      }
+      break;
+
+    case "image":
+      if (event.imageData) {
+        // 确保 imageData 带 data URI 前缀
+        let imageData = event.imageData;
+        if (!imageData.startsWith("data:")) {
+          imageData = `data:image/png;base64,${imageData}`;
+        }
+        callbacks.onImage?.({
+          imageData,
+          text: event.text,
+        });
+      }
+      break;
+
+    case "video":
+      if (event.videoUrl) {
+        callbacks.onVideo?.({
+          videoUrl: event.videoUrl,
+          thumbnailUrl: event.thumbnailUrl,
+        });
+      }
+      break;
+
+    case "code":
+      if (event.code) {
+        callbacks.onCode?.({
+          code: event.code,
+          explanation: event.explanation,
+        });
+      }
+      break;
+
+    case "done":
+      if (event.data) {
+        // 处理图片数据格式
+        if (event.data.imageData && !event.data.imageData.startsWith("data:")) {
+          event.data.imageData = `data:image/png;base64,${event.data.imageData}`;
+        }
+        callbacks.onDone?.(event.data);
+      }
+      break;
+
+    case "error":
+      callbacks.onError?.(
+        event.error || { code: "UNKNOWN", message: "Unknown error" }
+      );
+      break;
+  }
+}

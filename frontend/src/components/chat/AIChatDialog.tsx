@@ -49,6 +49,7 @@ import {
   Pencil,
   Lock,
   Unlock,
+  Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
@@ -271,7 +272,7 @@ const AIChatDialog: React.FC = () => {
     showDialog,
     setCurrentInput,
     clearInput,
-    processUserInput,
+    processUserInputV2,
     setSourceImageForEditing,
     setSourceImageForAnalysis,
     setSourcePdfForAnalysis,
@@ -285,6 +286,7 @@ const AIChatDialog: React.FC = () => {
     getContextSummary,
     isIterativeMode,
     updateMessageStatus,
+    updateMessage,
     toggleWebSearch,
     setAspectRatio,
     setImageSize,
@@ -1548,7 +1550,7 @@ const AIChatDialog: React.FC = () => {
         }
 
         // 没有图片数据，发送纯文本
-        await processUserInput(rawContent);
+        await processUserInputV2(rawContent);
         showToast("已重新发送");
       } catch (error) {
         console.error("重新发送失败:", error);
@@ -1561,7 +1563,7 @@ const AIChatDialog: React.FC = () => {
       clearImagesForBlending,
       editImage,
       generationStatus.isGenerating,
-      processUserInput,
+      processUserInputV2,
       setSourceImageForAnalysis,
       setSourceImageForEditing,
       showToast,
@@ -1881,7 +1883,7 @@ const AIChatDialog: React.FC = () => {
     setIsPromptPanelOpen(false);
     setAutoOptimizeEnabled(false);
     clearInput();
-    await processUserInput(trimmed);
+    await processUserInputV2(trimmed);
   };
 
   // 移除源图像
@@ -1942,7 +1944,7 @@ const AIChatDialog: React.FC = () => {
     }
 
     clearInput();
-    await processUserInput(promptToSend);
+    await processUserInputV2(promptToSend);
   };
 
   // 处理键盘事件
@@ -1966,6 +1968,53 @@ const AIChatDialog: React.FC = () => {
       hideDialog();
     }
   };
+
+  // 处理中断生成
+  const handleAbort = useCallback(() => {
+    // 停止流式文本显示
+    if (isStreaming) {
+      setIsStreaming(false);
+      setStreamingText("");
+      // 分发中断事件，通知其他组件
+      window.dispatchEvent(
+        new CustomEvent("aiStreamProgress", {
+          detail: {
+            operationType: "文本对话",
+            phase: "error",
+            error: "用户已中断",
+          },
+        })
+      );
+    }
+
+    // 标记所有正在生成的消息为已中断，并清除 expectsImageOutput/expectsVideoOutput
+    messages.forEach((msg) => {
+      if (msg.type === "ai" && msg.generationStatus?.isGenerating) {
+        updateMessage(msg.id, (m) => ({
+          ...m,
+          expectsImageOutput: false,
+          expectsVideoOutput: false,
+          generationStatus: {
+            ...m.generationStatus,
+            isGenerating: false,
+            error: "已中断",
+            stage: "已中断",
+          },
+        }));
+      }
+    });
+
+    // 减少待处理任务计数
+    setPendingTaskCount(0);
+  }, [isStreaming, messages, updateMessage]);
+
+  // 判断是否正在等待响应（用于显示中断按钮）
+  const isWaitingForResponse =
+    isStreaming ||
+    generationStatus.isGenerating ||
+    messages.some(
+      (msg) => msg.type === "ai" && msg.generationStatus?.isGenerating
+    );
 
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -3259,23 +3308,39 @@ const AIChatDialog: React.FC = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              {/* 发送按钮 */}
-              <Button
-                onClick={handleSend}
-                disabled={!canSend}
-                size='sm'
-                variant='outline'
-                title={sendShortcutHint}
-                className={cn(
-                  "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
-                  "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
-                  canSend
-                    ? "hover:bg-liquid-glass-hover text-gray-700"
-                    : "opacity-50 cursor-not-allowed text-gray-400"
-                )}
-              >
-                <Play className='h-3.5 w-3.5' />
-              </Button>
+              {/* 发送/中断按钮 */}
+              {isWaitingForResponse ? (
+                <Button
+                  onClick={handleAbort}
+                  size='sm'
+                  variant='outline'
+                  title='点击中断生成'
+                  className={cn(
+                    "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "bg-gray-800 backdrop-blur-liquid backdrop-saturate-125 border border-gray-600 shadow-liquid-glass",
+                    "hover:bg-gray-700 text-white"
+                  )}
+                >
+                  <Square className='w-3 h-3 fill-current' />
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleSend}
+                  disabled={!canSend}
+                  size='sm'
+                  variant='outline'
+                  title={sendShortcutHint}
+                  className={cn(
+                    "absolute right-4 bottom-2 h-7 w-7 p-0 rounded-full transition-all duration-200",
+                    "bg-liquid-glass backdrop-blur-liquid backdrop-saturate-125 border border-liquid-glass shadow-liquid-glass",
+                    canSend
+                      ? "hover:bg-liquid-glass-hover text-gray-700"
+                      : "opacity-50 cursor-not-allowed text-gray-400"
+                  )}
+                >
+                  <Play className='h-3.5 w-3.5' />
+                </Button>
+              )}
             </div>
 
             <PromptOptimizationPanel
@@ -3551,8 +3616,10 @@ const AIChatDialog: React.FC = () => {
                       );
                     }
 
+                    // 🐛 修复：只有明确预期图片输出时才显示图片占位框
+                    // 避免纯文字对话时也显示图片占位框
                     if (
-                      msgExpectsImageOutput ||
+                      msgExpectsImageOutput &&
                       msgGenerationStatus?.isGenerating
                     ) {
                       return (
@@ -3566,7 +3633,7 @@ const AIChatDialog: React.FC = () => {
                                 ? `${message.groupIndex + 1}/${
                                     message.groupTotal || "?"
                                   }`
-                                : msgGenerationStatus?.stage || "生成中"}
+                                : msgGenerationStatus?.stage || "正在生成"}
                             </span>
                             {typeof msgGenerationStatus?.progress ===
                               "number" && (
@@ -3719,6 +3786,13 @@ const AIChatDialog: React.FC = () => {
                                   hasGeneratedVideo ||
                                   expectsVideoOutput ||
                                   isVideoTaskInFlight);
+                              // 🔥 判断是否处于等待响应状态（工具选择阶段）
+                              const isWaitingForResponse =
+                                generationStatus?.isGenerating &&
+                                !expectsImageOutput &&
+                                !expectsVideoOutput &&
+                                !hasGeneratedImage &&
+                                !hasGeneratedVideo;
                               const aiHeader = isAiMessage ? (
                                 <div className='flex items-center gap-2 mb-2'>
                                   <img
@@ -3729,6 +3803,10 @@ const AIChatDialog: React.FC = () => {
                                   <span className='text-sm font-bold text-black'>
                                     Tanvas
                                   </span>
+                                  {/* 🔥 等待响应时显示 spinner */}
+                                  {isWaitingForResponse && (
+                                    <Loader2 className='w-4 h-4 animate-spin text-slate-400' />
+                                  )}
                                   {message.webSearchResult
                                     ?.hasSearchResults && (
                                     <div className='flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full'>
