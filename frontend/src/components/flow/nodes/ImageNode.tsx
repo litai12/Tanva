@@ -112,17 +112,76 @@ const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
 
+const ImageContent = React.memo(({ displaySrc, onDrop, onDragOver, onDoubleClick }: {
+  displaySrc?: string;
+  onDrop: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDoubleClick: () => void;
+}) => (
+  <div
+    onDrop={onDrop}
+    onDragOver={onDragOver}
+    onDoubleClick={onDoubleClick}
+    onClick={() => {}}
+    style={{
+      flex: 1,
+      minHeight: 120,
+      background: "#fff",
+      borderRadius: 6,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      border: "1px solid #e5e7eb",
+      cursor: "pointer",
+    }}
+    title='拖拽图片到此或双击上传'
+  >
+    {displaySrc ? (
+      <img
+        src={displaySrc}
+        alt=''
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "contain",
+          background: "#fff",
+        }}
+      />
+    ) : (
+      <span style={{ fontSize: 12, color: "#9ca3af" }}>
+        拖拽图片到此或双击上传
+      </span>
+    )}
+  </div>
+));
+
 function ImageNodeInner({ id, data, selected }: Props) {
   const rf = useReactFlow();
-  const edges = useStore((state: ReactFlowState) => state.edges);
+  const hasInputConnection = useStore(
+    React.useCallback(
+      (state: ReactFlowState) =>
+        state.edges.some(
+          (edge) => edge.target === id && edge.targetHandle === "img"
+        ),
+      [id]
+    )
+  );
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-  const fullSrc = buildImageSrc(data.imageData);
-  const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
+
+  const fullSrc = React.useMemo(
+    () => buildImageSrc(data.imageData),
+    [data.imageData]
+  );
+  const displaySrc = React.useMemo(
+    () => buildImageSrc(data.thumbnail) || fullSrc,
+    [data.thumbnail, fullSrc]
+  );
+
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
-  const [hasInputConnection, setHasInputConnection] = React.useState(false);
   const [isResizing, setIsResizing] = React.useState(false);
   const updateNodeSize = React.useCallback(
     (width: number, height: number) => {
@@ -145,14 +204,14 @@ function ImageNodeInner({ id, data, selected }: Props) {
     setIsResizing(true);
   }, []);
   const handleResize = React.useCallback(
-    (evt: any, params: any) => {
+    (_: unknown, params: { width: number; height: number }) => {
       if (!params) return;
       updateNodeSize(params.width, params.height);
     },
     [updateNodeSize]
   );
   const handleResizeEnd = React.useCallback(
-    (evt: any, params: any) => {
+    (_: unknown, params: { width: number; height: number }) => {
       setIsResizing(false);
       if (!params) return;
       updateNodeSize(params.width, params.height);
@@ -163,14 +222,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
     : "0 1px 2px rgba(0,0,0,0.04)";
-
-  // 检查输入连线状态
-  React.useEffect(() => {
-    const hasConnection = edges.some(
-      (edge) => edge.target === id && edge.targetHandle === "img"
-    );
-    setHasInputConnection(hasConnection);
-  }, [edges, id]);
 
   // 使用全局图片历史记录
   const history = useImageHistoryStore((state) => state.history);
@@ -226,7 +277,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [preview]);
 
-  const handleFiles = async (files: FileList | null) => {
+  const handleFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
     if (!file.type.startsWith("image/")) return;
@@ -254,19 +305,19 @@ function ImageNodeInner({ id, data, selected }: Props) {
       });
     };
     reader.readAsDataURL(file);
-  };
+  }, [id, projectId]);
 
-  const onDrop = (e: React.DragEvent) => {
+  const onDrop = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     handleFiles(e.dataTransfer.files);
-  };
+  }, [handleFiles]);
 
-  const onDragOver = (e: React.DragEvent) => {
+  const onDragOver = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
-  };
+  }, []);
 
-  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+  const onPaste = React.useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -286,7 +337,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         }
       }
     }
-  };
+  }, [handleFiles]);
 
   return (
     <div
@@ -429,44 +480,14 @@ function ImageNodeInner({ id, data, selected }: Props) {
         </div>
       )}
 
-      <div
+      <ImageContent
+        displaySrc={displaySrc}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDoubleClick={() => {
           inputRef.current?.click();
         }}
-        onClick={() => {}}
-        style={{
-          flex: 1,
-          minHeight: 120,
-          background: "#fff",
-          borderRadius: 6,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-          border: "1px solid #e5e7eb",
-          cursor: "pointer",
-        }}
-        title='拖拽图片到此或双击上传'
-      >
-        {displaySrc ? (
-          <img
-            src={displaySrc}
-            alt=''
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "contain",
-              background: "#fff",
-            }}
-          />
-        ) : (
-          <span style={{ fontSize: 12, color: "#9ca3af" }}>
-            拖拽图片到此或双击上传
-          </span>
-        )}
-      </div>
+      />
 
       <Handle
         type='target'
