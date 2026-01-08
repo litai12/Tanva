@@ -125,7 +125,7 @@ interface ImageData {
   fileName?: string;
   pendingUpload?: boolean;
   localDataUrl?: string;
-  width?: number;  // 图片原始宽度
+  width?: number; // 图片原始宽度
   height?: number; // 图片原始高度
 }
 
@@ -199,7 +199,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const [isBodyDragging, setIsBodyDragging] = useState(false);
 
   // 图片真实像素尺寸（通过加载图片获取）
-  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const [naturalSize, setNaturalSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
 
   // 预览模态框状态
   const [showPreview, setShowPreview] = useState(false);
@@ -261,7 +264,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     }
 
     return () => {
-      try { observer.disconnect(); } catch {}
+      try {
+        observer.disconnect();
+      } catch {}
     };
   }, []);
 
@@ -326,8 +331,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       )[0];
 
       if (isGroup(imageGroup)) {
-        const raster = imageGroup.children.find(
-          (child) => isRaster(child)
+        const raster = imageGroup.children.find((child) =>
+          isRaster(child)
         ) as paper.Raster;
         if (raster && raster.bounds && isFinite(raster.bounds.x)) {
           // 获取实际的边界信息，确保数值有效
@@ -383,7 +388,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
       // 以“视图像素”为基准做容差：zoom 越大，同样的世界坐标差在屏幕上越明显
       // 这里 world 单位近似是 device px，因此容差要除以 zoom，避免放大后出现明显“跟不上”
-      const zoomFactor = Math.max(0.0001, Number((paper.view as any)?.zoom ?? 1) || 1);
+      const zoomFactor = Math.max(
+        0.0001,
+        Number((paper.view as any)?.zoom ?? 1) || 1
+      );
       const toleranceWorld = 0.25 / zoomFactor;
 
       // 检查坐标是否发生变化 - 使用 ref 获取最新值
@@ -433,7 +441,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       Number.isFinite(metaHeight) &&
       metaHeight > 0
     ) {
-      setNaturalSize({ width: Math.round(metaWidth), height: Math.round(metaHeight) });
+      setNaturalSize({
+        width: Math.round(metaWidth),
+        height: Math.round(metaHeight),
+      });
       return;
     }
 
@@ -560,8 +571,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     )[0];
 
     if (imageGroup) {
-      const raster = imageGroup.children.find(
-        (child) => isRaster(child)
+      const raster = imageGroup.children.find((child) =>
+        isRaster(child)
       ) as paper.Raster;
       if (raster && raster.canvas) {
         const canvasData = raster.canvas.toDataURL("image/png");
@@ -707,11 +718,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
           // 使用 Gemini 2.5 Flash 模型进行预处理（速度更快）
           const BG_REMOVAL_MODEL = "gemini-2.5-flash-image";
-          const BG_REMOVAL_PROVIDER = "banana-2.5";
+          const BG_REMOVAL_PROVIDER = "banana"; // 改用Pro版获得更好的质量
 
           logger.info("📷 Step 1: Gemini 2.5 预处理 - 背景换成纯色", {
             aiProvider: BG_REMOVAL_PROVIDER,
-            model: BG_REMOVAL_MODEL
+            model: BG_REMOVAL_MODEL,
           });
           window.dispatchEvent(
             new CustomEvent("toast", {
@@ -833,8 +844,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
           let rasterSource: string | null = null;
           if (imageGroup) {
-            const raster = imageGroup.children.find(
-              (child) => isRaster(child)
+            const raster = imageGroup.children.find((child) =>
+              isRaster(child)
             ) as paper.Raster | undefined;
             if (raster && raster.source) {
               rasterSource =
@@ -969,7 +980,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   const handleExpandSelect = useCallback(
     async (
       selectedBounds: { x: number; y: number; width: number; height: number },
-      _expandRatios: { left: number; top: number; right: number; bottom: number }
+      _expandRatios: {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+      }
     ) => {
       setShowExpandSelector(false);
       setIsExpandingImage(true);
@@ -1000,7 +1016,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
 
         window.dispatchEvent(
           new CustomEvent("toast", {
-            detail: { message: "⏳ 正在准备扩图画布并发送给 Gemini...", type: "info" },
+            detail: {
+              message: "⏳ 正在准备扩图画布并发送给 Gemini...",
+              type: "info",
+            },
           })
         );
 
@@ -1014,6 +1033,28 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           realTimeBounds,
           selectedBounds
         );
+
+        // 调试：保存合成图片到本地存储，方便查看
+        console.log("扩展画布合成图片:", composed);
+        localStorage.setItem("debug_expanded_canvas", composed.dataUrl);
+
+        // 在新标签页打开合成图片
+        const debugWindow = window.open("", "_blank");
+        if (debugWindow) {
+          debugWindow.document.write(`
+            <html>
+              <head><title>扩展画布合成图片预览</title></head>
+              <body style="margin:0; display:flex; flex-direction:column; align-items:center; padding:20px;">
+                <h2>前端合成的扩展画布图片</h2>
+                <p>尺寸: ${composed.width} x ${composed.height} 像素</p>
+                <img src="${composed.dataUrl}" style="max-width:100%; border:1px solid #ccc;" />
+                <p style="margin-top:20px; color:#666;">
+                  这就是发送给Gemini进行扩图的原始图片（包含白色扩展区域）
+                </p>
+              </body>
+            </html>
+          `);
+        }
 
         logger.info("🔁 调用 Gemini edit-image 进行扩图", {
           imageId: imageData.id,
@@ -1120,11 +1161,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           logger.info("📷 高清放大 - 使用 Banana editImage (4K)", {
             aiProvider: HD_UPSCALE_PROVIDER,
             model: HD_UPSCALE_MODEL,
-            imageSize: "4K"
+            imageSize: "4K",
           });
 
           const editResult = await aiImageService.editImage({
-            prompt: "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容",
+            prompt:
+              "请将这张图片进行高清放大处理，提升分辨率到4K级别，保持原图的所有细节、颜色、构图和风格完全不变，只增强清晰度和分辨率，不要添加或修改任何内容",
             sourceImage: baseImage,
             model: HD_UPSCALE_MODEL,
             aiProvider: HD_UPSCALE_PROVIDER,
@@ -1137,7 +1179,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             throw new Error(editResult.error?.message || "高清放大失败");
           }
 
-          const resultImageData = editResult.data.imageData.startsWith("data:image")
+          const resultImageData = editResult.data.imageData.startsWith(
+            "data:image"
+          )
             ? editResult.data.imageData
             : `data:image/png;base64,${editResult.data.imageData}`;
 
@@ -1357,16 +1401,16 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       {isSelected && !showExpandSelector && !shouldHideUi && (
         <div
           style={{
-            position: 'absolute',
+            position: "absolute",
             top: 4 * toolbarScale,
             left: 4 * toolbarScale,
             right: 4 * toolbarScale,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            pointerEvents: 'none',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
             minWidth: 0,
           }}
         >
@@ -1375,11 +1419,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             style={{
               fontWeight: 500,
               fontSize: 10 * toolbarScale,
-              color: '#fff',
+              color: "#fff",
               padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: '60%',
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: "60%",
             }}
             title={imageData.fileName || `图片 ${imageData.id}`}
           >
@@ -1390,7 +1434,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             <span
               style={{
                 fontSize: 10 * toolbarScale,
-                color: '#fff',
+                color: "#fff",
                 padding: `${2 * toolbarScale}px ${4 * toolbarScale}px`,
                 marginLeft: 4 * toolbarScale,
                 flexShrink: 0,
@@ -1414,23 +1458,26 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       )}
 
       {/* 图片操作按钮组 - 只在选中时显示，位于图片底部，截图时隐藏 */}
-      {isSelected && showIndividualTools && !showExpandSelector && !shouldHideUi && (
-        <div
-          className="absolute"
-          data-image-toolbar="true"
-          style={{
-            top: '100%',
-            marginTop: 12 * toolbarScale,
-            left: '50%',
-            transform: `translateX(-50%) scale(${toolbarScale})`,
-            transformOrigin: 'top center',
-            zIndex: 30,
-            pointerEvents: 'auto',
-            willChange: 'transform',
-          }}
-        >
-          <div className='flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
-            {/* 暂时隐藏：添加到AI对话框进行编辑按钮
+      {isSelected &&
+        showIndividualTools &&
+        !showExpandSelector &&
+        !shouldHideUi && (
+          <div
+            className='absolute'
+            data-image-toolbar='true'
+            style={{
+              top: "100%",
+              marginTop: 12 * toolbarScale,
+              left: "50%",
+              transform: `translateX(-50%) scale(${toolbarScale})`,
+              transformOrigin: "top center",
+              zIndex: 30,
+              pointerEvents: "auto",
+              willChange: "transform",
+            }}
+          >
+            <div className='flex items-center gap-2 px-2 py-2 rounded-[999px] bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass'>
+              {/* 暂时隐藏：添加到AI对话框进行编辑按钮
             <Button
               variant='outline'
               size='sm'
@@ -1443,101 +1490,101 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             </Button>
             */}
 
-            <Button
-              variant='ghost'
-              size='sm'
-              disabled={isRemovingBackground}
-              className={sharedButtonClass}
-              onClick={handleBackgroundRemoval}
-              title={isRemovingBackground ? "正在抠图..." : "一键抠图"}
-            >
-              {isRemovingBackground ? (
-                <LoadingSpinner size='sm' className='text-blue-600' />
-              ) : (
-                <Wand2 className={sharedIconClass} />
-              )}
-              {showButtonText && <span>一键抠图</span>}
-            </Button>
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={isRemovingBackground}
+                className={sharedButtonClass}
+                onClick={handleBackgroundRemoval}
+                title={isRemovingBackground ? "正在抠图..." : "一键抠图"}
+              >
+                {isRemovingBackground ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <Wand2 className={sharedIconClass} />
+                )}
+                {showButtonText && <span>一键抠图</span>}
+              </Button>
 
-            <Button
-              variant='ghost'
-              size='sm'
-              disabled={isConvertingTo3D}
-              className={sharedButtonClass}
-              onClick={handleConvertTo3D}
-              title={isConvertingTo3D ? "正在转换3D..." : "2D转3D"}
-            >
-              {isConvertingTo3D ? (
-                <LoadingSpinner size='sm' className='text-blue-600' />
-              ) : (
-                <Rotate3d className={sharedIconClass} />
-              )}
-              {showButtonText && <span>2D转3D</span>}
-            </Button>
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={isConvertingTo3D}
+                className={sharedButtonClass}
+                onClick={handleConvertTo3D}
+                title={isConvertingTo3D ? "正在转换3D..." : "2D转3D"}
+              >
+                {isConvertingTo3D ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <Rotate3d className={sharedIconClass} />
+                )}
+                {showButtonText && <span>2D转3D</span>}
+              </Button>
 
-            <Button
-              variant='ghost'
-              size='sm'
-              disabled={isOptimizingHd}
-              className={sharedButtonClass}
-              onClick={handleOptimizeHdImage}
-              title={isOptimizingHd ? "正在高清放大..." : "高清放大"}
-            >
-              {isOptimizingHd ? (
-                <LoadingSpinner size='sm' className='text-blue-600' />
-              ) : (
-                <ImageUp className={sharedIconClass} />
-              )}
-              {showButtonText && <span>高清放大</span>}
-            </Button>
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={isOptimizingHd}
+                className={sharedButtonClass}
+                onClick={handleOptimizeHdImage}
+                title={isOptimizingHd ? "正在高清放大..." : "高清放大"}
+              >
+                {isOptimizingHd ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <ImageUp className={sharedIconClass} />
+                )}
+                {showButtonText && <span>高清放大</span>}
+              </Button>
 
-            <Button
-              variant='ghost'
-              size='sm'
-              disabled={isExpandingImage || showExpandSelector}
-              className={sharedButtonClass}
-              onClick={handleExpandImage}
-              title={
-                isExpandingImage
-                  ? "正在扩图..."
-                  : showExpandSelector
-                  ? "请选择扩图区域"
-                  : "图片拓展"
-              }
-            >
-              {isExpandingImage ? (
-                <LoadingSpinner size='sm' className='text-blue-600' />
-              ) : (
-                <Crop className={sharedIconClass} />
-              )}
-              {showButtonText && <span>图片拓展</span>}
-            </Button>
+              <Button
+                variant='ghost'
+                size='sm'
+                disabled={isExpandingImage || showExpandSelector}
+                className={sharedButtonClass}
+                onClick={handleExpandImage}
+                title={
+                  isExpandingImage
+                    ? "正在扩图..."
+                    : showExpandSelector
+                    ? "请选择扩图区域"
+                    : "图片拓展"
+                }
+              >
+                {isExpandingImage ? (
+                  <LoadingSpinner size='sm' className='text-blue-600' />
+                ) : (
+                  <Crop className={sharedIconClass} />
+                )}
+                {showButtonText && <span>图片拓展</span>}
+              </Button>
 
-            {enableVisibilityToggle && (
+              {enableVisibilityToggle && (
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className={sharedButtonClass}
+                  onClick={handleToggleVisibility}
+                  title='隐藏图层（可在图层面板中恢复）'
+                >
+                  <EyeOff className={sharedIconClass} />
+                </Button>
+              )}
+
               <Button
                 variant='ghost'
                 size='sm'
                 className={sharedButtonClass}
-                onClick={handleToggleVisibility}
-                title='隐藏图层（可在图层面板中恢复）'
+                onClick={handleCreateFlowImageNode}
+                title='生成节点'
               >
-                <EyeOff className={sharedIconClass} />
+                <ArrowRightLeft className={sharedIconClass} />
+                {showButtonText && <span>生成节点</span>}
               </Button>
-            )}
-
-            <Button
-              variant='ghost'
-              size='sm'
-              className={sharedButtonClass}
-              onClick={handleCreateFlowImageNode}
-              title='生成节点'
-            >
-              <ArrowRightLeft className={sharedIconClass} />
-              {showButtonText && <span>生成节点</span>}
-            </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* 图片预览模态框 */}
       <ImagePreviewModal

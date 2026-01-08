@@ -96,12 +96,11 @@ export interface TemplateListResponse {
 export async function createTemplate(
   data: CreateTemplateRequest
 ): Promise<PublicTemplate> {
+  const headers = buildAuthHeaders("application/json");
   const response = await fetch(`${API_BASE}/api/admin/templates`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
     body: JSON.stringify(data),
   });
 
@@ -124,12 +123,12 @@ export async function fetchTemplates(
     searchParams.set("isActive", params.isActive.toString());
   if (params.search) searchParams.set("search", params.search);
 
+  const headers = buildAuthHeaders();
   const response = await fetch(
     `${API_BASE}/api/admin/templates?${searchParams}`,
     {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-      },
+      credentials: "include",
+      headers,
     }
   );
 
@@ -142,10 +141,10 @@ export async function fetchTemplates(
 
 // 获取单个模板
 export async function fetchTemplate(id: string): Promise<PublicTemplate> {
+  const headers = buildAuthHeaders();
   const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
   });
 
   if (!response.ok) {
@@ -160,12 +159,11 @@ export async function updateTemplate(
   id: string,
   data: UpdateTemplateRequest
 ): Promise<PublicTemplate> {
+  const headers = buildAuthHeaders("application/json");
   const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
     body: JSON.stringify(data),
   });
 
@@ -178,11 +176,11 @@ export async function updateTemplate(
 
 // 删除模板
 export async function deleteTemplate(id: string): Promise<void> {
+  const headers = buildAuthHeaders();
   const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
   });
 
   if (!response.ok) {
@@ -192,10 +190,10 @@ export async function deleteTemplate(id: string): Promise<void> {
 
 // 获取模板分类
 export async function fetchTemplateCategories(): Promise<string[]> {
+  const headers = buildAuthHeaders();
   const response = await fetch(`${API_BASE}/api/templates/categories`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
   });
 
   if (!response.ok) {
