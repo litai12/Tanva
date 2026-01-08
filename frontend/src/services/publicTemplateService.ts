@@ -14,6 +14,19 @@ const API_BASE =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000";
 
+// 简单的授权头构造器：若需自定义认证（例如 Bearer token），在此扩展
+export function buildAuthHeaders(contentType?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  }
+  // 如果将来需要在头中加入 Authorization 或其它认证字段，
+  // 可以在这里读取 cookie/localStorage 或调用认证服务来获取 token 并设置：
+  // const token = getAuthToken();
+  // if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 // 获取公共模板索引
 export async function fetchPublicTemplateIndex(): Promise<
   TemplateIndexEntry[]
