@@ -338,7 +338,7 @@ export class ImageGenerationService {
   private isRetryableError(error: Error): boolean {
     const message = error.message.toLowerCase();
     const errorName = error.name.toLowerCase();
-    
+
     // 网络相关错误 - 可以重试
     const retryablePatterns = [
       'fetch failed',
@@ -352,7 +352,7 @@ export class ImageGenerationService {
       'connection',
       'eai_again', // DNS lookup failed
     ];
-    
+
     // 不可重试的错误 - 认证、参数错误等
     const nonRetryablePatterns = [
       'unauthorized',
@@ -364,7 +364,7 @@ export class ImageGenerationService {
       '403',
       'malformed',
     ];
-    
+
     // 先检查不可重试的错误
     for (const pattern of nonRetryablePatterns) {
       if (message.includes(pattern) || errorName.includes(pattern)) {
@@ -372,7 +372,7 @@ export class ImageGenerationService {
         return false;
       }
     }
-    
+
     // 检查可重试的错误
     for (const pattern of retryablePatterns) {
       if (message.includes(pattern) || errorName.includes(pattern)) {
@@ -380,7 +380,7 @@ export class ImageGenerationService {
         return true;
       }
     }
-    
+
     // 默认情况下，如果是未知错误，允许重试
     return true;
   }
@@ -446,21 +446,37 @@ export class ImageGenerationService {
               },
             };
 
-            if (request.aspectRatio) {
-              config.imageConfig = {
-                aspectRatio: request.aspectRatio,
-              };
+            let imageConfig: any = undefined;
+
+            if (request.aspectRatio || request.imageSize) {
+              imageConfig = {};
+
+              if (request.aspectRatio) {
+                imageConfig.aspectRatio = request.aspectRatio;
+              }
+
+              if (request.imageSize) {
+                // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                // 不需要转换，直接使用原始值
+                imageConfig.imageSize = request.imageSize;
+              }
             }
 
             if (request.thinkingLevel) {
               config.generationConfig.thinkingLevel = request.thinkingLevel;
             }
 
-            const stream = await client.models.generateContentStream({
+            const reqOptions: any = {
               model,
               contents: request.prompt,
               config,
-            });
+            };
+
+            if (imageConfig) {
+              reqOptions.imageConfig = imageConfig;
+            }
+
+            const stream = await client.models.generateContentStream(reqOptions);
 
             return this.parseStreamResponse(stream, 'Image generation');
           })(),
@@ -519,10 +535,20 @@ export class ImageGenerationService {
               },
             };
 
-            if (request.aspectRatio) {
-              config.imageConfig = {
-                aspectRatio: request.aspectRatio,
-              };
+            let imageConfig: any = undefined;
+
+            if (request.aspectRatio || request.imageSize) {
+              imageConfig = {};
+
+              if (request.aspectRatio) {
+                imageConfig.aspectRatio = request.aspectRatio;
+              }
+
+              if (request.imageSize) {
+                // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                // 不需要转换，直接使用原始值
+                imageConfig.imageSize = request.imageSize;
+              }
             }
 
             if (request.thinkingLevel) {
@@ -542,11 +568,17 @@ export class ImageGenerationService {
             // 优先尝试非流式 API，失败后降级到流式 API
             try {
               this.logger.debug('Calling non-stream generateContent for image edit...');
-              const response = await client.models.generateContent({
+              const reqOptions: any = {
                 model,
                 contents,
                 config,
-              });
+              };
+
+              if (imageConfig) {
+                reqOptions.imageConfig = imageConfig;
+              }
+
+              const response = await client.models.generateContent(reqOptions);
 
               const nonStreamResult = this.parseNonStreamResponse(response, 'Image edit');
 
@@ -659,21 +691,37 @@ export class ImageGenerationService {
               },
             };
 
-            if (request.aspectRatio) {
-              config.imageConfig = {
-                aspectRatio: request.aspectRatio,
-              };
+            let imageConfig: any = undefined;
+
+            if (request.aspectRatio || request.imageSize) {
+              imageConfig = {};
+
+              if (request.aspectRatio) {
+                imageConfig.aspectRatio = request.aspectRatio;
+              }
+
+              if (request.imageSize) {
+                // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                // 不需要转换，直接使用原始值
+                imageConfig.imageSize = request.imageSize;
+              }
             }
 
             if (request.thinkingLevel) {
               config.generationConfig.thinkingLevel = request.thinkingLevel;
             }
 
-            const stream = await client.models.generateContentStream({
+            const reqOptions: any = {
               model,
               contents: [{ text: request.prompt }, ...imageParts],
               config,
-            });
+            };
+
+            if (imageConfig) {
+              reqOptions.imageConfig = imageConfig;
+            }
+
+            const stream = await client.models.generateContentStream(reqOptions);
 
             return this.parseStreamResponse(stream, 'Image blend');
           })(),
@@ -908,18 +956,18 @@ export class ImageGenerationService {
                   contents: [{ text: finalPrompt }],
                   config: apiConfig,
                 });
-                
+
                 if (!response.text) {
                   throw new Error('Non-stream API returned empty response');
                 }
-                
+
                 return { text: response.text };
               } catch (nonStreamError) {
                 // 如果非流式 API 失败，降级到流式 API
                 const isNetworkError = this.isRetryableError(
                   nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
                 );
-                
+
                 if (isNetworkError) {
                   this.logger.warn('Non-stream API failed, falling back to stream API...');
                   try {

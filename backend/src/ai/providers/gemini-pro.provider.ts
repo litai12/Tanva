@@ -64,7 +64,7 @@ export class GeminiProProvider implements IAIProvider {
   private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
   private readonly MAX_RETRIES = 3;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   async initialize(): Promise<void> {
     const apiKey = this.config.get<string>('GOOGLE_GEMINI_API_KEY');
@@ -183,7 +183,7 @@ export class GeminiProProvider implements IAIProvider {
   private isRetryableError(error: Error): boolean {
     const message = error.message.toLowerCase();
     const errorName = error.name.toLowerCase();
-    
+
     // 网络相关错误 - 可以重试
     const retryablePatterns = [
       'fetch failed',
@@ -197,7 +197,7 @@ export class GeminiProProvider implements IAIProvider {
       'connection',
       'eai_again', // DNS lookup failed
     ];
-    
+
     // 不可重试的错误 - 认证、参数错误等
     const nonRetryablePatterns = [
       'unauthorized',
@@ -209,7 +209,7 @@ export class GeminiProProvider implements IAIProvider {
       '403',
       'malformed',
     ];
-    
+
     // 先检查不可重试的错误
     for (const pattern of nonRetryablePatterns) {
       if (message.includes(pattern) || errorName.includes(pattern)) {
@@ -217,7 +217,7 @@ export class GeminiProProvider implements IAIProvider {
         return false;
       }
     }
-    
+
     // 检查可重试的错误
     for (const pattern of retryablePatterns) {
       if (message.includes(pattern) || errorName.includes(pattern)) {
@@ -225,7 +225,7 @@ export class GeminiProProvider implements IAIProvider {
         return true;
       }
     }
-    
+
     // 默认情况下，对于未知错误也允许重试（可能是临时性问题）
     return true;
   }
@@ -252,7 +252,7 @@ export class GeminiProProvider implements IAIProvider {
 
         // 检查错误是否可重试
         const isRetryable = this.isRetryableError(lastError);
-        
+
         if (attempt < maxRetries && isRetryable) {
           const delay = 1000 * attempt;
           this.logger.warn(
@@ -327,12 +327,21 @@ export class GeminiProProvider implements IAIProvider {
                 },
               };
 
-              // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-              // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-              if (request.aspectRatio) {
-                config.imageConfig = {
-                  aspectRatio: request.aspectRatio,
-                };
+              let imageConfig: any = undefined;
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                imageConfig = {};
+
+                if (request.aspectRatio) {
+                  imageConfig.aspectRatio = request.aspectRatio;
+                }
+
+                if (request.imageSize) {
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  imageConfig.imageSize = request.imageSize;
+                }
               }
 
               // 配置 thinking_level（Gemini 3 特性，参考官方文档）
@@ -340,11 +349,17 @@ export class GeminiProProvider implements IAIProvider {
                 config.generationConfig.thinking_level = request.thinkingLevel;
               }
 
-              const response = await client.models.generateContent({
+              const reqOptions: any = {
                 model,
                 contents: request.prompt,
                 config,
-              });
+              };
+
+              if (imageConfig) {
+                reqOptions.imageConfig = imageConfig;
+              }
+
+              const response = await client.models.generateContent(reqOptions);
 
               return this.parseNonStreamResponse(response, 'Image generation');
             })(),
@@ -404,12 +419,21 @@ export class GeminiProProvider implements IAIProvider {
                 },
               };
 
-              // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-              // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-              if (request.aspectRatio) {
-                config.imageConfig = {
-                  aspectRatio: request.aspectRatio,
-                };
+              let imageConfig: any = undefined;
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                imageConfig = {};
+
+                if (request.aspectRatio) {
+                  imageConfig.aspectRatio = request.aspectRatio;
+                }
+
+                if (request.imageSize) {
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  imageConfig.imageSize = request.imageSize;
+                }
               }
 
               // 配置 thinking_level（Gemini 3 特性，参考官方文档）
@@ -428,11 +452,17 @@ export class GeminiProProvider implements IAIProvider {
               ];
 
               // 直接使用非流式 API（和 banana provider 一样简单直接）
-              const response = await client.models.generateContent({
+              const reqOptions: any = {
                 model,
                 contents,
                 config,
-              });
+              };
+
+              if (imageConfig) {
+                reqOptions.imageConfig = imageConfig;
+              }
+
+              const response = await client.models.generateContent(reqOptions);
 
               return this.parseNonStreamResponse(response, 'Image edit');
             })(),
@@ -506,12 +536,21 @@ export class GeminiProProvider implements IAIProvider {
                 },
               };
 
-              // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-              // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-              if (request.aspectRatio) {
-                config.imageConfig = {
-                  aspectRatio: request.aspectRatio,
-                };
+              let imageConfig: any = undefined;
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                imageConfig = {};
+
+                if (request.aspectRatio) {
+                  imageConfig.aspectRatio = request.aspectRatio;
+                }
+
+                if (request.imageSize) {
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  imageConfig.imageSize = request.imageSize;
+                }
               }
 
               // 配置 thinking_level（Gemini 3 特性，参考官方文档）
@@ -519,11 +558,17 @@ export class GeminiProProvider implements IAIProvider {
                 config.generationConfig.thinking_level = request.thinkingLevel;
               }
 
-              const response = await client.models.generateContent({
+              const reqOptions: any = {
                 model,
                 contents: [{ text: request.prompt }, ...imageParts],
                 config,
-              });
+              };
+
+              if (imageConfig) {
+                reqOptions.imageConfig = imageConfig;
+              }
+
+              const response = await client.models.generateContent(reqOptions);
 
               return this.parseNonStreamResponse(response, 'Image blend');
             })(),
@@ -673,18 +718,18 @@ export class GeminiProProvider implements IAIProvider {
                   contents: [{ text: finalPrompt }],
                   config: apiConfig,
                 });
-                
+
                 if (!response.text) {
                   throw new Error('Non-stream API returned empty response');
                 }
-                
+
                 return { text: response.text };
               } catch (nonStreamError) {
                 // 如果非流式 API 失败，降级到流式 API
                 const isNetworkError = this.isRetryableError(
                   nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
                 );
-                
+
                 if (isNetworkError) {
                   this.logger.warn('Non-stream API failed, falling back to stream API...');
                   try {
@@ -990,7 +1035,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
 
       // 系统提示词
       const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
-      
+
       // 将系统提示词和用户输入拼接
       const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
@@ -1028,18 +1073,18 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
                   contents: [{ text: finalPrompt }],
                   config: apiConfig,
                 });
-                
+
                 if (!response.text) {
                   throw new Error('Non-stream API returned empty response');
                 }
-                
+
                 return { text: response.text };
               } catch (nonStreamError) {
                 // 如果非流式 API 失败，降级到流式 API
                 const isNetworkError = this.isRetryableError(
                   nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
                 );
-                
+
                 if (isNetworkError) {
                   this.logger.warn('Non-stream API failed, falling back to stream API...');
                   try {
