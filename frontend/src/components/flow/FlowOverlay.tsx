@@ -2438,8 +2438,9 @@ function FlowInner() {
     if (!container) return;
 
     const handleClick = (e: MouseEvent) => {
-      // pointer 模式下不自动取消选择
-      if (isPointerMode) return;
+      // 在选择相关的模式下（pointer, select, marquee），不通过点击画布空白区域来自动取消选择
+      // 因为这些模式下的框选/点击逻辑由 InteractionController 和 SelectionTool 统一协调
+      if (isPointerMode || isMarqueeMode || drawMode === "select") return;
 
       // 检查点击是否在容器内
       const rect = container.getBoundingClientRect();
