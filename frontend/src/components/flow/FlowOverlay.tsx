@@ -61,6 +61,12 @@ import GenerateProNode from "./nodes/GenerateProNode";
 import GeneratePro4Node from "./nodes/GeneratePro4Node";
 import ImageProNode from "./nodes/ImageProNode";
 import MidjourneyNode from "./nodes/MidjourneyNode";
+import ApiMartSora2Node from "./nodes/ApiMartSora2Node";
+import Xin147Sora2Node from "./nodes/Xin147Sora2Node";
+import ZhenzhenSora2Node from "./nodes/ZhenzhenSora2Node";
+import KlingVideoNode from "./nodes/KlingVideoNode";
+import ViduVideoNode from "./nodes/ViduVideoNode";
+import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
 import { generateThumbnail } from "@/utils/imageHelper";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -88,6 +94,7 @@ import {
   generateWan26R2VViaAPI,
   midjourneyActionViaAPI,
 } from "@/services/aiBackendAPI";
+import { generateVideoByProvider, queryVideoTask, type VideoProvider } from "@/services/videoProviderAPI";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import {
@@ -145,6 +152,12 @@ const nodeTypes = {
   sora2Video: Sora2VideoNode,
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
+  apimartSora2: ApiMartSora2Node,
+  xin147Sora2: Xin147Sora2Node,
+  zhenzhenSora2: ZhenzhenSora2Node,
+  klingVideo: KlingVideoNode,
+  viduVideo: ViduVideoNode,
+  doubaoVideo: DoubaoVideoNode,
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
 };
@@ -297,6 +310,12 @@ const NODE_PALETTE_ITEMS = [
   { key: "sora2Video", zh: "视频生成节点", en: "Sora2 Video" },
   { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6 Video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V" },
+  { key: "apimartSora2", zh: "APIMart Sora2", en: "APIMart Sora2" },
+  { key: "xin147Sora2", zh: "新147 Sora2", en: "Xin147 Sora2" },
+  { key: "zhenzhenSora2", zh: "贞贞 Sora2", en: "Zhenzhen Sora2" },
+  { key: "klingVideo", zh: "可灵视频生成", en: "Kling Video" },
+  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu Video" },
+  { key: "doubaoVideo", zh: "豆包视频生成", en: "Doubao Video" },
   { key: "camera", zh: "截图节点", en: "Shot Node" },
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split" },
 ];
@@ -2710,6 +2729,12 @@ function FlowInner() {
         | "sora2Video"
         | "wan26"
         | "wan2R2V"
+        | "apimartSora2"
+        | "xin147Sora2"
+        | "zhenzhenSora2"
+        | "klingVideo"
+        | "viduVideo"
+        | "doubaoVideo"
         | "storyboardSplit"
         | "midjourney",
       world: { x: number; y: number }
@@ -2734,6 +2759,12 @@ function FlowInner() {
         sora2Video: { w: 280, h: 260 },
         wan26: { w: 300, h: 320 },
         wan2R2V: { w: 300, h: 360 },
+        apimartSora2: { w: 280, h: 260 },
+        xin147Sora2: { w: 280, h: 260 },
+        zhenzhenSora2: { w: 280, h: 260 },
+        klingVideo: { w: 280, h: 260 },
+        viduVideo: { w: 280, h: 260 },
+        doubaoVideo: { w: 280, h: 260 },
         storyboardSplit: { w: 320, h: 400 },
         midjourney: { w: 280, h: 320 },
       }[type];
@@ -2867,6 +2898,26 @@ function FlowInner() {
               status: "idle" as const,
               mode: "FAST",
               presetPrompt: "",
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "apimartSora2" || type === "xin147Sora2" || type === "zhenzhenSora2" || type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              thumbnail: undefined,
+              videoVersion: 0,
+              history: [],
+              clipDuration: undefined,
+              aspectRatio: undefined,
+              provider: type === "apimartSora2" ? "apimart-sora2" : type === "xin147Sora2" ? "xin147-sora2" : type === "zhenzhenSora2" ? "zhenzhen-sora2" : type === "klingVideo" ? "kling" : type === "viduVideo" ? "vidu" : "doubao",
+              // Vidu 专用参数
+              resolution: type === "viduVideo" ? "720p" as const : undefined,
+              style: type === "viduVideo" ? "general" as const : undefined,
+              offPeak: type === "viduVideo" ? false : undefined,
+              // 豆包专用参数
+              camerafixed: type === "doubaoVideo" ? false : undefined,
+              watermark: type === "doubaoVideo" ? false : undefined,
               boxW: size.w,
               boxH: size.h,
             }
@@ -4774,6 +4825,267 @@ function FlowInner() {
         } catch (error) {
           console.warn("❌ [Flow] Sora2 video request failed", {
             nodeId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          const msg = error instanceof Error ? error.message : "视频生成失败";
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                : n
+            )
+          );
+        }
+        return;
+      }
+
+      // 新的视频生成节点处理逻辑（APIMart Sora2、新147 Sora2、贞贞 Sora2、可灵 Kling、Vidu、豆包 Seedance）
+      const newVideoNodeTypes = ["apimartSora2", "xin147Sora2", "zhenzhenSora2", "klingVideo", "viduVideo", "doubaoVideo"];
+      if (newVideoNodeTypes.includes(node.type || "")) {
+        const projectId = useProjectContentStore.getState().projectId;
+        const { text: promptText, hasEdge: hasText } =
+          getTextPromptForNode(nodeId);
+        if (!hasText) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      status: "failed",
+                      error: "缺少 TextPrompt 输入",
+                    },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+        if (!promptText) {
+          setNodes((ns) =>
+            ns.map((n) =>
+              n.id === nodeId
+                ? {
+                    ...n,
+                    data: { ...n.data, status: "failed", error: "提示词为空" },
+                  }
+                : n
+            )
+          );
+          return;
+        }
+
+        const clipDuration =
+          typeof (node.data as any)?.clipDuration === "number"
+            ? (node.data as any).clipDuration
+            : undefined;
+        const aspectSetting =
+          typeof (node.data as any)?.aspectRatio === "string"
+            ? (node.data as any).aspectRatio
+            : "";
+        const provider = (node.data as any)?.provider || "apimart-sora2";
+
+        const imageEdges = currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "image")
+          .slice(0, SORA2_MAX_REFERENCE_IMAGES);
+        const referenceImages = collectImages(imageEdges);
+
+        const generationStartMs = Date.now();
+        const referenceImageUrls: string[] = [];
+        if (referenceImages.length) {
+          try {
+            for (const img of referenceImages) {
+              const dataUrl = ensureDataUrl(img);
+              
+              // 根据供应商处理图片格式
+              if (provider === "vidu") {
+                // Vidu 需要可访问的 URL，必须上传到 OSS
+                const uploaded = await uploadImageToOSS(dataUrl, projectId);
+                if (!uploaded) {
+                  setNodes((ns) =>
+                    ns.map((n) =>
+                      n.id === nodeId
+                        ? {
+                            ...n,
+                            data: {
+                              ...n.data,
+                              status: "failed",
+                              error: "参考图上传失败",
+                            },
+                          }
+                        : n
+                    )
+                  );
+                  return;
+                }
+                referenceImageUrls.push(uploaded);
+              } else {
+                // 其他供应商直接使用 Base64 Data URI
+                referenceImageUrls.push(dataUrl);
+              }
+            }
+          } catch (error) {
+            const msg =
+              error instanceof Error ? error.message : "参考图上传失败";
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? { ...n, data: { ...n.data, status: "failed", error: msg } }
+                  : n
+              )
+            );
+            return;
+          }
+        }
+
+        setNodes((ns) =>
+          ns.map((n) =>
+            n.id === nodeId
+              ? {
+                  ...n,
+                  data: { ...n.data, status: "running", error: undefined },
+                }
+              : n
+          )
+        );
+
+        // 根据供应商调整参数
+        const aspectRatioForAPI = aspectSetting || undefined;
+        
+        // 不同供应商支持的时长不同
+        let durationForAPI: number | undefined = undefined;
+        if (clipDuration) {
+          if (provider === "kling" && (clipDuration === 5 || clipDuration === 10)) {
+            durationForAPI = clipDuration;
+          } else if (provider === "vidu" && clipDuration >= 1 && clipDuration <= 10) {
+            durationForAPI = clipDuration;
+          } else if (provider === "doubao" && [3, 4, 5, 6, 8].includes(clipDuration)) {
+            durationForAPI = clipDuration;
+          } else if ((provider === "apimart-sora2" || provider === "xin147-sora2" || provider === "zhenzhen-sora2") && 
+                     (clipDuration === 10 || clipDuration === 15 || clipDuration === 25)) {
+            durationForAPI = clipDuration;
+          }
+        }
+
+        try {
+          console.log("🎬 [Flow] Sending video request", {
+            nodeId,
+            provider,
+            aspectRatio: aspectRatioForAPI,
+            duration: durationForAPI,
+            referenceCount: referenceImageUrls.length,
+            promptPreview: promptText.slice(0, 120),
+          });
+          
+          // 调用对应供应商的 API
+          const createResult = await generateVideoByProvider({
+            prompt: promptText,
+            referenceImages: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+            duration: durationForAPI,
+            aspectRatio: aspectRatioForAPI,
+            provider: provider as VideoProvider,
+            resolution: (node.data as any)?.resolution,
+            style: (node.data as any)?.style,
+            offPeak: (node.data as any)?.offPeak,
+            camerafixed: (node.data as any)?.camerafixed,
+            watermark: (node.data as any)?.watermark,
+          });
+
+          console.log("✅ [Flow] Video task created", {
+            nodeId,
+            provider,
+            taskId: createResult.taskId,
+          });
+
+          // 开始轮询查询任务状态
+          const pollInterval = 5000; // 5秒
+          const maxAttempts = 180; // 最多180次（15分钟）
+          let attempts = 0;
+          let pollTimer: number | undefined;
+
+          const pollTask = async () => {
+            attempts++;
+            if (attempts > maxAttempts) {
+              clearInterval(pollTimer);
+              setNodes((ns) =>
+                ns.map((n) =>
+                  n.id === nodeId
+                    ? { ...n, data: { ...n.data, status: "failed", error: "任务查询超时" } }
+                    : n
+                )
+              );
+              return;
+            }
+
+            try {
+              const queryResult = await queryVideoTask(provider as VideoProvider, createResult.taskId);
+              
+              if (queryResult.status === "succeeded" || queryResult.status === "SUCCESS" || queryResult.status === "succeed") {
+                clearInterval(pollTimer);
+                const elapsedSeconds = Math.max(
+                  1,
+                  Math.round((Date.now() - generationStartMs) / 1000)
+                );
+                const historyEntry = {
+                  id: `video-history-${Date.now()}`,
+                  videoUrl: queryResult.videoUrl,
+                  thumbnail: queryResult.thumbnailUrl,
+                  prompt: promptText,
+                  createdAt: new Date().toISOString(),
+                  elapsedSeconds,
+                };
+                setNodes((ns) =>
+                  ns.map((n) => {
+                    if (n.id !== nodeId) return n;
+                    const previousData = (n.data as any) || {};
+                    return {
+                      ...n,
+                      data: {
+                        ...previousData,
+                        status: "succeeded",
+                        videoUrl: queryResult.videoUrl,
+                        thumbnail: queryResult.thumbnailUrl,
+                        error: undefined,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        history: Array.isArray(previousData.history)
+                          ? [historyEntry, ...previousData.history]
+                          : [historyEntry],
+                      },
+                    };
+                  })
+                );
+              } else if (queryResult.status === "failed" || queryResult.status === "FAILURE") {
+                clearInterval(pollTimer);
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === nodeId
+                      ? { ...n, data: { ...n.data, status: "failed", error: "任务生成失败" } }
+                      : n
+                  )
+                );
+              }
+              // 其他状态继续轮询
+            } catch (error) {
+              console.warn("❌ [Flow] Task query failed", {
+                nodeId,
+                provider,
+                attempt: attempts,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              // 继续轮询，不中断
+            }
+          };
+
+          // 开始轮询
+          pollTimer = window.setInterval(pollTask, pollInterval);
+          // 立即执行一次
+          pollTask();
+          
+        } catch (error) {
+          console.warn("❌ [Flow] Video request failed", {
+            nodeId,
+            provider,
             error: error instanceof Error ? error.message : String(error),
           });
           const msg = error instanceof Error ? error.message : "视频生成失败";
@@ -7191,6 +7503,37 @@ function FlowInner() {
                       <div
                         style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                       >
+                        <button
+                          onClick={() => setActiveBuiltinCategories([])}
+                          style={{
+                            padding: "6px 14px",
+                            borderRadius: 999,
+                            border:
+                              "1px solid " +
+                              (activeBuiltinCategories.length === 0
+                                ? "#18181b"
+                                : "#e5e7eb"),
+                            background:
+                              activeBuiltinCategories.length === 0
+                                ? "#18181b"
+                                : "#fff",
+                            color:
+                              activeBuiltinCategories.length === 0
+                                ? "#fff"
+                                : "#374151",
+                            fontSize: 12,
+                            fontWeight:
+                              activeBuiltinCategories.length === 0 ? 600 : 500,
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                            boxShadow:
+                              activeBuiltinCategories.length === 0
+                                ? "0 10px 18px rgba(0, 0, 0, 0.18)"
+                                : "none",
+                          }}
+                        >
+                          全部
+                        </button>
                         {builtinCategories.map((cat) => {
                           const isActive = activeBuiltinCategories.includes(cat);
                           return (
