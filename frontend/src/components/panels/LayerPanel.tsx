@@ -1333,9 +1333,8 @@ const LayerPanel: React.FC = () => {
                                     <div
                                         className="ml-6 mt-1 space-y-1"
                                         onDragOver={(e) => {
-                                            // 只处理图元拖拽
-                                            const itemId = e.dataTransfer.getData('text/item-id');
-                                            if (!itemId) return;
+                                            // 只处理图元拖拽 - 使用状态而不是 getData（onDragOver 中无法获取）
+                                            if (!draggedItemId) return;
 
                                             e.preventDefault();
                                             e.stopPropagation();

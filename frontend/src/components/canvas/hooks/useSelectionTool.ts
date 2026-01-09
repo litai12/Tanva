@@ -53,7 +53,6 @@ export const useSelectionTool = ({
   const [selectedPaths, setSelectedPaths] = useState<paper.Path[]>([]);
   const [isSelectionDragging, setIsSelectionDragging] = useState(false);
   const [selectionStartPoint, setSelectionStartPoint] = useState<paper.Point | null>(null);
-  const selectionBoxRef = useRef<paper.Path | null>(null);
 
   const isHelperOrSelectionItem = useCallback((item: paper.Item | null | undefined): boolean => {
     if (!item) return true;
@@ -196,33 +195,22 @@ export const useSelectionTool = ({
     setIsSelectionDragging(true);
     setSelectionStartPoint(point);
 
-    // 创建选择框
-    const rect = new paper.Rectangle(point, point);
-    selectionBoxRef.current = new paper.Path.Rectangle(rect);
-    selectionBoxRef.current.strokeColor = new paper.Color('#007AFF');
-    selectionBoxRef.current.strokeWidth = 1;
-    selectionBoxRef.current.dashArray = [5, 5];
-    selectionBoxRef.current.fillColor = new paper.Color(0, 122, 255, 0.1); // 半透明蓝色
-    // 标记为辅助元素，不显示在图层列表中
-    selectionBoxRef.current.data = { isHelper: true, type: 'selection-box' };
+    // 触发选择框更新事件，使用React覆盖层显示选择框（确保在React Flow节点之上）
+    window.dispatchEvent(new CustomEvent('selection-box-update', {
+      detail: { startPoint: point, currentPoint: point }
+    }));
 
     logger.debug('开始选择框拖拽');
   }, []);
 
   // 更新选择框
   const updateSelectionBox = useCallback((currentPoint: paper.Point) => {
-    if (!isSelectionDragging || !selectionStartPoint || !selectionBoxRef.current) return;
+    if (!isSelectionDragging || !selectionStartPoint) return;
 
-    // 更新选择框大小
-    const rect = new paper.Rectangle(selectionStartPoint, currentPoint);
-    selectionBoxRef.current.remove();
-    selectionBoxRef.current = new paper.Path.Rectangle(rect);
-    selectionBoxRef.current.strokeColor = new paper.Color('#007AFF');
-    selectionBoxRef.current.strokeWidth = 1;
-    selectionBoxRef.current.dashArray = [5, 5];
-    selectionBoxRef.current.fillColor = new paper.Color(0, 122, 255, 0.1);
-    // 标记为辅助元素，不显示在图层列表中
-    selectionBoxRef.current.data = { isHelper: true, type: 'selection-box' };
+    // 触发选择框更新事件，使用React覆盖层显示选择框（确保在React Flow节点之上）
+    window.dispatchEvent(new CustomEvent('selection-box-update', {
+      detail: { startPoint: selectionStartPoint, currentPoint }
+    }));
   }, [isSelectionDragging, selectionStartPoint]);
 
   // 完成选择框并选择框内对象
@@ -234,11 +222,8 @@ export const useSelectionTool = ({
     const selectModels = options?.selectModels !== false;
     const selectTexts = options?.selectTexts !== false;
 
-    // 清除选择框
-    if (selectionBoxRef.current) {
-      selectionBoxRef.current.remove();
-      selectionBoxRef.current = null;
-    }
+    // 清除选择框 - 触发清除事件
+    window.dispatchEvent(new CustomEvent('selection-box-clear'));
 
     // 先清除所有之前的选择（包括节点）
     onImageDeselect();
