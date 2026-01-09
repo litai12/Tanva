@@ -294,6 +294,39 @@ const getStoredAddPanelTab = (): AddPanelTab => {
   }
 };
 
+// 节点积分消耗映射
+const NODE_CREDITS_MAP: Record<string, number | string> = {
+  // 普通节点
+  textPrompt: 0, // 提示词节点 - 不消耗积分
+  textChat: 2, // 纯文本交互节点 - gemini-text
+  textNote: 0, // 纯文本节点 - 不消耗积分
+  promptOptimize: 2, // 提示词优化节点 - gemini-text
+  analysis: 6, // 图像分析节点 - gemini-image-analyze
+  image: 0, // 图片节点 - 不消耗积分
+  generate: "10-30", // 生成节点 - gemini-2.5-image (10) 或 gemini-3-pro-image (30)
+  generateRef: 30, // 参考图生成节点 - gemini-image-edit 或 gemini-image-blend
+  generate4: 40, // 生成多张图片节点 - 4次 × 10积分
+  midjourney: 20, // Midjourney生成 - midjourney-imagine
+  three: 30, // 三维节点 - convert-2d-to-3d
+  sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
+  wan26: 600, // Wan2.6生成视频 - wan26-video
+  wan2R2V: 600, // 视频融合 - wan26-r2v
+  apimartSora2: "40-400", // APIMart Sora2 - sora-sd 或 sora-hd
+  xin147Sora2: "40-400", // 新147 Sora2 - sora-sd 或 sora-hd
+  zhenzhenSora2: "40-400", // 贞贞 Sora2 - sora-sd 或 sora-hd
+  klingVideo: "40-400", // 可灵视频生成 - 可能使用 sora-sd 或 sora-hd
+  viduVideo: "40-400", // Vidu视频生成 - 可能使用 sora-sd 或 sora-hd
+  doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
+  camera: 0, // 截图节点 - 不消耗积分
+  storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
+  
+  // Beta 节点
+  textPromptPro: 2, // 专业提示词节点 - gemini-text
+  imagePro: 0, // 专业图片节点 - 不消耗积分
+  generatePro: 30, // 专业生成节点 - gemini-3-pro-image
+  generatePro4: 120, // 四图专业生成节点 - 4次 × 30积分
+};
+
 // 普通节点列表（不包含 Beta 节点）
 const NODE_PALETTE_ITEMS = [
   { key: "textPrompt", zh: "提示词节点", en: "Prompt Node" },
@@ -397,6 +430,17 @@ const nodePaletteBadgeStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const nodePaletteCreditsStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 500,
+  color: "#059669",
+  background: "#ecfdf5",
+  padding: "2px 6px",
+  borderRadius: 4,
+  letterSpacing: "0.01em",
+  whiteSpace: "nowrap",
+};
+
 const setNodePaletteHover = (target: HTMLElement, hovered: boolean) => {
   target.style.background = hovered ? "#f8fafc" : "#fff";
   target.style.borderColor = hovered ? "#d5dae3" : "#e5e7eb";
@@ -410,21 +454,31 @@ const NodePaletteButton: React.FC<{
   zh: string;
   en: string;
   badge?: string;
+  credits?: number | string;
   onClick: () => void;
-}> = ({ zh, en, badge, onClick }) => (
-  <button
-    onClick={onClick}
-    style={nodePaletteButtonStyle}
-    onMouseEnter={(e) => setNodePaletteHover(e.currentTarget, true)}
-    onMouseLeave={(e) => setNodePaletteHover(e.currentTarget, false)}
-  >
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={nodePaletteEnCodeStyle}>{en}</span>
-      {badge ? <span style={nodePaletteBadgeStyle}>{badge}</span> : null}
-    </div>
-    <span style={nodePaletteZhStyle}>{zh}</span>
-  </button>
-);
+}> = ({ zh, en, badge, credits, onClick }) => {
+  const creditsDisplay = credits !== undefined && credits !== 0 
+    ? typeof credits === 'string' ? credits : credits.toString()
+    : null;
+  
+  return (
+    <button
+      onClick={onClick}
+      style={nodePaletteButtonStyle}
+      onMouseEnter={(e) => setNodePaletteHover(e.currentTarget, true)}
+      onMouseLeave={(e) => setNodePaletteHover(e.currentTarget, false)}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
+        <span style={nodePaletteEnCodeStyle}>{en}</span>
+        {badge ? <span style={nodePaletteBadgeStyle}>{badge}</span> : null}
+        {creditsDisplay && (
+          <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
+        )}
+      </div>
+      <span style={nodePaletteZhStyle}>{zh}</span>
+    </button>
+  );
+};
 
 // 用户模板卡片组件
 const UserTemplateCard: React.FC<{
@@ -7374,6 +7428,7 @@ function FlowInner() {
                       zh={item.zh}
                       en={item.en}
                       badge={item.badge}
+                      credits={NODE_CREDITS_MAP[item.key]}
                       onClick={() =>
                         createNodeAtWorldCenter(item.key, addPanel.world)
                       }
@@ -7413,6 +7468,7 @@ function FlowInner() {
                       zh={item.zh}
                       en={item.en}
                       badge={item.badge}
+                      credits={NODE_CREDITS_MAP[item.key]}
                       onClick={() =>
                         createNodeAtWorldCenter(item.key, addPanel.world)
                       }
