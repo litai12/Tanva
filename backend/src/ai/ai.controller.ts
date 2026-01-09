@@ -430,6 +430,22 @@ export class AiController {
 
   @Post('generate-image')
   async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<ImageGenerationResult> {
+    const startTime = Date.now();
+    const userId = req.user?.id || req.user?.userId || 'anonymous';
+    
+    // 记录请求参数日志
+    this.logger.log(`[generate-image] 收到图像生成请求 - 用户ID: ${userId}, provider: ${dto.aiProvider || 'gemini'}, model: ${dto.model || 'default'}, imageSize: ${dto.imageSize || '未指定'}, aspectRatio: ${dto.aspectRatio || '未指定'}, thinkingLevel: ${dto.thinkingLevel || '未指定'}, imageOnly: ${dto.imageOnly || false}`);
+    this.logger.debug(`[generate-image] 完整请求参数: ${JSON.stringify({ 
+      prompt: dto.prompt?.substring(0, 100) + '...', 
+      aiProvider: dto.aiProvider, 
+      model: dto.model, 
+      imageSize: dto.imageSize, 
+      aspectRatio: dto.aspectRatio, 
+      thinkingLevel: dto.thinkingLevel,
+      imageOnly: dto.imageOnly,
+      outputFormat: dto.outputFormat 
+    })}`);
+
     const providerName = dto.aiProvider && dto.aiProvider !== 'gemini' ? dto.aiProvider : null;
     const model = this.resolveImageModel(providerName, dto.model);
     const serviceType = this.getImageGenerationServiceType(model, providerName || undefined);
@@ -438,8 +454,12 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    return this.withCredits(req, serviceType, model, async () => {
+    this.logger.log(`[generate-image] 解析后的配置 - providerName: ${providerName || 'null'}, model: ${model}, serviceType: ${serviceType}, 使用自定义API Key: ${!!customApiKey}`);
+
+    try {
+      return await this.withCredits(req, serviceType, model, async () => {
       if (providerName && providerName !== 'gemini-pro') {
+          this.logger.log(`[generate-image] 使用 Provider: ${providerName}`);
         const provider = this.factory.getProvider(dto.model, providerName);
         const result = await provider.generateImage({
           prompt: dto.prompt,
@@ -451,8 +471,13 @@ export class AiController {
           outputFormat: dto.outputFormat,
           providerOptions: dto.providerOptions,
         });
+          
+          this.logger.log(`[generate-image] Provider ${providerName} 返回结果 - success: ${result.success}, hasImage: ${!!result.data?.imageData}, imageDataLength: ${result.data?.imageData?.length || 0}, error: ${result.error?.message || 'none'}`);
+          
         if (result.success && result.data) {
           const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+            const duration = Date.now() - startTime;
+            this.logger.log(`[generate-image] 图像生成成功 - Provider: ${providerName}, 耗时: ${duration}ms, 水印后图像长度: ${watermarked?.length || 0}`);
           return {
             imageData: watermarked,
             textResponse: result.data.textResponse || '',
@@ -463,10 +488,23 @@ export class AiController {
       }
 
       // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+        this.logger.log(`[generate-image] 使用默认 Gemini 服务 (providerName: ${providerName || 'gemini'})`);
       const data = await this.imageGeneration.generateImage({ ...dto, customApiKey });
+        
+        this.logger.log(`[generate-image] Gemini 服务返回结果 - hasImage: ${!!data.imageData}, imageDataLength: ${data.imageData?.length || 0}, textResponseLength: ${data.textResponse?.length || 0}`);
+        
       const watermarked = await this.watermarkIfNeeded(data.imageData, req);
+        const duration = Date.now() - startTime;
+        this.logger.log(`[generate-image] 图像生成成功 - 使用默认 Gemini 服务, 耗时: ${duration}ms, 水印后图像长度: ${watermarked?.length || 0}`);
       return { ...data, imageData: watermarked };
     }, 0, 1, skipCredits);
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`[generate-image] 图像生成失败 - 耗时: ${duration}ms, 错误: ${errorMessage}`, errorStack);
+      throw error;
+    }
   }
 
   @Post('edit-image')

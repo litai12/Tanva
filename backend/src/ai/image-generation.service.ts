@@ -416,11 +416,13 @@ export class ImageGenerationService {
   }
 
   async generateImage(request: GenerateImageRequest): Promise<ImageGenerationResult> {
-    this.logger.log(`Generating image with prompt: ${request.prompt.substring(0, 50)}...`);
+    const startTime = Date.now();
+    this.logger.log(`[ImageGenerationService] 开始生成图像 - prompt: ${request.prompt.substring(0, 50)}..., model: ${request.model || this.DEFAULT_MODEL}, imageSize: ${request.imageSize || '未指定'}, aspectRatio: ${request.aspectRatio || '未指定'}, thinkingLevel: ${request.thinkingLevel || '未指定'}, imageOnly: ${request.imageOnly || false}`);
 
     const client = this.getClient(request.customApiKey);
     const model = request.model || this.DEFAULT_MODEL;
-    const startTime = Date.now();
+    const usingCustomApiKey = !!request.customApiKey;
+    this.logger.log(`[ImageGenerationService] 使用模型: ${model}, 使用自定义API Key: ${usingCustomApiKey}`);
 
     // 简化后的单层重试逻辑
     const result = await this.withRetry(
@@ -453,17 +455,22 @@ export class ImageGenerationService {
 
               if (request.aspectRatio) {
                 imageConfig.aspectRatio = request.aspectRatio;
+                this.logger.log(`[ImageGenerationService] 设置 aspectRatio: ${request.aspectRatio}`);
               }
 
               if (request.imageSize) {
                 // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
                 // 不需要转换，直接使用原始值
                 imageConfig.imageSize = request.imageSize;
+                this.logger.log(`[ImageGenerationService] 设置 imageSize: ${request.imageSize} (类型: ${typeof request.imageSize})`);
               }
+            } else {
+              this.logger.warn(`[ImageGenerationService] 未设置 imageSize 和 aspectRatio`);
             }
 
             if (request.thinkingLevel) {
               config.generationConfig.thinkingLevel = request.thinkingLevel;
+              this.logger.log(`[ImageGenerationService] 设置 thinkingLevel: ${request.thinkingLevel}`);
             }
 
             const reqOptions: any = {
@@ -474,11 +481,150 @@ export class ImageGenerationService {
 
             if (imageConfig) {
               reqOptions.imageConfig = imageConfig;
+              this.logger.log(`[ImageGenerationService] 完整请求配置 - model: ${model}, imageConfig: ${JSON.stringify(imageConfig)}, responseModalities: ${config.generationConfig.responseModalities.join(', ')}`);
+            } else {
+              this.logger.warn(`[ImageGenerationService] 警告: imageConfig 为空，将不会发送 imageSize 和 aspectRatio 参数`);
             }
 
-            const stream = await client.models.generateContentStream(reqOptions);
+            // 优先尝试非流式 API（对于4K图像更稳定），失败后降级到流式 API
+            try {
+              this.logger.log(`[ImageGenerationService] 准备调用 Gemini API - 优先使用非流式API (generateContent)`);
+              const apiCallStartTime = Date.now();
+              
+              const response = await client.models.generateContent(reqOptions);
+              const apiCallDuration = Date.now() - apiCallStartTime;
+              this.logger.log(`[ImageGenerationService] 非流式API调用成功 - 耗时: ${apiCallDuration}ms, 开始解析响应`);
+              
+              const nonStreamResult = this.parseNonStreamResponse(response, 'Image generation');
+              this.logger.log(`[ImageGenerationService] 非流式响应解析完成 - hasImage: ${!!nonStreamResult.imageBytes}, imageBytesLength: ${nonStreamResult.imageBytes?.length || 0}, textResponseLength: ${nonStreamResult.textResponse?.length || 0}`);
+              
+              if (!nonStreamResult.imageBytes || nonStreamResult.imageBytes.length === 0) {
+                this.logger.warn(`[ImageGenerationService] 非流式API返回无图像数据，降级到流式API...`);
+                throw new Error('No image data in non-stream response');
+              }
+              
+              this.logger.log(`[ImageGenerationService] 非流式API成功返回图像数据`);
+              return nonStreamResult;
+            } catch (nonStreamError) {
+              const errorMessage = nonStreamError instanceof Error ? nonStreamError.message : String(nonStreamError);
+              const errorStack = nonStreamError instanceof Error ? nonStreamError.stack : undefined;
+              const normalizedMessage = errorMessage.toLowerCase();
+              
+              // 记录详细的错误信息
+              const errorDetails: any = {
+                message: errorMessage,
+                name: nonStreamError instanceof Error ? nonStreamError.name : 'Unknown',
+              };
+              
+              // 尝试提取底层错误信息
+              if (nonStreamError instanceof Error) {
+                const err = nonStreamError as any;
+                if (err.cause) {
+                  errorDetails.cause = err.cause;
+                }
+                if (err.code) {
+                  errorDetails.code = err.code;
+                }
+                if (err.errno) {
+                  errorDetails.errno = err.errno;
+                }
+                if (err.syscall) {
+                  errorDetails.syscall = err.syscall;
+                }
+                if (err.hostname) {
+                  errorDetails.hostname = err.hostname;
+                }
+                if (err.port) {
+                  errorDetails.port = err.port;
+                }
+              }
+              
+              this.logger.error(`[ImageGenerationService] 非流式API失败 - 详细信息: ${JSON.stringify(errorDetails)}`, errorStack);
+              
+              // 判断是否应该降级到流式API
+              const fallbackTriggers = [
+                'fetch', 'network', 'timeout', 'socket', 'connection',
+                'econn', 'enotfound', 'refused', 'empty response', 'no image data',
+                'sending request', 'failed'
+              ];
+              const shouldFallback = fallbackTriggers.some((keyword) =>
+                normalizedMessage.includes(keyword)
+              );
+              
+              if (!shouldFallback) {
+                // 非网络错误，直接抛出（如参数错误、认证错误等）
+                this.logger.error(`[ImageGenerationService] 非流式API失败（非网络错误）: ${errorMessage}`);
+                throw nonStreamError;
+              }
+              
+              this.logger.warn(`[ImageGenerationService] 非流式API失败 (${errorMessage})，降级到流式API...`);
+              
+              // 降级到流式API
+              try {
+                const apiCallStartTime = Date.now();
+                this.logger.log(`[ImageGenerationService] 尝试流式API (generateContentStream)`);
 
-            return this.parseStreamResponse(stream, 'Image generation');
+            const stream = await client.models.generateContentStream(reqOptions);
+                const apiCallDuration = Date.now() - apiCallStartTime;
+                this.logger.log(`[ImageGenerationService] 流式API调用成功 - 耗时: ${apiCallDuration}ms, 开始解析流式响应`);
+                
+                const parseResult = await this.parseStreamResponse(stream, 'Image generation');
+                this.logger.log(`[ImageGenerationService] 流式响应解析完成 - hasImage: ${!!parseResult.imageBytes}, imageBytesLength: ${parseResult.imageBytes?.length || 0}, textResponseLength: ${parseResult.textResponse?.length || 0}`);
+                
+                if (!parseResult.imageBytes || parseResult.imageBytes.length === 0) {
+                  this.logger.error(`[ImageGenerationService] 流式API也返回无图像数据`);
+                  throw new Error('Stream API returned no image data');
+                }
+                
+                this.logger.log(`[ImageGenerationService] 流式API降级成功`);
+                return parseResult;
+              } catch (streamError) {
+                const streamErrorMessage = streamError instanceof Error ? streamError.message : String(streamError);
+                const streamErrorStack = streamError instanceof Error ? streamError.stack : undefined;
+                
+                // 记录详细的错误信息
+                const streamErrorDetails: any = {
+                  message: streamErrorMessage,
+                  name: streamError instanceof Error ? streamError.name : 'Unknown',
+                };
+                
+                // 尝试提取底层错误信息
+                if (streamError instanceof Error) {
+                  const err = streamError as any;
+                  if (err.cause) {
+                    streamErrorDetails.cause = err.cause;
+                  }
+                  if (err.code) {
+                    streamErrorDetails.code = err.code;
+                  }
+                  if (err.errno) {
+                    streamErrorDetails.errno = err.errno;
+                  }
+                  if (err.syscall) {
+                    streamErrorDetails.syscall = err.syscall;
+                  }
+                  if (err.hostname) {
+                    streamErrorDetails.hostname = err.hostname;
+                  }
+                  if (err.port) {
+                    streamErrorDetails.port = err.port;
+                  }
+                }
+                
+                this.logger.error(`[ImageGenerationService] 流式API也失败 - 详细信息: ${JSON.stringify(streamErrorDetails)}`, streamErrorStack);
+                this.logger.error(`[ImageGenerationService] 失败的请求配置: ${JSON.stringify({ 
+                  model, 
+                  imageConfig, 
+                  responseModalities: config.generationConfig.responseModalities,
+                  hasPrompt: !!request.prompt,
+                  promptLength: request.prompt?.length || 0,
+                  imageSize: request.imageSize,
+                  aspectRatio: request.aspectRatio
+                })}`);
+                
+                throw streamError;
+              }
+            }
           })(),
           this.DEFAULT_TIMEOUT,
           'Image generation request'
@@ -488,7 +634,20 @@ export class ImageGenerationService {
     );
 
     const processingTime = Date.now() - startTime;
-    this.logger.log(`Image generation completed in ${processingTime}ms`);
+    const hasImage = !!result.imageBytes;
+    const imageSize = result.imageBytes?.length || 0;
+    this.logger.log(`[ImageGenerationService] 图像生成完成 - 总耗时: ${processingTime}ms, hasImage: ${hasImage}, imageSize: ${imageSize} bytes, textResponseLength: ${result.textResponse?.length || 0}`);
+    
+    if (!hasImage) {
+      this.logger.warn(`[ImageGenerationService] 警告: 返回结果中没有图像数据`);
+    }
+    
+    if (request.imageSize && hasImage) {
+      // 估算图像分辨率（粗略估算）
+      const estimatedPixels = imageSize > 0 ? Math.sqrt(imageSize / 4) : 0; // 假设每个像素约4字节
+      const estimatedResolution = Math.round(estimatedPixels);
+      this.logger.log(`[ImageGenerationService] 图像大小估算 - 请求imageSize: ${request.imageSize}, 图像数据大小: ${imageSize} bytes, 估算分辨率: ~${estimatedResolution}x${estimatedResolution}`);
+    }
 
     return {
       imageData: result.imageBytes || undefined,

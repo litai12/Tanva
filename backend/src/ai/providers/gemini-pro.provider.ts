@@ -304,11 +304,13 @@ export class GeminiProProvider implements IAIProvider {
   async generateImage(
     request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    this.logger.log(`Generating image with prompt: ${request.prompt.substring(0, 50)}...`);
+    const startTime = Date.now();
+    this.logger.log(`[GeminiProProvider] 开始生成图像 - prompt: ${request.prompt.substring(0, 50)}..., model: ${request.model || this.DEFAULT_MODEL}, imageSize: ${request.imageSize || '未指定'}, aspectRatio: ${request.aspectRatio || '未指定'}, thinkingLevel: ${request.thinkingLevel || '未指定'}, imageOnly: ${request.imageOnly || false}`);
 
     try {
       const client = this.ensureClient();
       const model = request.model || this.DEFAULT_MODEL;
+      this.logger.log(`[GeminiProProvider] 使用模型: ${model}`);
 
       const result = await this.withRetry(
         async () => {
@@ -335,18 +337,23 @@ export class GeminiProProvider implements IAIProvider {
 
                 if (request.aspectRatio) {
                   imageConfig.aspectRatio = request.aspectRatio;
+                  this.logger.log(`[GeminiProProvider] 设置 aspectRatio: ${request.aspectRatio}`);
                 }
 
                 if (request.imageSize) {
                   // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
                   // 不需要转换，直接使用原始值
                   imageConfig.imageSize = request.imageSize;
+                  this.logger.log(`[GeminiProProvider] 设置 imageSize: ${request.imageSize} (类型: ${typeof request.imageSize})`);
                 }
+              } else {
+                this.logger.warn(`[GeminiProProvider] 未设置 imageSize 和 aspectRatio`);
               }
 
               // 配置 thinking_level（Gemini 3 特性，参考官方文档）
               if (request.thinkingLevel) {
                 config.generationConfig.thinking_level = request.thinkingLevel;
+                this.logger.log(`[GeminiProProvider] 设置 thinking_level: ${request.thinkingLevel}`);
               }
 
               const reqOptions: any = {
@@ -357,11 +364,37 @@ export class GeminiProProvider implements IAIProvider {
 
               if (imageConfig) {
                 reqOptions.imageConfig = imageConfig;
+                this.logger.log(`[GeminiProProvider] 完整请求配置 - model: ${model}, imageConfig: ${JSON.stringify(imageConfig)}, responseModalities: ${config.generationConfig.responseModalities.join(', ')}`);
+              } else {
+                this.logger.warn(`[GeminiProProvider] 警告: imageConfig 为空，将不会发送 imageSize 和 aspectRatio 参数`);
               }
 
+              this.logger.log(`[GeminiProProvider] 准备调用 Gemini API - 使用非流式API (generateContent)`);
+              const apiCallStartTime = Date.now();
+              
+              try {
               const response = await client.models.generateContent(reqOptions);
-
-              return this.parseNonStreamResponse(response, 'Image generation');
+                const apiCallDuration = Date.now() - apiCallStartTime;
+                this.logger.log(`[GeminiProProvider] Gemini API 调用成功 - 耗时: ${apiCallDuration}ms, 开始解析响应`);
+                
+                const parseResult = this.parseNonStreamResponse(response, 'Image generation');
+                this.logger.log(`[GeminiProProvider] 响应解析完成 - hasImage: ${!!parseResult.imageBytes}, imageBytesLength: ${parseResult.imageBytes?.length || 0}, textResponseLength: ${parseResult.textResponse?.length || 0}`);
+                
+                return parseResult;
+              } catch (apiError) {
+                const apiCallDuration = Date.now() - apiCallStartTime;
+                const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
+                const errorStack = apiError instanceof Error ? apiError.stack : undefined;
+                this.logger.error(`[GeminiProProvider] Gemini API 调用失败 - 耗时: ${apiCallDuration}ms, 错误: ${errorMessage}`, errorStack);
+                this.logger.error(`[GeminiProProvider] 失败的请求配置: ${JSON.stringify({ 
+                  model, 
+                  imageConfig, 
+                  responseModalities: config.generationConfig.responseModalities,
+                  hasPrompt: !!request.prompt,
+                  promptLength: request.prompt?.length || 0
+                })}`);
+                throw apiError;
+              }
             })(),
             this.DEFAULT_TIMEOUT,
             'Image generation'
@@ -369,6 +402,22 @@ export class GeminiProProvider implements IAIProvider {
         },
         'Image generation'
       );
+
+      const processingTime = Date.now() - startTime;
+      const hasImage = !!result.imageBytes;
+      const imageSize = result.imageBytes?.length || 0;
+      this.logger.log(`[GeminiProProvider] 图像生成完成 - 总耗时: ${processingTime}ms, success: true, hasImage: ${hasImage}, imageSize: ${imageSize} bytes, textResponseLength: ${result.textResponse?.length || 0}`);
+      
+      if (!hasImage) {
+        this.logger.warn(`[GeminiProProvider] 警告: 返回结果中没有图像数据`);
+      }
+      
+      if (request.imageSize && hasImage) {
+        // 估算图像分辨率（粗略估算）
+        const estimatedPixels = imageSize > 0 ? Math.sqrt(imageSize / 4) : 0; // 假设每个像素约4字节
+        const estimatedResolution = Math.round(estimatedPixels);
+        this.logger.log(`[GeminiProProvider] 图像大小估算 - 请求imageSize: ${request.imageSize}, 图像数据大小: ${imageSize} bytes, 估算分辨率: ~${estimatedResolution}x${estimatedResolution}`);
+      }
 
       return {
         success: true,
@@ -379,7 +428,18 @@ export class GeminiProProvider implements IAIProvider {
         },
       };
     } catch (error) {
-      this.logger.error('Image generation failed:', error);
+      const processingTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`[GeminiProProvider] 图像生成失败 - 总耗时: ${processingTime}ms, 错误: ${errorMessage}`, errorStack);
+      this.logger.error(`[GeminiProProvider] 失败时的请求参数: ${JSON.stringify({
+        model: request.model || this.DEFAULT_MODEL,
+        imageSize: request.imageSize,
+        aspectRatio: request.aspectRatio,
+        thinkingLevel: request.thinkingLevel,
+        imageOnly: request.imageOnly,
+        promptLength: request.prompt?.length || 0
+      })}`);
       return {
         success: false,
         error: {
