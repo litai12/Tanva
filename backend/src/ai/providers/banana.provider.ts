@@ -547,14 +547,9 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
-                  const sizeMap: Record<string, string> = {
-                    "1K": "1024x1024",
-                    "2K": "2048x2048",
-                    "4K": "4096x4096",
-                  };
-                  config.imageConfig.imageSize =
-                    sizeMap[request.imageSize] || request.imageSize;
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
@@ -675,14 +670,9 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
-                  const sizeMap: Record<string, string> = {
-                    "1K": "1024x1024",
-                    "2K": "2048x2048",
-                    "4K": "4096x4096",
-                  };
-                  config.imageConfig.imageSize =
-                    sizeMap[request.imageSize] || request.imageSize;
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
@@ -822,14 +812,9 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
-                  const sizeMap: Record<string, string> = {
-                    "1K": "1024x1024",
-                    "2K": "2048x2048",
-                    "4K": "4096x4096",
-                  };
-                  config.imageConfig.imageSize =
-                    sizeMap[request.imageSize] || request.imageSize;
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
