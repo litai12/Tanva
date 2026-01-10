@@ -1928,19 +1928,17 @@ function FlowInner() {
   const [builtinCategories, setBuiltinCategories] = React.useState<string[]>(
     []
   );
-  // 支持多个分类开关（多选），空数组表示未筛选（显示全部）
-  const [activeBuiltinCategories, setActiveBuiltinCategories] = React.useState<
-    string[]
-  >([]);
+  // 单选分类：仅允许选择一个内置分类，空字符串表示未筛选（显示全部）
+  const [activeBuiltinCategory, setActiveBuiltinCategory] =
+    React.useState<string>("");
 
   const filteredTplIndex = React.useMemo(() => {
     if (!tplIndex) return [];
-    if (!activeBuiltinCategories || activeBuiltinCategories.length === 0)
-      return tplIndex;
-    return tplIndex.filter((item) =>
-      activeBuiltinCategories.includes(item.category || "其他")
+    if (!activeBuiltinCategory) return tplIndex;
+    return tplIndex.filter(
+      (item) => (item.category || "其他") === activeBuiltinCategory
     );
-  }, [tplIndex, activeBuiltinCategories]);
+  }, [tplIndex, activeBuiltinCategory]);
 
   const getPlaceholderCount = React.useCallback(
     (len: number, opts?: { columns?: number; minVisible?: number }) => {
@@ -7560,48 +7558,35 @@ function FlowInner() {
                         style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
                       >
                         <button
-                          onClick={() => setActiveBuiltinCategories([])}
+                          onClick={() => setActiveBuiltinCategory("")}
                           style={{
                             padding: "6px 14px",
                             borderRadius: 999,
                             border:
                               "1px solid " +
-                              (activeBuiltinCategories.length === 0
-                                ? "#18181b"
-                                : "#e5e7eb"),
-                            background:
-                              activeBuiltinCategories.length === 0
-                                ? "#18181b"
-                                : "#fff",
-                            color:
-                              activeBuiltinCategories.length === 0
-                                ? "#fff"
-                                : "#374151",
+                              (!activeBuiltinCategory ? "#18181b" : "#e5e7eb"),
+                            background: !activeBuiltinCategory ? "#18181b" : "#fff",
+                            color: !activeBuiltinCategory ? "#fff" : "#374151",
                             fontSize: 12,
-                            fontWeight:
-                              activeBuiltinCategories.length === 0 ? 600 : 500,
+                            fontWeight: !activeBuiltinCategory ? 600 : 500,
                             cursor: "pointer",
                             transition: "all 0.15s ease",
-                            boxShadow:
-                              activeBuiltinCategories.length === 0
-                                ? "0 10px 18px rgba(0, 0, 0, 0.18)"
-                                : "none",
+                            boxShadow: !activeBuiltinCategory
+                              ? "0 10px 18px rgba(0, 0, 0, 0.18)"
+                              : "none",
                           }}
                         >
                           全部
                         </button>
                         {builtinCategories.map((cat) => {
-                          const isActive = activeBuiltinCategories.includes(cat);
+                          const isActive = activeBuiltinCategory === cat;
                           return (
                             <button
                               key={cat}
                               onClick={() =>
-                                setActiveBuiltinCategories((prev) => {
-                                  if (prev.includes(cat)) {
-                                    return prev.filter((c) => c !== cat);
-                                  }
-                                  return [...prev, cat];
-                                })
+                                setActiveBuiltinCategory((prev) =>
+                                  prev === cat ? "" : cat
+                                )
                               }
                               style={{
                                 padding: "6px 14px",

@@ -16,10 +16,9 @@ import Workspace from '@/pages/Workspace';
 import RunningHubTest from '@/pages/RunningHubTest';
 
 function RootRoutes() {
-  const init = useAuthStore((s) => s.init);
   const user = useAuthStore((s) => s.user);
   const loadProjects = useProjectStore((s) => s.load);
-  useEffect(() => { init(); }, [init]);
+  // 延迟初始化：由受保护路由或登录流程触发，避免在每次页面加载时自动请求 /api/auth/me
   useEffect(() => {
     if (user) loadProjects();
   }, [user, loadProjects]);
