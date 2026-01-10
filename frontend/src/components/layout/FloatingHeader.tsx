@@ -339,11 +339,13 @@ const FloatingHeader: React.FC = () => {
     const historyCount = useImageHistoryStore((state) => state.history.length);
     const globalHistoryCount = useGlobalImageHistoryStore((state) => state.totalCount);
     const fetchGlobalHistoryCount = useGlobalImageHistoryStore((state) => state.fetchCount);
+    const authUser = useAuthStore((s) => s.user);
 
-    // 获取全局历史数量
+    // 获取全局历史数量（仅在已登录时调用，避免未登录时触发受保护接口）
     useEffect(() => {
+        if (!authUser) return;
         fetchGlobalHistoryCount();
-    }, [fetchGlobalHistoryCount]);
+    }, [fetchGlobalHistoryCount, authUser]);
 
     const handleClearImageHistory = React.useCallback(() => {
         if (historyCount === 0) {
