@@ -26,12 +26,22 @@ import GlobalZoomCapture from '@/components/canvas/GlobalZoomCapture';
 const Canvas: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isPaperInitialized, setIsPaperInitialized] = useState(false);
+    const [isPaperReady, setIsPaperReady] = useState(false); // 控制Paper.js延迟初始化
     // AI图像现在通过快速上传工具处理，不需要单独的hook
     // useAIImageDisplay();
 
     const handlePaperInitialized = () => {
         setIsPaperInitialized(true);
     };
+
+    // 延迟Paper.js初始化，提升首次加载速度
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setIsPaperReady(true);
+        }, 100); // 延迟100ms初始化Paper.js
+
+        return () => clearTimeout(timer);
+    }, []);
 
     useEffect(() => {
         migrateImageHistoryToRemote().catch((error) => {
@@ -55,14 +65,16 @@ const Canvas: React.FC = () => {
                 style={{ background: 'white' }}
             />
 
-            {/* Paper.js 管理器 */}
-            <PaperCanvasManager
-                canvasRef={canvasRef}
-                onInitialized={handlePaperInitialized}
-            />
+            {/* Paper.js 管理器 - 延迟初始化 */}
+            {isPaperReady && (
+                <PaperCanvasManager
+                    canvasRef={canvasRef}
+                    onInitialized={handlePaperInitialized}
+                />
+            )}
 
             {/* 只有在 Paper.js 初始化完成后才启用网格和交互 */}
-            {isPaperInitialized && (
+            {isPaperInitialized && isPaperReady && (
                 <>
                     {/* 网格渲染器 */}
                     <GridRenderer canvasRef={canvasRef} isPaperInitialized={isPaperInitialized} />
