@@ -765,6 +765,17 @@ const AIChatDialog: React.FC = () => {
     };
   }, [isResizing]);
 
+  // 输入框高度自适应逻辑
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      const scrollHeight = textarea.scrollHeight;
+      // 限制最大高度为 260px
+      textarea.style.height = `${Math.min(scrollHeight, 260)}px`;
+    }
+  }, [currentInput]);
+
   useEffect(() => {
     if (!currentInput && textareaRef.current) {
       textareaRef.current.scrollTop = 0;
@@ -2749,9 +2760,9 @@ const AIChatDialog: React.FC = () => {
                 placeholder={shouldHidePlaceholder ? "" : getSmartPlaceholder()}
                 disabled={false}
                 className={cn(
-                  "resize-none px-4 pb-12 min-h-[80px] max-h-[200px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
+                  "resize-none px-4 pb-12 min-h-[80px] max-h-[260px] text-sm bg-transparent border-gray-300 focus:ring-0 transition-colors duration-200 overflow-y-auto"
                 )}
-                rows={2}
+                rows={1}
               />
 
               {/* 左侧按钮组 */}

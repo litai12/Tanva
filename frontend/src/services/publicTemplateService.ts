@@ -14,6 +14,19 @@ const API_BASE =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
     : "http://localhost:4000";
 
+// 简单的授权头构造器：若需自定义认证（例如 Bearer token），在此扩展
+export function buildAuthHeaders(contentType?: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (contentType) {
+    headers["Content-Type"] = contentType;
+  }
+  // 如果将来需要在头中加入 Authorization 或其它认证字段，
+  // 可以在这里读取 cookie/localStorage 或调用认证服务来获取 token 并设置：
+  // const token = getAuthToken();
+  // if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 // 获取公共模板索引
 export async function fetchPublicTemplateIndex(): Promise<
   TemplateIndexEntry[]
@@ -96,12 +109,11 @@ export interface TemplateListResponse {
 export async function createTemplate(
   data: CreateTemplateRequest
 ): Promise<PublicTemplate> {
+  const headers = buildAuthHeaders("application/json");
   const response = await fetch(`${API_BASE}/api/admin/templates`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
     body: JSON.stringify(data),
   });
 
@@ -124,12 +136,12 @@ export async function fetchTemplates(
     searchParams.set("isActive", params.isActive.toString());
   if (params.search) searchParams.set("search", params.search);
 
+  const headers = buildAuthHeaders();
   const response = await fetch(
     `${API_BASE}/api/admin/templates?${searchParams}`,
     {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-      },
+      credentials: "include",
+      headers,
     }
   );
 
@@ -142,10 +154,10 @@ export async function fetchTemplates(
 
 // 获取单个模板
 export async function fetchTemplate(id: string): Promise<PublicTemplate> {
+  const headers = buildAuthHeaders();
   const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
   });
 
   if (!response.ok) {
@@ -160,12 +172,11 @@ export async function updateTemplate(
   id: string,
   data: UpdateTemplateRequest
 ): Promise<PublicTemplate> {
+  const headers = buildAuthHeaders("application/json");
   const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
     body: JSON.stringify(data),
   });
 
@@ -178,11 +189,11 @@ export async function updateTemplate(
 
 // 删除模板
 export async function deleteTemplate(id: string): Promise<void> {
+  const headers = buildAuthHeaders();
   const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
   });
 
   if (!response.ok) {
@@ -192,10 +203,10 @@ export async function deleteTemplate(id: string): Promise<void> {
 
 // 获取模板分类
 export async function fetchTemplateCategories(): Promise<string[]> {
+  const headers = buildAuthHeaders();
   const response = await fetch(`${API_BASE}/api/templates/categories`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-    },
+    credentials: "include",
+    headers,
   });
 
   if (!response.ok) {
