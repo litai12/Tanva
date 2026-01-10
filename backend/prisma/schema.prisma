@@ -34,6 +34,11 @@ model User {
   refreshTokens              RefreshToken[]
   invitedBy                  User?                  @relation("UserInvitedBy", fields: [invitedById], references: [id])
   invites                    User[]                 @relation("UserInvitedBy")
+
+  // 索引优化：加速用户验证和查找
+  @@index([phone, status])  // 手机号登录优化
+  @@index([email, status])  // 邮箱登录优化（如果支持）
+  @@index([role, status])   // 角色筛选优化
 }
 
 model RefreshToken {
@@ -47,7 +52,10 @@ model RefreshToken {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
 
-  @@index([userId, isRevoked])
+  // 索引优化：加速token验证和清理
+  @@index([userId, isRevoked])           // 用户活跃token查询
+  @@index([expiresAt])                   // 过期token清理
+  @@index([userId, expiresAt, isRevoked]) // 复合索引：用户未过期未撤销token
 }
 
 model Project {
@@ -62,6 +70,11 @@ model Project {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   user           User     @relation(fields: [userId], references: [id])
+
+  // 索引优化：加速项目列表查询
+  @@index([userId, createdAt])     // 用户项目列表，按创建时间倒序
+  @@index([userId, updatedAt])     // 用户项目列表，按更新时间倒序
+  @@index([createdAt])             // 全局项目统计
 }
 
 model CreditAccount {

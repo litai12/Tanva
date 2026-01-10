@@ -106,12 +106,6 @@ const FloatingHeader: React.FC = () => {
     // AI 配置
     const { imageOnly, setImageOnly, aiProvider, setAIProvider, sendShortcut, setSendShortcut, expandedPanelStyle, setExpandedPanelStyle } = useAIChatStore();
 
-    // 国内模型快速切换选项
-    const providerToggleOptions: { value: 'banana' | 'banana-2.5'; label: string; description: string }[] = [
-        { value: 'banana-2.5', label: 'Fast', description: '国内极速版' },
-        { value: 'banana', label: 'Pro', description: '国内Pro版' },
-    ];
-    const isDomesticProvider = providerToggleOptions.some((option) => option.value === aiProvider);
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
@@ -1193,52 +1187,6 @@ const FloatingHeader: React.FC = () => {
 
 return (
         <>
-        {/* 正中央悬浮按钮组 - 全局AI设置（仅当有切换选项时显示） */}
-        {isDomesticProvider && (
-            <div
-                aria-hidden={focusMode}
-                className={cn(
-                    "fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-auto transition-all duration-[50ms] ease-out",
-                    focusMode && "hidden"
-                )}
-            >
-                <div className="flex items-center gap-3 px-4 py-2 h-[46px] rounded-2xl bg-liquid-glass backdrop-blur-minimal backdrop-saturate-125 shadow-liquid-glass-lg border border-liquid-glass">
-                    {/* 左侧标签 */}
-                    <span className="text-sm font-medium select-none text-slate-600 whitespace-nowrap">全局AI设置</span>
-                    
-                    {/* Fast / Pro 切换按钮 */}
-                    <div
-                        className="flex h-7 items-center gap-0.5 rounded-full border border-liquid-glass bg-liquid-glass px-1 shadow-liquid-glass backdrop-blur-liquid backdrop-saturate-125"
-                        title="快速切换国内模型"
-                    >
-                        {providerToggleOptions.map((option) => {
-                            const isActive = aiProvider === option.value;
-                            return (
-                                <button
-                                    key={option.value}
-                                    type="button"
-                                    className={cn(
-                                        "flex h-[20px] items-center justify-center rounded-full px-3 text-[12px] font-semibold transition-colors duration-150",
-                                        isActive
-                                            ? "bg-slate-900 text-white shadow-sm"
-                                            : "text-slate-700 hover:bg-slate-200/50"
-                                    )}
-                                    onClick={() => {
-                                        if (aiProvider !== option.value) {
-                                            setAIProvider(option.value);
-                                        }
-                                    }}
-                                    aria-pressed={isActive}
-                                    title={`${option.label} · ${option.description}`}
-                                >
-                                    {option.label}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-        )}
 
         <div
             aria-hidden={focusMode}

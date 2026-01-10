@@ -2767,7 +2767,7 @@ const AIChatDialog: React.FC = () => {
 
               {/* 左侧按钮组 */}
               <div className='absolute flex items-center gap-2 left-2 bottom-2'>
-                {/* <div
+                <div
                   className={cn(
                     "flex h-7 items-center gap-0.5 rounded-full border border-liquid-glass bg-liquid-glass px-1 shadow-liquid-glass backdrop-blur-liquid backdrop-saturate-125",
                     generationStatus.isGenerating && "opacity-90"
@@ -2800,7 +2800,7 @@ const AIChatDialog: React.FC = () => {
                       </button>
                     );
                   })}
-                </div> */}
+                </div>
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
