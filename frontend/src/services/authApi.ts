@@ -26,7 +26,30 @@ const base =
 // Simple localStorage-based mock helpers
 const LS_USER_KEY = "mock_user";
 const LS_USERS_KEY = "mock_users";
+const LS_TOKEN_EXPIRY = "token_expiry";
 const FIXED_SMS_CODE = "336699";
+
+// Token过期时间管理
+function getStoredTokenExpiry(): number | null {
+  try {
+    const expiry = localStorage.getItem(LS_TOKEN_EXPIRY);
+    return expiry ? parseInt(expiry) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredTokenExpiry(expiry: number) {
+  try {
+    localStorage.setItem(LS_TOKEN_EXPIRY, expiry.toString());
+  } catch {}
+}
+
+function clearStoredTokenExpiry() {
+  try {
+    localStorage.removeItem(LS_TOKEN_EXPIRY);
+  } catch {}
+}
 
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -118,6 +141,17 @@ export const authApi = {
       await delay(200);
       return { user: loadSession(), source: "mock" };
     }
+
+    // 优化：先检查本地token是否可能有效，避免不必要的网络请求
+    const tokenExpiry = getStoredTokenExpiry();
+    const localUser = loadSession();
+
+    // 如果本地有用户信息且token未过期（提前1分钟检查），直接返回本地数据
+    if (localUser && tokenExpiry && tokenExpiry > Date.now() + 60000) {
+      console.log("[authApi] 使用本地缓存的用户信息，避免网络请求");
+      return { user: localUser, source: "local" };
+    }
+
     try {
       let res = await fetch(`${base}/api/auth/me`, { credentials: "include" });
       if (res.ok) {
@@ -126,6 +160,12 @@ export const authApi = {
           data && typeof data === "object" && "user" in data
             ? (data.user as UserInfo)
             : (data as UserInfo);
+
+        // 更新本地token过期时间（假设24小时有效期）
+        if (user) {
+          setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+        }
+
         return { user, source: "server" };
       }
       if (res.status === 401 || res.status === 403) {
@@ -144,6 +184,12 @@ export const authApi = {
                 data && typeof data === "object" && "user" in data
                   ? (data.user as UserInfo)
                   : (data as UserInfo);
+
+              // 更新本地token过期时间
+              if (user) {
+                setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+              }
+
               return { user, source: "refresh" };
             }
           }
@@ -152,10 +198,22 @@ export const authApi = {
         }
       }
       console.warn("authApi.me not ok:", res.status);
-      return { user: loadSession(), source: "local" };
+
+      // 如果网络请求失败但本地有用户信息，返回本地数据
+      if (localUser) {
+        return { user: localUser, source: "local" };
+      }
+
+      return { user: null, source: null };
     } catch (e) {
       console.warn("authApi.me network error:", e);
-      return { user: loadSession(), source: "local" };
+
+      // 网络错误时返回本地用户信息（离线模式）
+      if (localUser) {
+        return { user: localUser, source: "local" };
+      }
+
+      return { user: null, source: null };
     }
   },
   async register(payload: {
@@ -213,6 +271,8 @@ export const authApi = {
     const out = await json<{ user: UserInfo }>(res);
     // 本地持久化用户，提升刷新体验（用于开发环境或后端短暂不可用时）
     saveSession(out.user);
+    // 设置token过期时间（24小时）
+    setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
     return out;
   },
   async loginWithSms(payload: { phone: string; code: string }) {
@@ -238,6 +298,8 @@ export const authApi = {
     });
     const out = await json<{ user: UserInfo }>(res);
     saveSession(out.user);
+    // 设置token过期时间（24小时）
+    setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
     return out;
   },
   async sendSms(payload: { phone: string }) {
@@ -309,6 +371,7 @@ export const authApi = {
     if (isMock) {
       await delay(200);
       clearSession();
+      clearStoredTokenExpiry(); // 清除token过期时间
       return { ok: true } as { ok: boolean };
     }
 
@@ -332,6 +395,7 @@ export const authApi = {
       console.warn("authApi.logout network error:", error);
     } finally {
       clearSession();
+      clearStoredTokenExpiry(); // 清除token过期时间
     }
 
     return { ok } as { ok: boolean };

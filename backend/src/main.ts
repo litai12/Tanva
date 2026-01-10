@@ -1,15 +1,19 @@
-import 'reflect-metadata';
-import { NestFactory } from '@nestjs/core';
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
-import fastifyCompress from '@fastify/compress';
-import fastifyCookie from '@fastify/cookie';
-import fastifyHelmet from '@fastify/helmet';
-import fastifyMultipart from '@fastify/multipart';
-import { ValidationPipe } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
-import { AppModule } from './app.module';
-import { setGlobalDispatcher, ProxyAgent } from 'undici';
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import {
+  FastifyAdapter,
+  NestFastifyApplication,
+} from "@nestjs/platform-fastify";
+import fastifyCompress from "@fastify/compress";
+import fastifyCookie from "@fastify/cookie";
+import fastifyHelmet from "@fastify/helmet";
+import fastifyMultipart from "@fastify/multipart";
+import fastifyCors from "@fastify/cors";
+import { ValidationPipe } from "@nestjs/common";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { ConfigService } from "@nestjs/config";
+import { AppModule } from "./app.module";
+import { setGlobalDispatcher, ProxyAgent } from "undici";
 
 // 配置 undici ProxyAgent 以支持代理（修复 Node.js 20+ 中 @google/genai 的代理问题）
 function configureProxyForUndici() {
@@ -22,10 +26,18 @@ function configureProxyForUndici() {
       const agent = new ProxyAgent(proxyUrl);
       setGlobalDispatcher(agent);
       // eslint-disable-next-line no-console
-      console.log(`[Proxy] undici configured with proxy: ${proxyUrl.split('@')[1] || proxyUrl.substring(0, 50)}...`);
+      console.log(
+        `[Proxy] undici configured with proxy: ${
+          proxyUrl.split("@")[1] || proxyUrl.substring(0, 50)
+        }...`
+      );
     } catch (error) {
       // eslint-disable-next-line no-console
-      console.error(`[Proxy] Failed to configure undici ProxyAgent: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        `[Proxy] Failed to configure undici ProxyAgent: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   }
 }
@@ -38,36 +50,41 @@ async function bootstrap() {
     new FastifyAdapter({
       logger: true,
       bodyLimit: 200 * 1024 * 1024, // 200MB，放宽项目内容请求体大小
-    }),
+    })
   );
 
   const configService = app.get(ConfigService);
-  const cookieSecret = configService.get('COOKIE_SECRET') ?? 'dev-cookie-secret';
+  const cookieSecret =
+    configService.get("COOKIE_SECRET") ?? "dev-cookie-secret";
 
   // 由于 Nest 的 Fastify 类型定义与部分插件的泛型不完全匹配，这里进行类型断言以避免 TS 推断冲突
   // 启用响应压缩（gzip/brotli）- 可减少 50-70% 网络流量
   await app.register(fastifyCompress as any, {
-    encodings: ['gzip', 'deflate', 'br'], // 支持 gzip, deflate, brotli
+    encodings: ["gzip", "deflate", "br"], // 支持 gzip, deflate, brotli
     threshold: 1024, // 只压缩大于 1KB 的响应
   });
-  await app.register(fastifyHelmet as any, { contentSecurityPolicy: false } as any);
+  await app.register(
+    fastifyHelmet as any,
+    { contentSecurityPolicy: false } as any
+  );
   await app.register(fastifyCookie as any, { secret: cookieSecret } as any);
   await app.register(fastifyMultipart as any);
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
   fastifyInstance.addContentTypeParser(
-    '*',
-    { parseAs: 'string' },
+    "*",
+    { parseAs: "string" },
     (request, body, done) => {
-      const contentType = request.headers['content-type'];
-      const hasExplicitType = typeof contentType === 'string' && contentType.length > 0;
+      const contentType = request.headers["content-type"];
+      const hasExplicitType =
+        typeof contentType === "string" && contentType.length > 0;
 
       if (!body) {
         done(null, {});
         return;
       }
 
-      const trimmed = typeof body === 'string' ? body.trim() : '';
+      const trimmed = typeof body === "string" ? body.trim() : "";
       if (!trimmed) {
         done(null, {});
         return;
@@ -81,27 +98,35 @@ async function bootstrap() {
         // Fallback to raw string when payload is not JSON.
         done(null, hasExplicitType ? body : trimmed);
       }
-    },
+    }
   );
 
-  app.setGlobalPrefix('api');
-  
+  app.setGlobalPrefix("api");
+
   // CORS 配置：支持 Cloudflare Tunnel 和其他配置的域名
-  const corsOrigin = configService.get('CORS_ORIGIN');
-  const corsOrigins = corsOrigin ? corsOrigin.split(',').map((o: string) => o.trim()).filter(Boolean) : [];
+  const corsOrigin = configService.get("CORS_ORIGIN");
+  const corsOrigins = corsOrigin
+    ? corsOrigin
+        .split(",")
+        .map((o: string) => o.trim())
+        .filter(Boolean)
+    : [];
   const resolveHostname = (value: string) => {
     try {
       return new URL(value).hostname;
     } catch {
       // 最后一层兜底：去掉协议、路径，尽量获取 host
-      return value.replace(/^https?:\/\//, '').split('/')[0];
+      return value.replace(/^https?:\/\//, "").split("/")[0];
     }
   };
-  
+
   // 动态检查 origin，允许 trycloudflare.com 的所有子域名（用于内网穿透）
-  const originCallback = (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
+  const originCallback = (
+    origin: string | undefined,
+    callback: (err: Error | null, allow?: boolean | string) => void
+  ) => {
     // 如果没有 origin（如同源请求）或 file://（origin 为 "null"），允许
-    if (!origin || origin === 'null') {
+    if (!origin || origin === "null") {
       callback(null, true);
       return;
     }
@@ -109,7 +134,10 @@ async function bootstrap() {
     const hostname = resolveHostname(origin);
 
     // 允许所有 trycloudflare.com 的子域名（Cloudflare Tunnel）
-    if (hostname === 'trycloudflare.com' || hostname.endsWith('.trycloudflare.com')) {
+    if (
+      hostname === "trycloudflare.com" ||
+      hostname.endsWith(".trycloudflare.com")
+    ) {
       callback(null, true);
       return;
     }
@@ -130,10 +158,12 @@ async function bootstrap() {
     // 如果没有配置 CORS_ORIGIN，允许所有来源（开发环境）
     callback(null, true);
   };
-  
-  app.enableCors({
+
+  // 使用 Fastify 的 CORS 插件，确保 preflight (OPTIONS) 被正确处理并返回 Access-Control-Allow-* 头
+  await fastifyInstance.register(fastifyCors as any, {
     origin: corsOrigins.length > 0 ? originCallback : true,
     credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
   });
 
   app.useGlobalPipes(
@@ -146,27 +176,36 @@ async function bootstrap() {
       transformOptions: {
         enableImplicitConversion: true,
       },
-    }),
+    })
   );
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('Tnavas API')
-    .setDescription('Backend API for Tnavas')
-    .setVersion('0.1.0')
-    .addCookieAuth('access_token')
+    .setTitle("Tnavas API")
+    .setDescription("Backend API for Tnavas")
+    .setVersion("0.1.0")
+    .addCookieAuth("access_token")
     .build();
   const doc = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, doc);
+  SwaggerModule.setup("api/docs", app, doc);
 
-  const port = Number(process.env.PORT || configService.get('PORT') || 4000);
-  const host = process.env.HOST || '0.0.0.0';
+  const port = Number(process.env.PORT || configService.get("PORT") || 4000);
+  const host = process.env.HOST || "0.0.0.0";
   await app.listen({ port, host });
   // eslint-disable-next-line no-console
-  console.log(`API listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+  console.log(
+    `API listening on http://${host === "0.0.0.0" ? "localhost" : host}:${port}`
+  );
   // eslint-disable-next-line no-console
-  console.log('RunningHub key (startup check):', configService.get('RUNNINGHUB_API_KEY') ? 'loaded' : 'missing');
+  console.log(
+    "RunningHub key (startup check):",
+    configService.get("RUNNINGHUB_API_KEY") ? "loaded" : "missing"
+  );
   // eslint-disable-next-line no-console
-  console.log(`Swagger UI: http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/api/docs#/`);
+  console.log(
+    `Swagger UI: http://${
+      host === "0.0.0.0" ? "localhost" : host
+    }:${port}/api/docs#/`
+  );
 }
 
 bootstrap();

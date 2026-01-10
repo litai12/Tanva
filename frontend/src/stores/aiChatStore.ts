@@ -2831,6 +2831,17 @@ export const useAIChatStore = create<AIChatState>()(
               });
             }
 
+            // 🔍 调试日志：打印实际发送的参数
+            console.log("🎨 [Generate Image] 请求参数:", {
+              aiProvider: state.aiProvider,
+              model: modelToUse,
+              imageSize: state.imageSize ?? "1K",
+              aspectRatio: state.aspectRatio || "auto",
+              thinkingLevel: state.thinkingLevel || "auto",
+              imageOnly: state.imageOnly,
+              prompt: prompt.substring(0, 50) + "...",
+            });
+
             const result = await generateImageViaAPI({
               prompt,
               model: modelToUse,
@@ -3501,6 +3512,17 @@ export const useAIChatStore = create<AIChatState>()(
               imageSize: state.imageSize ?? "1K", // 自动模式下优先使用1K
               thinkingLevel: state.thinkingLevel || undefined,
               imageOnly: state.imageOnly,
+            });
+
+            // 🔍 调试日志：打印实际发送的参数
+            console.log("✏️ [Edit Image] 请求参数:", {
+              aiProvider: state.aiProvider,
+              model: modelToUse,
+              imageSize: state.imageSize ?? "1K",
+              aspectRatio: state.aspectRatio || "auto",
+              thinkingLevel: state.thinkingLevel || "auto",
+              imageOnly: state.imageOnly,
+              prompt: prompt.substring(0, 50) + "...",
             });
 
             let result = await editImageViaAPI(buildEditRequest(modelToUse));
@@ -7390,10 +7412,25 @@ export const useAIChatStore = create<AIChatState>()(
           set((state) => ({ imageOnly: !state.imageOnly })),
         setImageOnly: (value: boolean) => set({ imageOnly: value }),
         setAspectRatio: (ratio) => set({ aspectRatio: ratio }),
-        setImageSize: (size) => set({ imageSize: size }),
+        setImageSize: (size) => {
+          console.log("📐 [Image Size] 切换分辨率:", {
+            from: get().imageSize || "自动(1K)",
+            to: size || "自动(1K)",
+            currentProvider: get().aiProvider,
+            warning: size === "4K" && get().aiProvider === "banana-2.5" ? "⚠️ Fast模式不支持4K，建议切换到Pro" : null,
+          });
+          set({ imageSize: size });
+        },
         setThinkingLevel: (level) => set({ thinkingLevel: level }),
         setManualAIMode: (mode) => set({ manualAIMode: mode }),
-        setAIProvider: (provider) => set({ aiProvider: provider }),
+        setAIProvider: (provider) => {
+          console.log("🔄 [AI Provider] 切换模式:", {
+            from: get().aiProvider,
+            to: provider,
+            label: provider === "banana-2.5" ? "Fast (极速版)" : provider === "banana" ? "Pro (Pro版)" : provider,
+          });
+          set({ aiProvider: provider });
+        },
         setAutoModeMultiplier: (multiplier) => {
           const allowed: AutoModeMultiplier[] = [1, 2, 4, 8];
           const next = allowed.includes(multiplier) ? multiplier : 1;

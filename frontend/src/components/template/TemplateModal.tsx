@@ -301,10 +301,7 @@ export default function TemplateModal({
   const [builtinCategories, setBuiltinCategories] = useState<string[]>([]);
   const [activeBuiltinCategory, setActiveBuiltinCategory] =
     useState<string>("");
-  // 支持多个分类开关（多选），空数组表示未筛选（显示全部）
-  const [activeBuiltinCategories, setActiveBuiltinCategories] = useState<
-    string[]
-  >([]);
+  // 切换为单选模式：仅允许选择一个内置分类；空字符串表示未筛选（显示全部）
   const [tplIndex, setTplIndex] = useState<TemplateIndexEntry[] | null>(null);
   const [userTplList, setUserTplList] = useState<
     Array<{
@@ -322,12 +319,11 @@ export default function TemplateModal({
 
   const filteredTplIndex = useMemo(() => {
     if (!tplIndex) return [];
-    if (!activeBuiltinCategories || activeBuiltinCategories.length === 0)
-      return tplIndex;
-    return tplIndex.filter((item) =>
-      activeBuiltinCategories.includes(item.category || "其他")
+    if (!activeBuiltinCategory) return tplIndex;
+    return tplIndex.filter(
+      (item) => (item.category || "其他") === activeBuiltinCategory
     );
-  }, [tplIndex, activeBuiltinCategories]);
+  }, [tplIndex, activeBuiltinCategory]);
 
   const getPlaceholderCount = useCallback(
     (len: number, opts?: { columns?: number; minVisible?: number }) => {
@@ -402,14 +398,14 @@ export default function TemplateModal({
     };
   }, [isOpen]);
 
-  // 根据所选分类从后端拉取模板（支持多选）
+  // 根据所选分类从后端拉取模板（单选）
   useEffect(() => {
     if (!isOpen || templateScope !== "public") return;
     let cancelled = false;
     (async () => {
       try {
-        // 未选中任何分类：始终使用内置索引（全部），即使 tplIndex 已存在也要恢复全部列表
-        if (!activeBuiltinCategories || activeBuiltinCategories.length === 0) {
+        // 未选中任何分类：始终使用内置索引（全部）
+        if (!activeBuiltinCategory) {
           const idx = await loadBuiltInTemplateIndex();
           const normalizedIdx = idx.map((item) => ({
             ...item,
@@ -419,29 +415,14 @@ export default function TemplateModal({
           return;
         }
 
-        // 有选中分类：并行请求每个分类（后端按单分类支持），合并结果去重
-        const promises = activeBuiltinCategories.map((cat) =>
-          fetchTemplates({
-            category: cat,
-            isActive: true,
-            pageSize: 1000,
-          }).catch(() => null)
-        );
-        const results = await Promise.all(promises);
-        const items: any[] = [];
-        results.forEach((res) => {
-          if (!res) return;
-          const arr = Array.isArray((res as any).items) ? (res as any).items : [];
-          arr.forEach((it: any) => items.push(it));
-        });
-        // unique by id
-        const map = new Map<string, any>();
-        items.forEach((it) => {
-          if (it && it.id) {
-            map.set(it.id, it);
-          }
-        });
-        const normalized = Array.from(map.values()).map((it: any) => ({
+        // 选中单个分类：请求该分类的模板
+        const res = await fetchTemplates({
+          category: activeBuiltinCategory,
+          isActive: true,
+          pageSize: 1000,
+        }).catch(() => null);
+        const arr = res && Array.isArray((res as any).items) ? (res as any).items : [];
+        const normalized = arr.map((it: any) => ({
           id: it.id,
           name: it.name,
           category: it.category || "其他",
@@ -468,7 +449,7 @@ export default function TemplateModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, templateScope, activeBuiltinCategories]);
+  }, [isOpen, templateScope, activeBuiltinCategory]);
 
   const instantiateTemplateAt = useCallback(
     async (tpl: FlowTemplate) => {
@@ -674,17 +655,12 @@ export default function TemplateModal({
                   }}
                 >
                   {builtinCategories.map((cat) => {
-                    const isActive = activeBuiltinCategories.includes(cat);
+                    const isActive = activeBuiltinCategory === cat;
                     return (
                       <button
                         key={cat}
                         onClick={() =>
-                          setActiveBuiltinCategories((prev) => {
-                            if (prev.includes(cat)) {
-                              return prev.filter((c) => c !== cat);
-                            }
-                            return [...prev, cat];
-                          })
+                          setActiveBuiltinCategory((prev) => (prev === cat ? "" : cat))
                         }
                         style={{
                           padding: "6px 14px",
