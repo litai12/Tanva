@@ -430,19 +430,19 @@ export class BananaProvider implements IAIProvider {
     if (config) {
       // 构建 generationConfig（包含 responseModalities, imageConfig, thinking_level）
       const generationConfig: any = {};
-      
+
       if (config.responseModalities) {
         generationConfig.responseModalities = config.responseModalities;
       }
-      
+
       if (config.imageConfig) {
         generationConfig.imageConfig = config.imageConfig;
       }
-      
+
       if (config.thinking_level) {
         generationConfig.thinking_level = config.thinking_level;
       }
-      
+
       // 只有在有内容时才添加 generationConfig
       if (Object.keys(generationConfig).length > 0) {
         body.generationConfig = generationConfig;
@@ -512,8 +512,8 @@ export class BananaProvider implements IAIProvider {
       // 🔍 检查返回图片的实际分辨率
       if (imageBytes) {
         try {
-          const sharp = require('sharp');
-          const buffer = Buffer.from(imageBytes, 'base64');
+          const sharp = require("sharp");
+          const buffer = Buffer.from(imageBytes, "base64");
           const metadata = await sharp(buffer).metadata();
           this.logger.log(
             `📐 [Image Resolution] ${operationType}: ${metadata.width}x${metadata.height} pixels`
