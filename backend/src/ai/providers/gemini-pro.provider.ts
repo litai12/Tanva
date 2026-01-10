@@ -64,7 +64,7 @@ export class GeminiProProvider implements IAIProvider {
   private readonly EDIT_TIMEOUT = 180000; // 3分钟，编辑图像需要更长时间
   private readonly MAX_RETRIES = 3;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   async initialize(): Promise<void> {
     const apiKey = this.config.get<string>('GOOGLE_GEMINI_API_KEY');
@@ -183,7 +183,7 @@ export class GeminiProProvider implements IAIProvider {
   private isRetryableError(error: Error): boolean {
     const message = error.message.toLowerCase();
     const errorName = error.name.toLowerCase();
-    
+
     // 网络相关错误 - 可以重试
     const retryablePatterns = [
       'fetch failed',
@@ -197,7 +197,7 @@ export class GeminiProProvider implements IAIProvider {
       'connection',
       'eai_again', // DNS lookup failed
     ];
-    
+
     // 不可重试的错误 - 认证、参数错误等
     const nonRetryablePatterns = [
       'unauthorized',
@@ -209,7 +209,7 @@ export class GeminiProProvider implements IAIProvider {
       '403',
       'malformed',
     ];
-    
+
     // 先检查不可重试的错误
     for (const pattern of nonRetryablePatterns) {
       if (message.includes(pattern) || errorName.includes(pattern)) {
@@ -217,7 +217,7 @@ export class GeminiProProvider implements IAIProvider {
         return false;
       }
     }
-    
+
     // 检查可重试的错误
     for (const pattern of retryablePatterns) {
       if (message.includes(pattern) || errorName.includes(pattern)) {
@@ -225,7 +225,7 @@ export class GeminiProProvider implements IAIProvider {
         return true;
       }
     }
-    
+
     // 默认情况下，对于未知错误也允许重试（可能是临时性问题）
     return true;
   }
@@ -252,7 +252,7 @@ export class GeminiProProvider implements IAIProvider {
 
         // 检查错误是否可重试
         const isRetryable = this.isRetryableError(lastError);
-        
+
         if (attempt < maxRetries && isRetryable) {
           const delay = 1000 * attempt;
           this.logger.warn(
@@ -304,11 +304,13 @@ export class GeminiProProvider implements IAIProvider {
   async generateImage(
     request: ImageGenerationRequest
   ): Promise<AIProviderResponse<ImageResult>> {
-    this.logger.log(`Generating image with prompt: ${request.prompt.substring(0, 50)}...`);
+    const startTime = Date.now();
+    this.logger.log(`[GeminiProProvider] 开始生成图像 - prompt: ${request.prompt.substring(0, 50)}..., model: ${request.model || this.DEFAULT_MODEL}, imageSize: ${request.imageSize || '未指定'}, aspectRatio: ${request.aspectRatio || '未指定'}, thinkingLevel: ${request.thinkingLevel || '未指定'}, imageOnly: ${request.imageOnly || false}`);
 
     try {
       const client = this.ensureClient();
       const model = request.model || this.DEFAULT_MODEL;
+      this.logger.log(`[GeminiProProvider] 使用模型: ${model}`);
 
       const result = await this.withRetry(
         async () => {
@@ -327,26 +329,72 @@ export class GeminiProProvider implements IAIProvider {
                 },
               };
 
-              // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-              // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-              if (request.aspectRatio) {
-                config.imageConfig = {
-                  aspectRatio: request.aspectRatio,
-                };
+              let imageConfig: any = undefined;
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                imageConfig = {};
+
+                if (request.aspectRatio) {
+                  imageConfig.aspectRatio = request.aspectRatio;
+                  this.logger.log(`[GeminiProProvider] 设置 aspectRatio: ${request.aspectRatio}`);
+                }
+
+                if (request.imageSize) {
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  imageConfig.imageSize = request.imageSize;
+                  this.logger.log(`[GeminiProProvider] 设置 imageSize: ${request.imageSize} (类型: ${typeof request.imageSize})`);
+                }
+              } else {
+                this.logger.warn(`[GeminiProProvider] 未设置 imageSize 和 aspectRatio`);
               }
 
               // 配置 thinking_level（Gemini 3 特性，参考官方文档）
               if (request.thinkingLevel) {
                 config.generationConfig.thinking_level = request.thinkingLevel;
+                this.logger.log(`[GeminiProProvider] 设置 thinking_level: ${request.thinkingLevel}`);
               }
 
-              const response = await client.models.generateContent({
+              const reqOptions: any = {
                 model,
                 contents: request.prompt,
                 config,
-              });
+              };
 
-              return this.parseNonStreamResponse(response, 'Image generation');
+              if (imageConfig) {
+                reqOptions.imageConfig = imageConfig;
+                this.logger.log(`[GeminiProProvider] 完整请求配置 - model: ${model}, imageConfig: ${JSON.stringify(imageConfig)}, responseModalities: ${config.generationConfig.responseModalities.join(', ')}`);
+              } else {
+                this.logger.warn(`[GeminiProProvider] 警告: imageConfig 为空，将不会发送 imageSize 和 aspectRatio 参数`);
+              }
+
+              this.logger.log(`[GeminiProProvider] 准备调用 Gemini API - 使用非流式API (generateContent)`);
+              const apiCallStartTime = Date.now();
+              
+              try {
+              const response = await client.models.generateContent(reqOptions);
+                const apiCallDuration = Date.now() - apiCallStartTime;
+                this.logger.log(`[GeminiProProvider] Gemini API 调用成功 - 耗时: ${apiCallDuration}ms, 开始解析响应`);
+                
+                const parseResult = this.parseNonStreamResponse(response, 'Image generation');
+                this.logger.log(`[GeminiProProvider] 响应解析完成 - hasImage: ${!!parseResult.imageBytes}, imageBytesLength: ${parseResult.imageBytes?.length || 0}, textResponseLength: ${parseResult.textResponse?.length || 0}`);
+                
+                return parseResult;
+              } catch (apiError) {
+                const apiCallDuration = Date.now() - apiCallStartTime;
+                const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
+                const errorStack = apiError instanceof Error ? apiError.stack : undefined;
+                this.logger.error(`[GeminiProProvider] Gemini API 调用失败 - 耗时: ${apiCallDuration}ms, 错误: ${errorMessage}`, errorStack);
+                this.logger.error(`[GeminiProProvider] 失败的请求配置: ${JSON.stringify({ 
+                  model, 
+                  imageConfig, 
+                  responseModalities: config.generationConfig.responseModalities,
+                  hasPrompt: !!request.prompt,
+                  promptLength: request.prompt?.length || 0
+                })}`);
+                throw apiError;
+              }
             })(),
             this.DEFAULT_TIMEOUT,
             'Image generation'
@@ -354,6 +402,22 @@ export class GeminiProProvider implements IAIProvider {
         },
         'Image generation'
       );
+
+      const processingTime = Date.now() - startTime;
+      const hasImage = !!result.imageBytes;
+      const imageSize = result.imageBytes?.length || 0;
+      this.logger.log(`[GeminiProProvider] 图像生成完成 - 总耗时: ${processingTime}ms, success: true, hasImage: ${hasImage}, imageSize: ${imageSize} bytes, textResponseLength: ${result.textResponse?.length || 0}`);
+      
+      if (!hasImage) {
+        this.logger.warn(`[GeminiProProvider] 警告: 返回结果中没有图像数据`);
+      }
+      
+      if (request.imageSize && hasImage) {
+        // 估算图像分辨率（粗略估算）
+        const estimatedPixels = imageSize > 0 ? Math.sqrt(imageSize / 4) : 0; // 假设每个像素约4字节
+        const estimatedResolution = Math.round(estimatedPixels);
+        this.logger.log(`[GeminiProProvider] 图像大小估算 - 请求imageSize: ${request.imageSize}, 图像数据大小: ${imageSize} bytes, 估算分辨率: ~${estimatedResolution}x${estimatedResolution}`);
+      }
 
       return {
         success: true,
@@ -364,7 +428,18 @@ export class GeminiProProvider implements IAIProvider {
         },
       };
     } catch (error) {
-      this.logger.error('Image generation failed:', error);
+      const processingTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`[GeminiProProvider] 图像生成失败 - 总耗时: ${processingTime}ms, 错误: ${errorMessage}`, errorStack);
+      this.logger.error(`[GeminiProProvider] 失败时的请求参数: ${JSON.stringify({
+        model: request.model || this.DEFAULT_MODEL,
+        imageSize: request.imageSize,
+        aspectRatio: request.aspectRatio,
+        thinkingLevel: request.thinkingLevel,
+        imageOnly: request.imageOnly,
+        promptLength: request.prompt?.length || 0
+      })}`);
       return {
         success: false,
         error: {
@@ -404,12 +479,21 @@ export class GeminiProProvider implements IAIProvider {
                 },
               };
 
-              // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-              // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-              if (request.aspectRatio) {
-                config.imageConfig = {
-                  aspectRatio: request.aspectRatio,
-                };
+              let imageConfig: any = undefined;
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                imageConfig = {};
+
+                if (request.aspectRatio) {
+                  imageConfig.aspectRatio = request.aspectRatio;
+                }
+
+                if (request.imageSize) {
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  imageConfig.imageSize = request.imageSize;
+                }
               }
 
               // 配置 thinking_level（Gemini 3 特性，参考官方文档）
@@ -428,11 +512,17 @@ export class GeminiProProvider implements IAIProvider {
               ];
 
               // 直接使用非流式 API（和 banana provider 一样简单直接）
-              const response = await client.models.generateContent({
+              const reqOptions: any = {
                 model,
                 contents,
                 config,
-              });
+              };
+
+              if (imageConfig) {
+                reqOptions.imageConfig = imageConfig;
+              }
+
+              const response = await client.models.generateContent(reqOptions);
 
               return this.parseNonStreamResponse(response, 'Image edit');
             })(),
@@ -506,12 +596,21 @@ export class GeminiProProvider implements IAIProvider {
                 },
               };
 
-              // 配置 imageConfig（aspectRatio）- 根据官方文档，imageConfig 应该在 config 顶层，而不是 generationConfig 下
-              // 注意：ImageConfig 接口只支持 aspectRatio，不支持 imageSize
-              if (request.aspectRatio) {
-                config.imageConfig = {
-                  aspectRatio: request.aspectRatio,
-                };
+              let imageConfig: any = undefined;
+
+              // 配置 imageConfig（aspectRatio 和 imageSize）
+              if (request.aspectRatio || request.imageSize) {
+                imageConfig = {};
+
+                if (request.aspectRatio) {
+                  imageConfig.aspectRatio = request.aspectRatio;
+                }
+
+                if (request.imageSize) {
+                  // 根据官方文档，imageSize 必须是字符串 "1K"、"2K" 或 "4K"（大写K）
+                  // 不需要转换，直接使用原始值
+                  imageConfig.imageSize = request.imageSize;
+                }
               }
 
               // 配置 thinking_level（Gemini 3 特性，参考官方文档）
@@ -519,11 +618,17 @@ export class GeminiProProvider implements IAIProvider {
                 config.generationConfig.thinking_level = request.thinkingLevel;
               }
 
-              const response = await client.models.generateContent({
+              const reqOptions: any = {
                 model,
                 contents: [{ text: request.prompt }, ...imageParts],
                 config,
-              });
+              };
+
+              if (imageConfig) {
+                reqOptions.imageConfig = imageConfig;
+              }
+
+              const response = await client.models.generateContent(reqOptions);
 
               return this.parseNonStreamResponse(response, 'Image blend');
             })(),
@@ -673,18 +778,18 @@ export class GeminiProProvider implements IAIProvider {
                   contents: [{ text: finalPrompt }],
                   config: apiConfig,
                 });
-                
+
                 if (!response.text) {
                   throw new Error('Non-stream API returned empty response');
                 }
-                
+
                 return { text: response.text };
               } catch (nonStreamError) {
                 // 如果非流式 API 失败，降级到流式 API
                 const isNetworkError = this.isRetryableError(
                   nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
                 );
-                
+
                 if (isNetworkError) {
                   this.logger.warn('Non-stream API failed, falling back to stream API...');
                   try {
@@ -990,7 +1095,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
 
       // 系统提示词
       const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
-      
+
       // 将系统提示词和用户输入拼接
       const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
@@ -1028,18 +1133,18 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
                   contents: [{ text: finalPrompt }],
                   config: apiConfig,
                 });
-                
+
                 if (!response.text) {
                   throw new Error('Non-stream API returned empty response');
                 }
-                
+
                 return { text: response.text };
               } catch (nonStreamError) {
                 // 如果非流式 API 失败，降级到流式 API
                 const isNetworkError = this.isRetryableError(
                   nonStreamError instanceof Error ? nonStreamError : new Error(String(nonStreamError))
                 );
-                
+
                 if (isNetworkError) {
                   this.logger.warn('Non-stream API failed, falling back to stream API...');
                   try {

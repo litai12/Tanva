@@ -12,6 +12,7 @@ import LibraryPanel from '@/components/panels/LibraryPanel';
 import AIChatDialog from '@/components/chat/AIChatDialog';
 import FloatingHeader from '@/components/layout/FloatingHeader';
 import CodeSandboxPanel from '@/components/sandbox/CodeSandboxPanel';
+import SelectionBoxOverlay from '@/components/canvas/SelectionBoxOverlay';
 import { useLayerStore } from '@/stores';
 // import CachedImageDebug from '@/components/debug/CachedImageDebug';
 import FlowOverlay from '@/components/flow/FlowOverlay';
@@ -78,6 +79,9 @@ const Canvas: React.FC = () => {
 
             {/* Flow 编排画布（覆盖在 Canvas 之上） */}
             <FlowOverlay />
+
+            {/* 选择框覆盖层（确保在 Flow 节点之上） */}
+            <SelectionBoxOverlay />
 
             {/* 画布原点辅助十字（暂时关闭） */}
             {/* <OriginCross canvasRef={canvasRef} /> */}
