@@ -16,8 +16,8 @@ type AuthState = {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  // 初始为 true，避免刷新首帧因未完成初始化被重定向
-  loading: true,
+  // 初始为 false，采用延迟初始化（只有进入受保护路由或登录时才触发）
+  loading: false,
   error: null,
   connection: null,
   init: async () => {
