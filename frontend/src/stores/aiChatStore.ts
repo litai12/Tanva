@@ -6545,6 +6545,17 @@ export const useAIChatStore = create<AIChatState>()(
         processUserInputV2: async (input: string) => {
           const state = get();
 
+          // 🔥 添加 Metrics 和性能日志
+          const metrics = createProcessMetrics();
+          logProcessStep(metrics, "processUserInputV2 start");
+
+          // 🔥 检测迭代意图
+          const isIterative = contextManager.detectIterativeIntent(input);
+          if (isIterative) {
+            contextManager.incrementIteration();
+            logProcessStep(metrics, "iterative intent detected");
+          }
+
           // 🧠 确保有活跃的会话并同步状态
           let sessionId =
             state.currentSessionId || contextManager.getCurrentSessionId();
@@ -6579,7 +6590,21 @@ export const useAIChatStore = create<AIChatState>()(
             vector: "vector",
           };
 
-          // 收集附件
+          // 🔥 前端快速判断：PDF检测和多图强制融合（保留快速判断能力）
+          let finalMode: UnifiedChatMode = modeMap[manualMode];
+          if (manualMode === "auto") {
+            // PDF检测
+            if (state.sourcePdfForAnalysis) {
+              finalMode = "analyze";
+              logProcessStep(metrics, "PDF detected, using analyze mode");
+            } else if (state.sourceImagesForBlending.length >= 2) {
+              // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
+              finalMode = "blend";
+              logProcessStep(metrics, "multi-image detected, using blend mode");
+            }
+          }
+
+          // 🔥 收集附件（包含缓存图片支持）
           const images: string[] = [];
           if (state.sourceImageForEditing) {
             images.push(state.sourceImageForEditing);
@@ -6591,13 +6616,31 @@ export const useAIChatStore = create<AIChatState>()(
             images.push(state.sourceImageForAnalysis);
           }
 
+          // 🔥 检查缓存图片（用于编辑/分析场景）
+          const cachedImage = contextManager.getCachedImage();
+          let cachedImageData: string | null = null;
+          if (cachedImage && (finalMode === "edit" || finalMode === "analyze")) {
+            // 如果手动模式是编辑/分析，但没有显式图片，尝试使用缓存图片
+            if (images.length === 0) {
+              try {
+                cachedImageData = await resolveCachedImageForImageTools(cachedImage);
+                if (cachedImageData) {
+                  images.push(cachedImageData);
+                  logProcessStep(metrics, "using cached image for edit/analyze");
+                }
+              } catch (error) {
+                console.warn("⚠️ [processUserInputV2] 无法解析缓存图片:", error);
+              }
+            }
+          }
+
           // 构建上下文
           const contextPrompt = contextManager.buildContextPrompt(input);
 
           // 构建请求
           const chatRequest: UnifiedChatRequest = {
             prompt: input,
-            mode: modeMap[manualMode],
+            mode: finalMode, // 🔥 使用经过快速判断的 finalMode
             attachments:
               images.length > 0 || state.sourcePdfForAnalysis
                 ? {
@@ -6616,6 +6659,8 @@ export const useAIChatStore = create<AIChatState>()(
             context: contextPrompt,
             enableWebSearch: state.enableWebSearch,
           };
+
+          logProcessStep(metrics, "request prepared");
 
           // 🔥 判断是否需要并行生成（仅图片生成相关模式支持）
           const isImageGenerationMode = ["generate", "edit", "blend"].includes(manualMode);
@@ -6754,6 +6799,7 @@ export const useAIChatStore = create<AIChatState>()(
 
                 currentTool = tool;
                 console.log("🎯 [流式] 开始处理, 工具:", tool, "模型:", model);
+                logProcessStep(metrics, `stream started, tool: ${tool}`);
 
                 // 🔥 根据后端选择的工具类型，立即修正 expectsImageOutput/expectsVideoOutput
                 // 解决 auto 模式下纯文字对话提前显示 ai-image-placeholder 的问题
@@ -6783,6 +6829,10 @@ export const useAIChatStore = create<AIChatState>()(
                 if (isAborted()) return;
 
                 accumulatedText += text;
+                // 只在第一次收到chunk时记录日志
+                if (accumulatedText.length === text.length) {
+                  logProcessStep(metrics, "stream chunk received");
+                }
 
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
@@ -6805,6 +6855,7 @@ export const useAIChatStore = create<AIChatState>()(
                 }
 
                 console.log("🖼️ [流式] 收到图片");
+                logProcessStep(metrics, "stream image received");
 
                 // 🔥 确定操作类型
                 const operationType =
@@ -7002,6 +7053,7 @@ export const useAIChatStore = create<AIChatState>()(
                 }
 
                 console.log("🎬 [流式] 收到视频:", videoUrl);
+                logProcessStep(metrics, "stream video received");
 
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
@@ -7025,6 +7077,7 @@ export const useAIChatStore = create<AIChatState>()(
                 }
 
                 console.log("📝 [流式] 收到代码");
+                logProcessStep(metrics, "stream code received");
 
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
@@ -7056,6 +7109,7 @@ export const useAIChatStore = create<AIChatState>()(
                   hasImage: !!data.imageData,
                   hasVideo: !!data.videoUrl,
                 });
+                logProcessStep(metrics, "stream done");
 
                 // 🔥 如果没有图片输出，移除画布上的占位符
                 if (isImageGenerationMode && !data.imageData) {
@@ -7090,17 +7144,28 @@ export const useAIChatStore = create<AIChatState>()(
                   },
                 }));
 
-                // 清理源图像状态
+                // 🔥 清理源图像状态（考虑迭代编辑场景）
                 if (
                   currentTool === "editImage" ||
                   currentTool === "analyzeImage" ||
                   currentTool === "blendImages"
                 ) {
-                  set({
-                    sourceImageForEditing: null,
-                    sourceImageForAnalysis: null,
-                    sourceImagesForBlending: [],
-                  });
+                  // 🧠 检测是否需要保持编辑状态（迭代编辑时不清除源图像）
+                  if (currentTool === "editImage" && isIterative) {
+                    // 迭代编辑时不清除源图像，保持编辑状态
+                    logProcessStep(metrics, "iterative edit, keeping source image");
+                  } else {
+                    // 非迭代编辑或分析/融合时，正常清理
+                    set({
+                      sourceImageForEditing: null,
+                      sourceImageForAnalysis: null,
+                      sourceImagesForBlending: [],
+                    });
+                    // 如果不是迭代编辑，重置迭代计数
+                    if (currentTool === "editImage") {
+                      contextManager.resetIteration();
+                    }
+                  }
                 }
 
                 if (currentTool === "analyzePdf") {
@@ -7109,6 +7174,8 @@ export const useAIChatStore = create<AIChatState>()(
                     sourcePdfFileName: null,
                   });
                 }
+
+                logProcessStep(metrics, "onDone completed");
               },
 
               // 错误事件
@@ -7119,51 +7186,127 @@ export const useAIChatStore = create<AIChatState>()(
                   return;
                 }
 
+                let errorMessage = error.message || "处理失败";
+
+                // 🔥 特殊处理：检测Base64图像数据被当作错误消息
+                if (
+                  errorMessage &&
+                  errorMessage.length > 1000 &&
+                  errorMessage.includes("iVBORw0KGgo")
+                ) {
+                  console.warn(
+                    "⚠️ [流式] 检测到Base64图像数据被当作错误消息，使用默认错误信息"
+                  );
+                  errorMessage = "图像处理失败，请重试";
+                }
+
                 console.error("❌ [流式] 错误:", error);
+                logProcessStep(metrics, "stream error");
 
                 // 🔥 错误时移除画布上的占位符
                 if (isImageGenerationMode) {
                   removePredictivePlaceholder();
                 }
 
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  content: `处理失败: ${error.message}`,
-                  generationStatus: {
-                    isGenerating: false,
-                    progress: 0,
-                    error: error.message,
-                    stage: "已终止",
-                  },
-                }));
+                // 🔥 检查是否已有错误消息，避免重复添加
+                const messages = get().messages;
+                const hasErrorSurface = messages.some(
+                  (msg) =>
+                    msg.type === "ai" &&
+                    msg.generationStatus?.stage === "已终止" &&
+                    msg.generationStatus?.error === errorMessage
+                );
+
+                if (!hasErrorSurface) {
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    content: `处理失败: ${errorMessage}`,
+                    generationStatus: {
+                      isGenerating: false,
+                      progress: 0,
+                      error: errorMessage,
+                      stage: "已终止",
+                    },
+                  }));
+                } else {
+                  // 如果已有错误消息，只更新当前消息状态
+                  get().updateMessage(aiMessage.id, (msg) => ({
+                    ...msg,
+                    generationStatus: {
+                      ...msg.generationStatus,
+                      isGenerating: false,
+                      progress: 0,
+                      error: errorMessage,
+                      stage: "已终止",
+                    },
+                  }));
+                }
               },
             });
 
             get().refreshSessions();
+            logProcessStep(metrics, "processUserInputV2 completed");
           } catch (error) {
-            const errorMessage =
+            let errorMessage =
               error instanceof Error ? error.message : "处理失败";
 
+            // 🔥 特殊处理：检测Base64图像数据被当作错误消息
+            if (
+              errorMessage &&
+              errorMessage.length > 1000 &&
+              errorMessage.includes("iVBORw0KGgo")
+            ) {
+              console.warn(
+                "⚠️ 检测到Base64图像数据被当作错误消息，使用默认错误信息"
+              );
+              errorMessage = "图像处理失败，请重试";
+            }
+
             console.error("❌ [统一Chat流式] 失败:", error);
+            logProcessStep(metrics, "processUserInputV2 encountered error");
 
             // 🔥 异常时移除画布上的占位符
             if (isImageGenerationMode) {
               removePredictivePlaceholder();
             }
 
-            get().updateMessage(aiMessage.id, (msg) => ({
-              ...msg,
-              content: `处理失败: ${errorMessage}`,
-              generationStatus: {
-                isGenerating: false,
-                progress: 0,
-                error: errorMessage,
-                stage: "已终止",
-              },
-            }));
+            // 🔥 检查是否已有错误消息，避免重复添加
+            const messages = get().messages;
+            const hasErrorSurface = messages.some(
+              (msg) =>
+                msg.type === "ai" &&
+                msg.generationStatus?.stage === "已终止" &&
+                msg.generationStatus?.error === errorMessage
+            );
+
+            if (!hasErrorSurface) {
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                content: `处理失败: ${errorMessage}`,
+                generationStatus: {
+                  isGenerating: false,
+                  progress: 0,
+                  error: errorMessage,
+                  stage: "已终止",
+                },
+              }));
+            } else {
+              // 如果已有错误消息，只更新当前消息状态
+              get().updateMessage(aiMessage.id, (msg) => ({
+                ...msg,
+                generationStatus: {
+                  ...msg.generationStatus,
+                  isGenerating: false,
+                  progress: 0,
+                  error: errorMessage,
+                  stage: "已终止",
+                },
+              }));
+            }
           }
           } else {
             // ======== 并行生成路径 (multiplier > 1) ========
+            logProcessStep(metrics, "parallel generation path");
             const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
             console.log(`🚀 [processUserInputV2 并行生成] 开始并行生成 ${multiplier} 张图片，groupId: ${groupId}`);
 
@@ -7222,9 +7365,18 @@ export const useAIChatStore = create<AIChatState>()(
                 (r) => r.status === "fulfilled" && r.value !== null
               ).length;
               console.log(`✅ [processUserInputV2 并行生成] 完成，成功 ${successCount}/${multiplier}`);
+              logProcessStep(metrics, `parallel generation completed: ${successCount}/${multiplier}`);
 
-              // 🔥 清理源图像状态（与 processUserInput 保持一致）
-              if (manualMode === "edit" || manualMode === "generate") {
+              // 🔥 清理源图像状态（考虑迭代编辑场景）
+              if (manualMode === "edit") {
+                // 🧠 迭代编辑时不清除源图像
+                if (!isIterative) {
+                  set({ sourceImageForEditing: null });
+                  contextManager.resetIteration();
+                } else {
+                  logProcessStep(metrics, "iterative edit, keeping source image");
+                }
+              } else if (manualMode === "generate") {
                 set({ sourceImageForEditing: null });
               }
               if (manualMode === "blend") {
@@ -7232,6 +7384,7 @@ export const useAIChatStore = create<AIChatState>()(
               }
 
               get().refreshSessions();
+              logProcessStep(metrics, "processUserInputV2 parallel path completed");
             });
           }
         },
