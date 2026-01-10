@@ -190,6 +190,17 @@ const mapBackendImageResult = ({
 async function performGenerateImageRequest(
   request: AIImageGenerateRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
+  // 🔍 调试日志：前端发送的完整请求参数
+  console.log("🚀 [Frontend → Backend] generate-image 请求参数:", {
+    aiProvider: request.aiProvider,
+    model: request.model,
+    imageSize: request.imageSize,
+    aspectRatio: request.aspectRatio,
+    thinkingLevel: request.thinkingLevel,
+    imageOnly: request.imageOnly,
+    prompt: request.prompt?.substring(0, 50) + "...",
+  });
+  
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/generate-image`, {
       method: "POST",
@@ -326,6 +337,18 @@ export async function generateImageViaAPI(
 async function performEditImageRequest(
   request: AIImageEditRequest
 ): Promise<AIServiceResponse<AIImageResult>> {
+  // 🔍 调试日志：前端发送的完整请求参数
+  console.log("🚀 [Frontend → Backend] edit-image 请求参数:", {
+    aiProvider: request.aiProvider,
+    model: request.model,
+    imageSize: request.imageSize,
+    aspectRatio: request.aspectRatio,
+    thinkingLevel: request.thinkingLevel,
+    imageOnly: request.imageOnly,
+    prompt: request.prompt?.substring(0, 50) + "...",
+    sourceImageLength: request.sourceImage?.length || 0,
+  });
+  
   try {
     const response = await fetchWithAuth(`${API_BASE_URL}/ai/edit-image`, {
       method: "POST",

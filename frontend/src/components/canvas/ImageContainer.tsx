@@ -6,7 +6,6 @@ import React, {
   useEffect,
 } from "react";
 import paper from "paper";
-import { useAIChatStore } from "@/stores/aiChatStore";
 import { useCanvasStore } from "@/stores";
 import {
   Sparkles,
@@ -34,11 +33,10 @@ import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { loadImageElement } from "@/utils/imageHelper";
 import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
+import { editImageViaAPI } from "@/services/aiBackendAPI";
+import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
 
-const HD_UPSCALE_RESOLUTION: "4k" = "4k";
-const EXPAND_PRESET_PROMPT = "帮我扩展这张图的内容，填充周边空白区域";
-const EXPAND_MODEL = "gemini-2.5-flash-image";
-const EXPAND_PROVIDER = "banana-2.5";
+const EXPAND_PRESET_PROMPT = "不改变图片比例，填充白色部分";
 
 type Bounds = { x: number; y: number; width: number; height: number };
 const ensureDataUrlString = (
@@ -1034,9 +1032,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           selectedBounds
         );
 
-        // 调试：保存合成图片到本地存储，方便查看
+        // 调试：在控制台查看合成图片信息
         console.log("扩展画布合成图片:", composed);
-        localStorage.setItem("debug_expanded_canvas", composed.dataUrl);
 
         // 在新标签页打开合成图片
         const debugWindow = window.open("", "_blank");
@@ -1056,21 +1053,31 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           `);
         }
 
-        logger.info("🔁 调用 Gemini edit-image 进行扩图", {
+        // 直接复用聊天框 edit 的参数逻辑（provider/model/尺寸/比例等）
+        const chatState = useAIChatStore.getState();
+        const modelToUse = getImageModelForProvider(chatState.aiProvider);
+        logger.info("🔁 使用聊天框 edit 模式进行扩图（不外显）", {
           imageId: imageData.id,
-          aiProvider: EXPAND_PROVIDER,
-          model: EXPAND_MODEL,
+          aiProvider: chatState.aiProvider,
+          model: modelToUse,
           prompt: EXPAND_PRESET_PROMPT,
           composedSize: { width: composed.width, height: composed.height },
+          imageSize: chatState.imageSize ?? "1K",
+          aspectRatio: chatState.aspectRatio ?? "auto",
+          imageOnly: chatState.imageOnly,
         });
 
-        const editResult = await aiImageService.editImage({
+        // 使用与聊天框 edit 模式完全相同的参数和调用方式
+        const editResult = await editImageViaAPI({
           prompt: EXPAND_PRESET_PROMPT,
           sourceImage: composed.dataUrl,
-          model: EXPAND_MODEL,
-          aiProvider: EXPAND_PROVIDER,
+          model: modelToUse,
+          aiProvider: chatState.aiProvider,
           outputFormat: "png",
-          imageOnly: true,
+          imageOnly: chatState.imageOnly ?? true,
+          imageSize: chatState.imageSize ?? "1K",
+          aspectRatio: chatState.aspectRatio ?? undefined,
+          thinkingLevel: chatState.thinkingLevel ?? undefined,
         });
 
         if (!editResult.success || !editResult.data?.imageData) {

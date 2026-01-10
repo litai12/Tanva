@@ -428,21 +428,24 @@ export class BananaProvider implements IAIProvider {
 
     // 添加生成配置
     if (config) {
-      // generationConfig 只包含 thinking_level
-      if (config.thinking_level) {
-        body.generationConfig = {
-          thinking_level: config.thinking_level,
-        };
-      }
-
-      // imageConfig 应该是顶级参数
-      if (config.imageConfig) {
-        body.imageConfig = config.imageConfig;
-      }
-
-      // responseModalities 应该是顶级参数
+      // 构建 generationConfig（包含 responseModalities, imageConfig, thinking_level）
+      const generationConfig: any = {};
+      
       if (config.responseModalities) {
-        body.responseModalities = config.responseModalities;
+        generationConfig.responseModalities = config.responseModalities;
+      }
+      
+      if (config.imageConfig) {
+        generationConfig.imageConfig = config.imageConfig;
+      }
+      
+      if (config.thinking_level) {
+        generationConfig.thinking_level = config.thinking_level;
+      }
+      
+      // 只有在有内容时才添加 generationConfig
+      if (Object.keys(generationConfig).length > 0) {
+        body.generationConfig = generationConfig;
       }
 
       if (config.tools) {
@@ -450,8 +453,10 @@ export class BananaProvider implements IAIProvider {
       }
     }
 
-    this.logger.debug(`Making request to ${url}`, {
-      body: JSON.stringify(body).substring(0, 200),
+    // 🔍 详细调试日志：完整请求体
+    this.logger.debug(`Making request to ${url}`);
+    this.logger.debug(`Object:`, {
+      body: JSON.stringify(body),
     });
 
     const response = await fetch(url, {
@@ -469,13 +474,13 @@ export class BananaProvider implements IAIProvider {
     }
 
     const data = await response.json();
-    return this.parseResponse(data, "API call");
+    return await this.parseResponse(data, "API call");
   }
 
-  private parseResponse(
+  private async parseResponse(
     data: any,
     operationType: string
-  ): { imageBytes: string | null; textResponse: string } {
+  ): Promise<{ imageBytes: string | null; textResponse: string }> {
     this.logger.debug(`Parsing ${operationType} response...`);
 
     let textResponse: string = "";
@@ -503,6 +508,20 @@ export class BananaProvider implements IAIProvider {
           textResponse.length
         } chars, has image: ${!!imageBytes}`
       );
+
+      // 🔍 检查返回图片的实际分辨率
+      if (imageBytes) {
+        try {
+          const sharp = require('sharp');
+          const buffer = Buffer.from(imageBytes, 'base64');
+          const metadata = await sharp(buffer).metadata();
+          this.logger.log(
+            `📐 [Image Resolution] ${operationType}: ${metadata.width}x${metadata.height} pixels`
+          );
+        } catch (err) {
+          this.logger.warn(`⚠️ Failed to read image dimensions: ${err}`);
+        }
+      }
 
       return { imageBytes: imageBytes || null, textResponse };
     } catch (error) {
@@ -547,14 +566,8 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
-                  const sizeMap: Record<string, string> = {
-                    "1K": "1024x1024",
-                    "2K": "2048x2048",
-                    "4K": "4096x4096",
-                  };
-                  config.imageConfig.imageSize =
-                    sizeMap[request.imageSize] || request.imageSize;
+                  // 直接传递 imageSize，不做转换（Gemini API 接受 "1K", "2K", "4K" 格式）
+                  config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
@@ -675,14 +688,8 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
-                  const sizeMap: Record<string, string> = {
-                    "1K": "1024x1024",
-                    "2K": "2048x2048",
-                    "4K": "4096x4096",
-                  };
-                  config.imageConfig.imageSize =
-                    sizeMap[request.imageSize] || request.imageSize;
+                  // 直接传递 imageSize，不做转换（Gemini API 接受 "1K", "2K", "4K" 格式）
+                  config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
@@ -822,14 +829,8 @@ export class BananaProvider implements IAIProvider {
                   config.imageConfig.aspectRatio = request.aspectRatio;
                 }
                 if (request.imageSize) {
-                  // 转换 imageSize 格式：1K -> 1024x1024, 2K -> 2048x2048, 4K -> 4096x4096
-                  const sizeMap: Record<string, string> = {
-                    "1K": "1024x1024",
-                    "2K": "2048x2048",
-                    "4K": "4096x4096",
-                  };
-                  config.imageConfig.imageSize =
-                    sizeMap[request.imageSize] || request.imageSize;
+                  // 直接传递 imageSize，不做转换（Gemini API 接受 "1K", "2K", "4K" 格式）
+                  config.imageConfig.imageSize = request.imageSize;
                 }
               }
 
