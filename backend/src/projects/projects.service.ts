@@ -10,9 +10,25 @@ export class ProjectsService {
 
   constructor(private prisma: PrismaService, private oss: OssService) {}
 
+  private readonly projectMetadataSelect = {
+    id: true,
+    userId: true,
+    name: true,
+    ossPrefix: true,
+    mainKey: true,
+    thumbnailUrl: true,
+    contentVersion: true,
+    createdAt: true,
+    updatedAt: true,
+  };
+
   async list(userId: string) {
     await this.ensureThumbnailColumn();
-    const projects = await this.prisma.project.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+    const projects = await this.prisma.project.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: this.projectMetadataSelect,
+    });
     return projects.map((p) => ({
       ...p,
       mainUrl: p.mainKey ? this.oss.publicUrl(p.mainKey) : undefined,
@@ -60,7 +76,13 @@ export class ProjectsService {
 
   async get(userId: string, id: string) {
     await this.ensureThumbnailColumn();
-    const p = await this.prisma.project.findUnique({ where: { id } });
+    const p = await this.prisma.project.findUnique({
+      where: { id },
+      select: {
+        ...this.projectMetadataSelect,
+        contentJson: !(await this.supportsThumbnailColumn()), // 只有在不支持 thumbnailUrl 列时才查询 contentJson
+      },
+    });
     if (!p) throw new NotFoundException('项目不存在');
     if (p.userId !== userId) throw new UnauthorizedException();
     return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
@@ -68,11 +90,17 @@ export class ProjectsService {
 
   async update(userId: string, id: string, payload: { name?: string; thumbnailUrl?: string | null }) {
     await this.ensureThumbnailColumn();
-    const p = await this.prisma.project.findUnique({ where: { id } });
+    const supportsThumbnailColumn = await this.supportsThumbnailColumn();
+    const p = await this.prisma.project.findUnique({
+      where: { id },
+      select: {
+        ...this.projectMetadataSelect,
+        contentJson: !supportsThumbnailColumn, // 只有在不支持 thumbnailUrl 列时才查询 contentJson
+      },
+    });
     if (!p) throw new NotFoundException('项目不存在');
     if (p.userId !== userId) throw new UnauthorizedException();
 
-    const supportsThumbnailColumn = await this.supportsThumbnailColumn();
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
     if (payload.name !== undefined) {
       data.name = payload.name || '未命名项目';
@@ -156,7 +184,14 @@ export class ProjectsService {
 
   async updateContent(userId: string, id: string, content: unknown, version?: number) {
     await this.ensureThumbnailColumn();
-    const project = await this.prisma.project.findUnique({ where: { id } });
+    const supportsThumbnailColumn = await this.supportsThumbnailColumn();
+    const project = await this.prisma.project.findUnique({
+      where: { id },
+      select: {
+        ...this.projectMetadataSelect,
+        contentJson: !supportsThumbnailColumn,
+      },
+    });
     if (!project) throw new NotFoundException('项目不存在');
     if (project.userId !== userId) throw new UnauthorizedException();
     const prefix = project.ossPrefix || `projects/${userId}/${project.id}/`;
@@ -172,7 +207,6 @@ export class ProjectsService {
     }
 
     const newVersion = (project.contentVersion ?? 0) + 1;
-    const supportsThumbnailColumn = await this.supportsThumbnailColumn();
     const baseUpdate: Prisma.ProjectUpdateInput = {
       ossPrefix: prefix,
       mainKey,

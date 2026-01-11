@@ -44,7 +44,7 @@ class Logger {
     const storedLevel = this.readStoredLevel();
     if (storedLevel) return storedLevel;
     const envLevel = this.normalizeLevel(import.meta.env?.VITE_LOG_LEVEL as string | undefined);
-    return envLevel || 'info';
+    return envLevel || 'debug';
   }
 
   private readStoredLevel(): LogLevel | null {

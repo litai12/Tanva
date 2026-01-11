@@ -33,13 +33,13 @@ const isMobileDevice = (): boolean => {
 
 // 移动设备提示组件
 const MobileWarning: React.FC = () => (
-  <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 p-6">
+  <div className="flex items-center justify-center w-screen h-screen p-6 bg-gradient-to-br from-gray-900 to-gray-800">
     <div className="max-w-md text-center">
-      <div className="text-6xl mb-6">💻</div>
-      <h1 className="text-2xl font-bold text-white mb-4">
+      <div className="mb-6 text-6xl">💻</div>
+      <h1 className="mb-4 text-2xl font-bold text-white">
         请使用电脑访问
       </h1>
-      <p className="text-gray-300 mb-6 leading-relaxed">
+      <p className="mb-6 leading-relaxed text-gray-300">
         Tanva 是一款专业的设计工具，需要在电脑端使用以获得最佳体验。
         <br /><br />
         请在 PC 或 Mac 上打开浏览器访问本网站。
@@ -174,7 +174,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="h-screen w-screen">
+    <div className="w-screen h-screen">
       <KeyboardShortcuts />
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
@@ -185,7 +185,7 @@ const App: React.FC = () => {
         <AppLoadingIndicator message="正在验证登录状态..." />
       )}
 
-      {/* <SaveDebugPanel /> */}
+      <SaveDebugPanel />
     </div>
   );
 };
