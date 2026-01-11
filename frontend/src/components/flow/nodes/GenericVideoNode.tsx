@@ -3,6 +3,7 @@ import { Handle, Position } from 'reactflow';
 import { AlertTriangle, Video, Share2, Download } from 'lucide-react';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useAuthStore } from '@/stores/authStore';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 export type VideoProvider = 
   | 'kling'
@@ -270,7 +271,8 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     setIsDownloading(true);
     setDownloadFeedback({ type: 'progress', message: '视频下载中，请稍等...' });
     try {
-      const response = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      const proxiedUrl = proxifyRemoteAssetUrl(url);
+      const response = await fetch(proxiedUrl, { mode: 'cors', credentials: 'omit' });
       if (response.ok) {
         const blob = await response.blob();
         const downloadUrl = URL.createObjectURL(blob);
@@ -360,13 +362,14 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     };
 
     if (sanitizedVideoUrl) {
-      const videoSrc = cacheBustedVideoUrl || sanitizedVideoUrl;
+      const rawSrc = cacheBustedVideoUrl || sanitizedVideoUrl;
+      const videoSrc = proxifyRemoteAssetUrl(rawSrc);
       return (
         <video
           key={`${videoSrc}-${data.videoVersion || 0}`}
           ref={videoRef}
           controls
-          poster={sanitizedThumbnail}
+          poster={proxifyRemoteAssetUrl(sanitizedThumbnail || '')}
           style={commonMediaStyle}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
@@ -387,7 +390,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     if (sanitizedThumbnail) {
       return (
         <img
-          src={sanitizedThumbnail}
+          src={proxifyRemoteAssetUrl(sanitizedThumbnail)}
           alt="video thumbnail"
           style={commonMediaStyle}
           onLoad={(e) => {

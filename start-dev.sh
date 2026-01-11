@@ -44,63 +44,6 @@ print_warning() {
     echo -e "${YELLOW}[!]${NC} $1"
 }
 
-# 启动 Docker 数据库和 Redis
-start_docker_db() {
-    print_status "启动 Docker 数据库和 Redis..."
-
-    # 检查 Docker 是否运行
-    if ! docker info > /dev/null 2>&1; then
-        print_error "Docker 未运行，请先启动 Docker Desktop"
-        exit 1
-    fi
-
-    # 启动数据库和 Redis 容器
-    cd "$PROJECT_ROOT"
-    docker compose up -d postgres redis
-
-    if [ $? -eq 0 ]; then
-        print_success "Docker 服务已启动"
-
-        # 等待 PostgreSQL 就绪
-        print_status "等待 PostgreSQL 数据库就绪..."
-        local max_attempts=30
-        local attempt=0
-        while [ $attempt -lt $max_attempts ]; do
-            if docker exec tanva-postgres pg_isready -U postgres > /dev/null 2>&1; then
-                print_success "PostgreSQL 数据库已就绪"
-                break
-            fi
-            attempt=$((attempt + 1))
-            sleep 1
-        done
-
-        # 等待 Redis 就绪
-        print_status "等待 Redis 就绪..."
-        attempt=0
-        while [ $attempt -lt $max_attempts ]; do
-            if docker exec tanva-redis redis-cli ping > /dev/null 2>&1; then
-                print_success "Redis 已就绪"
-                return 0
-            fi
-            attempt=$((attempt + 1))
-            sleep 1
-        done
-
-        print_warning "Redis 启动超时，但将继续尝试启动服务"
-    else
-        print_error "Docker 服务启动失败"
-        exit 1
-    fi
-}
-
-# 停止 Docker 服务
-stop_docker_db() {
-    print_status "停止 Docker 服务..."
-    cd "$PROJECT_ROOT"
-    docker compose down
-    print_success "Docker 服务已停止"
-}
-
 # 检查依赖是否安装
 check_dependencies() {
     print_status "检查依赖..."
@@ -133,66 +76,38 @@ stop_services() {
     print_status "停止现有服务..."
 
     # 杀掉前后端进程
-    pkill -f "vite.*frontend" 2>/dev/null
-    pkill -f "ts-node-dev.*backend" 2>/dev/null
-
-    # 停止 Docker 数据库
-    stop_docker_db
+    pkill -f "vite" 2>/dev/null
+    pkill -f "ts-node-dev" 2>/dev/null
+    pkill -f "node.*dist/main" 2>/dev/null
 
     print_success "所有服务已停止"
 }
 
 # 启动后端
 start_backend() {
-    print_status "启动后端服务..."
+    print_status "启动后端服务 (日志直接输出到终端)..."
     cd "$BACKEND_DIR"
-    npm run dev > "$PROJECT_ROOT/logs/backend.log" 2>&1 &
-
-    # 等待后端启动
-    sleep 2
-    if pgrep -f "ts-node-dev.*backend" > /dev/null; then
-        print_success "后端服务已启动"
-    else
-        print_error "后端服务启动失败，请查看 logs/backend.log"
-        return 1
-    fi
+    npm run dev &
 }
 
 # 启动前端
 start_frontend() {
-    print_status "启动前端服务..."
+    print_status "启动前端服务 (日志直接输出到终端)..."
     cd "$FRONTEND_DIR"
-    npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
-
-    # 等待前端启动
-    sleep 2
-    if pgrep -f "vite.*frontend" > /dev/null; then
-        print_success "前端服务已启动"
-    else
-        print_error "前端服务启动失败，请查看 logs/frontend.log"
-        return 1
-    fi
+    npm run dev &
 }
 
 # 显示服务状态
 show_status() {
     echo ""
     echo -e "${CYAN}════════════════════════════════════════${NC}"
-    echo -e "${GREEN}  服务启动成功！${NC}"
+    echo -e "${GREEN}  服务正在终端运行！${NC}"
     echo -e "${CYAN}════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${YELLOW}前端地址:${NC} http://localhost:5173"
     echo -e "  ${YELLOW}后端地址:${NC} http://localhost:3000"
     echo ""
-    echo -e "  ${BLUE}日志文件:${NC}"
-    echo -e "    - 前端: logs/frontend.log"
-    echo -e "    - 后端: logs/backend.log"
-    echo ""
-    echo -e "  ${PURPLE}常用命令:${NC}"
-    echo -e "    - 停止服务: ${CYAN}./start-dev.sh stop${NC}"
-    echo -e "    - 查看状态: ${CYAN}./start-dev.sh status${NC}"
-    echo -e "    - 查看日志: ${CYAN}tail -f logs/frontend.log${NC}"
-    echo -e "                ${CYAN}tail -f logs/backend.log${NC}"
+    echo -e "  ${BLUE}提示:${NC} 按 ${RED}Ctrl+C${NC} 停止所有服务"
     echo ""
     echo -e "${CYAN}════════════════════════════════════════${NC}"
 }
@@ -202,51 +117,29 @@ check_status() {
     echo ""
     print_status "检查服务状态..."
 
-    if pgrep -f "vite.*frontend" > /dev/null; then
-        print_success "前端服务正在运行"
+    if pgrep -f "vite" > /dev/null; then
+        print_success "前端服务 (Vite) 正在运行"
     else
         print_warning "前端服务已停止"
     fi
 
-    if pgrep -f "ts-node-dev.*backend" > /dev/null; then
-        print_success "后端服务正在运行"
+    if pgrep -f "ts-node-dev" > /dev/null; then
+        print_success "后端服务 (NestJS) 正在运行"
     else
         print_warning "后端服务已停止"
-    fi
-
-    if docker ps | grep -q "tanva-postgres"; then
-        print_success "PostgreSQL 数据库正在运行"
-    else
-        print_warning "PostgreSQL 数据库已停止"
-    fi
-
-    if docker ps | grep -q "tanva-redis"; then
-        print_success "Redis 正在运行"
-    else
-        print_warning "Redis 已停止"
     fi
 
     echo ""
 }
 
-# 查看日志
+# 查看日志 (传统模式下不再需要，因为日志已直接输出)
 show_logs() {
-    if [ "$1" == "frontend" ]; then
-        tail -f "$PROJECT_ROOT/logs/frontend.log"
-    elif [ "$1" == "backend" ]; then
-        tail -f "$PROJECT_ROOT/logs/backend.log"
-    else
-        print_status "同时显示前后端日志 (按 Ctrl+C 退出)"
-        tail -f "$PROJECT_ROOT/logs/frontend.log" "$PROJECT_ROOT/logs/backend.log"
-    fi
+    print_warning "传统模式下日志已直接输出到当前终端。"
 }
 
 # 主函数
 main() {
     print_header
-    
-    # 创建日志目录
-    mkdir -p "$PROJECT_ROOT/logs"
     
     case "$1" in
         stop)
@@ -255,26 +148,35 @@ main() {
         status)
             check_status
             ;;
-        logs)
-            show_logs "$2"
-            ;;
         restart)
             stop_services
             sleep 1
-            start_docker_db
             check_dependencies
             start_backend
             start_frontend
             show_status
+            wait
             ;;
         *)
-            stop_services
-            sleep 1
-            start_docker_db
+            # 默认启动流程
+            # 如果已有服务正在运行，先停止
+            if pgrep -f "vite" > /dev/null || pgrep -f "ts-node-dev" > /dev/null; then
+                print_warning "检测到已有服务正在运行，正在重启..."
+                stop_services
+                sleep 1
+            fi
+            
             check_dependencies
+            
+            # 设置退出时自动杀掉子进程
+            trap "echo -e '\n${RED}停止所有服务...${NC}'; pkill -P $$; exit" INT TERM EXIT
+            
             start_backend
             start_frontend
             show_status
+            
+            # 保持脚本运行，直到 Ctrl+C
+            wait
             ;;
     esac
 }

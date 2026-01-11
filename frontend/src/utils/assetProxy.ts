@@ -70,7 +70,19 @@ export function proxifyRemoteAssetUrl(input: string): string {
     if (url.hostname === window.location.hostname) return input;
 
     // 默认仅考虑代理 OSS/aliyuncs 公网资源，避免把任意外部 URL 变成依赖后端的"通用代理"
-    if (!url.hostname.endsWith(".aliyuncs.com")) {
+    const allowedHosts = [
+      ".aliyuncs.com",
+      "models.kapon.cloud",
+      "kechuangai.com",
+      "volces.com",
+      "volcengine.com"
+    ];
+
+    const isAllowed = allowedHosts.some(host => 
+      url.hostname === host || url.hostname.endsWith(host)
+    );
+
+    if (!isAllowed) {
       return input;
     }
 

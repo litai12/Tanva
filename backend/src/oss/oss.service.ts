@@ -108,10 +108,38 @@ export class OssService {
   allowedPublicHosts(): string[] {
     const { cdnHost, bucket, region } = this.conf;
     const stripProtocol = (value: string) => value.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    
+    // 基础允许的域名：当前配置的 OSS 域名
     const hosts = [`${bucket}.${region}.aliyuncs.com`];
+    
+    // 如果配置了 CDN 域名
     if (cdnHost) {
       hosts.push(stripProtocol(cdnHost));
     }
+
+    // 从环境变量 ALLOWED_PROXY_HOSTS 读取额外的白名单域名 (逗号分隔)
+    const extraHosts = this.config.get<string>('ALLOWED_PROXY_HOSTS');
+    if (extraHosts) {
+      extraHosts.split(',').forEach(h => {
+        const trimmed = h.trim();
+        if (trimmed) hosts.push(stripProtocol(trimmed));
+      });
+    }
+
+    // 默认内置一些常用的 AI 供应商资源域名，避免用户频繁配置
+    const defaultAllowed = [
+      'kechuangai.com',      // Kling / 可灵
+      'v2-fdl.kechuangai.com',
+      'models.kapon.cloud',  // Kapon / Vidu / Kling
+      'volces.com',          // 字节/豆包
+      'ark.cn-beijing.volces.com',
+      'ark-project-oss-cn-beijing.volces.com',
+      'alicdn.com',
+      'aliyuncs.com',        // 允许所有阿里云 OSS 域名（可选，如果需要更宽松的话）
+    ];
+    
+    defaultAllowed.forEach(h => hosts.push(h));
+
     return Array.from(new Set(hosts)).filter(Boolean);
   }
 }

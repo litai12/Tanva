@@ -14,6 +14,7 @@ import { Convert2Dto3DService } from './services/convert-2d-to-3d.service';
 import { ExpandImageService } from './services/expand-image.service';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
+import { VideoProviderService } from './services/video-provider.service';
 import { ApiKeyOrJwtGuard } from '../auth/guards/api-key-or-jwt.guard';
 import { UsersModule } from '../users/users.module';
 import { CreditsModule } from '../credits/credits.module';
@@ -37,6 +38,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     ExpandImageService, // 添加扩图服务
     Sora2VideoService,
     VeoVideoService, // 添加 VEO 视频服务
+    VideoProviderService,
     VideoWatermarkService,
     ApiKeyOrJwtGuard,
   ],
