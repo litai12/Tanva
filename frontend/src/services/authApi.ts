@@ -27,10 +27,11 @@ const base =
 const LS_USER_KEY = "mock_user";
 const LS_USERS_KEY = "mock_users";
 const LS_TOKEN_EXPIRY = "token_expiry";
+const LS_LAST_AUTH_AT = "last_auth_at";
 const FIXED_SMS_CODE = "336699";
 
 // Token过期时间管理
-function getStoredTokenExpiry(): number | null {
+export function getStoredTokenExpiry(): number | null {
   try {
     const expiry = localStorage.getItem(LS_TOKEN_EXPIRY);
     return expiry ? parseInt(expiry) : null;
@@ -48,6 +49,27 @@ function setStoredTokenExpiry(expiry: number) {
 function clearStoredTokenExpiry() {
   try {
     localStorage.removeItem(LS_TOKEN_EXPIRY);
+  } catch {}
+}
+
+export function getStoredLastAuthAt(): number | null {
+  try {
+    const raw = localStorage.getItem(LS_LAST_AUTH_AT);
+    return raw ? parseInt(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredLastAuthAt(ts: number) {
+  try {
+    localStorage.setItem(LS_LAST_AUTH_AT, ts.toString());
+  } catch {}
+}
+
+export function clearStoredLastAuthAt() {
+  try {
+    localStorage.removeItem(LS_LAST_AUTH_AT);
   } catch {}
 }
 
@@ -164,6 +186,7 @@ export const authApi = {
         // 更新本地token过期时间（假设24小时有效期）
         if (user) {
           setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+      setStoredLastAuthAt(Date.now());
         }
 
         return { user, source: "server" };
@@ -188,6 +211,7 @@ export const authApi = {
               // 更新本地token过期时间
               if (user) {
                 setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+                setStoredLastAuthAt(Date.now());
               }
 
               return { user, source: "refresh" };
@@ -273,6 +297,7 @@ export const authApi = {
     saveSession(out.user);
     // 设置token过期时间（24小时）
     setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+    setStoredLastAuthAt(Date.now());
     return out;
   },
   async loginWithSms(payload: { phone: string; code: string }) {
@@ -288,6 +313,7 @@ export const authApi = {
       );
       if (!user) throw new Error("用户不存在，请先注册");
       saveSession(user);
+        setStoredLastAuthAt(Date.now());
       return { user };
     }
     const res = await fetch(`${base}/api/auth/login-sms`, {
@@ -300,6 +326,7 @@ export const authApi = {
     saveSession(out.user);
     // 设置token过期时间（24小时）
     setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
+    setStoredLastAuthAt(Date.now());
     return out;
   },
   async sendSms(payload: { phone: string }) {
@@ -396,6 +423,7 @@ export const authApi = {
     } finally {
       clearSession();
       clearStoredTokenExpiry(); // 清除token过期时间
+      clearStoredLastAuthAt();
     }
 
     return { ok } as { ok: boolean };

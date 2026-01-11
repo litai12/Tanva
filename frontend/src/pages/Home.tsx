@@ -7,7 +7,7 @@ import { useAuthStore } from "@/stores/authStore";
 
 export default function Home() {
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const { user, logout, connection } = useAuthStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -111,30 +111,44 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 右侧：用户信息或登录/注册按钮 */}
+          {/* 右侧：用户信息或登录/注册按钮（与设置弹窗使用相同的 connection 状态） */}
           <div className="flex items-center gap-3">
-            {user ? (
-              <div className="flex items-center gap-3 text-sm text-white">
-                <span>你好，{user.name || user.phone?.slice(-4) || user.email || user.id?.slice(-4) || '用户'}</span>
-                <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border border-white/30 text-white bg-green-500/20 backdrop-blur-sm">
-                  <span className="w-2 h-2 rounded-full bg-green-500" />
-                  在线
-                </span>
-                <Button 
-                  variant="ghost"
-                  className="text-white hover:text-white/80 hover:bg-white/10 rounded-full h-8 px-3 text-sm border border-white/20"
-                  onClick={async () => {
-                    try {
-                      await logout();
-                      navigate('/auth/login', { replace: true });
-                    } catch (error) {
-                      console.error('退出登录失败:', error);
-                    }
-                  }}
-                >
-                  退出登录
-                </Button>
-              </div>
+            {user && connection ? (
+              (() => {
+                const status = (() => {
+                  switch (connection) {
+                    case 'server': return { label: '在线', color: '#16a34a' };
+                    case 'refresh': return { label: '已续期', color: '#f59e0b' };
+                    case 'local': return { label: '在线', color: '#16a34a' };
+                    case 'mock': return { label: 'Mock', color: '#8b5cf6' };
+                    default: return null;
+                  }
+                })();
+
+                return (
+                  <div className="flex items-center gap-3 text-sm text-white">
+                    <span>你好，{user.name || user.phone?.slice(-4) || user.email || user.id?.slice(-4) || '用户'}</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border border-white/30 text-white bg-green-500/20 backdrop-blur-sm" title={`认证来源：${status?.label || '未知'}`}>
+                      <span className="w-2 h-2 rounded-full" style={{ background: status?.color }} />
+                      {status?.label}
+                    </span>
+                    <Button 
+                      variant="ghost"
+                      className="text-white hover:text-white/80 hover:bg-white/10 rounded-full h-8 px-3 text-sm border border-white/20"
+                      onClick={async () => {
+                        try {
+                          await logout();
+                          navigate('/auth/login', { replace: true });
+                        } catch (error) {
+                          console.error('退出登录失败:', error);
+                        }
+                      }}
+                    >
+                      退出登录
+                    </Button>
+                  </div>
+                );
+              })()
             ) : (
               <>
                 <Button 
