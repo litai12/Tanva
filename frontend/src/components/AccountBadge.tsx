@@ -21,7 +21,7 @@ export default function AccountBadge() {
     switch (connection) {
       case 'server': return { label: '在线', color: '#16a34a' };
       case 'refresh': return { label: '已续期', color: '#f59e0b' };
-      case 'local': return { label: '本地会话', color: '#6b7280' };
+      case 'local': return { label: '在线', color: '#16a34a' };
       case 'mock': return { label: 'Mock', color: '#8b5cf6' };
       default: return { label: '未知', color: '#9ca3af' };
     }

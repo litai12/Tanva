@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/authStore';
 import { AppLoader } from '@/components/AppLoader';
+import { getStoredTokenExpiry } from '@/services/authApi';
 
 interface AuthWrapperProps {
   children: React.ReactNode;
@@ -8,6 +10,26 @@ interface AuthWrapperProps {
 
 export const AuthWrapper: React.FC<AuthWrapperProps> = ({ children }) => {
   const { user, initializing, error } = useAuthStore();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    try {
+      const expiry = getStoredTokenExpiry();
+      // 若没有本地过期时间或已过期，认为需要重新登录
+      if (!expiry || expiry <= Date.now()) {
+        window.dispatchEvent(
+          new CustomEvent('toast', {
+            detail: { message: '当前登录已过期，请重新登录', type: 'info' },
+          })
+        );
+        if (!window.location.pathname.startsWith('/auth')) {
+          navigate('/auth/login', { replace: true });
+        }
+      }
+    } catch (e) {
+      // 忽略本地存储读取错误
+    }
+  }, [navigate]);
 
   // 如果正在初始化认证状态，显示加载器
   if (initializing) {
