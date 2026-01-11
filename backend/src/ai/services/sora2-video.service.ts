@@ -179,19 +179,20 @@ export class Sora2VideoService {
       prompt: options.prompt,
     };
 
-    // 添加参考图片：极速Sora2 文档使用 images 数组，支持 URL / base64
+    // 添加参考图片：极速Sora2 文档要求使用 image 字段（单个字符串），支持 URL / base64
     if (options.referenceImageUrls && options.referenceImageUrls.length > 0) {
       const images = options.referenceImageUrls.filter(
         (url) => typeof url === 'string' && url.trim().length > 0,
       );
       if (images.length > 0) {
-        createPayload.images = images;
+        // 贞贞 Sora2 V2 文档指出使用 image 字段，而不是 images 数组
+        createPayload.image = images[0];
       }
     }
 
-    // 画面比例
+    // 画面比例：贞贞 Sora2 V2 使用 ratio 字段
     if (options.aspectRatio === '16:9' || options.aspectRatio === '9:16') {
-      createPayload.aspect_ratio = options.aspectRatio;
+      createPayload.ratio = options.aspectRatio;
     }
 
     // 时长
@@ -223,8 +224,12 @@ export class Sora2VideoService {
       const createResult = await createResponse.json();
       this.logger.log(`极速Sora2 创建任务响应: ${JSON.stringify(createResult)}`);
 
-      // 尝试多种字段名提取 taskId
-      taskId = createResult?.task_id || createResult?.id || createResult?.data?.task_id || createResult?.data?.id;
+      // 尝试多种字段名提取 taskId，兼容贞贞文档中的 data[0].task_id 格式
+      taskId = createResult?.task_id || 
+               createResult?.id || 
+               createResult?.data?.task_id || 
+               createResult?.data?.id ||
+               createResult?.data?.[0]?.task_id;
 
       if (!taskId) {
         throw new ServiceUnavailableException(`极速Sora2 未返回任务ID, 响应: ${JSON.stringify(createResult)}`);

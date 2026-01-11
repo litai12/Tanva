@@ -127,6 +127,26 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 30,
     description: '将2D图像转换为3D模型',
   },
+
+  // 更多视频服务
+  'kling-video': {
+    serviceName: '可灵 Kling 视频',
+    provider: 'kling',
+    creditsPerCall: 60,
+    description: '使用可灵 Kling 生成视频',
+  },
+  'vidu-video': {
+    serviceName: 'Vidu 视频',
+    provider: 'vidu',
+    creditsPerCall: 60,
+    description: '使用 Vidu 生成视频',
+  },
+  'doubao-video': {
+    serviceName: '豆包 Seedance 视频',
+    provider: 'doubao',
+    creditsPerCall: 60,
+    description: '使用豆包 Seedance 生成视频',
+  },
 } as const;
 
 export type ServiceType = keyof typeof CREDIT_PRICING_CONFIG;

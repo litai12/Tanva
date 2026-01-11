@@ -10,6 +10,7 @@ import {
   Optional,
   Req,
   BadRequestException,
+  Param,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AiService } from './ai.service';
@@ -43,8 +44,10 @@ import { GenerateVideoDto } from './dto/video-generation.dto';
 import { VeoGenerateVideoDto, VeoVideoResponseDto, VeoModelsResponseDto } from './dto/veo-video.dto';
 import { Sora2VideoService } from './services/sora2-video.service';
 import { VeoVideoService } from './services/veo-video.service';
+import { VideoProviderService } from './services/video-provider.service';
 import { applyWatermarkToBase64 } from './services/watermark.util';
 import { VideoWatermarkService } from './services/video-watermark.service';
+import { VideoProviderRequestDto } from './dto/video-provider.dto';
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -80,6 +83,7 @@ export class AiController {
     private readonly sora2VideoService: Sora2VideoService,
     private readonly videoWatermarkService: VideoWatermarkService,
     private readonly veoVideoService: VeoVideoService,
+    private readonly videoProviderService: VideoProviderService,
   ) {}
 
   /**
@@ -904,6 +908,35 @@ export class AiController {
       inputImageCount,
       0,
     );
+  }
+
+  /**
+   * 视频生成（通用供应商：可灵、Vidu、豆包）
+   */
+  @Post('generate-video-provider')
+  async generateVideoProvider(@Body() dto: VideoProviderRequestDto, @Req() req: any) {
+    const serviceType: ServiceType = `${dto.provider}-video` as ServiceType;
+    return this.withCredits(
+      req,
+      serviceType,
+      dto.provider,
+      async () => {
+        return this.videoProviderService.generateVideo(dto);
+      },
+      dto.referenceImages?.length || undefined,
+      0,
+    );
+  }
+
+  /**
+   * 查询视频生成任务状态
+   */
+  @Get('video-task/:provider/:taskId')
+  async queryVideoTask(
+    @Param('provider') provider: 'kling' | 'vidu' | 'doubao',
+    @Param('taskId') taskId: string,
+  ) {
+    return this.videoProviderService.queryTask(provider, taskId);
   }
 
   /**

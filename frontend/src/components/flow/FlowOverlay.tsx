@@ -3364,6 +3364,9 @@ function FlowInner() {
           "wan2R2V",
           "storyboardSplit",
           "midjourney",
+          "klingVideo",
+          "viduVideo",
+          "doubaoVideo",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -3377,7 +3380,13 @@ function FlowInner() {
               )
           );
         }
-        if (tgt?.type === "sora2Video" && params.targetHandle === "image") {
+        if (
+          (tgt?.type === "sora2Video" ||
+            ["klingVideo", "viduVideo", "doubaoVideo"].includes(
+              tgt?.type || ""
+            )) &&
+          params.targetHandle === "image"
+        ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
           let remainingToDrop = Math.max(
             0,
@@ -5123,7 +5132,7 @@ function FlowInner() {
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
-                      ? { ...n, data: { ...n.data, status: "failed", error: "任务生成失败" } }
+                      ? { ...n, data: { ...n.data, status: "failed", error: (queryResult as any).error || "任务生成失败" } }
                       : n
                   )
                 );
@@ -6208,7 +6217,10 @@ function FlowInner() {
           ? { ...n, data: { ...n.data, onSend: onSendHandler } }
           : n.type === "sora2Video" ||
             n.type === "wan26" ||
-            n.type === "wan2R2V"
+            n.type === "wan2R2V" ||
+            n.type === "klingVideo" ||
+            n.type === "viduVideo" ||
+            n.type === "doubaoVideo"
           ? { ...n, data: { ...n.data, onRun: runNode } }
           : n
       ),
