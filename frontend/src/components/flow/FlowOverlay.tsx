@@ -459,9 +459,9 @@ const NodePaletteButton: React.FC<{
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
         <span style={nodePaletteEnCodeStyle}>{en}</span>
         {badge ? <span style={nodePaletteBadgeStyle}>{badge}</span> : null}
-        {creditsDisplay && (
+        {/* {creditsDisplay && (
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
-        )}
+        )} */}
       </div>
       <span style={nodePaletteZhStyle}>{zh}</span>
     </button>
