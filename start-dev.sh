@@ -19,9 +19,6 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 
-# PID 文件
-PID_FILE="$PROJECT_ROOT/.dev-pids"
-
 # 打印带颜色的消息
 print_header() {
     echo ""
@@ -47,10 +44,67 @@ print_warning() {
     echo -e "${YELLOW}[!]${NC} $1"
 }
 
+# 启动 Docker 数据库和 Redis
+start_docker_db() {
+    print_status "启动 Docker 数据库和 Redis..."
+
+    # 检查 Docker 是否运行
+    if ! docker info > /dev/null 2>&1; then
+        print_error "Docker 未运行，请先启动 Docker Desktop"
+        exit 1
+    fi
+
+    # 启动数据库和 Redis 容器
+    cd "$PROJECT_ROOT"
+    docker compose up -d postgres redis
+
+    if [ $? -eq 0 ]; then
+        print_success "Docker 服务已启动"
+
+        # 等待 PostgreSQL 就绪
+        print_status "等待 PostgreSQL 数据库就绪..."
+        local max_attempts=30
+        local attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if docker exec tanva-postgres pg_isready -U postgres > /dev/null 2>&1; then
+                print_success "PostgreSQL 数据库已就绪"
+                break
+            fi
+            attempt=$((attempt + 1))
+            sleep 1
+        done
+
+        # 等待 Redis 就绪
+        print_status "等待 Redis 就绪..."
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if docker exec tanva-redis redis-cli ping > /dev/null 2>&1; then
+                print_success "Redis 已就绪"
+                return 0
+            fi
+            attempt=$((attempt + 1))
+            sleep 1
+        done
+
+        print_warning "Redis 启动超时，但将继续尝试启动服务"
+    else
+        print_error "Docker 服务启动失败"
+        exit 1
+    fi
+}
+
+# 停止 Docker 服务
+stop_docker_db() {
+    print_status "停止 Docker 服务..."
+    cd "$PROJECT_ROOT"
+    docker compose down
+    print_success "Docker 服务已停止"
+}
+
 # 检查依赖是否安装
 check_dependencies() {
     print_status "检查依赖..."
-    
+
     # 检查前端依赖
     if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
         print_warning "前端依赖未安装，正在安装..."
@@ -60,7 +114,7 @@ check_dependencies() {
             exit 1
         fi
     fi
-    
+
     # 检查后端依赖
     if [ ! -d "$BACKEND_DIR/node_modules" ]; then
         print_warning "后端依赖未安装，正在安装..."
@@ -70,29 +124,22 @@ check_dependencies() {
             exit 1
         fi
     fi
-    
+
     print_success "依赖检查完成"
 }
 
 # 停止所有服务
 stop_services() {
     print_status "停止现有服务..."
-    
-    if [ -f "$PID_FILE" ]; then
-        while read pid; do
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                kill "$pid" 2>/dev/null
-                print_status "已停止进程 PID: $pid"
-            fi
-        done < "$PID_FILE"
-        rm -f "$PID_FILE"
-    fi
-    
-    # 同时尝试杀掉可能遗留的进程
+
+    # 杀掉前后端进程
     pkill -f "vite.*frontend" 2>/dev/null
     pkill -f "ts-node-dev.*backend" 2>/dev/null
-    
-    print_success "服务已停止"
+
+    # 停止 Docker 数据库
+    stop_docker_db
+
+    print_success "所有服务已停止"
 }
 
 # 启动后端
@@ -100,13 +147,11 @@ start_backend() {
     print_status "启动后端服务..."
     cd "$BACKEND_DIR"
     npm run dev > "$PROJECT_ROOT/logs/backend.log" 2>&1 &
-    BACKEND_PID=$!
-    echo $BACKEND_PID >> "$PID_FILE"
-    
+
     # 等待后端启动
     sleep 2
-    if kill -0 $BACKEND_PID 2>/dev/null; then
-        print_success "后端服务已启动 (PID: $BACKEND_PID)"
+    if pgrep -f "ts-node-dev.*backend" > /dev/null; then
+        print_success "后端服务已启动"
     else
         print_error "后端服务启动失败，请查看 logs/backend.log"
         return 1
@@ -118,13 +163,11 @@ start_frontend() {
     print_status "启动前端服务..."
     cd "$FRONTEND_DIR"
     npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
-    FRONTEND_PID=$!
-    echo $FRONTEND_PID >> "$PID_FILE"
-    
+
     # 等待前端启动
     sleep 2
-    if kill -0 $FRONTEND_PID 2>/dev/null; then
-        print_success "前端服务已启动 (PID: $FRONTEND_PID)"
+    if pgrep -f "vite.*frontend" > /dev/null; then
+        print_success "前端服务已启动"
     else
         print_error "前端服务启动失败，请查看 logs/frontend.log"
         return 1
@@ -158,19 +201,31 @@ show_status() {
 check_status() {
     echo ""
     print_status "检查服务状态..."
-    
-    if [ -f "$PID_FILE" ]; then
-        echo ""
-        while read pid; do
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                print_success "进程 $pid 正在运行"
-            else
-                print_warning "进程 $pid 已停止"
-            fi
-        done < "$PID_FILE"
+
+    if pgrep -f "vite.*frontend" > /dev/null; then
+        print_success "前端服务正在运行"
     else
-        print_warning "没有找到运行中的服务"
+        print_warning "前端服务已停止"
     fi
+
+    if pgrep -f "ts-node-dev.*backend" > /dev/null; then
+        print_success "后端服务正在运行"
+    else
+        print_warning "后端服务已停止"
+    fi
+
+    if docker ps | grep -q "tanva-postgres"; then
+        print_success "PostgreSQL 数据库正在运行"
+    else
+        print_warning "PostgreSQL 数据库已停止"
+    fi
+
+    if docker ps | grep -q "tanva-redis"; then
+        print_success "Redis 正在运行"
+    else
+        print_warning "Redis 已停止"
+    fi
+
     echo ""
 }
 
@@ -206,6 +261,7 @@ main() {
         restart)
             stop_services
             sleep 1
+            start_docker_db
             check_dependencies
             start_backend
             start_frontend
@@ -214,6 +270,7 @@ main() {
         *)
             stop_services
             sleep 1
+            start_docker_db
             check_dependencies
             start_backend
             start_frontend

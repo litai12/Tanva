@@ -174,7 +174,7 @@ const App: React.FC = () => {
       <ProjectAutosaveManager projectId={projectId} />
       <Canvas />
       <LoginModal />
-      {/* <SaveDebugPanel /> */}
+      <SaveDebugPanel />
     </div>
   );
 };
