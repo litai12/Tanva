@@ -16,11 +16,6 @@ import {
   generateTextResponseViaAPI,
   midjourneyActionViaAPI,
   generateVideoViaAPI,
-  unifiedChatViaAPI,
-  unifiedChatStreamViaAPI,
-  type UnifiedChatMode,
-  type UnifiedChatRequest,
-  type UnifiedChatResponseData,
 } from "@/services/aiBackendAPI";
 import { useUIStore } from "@/stores/uiStore";
 import { contextManager } from "@/services/contextManager";
@@ -1872,9 +1867,6 @@ interface AIChatState {
   // 智能工具选择功能
   processUserInput: (input: string) => Promise<void>;
 
-  // 🆕 统一 Chat 接口 - 使用后端统一 /api/ai/chat 接口
-  processUserInputV2: (input: string) => Promise<void>;
-
   // 核心处理流程
   executeProcessFlow: (
     input: string,
@@ -2536,12 +2528,10 @@ export const useAIChatStore = create<AIChatState>()(
 
           if (override) {
             aiMessageId = override.aiMessageId;
-            // 🔥 先不设置 expectsImageOutput: true，保持 spinner 状态
-            // 等到真正开始生成时再设置，避免工具选择阶段就显示图片占位框
             get().updateMessage(override.aiMessageId, (msg) => ({
               ...msg,
               content: "正在生成图像...",
-              // expectsImageOutput 延迟到 API 调用前设置
+              expectsImageOutput: true,
               generationStatus: {
                 ...(msg.generationStatus || {
                   isGenerating: true,
@@ -2714,12 +2704,6 @@ export const useAIChatStore = create<AIChatState>()(
 
           let progressInterval: ReturnType<typeof setInterval> | null = null;
           try {
-            // 🔥 现在开始真正生成图像，设置 expectsImageOutput: true 以显示图片占位框
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              expectsImageOutput: true,
-            }));
-
             // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
               isGenerating: true,
@@ -3240,12 +3224,10 @@ export const useAIChatStore = create<AIChatState>()(
                 ? normalizedSourceImage
                 : msg.sourceImageData,
             }));
-            // 🔥 先不设置 expectsImageOutput: true，保持 spinner 状态
-            // 等到真正开始生成时再设置，避免工具选择阶段就显示图片占位框
             get().updateMessage(aiMessageId, (msg) => ({
               ...msg,
               content: "正在编辑图像...",
-              // expectsImageOutput 延迟到 API 调用前设置
+              expectsImageOutput: true,
               sourceImageData: showImagePlaceholder
                 ? normalizedSourceImage
                 : msg.sourceImageData,
@@ -3383,12 +3365,6 @@ export const useAIChatStore = create<AIChatState>()(
           logProcessStep(metrics, "editImage message prepared");
 
           try {
-            // 🔥 现在开始真正编辑图像，设置 expectsImageOutput: true 以显示图片占位框
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              expectsImageOutput: true,
-            }));
-
             // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
               isGenerating: true,
@@ -3924,12 +3900,10 @@ export const useAIChatStore = create<AIChatState>()(
               content: `融合图像: ${prompt}`,
               sourceImagesData: sourceImages,
             }));
-            // 🔥 先不设置 expectsImageOutput: true，保持 spinner 状态
-            // 等到真正开始生成时再设置，避免工具选择阶段就显示图片占位框
             get().updateMessage(aiMessageId, (msg) => ({
               ...msg,
               content: "正在融合图像...",
-              // expectsImageOutput 延迟到 API 调用前设置
+              expectsImageOutput: true,
               sourceImagesData: sourceImages,
               generationStatus: {
                 ...(msg.generationStatus || {
@@ -4072,12 +4046,6 @@ export const useAIChatStore = create<AIChatState>()(
           }
 
           try {
-            // 🔥 现在开始真正融合图像，设置 expectsImageOutput: true 以显示图片占位框
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              expectsImageOutput: true,
-            }));
-
             // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
               isGenerating: true,
@@ -5166,12 +5134,10 @@ export const useAIChatStore = create<AIChatState>()(
 
           if (override) {
             aiMessageId = override.aiMessageId;
-            // 🔥 先不设置 expectsVideoOutput: true，保持 spinner 状态
-            // 等到真正开始生成时再设置，避免工具选择阶段就显示视频占位框
             get().updateMessage(aiMessageId, (msg) => ({
               ...msg,
               content: "正在生成视频...",
-              // expectsVideoOutput 延迟到 API 调用前设置
+              expectsVideoOutput: true,
               generationStatus: {
                 ...(msg.generationStatus || {
                   isGenerating: true,
@@ -5250,12 +5216,6 @@ export const useAIChatStore = create<AIChatState>()(
                 }
               }
             }
-
-            // 🔥 现在开始真正生成视频，设置 expectsVideoOutput: true 以显示视频占位框
-            get().updateMessage(aiMessageId, (msg) => ({
-              ...msg,
-              expectsVideoOutput: true,
-            }));
 
             // 🔥 使用消息级别的进度更新
             get().updateMessageStatus(aiMessageId, {
@@ -5817,16 +5777,13 @@ export const useAIChatStore = create<AIChatState>()(
               ? `正在生成第 ${(groupInfo?.groupIndex ?? 0) + 1}/${
                   groupInfo?.groupTotal ?? 1
                 } 张...`
-              : "正在处理中...",
+              : "正在准备处理您的请求...",
             generationStatus: {
               isGenerating: true,
               progress: 5,
               error: null,
-              stage: "等待响应",
+              stage: "准备中",
             },
-            // 🔥 明确设置 expectsImageOutput: false，避免在工具选择完成前显示图片占位框
-            expectsImageOutput: false,
-            expectsVideoOutput: false,
             ...(groupInfo && {
               groupId: groupInfo.groupId,
               groupIndex: groupInfo.groupIndex,
@@ -6420,379 +6377,6 @@ export const useAIChatStore = create<AIChatState>()(
                 `✅ [并行生成] 完成，成功 ${successCount}/${multiplier}`
               );
             });
-          }
-        },
-
-        // 🆕 统一 Chat 接口 V2 - 使用后端统一 /api/ai/chat 接口
-        // 优势：前端只需一次 API 调用，后端自动判断意图并执行
-        processUserInputV2: async (input: string) => {
-          const state = get();
-
-          // 🧠 确保有活跃的会话并同步状态
-          let sessionId =
-            state.currentSessionId || contextManager.getCurrentSessionId();
-          if (!sessionId) {
-            sessionId = contextManager.createSession();
-          } else if (contextManager.getCurrentSessionId() !== sessionId) {
-            contextManager.switchSession(sessionId);
-          }
-
-          if (sessionId !== state.currentSessionId) {
-            const context = contextManager.getSession(sessionId);
-            set({
-              currentSessionId: sessionId,
-              messages: context ? [...context.messages] : [],
-            });
-          }
-
-          get().refreshSessions();
-
-          // 🔥 构建统一请求
-          const manualMode = state.manualAIMode;
-
-          // 映射手动模式到统一 Chat 模式
-          const modeMap: Record<ManualAIMode, UnifiedChatMode> = {
-            auto: "auto",
-            text: "text",
-            generate: "generate",
-            edit: "edit",
-            blend: "blend",
-            analyze: "analyze",
-            video: "video",
-            vector: "vector",
-          };
-
-          // 收集附件
-          const images: string[] = [];
-          if (state.sourceImageForEditing) {
-            images.push(state.sourceImageForEditing);
-          }
-          if (state.sourceImagesForBlending.length > 0) {
-            images.push(...state.sourceImagesForBlending);
-          }
-          if (state.sourceImageForAnalysis) {
-            images.push(state.sourceImageForAnalysis);
-          }
-
-          // 构建上下文
-          const contextPrompt = contextManager.buildContextPrompt(input);
-
-          // 构建请求
-          const chatRequest: UnifiedChatRequest = {
-            prompt: input,
-            mode: modeMap[manualMode],
-            attachments:
-              images.length > 0 || state.sourcePdfForAnalysis
-                ? {
-                    images: images.length > 0 ? images : undefined,
-                    pdf: state.sourcePdfForAnalysis || undefined,
-                    pdfFileName: state.sourcePdfFileName || undefined,
-                  }
-                : undefined,
-            aiProvider: state.aiProvider,
-            imageOptions: {
-              aspectRatio: state.aspectRatio || undefined,
-              imageSize: state.imageSize || undefined,
-              thinkingLevel: state.thinkingLevel || undefined,
-              imageOnly: state.imageOnly,
-            },
-            context: contextPrompt,
-            enableWebSearch: state.enableWebSearch,
-          };
-
-          // 🔥 创建用户消息
-          get().addMessage({
-            type: "user",
-            content: input,
-          });
-
-          // 🔥 创建 AI 占位消息
-          // 注意：auto 模式下初始不设置 expectsImageOutput，等后端返回工具类型后再决定
-          // 只有明确选择生图/编辑/融合模式时才预设 expectsImageOutput: true
-          const aiMessage = get().addMessage({
-            type: "ai",
-            content: "正在处理...",
-            generationStatus: {
-              isGenerating: true,
-              progress: 10,
-              error: null,
-              stage: "调用 AI",
-            },
-            expectsImageOutput:
-              manualMode === "generate" ||
-              manualMode === "edit" ||
-              manualMode === "blend",
-          });
-
-          try {
-            console.log("🚀 [统一Chat流式] 发送请求:", {
-              prompt: input.substring(0, 50) + "...",
-              mode: chatRequest.mode,
-              hasImages: !!chatRequest.attachments?.images?.length,
-              hasPdf: !!chatRequest.attachments?.pdf,
-            });
-
-            // 🔥 使用流式 API - 实时更新文字内容
-            let currentTool: string = "chatResponse";
-            let accumulatedText = "";
-
-            // 🔥 辅助函数：检查消息是否已被用户中断
-            const isAborted = () => {
-              const currentMsg = get().messages.find(
-                (m) => m.id === aiMessage.id
-              );
-              return currentMsg?.generationStatus?.error === "已中断";
-            };
-
-            await unifiedChatStreamViaAPI(chatRequest, {
-              // 开始事件 - 更新工具类型
-              onStart: ({ tool, model, provider }) => {
-                // 🔥 如果已中断，忽略后续更新
-                if (isAborted()) {
-                  console.log("⏹️ [流式] 已中断，忽略 onStart");
-                  return;
-                }
-
-                currentTool = tool;
-                console.log("🎯 [流式] 开始处理, 工具:", tool, "模型:", model);
-
-                // 🔥 根据后端选择的工具类型，立即修正 expectsImageOutput/expectsVideoOutput
-                // 解决 auto 模式下纯文字对话提前显示 ai-image-placeholder 的问题
-                const toolExpectsImage = [
-                  "generateImage",
-                  "editImage",
-                  "blendImages",
-                ].includes(tool);
-                const toolExpectsVideo = tool === "generateVideo";
-
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  expectsImageOutput: toolExpectsImage,
-                  expectsVideoOutput: toolExpectsVideo,
-                  generationStatus: {
-                    isGenerating: true,
-                    progress: 20,
-                    error: null,
-                    stage: `AI 正在${tool === "chatResponse" ? "思考" : tool === "analyzeImage" ? "分析图片" : "处理"}...`,
-                  },
-                }));
-              },
-
-              // 文本块事件 - 实时更新消息内容
-              onChunk: (text) => {
-                // 🔥 如果已中断，忽略后续更新
-                if (isAborted()) return;
-
-                accumulatedText += text;
-
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  content: accumulatedText,
-                  generationStatus: {
-                    isGenerating: true,
-                    progress: 50,
-                    error: null,
-                    stage: "生成中...",
-                  },
-                }));
-              },
-
-              // 图片事件
-              onImage: ({ imageData, text }) => {
-                // 🔥 如果已中断，忽略后续更新
-                if (isAborted()) {
-                  console.log("⏹️ [流式] 已中断，忽略 onImage");
-                  return;
-                }
-
-                console.log("🖼️ [流式] 收到图片");
-
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  content: text || "图片生成完成",
-                  imageData,
-                  generationStatus: {
-                    isGenerating: false,
-                    progress: 100,
-                    error: null,
-                    stage: "完成",
-                  },
-                }));
-
-                // 派发图片生成事件
-                window.dispatchEvent(
-                  new CustomEvent("ai-image-generated", {
-                    detail: {
-                      imageData,
-                      prompt: input,
-                      messageId: aiMessage.id,
-                      mode: currentTool,
-                    },
-                  })
-                );
-
-                // 记录到历史
-                contextManager.addImageHistory({
-                  prompt: input,
-                  operationType:
-                    currentTool === "editImage"
-                      ? "edit"
-                      : currentTool === "blendImages"
-                      ? "blend"
-                      : "generate",
-                  imageData,
-                });
-              },
-
-              // 视频事件
-              onVideo: ({ videoUrl, thumbnailUrl }) => {
-                // 🔥 如果已中断，忽略后续更新
-                if (isAborted()) {
-                  console.log("⏹️ [流式] 已中断，忽略 onVideo");
-                  return;
-                }
-
-                console.log("🎬 [流式] 收到视频:", videoUrl);
-
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  content: "视频生成完成",
-                  videoUrl,
-                  generationStatus: {
-                    isGenerating: false,
-                    progress: 100,
-                    error: null,
-                    stage: "完成",
-                  },
-                }));
-              },
-
-              // 代码事件
-              onCode: ({ code, explanation }) => {
-                // 🔥 如果已中断，忽略后续更新
-                if (isAborted()) {
-                  console.log("⏹️ [流式] 已中断，忽略 onCode");
-                  return;
-                }
-
-                console.log("📝 [流式] 收到代码");
-
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  content: explanation || "代码生成完成",
-                  paperJSCode: code,
-                  generationStatus: {
-                    isGenerating: false,
-                    progress: 100,
-                    error: null,
-                    stage: "完成",
-                  },
-                }));
-              },
-
-              // 完成事件
-              onDone: (data: UnifiedChatResponseData) => {
-                // 🔥 如果已中断，忽略后续更新
-                if (isAborted()) {
-                  console.log("⏹️ [流式] 已中断，忽略 onDone");
-                  return;
-                }
-
-                console.log("✅ [流式] 完成:", {
-                  hasText: !!data.text,
-                  hasImage: !!data.imageData,
-                  hasVideo: !!data.videoUrl,
-                });
-
-                // 🔥 根据实际返回结果判断是否有图片/视频输出
-                const hasActualImageOutput = Boolean(data.imageData);
-                const hasActualVideoOutput = Boolean(data.videoUrl);
-
-                // 最终更新消息
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  content:
-                    data.text ||
-                    data.analysis ||
-                    data.explanation ||
-                    accumulatedText ||
-                    (data.imageData ? "图片生成完成" : "处理完成"),
-                  imageData: data.imageData || msg.imageData,
-                  videoUrl: data.videoUrl || msg.videoUrl,
-                  paperJSCode: data.code || msg.paperJSCode,
-                  // 🔥 修正：根据实际返回内容更新 expectsImageOutput/expectsVideoOutput
-                  // 解决 auto 模式下纯文字对话显示 ai-image-placeholder 的问题
-                  expectsImageOutput: hasActualImageOutput,
-                  expectsVideoOutput: hasActualVideoOutput,
-                  generationStatus: {
-                    isGenerating: false,
-                    progress: 100,
-                    error: null,
-                    stage: "完成",
-                  },
-                }));
-
-                // 清理源图像状态
-                if (
-                  currentTool === "editImage" ||
-                  currentTool === "analyzeImage" ||
-                  currentTool === "blendImages"
-                ) {
-                  set({
-                    sourceImageForEditing: null,
-                    sourceImageForAnalysis: null,
-                    sourceImagesForBlending: [],
-                  });
-                }
-
-                if (currentTool === "analyzePdf") {
-                  set({
-                    sourcePdfForAnalysis: null,
-                    sourcePdfFileName: null,
-                  });
-                }
-              },
-
-              // 错误事件
-              onError: (error) => {
-                // 🔥 如果已中断，忽略错误回调（用户主动中断不算错误）
-                if (isAborted()) {
-                  console.log("⏹️ [流式] 已中断，忽略 onError");
-                  return;
-                }
-
-                console.error("❌ [流式] 错误:", error);
-
-                get().updateMessage(aiMessage.id, (msg) => ({
-                  ...msg,
-                  content: `处理失败: ${error.message}`,
-                  generationStatus: {
-                    isGenerating: false,
-                    progress: 0,
-                    error: error.message,
-                    stage: "已终止",
-                  },
-                }));
-              },
-            });
-
-            get().refreshSessions();
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : "处理失败";
-
-            console.error("❌ [统一Chat流式] 失败:", error);
-
-            get().updateMessage(aiMessage.id, (msg) => ({
-              ...msg,
-              content: `处理失败: ${errorMessage}`,
-              generationStatus: {
-                isGenerating: false,
-                progress: 0,
-                error: errorMessage,
-                stage: "已终止",
-              },
-            }));
           }
         },
 

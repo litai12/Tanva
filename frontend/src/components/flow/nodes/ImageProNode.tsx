@@ -83,13 +83,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, o
         <img
           src={displaySrc}
           alt=""
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'contain',
-            transform: 'translateZ(0)',
-            backfaceVisibility: 'hidden',
-          }}
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         />
       ) : (
         <span style={{ fontSize: 12, color: '#9ca3af' }}>
@@ -117,8 +111,6 @@ function ImageProNodeInner({ id, data, selected }: Props) {
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const [contextMenu, setContextMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [isDragOver, setIsDragOver] = React.useState(false);
-  const [isResizing, setIsResizing] = React.useState(false);
-  const resizeBoxRef = React.useRef<HTMLDivElement>(null);
 
   // 图片宽度
   const imageWidth = data.imageWidth || DEFAULT_IMAGE_WIDTH;
@@ -301,65 +293,61 @@ function ImageProNodeInner({ id, data, selected }: Props) {
       e.stopPropagation();
       e.preventDefault();
 
-      setIsResizing(true);
       const startX = e.clientX;
       const startY = e.clientY;
       const startWidth = imageWidth;
-      let finalWidth = startWidth;
+      let lastWidth = startWidth;
+      let rafId: number | null = null;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
-        // 只更新虚线预览框，不更新实际图片
-        const deltaX = moveEvent.clientX - startX;
-        const deltaY = moveEvent.clientY - startY;
+        if (rafId) return;
 
-        let widthChange = 0;
-        if (corner === 'top-left') {
-          widthChange = -Math.max(deltaX, deltaY * (4 / 3));
-        } else if (corner === 'top-right') {
-          widthChange = Math.max(deltaX, -deltaY * (4 / 3));
-        } else if (corner === 'bottom-left') {
-          widthChange = Math.max(-deltaX, deltaY * (4 / 3));
-        } else if (corner === 'bottom-right') {
-          widthChange = Math.max(deltaX, deltaY * (4 / 3));
-        }
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const deltaX = moveEvent.clientX - startX;
+          const deltaY = moveEvent.clientY - startY;
 
-        const newWidth = Math.max(
-          MIN_IMAGE_WIDTH,
-          Math.min(MAX_IMAGE_WIDTH, startWidth + widthChange)
-        );
-        finalWidth = newWidth;
-        const newHeight = newWidth * 0.75;
+          let widthChange = 0;
+          if (corner === 'top-left') {
+            widthChange = -Math.max(deltaX, deltaY * (4 / 3));
+          } else if (corner === 'top-right') {
+            widthChange = Math.max(deltaX, -deltaY * (4 / 3));
+          } else if (corner === 'bottom-left') {
+            widthChange = Math.max(-deltaX, deltaY * (4 / 3));
+          } else if (corner === 'bottom-right') {
+            widthChange = Math.max(deltaX, deltaY * (4 / 3));
+          }
 
-        // 只更新虚线预览框
-        if (resizeBoxRef.current) {
-          resizeBoxRef.current.style.width = `${newWidth}px`;
-          resizeBoxRef.current.style.height = `${newHeight}px`;
-        }
-      };
+          const newWidth = Math.max(
+            MIN_IMAGE_WIDTH,
+            Math.min(MAX_IMAGE_WIDTH, startWidth + widthChange)
+          );
+          const incrementalChange = newWidth - lastWidth;
+          lastWidth = newWidth;
 
-      const handleMouseUp = () => {
-        setIsResizing(false);
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+          if (incrementalChange === 0) return;
 
-        // 只在结束时更新 React 状态，让图片跳到新尺寸
-        if (finalWidth !== startWidth) {
-          const totalChange = finalWidth - startWidth;
-          const positionOffsetX = -totalChange / 2;
-          const positionOffsetY = -(totalChange * 0.75) / 2;
+          const positionOffsetX = -incrementalChange / 2;
+          const positionOffsetY = -(incrementalChange * 0.75) / 2;
 
           window.dispatchEvent(
             new CustomEvent('flow:updateNodeData', {
               detail: {
                 id,
                 patch: {
-                  imageWidth: finalWidth,
+                  imageWidth: newWidth,
                   _positionOffset: { x: positionOffsetX, y: positionOffsetY },
                 },
               },
             })
           );
-        }
+        });
+      };
+
+      const handleMouseUp = () => {
+        if (rafId) cancelAnimationFrame(rafId);
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
       };
 
       document.addEventListener('mousemove', handleMouseMove);
@@ -411,12 +399,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
         )}
 
         {/* 图片区域 - 父容器控制大小 */}
-        <div
-          style={{
-            width: imageWidth,
-            height: imageHeight,
-          }}
-        >
+        <div style={{ width: imageWidth, height: imageHeight }}>
           <ImageContent
             displaySrc={displaySrc}
             isDragOver={isDragOver}
@@ -426,25 +409,6 @@ function ImageProNodeInner({ id, data, selected }: Props) {
             onDoubleClick={handleDoubleClick}
           />
         </div>
-
-        {/* 缩放时的虚线预览框 */}
-        {isResizing && (
-          <div
-            ref={resizeBoxRef}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: imageWidth,
-              height: imageHeight,
-              border: '1.5px dashed rgba(59, 130, 246, 0.4)',
-              borderRadius: 12,
-              background: 'rgba(59, 130, 246, 0.02)',
-              pointerEvents: 'none',
-              zIndex: 100,
-            }}
-          />
-        )}
 
         {/* 选中时的四个角点 */}
         {selected && (

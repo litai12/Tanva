@@ -146,8 +146,6 @@ const ImageContent = React.memo(({ displaySrc, onDrop, onDragOver, onDoubleClick
           height: "100%",
           objectFit: "contain",
           background: "#fff",
-          transform: "translateZ(0)",
-          backfaceVisibility: "hidden",
         }}
       />
     ) : (
@@ -202,39 +200,21 @@ function ImageNodeInner({ id, data, selected }: Props) {
     },
     [rf, id]
   );
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const resizeBoxRef = React.useRef<HTMLDivElement>(null);
-  const resizeSizeRef = React.useRef<{ width: number; height: number } | null>(null);
-
   const handleResizeStart = React.useCallback(() => {
     setIsResizing(true);
-    // 初始化预览框尺寸
-    resizeSizeRef.current = {
-      width: data.boxW || 260,
-      height: data.boxH || 240,
-    };
-  }, [data.boxW, data.boxH]);
-
+  }, []);
   const handleResize = React.useCallback(
     (_: unknown, params: { width: number; height: number }) => {
-      // 缩放过程中只更新虚线预览框，不更新实际节点
-      if (!params || !resizeBoxRef.current) return;
-      const nextWidth = Math.max(params.width, MIN_WIDTH);
-      const nextHeight = Math.max(params.height, MIN_HEIGHT);
-      resizeBoxRef.current.style.width = `${nextWidth}px`;
-      resizeBoxRef.current.style.height = `${nextHeight}px`;
-      resizeSizeRef.current = { width: nextWidth, height: nextHeight };
+      if (!params) return;
+      updateNodeSize(params.width, params.height);
     },
-    []
+    [updateNodeSize]
   );
-
   const handleResizeEnd = React.useCallback(
     (_: unknown, params: { width: number; height: number }) => {
       setIsResizing(false);
       if (!params) return;
-      // 只在结束时更新 React 状态，让节点跳到新尺寸
       updateNodeSize(params.width, params.height);
-      resizeSizeRef.current = null;
     },
     [updateNodeSize]
   );
@@ -365,7 +345,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   return (
     <div
-      ref={containerRef}
       className={`flow-image-node${
         isResizing ? " flow-image-node--resizing" : ""
       }`}
@@ -379,7 +358,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         border: `1px solid ${borderColor}`,
         borderRadius: 8,
         boxShadow,
-        transition: isResizing ? "none" : "border-color 0.15s ease, box-shadow 0.15s ease",
+        transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         display: "flex",
         flexDirection: "column",
         position: "relative",
@@ -413,24 +392,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
           onResizeEnd={handleResizeEnd}
         />
       ))}
-      {/* 缩放时的虚线预览框 */}
-      {isResizing && (
-        <div
-          ref={resizeBoxRef}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: data.boxW || 260,
-            height: data.boxH || 240,
-            border: "1.5px dashed rgba(37, 99, 235, 0.4)",
-            borderRadius: 8,
-            background: "rgba(37, 99, 235, 0.02)",
-            pointerEvents: "none",
-            zIndex: 100,
-          }}
-        />
-      )}
       <div
         style={{
           display: "flex",
