@@ -3026,17 +3026,6 @@ export const useAIChatStore = create<AIChatState>()(
               const totalDelay = baseDelay + groupIndex * perImageDelay;
 
               setTimeout(() => {
-                // 🔥 检查消息是否已被用户中断，如果已中断则不添加到画布
-                const msgAfterDelay = get().messages.find(
-                  (m) => m.id === aiMessageId
-                );
-                if (msgAfterDelay?.generationStatus?.error === "已中断") {
-                  console.log(
-                    `⏹️ [generateImage] 已中断，跳过添加图片到画布`
-                  );
-                  return;
-                }
-
                 if (result.data) {
                   console.log(
                     `✅ [generateImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallel})`
@@ -3749,17 +3738,6 @@ export const useAIChatStore = create<AIChatState>()(
               const totalDelay = baseDelay + groupIndex * perImageDelay;
 
               setTimeout(() => {
-                // 🔥 检查消息是否已被用户中断，如果已中断则不添加到画布
-                const msgAfterDelay = get().messages.find(
-                  (m) => m.id === aiMessageId
-                );
-                if (msgAfterDelay?.generationStatus?.error === "已中断") {
-                  console.log(
-                    `⏹️ [editImage] 已中断，跳过添加图片到画布`
-                  );
-                  return;
-                }
-
                 if (result.data) {
                   console.log(
                     `✅ [editImage] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelEdit})`
@@ -4357,17 +4335,6 @@ export const useAIChatStore = create<AIChatState>()(
               const totalDelay = baseDelay + groupIndex * perImageDelay;
 
               setTimeout(() => {
-                // 🔥 检查消息是否已被用户中断，如果已中断则不添加到画布
-                const msgAfterDelay = get().messages.find(
-                  (m) => m.id === aiMessageId
-                );
-                if (msgAfterDelay?.generationStatus?.error === "已中断") {
-                  console.log(
-                    `⏹️ [blendImages] 已中断，跳过添加图片到画布`
-                  );
-                  return;
-                }
-
                 if (result.data) {
                   console.log(
                     `✅ [blendImages] 步骤3执行：发送图片到画布 (延迟${totalDelay}ms, 并行模式: ${isParallelBlend})`
@@ -6671,80 +6638,6 @@ export const useAIChatStore = create<AIChatState>()(
               expectsImageOutput: isImageGenerationMode,
             });
 
-            console.log("🎯 [processUserInputV2] AI占位消息已创建:", {
-              messageId: aiMessage.id,
-              expectsImageOutput: aiMessage.expectsImageOutput,
-              isImageGenerationMode,
-              manualMode,
-              isGenerating: aiMessage.generationStatus?.isGenerating,
-            });
-
-          // 🔥 x1 模式下也需要在画布上创建预测占位符（与 x2/x4 保持一致）
-          const placeholderId = `ai-placeholder-${aiMessage.id}`;
-          const removePredictivePlaceholder = () => {
-            dispatchPlaceholderEvent(
-              {
-                placeholderId,
-                center: { x: 0, y: 0 },
-                width: 0,
-                height: 0,
-                operationType: "generate",
-              },
-              "remove"
-            );
-          };
-
-          if (isImageGenerationMode) {
-            try {
-              const cached = contextManager.getCachedImage();
-              const offsetHorizontal =
-                useUIStore.getState().smartPlacementOffsetHorizontal || 522;
-              let center: { x: number; y: number } | null = null;
-
-              // 单张生成：使用缓存图片位置或视口中心
-              if (cached?.bounds) {
-                center = {
-                  x: cached.bounds.x + cached.bounds.width / 2 + offsetHorizontal,
-                  y: cached.bounds.y + cached.bounds.height / 2,
-                };
-                placeholderLogger.debug(
-                  "🎯 [processUserInputV2 x1] 使用缓存图片位置:",
-                  center
-                );
-              } else {
-                center = getViewCenter();
-                placeholderLogger.debug(
-                  "🎯 [processUserInputV2 x1] 使用视口中心:",
-                  center
-                );
-              }
-
-              if (!center) {
-                center = { x: 0, y: 0 };
-                placeholderLogger.debug("🎯 [processUserInputV2 x1] 使用默认位置 (0, 0)");
-              }
-
-              const size = estimatePlaceholderSize({
-                aspectRatio: state.aspectRatio,
-                imageSize: state.imageSize,
-                fallbackBounds: cached?.bounds ?? null,
-              });
-              placeholderLogger.debug("🎯 [processUserInputV2 x1] 占位符尺寸:", size);
-
-              dispatchPlaceholderEvent({
-                placeholderId,
-                center,
-                width: size.width,
-                height: size.height,
-                operationType: manualMode === "edit" ? "edit" : manualMode === "blend" ? "blend" : "generate",
-                preferSmartLayout: true,
-                smartPosition: { ...center },
-              });
-            } catch (error) {
-              placeholderLogger.warn("[processUserInputV2 x1] 预测占位符生成失败", error);
-            }
-          }
-
           try {
             console.log("🚀 [统一Chat流式] 发送请求:", {
               prompt: input.substring(0, 50) + "...",
@@ -6919,7 +6812,7 @@ export const useAIChatStore = create<AIChatState>()(
                       smartPosition: undefined,
                       sourceImageId: undefined,
                       sourceImages: undefined,
-                      placeholderId: isImageGenerationMode ? placeholderId : undefined,
+                      placeholderId: undefined,
                     },
                   })
                 );
@@ -7066,10 +6959,6 @@ export const useAIChatStore = create<AIChatState>()(
                 // 🔥 如果已中断，忽略后续更新
                 if (isAborted()) {
                   console.log("⏹️ [流式] 已中断，忽略 onDone");
-                  // 🔥 中断时也需要移除占位符
-                  if (isImageGenerationMode) {
-                    removePredictivePlaceholder();
-                  }
                   return;
                 }
 
@@ -7078,11 +6967,6 @@ export const useAIChatStore = create<AIChatState>()(
                   hasImage: !!data.imageData,
                   hasVideo: !!data.videoUrl,
                 });
-
-                // 🔥 如果没有图片输出，移除画布上的占位符
-                if (isImageGenerationMode && !data.imageData) {
-                  removePredictivePlaceholder();
-                }
 
                 // 🔥 根据实际返回结果判断是否有图片/视频输出
                 const hasActualImageOutput = Boolean(data.imageData);
@@ -7143,11 +7027,6 @@ export const useAIChatStore = create<AIChatState>()(
 
                 console.error("❌ [流式] 错误:", error);
 
-                // 🔥 错误时移除画布上的占位符
-                if (isImageGenerationMode) {
-                  removePredictivePlaceholder();
-                }
-
                 get().updateMessage(aiMessage.id, (msg) => ({
                   ...msg,
                   content: `处理失败: ${error.message}`,
@@ -7167,11 +7046,6 @@ export const useAIChatStore = create<AIChatState>()(
               error instanceof Error ? error.message : "处理失败";
 
             console.error("❌ [统一Chat流式] 失败:", error);
-
-            // 🔥 异常时移除画布上的占位符
-            if (isImageGenerationMode) {
-              removePredictivePlaceholder();
-            }
 
             get().updateMessage(aiMessage.id, (msg) => ({
               ...msg,
@@ -7244,15 +7118,6 @@ export const useAIChatStore = create<AIChatState>()(
                 (r) => r.status === "fulfilled" && r.value !== null
               ).length;
               console.log(`✅ [processUserInputV2 并行生成] 完成，成功 ${successCount}/${multiplier}`);
-
-              // 🔥 清理源图像状态（与 processUserInput 保持一致）
-              if (manualMode === "edit" || manualMode === "generate") {
-                set({ sourceImageForEditing: null });
-              }
-              if (manualMode === "blend") {
-                set({ sourceImagesForBlending: [] });
-              }
-
               get().refreshSessions();
             });
           }
