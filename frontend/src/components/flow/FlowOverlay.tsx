@@ -3119,6 +3119,30 @@ function FlowInner() {
         return false;
       }
 
+      if (
+        ["klingVideo", "viduVideo", "doubaoVideo"].includes(
+          targetNode.type || ""
+        )
+      ) {
+        if (targetHandle === "image") {
+          return [
+            "image",
+            "imagePro",
+            "generate",
+            "generate4",
+            "generatePro",
+            "generatePro4",
+            "generateRef",
+            "three",
+            "camera",
+          ].includes(sourceNode.type || "");
+        }
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
+
       // Midjourney 节点连接验证
       if (targetNode.type === "midjourney") {
         if (targetHandle === "text") {
@@ -3278,6 +3302,14 @@ function FlowInner() {
       if (targetNode?.type === "wan2R2V") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
+      }
+      if (
+        ["klingVideo", "viduVideo", "doubaoVideo"].includes(
+          targetNode?.type || ""
+        )
+      ) {
+        if (params.targetHandle === "image") return true;
+        if (params.targetHandle === "text") return true;
       }
       // Midjourney 节点连接容量控制
       if (targetNode?.type === "midjourney") {
