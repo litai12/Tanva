@@ -19,9 +19,6 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 
-# PID 文件
-PID_FILE="$PROJECT_ROOT/.dev-pids"
-
 # 打印带颜色的消息
 print_header() {
     echo ""
@@ -50,7 +47,7 @@ print_warning() {
 # 检查依赖是否安装
 check_dependencies() {
     print_status "检查依赖..."
-    
+
     # 检查前端依赖
     if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
         print_warning "前端依赖未安装，正在安装..."
@@ -60,7 +57,7 @@ check_dependencies() {
             exit 1
         fi
     fi
-    
+
     # 检查后端依赖
     if [ ! -d "$BACKEND_DIR/node_modules" ]; then
         print_warning "后端依赖未安装，正在安装..."
@@ -70,86 +67,47 @@ check_dependencies() {
             exit 1
         fi
     fi
-    
+
     print_success "依赖检查完成"
 }
 
 # 停止所有服务
 stop_services() {
     print_status "停止现有服务..."
-    
-    if [ -f "$PID_FILE" ]; then
-        while read pid; do
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                kill "$pid" 2>/dev/null
-                print_status "已停止进程 PID: $pid"
-            fi
-        done < "$PID_FILE"
-        rm -f "$PID_FILE"
-    fi
-    
-    # 同时尝试杀掉可能遗留的进程
-    pkill -f "vite.*frontend" 2>/dev/null
-    pkill -f "ts-node-dev.*backend" 2>/dev/null
-    
-    print_success "服务已停止"
+
+    # 杀掉前后端进程
+    pkill -f "vite" 2>/dev/null
+    pkill -f "ts-node-dev" 2>/dev/null
+    pkill -f "node.*dist/main" 2>/dev/null
+
+    print_success "所有服务已停止"
 }
 
 # 启动后端
 start_backend() {
-    print_status "启动后端服务..."
+    print_status "启动后端服务 (日志直接输出到终端)..."
     cd "$BACKEND_DIR"
-    npm run dev > "$PROJECT_ROOT/logs/backend.log" 2>&1 &
-    BACKEND_PID=$!
-    echo $BACKEND_PID >> "$PID_FILE"
-    
-    # 等待后端启动
-    sleep 2
-    if kill -0 $BACKEND_PID 2>/dev/null; then
-        print_success "后端服务已启动 (PID: $BACKEND_PID)"
-    else
-        print_error "后端服务启动失败，请查看 logs/backend.log"
-        return 1
-    fi
+    npm run dev &
 }
 
 # 启动前端
 start_frontend() {
-    print_status "启动前端服务..."
+    print_status "启动前端服务 (日志直接输出到终端)..."
     cd "$FRONTEND_DIR"
-    npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
-    FRONTEND_PID=$!
-    echo $FRONTEND_PID >> "$PID_FILE"
-    
-    # 等待前端启动
-    sleep 2
-    if kill -0 $FRONTEND_PID 2>/dev/null; then
-        print_success "前端服务已启动 (PID: $FRONTEND_PID)"
-    else
-        print_error "前端服务启动失败，请查看 logs/frontend.log"
-        return 1
-    fi
+    npm run dev &
 }
 
 # 显示服务状态
 show_status() {
     echo ""
     echo -e "${CYAN}════════════════════════════════════════${NC}"
-    echo -e "${GREEN}  服务启动成功！${NC}"
+    echo -e "${GREEN}  服务正在终端运行！${NC}"
     echo -e "${CYAN}════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${YELLOW}前端地址:${NC} http://localhost:5173"
     echo -e "  ${YELLOW}后端地址:${NC} http://localhost:3000"
     echo ""
-    echo -e "  ${BLUE}日志文件:${NC}"
-    echo -e "    - 前端: logs/frontend.log"
-    echo -e "    - 后端: logs/backend.log"
-    echo ""
-    echo -e "  ${PURPLE}常用命令:${NC}"
-    echo -e "    - 停止服务: ${CYAN}./start-dev.sh stop${NC}"
-    echo -e "    - 查看状态: ${CYAN}./start-dev.sh status${NC}"
-    echo -e "    - 查看日志: ${CYAN}tail -f logs/frontend.log${NC}"
-    echo -e "                ${CYAN}tail -f logs/backend.log${NC}"
+    echo -e "  ${BLUE}提示:${NC} 按 ${RED}Ctrl+C${NC} 停止所有服务"
     echo ""
     echo -e "${CYAN}════════════════════════════════════════${NC}"
 }
@@ -158,40 +116,30 @@ show_status() {
 check_status() {
     echo ""
     print_status "检查服务状态..."
-    
-    if [ -f "$PID_FILE" ]; then
-        echo ""
-        while read pid; do
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                print_success "进程 $pid 正在运行"
-            else
-                print_warning "进程 $pid 已停止"
-            fi
-        done < "$PID_FILE"
+
+    if pgrep -f "vite" > /dev/null; then
+        print_success "前端服务 (Vite) 正在运行"
     else
-        print_warning "没有找到运行中的服务"
+        print_warning "前端服务已停止"
     fi
+
+    if pgrep -f "ts-node-dev" > /dev/null; then
+        print_success "后端服务 (NestJS) 正在运行"
+    else
+        print_warning "后端服务已停止"
+    fi
+
     echo ""
 }
 
-# 查看日志
+# 查看日志 (传统模式下不再需要，因为日志已直接输出)
 show_logs() {
-    if [ "$1" == "frontend" ]; then
-        tail -f "$PROJECT_ROOT/logs/frontend.log"
-    elif [ "$1" == "backend" ]; then
-        tail -f "$PROJECT_ROOT/logs/backend.log"
-    else
-        print_status "同时显示前后端日志 (按 Ctrl+C 退出)"
-        tail -f "$PROJECT_ROOT/logs/frontend.log" "$PROJECT_ROOT/logs/backend.log"
-    fi
+    print_warning "传统模式下日志已直接输出到当前终端。"
 }
 
 # 主函数
 main() {
     print_header
-    
-    # 创建日志目录
-    mkdir -p "$PROJECT_ROOT/logs"
     
     case "$1" in
         stop)
@@ -200,9 +148,6 @@ main() {
         status)
             check_status
             ;;
-        logs)
-            show_logs "$2"
-            ;;
         restart)
             stop_services
             sleep 1
@@ -210,14 +155,28 @@ main() {
             start_backend
             start_frontend
             show_status
+            wait
             ;;
         *)
-            stop_services
-            sleep 1
+            # 默认启动流程
+            # 如果已有服务正在运行，先停止
+            if pgrep -f "vite" > /dev/null || pgrep -f "ts-node-dev" > /dev/null; then
+                print_warning "检测到已有服务正在运行，正在重启..."
+                stop_services
+                sleep 1
+            fi
+            
             check_dependencies
+            
+            # 设置退出时自动杀掉子进程
+            trap "echo -e '\n${RED}停止所有服务...${NC}'; pkill -P $$; exit" INT TERM EXIT
+            
             start_backend
             start_frontend
             show_status
+            
+            # 保持脚本运行，直到 Ctrl+C
+            wait
             ;;
     esac
 }

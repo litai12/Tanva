@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position, useReactFlow } from 'reactflow';
+import { Handle, Position } from 'reactflow';
 import { Copy, Trash2, Download, FolderPlus, Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
@@ -32,8 +32,69 @@ const MIN_IMAGE_WIDTH = 150;
 const MAX_IMAGE_WIDTH = 600;
 const DEFAULT_IMAGE_WIDTH = 296;
 
+// 角点样式常量
+const CORNER_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  width: 10,
+  height: 10,
+  borderRadius: '50%',
+  background: '#3b82f6',
+  zIndex: 20,
+};
+
+const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, onDragLeave, onDoubleClick }: {
+  displaySrc?: string;
+  isDragOver: boolean;
+  onDrop: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDoubleClick: () => void;
+}) => (
+  <div
+    onDrop={onDrop}
+    onDragOver={onDragOver}
+    onDragLeave={onDragLeave}
+    onDoubleClick={onDoubleClick}
+    style={{
+      position: 'relative',
+      width: '100%',
+      height: '100%',
+      background: isDragOver ? '#e0f2fe' : displaySrc ? 'transparent' : '#f8f9fa',
+      borderRadius: 12,
+      overflow: 'hidden',
+      cursor: 'pointer',
+      border: isDragOver ? '2px dashed #3b82f6' : 'none',
+    }}
+    title='拖拽图片到此或双击上传'
+  >
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {displaySrc ? (
+        <img
+          src={displaySrc}
+          alt=""
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        />
+      ) : (
+        <span style={{ fontSize: 12, color: '#9ca3af' }}>
+          {isDragOver ? '释放以上传' : '拖拽图片到此或双击上传'}
+        </span>
+      )}
+    </div>
+  </div>
+));
+
 function ImageProNodeInner({ id, data, selected }: Props) {
-  const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -79,30 +140,8 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     );
   }, [preview, projectId]);
 
-  // 阻止节点拖拽
-  const stopNodeDrag = React.useCallback((event: React.SyntheticEvent) => {
-    event.stopPropagation();
-    const nativeEvent = (event as React.SyntheticEvent<any, Event>).nativeEvent as Event & {
-      stopImmediatePropagation?: () => void;
-    };
-    nativeEvent.stopImmediatePropagation?.();
-  }, []);
-
-  // 更新图片宽度
-  const updateImageWidth = React.useCallback(
-    (width: number) => {
-      const clampedWidth = Math.max(MIN_IMAGE_WIDTH, Math.min(MAX_IMAGE_WIDTH, width));
-      window.dispatchEvent(
-        new CustomEvent('flow:updateNodeData', {
-          detail: { id, patch: { imageWidth: clampedWidth } },
-        })
-      );
-    },
-    [id]
-  );
-
   // 处理文件上传
-  const handleFiles = async (files: FileList | null) => {
+  const handleFiles = React.useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const file = files[0];
     if (!file.type.startsWith('image/')) return;
@@ -133,28 +172,33 @@ function ImageProNodeInner({ id, data, selected }: Props) {
       });
     };
     reader.readAsDataURL(file);
-  };
+  }, [id, projectId]);
 
   // 拖拽处理
-  const onDrop = (e: React.DragEvent) => {
+  const onDrop = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
     handleFiles(e.dataTransfer.files);
-  };
+  }, [handleFiles]);
 
-  const onDragOver = (e: React.DragEvent) => {
+  const onDragOver = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);
-  };
+  }, []);
 
-  const onDragLeave = (e: React.DragEvent) => {
+  const onDragLeave = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-  };
+  }, []);
+
+  // 双击上传
+  const handleDoubleClick = React.useCallback(() => {
+    inputRef.current?.click();
+  }, []);
 
   // 粘贴处理
-  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+  const onPaste = React.useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -173,7 +217,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
         }
       }
     }
-  };
+  }, [handleFiles]);
 
   // 右键菜单
   const handleContextMenu = React.useCallback((e: React.MouseEvent) => {
@@ -253,48 +297,55 @@ function ImageProNodeInner({ id, data, selected }: Props) {
       const startY = e.clientY;
       const startWidth = imageWidth;
       let lastWidth = startWidth;
+      let rafId: number | null = null;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaX = moveEvent.clientX - startX;
-        const deltaY = moveEvent.clientY - startY;
+        if (rafId) return;
 
-        let widthChange = 0;
-        if (corner === 'top-left') {
-          widthChange = -Math.max(deltaX, deltaY * (4 / 3));
-        } else if (corner === 'top-right') {
-          widthChange = Math.max(deltaX, -deltaY * (4 / 3));
-        } else if (corner === 'bottom-left') {
-          widthChange = Math.max(-deltaX, deltaY * (4 / 3));
-        } else if (corner === 'bottom-right') {
-          widthChange = Math.max(deltaX, deltaY * (4 / 3));
-        }
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const deltaX = moveEvent.clientX - startX;
+          const deltaY = moveEvent.clientY - startY;
 
-        const newWidth = Math.max(
-          MIN_IMAGE_WIDTH,
-          Math.min(MAX_IMAGE_WIDTH, startWidth + widthChange)
-        );
-        const incrementalChange = newWidth - lastWidth;
-        lastWidth = newWidth;
+          let widthChange = 0;
+          if (corner === 'top-left') {
+            widthChange = -Math.max(deltaX, deltaY * (4 / 3));
+          } else if (corner === 'top-right') {
+            widthChange = Math.max(deltaX, -deltaY * (4 / 3));
+          } else if (corner === 'bottom-left') {
+            widthChange = Math.max(-deltaX, deltaY * (4 / 3));
+          } else if (corner === 'bottom-right') {
+            widthChange = Math.max(deltaX, deltaY * (4 / 3));
+          }
 
-        if (incrementalChange === 0) return;
+          const newWidth = Math.max(
+            MIN_IMAGE_WIDTH,
+            Math.min(MAX_IMAGE_WIDTH, startWidth + widthChange)
+          );
+          const incrementalChange = newWidth - lastWidth;
+          lastWidth = newWidth;
 
-        const positionOffsetX = -incrementalChange / 2;
-        const positionOffsetY = -(incrementalChange * 0.75) / 2;
+          if (incrementalChange === 0) return;
 
-        window.dispatchEvent(
-          new CustomEvent('flow:updateNodeData', {
-            detail: {
-              id,
-              patch: {
-                imageWidth: newWidth,
-                _positionOffset: { x: positionOffsetX, y: positionOffsetY },
+          const positionOffsetX = -incrementalChange / 2;
+          const positionOffsetY = -(incrementalChange * 0.75) / 2;
+
+          window.dispatchEvent(
+            new CustomEvent('flow:updateNodeData', {
+              detail: {
+                id,
+                patch: {
+                  imageWidth: newWidth,
+                  _positionOffset: { x: positionOffsetX, y: positionOffsetY },
+                },
               },
-            },
-          })
-        );
+            })
+          );
+        });
       };
 
       const handleMouseUp = () => {
+        if (rafId) cancelAnimationFrame(rafId);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
       };
@@ -304,16 +355,6 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     },
     [imageWidth, id]
   );
-
-  // 角点样式
-  const cornerStyle: React.CSSProperties = {
-    position: 'absolute',
-    width: 10,
-    height: 10,
-    borderRadius: '50%',
-    background: '#3b82f6',
-    zIndex: 20,
-  };
 
   return (
     <div
@@ -357,50 +398,16 @@ function ImageProNodeInner({ id, data, selected }: Props) {
           />
         )}
 
-        {/* 图片区域 */}
-        <div
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDoubleClick={() => {
-            inputRef.current?.click();
-          }}
-          style={{
-            position: 'relative',
-            width: imageWidth,
-            height: imageHeight,
-            background: isDragOver ? '#e0f2fe' : displaySrc ? 'transparent' : '#f8f9fa',
-            borderRadius: 12,
-            overflow: 'hidden',
-            cursor: 'pointer',
-            border: isDragOver ? '2px dashed #3b82f6' : 'none',
-          }}
-          title='拖拽图片到此或双击上传'
-        >
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {displaySrc ? (
-              <img
-                src={displaySrc}
-                alt=""
-                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              />
-            ) : (
-              <span style={{ fontSize: 12, color: '#9ca3af' }}>
-                {isDragOver ? '释放以上传' : '拖拽图片到此或双击上传'}
-              </span>
-            )}
-          </div>
+        {/* 图片区域 - 父容器控制大小 */}
+        <div style={{ width: imageWidth, height: imageHeight }}>
+          <ImageContent
+            displaySrc={displaySrc}
+            isDragOver={isDragOver}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDoubleClick={handleDoubleClick}
+          />
         </div>
 
         {/* 选中时的四个角点 */}
@@ -408,22 +415,22 @@ function ImageProNodeInner({ id, data, selected }: Props) {
           <>
             <div
               className="nodrag"
-              style={{ ...cornerStyle, top: -5, left: -5, cursor: 'nwse-resize' }}
+              style={{ ...CORNER_STYLE, top: -5, left: -5, cursor: 'nwse-resize' }}
               onMouseDown={handleResizeStart('top-left')}
             />
             <div
               className="nodrag"
-              style={{ ...cornerStyle, top: -5, right: -5, cursor: 'nesw-resize' }}
+              style={{ ...CORNER_STYLE, top: -5, right: -5, cursor: 'nesw-resize' }}
               onMouseDown={handleResizeStart('top-right')}
             />
             <div
               className="nodrag"
-              style={{ ...cornerStyle, bottom: -5, left: -5, cursor: 'nesw-resize' }}
+              style={{ ...CORNER_STYLE, bottom: -5, left: -5, cursor: 'nesw-resize' }}
               onMouseDown={handleResizeStart('bottom-left')}
             />
             <div
               className="nodrag"
-              style={{ ...cornerStyle, bottom: -5, right: -5, cursor: 'nwse-resize' }}
+              style={{ ...CORNER_STYLE, bottom: -5, right: -5, cursor: 'nwse-resize' }}
               onMouseDown={handleResizeStart('bottom-right')}
             />
           </>

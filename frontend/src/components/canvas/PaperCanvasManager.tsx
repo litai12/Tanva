@@ -139,6 +139,15 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
         try { ro.disconnect(); } catch {}
         ro = null;
       }
+      // 🛑 清理 Paper.js 项目资源 (P1 修复)
+      if (paper.project) {
+        try {
+          paper.project.clear();
+          paper.project.remove();
+        } catch (e) {
+          console.warn('Paper.js project cleanup failed:', e);
+        }
+      }
     };
   }, [canvasRef, setPan, onInitialized]);
 

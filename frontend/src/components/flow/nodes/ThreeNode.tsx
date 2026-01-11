@@ -40,6 +40,64 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const lastModelUrlRef = React.useRef<string | undefined>(undefined);
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+
+  // 资源释放函数 (High Priority Cleanup)
+  const disposeResources = React.useCallback(() => {
+    // 停止渲染调度
+    if (renderPendingRef.current !== null) {
+      cancelAnimationFrame(renderPendingRef.current);
+      renderPendingRef.current = null;
+    }
+
+    // 释放 OrbitControls
+    if (controlsRef.current) {
+      try {
+        controlsRef.current.dispose();
+      } catch (e) {
+        console.warn('Dispose OrbitControls error:', e);
+      }
+      controlsRef.current = null;
+    }
+
+    // 深度释放场景中的资源 (geometries, materials, textures)
+    if (sceneRef.current) {
+      const scene = sceneRef.current;
+      scene.traverse((object: any) => {
+        if (object.isMesh) {
+          if (object.geometry) {
+            object.geometry.dispose();
+          }
+          if (object.material) {
+            if (Array.isArray(object.material)) {
+              object.material.forEach((mat: any) => mat.dispose());
+            } else {
+              object.material.dispose();
+            }
+          }
+        }
+      });
+      sceneRef.current = null;
+    }
+
+    // 释放渲染器资源
+    if (rendererRef.current) {
+      const renderer = rendererRef.current;
+      try {
+        renderer.dispose();
+        if (renderer.domElement && renderer.domElement.parentNode) {
+          renderer.domElement.parentNode.removeChild(renderer.domElement);
+        }
+      } catch (e) {
+        console.warn('Dispose renderer error:', e);
+      }
+      rendererRef.current = null;
+    }
+
+    cameraRef.current = null;
+    modelRef.current = null;
+    gridRef.current = null;
+    axesRef.current = null;
+  }, []);
   
   // 使用全局图片历史记录
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -150,8 +208,11 @@ function ThreeNodeInner({ id, data, selected }: Props) {
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
-    return () => { clearTimeout(t); if (renderPendingRef.current) cancelAnimationFrame(renderPendingRef.current); };
-  }, [initIfNeeded]);
+    return () => {
+      clearTimeout(t);
+      disposeResources();
+    };
+  }, [initIfNeeded, disposeResources]);
 
   const onResize = (w: number, h: number) => {
     const r = rendererRef.current, c = cameraRef.current;

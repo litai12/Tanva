@@ -180,10 +180,10 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
   // 获取画布状态 - 用于监听画布移动变化
   const { zoom, panX, panY, isDragging: isCanvasDragging } = useCanvasStore();
 
-  // 工具栏缩放逻辑：>=100% 保持标准大小，<100% 随画布缩放
+  // 工具栏缩放逻辑：始终保持 100% 大小，不随画布缩放
   const currentZoom = zoom || 1;
-  const showButtonText = currentZoom >= 1; // 100%及以上显示文字
-  const toolbarScale = currentZoom >= 1 ? 1 : currentZoom; // >=100%固定为1，<100%跟随缩放
+  const showButtonText = currentZoom >= 0.5; // 50%及以上显示文字，稍微放宽一点
+  const toolbarScale = 1; // 固定为1，不再跟随缩放
 
   const sharedButtonClass = showButtonText
     ? "px-2 py-1 h-7 rounded-md bg-transparent text-gray-600 text-xs transition-all duration-200 hover:bg-gray-100 hover:text-gray-800 flex items-center gap-1 whitespace-nowrap"

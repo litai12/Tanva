@@ -61,9 +61,6 @@ import GenerateProNode from "./nodes/GenerateProNode";
 import GeneratePro4Node from "./nodes/GeneratePro4Node";
 import ImageProNode from "./nodes/ImageProNode";
 import MidjourneyNode from "./nodes/MidjourneyNode";
-import ApiMartSora2Node from "./nodes/ApiMartSora2Node";
-import Xin147Sora2Node from "./nodes/Xin147Sora2Node";
-import ZhenzhenSora2Node from "./nodes/ZhenzhenSora2Node";
 import KlingVideoNode from "./nodes/KlingVideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
@@ -152,9 +149,6 @@ const nodeTypes = {
   sora2Video: Sora2VideoNode,
   wan26: Wan26Node,
   wan2R2V: Wan2R2VNode,
-  apimartSora2: ApiMartSora2Node,
-  xin147Sora2: Xin147Sora2Node,
-  zhenzhenSora2: ZhenzhenSora2Node,
   klingVideo: KlingVideoNode,
   viduVideo: ViduVideoNode,
   doubaoVideo: DoubaoVideoNode,
@@ -311,9 +305,6 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   sora2Video: "40-400", // 视频生成节点 - sora-sd (40) 或 sora-hd (400)
   wan26: 600, // Wan2.6生成视频 - wan26-video
   wan2R2V: 600, // 视频融合 - wan26-r2v
-  apimartSora2: "40-400", // APIMart Sora2 - sora-sd 或 sora-hd
-  xin147Sora2: "40-400", // 新147 Sora2 - sora-sd 或 sora-hd
-  zhenzhenSora2: "40-400", // 贞贞 Sora2 - sora-sd 或 sora-hd
   klingVideo: "40-400", // 可灵视频生成 - 可能使用 sora-sd 或 sora-hd
   viduVideo: "40-400", // Vidu视频生成 - 可能使用 sora-sd 或 sora-hd
   doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
@@ -343,9 +334,6 @@ const NODE_PALETTE_ITEMS = [
   { key: "sora2Video", zh: "视频生成节点", en: "Sora2 Video" },
   { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6 Video" },
   { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V" },
-  { key: "apimartSora2", zh: "APIMart Sora2", en: "APIMart Sora2" },
-  { key: "xin147Sora2", zh: "新147 Sora2", en: "Xin147 Sora2" },
-  { key: "zhenzhenSora2", zh: "贞贞 Sora2", en: "Zhenzhen Sora2" },
   { key: "klingVideo", zh: "可灵视频生成", en: "Kling Video" },
   { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu Video" },
   { key: "doubaoVideo", zh: "豆包视频生成", en: "Doubao Video" },
@@ -2781,9 +2769,6 @@ function FlowInner() {
         | "sora2Video"
         | "wan26"
         | "wan2R2V"
-        | "apimartSora2"
-        | "xin147Sora2"
-        | "zhenzhenSora2"
         | "klingVideo"
         | "viduVideo"
         | "doubaoVideo"
@@ -2811,9 +2796,6 @@ function FlowInner() {
         sora2Video: { w: 280, h: 260 },
         wan26: { w: 300, h: 320 },
         wan2R2V: { w: 300, h: 360 },
-        apimartSora2: { w: 280, h: 260 },
-        xin147Sora2: { w: 280, h: 260 },
-        zhenzhenSora2: { w: 280, h: 260 },
         klingVideo: { w: 280, h: 260 },
         viduVideo: { w: 280, h: 260 },
         doubaoVideo: { w: 280, h: 260 },
@@ -2953,7 +2935,7 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
-          : type === "apimartSora2" || type === "xin147Sora2" || type === "zhenzhenSora2" || type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
+          : type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
           ? {
               status: "idle" as const,
               videoUrl: undefined,
@@ -2962,7 +2944,7 @@ function FlowInner() {
               history: [],
               clipDuration: undefined,
               aspectRatio: undefined,
-              provider: type === "apimartSora2" ? "apimart-sora2" : type === "xin147Sora2" ? "xin147-sora2" : type === "zhenzhenSora2" ? "zhenzhen-sora2" : type === "klingVideo" ? "kling" : type === "viduVideo" ? "vidu" : "doubao",
+              provider: type === "klingVideo" ? "kling" : type === "viduVideo" ? "vidu" : "doubao",
               // Vidu 专用参数
               resolution: type === "viduVideo" ? "720p" as const : undefined,
               style: type === "viduVideo" ? "general" as const : undefined,
@@ -3137,6 +3119,30 @@ function FlowInner() {
         return false;
       }
 
+      if (
+        ["klingVideo", "viduVideo", "doubaoVideo"].includes(
+          targetNode.type || ""
+        )
+      ) {
+        if (targetHandle === "image") {
+          return [
+            "image",
+            "imagePro",
+            "generate",
+            "generate4",
+            "generatePro",
+            "generatePro4",
+            "generateRef",
+            "three",
+            "camera",
+          ].includes(sourceNode.type || "");
+        }
+        if (targetHandle === "text") {
+          return textSourceTypes.includes(sourceNode.type || "");
+        }
+        return false;
+      }
+
       // Midjourney 节点连接验证
       if (targetNode.type === "midjourney") {
         if (targetHandle === "text") {
@@ -3297,6 +3303,14 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
       }
+      if (
+        ["klingVideo", "viduVideo", "doubaoVideo"].includes(
+          targetNode?.type || ""
+        )
+      ) {
+        if (params.targetHandle === "image") return true;
+        if (params.targetHandle === "text") return true;
+      }
       // Midjourney 节点连接容量控制
       if (targetNode?.type === "midjourney") {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
@@ -3350,6 +3364,9 @@ function FlowInner() {
           "wan2R2V",
           "storyboardSplit",
           "midjourney",
+          "klingVideo",
+          "viduVideo",
+          "doubaoVideo",
         ];
         if (
           singleTextInputTypes.includes(tgt?.type || "") &&
@@ -3363,7 +3380,13 @@ function FlowInner() {
               )
           );
         }
-        if (tgt?.type === "sora2Video" && params.targetHandle === "image") {
+        if (
+          (tgt?.type === "sora2Video" ||
+            ["klingVideo", "viduVideo", "doubaoVideo"].includes(
+              tgt?.type || ""
+            )) &&
+          params.targetHandle === "image"
+        ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
           let remainingToDrop = Math.max(
             0,
@@ -4891,8 +4914,8 @@ function FlowInner() {
         return;
       }
 
-      // 新的视频生成节点处理逻辑（APIMart Sora2、新147 Sora2、贞贞 Sora2、可灵 Kling、Vidu、豆包 Seedance）
-      const newVideoNodeTypes = ["apimartSora2", "xin147Sora2", "zhenzhenSora2", "klingVideo", "viduVideo", "doubaoVideo"];
+      // 新的视频生成节点处理逻辑（可灵 Kling、Vidu、豆包 Seedance）
+      const newVideoNodeTypes = ["klingVideo", "viduVideo", "doubaoVideo"];
       if (newVideoNodeTypes.includes(node.type || "")) {
         const projectId = useProjectContentStore.getState().projectId;
         const { text: promptText, hasEdge: hasText } =
@@ -4936,7 +4959,7 @@ function FlowInner() {
           typeof (node.data as any)?.aspectRatio === "string"
             ? (node.data as any).aspectRatio
             : "";
-        const provider = (node.data as any)?.provider || "apimart-sora2";
+        const provider = (node.data as any)?.provider || "kling";
 
         const imageEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "image")
@@ -5013,9 +5036,6 @@ function FlowInner() {
           } else if (provider === "vidu" && clipDuration >= 1 && clipDuration <= 10) {
             durationForAPI = clipDuration;
           } else if (provider === "doubao" && [3, 4, 5, 6, 8].includes(clipDuration)) {
-            durationForAPI = clipDuration;
-          } else if ((provider === "apimart-sora2" || provider === "xin147-sora2" || provider === "zhenzhen-sora2") && 
-                     (clipDuration === 10 || clipDuration === 15 || clipDuration === 25)) {
             durationForAPI = clipDuration;
           }
         }
@@ -5112,7 +5132,7 @@ function FlowInner() {
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
-                      ? { ...n, data: { ...n.data, status: "failed", error: "任务生成失败" } }
+                      ? { ...n, data: { ...n.data, status: "failed", error: (queryResult as any).error || "任务生成失败" } }
                       : n
                   )
                 );
@@ -5492,6 +5512,15 @@ function FlowInner() {
           .slice(0, 6);
         imageDatas = collectImages(imgEdges);
       }
+
+      console.log(`[Flow Debug] Node ${nodeId} (${node.type}) 准备运行:`, {
+        prompt: prompt.substring(0, 50) + "...",
+        imageDatasCount: imageDatas.length,
+        imageDatas: imageDatas.map((img) => img?.substring(0, 50) + "..."),
+        imgEdges: currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "img")
+          .map((e) => ({ source: e.source, handle: e.targetHandle })),
+      });
 
       const aspectRatioValue = (() => {
         const raw = (node.data as any)?.aspectRatio;
@@ -6188,7 +6217,10 @@ function FlowInner() {
           ? { ...n, data: { ...n.data, onSend: onSendHandler } }
           : n.type === "sora2Video" ||
             n.type === "wan26" ||
-            n.type === "wan2R2V"
+            n.type === "wan2R2V" ||
+            n.type === "klingVideo" ||
+            n.type === "viduVideo" ||
+            n.type === "doubaoVideo"
           ? { ...n, data: { ...n.data, onRun: runNode } }
           : n
       ),

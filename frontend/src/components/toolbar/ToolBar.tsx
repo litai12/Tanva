@@ -151,12 +151,12 @@ const VerticalSlider: React.FC<{
     >
       {/* 填充的进度条 */}
       <div
-        className="absolute bottom-0 left-0 right-0 bg-gray-800 rounded-full transition-all duration-150"
+        className="absolute bottom-0 left-0 right-0 transition-all duration-150 bg-gray-800 rounded-full"
         style={{ height: `${percentage * 100}%` }}
       />
       {/* 滑块圆圈 */}
       <div
-        className="absolute w-3 h-3 bg-white border-2 border-gray-800 rounded-full shadow-md transition-all duration-150"
+        className="absolute w-3 h-3 transition-all duration-150 bg-white border-2 border-gray-800 rounded-full shadow-md"
         style={{ 
           bottom: `calc(${percentage * 100}% - 6px)`,
           left: '50%',
@@ -779,7 +779,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
               {/* 线条颜色选择器 */}
               <div className="flex flex-col items-center gap-1">
-                <span className="text-xs text-gray-600 font-medium">线条</span>
+                <span className="text-xs font-medium text-gray-600">线条</span>
                 <ColorPicker
                   value={currentColor}
                   onChange={setCurrentColor}
@@ -791,7 +791,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
               {/* 填充控制区域 - 只在支持填充的工具时显示 */}
               {supportsFill(drawMode) && (
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs text-gray-600 font-medium">填充</span>
+                  <span className="text-xs font-medium text-gray-600">填充</span>
                   <ColorPicker
                     value={fillColor}
                     onChange={(color) => {
@@ -813,7 +813,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
               {/* 线宽控制 */}
               <div className="flex flex-col items-center gap-1">
-                <span className="text-xs text-gray-600 font-medium tabular-nums">
+                <span className="text-xs font-medium text-gray-600 tabular-nums">
                   {strokeWidth}
                 </span>
                 <VerticalSlider
@@ -845,7 +845,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">
-          {isEraser ? "切换到画笔" : "切换到橡皮擦"}
+          {isEraser ? "点击切换到画笔" : "点击切换到橡皮擦"}
         </TooltipContent>
       </Tooltip>
 
@@ -871,7 +871,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                文本工具 - 点击空白处创建文本
+                点击空白处使用文本工具
               </TooltipContent>
             </Tooltip>
 
@@ -906,7 +906,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         {/* <Button
           variant="outline"
           size="sm"
-          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
+          className="w-8 h-8 px-2 py-2 border-gray-300 bg-white/50"
           onClick={handleAIEditImage}
           title="AI编辑图像 - 选择画布中的图像或上传图像进行AI编辑"
         >
@@ -917,7 +917,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         {/* <Button
           variant={useOriginalSize ? 'default' : 'outline'}
           size="sm"
-          className="px-2 py-2 h-8 w-8 bg-white/50 border-gray-300"
+          className="w-8 h-8 px-2 py-2 border-gray-300 bg-white/50"
           onClick={toggleOriginalSizeMode}
           title={useOriginalSize ? '当前：原始尺寸模式 (1像素=1像素)' : '当前：自适应模式 (自动缩放)'}
         >
@@ -997,7 +997,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
                 }}
                 variant="outline"
                 size="sm"
-                className="p-0 h-8 w-8 rounded-full bg-white/50 border-gray-300 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+                className="w-8 h-8 p-0 border-gray-300 rounded-full bg-white/50 hover:bg-red-50 hover:border-red-200 hover:text-red-600"
               >
                 <Trash2 className="w-4 h-4" />
               </Button>

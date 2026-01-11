@@ -220,7 +220,7 @@ const MyCredits: React.FC = () => {
       .reduce((sum, t) => sum + Math.abs(t.amount), 0);
   }, [transactions]);
 
-  // 本周消耗
+  // 最近7天消耗
   const weekSpent = useMemo(() => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -350,7 +350,7 @@ const MyCredits: React.FC = () => {
             <div className="p-5 bg-white shadow-sm rounded-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium text-slate-700">消耗趋势（最近14天）</h3>
-                <div className="text-xs text-slate-500">本周消耗: {weekSpent} 积分</div>
+                <div className="text-xs text-slate-500">最近7天消耗：{weekSpent} 积分</div>
               </div>
               <SimpleLineChart data={dailyUsageData} color="#3b82f6" height={140} />
             </div>

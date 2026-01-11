@@ -17,7 +17,7 @@ import { DEFAULT_CONTEXT_CONFIG } from "@/types/context";
 const MEMORY_OPTIMIZATION = {
   maxSessions: 20, // 最多保留20个会话
   maxMessagesPerSession: 100, // 每个会话最多100条消息
-  maxImageCacheSize: 5 * 1024 * 1024, // 图片缓存最大5MB
+  maxImageCacheSize: 2 * 1024 * 1024, // 图片缓存最大阈值降低到2MB (P0 优化)
   maxVideoMessagesPerSession: 20, // 每个会话最多保留20条视频消息
   videoExpiryMs: 24 * 60 * 60 * 1000, // 视频消息24小时后过期
   cleanupIntervalMs: 5 * 60 * 1000, // 每5分钟清理一次
@@ -261,16 +261,50 @@ class ContextManager implements IContextManager {
     for (const [sessionId, context] of this.contexts.entries()) {
       // 清理消息中的大型 base64 数据
       let trimmedCount = 0;
-      context.messages = context.messages.map((msg) => {
-        // 如果消息有 imageData 是 base64 且很大，移除它
-        if (
-          msg.imageData &&
-          isBase64Data(msg.imageData) &&
-          msg.imageData.length > MEMORY_OPTIMIZATION.maxImageCacheSize
-        ) {
-          trimmedCount++;
-          return { ...msg, imageData: undefined };
+      context.messages = context.messages.map((msg, index) => {
+        // 🛑 内存优化：只有在有替代品（远程URL或缩略图）且不是最近几条消息时，才清理大型 Base64
+        // 这可以防止正在进行的对话图片突然消失，同时回收历史消息的内存
+        const isOldMessage = index < context.messages.length - 3;
+        const hasAlternative = !!(msg.imageRemoteUrl || msg.thumbnail);
+        const isLarge = (data?: string | null) =>
+          data &&
+          isBase64Data(data) &&
+          data.length > MEMORY_OPTIMIZATION.maxImageCacheSize;
+
+        if (isOldMessage && hasAlternative) {
+          const next = { ...msg };
+          let changed = false;
+
+          if (isLarge(next.imageData)) {
+            next.imageData = undefined;
+            trimmedCount++;
+            changed = true;
+          }
+
+          if (isLarge(next.sourceImageData)) {
+            next.sourceImageData = undefined;
+            trimmedCount++;
+            changed = true;
+          }
+
+          if (Array.isArray(next.sourceImagesData)) {
+            const filtered = next.sourceImagesData.filter((item) => {
+              if (isLarge(item)) {
+                trimmedCount++;
+                return false;
+              }
+              return true;
+            });
+            if (filtered.length !== next.sourceImagesData.length) {
+              next.sourceImagesData =
+                filtered.length > 0 ? filtered : undefined;
+              changed = true;
+            }
+          }
+
+          if (changed) return next;
         }
+
         const next = { ...msg };
 
         if (
