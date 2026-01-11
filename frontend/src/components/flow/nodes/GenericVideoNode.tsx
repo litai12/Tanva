@@ -5,9 +5,6 @@ import GenerationProgressBar from './GenerationProgressBar';
 import { useAuthStore } from '@/stores/authStore';
 
 export type VideoProvider = 
-  | 'apimart-sora2'
-  | 'xin147-sora2'
-  | 'zhenzhen-sora2'
   | 'kling'
   | 'vidu'
   | 'doubao';
@@ -46,9 +43,6 @@ type DownloadFeedback = {
 };
 
 const PROVIDER_CONFIG: Record<VideoProvider, { name: string; zh: string }> = {
-  'apimart-sora2': { name: 'APIMart Sora2', zh: 'APIMart Sora2' },
-  'xin147-sora2': { name: '新147 Sora2', zh: '新147 Sora2' },
-  'zhenzhen-sora2': { name: '贞贞 Sora2', zh: '贞贞 Sora2' },
   'kling': { name: '可灵 Kling', zh: '可灵视频生成' },
   'vidu': { name: 'Vidu', zh: 'Vidu视频生成' },
   'doubao': { name: '豆包 Seedance', zh: '豆包视频生成' },
@@ -66,10 +60,9 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
   const [downloadFeedback, setDownloadFeedback] = React.useState<DownloadFeedback | null>(null);
   const downloadFeedbackTimer = React.useRef<number | undefined>(undefined);
   const user = useAuthStore((state) => state.user);
-  const isAdmin = user?.role === 'admin';
   
-  const provider = data.provider || 'apimart-sora2';
-  const providerInfo = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG['apimart-sora2'];
+  const provider = data.provider || 'kling';
+  const providerInfo = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG['kling'];
 
   const sanitizeMediaUrl = React.useCallback((url?: string | null) => {
     if (!url || typeof url !== 'string') return undefined;
@@ -197,16 +190,11 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
         { label: '8秒', value: 8 },
       ];
     }
-    // Sora2 系列
-    return [
-      { label: '10秒', value: 10 },
-      { label: '15秒', value: 15 },
-      { label: '25秒', value: 25, locked: !isAdmin },
-    ];
+    return [];
   };
 
   const aspectOptions = React.useMemo(() => getAspectOptions(), [provider]);
-  const durationOptions = React.useMemo(() => getDurationOptions(), [provider, isAdmin]);
+  const durationOptions = React.useMemo(() => getDurationOptions(), [provider]);
 
   const handleAspectChange = React.useCallback((value: string) => {
     if (value === aspectRatioValue) return;
@@ -674,7 +662,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
             }}
           >
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {durationOptions.map((option) => {
+              {durationOptions.map((option: any) => {
                 const isActive = option.value === clipDuration;
                 const isLocked = option.locked;
                 return (
