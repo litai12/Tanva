@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { VideoProviderRequestDto } from "../dto/video-provider.dto";
+import { OssService } from "../../oss/oss.service";
 
 export interface VideoGenerationResult {
   taskId: string;
@@ -15,6 +16,45 @@ export interface VideoGenerationResult {
 @Injectable()
 export class VideoProviderService {
   private readonly logger = new Logger(VideoProviderService.name);
+
+  constructor(private readonly oss: OssService) {}
+
+  // 上传 Base64 图片到 OSS 并返回 URL
+  private async uploadBase64ImageToOSS(
+    base64Data: string,
+    mimeType: string = "image/png"
+  ): Promise<string> {
+    try {
+      // 去除 data URI 前缀（如有）
+      const cleanBase64 = base64Data.includes("base64,")
+        ? base64Data.split("base64,")[1]
+        : base64Data;
+
+      // 转换为 Buffer
+      const imageBuffer = Buffer.from(cleanBase64, "base64");
+
+      // 生成唯一的文件名
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 8);
+      const extension = mimeType.split("/")[1] || "png";
+      const key = `ai/images/kling-inputs/${timestamp}-${randomId}.${extension}`;
+
+      // 上传到 OSS
+      const result = await this.oss.putStream(
+        key,
+        require("stream").Readable.from(imageBuffer),
+        {
+          headers: { "Content-Type": mimeType },
+        }
+      );
+
+      this.logger.log(`📤 Uploaded image to OSS: ${result.url}`);
+      return result.url;
+    } catch (error) {
+      this.logger.error(`❌ Failed to upload image to OSS: ${error}`);
+      throw error;
+    }
+  }
 
   // 将要发送给外部提供商的请求体安全日志化（截断超长字段）
   private logProviderPayload(provider: string, payload: any) {
@@ -236,13 +276,13 @@ export class VideoProviderService {
     };
 
     if (isImageToVideo) {
-      // Kling 要求纯 Base64，去除 data URI 前缀
-      const base64Data = options.referenceImages![0];
-      payload.image = base64Data.includes("base64,")
-        ? base64Data.split("base64,")[1]
-        : base64Data;
+      // 先上传图片到 OSS，然后使用 URL 而不是 Base64，以避免 524 超时
+      const imageUrl = await this.uploadBase64ImageToOSS(
+        options.referenceImages![0]
+      );
+      payload.image = imageUrl;
     }
-    // log payload before sending
+    // log payload before sending (图片 URL 不需要截断)
     this.logProviderPayload("kling", payload);
 
     const response = await fetch(endpoint, {
@@ -255,14 +295,27 @@ export class VideoProviderService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const textBody = await response.text().catch(() => "");
+      const headers = {};
+      response.headers.forEach((v, k) => (headers[k] = v));
+
       this.logger.error(
-        `❌ Kling 生成失败: HTTP ${response.status}, error=${JSON.stringify(
-          error
-        )}`
+        `❌ Kling 生成失败: HTTP ${response.status}, payload_size=${
+          JSON.stringify(payload).length
+        } bytes, image_size=${
+          payload.image?.length || 0
+        } chars, response_text=${textBody.slice(
+          0,
+          1000
+        )}, headers=${JSON.stringify(headers)}`
       );
+
+      const error = textBody ? JSON.parse(textBody).catch(() => ({})) : {};
       throw new Error(
-        error.error?.message || error.message || `HTTP ${response.status}`
+        error.error?.message ||
+          error.message ||
+          textBody ||
+          `HTTP ${response.status}`
       );
     }
 
