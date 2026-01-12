@@ -52,11 +52,30 @@ export function proxifyRemoteAssetUrl(input: string): string {
     return value;
   }
 
-  // 对普通视频资源（非 presigned），在开发环境下通过前端 proxy 转发以避免 CORS
+  // 对普通视频资源（非 presigned），优先直接使用已知允许的 OSS/CDN 主机的原始 URL（避免代理签名或触发网关限制）。
+  // 仅在目标主机不在允许列表时，才使用前端 proxy（或根据 proxyEnabled 决定）。
   if (looksLikeVideo) {
-    const frontendBase = import.meta.env.DEV
-      ? "http://localhost:5173"
-      : apiBase;
+    try {
+      const url = new URL(value);
+      const allowedHosts = [
+        ".aliyuncs.com",
+        "models.kapon.cloud",
+        "kechuangai.com",
+        "volces.com",
+        "volcengine.com",
+      ];
+      const isAllowed = allowedHosts.some(
+        (host) => url.hostname === host || url.hostname.endsWith(host)
+      );
+      if (isAllowed) {
+        // 直接使用 OSS/CDN 原始 URL（不要通过前端 proxy），以便 video 元素直接请求
+        return value;
+      }
+    } catch {
+      // fallthrough to proxy behavior if URL is invalid
+    }
+
+    const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
     return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
   }
 
