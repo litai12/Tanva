@@ -75,7 +75,9 @@ export function proxifyRemoteAssetUrl(input: string): string {
       // fallthrough to proxy behavior if URL is invalid
     }
 
-    const frontendBase = import.meta.env.DEV ? "http://localhost:5173" : apiBase;
+    const frontendBase = import.meta.env.DEV
+      ? "http://localhost:5173"
+      : apiBase;
     return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
   }
 

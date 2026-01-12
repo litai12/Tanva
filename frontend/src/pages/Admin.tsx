@@ -1089,7 +1089,7 @@ function TemplatesTab() {
       }
 
       // 验证文件类型
-      if (!file.name.toLowerCase().endsWith('.json')) {
+      if (!file.name.toLowerCase().endsWith(".json")) {
         alert("请选择JSON格式的文件");
         return;
       }
@@ -1104,13 +1104,19 @@ function TemplatesTab() {
       }
 
       // 将 maxSize 一并传给 presign，确保后端生成的 policy 匹配前端校验
-      const url = await uploadFileToOSS(file, "templates/json/", 32 * 1024 * 1024);
+      const url = await uploadFileToOSS(
+        file,
+        "templates/json/",
+        32 * 1024 * 1024
+      );
       // presign strategy returns host/key url; we need the key to let backend fetch
       // extract key from returned url (host/.../key)
       const urlObj = new URL(url);
-      const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+      const key = urlObj.pathname.startsWith("/")
+        ? urlObj.pathname.slice(1)
+        : urlObj.pathname;
 
-      if (!key || key.trim() === '') {
+      if (!key || key.trim() === "") {
         throw new Error("无法提取文件key，请重试");
       }
 
@@ -1131,10 +1137,18 @@ function TemplatesTab() {
 
     // 总是使用 credentials: 'include'，以便浏览器发送 cookie（后端使用 cookie 验证）
     // 同时如果 localStorage 中存在 token，则也带上 Authorization 作为备选认证方式
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
     if (token) headers.Authorization = `Bearer ${token}`;
 
-    const resp = await fetch("/api/uploads/presign", {
+    const API_BASE =
+      import.meta.env.VITE_API_BASE_URL &&
+      import.meta.env.VITE_API_BASE_URL.trim().length > 0
+        ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
+        : "http://localhost:4000";
+
+    const resp = await fetch(`${API_BASE}/api/uploads/presign`, {
       method: "POST",
       headers,
       credentials: "include",
@@ -1143,7 +1157,9 @@ function TemplatesTab() {
 
     if (!resp.ok) {
       const errorData = await resp.json().catch(() => ({}));
-      throw new Error(`获取上传凭证失败: ${errorData.message || resp.statusText}`);
+      throw new Error(
+        `获取上传凭证失败: ${errorData.message || resp.statusText}`
+      );
     }
 
     const presign = await resp.json();
@@ -1166,7 +1182,11 @@ function TemplatesTab() {
 
     if (!uploadResp.ok) {
       const errorText = await uploadResp.text().catch(() => "");
-      throw new Error(`上传到OSS失败 (${uploadResp.status}): ${errorText || uploadResp.statusText}`);
+      throw new Error(
+        `上传到OSS失败 (${uploadResp.status}): ${
+          errorText || uploadResp.statusText
+        }`
+      );
     }
 
     return `${presign.host}/${key}`;
