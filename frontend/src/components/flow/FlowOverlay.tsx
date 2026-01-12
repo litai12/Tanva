@@ -2070,31 +2070,34 @@ function FlowInner() {
     []
   );
 
-  const normalizeStableRemoteUrl = React.useCallback((input: string): string => {
-    const value = input.trim();
-    if (!value) return input;
+  const normalizeStableRemoteUrl = React.useCallback(
+    (input: string): string => {
+      const value = input.trim();
+      if (!value) return input;
 
-    // Avoid exporting environment-dependent proxy URLs; keep the original remote URL.
-    try {
-      const url = new URL(
-        value,
-        typeof window !== "undefined"
-          ? window.location.origin
-          : "http://localhost"
-      );
-      const isProxy =
-        url.pathname === "/api/assets/proxy" ||
-        url.pathname === "/assets/proxy" ||
-        value.startsWith("/api/assets/proxy") ||
-        value.startsWith("/assets/proxy");
-      if (isProxy) {
-        const raw = url.searchParams.get("url");
-        if (raw) return decodeURIComponent(raw);
-      }
-    } catch {}
+      // Avoid exporting environment-dependent proxy URLs; keep the original remote URL.
+      try {
+        const url = new URL(
+          value,
+          typeof window !== "undefined"
+            ? window.location.origin
+            : "http://localhost"
+        );
+        const isProxy =
+          url.pathname === "/api/assets/proxy" ||
+          url.pathname === "/assets/proxy" ||
+          value.startsWith("/api/assets/proxy") ||
+          value.startsWith("/assets/proxy");
+        if (isProxy) {
+          const raw = url.searchParams.get("url");
+          if (raw) return decodeURIComponent(raw);
+        }
+      } catch {}
 
-    return value;
-  }, []);
+      return value;
+    },
+    []
+  );
 
   // 导出时的状态
   const [isExporting, setIsExporting] = React.useState(false);
@@ -4530,7 +4533,11 @@ function FlowInner() {
           ) {
             img = data.imageData;
           }
-          if (!img && typeof data?.imageUrl === "string" && data.imageUrl.length) {
+          if (
+            !img &&
+            typeof data?.imageUrl === "string" &&
+            data.imageUrl.length
+          ) {
             img = data.imageUrl;
           }
           return img;
@@ -4642,22 +4649,22 @@ function FlowInner() {
         try {
           let imgUrl: string | undefined = undefined;
 
-	          if (hasImageInput) {
-	            const imageDatas = collectImages(imageEdges);
-	            if (!imageDatas.length) throw new Error("图片输入为空");
-	            for (const img of imageDatas) {
-	              const trimmed = typeof img === "string" ? img.trim() : "";
-	              if (!trimmed) continue;
-	              if (isRemoteUrl(trimmed)) {
-	                imgUrl = normalizeStableRemoteUrl(trimmed);
-	                continue;
-	              }
-	              const dataUrl = ensureDataUrl(trimmed);
-	              const uploaded = await uploadImageToOSS(dataUrl, projectId);
-	              if (!uploaded) throw new Error("图片上传失败");
-	              imgUrl = uploaded;
-	            }
-	          }
+          if (hasImageInput) {
+            const imageDatas = collectImages(imageEdges);
+            if (!imageDatas.length) throw new Error("图片输入为空");
+            for (const img of imageDatas) {
+              const trimmed = typeof img === "string" ? img.trim() : "";
+              if (!trimmed) continue;
+              if (isRemoteUrl(trimmed)) {
+                imgUrl = normalizeStableRemoteUrl(trimmed);
+                continue;
+              }
+              const dataUrl = ensureDataUrl(trimmed);
+              const uploaded = await uploadImageToOSS(dataUrl, projectId);
+              if (!uploaded) throw new Error("图片上传失败");
+              imgUrl = uploaded;
+            }
+          }
 
           const size = (node.data as any)?.size || "16:9";
           const resolution = (node.data as any)?.resolution || "720P";
@@ -5006,42 +5013,42 @@ function FlowInner() {
           .slice(0, SORA2_MAX_REFERENCE_IMAGES);
         const referenceImages = collectImages(imageEdges);
 
-	        const generationStartMs = Date.now();
-	        const referenceImageUrls: string[] = [];
-	        if (referenceImages.length) {
-	          try {
-	            for (const img of referenceImages) {
-	              const trimmed = typeof img === "string" ? img.trim() : "";
-	              if (!trimmed) continue;
-	              if (isRemoteUrl(trimmed)) {
-	                referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
-	                continue;
-	              }
-	              const dataUrl = ensureDataUrl(trimmed);
-	              const uploaded = await uploadImageToOSS(dataUrl, projectId);
-	              if (!uploaded) {
-	                setNodes((ns) =>
-	                  ns.map((n) =>
-	                    n.id === nodeId
-	                      ? {
-	                          ...n,
-	                          data: {
-	                            ...n.data,
-	                            status: "failed",
-	                            error: "参考图上传失败",
-	                          },
-	                        }
-	                      : n
-	                  )
-	                );
-	                return;
-	              }
-	              referenceImageUrls.push(uploaded);
-	            }
-	          } catch (error) {
-	            const msg =
-	              error instanceof Error ? error.message : "参考图上传失败";
-	            setNodes((ns) =>
+        const generationStartMs = Date.now();
+        const referenceImageUrls: string[] = [];
+        if (referenceImages.length) {
+          try {
+            for (const img of referenceImages) {
+              const trimmed = typeof img === "string" ? img.trim() : "";
+              if (!trimmed) continue;
+              if (isRemoteUrl(trimmed)) {
+                referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
+                continue;
+              }
+              const dataUrl = ensureDataUrl(trimmed);
+              const uploaded = await uploadImageToOSS(dataUrl, projectId);
+              if (!uploaded) {
+                setNodes((ns) =>
+                  ns.map((n) =>
+                    n.id === nodeId
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            status: "failed",
+                            error: "参考图上传失败",
+                          },
+                        }
+                      : n
+                  )
+                );
+                return;
+              }
+              referenceImageUrls.push(uploaded);
+            }
+          } catch (error) {
+            const msg =
+              error instanceof Error ? error.message : "参考图上传失败";
+            setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
                   ? { ...n, data: { ...n.data, status: "failed", error: msg } }
@@ -7248,143 +7255,147 @@ function FlowInner() {
     [setNodes, setEdges]
   );
 
-	  const saveCurrentAsTemplate = React.useCallback(async () => {
-	    const allNodes = rf.getNodes();
-	    const selected = allNodes.filter((n: any) => n.selected);
-	    const nodesToSave = selected.length ? selected : allNodes;
-	    if (!nodesToSave.length) return;
+  const saveCurrentAsTemplate = React.useCallback(async () => {
+    const allNodes = rf.getNodes();
+    const selected = allNodes.filter((n: any) => n.selected);
+    const nodesToSave = selected.length ? selected : allNodes;
+    if (!nodesToSave.length) return;
     const edgesAll = rf.getEdges();
     const nodeIdSet = new Set(nodesToSave.map((n) => n.id));
     const edgesToSave = edgesAll.filter(
       (e) => nodeIdSet.has(e.source) && nodeIdSet.has(e.target)
     );
-	    const name =
-	      prompt("模板名称", `模板_${new Date().toLocaleString()}`) ||
-	      `模板_${Date.now()}`;
-	    const id = generateId("tpl");
-	    const minX = Math.min(...nodesToSave.map((n) => n.position.x));
-	    const minY = Math.min(...nodesToSave.map((n) => n.position.y));
-	    try {
-	      const templateNodes = await Promise.all(
-	        nodesToSave.map(async (n: any) => {
-	          const raw = { ...(n.data || {}) };
-	          delete raw.onRun;
-	          delete raw.onSend;
-	          const data: any = sanitizeNodeData(raw) || {};
-	          delete data.status;
-	          delete data.error;
-	          delete data.taskId;
-	          delete data.buttons;
-	          delete data.lastHistoryId;
+    const name =
+      prompt("模板名称", `模板_${new Date().toLocaleString()}`) ||
+      `模板_${Date.now()}`;
+    const id = generateId("tpl");
+    const minX = Math.min(...nodesToSave.map((n) => n.position.x));
+    const minY = Math.min(...nodesToSave.map((n) => n.position.y));
+    try {
+      const templateNodes = await Promise.all(
+        nodesToSave.map(async (n: any) => {
+          const raw = { ...(n.data || {}) };
+          delete raw.onRun;
+          delete raw.onSend;
+          const data: any = sanitizeNodeData(raw) || {};
+          delete data.status;
+          delete data.error;
+          delete data.taskId;
+          delete data.buttons;
+          delete data.lastHistoryId;
 
-	          const nodeType = String(n.type || "");
+          const nodeType = String(n.type || "");
 
-	          // 多图：仅存 imageUrls，避免 base64 过大
-	          const rawImages: unknown[] = Array.isArray(data.images) ? data.images : [];
-	          const rawImageUrls: unknown[] = Array.isArray(data.imageUrls) ? data.imageUrls : [];
-		          if (rawImages.length || rawImageUrls.length) {
-		            const len = Math.max(rawImages.length, rawImageUrls.length);
-		            const urls: string[] = [];
-		            for (let i = 0; i < len; i += 1) {
-		              const candidate = rawImageUrls[i] ?? rawImages[i];
-		              const candidateStr =
-		                typeof candidate === "string" ? candidate.trim() : "";
-		              if (!candidateStr) {
-		                const historyUrl =
-		                  nodeType === "generatePro4"
-		                    ? getHistoryRemoteUrlForNode(String(n.id), i)
-		                    : null;
-		                urls.push(historyUrl || "");
-		                continue;
-		              }
-		              if (isRemoteUrl(candidateStr)) {
-		                urls.push(normalizeStableRemoteUrl(candidateStr));
-		              } else {
-		                urls.push(
-		                  await uploadImageToStableUrl(
-		                    candidateStr,
-		                    `flow_template_${id}_${String(n.id)}_${i + 1}.png`
-		                  )
-		                );
-		              }
-		            }
-		            data.imageUrls = urls;
-		            delete data.images;
-		            delete data.imageData;
-		          }
+          // 多图：仅存 imageUrls，避免 base64 过大
+          const rawImages: unknown[] = Array.isArray(data.images)
+            ? data.images
+            : [];
+          const rawImageUrls: unknown[] = Array.isArray(data.imageUrls)
+            ? data.imageUrls
+            : [];
+          if (rawImages.length || rawImageUrls.length) {
+            const len = Math.max(rawImages.length, rawImageUrls.length);
+            const urls: string[] = [];
+            for (let i = 0; i < len; i += 1) {
+              const candidate = rawImageUrls[i] ?? rawImages[i];
+              const candidateStr =
+                typeof candidate === "string" ? candidate.trim() : "";
+              if (!candidateStr) {
+                const historyUrl =
+                  nodeType === "generatePro4"
+                    ? getHistoryRemoteUrlForNode(String(n.id), i)
+                    : null;
+                urls.push(historyUrl || "");
+                continue;
+              }
+              if (isRemoteUrl(candidateStr)) {
+                urls.push(normalizeStableRemoteUrl(candidateStr));
+              } else {
+                urls.push(
+                  await uploadImageToStableUrl(
+                    candidateStr,
+                    `flow_template_${id}_${String(n.id)}_${i + 1}.png`
+                  )
+                );
+              }
+            }
+            data.imageUrls = urls;
+            delete data.images;
+            delete data.imageData;
+          }
 
-	          // 单图：仅存 imageUrl，避免 base64 过大
-	          const candidateSingle =
-	            (typeof data.imageUrl === "string" && data.imageUrl.trim()
-	              ? data.imageUrl
-	              : undefined) ??
-	            (typeof data.imageData === "string" && data.imageData.trim()
-	              ? data.imageData
-	              : undefined);
-		          if (candidateSingle) {
-		            const candidateStr = String(candidateSingle).trim();
-		            if (isRemoteUrl(candidateStr)) {
-		              data.imageUrl = normalizeStableRemoteUrl(candidateStr);
-		            } else {
-		              data.imageUrl = await uploadImageToStableUrl(
-		                candidateStr,
-		                `flow_template_${id}_${String(n.id)}.png`
-		              );
-		            }
-		            delete data.imageData;
-		          } else if (
-		            typeof data.imageData === "string" ||
-		            typeof data.imageUrl === "string"
-		          ) {
-		            delete data.imageData;
-		          } else {
-		            const historyUrl = getHistoryRemoteUrlForNode(String(n.id));
-		            if (historyUrl) data.imageUrl = historyUrl;
-		          }
+          // 单图：仅存 imageUrl，避免 base64 过大
+          const candidateSingle =
+            (typeof data.imageUrl === "string" && data.imageUrl.trim()
+              ? data.imageUrl
+              : undefined) ??
+            (typeof data.imageData === "string" && data.imageData.trim()
+              ? data.imageData
+              : undefined);
+          if (candidateSingle) {
+            const candidateStr = String(candidateSingle).trim();
+            if (isRemoteUrl(candidateStr)) {
+              data.imageUrl = normalizeStableRemoteUrl(candidateStr);
+            } else {
+              data.imageUrl = await uploadImageToStableUrl(
+                candidateStr,
+                `flow_template_${id}_${String(n.id)}.png`
+              );
+            }
+            delete data.imageData;
+          } else if (
+            typeof data.imageData === "string" ||
+            typeof data.imageUrl === "string"
+          ) {
+            delete data.imageData;
+          } else {
+            const historyUrl = getHistoryRemoteUrlForNode(String(n.id));
+            if (historyUrl) data.imageUrl = historyUrl;
+          }
 
-	          return {
-	            id: n.id,
-	            type: n.type || "default",
-	            position: { x: n.position.x - minX, y: n.position.y - minY },
-	            data,
-	            boxW: (n as any).data?.boxW,
-	            boxH: (n as any).data?.boxH,
-	          };
-	        })
-	      );
+          return {
+            id: n.id,
+            type: n.type || "default",
+            position: { x: n.position.x - minX, y: n.position.y - minY },
+            data,
+            boxW: (n as any).data?.boxW,
+            boxH: (n as any).data?.boxH,
+          };
+        })
+      );
 
-	      const tpl: FlowTemplate = {
-	        schemaVersion: 1,
-	        id,
-	        name,
-	        nodes: templateNodes as any,
-	        edges: edgesToSave.map((e) => ({
-	          id: e.id,
-	          source: e.source,
-	          target: e.target,
-	          sourceHandle: (e as any).sourceHandle,
-	          targetHandle: (e as any).targetHandle,
-	          type: e.type || "default",
-	          label: typeof e.label === "string" ? e.label : undefined,
-	        })) as any,
-	      };
-	      await saveUserTemplate(tpl);
-	      const list = await listUserTemplates();
-	      setUserTplList(list);
-	      alert("已保存为模板");
-	    } catch (error) {
-	      console.error("保存模板失败", error);
-	      alert("保存模板失败：图片上传或模板序列化失败，请重试");
-	    }
-	  }, [
-	    getHistoryRemoteUrlForNode,
-	    isRemoteUrl,
-	    normalizeStableRemoteUrl,
-	    rf,
-	    sanitizeNodeData,
-	    setUserTplList,
-	    uploadImageToStableUrl,
-	  ]);
+      const tpl: FlowTemplate = {
+        schemaVersion: 1,
+        id,
+        name,
+        nodes: templateNodes as any,
+        edges: edgesToSave.map((e) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: (e as any).sourceHandle,
+          targetHandle: (e as any).targetHandle,
+          type: e.type || "default",
+          label: typeof e.label === "string" ? e.label : undefined,
+        })) as any,
+      };
+      await saveUserTemplate(tpl);
+      const list = await listUserTemplates();
+      setUserTplList(list);
+      alert("已保存为模板");
+    } catch (error) {
+      console.error("保存模板失败", error);
+      alert("保存模板失败：图片上传或模板序列化失败，请重试");
+    }
+  }, [
+    getHistoryRemoteUrlForNode,
+    isRemoteUrl,
+    normalizeStableRemoteUrl,
+    rf,
+    sanitizeNodeData,
+    setUserTplList,
+    uploadImageToStableUrl,
+  ]);
 
   return (
     <div
