@@ -87,10 +87,10 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
 
   const cacheBustedVideoUrl = React.useMemo(() => {
     if (!sanitizedVideoUrl) return undefined;
-    // 如果是 presigned 链接（包含 X-Amz 等签名字段），不要添加 cache-bust 参数（会导致签名失效）
+    // 如果是 presigned 链接（包含 X-Amz / X-Tos 等签名字段），不要添加 cache-bust 参数（会导致签名失效）
     const isPresigned =
-      /[?&]X-Amz[-_]/i.test(sanitizedVideoUrl) ||
-      /x-amz-/i.test(sanitizedVideoUrl);
+      /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(sanitizedVideoUrl) ||
+      /x-amz-|x-tos-/i.test(sanitizedVideoUrl);
     if (isPresigned) return sanitizedVideoUrl;
     const version = Number(data.videoVersion || 0);
     const separator = sanitizedVideoUrl.includes("?") ? "&" : "?";

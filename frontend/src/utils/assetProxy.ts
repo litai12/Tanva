@@ -44,7 +44,7 @@ export function proxifyRemoteAssetUrl(input: string): string {
   // 判断是否为视频资源或 presigned 链接（例如包含 X-Amz-* 参数）
   const looksLikeVideo = /\.(mp4|webm|m3u8)(\?|$)/i.test(value);
   const looksLikePresigned =
-    /[?&]X-Amz[-_]/i.test(value) || /x-amz-/i.test(value);
+    /[?&](?:X-Amz|X-Tos)[^=]*=/i.test(value) || /x-amz-|x-tos-/i.test(value);
 
   // 对 presigned 链接：**直接返回原始 URL**，不要代理或修改（否则会破坏签名）。
   // 前提是目标 S3/OSS 已正确配置 CORS，允许浏览器直接请求。
