@@ -5,6 +5,10 @@ type RequestInput = RequestInfo | URL;
 
 let refreshPromise: Promise<boolean> | null = null;
 
+// 防止 auth-expired 事件重复触发
+let lastAuthExpiredTime = 0;
+const AUTH_EXPIRED_DEBOUNCE_MS = 3000; // 3秒内不重复触发
+
 async function ensureRefresh(): Promise<boolean> {
   if (!refreshPromise) {
     refreshPromise = fetch('/api/auth/refresh', {
@@ -36,6 +40,13 @@ const normalizeInit = (init?: RequestInit): RequestInit => ({
  * 优雅降级：触发登录弹窗事件，而非强制跳转
  */
 function handleUnauthorized() {
+  const now = Date.now();
+  // 防抖：3秒内不重复触发 auth-expired 事件
+  if (now - lastAuthExpiredTime < AUTH_EXPIRED_DEBOUNCE_MS) {
+    return;
+  }
+  lastAuthExpiredTime = now;
+
   // 触发登录弹窗事件（优雅降级）
   try {
     window.dispatchEvent(new CustomEvent('auth-expired'));

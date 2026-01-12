@@ -2,6 +2,7 @@ import React from "react";
 import { Handle, Position } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 type Props = {
   id: string;
@@ -9,6 +10,7 @@ type Props = {
     status?: "idle" | "running" | "succeeded" | "failed";
     error?: string;
     images?: string[];
+    imageUrls?: string[];
     thumbnails?: string[];
     count?: number;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
@@ -26,13 +28,14 @@ const buildImageSrc = (value?: string): string => {
   if (!trimmed) return "";
   if (trimmed.startsWith("data:image")) return trimmed;
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return trimmed;
+    return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
 function Generate4NodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const images = data.images || [];
+  const imageUrls = data.imageUrls || [];
   const thumbnails = data.thumbnails || [];
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
@@ -81,7 +84,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
 
   // 2x2 网格渲染单元
   const renderCell = (idx: number) => {
-    const img = images[idx];
+    const img = imageUrls[idx] || images[idx];
     const thumb = thumbnails[idx];
     const displaySrc = thumb ? buildImageSrc(thumb) : (img ? buildImageSrc(img) : '');
     const isLoading = status === "running" && idx >= images.length;
@@ -145,12 +148,12 @@ function Generate4NodeInner({ id, data, selected }: Props) {
   // 预览用集合
   const previewCollection = React.useMemo(
     () =>
-      images.map((b64, i) => ({
+      (imageUrls.length ? imageUrls : images).map((value, i) => ({
         id: `${id}-${i}`,
-        src: buildImageSrc(b64),
+        src: buildImageSrc(value),
         title: `第 ${i + 1} 张`,
       })),
-    [images, id]
+    [images, imageUrls, id]
   );
 
   const boxW = data.boxW || 300;

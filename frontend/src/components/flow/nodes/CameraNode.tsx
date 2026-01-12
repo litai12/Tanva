@@ -6,10 +6,11 @@ import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 type Props = {
   id: string;
-  data: { imageData?: string; boxW?: number; boxH?: number };
+  data: { imageData?: string; imageUrl?: string; boxW?: number; boxH?: number };
   selected?: boolean;
 };
 
@@ -18,11 +19,14 @@ function CameraNodeInner({ id, data, selected }: Props) {
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
-  const src = data.imageData
-    ? data.imageData.trim().startsWith("data:image")
-      ? data.imageData
-      : `data:image/png;base64,${data.imageData}`
-    : undefined;
+  const src = (() => {
+    const raw = (data.imageData || data.imageUrl)?.trim();
+    if (!raw) return undefined;
+    if (raw.startsWith("data:image")) return raw;
+    if (raw.startsWith("http://") || raw.startsWith("https://"))
+      return proxifyRemoteAssetUrl(raw);
+    return `data:image/png;base64,${raw}`;
+  })();
   const borderColor = selected ? "#2563eb" : "#e5e7eb";
   const boxShadow = selected
     ? "0 0 0 2px rgba(37,99,235,0.12)"
@@ -111,11 +115,15 @@ function CameraNodeInner({ id, data, selected }: Props) {
   };
 
   const sendToCanvas = () => {
-    const img = data.imageData;
+    const img = data.imageData || data.imageUrl;
     if (!img) return;
-    const dataUrl = img.trim().startsWith("data:image")
-      ? img
-      : `data:image/png;base64,${img}`;
+    const trimmed = img.trim();
+    const dataUrl =
+      trimmed.startsWith("http://") || trimmed.startsWith("https://")
+        ? trimmed
+        : trimmed.startsWith("data:image")
+          ? trimmed
+          : `data:image/png;base64,${trimmed}`;
     const fileName = `capture_${Date.now()}.png`;
     window.dispatchEvent(
       new CustomEvent("triggerQuickImageUpload", {

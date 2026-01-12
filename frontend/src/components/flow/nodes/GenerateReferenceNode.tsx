@@ -6,12 +6,14 @@ import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
     imageData?: string;
+    imageUrl?: string;
     thumbnail?: string;
     error?: string;
     referencePrompt?: string;
@@ -27,7 +29,7 @@ const buildImageSrc = (value?: string): string | undefined => {
   if (!trimmed) return undefined;
   if (trimmed.startsWith("data:image")) return trimmed;
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return trimmed;
+    return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
@@ -35,7 +37,7 @@ const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
 
 function GenerateReferenceNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
-  const fullSrc = buildImageSrc(data.imageData);
+  const fullSrc = buildImageSrc(data.imageData || data.imageUrl);
   const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);

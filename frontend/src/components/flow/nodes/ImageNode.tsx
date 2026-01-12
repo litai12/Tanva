@@ -6,6 +6,7 @@ import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -89,6 +90,7 @@ type Props = {
   id: string;
   data: {
     imageData?: string;
+    imageUrl?: string;
     thumbnail?: string;
     label?: string;
     boxW?: number;
@@ -104,7 +106,7 @@ const buildImageSrc = (value?: string): string | undefined => {
   if (!trimmed) return undefined;
   if (trimmed.startsWith("data:image")) return trimmed;
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return trimmed;
+    return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
@@ -170,8 +172,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   const fullSrc = React.useMemo(
-    () => buildImageSrc(data.imageData),
-    [data.imageData]
+    () => buildImageSrc(data.imageData || data.imageUrl),
+    [data.imageData, data.imageUrl]
   );
   const displaySrc = React.useMemo(
     () => buildImageSrc(data.thumbnail) || fullSrc,

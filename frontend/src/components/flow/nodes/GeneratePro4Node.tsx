@@ -8,6 +8,7 @@ import { useAIChatStore } from "@/stores/aiChatStore";
 import { cn } from "@/lib/utils";
 import { resolveTextFromSourceNode } from "../utils/textSource";
 import ContextMenu from "../../ui/context-menu";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -35,6 +36,7 @@ type Props = {
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
     images?: string[];
+    imageUrls?: string[];
     thumbnails?: string[]; // 缩略图
     error?: string;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
@@ -57,13 +59,14 @@ const buildImageSrc = (value?: string): string => {
   if (!trimmed) return "";
   if (trimmed.startsWith("data:image")) return trimmed;
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return trimmed;
+    return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
 function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
   const images = React.useMemo(() => data.images || [], [data.images]);
+  const imageUrls = React.useMemo(() => data.imageUrls || [], [data.imageUrls]);
   const thumbnails = React.useMemo(() => data.thumbnails || [], [data.thumbnails]);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
@@ -221,7 +224,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   }, [id]);
 
   const handleDownload = React.useCallback((index: number) => {
-    const img = images[index];
+    const img = imageUrls[index] || images[index];
     if (!img) return;
     const src = buildImageSrc(img);
     const link = document.createElement('a');
@@ -230,15 +233,15 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [images, id]);
+  }, [imageUrls, images, id]);
 
   const handleAddToLibrary = React.useCallback(() => {
-    const firstImage = images[0];
+    const firstImage = imageUrls[0] || images[0];
     if (!firstImage) return;
     window.dispatchEvent(new CustomEvent('flow:addToLibrary', {
       detail: { imageData: firstImage, nodeId: id, nodeType: 'generatePro4' }
     }));
-  }, [images, id]);
+  }, [imageUrls, images, id]);
 
   // 长宽比选项
   const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(
@@ -417,17 +420,17 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   // 预览用集合
   const previewCollection = React.useMemo(
     () =>
-      images.map((b64, i) => ({
+      (imageUrls.length ? imageUrls : images).map((value, i) => ({
         id: `${id}-${i}`,
-        src: buildImageSrc(b64),
+        src: buildImageSrc(value),
         title: `第 ${i + 1} 张`,
       })),
-    [images, id]
+    [images, imageUrls, id]
   );
 
   // 2x2 网格渲染单元
   const renderCell = (idx: number) => {
-    const img = images[idx];
+    const img = imageUrls[idx] || images[idx];
     const thumb = thumbnails[idx];
     const displaySrc = thumb ? buildImageSrc(thumb) : (img ? buildImageSrc(img) : "");
     // 并发模式：status 是 running 且这张图片还没有生成出来，都显示生成中
