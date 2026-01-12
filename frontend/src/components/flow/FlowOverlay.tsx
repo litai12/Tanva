@@ -951,6 +951,10 @@ function FlowInner() {
     [onEdgesChange]
   );
   const rf = useReactFlow();
+  const rfRef = React.useRef(rf);
+  React.useEffect(() => {
+    rfRef.current = rf;
+  }, [rf]);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isConnecting, setIsConnecting] = React.useState(false);
   const [edgeLabelEditor, setEdgeLabelEditor] =
@@ -1806,7 +1810,7 @@ function FlowInner() {
       lastApplied.current = { x, y, z };
       // 直接同步更新，不使用 RAF，与 Canvas 平移在同一帧内完成
       try {
-        rf.setViewport({ x, y, zoom: z }, { duration: 0 });
+        rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
       } catch {
         /* noop */
       }
@@ -1821,13 +1825,13 @@ function FlowInner() {
     const y = ((state.panY || 0) * z) / dpr;
     lastApplied.current = { x, y, z };
     try {
-      rf.setViewport({ x, y, zoom: z }, { duration: 0 });
+      rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
     } catch {
       /* noop */
     }
 
     return unsubscribe;
-  }, [rf]);
+  }, []);
 
   // 当开始/结束连线拖拽时，全局禁用/恢复文本选择，避免蓝色选区
   React.useEffect(() => {
