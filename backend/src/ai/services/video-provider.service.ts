@@ -42,10 +42,7 @@ export class VideoProviderService {
       // 上传到 OSS
       const result = await this.oss.putStream(
         key,
-        require("stream").Readable.from(imageBuffer),
-        {
-          headers: { "Content-Type": mimeType },
-        }
+        require("stream").Readable.from(imageBuffer)
       );
 
       this.logger.log(`📤 Uploaded image to OSS: ${result.url}`);
@@ -296,7 +293,7 @@ export class VideoProviderService {
 
     if (!response.ok) {
       const textBody = await response.text().catch(() => "");
-      const headers = {};
+      const headers: Record<string, string> = {};
       response.headers.forEach((v, k) => (headers[k] = v));
 
       this.logger.error(
