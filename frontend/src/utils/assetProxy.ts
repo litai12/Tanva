@@ -11,7 +11,7 @@ function normalizeApiBaseUrl(raw: string): string {
   return withoutApiSuffix.replace(/\/+$/, "");
 }
 
-function getApiBaseUrl(): string {
+export function getApiBaseUrl(): string {
   const viteEnv = import.meta.env as unknown as Record<string, unknown>;
   const raw =
     (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
@@ -40,6 +40,25 @@ export function proxifyRemoteAssetUrl(input: string): string {
 
   const apiBase = getApiBaseUrl();
   const proxyEnabled = shouldProxyAssets();
+
+  // 判断是否为视频资源或 presigned 链接（例如包含 X-Amz-* 参数）
+  const looksLikeVideo = /\.(mp4|webm|m3u8)(\?|$)/i.test(value);
+  const looksLikePresigned =
+    /[?&]X-Amz[-_]/i.test(value) || /x-amz-/i.test(value);
+
+  // 对 presigned 链接：**直接返回原始 URL**，不要代理或修改（否则会破坏签名）。
+  // 前提是目标 S3/OSS 已正确配置 CORS，允许浏览器直接请求。
+  if (looksLikePresigned) {
+    return value;
+  }
+
+  // 对普通视频资源（非 presigned），在开发环境下通过前端 proxy 转发以避免 CORS
+  if (looksLikeVideo) {
+    const frontendBase = import.meta.env.DEV
+      ? "http://localhost:5173"
+      : apiBase;
+    return `${frontendBase}/api/assets/proxy?url=${encodeURIComponent(value)}`;
+  }
 
   // 已经是同源相对 proxy 的，生产环境下补齐后端域名（静态部署无反向代理时需要）
   if (
@@ -75,11 +94,11 @@ export function proxifyRemoteAssetUrl(input: string): string {
       "models.kapon.cloud",
       "kechuangai.com",
       "volces.com",
-      "volcengine.com"
+      "volcengine.com",
     ];
 
-    const isAllowed = allowedHosts.some(host => 
-      url.hostname === host || url.hostname.endsWith(host)
+    const isAllowed = allowedHosts.some(
+      (host) => url.hostname === host || url.hostname.endsWith(host)
     );
 
     if (!isAllowed) {
