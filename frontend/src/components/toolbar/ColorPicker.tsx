@@ -159,15 +159,23 @@ const ColorPicker: React.FC<ColorPickerProps> = ({
           {/* 预设颜色网格 - 1行10列 */}
           <div className="grid grid-cols-10 gap-1 mb-3">
             {/* 显示前10个颜色 */}
-            {PRESET_COLORS.slice(0, 10).map((color, index) => (
-              <div
-                key={index}
-                className="w-5 h-5 transition-all rounded cursor-pointer hover:ring-2 hover:ring-blue-400"
-                style={{ backgroundColor: color }}
-                onClick={() => handleColorSelect(color)}
-                title={color}
-              />
-            ))}
+            {PRESET_COLORS.slice(0, 10).map((color, index) => {
+              const normalized = (color || '').toString().trim().toLowerCase();
+              const isWhite = normalized === '#ffffff' || normalized === 'white';
+              return (
+                <div
+                  key={index}
+                  className="w-5 h-5 transition-all rounded cursor-pointer hover:ring-2 hover:ring-blue-400"
+                  style={{
+                    backgroundColor: color,
+                    // 给白色色块一条很细的黑灰色边框，其他颜色使用透明边框保证大小一致
+                    border: isWhite ? '1px solid rgba(0,0,0,0.35)' : '1px solid transparent'
+                  }}
+                  onClick={() => handleColorSelect(color)}
+                  title={color}
+                />
+              );
+            })}
           </div>
 
           {/* 无填充和More按钮并列 */}
