@@ -1082,33 +1082,75 @@ function TemplatesTab() {
     if (!file) return;
     setJsonFileName(file.name);
     try {
-      const urlOrKey = await uploadFileToOSS(file, "templates/json/");
+      // 验证文件大小 (限制为32MB)
+      if (file.size > 32 * 1024 * 1024) {
+        alert("JSON文件大小不能超过32MB");
+        return;
+      }
+
+      // 验证文件类型
+      if (!file.name.toLowerCase().endsWith('.json')) {
+        alert("请选择JSON格式的文件");
+        return;
+      }
+
+      // 先验证JSON格式是否正确
+      const content = await file.text();
+      try {
+        JSON.parse(content);
+      } catch (parseError) {
+        alert("JSON文件格式不正确，请检查文件内容");
+        return;
+      }
+
+      // 将 maxSize 一并传给 presign，确保后端生成的 policy 匹配前端校验
+      const url = await uploadFileToOSS(file, "templates/json/", 32 * 1024 * 1024);
       // presign strategy returns host/key url; we need the key to let backend fetch
       // extract key from returned url (host/.../key)
-      const key = urlOrKey.replace(/^https?:\/\/[^/]+\/?/, "");
+      const urlObj = new URL(url);
+      const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+
+      if (!key || key.trim() === '') {
+        throw new Error("无法提取文件key，请重试");
+      }
+
       setFormData({ ...formData, templateJsonKey: key, templateData: "" });
     } catch (err: any) {
       console.error("JSON 上传失败:", err);
-      alert("JSON 上传失败");
+      alert(`JSON 上传失败: ${err.message || "未知错误"}`);
     }
   };
 
-  // 上传图片到 OSS（使用 presign）
+  // 上传文件到 OSS（使用 presign）
   const uploadFileToOSS = async (
     file: File,
-    dir = "templates/thumbs/"
+    dir = "templates/thumbs/",
+    maxSize?: number
   ): Promise<string> => {
     const token = localStorage.getItem("authToken");
+
+    // 总是使用 credentials: 'include'，以便浏览器发送 cookie（后端使用 cookie 验证）
+    // 同时如果 localStorage 中存在 token，则也带上 Authorization 作为备选认证方式
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
     const resp = await fetch("/api/uploads/presign", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ dir }),
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ dir, maxSize }),
     });
-    if (!resp.ok) throw new Error("获取上传凭证失败");
+
+    if (!resp.ok) {
+      const errorData = await resp.json().catch(() => ({}));
+      throw new Error(`获取上传凭证失败: ${errorData.message || resp.statusText}`);
+    }
+
     const presign = await resp.json();
+    if (!presign || !presign.host || !presign.dir) {
+      throw new Error("上传凭证格式错误");
+    }
+
     const key = `${presign.dir}${Date.now()}_${file.name.replace(/\s+/g, "_")}`;
     const form = new FormData();
     form.append("key", key);
@@ -1121,9 +1163,12 @@ function TemplatesTab() {
       method: "POST",
       body: form,
     });
+
     if (!uploadResp.ok) {
-      throw new Error("上传图片到OSS失败");
+      const errorText = await uploadResp.text().catch(() => "");
+      throw new Error(`上传到OSS失败 (${uploadResp.status}): ${errorText || uploadResp.statusText}`);
     }
+
     return `${presign.host}/${key}`;
   };
 

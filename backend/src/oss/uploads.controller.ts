@@ -13,7 +13,7 @@ export class UploadsController {
   @UseGuards(JwtAuthGuard)
   presign(@Body() body: { dir?: string; maxSize?: number }) {
     const dir = body?.dir ?? 'uploads/';
-    const max = body?.maxSize ?? 10 * 1024 * 1024;
+    const max = body?.maxSize ?? 32 * 1024 * 1024; // 增加默认最大文件大小到32MB，支持更大的模板JSON文件
     const data = this.oss.presignPost(dir, 300, max);
     return data;
   }
