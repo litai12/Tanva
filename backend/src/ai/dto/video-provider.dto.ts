@@ -36,6 +36,11 @@ export class VideoProviderRequestDto {
   @IsString()
   style?: string;
 
+  @ApiProperty({ description: '供应商特定模式 (Kling: std/pro)', required: false })
+  @IsOptional()
+  @IsString()
+  mode?: string;
+
   @ApiProperty({ description: '错峰生成 (Vidu)', required: false })
   @IsOptional()
   @IsBoolean()

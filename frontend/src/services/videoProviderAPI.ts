@@ -2,12 +2,10 @@
  * 视频生成供应商API调用服务
  * 通过后端代理以避免 CORS 错误并保护 API Key
  */
-import { fetchWithAuth } from './authFetch';
+import { fetchWithAuth } from "./authFetch";
+import { getApiBaseUrl } from "../utils/assetProxy";
 
-export type VideoProvider = 
-  | 'kling'
-  | 'vidu'
-  | 'doubao';
+export type VideoProvider = "kling" | "vidu" | "doubao";
 
 export interface VideoGenerationRequest {
   prompt: string;
@@ -16,8 +14,8 @@ export interface VideoGenerationRequest {
   aspectRatio?: string;
   provider: VideoProvider;
   // Vidu 专用参数
-  resolution?: '540p' | '720p' | '1080p';
-  style?: 'general' | 'anime';
+  resolution?: "540p" | "720p" | "1080p";
+  style?: "general" | "anime";
   offPeak?: boolean;
   // 豆包专用参数
   camerafixed?: boolean;
@@ -38,13 +36,17 @@ export interface VideoGenerationResult {
 export async function generateVideoByProvider(
   request: VideoGenerationRequest
 ): Promise<VideoGenerationResult> {
-  const response = await fetchWithAuth('/api/ai/generate-video-provider', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  });
+  const apiBaseUrl = getApiBaseUrl();
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/api/ai/generate-video-provider`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    }
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -61,7 +63,10 @@ export async function queryVideoTask(
   provider: VideoProvider,
   taskId: string
 ): Promise<{ status: string; videoUrl?: string; thumbnailUrl?: string }> {
-  const response = await fetchWithAuth(`/api/ai/video-task/${provider}/${taskId}`);
+  const apiBaseUrl = getApiBaseUrl();
+  const response = await fetchWithAuth(
+    `${apiBaseUrl}/api/ai/video-task/${provider}/${taskId}`
+  );
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));

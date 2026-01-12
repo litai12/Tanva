@@ -91,7 +91,11 @@ import {
   generateWan26R2VViaAPI,
   midjourneyActionViaAPI,
 } from "@/services/aiBackendAPI";
-import { generateVideoByProvider, queryVideoTask, type VideoProvider } from "@/services/videoProviderAPI";
+import {
+  generateVideoByProvider,
+  queryVideoTask,
+  type VideoProvider,
+} from "@/services/videoProviderAPI";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import {
@@ -310,7 +314,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
-  
+
   // Beta 节点
   textPromptPro: 2, // 专业提示词节点 - gemini-text
   imagePro: 0, // 专业图片节点 - 不消耗积分
@@ -331,12 +335,12 @@ const NODE_PALETTE_ITEMS = [
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney" },
   { key: "three", zh: "三维节点", en: "3D Node" },
-  { key: "sora2Video", zh: "视频生成节点", en: "Sora2 Video" },
-  { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6 Video" },
-  { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V" },
-  { key: "klingVideo", zh: "可灵视频生成", en: "Kling Video" },
-  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu Video" },
-  { key: "doubaoVideo", zh: "豆包视频生成", en: "Doubao Video" },
+  { key: "sora2Video", zh: "视频生成节点", en: "Sora2" },
+  { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6" },
+  { key: "wan2R2V", zh: "Wan2.6视频融合", en: "Wan2.6 R2V" },
+  { key: "klingVideo", zh: "Kling视频生成", en: "Kling" },
+  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu" },
+  { key: "doubaoVideo", zh: "Seedance视频生成", en: "Seedance 1.5 Pro" },
   { key: "camera", zh: "截图节点", en: "Shot Node" },
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split" },
 ];
@@ -445,10 +449,13 @@ const NodePaletteButton: React.FC<{
   credits?: number | string;
   onClick: () => void;
 }> = ({ zh, en, badge, credits, onClick }) => {
-  const creditsDisplay = credits !== undefined && credits !== 0 
-    ? typeof credits === 'string' ? credits : credits.toString()
-    : null;
-  
+  const creditsDisplay =
+    credits !== undefined && credits !== 0
+      ? typeof credits === "string"
+        ? credits
+        : credits.toString()
+      : null;
+
   return (
     <button
       onClick={onClick}
@@ -459,9 +466,10 @@ const NodePaletteButton: React.FC<{
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
         <span style={nodePaletteEnCodeStyle}>{en}</span>
         {badge ? <span style={nodePaletteBadgeStyle}>{badge}</span> : null}
-        {creditsDisplay && (
+        {/* 节点处显示积分（暂时隐藏） */}
+        {/* {creditsDisplay && (
           <span style={nodePaletteCreditsStyle}>消耗{creditsDisplay}积分</span>
-        )}
+        )} */}
       </div>
       <span style={nodePaletteZhStyle}>{zh}</span>
     </button>
@@ -2935,7 +2943,9 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
-          : type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
+          : type === "klingVideo" ||
+            type === "viduVideo" ||
+            type === "doubaoVideo"
           ? {
               status: "idle" as const,
               videoUrl: undefined,
@@ -2944,10 +2954,15 @@ function FlowInner() {
               history: [],
               clipDuration: undefined,
               aspectRatio: undefined,
-              provider: type === "klingVideo" ? "kling" : type === "viduVideo" ? "vidu" : "doubao",
+              provider:
+                type === "klingVideo"
+                  ? "kling"
+                  : type === "viduVideo"
+                  ? "vidu"
+                  : "doubao",
               // Vidu 专用参数
-              resolution: type === "viduVideo" ? "720p" as const : undefined,
-              style: type === "viduVideo" ? "general" as const : undefined,
+              resolution: type === "viduVideo" ? ("720p" as const) : undefined,
+              style: type === "viduVideo" ? ("general" as const) : undefined,
               offPeak: type === "viduVideo" ? false : undefined,
               // 豆包专用参数
               camerafixed: type === "doubaoVideo" ? false : undefined,
@@ -3112,9 +3127,14 @@ function FlowInner() {
           targetHandle === "video-3"
         ) {
           if (sourceHandle !== "video") return false;
-          return ["sora2Video", "wan2R2V", "wan26"].includes(
-            sourceNode.type || ""
-          );
+          return [
+            "sora2Video",
+            "wan2R2V",
+            "wan26",
+            "klingVideo",
+            "viduVideo",
+            "doubaoVideo",
+          ].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -4972,7 +4992,7 @@ function FlowInner() {
           try {
             for (const img of referenceImages) {
               const dataUrl = ensureDataUrl(img);
-              
+
               // 根据供应商处理图片格式
               if (provider === "vidu") {
                 // Vidu 需要可访问的 URL，必须上传到 OSS
@@ -5027,15 +5047,25 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI = aspectSetting || undefined;
-        
+
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
         if (clipDuration) {
-          if (provider === "kling" && (clipDuration === 5 || clipDuration === 10)) {
+          if (
+            provider === "kling" &&
+            (clipDuration === 5 || clipDuration === 10)
+          ) {
             durationForAPI = clipDuration;
-          } else if (provider === "vidu" && clipDuration >= 1 && clipDuration <= 10) {
+          } else if (
+            provider === "vidu" &&
+            clipDuration >= 1 &&
+            clipDuration <= 10
+          ) {
             durationForAPI = clipDuration;
-          } else if (provider === "doubao" && [3, 4, 5, 6, 8].includes(clipDuration)) {
+          } else if (
+            provider === "doubao" &&
+            [3, 4, 5, 6, 8].includes(clipDuration)
+          ) {
             durationForAPI = clipDuration;
           }
         }
@@ -5049,14 +5079,16 @@ function FlowInner() {
             referenceCount: referenceImageUrls.length,
             promptPreview: promptText.slice(0, 120),
           });
-          
+
           // 调用对应供应商的 API
           const createResult = await generateVideoByProvider({
             prompt: promptText,
-            referenceImages: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+            referenceImages:
+              referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
             duration: durationForAPI,
             aspectRatio: aspectRatioForAPI,
             provider: provider as VideoProvider,
+            mode: (node.data as any)?.mode,
             resolution: (node.data as any)?.resolution,
             style: (node.data as any)?.style,
             offPeak: (node.data as any)?.offPeak,
@@ -5083,7 +5115,14 @@ function FlowInner() {
               setNodes((ns) =>
                 ns.map((n) =>
                   n.id === nodeId
-                    ? { ...n, data: { ...n.data, status: "failed", error: "任务查询超时" } }
+                    ? {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          status: "failed",
+                          error: "任务查询超时",
+                        },
+                      }
                     : n
                 )
               );
@@ -5091,17 +5130,29 @@ function FlowInner() {
             }
 
             try {
-              const queryResult = await queryVideoTask(provider as VideoProvider, createResult.taskId);
-              
-              if (queryResult.status === "succeeded" || queryResult.status === "SUCCESS" || queryResult.status === "succeed") {
+              const queryResult = await queryVideoTask(
+                provider as VideoProvider,
+                createResult.taskId
+              );
+
+              if (
+                queryResult.status === "succeeded" ||
+                queryResult.status === "SUCCESS" ||
+                queryResult.status === "succeed"
+              ) {
                 clearInterval(pollTimer);
                 const elapsedSeconds = Math.max(
                   1,
                   Math.round((Date.now() - generationStartMs) / 1000)
                 );
+                const resolvedVideoUrl =
+                  (queryResult as any).ossUrl ||
+                  (queryResult as any).url ||
+                  (queryResult as any).videoUrl ||
+                  (queryResult as any).video_url;
                 const historyEntry = {
                   id: `video-history-${Date.now()}`,
-                  videoUrl: queryResult.videoUrl,
+                  videoUrl: resolvedVideoUrl,
                   thumbnail: queryResult.thumbnailUrl,
                   prompt: promptText,
                   createdAt: new Date().toISOString(),
@@ -5116,10 +5167,11 @@ function FlowInner() {
                       data: {
                         ...previousData,
                         status: "succeeded",
-                        videoUrl: queryResult.videoUrl,
+                        videoUrl: resolvedVideoUrl,
                         thumbnail: queryResult.thumbnailUrl,
                         error: undefined,
-                        videoVersion: Number(previousData.videoVersion || 0) + 1,
+                        videoVersion:
+                          Number(previousData.videoVersion || 0) + 1,
                         history: Array.isArray(previousData.history)
                           ? [historyEntry, ...previousData.history]
                           : [historyEntry],
@@ -5127,12 +5179,22 @@ function FlowInner() {
                     };
                   })
                 );
-              } else if (queryResult.status === "failed" || queryResult.status === "FAILURE") {
+              } else if (
+                queryResult.status === "failed" ||
+                queryResult.status === "FAILURE"
+              ) {
                 clearInterval(pollTimer);
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
-                      ? { ...n, data: { ...n.data, status: "failed", error: (queryResult as any).error || "任务生成失败" } }
+                      ? {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            status: "failed",
+                            error: (queryResult as any).error || "任务生成失败",
+                          },
+                        }
                       : n
                   )
                 );
@@ -5153,7 +5215,6 @@ function FlowInner() {
           pollTimer = window.setInterval(pollTask, pollInterval);
           // 立即执行一次
           pollTask();
-          
         } catch (error) {
           console.warn("❌ [Flow] Video request failed", {
             nodeId,
@@ -7597,7 +7658,9 @@ function FlowInner() {
                             border:
                               "1px solid " +
                               (!activeBuiltinCategory ? "#18181b" : "#e5e7eb"),
-                            background: !activeBuiltinCategory ? "#18181b" : "#fff",
+                            background: !activeBuiltinCategory
+                              ? "#18181b"
+                              : "#fff",
                             color: !activeBuiltinCategory ? "#fff" : "#374151",
                             fontSize: 12,
                             fontWeight: !activeBuiltinCategory ? 600 : 500,
