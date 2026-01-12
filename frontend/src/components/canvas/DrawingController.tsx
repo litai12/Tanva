@@ -5007,7 +5007,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         dcSetImageInstances((prev) => {
           const prevMap = new Map(prev.map((item) => [item.id, item]));
           const merged: typeof prev = [];
-          const validImageIds = new Set(imageInstances.map((inst) => inst.id));
 
           imageInstances.forEach((instance) => {
             const previous = prevMap.get(instance.id);
@@ -5036,10 +5035,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           });
 
           // 🔥 修复：不再保留遗留的旧实例，因为它们已经在 Paper.js 中不存在了
-          // 这样可以避免图框分离的问题
           const removedCount = prevMap.size;
           if (removedCount > 0) {
             logger.drawing(`🗑️ 清理了 ${removedCount} 个已不存在的图片实例`);
+          }
+
+          // 🔥 防止无限循环：如果数据没有实质变化，返回原数组引用
+          if (merged.length === prev.length && removedCount === 0) {
+            const hasChange = merged.some((m, i) => {
+              const p = prev[i];
+              if (!p || m.id !== p.id) return true;
+              if (m.visible !== p.visible) return true;
+              const mb = m.bounds, pb = p.bounds;
+              if (mb.x !== pb.x || mb.y !== pb.y ||
+                  mb.width !== pb.width || mb.height !== pb.height) return true;
+              return false;
+            });
+            if (!hasChange) {
+              return prev; // 返回原引用，避免触发重渲染
+            }
           }
 
           try {
@@ -5047,7 +5061,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           } catch {}
           return merged;
         });
-        dcSetSelectedImageIds([]);
+        // 只在有选中项时才清空，避免不必要的状态更新
+        dcSetSelectedImageIds((prev) => prev.length > 0 ? [] : prev);
         if (imageInstances.length > 0) {
           logger.debug(
             `🧩 已从 Paper 恢复 ${imageInstances.length} 张图片实例`
@@ -5069,7 +5084,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 更新3D模型实例
         if (model3DInstances.length > 0) {
           dcSetModel3DInstances(model3DInstances);
-          dcSetSelectedModel3DIds([]);
+          dcSetSelectedModel3DIds((prev) => prev.length > 0 ? [] : prev);
           try {
             (window as any).tanvaModel3DInstances = model3DInstances;
           } catch {}
@@ -5094,11 +5109,21 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     };
 
     let rafId: number | null = null;
+    let isRebuilding = false; // 防重入标志
     const scheduleRebuild = () => {
-      if (rafId !== null) return;
+      if (rafId !== null || isRebuilding) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        rebuildFromPaper();
+        if (isRebuilding) return;
+        isRebuilding = true;
+        try {
+          rebuildFromPaper();
+        } finally {
+          // 延迟重置标志，防止同一帧内的连续触发
+          setTimeout(() => {
+            isRebuilding = false;
+          }, 100);
+        }
       });
     };
 

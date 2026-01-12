@@ -72,51 +72,42 @@ interface IDBSessionsData {
 
 // 内存优化常量 (P0 修复)
 const MAX_MESSAGES_PER_SESSION = 100;
-const MAX_IMAGE_BASE64_SIZE = 2 * 1024 * 1024; // 2MB 以上的 Base64 考虑清理
+const MAX_IMAGE_BASE64_SIZE = 500 * 1024; // 500KB 以上的 Base64 考虑清理
 
 // 内存优化：清理消息中的大型 Base64 (P0 修复)
 const optimizeMessagesMemory = (messages: ChatMessage[]): ChatMessage[] => {
   return messages.map((msg, index) => {
-    // 只有在满足以下条件时才清理 imageData:
-    // 1. 不是最后几条活跃消息 (保留最近3条以便快速交互)
-    // 2. 已经有了远程 URL 或 缩略图
-    // 3. imageData 超过阈值
+    // 只清理旧消息（保留最近3条以便快速交互）
     const isOldMessage = index < messages.length - 3;
-    const hasAlternative = !!(
-      (msg.imageRemoteUrl && msg.imageRemoteUrl.startsWith("http")) ||
-      (msg.thumbnail && msg.thumbnail.length > 0)
-    );
+    if (!isOldMessage) return msg;
 
-    if (isOldMessage && hasAlternative) {
-      const nextMsg = { ...msg };
-      let changed = false;
+    const hasRemoteUrl = !!(msg.imageRemoteUrl && msg.imageRemoteUrl.startsWith("http"));
 
-      if (msg.imageData && msg.imageData.length > MAX_IMAGE_BASE64_SIZE) {
-        nextMsg.imageData = undefined;
-        changed = true;
-      }
+    // 只有在有远程URL时才清理，确保用户仍可下载
+    if (!hasRemoteUrl) return msg;
 
-      if (
-        msg.sourceImageData &&
-        msg.sourceImageData.length > MAX_IMAGE_BASE64_SIZE
-      ) {
-        nextMsg.sourceImageData = undefined;
-        changed = true;
-      }
+    const nextMsg = { ...msg };
+    let changed = false;
 
-      if (Array.isArray(msg.sourceImagesData)) {
-        const filtered = msg.sourceImagesData.filter(
-          (img) => !img || img.length <= MAX_IMAGE_BASE64_SIZE
-        );
-        if (filtered.length !== msg.sourceImagesData.length) {
-          nextMsg.sourceImagesData = filtered;
-          changed = true;
-        }
-      }
-
-      return changed ? nextMsg : msg;
+    // 有远程URL时，直接清理 imageData
+    if (msg.imageData) {
+      nextMsg.imageData = undefined;
+      changed = true;
     }
-    return msg;
+
+    // 清理 sourceImageData
+    if (msg.sourceImageData) {
+      nextMsg.sourceImageData = undefined;
+      changed = true;
+    }
+
+    // 清理 sourceImagesData 数组
+    if (Array.isArray(msg.sourceImagesData) && msg.sourceImagesData.length > 0) {
+      nextMsg.sourceImagesData = [];
+      changed = true;
+    }
+
+    return changed ? nextMsg : msg;
   });
 };
 

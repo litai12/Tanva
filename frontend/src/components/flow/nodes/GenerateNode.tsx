@@ -6,12 +6,14 @@ import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 type Props = {
   id: string;
   data: {
     status?: "idle" | "running" | "succeeded" | "failed";
     imageData?: string;
+    imageUrl?: string;
     thumbnail?: string;
     error?: string;
     aspectRatio?: "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
@@ -28,13 +30,13 @@ const buildImageSrc = (value?: string): string | undefined => {
   if (!trimmed) return undefined;
   if (trimmed.startsWith("data:image")) return trimmed;
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return trimmed;
+    return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
 function GenerateNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
-  const fullSrc = buildImageSrc(data.imageData);
+  const fullSrc = buildImageSrc(data.imageData || data.imageUrl);
   const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);

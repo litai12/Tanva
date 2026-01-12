@@ -6,11 +6,13 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import ContextMenu from '../../ui/context-menu';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 type Props = {
   id: string;
   data: {
     imageData?: string;
+    imageUrl?: string;
     thumbnail?: string;
     imageWidth?: number;
     imageName?: string;
@@ -24,7 +26,7 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
@@ -99,7 +101,7 @@ function ImageProNodeInner({ id, data, selected }: Props) {
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // 图片源
-  const fullSrc = React.useMemo(() => buildImageSrc(data.imageData), [data.imageData]);
+  const fullSrc = React.useMemo(() => buildImageSrc(data.imageData || data.imageUrl), [data.imageData, data.imageUrl]);
   const displaySrc = React.useMemo(
     () => buildImageSrc(data.thumbnail) || fullSrc,
     [data.thumbnail, fullSrc]

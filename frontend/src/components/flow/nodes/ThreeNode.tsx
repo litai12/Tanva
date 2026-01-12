@@ -9,11 +9,13 @@ import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 type Props = {
   id: string;
   data: {
     imageData?: string;
+    imageUrl?: string;
     modelUrl?: string;
     boxW?: number; boxH?: number;
     onSend?: (id: string) => void;
@@ -380,11 +382,15 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   };
 
   const sendToCanvas = () => {
-    const img = data.imageData;
+    const img = data.imageData || data.imageUrl;
     if (!img) return;
-    const dataUrl = img.trim().startsWith('data:image')
-      ? img
-      : `data:image/png;base64,${img}`;
+    const trimmed = img.trim();
+    const dataUrl =
+      trimmed.startsWith('http://') || trimmed.startsWith('https://')
+        ? trimmed
+        : trimmed.startsWith('data:image')
+          ? trimmed
+          : `data:image/png;base64,${trimmed}`;
     const fileName = `three_${Date.now()}.png`;
     window.dispatchEvent(new CustomEvent('triggerQuickImageUpload', {
       detail: { imageData: dataUrl, fileName, operationType: 'generate' }
@@ -398,11 +404,14 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     return () => window.removeEventListener('keydown', esc);
   }, [preview]);
 
-  const src = data.imageData
-    ? (data.imageData.trim().startsWith('data:image')
-      ? data.imageData
-      : `data:image/png;base64,${data.imageData}`)
-    : undefined;
+  const src = (() => {
+    const raw = (data.imageData || data.imageUrl)?.trim();
+    if (!raw) return undefined;
+    if (raw.startsWith('data:image')) return raw;
+    if (raw.startsWith('http://') || raw.startsWith('https://'))
+      return proxifyRemoteAssetUrl(raw);
+    return `data:image/png;base64,${raw}`;
+  })();
 
   return (
     <div style={{ width: data.boxW || 280, height: data.boxH || 260, padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -416,7 +425,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
           <button onClick={() => fileInput.current?.click()} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>Upload</button>
           <button onClick={addTestCube} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>Cube</button>
           <button onClick={capture} style={{ fontSize: 12, padding: '4px 8px', background: '#111827', color: '#fff', borderRadius: 6 }}>Capture</button>
-          <button onClick={sendToCanvas} disabled={!data.imageData} title={!data.imageData ? '无可发送的图像' : '发送到画布'} style={{ fontSize: 12, padding: '4px 8px', background: !data.imageData ? '#e5e7eb' : '#111827', color: '#fff', borderRadius: 6 }}>
+          <button onClick={sendToCanvas} disabled={!data.imageData && !data.imageUrl} title={!data.imageData && !data.imageUrl ? '无可发送的图像' : '发送到画布'} style={{ fontSize: 12, padding: '4px 8px', background: !data.imageData && !data.imageUrl ? '#e5e7eb' : '#111827', color: '#fff', borderRadius: 6 }}>
             <SendIcon size={14} />
           </button>
         </div>

@@ -10,6 +10,7 @@ import { useAIChatStore } from '@/stores/aiChatStore';
 import { cn } from '@/lib/utils';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import ContextMenu from '../../ui/context-menu';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -28,6 +29,7 @@ type Props = {
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
     imageData?: string;
+    imageUrl?: string;
     thumbnail?: string; // 缩略图，用于节点显示
     error?: string;
     aspectRatio?: '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9';
@@ -46,7 +48,7 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
@@ -62,8 +64,8 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   // 原图用于预览和下载
   const fullSrc = React.useMemo(
-    () => buildImageSrc(data.imageData),
-    [data.imageData]
+    () => buildImageSrc(data.imageData || data.imageUrl),
+    [data.imageData, data.imageUrl]
   );
 
   // 缩略图用于节点显示（优先使用缩略图，没有则用原图）

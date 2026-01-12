@@ -3,12 +3,14 @@ import { Handle, Position } from 'reactflow';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import { aiImageService } from '@/services/aiImageService';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 type Props = {
   id: string;
   data: {
     status?: 'idle' | 'running' | 'succeeded' | 'failed';
     imageData?: string;
+    imageUrl?: string;
     prompt?: string;
     error?: string;
     analysisPrompt?: string;
@@ -21,7 +23,14 @@ const DEFAULT_ANALYSIS_PROMPT = '分析一下这张图的内容，尽可能描�
 
 function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const { status, error } = data;
-  const src = data.imageData ? `data:image/png;base64,${data.imageData}` : undefined;
+  const previewSrc = (() => {
+    const raw = (data.imageData || data.imageUrl)?.trim();
+    if (!raw) return undefined;
+    if (raw.startsWith('data:image')) return raw;
+    if (raw.startsWith('http://') || raw.startsWith('https://'))
+      return proxifyRemoteAssetUrl(raw);
+    return `data:image/png;base64,${raw}`;
+  })();
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
@@ -47,7 +56,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
   }, [data.analysisPrompt, id]);
 
   const onAnalyze = React.useCallback(async () => {
-    if (!src || status === 'running' || isAnalyzing) return;
+    if (!previewSrc || status === 'running' || isAnalyzing) return;
 
     const promptToUse = (data.analysisPrompt ?? DEFAULT_ANALYSIS_PROMPT).trim();
     if (!promptToUse.length) {
@@ -66,9 +75,32 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       // 标记正在分析
       setIsAnalyzing(true);
 
+      const resolveAnalyzeSource = async (): Promise<string> => {
+        const raw = (data.imageData || data.imageUrl)?.trim() || '';
+        if (!raw) throw new Error('缺少图片输入');
+        if (raw.startsWith('data:image')) return raw;
+        if (raw.startsWith('http://') || raw.startsWith('https://')) {
+          // 类型定义要求 base64，这里在前端将远程图转成 dataURL
+          const response = await fetch(proxifyRemoteAssetUrl(raw), { credentials: 'include' });
+          if (!response.ok) throw new Error(`图片加载失败: ${response.status}`);
+          const blob = await response.blob();
+          return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result;
+              if (typeof result === 'string' && result.startsWith('data:')) resolve(result);
+              else reject(new Error('图片转换失败'));
+            };
+            reader.onerror = () => reject(new Error('图片读取失败'));
+            reader.readAsDataURL(blob);
+          });
+        }
+        return `data:image/png;base64,${raw}`;
+      };
+
       const result = await aiImageService.analyzeImage({
         prompt: promptToUse,
-        sourceImage: src,
+        sourceImage: await resolveAnalyzeSource(),
         aiProvider,
         model: imageModel,
       });
@@ -95,7 +127,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [aiProvider, data.analysisPrompt, id, imageModel, isAnalyzing, src, status]);
+  }, [aiProvider, data.analysisPrompt, data.imageData, data.imageUrl, id, imageModel, isAnalyzing, previewSrc, status]);
 
   React.useEffect(() => {
     if (!preview) return;
@@ -131,15 +163,15 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         <div style={{ fontWeight: 600 }}>Analysis</div>
         <button
           onClick={onAnalyze}
-          disabled={status === 'running' || !src || isAnalyzing}
+          disabled={status === 'running' || !previewSrc || isAnalyzing}
           style={{
             fontSize: 12,
             padding: '4px 8px',
-            background: (status === 'running' || !src || isAnalyzing) ? '#e5e7eb' : '#111827',
+            background: (status === 'running' || !previewSrc || isAnalyzing) ? '#e5e7eb' : '#111827',
             color: '#fff',
             borderRadius: 6,
             border: 'none',
-            cursor: (status === 'running' || !src || isAnalyzing) ? 'not-allowed' : 'pointer',
+            cursor: (status === 'running' || !previewSrc || isAnalyzing) ? 'not-allowed' : 'pointer',
           }}
         >
           {status === 'running' || isAnalyzing ? 'Running...' : 'Run'}
@@ -147,7 +179,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
       </div>
 
       <div
-        onDoubleClick={() => src && setPreview(true)}
+        onDoubleClick={() => previewSrc && setPreview(true)}
         style={{
           width: '100%',
           height: 140,
@@ -159,11 +191,11 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           overflow: 'hidden',
           border: '1px solid #eef0f2',
         }}
-        title={src ? 'Double click to preview' : undefined}
+        title={previewSrc ? 'Double click to preview' : undefined}
       >
-        {src ? (
+        {previewSrc ? (
           <img
-            src={src}
+            src={previewSrc}
             alt=""
             style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
           />
@@ -261,7 +293,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 
       <ImagePreviewModal
         isOpen={preview}
-        imageSrc={src || ''}
+        imageSrc={previewSrc || ''}
         imageTitle="Analysis Preview"
         onClose={() => setPreview(false)}
         imageCollection={[]}

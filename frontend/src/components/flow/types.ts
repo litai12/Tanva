@@ -12,6 +12,8 @@ export type TextPromptData = {
 export type ImageData = {
   // Base64 string (no data URL prefix)
   imageData?: string;
+  // Remote URL (preferred for templates)
+  imageUrl?: string;
   label?: string;
 };
 
@@ -19,7 +21,8 @@ export type GenerateStatus = 'idle' | 'running' | 'succeeded' | 'failed';
 
 export type GenerateData = {
   status?: GenerateStatus;
-  imageData?: string; // base64 string
+  imageData?: string; // base64 string or remote URL
+  imageUrl?: string; // remote URL (preferred for templates)
   error?: string;
   aspectRatio?: string;
   presetPrompt?: string;
@@ -27,7 +30,8 @@ export type GenerateData = {
 
 export type GenerateProData = {
   status?: GenerateStatus;
-  imageData?: string; // base64 string
+  imageData?: string; // base64 string or remote URL
+  imageUrl?: string; // remote URL (preferred for templates)
   error?: string;
   aspectRatio?: string;
   prompts?: string[]; // 多个提示词，依次叠加
@@ -35,7 +39,8 @@ export type GenerateProData = {
 
 export type Generate4Data = {
   status?: GenerateStatus;
-  images?: string[]; // up to 4
+  images?: string[]; // base64 strings (up to 4)
+  imageUrls?: string[]; // remote URLs (preferred for templates)
   count?: number; // 1..4
   error?: string;
 };

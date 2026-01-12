@@ -5,6 +5,7 @@ import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 
 type MidjourneyMode = 'FAST' | 'RELAX';
 
@@ -43,13 +44,13 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
 };
 
 function MidjourneyNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
-  const fullSrc = buildImageSrc(data.imageData);
+  const fullSrc = buildImageSrc(data.imageData || data.imageUrl);
   const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
