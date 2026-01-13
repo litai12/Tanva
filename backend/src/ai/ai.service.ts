@@ -142,15 +142,15 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
   "confidence": 0.0-1.0
 }`;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        const response = await client.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [
-            { text: systemPrompt },
-            { text: `用户输入: ${prompt}` }
-          ],
-          config: {
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            const response = await client.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: [
+                { text: systemPrompt },
+                { text: `用户输入: ${prompt}` }
+              ],
+              config: {
             safetySettings: [
               { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
               { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },

@@ -73,11 +73,11 @@ export class BananaProvider implements IAIProvider {
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
 
-  // 降级模型映射：Pro模型 -> 2.5模型（与国内极速版一致）
+  // 降级模型映射：Pro 文本模型 -> Flash（避免走 Pro）
   private readonly FALLBACK_MODELS: Record<string, string> = {
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
-    "gemini-3-pro-preview": "gemini-2.5-flash",
-    "banana-gemini-3-pro-preview": "gemini-2.5-flash",
+    "gemini-3-pro-preview": "gemini-3-flash-preview",
+    "banana-gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
   };
 
@@ -1054,9 +1054,9 @@ export class BananaProvider implements IAIProvider {
   ): Promise<AIProviderResponse<TextResult>> {
     this.logger.log(`🤖 Generating text response using Banana (147) API...`);
 
-    // 文本生成默认使用 gemini-2.5-flash，如果指定了 Pro 模型则使用降级策略
+    // 文本生成默认使用 gemini-3-flash-preview，如果指定了 Pro 模型则使用降级策略
     const originalModel = this.normalizeModelName(
-      request.model || "gemini-2.5-flash"
+      request.model || "gemini-3-flash-preview"
     );
     let currentModel = originalModel;
     let usedFallback = false;
@@ -1191,7 +1191,7 @@ export class BananaProvider implements IAIProvider {
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
     this.logger.log(
-      "🎯 Selecting tool with Banana (147) API using gemini-2.5-flash..."
+      "🎯 Selecting tool with Banana (147) API using gemini-3-flash-preview..."
     );
 
     try {
@@ -1238,7 +1238,7 @@ ${
         try {
           // 使用与基础版完全相同的调用方式：两条独立的 contents
           const result = await this.makeRequest(
-            "gemini-2.5-flash",
+            "gemini-3-flash-preview",
             [{ text: systemPrompt }, { text: `用户输入: ${request.prompt}` }],
             { responseModalities: ["Text"] }
           );
@@ -1354,7 +1354,7 @@ ${
     return {
       name: "Banana API",
       version: "1.0",
-      supportedModels: ["gemini-3-pro-image-preview", "gemini-2.5-flash"],
+      supportedModels: ["gemini-3-pro-image-preview", "gemini-3-flash-preview"],
     };
   }
 
@@ -1383,7 +1383,7 @@ ${
         "analysis"
       );
       const originalModel = this.normalizeModelName(
-        request.model || "gemini-3-pro-preview"
+        request.model || "gemini-3-flash-preview"
       );
       let currentModel = originalModel;
       let usedFallback = false;
@@ -1592,7 +1592,7 @@ ${imageAnalysis}
     const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
     const originalModel = this.normalizeModelName(
-      request.model || "gemini-3-pro-preview"
+      request.model || "gemini-3-flash-preview"
     );
     let currentModel = originalModel;
     let usedFallback = false;

@@ -2095,6 +2095,56 @@ function FlowInner() {
     return value;
   }, []);
 
+  const isLikelyBase64Blob = React.useCallback((value: unknown): value is string => {
+    if (typeof value !== "string") return false;
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith("data:image/")) return true;
+    if (trimmed.startsWith("blob:")) return true;
+
+    // Heuristic: avoid false positives on regular text; only strip very large blobs.
+    const compact = trimmed.replace(/\s+/g, "");
+    if (compact.length < 2048) return false;
+    if (!/^[A-Za-z0-9+/=]+$/.test(compact)) return false;
+
+    const head = compact.slice(0, 16);
+    const looksLikeCommonImage =
+      head.startsWith("iVBORw0KGgo") || // PNG
+      head.startsWith("/9j/") || // JPEG
+      head.startsWith("R0lGOD") || // GIF
+      head.startsWith("UklGR") || // WEBP
+      head.startsWith("Qk"); // BMP
+
+    // Many base64 blobs end with padding; accept either common image prefix or padding.
+    const hasPadding = compact.endsWith("=") || compact.endsWith("==");
+    return looksLikeCommonImage || hasPadding;
+  }, []);
+
+  const stripLargeInlineBlobsInPlace = React.useCallback(
+    (obj: any) => {
+      if (!obj || typeof obj !== "object") return;
+      for (const [key, rawValue] of Object.entries(obj)) {
+        if (typeof rawValue !== "string") continue;
+        const value = rawValue.trim();
+        if (!value) continue;
+        if (isRemoteUrl(value)) continue;
+        if (!isLikelyBase64Blob(value)) continue;
+
+        const k = String(key).toLowerCase();
+        const shouldKeep =
+          k.includes("prompt") ||
+          k.includes("text") ||
+          k.includes("title") ||
+          k.includes("name") ||
+          k.includes("desc");
+        if (shouldKeep) continue;
+
+        delete obj[key];
+      }
+    },
+    [isLikelyBase64Blob, isRemoteUrl]
+  );
+
   // 导出时的状态
   const [isExporting, setIsExporting] = React.useState(false);
 
@@ -2168,11 +2218,18 @@ function FlowInner() {
           const rawImageUrls: unknown[] = Array.isArray((data as any).imageUrls)
             ? (data as any).imageUrls
             : [];
-          if (rawImages.length || rawImageUrls.length) {
-            const len = Math.max(rawImages.length, rawImageUrls.length);
+          const rawThumbnails: unknown[] = Array.isArray((data as any).thumbnails)
+            ? (data as any).thumbnails
+            : [];
+          if (rawImages.length || rawImageUrls.length || rawThumbnails.length) {
+            const len = Math.max(
+              rawImages.length,
+              rawImageUrls.length,
+              rawThumbnails.length
+            );
             const urls: string[] = [];
             for (let i = 0; i < len; i += 1) {
-              const candidate = rawImageUrls[i] ?? rawImages[i];
+              const candidate = rawImageUrls[i] ?? rawImages[i] ?? rawThumbnails[i];
               const candidateStr =
                 typeof candidate === "string" ? candidate.trim() : "";
               if (!candidateStr) {
@@ -2198,6 +2255,8 @@ function FlowInner() {
             (data as any).imageUrls = urls;
             delete (data as any).images;
             delete (data as any).imageData;
+            delete (data as any).thumbnails;
+            delete (data as any).thumbnail;
           }
 
           // 单图节点
@@ -2209,6 +2268,10 @@ function FlowInner() {
             (typeof (data as any).imageData === "string" &&
             (data as any).imageData.trim()
               ? (data as any).imageData
+              : undefined) ??
+            (typeof (data as any).thumbnail === "string" &&
+            (data as any).thumbnail.trim()
+              ? (data as any).thumbnail
               : undefined);
 
           if (candidateSingle) {
@@ -2222,15 +2285,21 @@ function FlowInner() {
               );
             }
             delete (data as any).imageData;
+            delete (data as any).thumbnail;
+            delete (data as any).thumbnails;
           } else if (
             typeof (data as any).imageData === "string" ||
             typeof (data as any).imageUrl === "string"
           ) {
             delete (data as any).imageData;
+            delete (data as any).thumbnail;
+            delete (data as any).thumbnails;
           } else {
             const historyUrl = getHistoryRemoteUrlForNode(n.id);
             if (historyUrl) (data as any).imageUrl = historyUrl;
           }
+
+          stripLargeInlineBlobsInPlace(data);
 
           return {
             id: n.id,
@@ -2276,6 +2345,7 @@ function FlowInner() {
     cleanNodeData,
     getHistoryRemoteUrlForNode,
     isExporting,
+    stripLargeInlineBlobsInPlace,
     isRemoteUrl,
     normalizeStableRemoteUrl,
     uploadImageToStableUrl,
@@ -3346,9 +3416,15 @@ function FlowInner() {
           targetHandle === "video-3"
         ) {
           if (sourceHandle !== "video") return false;
-          return ["sora2Video", "wan2R2V", "wan26"].includes(
-            sourceNode.type || ""
-          );
+          return [
+            "video", // 上传视频
+            "sora2Video",
+            "wan2R2V",
+            "wan26",
+            "klingVideo",
+            "viduVideo",
+            "doubaoVideo",
+          ].includes(sourceNode.type || "");
         }
         return false;
       }
@@ -7301,11 +7377,12 @@ function FlowInner() {
 	          // 多图：仅存 imageUrls，避免 base64 过大
 	          const rawImages: unknown[] = Array.isArray(data.images) ? data.images : [];
 	          const rawImageUrls: unknown[] = Array.isArray(data.imageUrls) ? data.imageUrls : [];
-		          if (rawImages.length || rawImageUrls.length) {
-		            const len = Math.max(rawImages.length, rawImageUrls.length);
+            const rawThumbnails: unknown[] = Array.isArray(data.thumbnails) ? data.thumbnails : [];
+		          if (rawImages.length || rawImageUrls.length || rawThumbnails.length) {
+		            const len = Math.max(rawImages.length, rawImageUrls.length, rawThumbnails.length);
 		            const urls: string[] = [];
 		            for (let i = 0; i < len; i += 1) {
-		              const candidate = rawImageUrls[i] ?? rawImages[i];
+		              const candidate = rawImageUrls[i] ?? rawImages[i] ?? rawThumbnails[i];
 		              const candidateStr =
 		                typeof candidate === "string" ? candidate.trim() : "";
 		              if (!candidateStr) {
@@ -7330,6 +7407,8 @@ function FlowInner() {
 		            data.imageUrls = urls;
 		            delete data.images;
 		            delete data.imageData;
+                delete data.thumbnails;
+                delete data.thumbnail;
 		          }
 
 	          // 单图：仅存 imageUrl，避免 base64 过大
@@ -7339,6 +7418,9 @@ function FlowInner() {
 	              : undefined) ??
 	            (typeof data.imageData === "string" && data.imageData.trim()
 	              ? data.imageData
+	              : undefined) ??
+              (typeof data.thumbnail === "string" && data.thumbnail.trim()
+                ? data.thumbnail
 	              : undefined);
 		          if (candidateSingle) {
 		            const candidateStr = String(candidateSingle).trim();
@@ -7351,15 +7433,21 @@ function FlowInner() {
 		              );
 		            }
 		            delete data.imageData;
+                delete data.thumbnail;
+                delete data.thumbnails;
 		          } else if (
 		            typeof data.imageData === "string" ||
 		            typeof data.imageUrl === "string"
 		          ) {
 		            delete data.imageData;
+                delete data.thumbnail;
+                delete data.thumbnails;
 		          } else {
 		            const historyUrl = getHistoryRemoteUrlForNode(String(n.id));
 		            if (historyUrl) data.imageUrl = historyUrl;
 		          }
+
+            stripLargeInlineBlobsInPlace(data);
 
 	          return {
 	            id: n.id,
@@ -7402,6 +7490,7 @@ function FlowInner() {
 	    rf,
 	    sanitizeNodeData,
 	    setUserTplList,
+      stripLargeInlineBlobsInPlace,
 	    uploadImageToStableUrl,
 	  ]);
 

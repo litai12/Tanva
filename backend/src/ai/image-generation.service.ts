@@ -912,7 +912,7 @@ export class ImageGenerationService {
     );
 
     const client = this.getClient(request.customApiKey);
-    const model = request.model || 'gemini-2.5-flash';
+    const model = request.model || 'gemini-3-flash-preview';
 
     // 根据文件类型生成不同的提示词
     const isPdf = sourceMimeType === 'application/pdf';
@@ -997,7 +997,7 @@ export class ImageGenerationService {
     this.logger.log(`Generating text response for prompt: ${request.prompt.substring(0, 50)}...`);
 
     const client = this.getClient(request.customApiKey);
-    const model = request.model || 'gemini-2.5-flash';
+    const model = request.model || 'gemini-3-flash-preview';
     const finalPrompt = `Please respond in Chinese:\n\n${request.prompt}`;
 
     const startTime = Date.now();
@@ -1070,8 +1070,7 @@ export class ImageGenerationService {
 
     try {
       const client = this.getClient(request.customApiKey);
-      // 使用 gemini-3-pro-preview，与 gemini-pro 文本对话保持一致
-      const model = request.model || 'gemini-3-pro-preview';
+      const model = request.model || 'gemini-3-flash-preview';
 
       // 系统提示词 - 直接拼接到用户提示词中
       const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
@@ -1196,7 +1195,7 @@ export class ImageGenerationService {
 
     try {
       const client = this.getClient(request.customApiKey);
-      const model = request.model || 'gemini-3-pro-preview';
+      const model = request.model || 'gemini-3-flash-preview';
 
       // 第一步：分析图像
       this.logger.log('Step 1: Analyzing image...');

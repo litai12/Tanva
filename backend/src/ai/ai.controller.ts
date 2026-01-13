@@ -68,12 +68,12 @@ export class AiController {
     midjourney: 'midjourney-fast',
   };
   private readonly providerDefaultTextModels: Record<string, string> = {
-    gemini: 'gemini-2.5-flash',
-    'gemini-pro': 'gemini-3-pro-preview',
-    banana: 'banana-gemini-3-pro-preview',
-    'banana-2.5': 'gemini-2.5-flash',
-    runninghub: 'gemini-2.5-flash',
-    midjourney: 'gemini-2.5-flash',
+    gemini: 'gemini-3-flash-preview',
+    'gemini-pro': 'gemini-3-flash-preview',
+    banana: 'gemini-3-flash-preview',
+    'banana-2.5': 'gemini-3-flash-preview',
+    runninghub: 'gemini-3-flash-preview',
+    midjourney: 'gemini-3-flash-preview',
   };
 
   constructor(
@@ -296,7 +296,7 @@ export class AiController {
     if (trimmed && /^gemini-/i.test(trimmed)) {
       return trimmed;
     }
-    return 'gemini-2.5-flash';
+    return 'gemini-3-flash-preview';
   }
 
   private summarizeError(error: any): string {
@@ -518,7 +518,7 @@ export class AiController {
       return model;
     }
     if (providerName) {
-      return this.providerDefaultTextModels[providerName] || 'gemini-2.5-flash';
+      return this.providerDefaultTextModels[providerName] || 'gemini-3-flash-preview';
     }
     return this.providerDefaultTextModels.gemini;
   }
@@ -1750,10 +1750,30 @@ export class AiController {
               };
             }
             if (statusValue === 'failed' || statusValue === 'error') {
-              this.logger.error(`❌ DashScope r2v task ${taskId} failed`, { raw: statusData });
+              const failureCode =
+                statusData?.output?.code ||
+                statusData?.code ||
+                statusData?.output?.error_code ||
+                statusData?.output?.error?.code;
+              const failureMessage =
+                statusData?.output?.message ||
+                statusData?.message ||
+                statusData?.output?.error?.message ||
+                statusData?.output?.error_message ||
+                statusData?.output?.error?.msg ||
+                statusData?.output?.reason;
+              const message =
+                typeof failureMessage === 'string' && failureMessage.trim().length > 0
+                  ? (failureCode ? `${String(failureCode)}: ${failureMessage}` : failureMessage)
+                  : 'DashScope r2v task failed';
+
+              this.logger.error(`❌ DashScope r2v task ${taskId} failed`, {
+                message,
+                raw: statusData,
+              });
               return {
                 success: false,
-                error: { message: 'DashScope r2v task failed', details: statusData },
+                error: { message, details: statusData },
               };
             }
           } catch (err: any) {

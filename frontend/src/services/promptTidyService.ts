@@ -14,7 +14,7 @@ export interface PromptTidyResult {
   tokenUsage?: number;
 }
 
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3-flash-preview';
 
 const normalizeOutput = (text: string): string =>
   text.replace(/\r\n/g, '\n').trim();
@@ -90,4 +90,3 @@ export async function tidyPrompt(
     },
   };
 }
-

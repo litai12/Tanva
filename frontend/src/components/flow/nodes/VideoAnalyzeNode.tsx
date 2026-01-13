@@ -15,7 +15,7 @@ type Props = {
 };
 
 const DEFAULT_ANALYSIS_PROMPT = '分析一下这个视频的内容，描述视频中的场景、动作和关键信息';
-const DEFAULT_VIDEO_MODEL = 'gemini-2.5-flash';
+const DEFAULT_VIDEO_MODEL = 'gemini-3-flash-preview';
 const DEFAULT_VIDEO_PROVIDER = 'banana';
 
 function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
