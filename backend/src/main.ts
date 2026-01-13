@@ -13,24 +13,28 @@ import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ConfigService } from "@nestjs/config";
 import { AppModule } from "./app.module";
-import { setGlobalDispatcher, ProxyAgent } from "undici";
+import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 
 // 配置 undici ProxyAgent 以支持代理（修复 Node.js 20+ 中 @google/genai 的代理问题）
 function configureProxyForUndici() {
   const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
   const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
-  const proxyUrl = httpsProxy || httpProxy;
+  const allProxy = process.env.ALL_PROXY || process.env.all_proxy;
+  const noProxy = process.env.NO_PROXY || process.env.no_proxy;
 
-  if (proxyUrl) {
+  const hasProxyEnv = Boolean(httpProxy || httpsProxy || allProxy || noProxy);
+  if (hasProxyEnv) {
     try {
-      const agent = new ProxyAgent(proxyUrl);
-      setGlobalDispatcher(agent);
+      // EnvHttpProxyAgent 支持 HTTP(S)_PROXY / NO_PROXY，并能按请求协议自动选择代理
+      // 若仅设置了 ALL_PROXY，则回填到 HTTP(S)_PROXY，避免部分库只识别前者。
+      if (allProxy) {
+        process.env.HTTP_PROXY = process.env.HTTP_PROXY || allProxy;
+        process.env.HTTPS_PROXY = process.env.HTTPS_PROXY || allProxy;
+      }
+
+      setGlobalDispatcher(new EnvHttpProxyAgent());
       // eslint-disable-next-line no-console
-      console.log(
-        `[Proxy] undici configured with proxy: ${
-          proxyUrl.split("@")[1] || proxyUrl.substring(0, 50)
-        }...`
-      );
+      console.log("[Proxy] undici configured from env proxy variables");
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error(

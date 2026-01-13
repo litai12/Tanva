@@ -336,11 +336,11 @@ type AIProviderType = SupportedAIProvider;
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_PRO_IMAGE_MODEL = "gemini-3-pro-image-preview";
 const GEMINI_FLASH_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
-const DEFAULT_TEXT_MODEL = "gemini-2.5-flash";
-const GEMINI_PRO_TEXT_MODEL = "gemini-3-pro-preview";
-const BANANA_TEXT_MODEL = "banana-gemini-3-pro-preview";
+const DEFAULT_TEXT_MODEL = "gemini-3-flash-preview";
+const GEMINI_PRO_TEXT_MODEL = "gemini-3-flash-preview";
+const BANANA_TEXT_MODEL = "gemini-3-flash-preview";
 const BANANA_25_IMAGE_MODEL = "gemini-2.5-flash-image";
-const BANANA_25_TEXT_MODEL = "gemini-2.5-flash";
+const BANANA_25_TEXT_MODEL = "gemini-3-flash-preview";
 export const SORA2_VIDEO_MODELS = {
   hd: "sora-2-pro-reverse",
   sd: "sora-2-reverse",

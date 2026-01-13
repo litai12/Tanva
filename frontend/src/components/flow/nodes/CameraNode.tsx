@@ -23,6 +23,16 @@ function CameraNodeInner({ id, data, selected }: Props) {
     const raw = (data.imageData || data.imageUrl)?.trim();
     if (!raw) return undefined;
     if (raw.startsWith("data:image")) return raw;
+    if (raw.startsWith("blob:")) return raw;
+    if (raw.startsWith("/api/assets/proxy") || raw.startsWith("/assets/proxy"))
+      return proxifyRemoteAssetUrl(raw);
+    if (raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("../"))
+      return raw;
+    if (/^(templates|projects|uploads|videos)\//i.test(raw)) {
+      return proxifyRemoteAssetUrl(
+        `/api/assets/proxy?key=${encodeURIComponent(raw.replace(/^\/+/, ""))}`
+      );
+    }
     if (raw.startsWith("http://") || raw.startsWith("https://"))
       return proxifyRemoteAssetUrl(raw);
     return `data:image/png;base64,${raw}`;
@@ -119,11 +129,25 @@ function CameraNodeInner({ id, data, selected }: Props) {
     if (!img) return;
     const trimmed = img.trim();
     const dataUrl =
-      trimmed.startsWith("http://") || trimmed.startsWith("https://")
+      trimmed.startsWith("data:image")
         ? trimmed
-        : trimmed.startsWith("data:image")
+        : trimmed.startsWith("blob:")
           ? trimmed
-          : `data:image/png;base64,${trimmed}`;
+          : trimmed.startsWith("/api/assets/proxy") || trimmed.startsWith("/assets/proxy")
+            ? proxifyRemoteAssetUrl(trimmed)
+            : /^(templates|projects|uploads|videos)\//i.test(trimmed)
+              ? proxifyRemoteAssetUrl(
+                  `/api/assets/proxy?key=${encodeURIComponent(
+                    trimmed.replace(/^\/+/, "")
+                  )}`
+                )
+              : trimmed.startsWith("http://") || trimmed.startsWith("https://")
+                ? trimmed
+                : trimmed.startsWith("/") ||
+                    trimmed.startsWith("./") ||
+                    trimmed.startsWith("../")
+                  ? trimmed
+                  : `data:image/png;base64,${trimmed}`;
     const fileName = `capture_${Date.now()}.png`;
     window.dispatchEvent(
       new CustomEvent("triggerQuickImageUpload", {

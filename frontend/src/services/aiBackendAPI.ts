@@ -871,7 +871,7 @@ export async function generateTextResponseViaAPI(
     logApiTiming("text-chat", startedAt, {
       success: true,
       provider: request.aiProvider,
-      model: request.model || "gemini-2.5-flash",
+      model: request.model || "gemini-3-flash-preview",
       textLength: typeof data?.text === "string" ? data.text.length : undefined,
     });
 
@@ -879,7 +879,7 @@ export async function generateTextResponseViaAPI(
       success: true,
       data: {
         text: data.text,
-        model: "gemini-2.5-flash",
+        model: request.model || "gemini-3-flash-preview",
         webSearchResult: data.webSearchResult || undefined,
       },
     };

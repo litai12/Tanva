@@ -27,6 +27,18 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
     const raw = (data.imageData || data.imageUrl)?.trim();
     if (!raw) return undefined;
     if (raw.startsWith('data:image')) return raw;
+    if (raw.startsWith('blob:')) return raw;
+    if (raw.startsWith('/api/assets/proxy') || raw.startsWith('/assets/proxy')) {
+      return proxifyRemoteAssetUrl(raw);
+    }
+    if (raw.startsWith('/') || raw.startsWith('./') || raw.startsWith('../')) {
+      return raw;
+    }
+    if (/^(templates|projects|uploads|videos)\//i.test(raw)) {
+      return proxifyRemoteAssetUrl(
+        `/api/assets/proxy?key=${encodeURIComponent(raw.replace(/^\/+/, ''))}`
+      );
+    }
     if (raw.startsWith('http://') || raw.startsWith('https://'))
       return proxifyRemoteAssetUrl(raw);
     return `data:image/png;base64,${raw}`;
@@ -79,9 +91,28 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         const raw = (data.imageData || data.imageUrl)?.trim() || '';
         if (!raw) throw new Error('缺少图片输入');
         if (raw.startsWith('data:image')) return raw;
-        if (raw.startsWith('http://') || raw.startsWith('https://')) {
+        const fetchUrl = (() => {
+          if (raw.startsWith('blob:')) return raw;
+          if (raw.startsWith('/api/assets/proxy') || raw.startsWith('/assets/proxy')) {
+            return proxifyRemoteAssetUrl(raw);
+          }
+          if (raw.startsWith('/') || raw.startsWith('./') || raw.startsWith('../')) {
+            return raw;
+          }
+          if (/^(templates|projects|uploads|videos)\//i.test(raw)) {
+            return proxifyRemoteAssetUrl(
+              `/api/assets/proxy?key=${encodeURIComponent(raw.replace(/^\/+/, ''))}`
+            );
+          }
+          if (raw.startsWith('http://') || raw.startsWith('https://')) {
+            return proxifyRemoteAssetUrl(raw);
+          }
+          return '';
+        })();
+
+        if (fetchUrl) {
           // 类型定义要求 base64，这里在前端将远程图转成 dataURL
-          const response = await fetch(proxifyRemoteAssetUrl(raw), { credentials: 'include' });
+          const response = await fetch(fetchUrl, { credentials: 'include' });
           if (!response.ok) throw new Error(`图片加载失败: ${response.status}`);
           const blob = await response.blob();
           return await new Promise<string>((resolve, reject) => {

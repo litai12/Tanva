@@ -683,7 +683,7 @@ export class GeminiProProvider implements IAIProvider {
           this.withTimeout(
             (async () => {
               const response = await client.models.generateContent({
-                model: 'gemini-3-pro-preview',
+                model: 'gemini-3-flash-preview',
                 contents: [
                   { text: analysisPrompt },
                   {
@@ -774,7 +774,7 @@ export class GeminiProProvider implements IAIProvider {
               try {
                 // 默认使用非流式 API（更稳定）
                 const response = await client.models.generateContent({
-                  model: 'gemini-3-pro-preview',
+                  model: 'gemini-3-flash-preview',
                   contents: [{ text: finalPrompt }],
                   config: apiConfig,
                 });
@@ -794,7 +794,7 @@ export class GeminiProProvider implements IAIProvider {
                   this.logger.warn('Non-stream API failed, falling back to stream API...');
                   try {
                     const stream = await client.models.generateContentStream({
-                      model: 'gemini-3-pro-preview',
+                      model: 'gemini-3-flash-preview',
                       contents: [{ text: finalPrompt }],
                       config: apiConfig,
                     });
@@ -904,12 +904,12 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [
-              { text: systemPrompt },
-              { text: `用户输入: ${request.prompt}` }
-            ],
+            const response = await client.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: [
+                { text: systemPrompt },
+                { text: `用户输入: ${request.prompt}` }
+              ],
             config: {
               safetySettings: [
                 { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -1090,8 +1090,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
 
     try {
       const client = this.ensureClient();
-      // 使用 gemini-3-pro-preview，与文本对话保持一致
-      const model = request.model || 'gemini-3-pro-preview';
+      const model = request.model || 'gemini-3-flash-preview';
 
       // 系统提示词
       const systemPrompt = `你是一个paper.js代码专家，请根据我的需求帮我生成纯净的paper.js代码，不用其他解释或无效代码，确保使用view.center作为中心，并围绕中心绘图`;
@@ -1234,7 +1233,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
     return {
       name: 'Google Gemini Pro',
       version: '3.0',
-      supportedModels: ['gemini-3-pro-image-preview', 'gemini-3-pro-preview'],
+      supportedModels: ['gemini-3-pro-image-preview', 'gemini-3-flash-preview'],
     };
   }
 }

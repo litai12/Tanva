@@ -73,11 +73,11 @@ export class BananaProvider implements IAIProvider {
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAYS = [2000, 5000, 10000]; // 递增延迟: 2s, 5s, 10s
 
-  // 降级模型映射：Pro模型 -> 2.5模型（与国内极速版一致）
+  // 降级模型映射：Pro 文本模型 -> Flash（避免走 Pro）
   private readonly FALLBACK_MODELS: Record<string, string> = {
     "gemini-3-pro-image-preview": "gemini-2.5-flash-image",
-    "gemini-3-pro-preview": "gemini-2.5-flash",
-    "banana-gemini-3-pro-preview": "gemini-2.5-flash",
+    "gemini-3-pro-preview": "gemini-3-flash-preview",
+    "banana-gemini-3-pro-preview": "gemini-3-flash-preview",
     "banana-gemini-3-pro-image-preview": "gemini-2.5-flash-image",
   };
 
@@ -407,6 +407,44 @@ export class BananaProvider implements IAIProvider {
     return apiKey.replace(/^Bearer\s+/i, "").trim();
   }
 
+  private normalizeResponseModalities(
+    input: unknown
+  ): Array<"TEXT" | "IMAGE"> | undefined {
+    if (!Array.isArray(input)) return undefined;
+    const normalized = input
+      .map((value) => {
+        const raw = typeof value === "string" ? value.trim() : String(value);
+        if (!raw) return null;
+        const upper = raw.toUpperCase();
+        if (upper === "TEXT" || upper === "IMAGE")
+          return upper as "TEXT" | "IMAGE";
+        // 兼容旧写法：Text/Image
+        if (raw === "Text") return "TEXT";
+        if (raw === "Image") return "IMAGE";
+        this.logger.warn(
+          `[BananaProvider] Ignoring unsupported response modality: ${raw}`
+        );
+        return null;
+      })
+      .filter((v): v is "TEXT" | "IMAGE" => v === "TEXT" || v === "IMAGE");
+
+    const deduped = Array.from(new Set(normalized));
+    return deduped.length ? deduped : undefined;
+  }
+
+  private supportsImageSize(model: string): boolean {
+    const normalized = this.normalizeModelName(model);
+    // 经验：gemini-2.5-flash-image 在 147 API 上不支持 imageSize（会触发 400 invalid argument）
+    // gemini-3 / imagen-3 系列通常支持 imageSize
+    return normalized.startsWith("gemini-3") || normalized.startsWith("imagen-3");
+  }
+
+  private supportsThinkingLevel(model: string): boolean {
+    const normalized = this.normalizeModelName(model);
+    // thinking_level 属于 Gemini 3 特性
+    return normalized.startsWith("gemini-3");
+  }
+
   private async makeRequest(
     model: string,
     contents: any,
@@ -432,15 +470,38 @@ export class BananaProvider implements IAIProvider {
       const generationConfig: any = {};
 
       if (config.responseModalities) {
-        generationConfig.responseModalities = config.responseModalities;
+        const normalized = this.normalizeResponseModalities(
+          config.responseModalities
+        );
+        if (normalized) {
+          generationConfig.responseModalities = normalized;
+        }
       }
 
       if (config.imageConfig) {
-        generationConfig.imageConfig = config.imageConfig;
+        const imageConfig: Record<string, any> = { ...config.imageConfig };
+
+        // 兼容：147 的 gemini-2.5-flash-image 不支持 imageSize 参数，避免直接 400
+        if (!this.supportsImageSize(model) && "imageSize" in imageConfig) {
+          this.logger.warn(
+            `[BananaProvider] Dropping unsupported imageSize for model ${model}`
+          );
+          delete imageConfig.imageSize;
+        }
+
+        if (Object.keys(imageConfig).length > 0) {
+          generationConfig.imageConfig = imageConfig;
+        }
       }
 
       if (config.thinking_level) {
-        generationConfig.thinking_level = config.thinking_level;
+        if (this.supportsThinkingLevel(model)) {
+          generationConfig.thinking_level = config.thinking_level;
+        } else {
+          this.logger.warn(
+            `[BananaProvider] Dropping unsupported thinking_level for model ${model}`
+          );
+        }
       }
 
       // 只有在有内容时才添加 generationConfig
@@ -555,8 +616,8 @@ export class BananaProvider implements IAIProvider {
             (async () => {
               const config: any = {
                 responseModalities: request.imageOnly
-                  ? ["IMAGE"]
-                  : ["TEXT", "IMAGE"],
+                  ? ["Image"]
+                  : ["Text", "Image"],
               };
 
               // 配置 imageConfig（aspectRatio 和 imageSize）
@@ -678,8 +739,8 @@ export class BananaProvider implements IAIProvider {
             (async () => {
               const config: any = {
                 responseModalities: request.imageOnly
-                  ? ["IMAGE"]
-                  : ["TEXT", "IMAGE"],
+                  ? ["Image"]
+                  : ["Text", "Image"],
               };
 
               // 配置 imageConfig（aspectRatio 和 imageSize）
@@ -820,8 +881,8 @@ export class BananaProvider implements IAIProvider {
             (async () => {
               const config: any = {
                 responseModalities: request.imageOnly
-                  ? ["IMAGE"]
-                  : ["TEXT", "IMAGE"],
+                  ? ["Image"]
+                  : ["Text", "Image"],
               };
 
               // 配置 imageConfig（aspectRatio 和 imageSize）
@@ -993,9 +1054,9 @@ export class BananaProvider implements IAIProvider {
   ): Promise<AIProviderResponse<TextResult>> {
     this.logger.log(`🤖 Generating text response using Banana (147) API...`);
 
-    // 文本生成默认使用 gemini-2.5-flash，如果指定了 Pro 模型则使用降级策略
+    // 文本生成默认使用 gemini-3-flash-preview，如果指定了 Pro 模型则使用降级策略
     const originalModel = this.normalizeModelName(
-      request.model || "gemini-2.5-flash"
+      request.model || "gemini-3-flash-preview"
     );
     let currentModel = originalModel;
     let usedFallback = false;
@@ -1008,7 +1069,7 @@ export class BananaProvider implements IAIProvider {
         );
 
         const apiConfig: any = {
-          responseModalities: ["TEXT"],
+          responseModalities: ["Text"],
         };
 
         if (request.enableWebSearch) {
@@ -1130,7 +1191,7 @@ export class BananaProvider implements IAIProvider {
     request: ToolSelectionRequest
   ): Promise<AIProviderResponse<ToolSelectionResult>> {
     this.logger.log(
-      "🎯 Selecting tool with Banana (147) API using gemini-2.5-flash..."
+      "🎯 Selecting tool with Banana (147) API using gemini-3-flash-preview..."
     );
 
     try {
@@ -1177,9 +1238,9 @@ ${
         try {
           // 使用与基础版完全相同的调用方式：两条独立的 contents
           const result = await this.makeRequest(
-            "gemini-2.5-flash",
+            "gemini-3-flash-preview",
             [{ text: systemPrompt }, { text: `用户输入: ${request.prompt}` }],
-            { responseModalities: ["TEXT"] }
+            { responseModalities: ["Text"] }
           );
 
           if (!result.textResponse) {
@@ -1293,7 +1354,7 @@ ${
     return {
       name: "Banana API",
       version: "1.0",
-      supportedModels: ["gemini-3-pro-image-preview", "gemini-2.5-flash"],
+      supportedModels: ["gemini-3-pro-image-preview", "gemini-3-flash-preview"],
     };
   }
 
@@ -1322,7 +1383,7 @@ ${
         "analysis"
       );
       const originalModel = this.normalizeModelName(
-        request.model || "gemini-3-pro-preview"
+        request.model || "gemini-3-flash-preview"
       );
       let currentModel = originalModel;
       let usedFallback = false;
@@ -1358,7 +1419,7 @@ ${request.prompt ? `额外要求：${request.prompt}` : ""}`;
                       },
                     },
                   ],
-                  { responseModalities: ["TEXT"] }
+                  { responseModalities: ["Text"] }
                 ),
                 this.DEFAULT_TIMEOUT,
                 "Image analysis for img2vector"
@@ -1390,7 +1451,7 @@ ${imageAnalysis}
             () =>
               this.withTimeout(
                 this.makeRequest(currentModel, [{ text: vectorPrompt }], {
-                  responseModalities: ["TEXT"],
+                  responseModalities: ["Text"],
                   ...(request.thinkingLevel && !usedFallback
                     ? { thinking_level: request.thinkingLevel }
                     : {}),
@@ -1531,7 +1592,7 @@ ${imageAnalysis}
     const finalPrompt = `${systemPrompt}\n\n${request.prompt}`;
 
     const originalModel = this.normalizeModelName(
-      request.model || "gemini-3-pro-preview"
+      request.model || "gemini-3-flash-preview"
     );
     let currentModel = originalModel;
     let usedFallback = false;
@@ -1544,7 +1605,7 @@ ${imageAnalysis}
         );
 
         const apiConfig: any = {
-          responseModalities: ["TEXT"],
+          responseModalities: ["Text"],
         };
 
         // 配置 thinking_level（Gemini 3 特性，降级后不使用）

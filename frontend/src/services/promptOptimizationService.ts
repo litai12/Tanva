@@ -18,7 +18,7 @@ export interface PromptOptimizationResult {
 }
 
 class PromptOptimizationService {
-  private readonly DEFAULT_MODEL = 'gemini-2.5-flash';
+  private readonly DEFAULT_MODEL = 'gemini-3-flash-preview';
 
   private async withRetry<T>(
     operation: (attempt: number) => Promise<T>,

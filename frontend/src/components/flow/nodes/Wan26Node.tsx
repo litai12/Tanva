@@ -5,6 +5,16 @@ import GenerationProgressBar from "./GenerationProgressBar";
 import { uploadAudioToOSS } from "@/stores/aiChatStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 
+type VideoHistoryItem = {
+  id: string;
+  videoUrl: string;
+  thumbnail?: string;
+  prompt: string;
+  createdAt: string;
+  elapsedSeconds?: number;
+  quality?: string;
+};
+
 type Props = {
   id: string;
   data: {
@@ -18,7 +28,7 @@ type Props = {
     resolution?: "720P" | "1080P"; // I2V 参数
     duration?: number; // 5、10、15
     shotType?: "single" | "multi";
-    history?: any[];
+    history?: VideoHistoryItem[];
     audioUrl?: string;
     inputImageUrl?: string; // 用于判断是 T2V 还是 I2V
   };
@@ -297,6 +307,47 @@ function Wan26Node({ id, data, selected }: Props) {
     }
     return { color: "#1d4ed8", background: "#eff6ff", borderColor: "#bfdbfe" };
   }, [downloadFeedback]);
+
+  const historyItems = React.useMemo<VideoHistoryItem[]>(
+    () => (Array.isArray(data.history) ? data.history : []),
+    [data.history]
+  );
+
+  const handleApplyHistory = React.useCallback(
+    (item: VideoHistoryItem) => {
+      const patch: Record<string, any> = {
+        videoUrl: item.videoUrl,
+        thumbnail: item.thumbnail,
+        videoVersion: Number(data.videoVersion || 0) + 1,
+      };
+
+      if (data.status !== "running") {
+        patch.status = "succeeded";
+        patch.error = undefined;
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: { id, patch },
+        })
+      );
+    },
+    [id, data.videoVersion, data.status]
+  );
+
+  const formatHistoryTime = React.useCallback((iso: string) => {
+    if (!iso) return "-";
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  }, []);
+
+  const truncatePrompt = React.useCallback((text: string) => {
+    if (!text) return "（无提示词）";
+    return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }, []);
 
   return (
     <div
@@ -941,6 +992,137 @@ function Wan26Node({ id, data, selected }: Props) {
         status={data.status || "idle"}
         progress={data.status === "running" ? 30 : data.status === "succeeded" ? 100 : 0}
       />
+
+      {historyItems.length > 0 && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: "8px 10px",
+            borderRadius: 8,
+            border: "1px solid #e2e8f0",
+            background: "#f8fafc",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#0f172a" }}>
+              历史记录
+            </span>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              {historyItems.length} 条
+            </span>
+          </div>
+          {historyItems.map((item, index) => {
+            const isActive = item.videoUrl === data.videoUrl;
+            return (
+              <div
+                key={item.id}
+                style={{
+                  borderRadius: 6,
+                  border: "1px solid " + (isActive ? "#c7d2fe" : "#e2e8f0"),
+                  background: isActive ? "#eef2ff" : "#fff",
+                  padding: "6px 8px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    fontSize: 11,
+                    color: "#475569",
+                  }}
+                >
+                  <span>
+                    #{index + 1} · {formatHistoryTime(item.createdAt)}
+                  </span>
+                  {isActive && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "#1d4ed8",
+                        fontWeight: 600,
+                      }}
+                    >
+                      当前
+                    </span>
+                  )}
+                </div>
+                {typeof item.elapsedSeconds === "number" && (
+                  <div style={{ fontSize: 11, color: "#475569" }}>
+                    耗时 {item.elapsedSeconds}s
+                  </div>
+                )}
+                {item.quality && (
+                  <div style={{ fontSize: 11, color: "#475569" }}>
+                    {item.quality === "I2V" ? "图生视频" : item.quality === "T2V" ? "文生视频" : item.quality}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: "#0f172a" }}>
+                  {truncatePrompt(item.prompt)}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {!isActive && (
+                    <button
+                      type='button'
+                      onClick={() => handleApplyHistory(item)}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #94a3b8",
+                        background: "#fff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      设为当前
+                    </button>
+                  )}
+                  <button
+                    type='button'
+                    onClick={() => copyVideoLink(item.videoUrl)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #94a3b8",
+                      background: "#fff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    复制链接
+                  </button>
+                  <button
+                    type='button'
+                    onClick={() => triggerDownload(item.videoUrl)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #94a3b8",
+                      background: "#fff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    下载
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* 错误信息 */}
       {data.error && (

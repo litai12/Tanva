@@ -22,6 +22,14 @@
   position: relative;
 }
 
+.flow-image-node--resizing {
+  contain: layout paint;
+}
+
+.flow-image-node--resizing img {
+  will-change: transform;
+}
+
 .flow-image-node .image-node-resize-line,
 .flow-image-node .image-node-resize-handle {
   pointer-events: auto;
