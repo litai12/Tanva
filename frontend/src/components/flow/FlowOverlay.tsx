@@ -66,6 +66,8 @@ import ViduVideoNode from "./nodes/ViduVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
 import VideoNode from "./nodes/VideoNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
+import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
+import ImageGridNode from "./nodes/ImageGridNode";
 import { generateThumbnail } from "@/utils/imageHelper";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -160,6 +162,8 @@ const nodeTypes = {
   midjourney: MidjourneyNode,
   video: VideoNode,
   videoAnalyze: VideoAnalyzeNode,
+  videoFrameExtract: VideoFrameExtractNode,
+  imageGrid: ImageGridNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -334,6 +338,8 @@ const NODE_PALETTE_ITEMS = [
   { key: "image", zh: "图片节点", en: "Image Node" },
   { key: "video", zh: "视频节点", en: "Video Node" },
   { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis" },
+  { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract" },
+  { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid" },
   { key: "generate", zh: "生成节点", en: "Generate Node" },
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer" },
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate" },
@@ -3055,7 +3061,9 @@ function FlowInner() {
         | "storyboardSplit"
         | "midjourney"
         | "video"
-        | "videoAnalyze",
+        | "videoAnalyze"
+        | "videoFrameExtract"
+        | "imageGrid",
       world: { x: number; y: number }
     ) => {
       // 以默认尺寸中心对齐放置
@@ -3085,6 +3093,8 @@ function FlowInner() {
         midjourney: { w: 280, h: 320 },
         video: { w: 320, h: 280 },
         videoAnalyze: { w: 280, h: 360 },
+        videoFrameExtract: { w: 300, h: 420 },
+        imageGrid: { w: 300, h: 380 },
       }[type];
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -3238,6 +3248,27 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "videoFrameExtract"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              intervalSeconds: 3,
+              frames: [],
+              totalFrames: 0,
+              outputMode: "all" as const,
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "imageGrid"
+          ? {
+              status: "idle" as const,
+              images: [],
+              outputImage: undefined,
+              backgroundColor: "#ffffff",
+              padding: 0,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
           ? {
               status: "idle" as const,
@@ -3314,34 +3345,34 @@ function FlowInner() {
       const targetNode = rf.getNode(target);
       if (!sourceNode || !targetNode) return false;
 
+      // 检查是否为有效的图片源节点
+      const isImageSource = (node: typeof sourceNode, handle?: string | null) => {
+        const imageNodeTypes = [
+          "image",
+          "imagePro",
+          "generate",
+          "generate4",
+          "generatePro",
+          "generatePro4",
+          "generateRef",
+          "three",
+          "camera",
+          "imageGrid",
+        ];
+        if (imageNodeTypes.includes(node.type || "")) return true;
+        // videoFrameExtract 的 image 句柄输出单张图片
+        if (node.type === "videoFrameExtract" && handle === "image") return true;
+        return false;
+      };
+
       // 允许连接到 Generate / Generate4 / GenerateRef / Image / PromptOptimizer
       if (targetNode.type === "generateRef") {
         if (targetHandle === "text")
           return textSourceTypes.includes(sourceNode.type || "");
         if (targetHandle === "image1" || targetHandle === "refer")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         if (targetHandle === "image2" || targetHandle === "img")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (
@@ -3353,32 +3384,12 @@ function FlowInner() {
         if (targetHandle === "text")
           return textSourceTypes.includes(sourceNode.type || "");
         if (targetHandle === "img")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "sora2Video") {
         if (targetHandle === "image") {
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
@@ -3391,17 +3402,7 @@ function FlowInner() {
           return textSourceTypes.includes(sourceNode.type || "");
         }
         if (targetHandle === "image") {
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
@@ -3435,17 +3436,7 @@ function FlowInner() {
         )
       ) {
         if (targetHandle === "image") {
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         }
         if (targetHandle === "text") {
           return textSourceTypes.includes(sourceNode.type || "");
@@ -3459,50 +3450,21 @@ function FlowInner() {
           return textSourceTypes.includes(sourceNode.type || "");
         }
         if (targetHandle === "img") {
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "midjourney",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          // midjourney 也可以作为图片源
+          if (sourceNode.type === "midjourney") return true;
+          return isImageSource(sourceNode, sourceHandle);
         }
         return false;
       }
 
       if (targetNode.type === "image") {
         if (targetHandle === "img")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "imagePro") {
         if (targetHandle === "img")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "promptOptimize") {
@@ -3522,22 +3484,42 @@ function FlowInner() {
       }
       if (targetNode.type === "analysis") {
         if (targetHandle === "img")
-          return [
-            "image",
-            "imagePro",
-            "generate",
-            "generate4",
-            "generatePro",
-            "generatePro4",
-            "generateRef",
-            "three",
-            "camera",
-          ].includes(sourceNode.type || "");
+          return isImageSource(sourceNode, sourceHandle);
         return false;
       }
       if (targetNode.type === "videoAnalyze") {
         if (targetHandle === "video")
           return sourceNode.type === "video";
+        return false;
+      }
+      if (targetNode.type === "videoFrameExtract") {
+        if (targetHandle === "video")
+          return sourceNode.type === "video";
+        return false;
+      }
+      if (targetNode.type === "imageGrid") {
+        if (targetHandle === "images") {
+          // videoFrameExtract 支持单帧/多帧输出
+          if (sourceNode.type === "videoFrameExtract") {
+            return (
+              sourceHandle === "image" ||
+              sourceHandle === "images" ||
+              sourceHandle === "images-range"
+            );
+          }
+          return [
+            "image",
+            "imagePro",
+            "camera",
+            "three",
+            "generate",
+            "generate4",
+            "generateRef",
+            "generatePro",
+            "generatePro4",
+            "midjourney",
+          ].includes(sourceNode.type || "");
+        }
         return false;
       }
       if (targetNode.type === "textChat") {
@@ -3637,6 +3619,12 @@ function FlowInner() {
       if (targetNode?.type === "videoAnalyze") {
         if (params.targetHandle === "video") return true; // 仅一条视频连接
       }
+      if (targetNode?.type === "videoFrameExtract") {
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+      }
+      if (targetNode?.type === "imageGrid") {
+        if (params.targetHandle === "images") return true; // 允许多条图片连接
+      }
       if (targetNode?.type === "textChat") {
         if (isTextHandle(params.targetHandle)) return true;
       }
@@ -3671,6 +3659,13 @@ function FlowInner() {
 
         // 如果是连接到 videoAnalyze(video)，先移除旧的输入线，再添加新线
         if (tgt?.type === "videoAnalyze" && params.targetHandle === "video") {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === "video")
+          );
+        }
+
+        // 如果是连接到 videoFrameExtract(video)，先移除旧的输入线，再添加新线
+        if (tgt?.type === "videoFrameExtract" && params.targetHandle === "video") {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "video")
           );

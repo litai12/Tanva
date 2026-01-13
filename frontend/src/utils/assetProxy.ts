@@ -34,12 +34,19 @@ function shouldProxyAssets(): boolean {
   return true;
 }
 
-export function proxifyRemoteAssetUrl(input: string): string {
+export function isAssetProxyEnabled(): boolean {
+  return shouldProxyAssets();
+}
+
+export function proxifyRemoteAssetUrl(
+  input: string,
+  options?: { forceProxy?: boolean }
+): string {
   const value = typeof input === "string" ? input.trim() : "";
   if (!value) return input;
 
   const apiBase = getApiBaseUrl();
-  const proxyEnabled = shouldProxyAssets();
+  const proxyEnabled = options?.forceProxy ? true : shouldProxyAssets();
 
   // 已经是同源相对 proxy 的，生产环境下补齐后端域名（静态部署无反向代理时需要）
   if (

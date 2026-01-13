@@ -186,11 +186,50 @@ function ImageNodeInner({ id, data, selected }: Props) {
       [id]
     )
   );
+
+  // 从连接的节点读取图片（支持 videoFrameExtract 和 imageGrid）
+  const connectedFrameImage = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        // 查找连接到 img 输入句柄的边
+        const edge = state.edges.find(
+          (e) => e.target === id && e.targetHandle === "img"
+        );
+        if (!edge) return undefined;
+
+        const sourceNode = state.getNodes().find((n) => n.id === edge.source);
+        if (!sourceNode) return undefined;
+
+        // 处理 imageGrid 节点 - 读取拼合后的图片
+        if (sourceNode.type === "imageGrid") {
+          const outputImage = sourceNode.data?.outputImage as string | undefined;
+          return outputImage || undefined;
+        }
+
+        // 处理 videoFrameExtract 节点 - 读取单帧图片
+        if (sourceNode.type === "videoFrameExtract" && edge.sourceHandle === "image") {
+          const frames = sourceNode.data?.frames as Array<{ index: number; imageUrl: string; thumbnailDataUrl?: string }> | undefined;
+          if (!frames || frames.length === 0) return undefined;
+
+          const selectedFrameIndex = (sourceNode.data?.selectedFrameIndex ?? 1) as number;
+          const idx = selectedFrameIndex - 1;
+          const frame = frames[idx];
+          if (!frame) return undefined;
+
+          return frame.thumbnailDataUrl || frame.imageUrl;
+        }
+
+        return undefined;
+      },
+      [id]
+    )
+  );
+
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   const fullSrc = React.useMemo(
-    () => buildImageSrc(data.imageData || data.imageUrl),
-    [data.imageData, data.imageUrl]
+    () => buildImageSrc(connectedFrameImage || data.imageData || data.imageUrl),
+    [connectedFrameImage, data.imageData, data.imageUrl]
   );
   const displaySrc = React.useMemo(
     () => buildImageSrc(data.thumbnail) || fullSrc,

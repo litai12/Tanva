@@ -243,10 +243,7 @@ function VideoNodeInner({ id, data, selected }: Props) {
           marginBottom: 6,
         }}
       >
-        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-          <span>🎬</span>
-          <span>{data.label || "Video"}</span>
-        </div>
+        <div style={{ fontWeight: 600 }}>{data.label || "Video"}</div>
         <div style={{ display: "flex", gap: 6 }}>
           {data.videoUrl && (
             <button

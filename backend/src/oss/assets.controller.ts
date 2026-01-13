@@ -1,6 +1,7 @@
-import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Controller, Get, Query, Req, Res } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { Readable } from 'node:stream';
 import { OssService } from './oss.service';
 
 @ApiTags('assets')
@@ -22,20 +23,28 @@ export class AssetsController {
   }
 
   private isAllowedHost(hostname: string): boolean {
-    const allowed = new Set(this.oss.allowedPublicHosts());
-    return allowed.has(hostname);
+    const allowed = this.oss.allowedPublicHosts();
+    // 支持精确匹配和后缀匹配（如 .aliyuncs.com）
+    return allowed.some(host =>
+      hostname === host || hostname.endsWith('.' + host) || hostname.endsWith(host)
+    );
   }
 
   @Get('proxy')
   @ApiOperation({ summary: 'Proxy public OSS assets to avoid browser CORS' })
   @ApiQuery({ name: 'url', required: false, description: 'Full remote URL (must be an allowed OSS/CDN host)' })
   @ApiQuery({ name: 'key', required: false, description: 'OSS object key (alternative to url)' })
-  async proxy(@Res() reply: FastifyReply, @Query('url') url?: string, @Query('key') key?: string) {
-    const targetUrl = this.resolveTargetUrl({ url, key });
+  async proxy(
+    @Res() reply: FastifyReply,
+    @Req() req: FastifyRequest,
+    @Query('url') url?: string,
+    @Query('key') key?: string
+  ) {
+    const initialUrl = this.resolveTargetUrl({ url, key });
 
     let parsed: URL;
     try {
-      parsed = new URL(targetUrl);
+      parsed = new URL(initialUrl);
     } catch {
       throw new BadRequestException('Invalid URL');
     }
@@ -48,28 +57,105 @@ export class AssetsController {
       throw new BadRequestException('Host not allowed');
     }
 
-    const upstream = await fetch(targetUrl, { redirect: 'follow' });
+    const pickHeader = (name: string): string | undefined => {
+      const raw = (req.headers as Record<string, unknown>)[name];
+      return typeof raw === 'string' ? raw : undefined;
+    };
 
-    const contentType = upstream.headers.get('content-type');
-    if (contentType) reply.header('content-type', contentType);
+    const upstreamHeaders: Record<string, string> = {};
+    const range = pickHeader('range');
+    const ifNoneMatch = pickHeader('if-none-match');
+    const ifModifiedSince = pickHeader('if-modified-since');
+    if (range) upstreamHeaders['range'] = range;
+    if (ifNoneMatch) upstreamHeaders['if-none-match'] = ifNoneMatch;
+    if (ifModifiedSince) upstreamHeaders['if-modified-since'] = ifModifiedSince;
+
+    const fetchWithRedirectCheck = async (inputUrl: string) => {
+      let currentUrl = inputUrl;
+      for (let i = 0; i < 5; i++) {
+        const res = await fetch(currentUrl, {
+          redirect: 'manual',
+          headers: upstreamHeaders,
+        });
+
+        if (res.status >= 300 && res.status < 400) {
+          const location = res.headers.get('location');
+          if (!location) return res;
+
+          let next: URL;
+          try {
+            next = new URL(location, currentUrl);
+          } catch {
+            throw new BadRequestException('Invalid redirect URL');
+          }
+
+          if (next.protocol !== 'http:' && next.protocol !== 'https:') {
+            throw new BadRequestException('Unsupported redirect URL protocol');
+          }
+          if (!this.isAllowedHost(next.hostname)) {
+            throw new BadRequestException('Redirect host not allowed');
+          }
+          currentUrl = next.toString();
+          continue;
+        }
+
+        return res;
+      }
+      throw new BadRequestException('Too many redirects');
+    };
+
+    let upstream: Response;
+    try {
+      upstream = await fetchWithRedirectCheck(initialUrl);
+    } catch (err: any) {
+      throw new BadGatewayException(err?.message || 'Upstream fetch failed');
+    }
+
+    // 设置 CORS 头，允许跨域访问（用于视频抽帧等场景）
+    reply.header('access-control-allow-origin', '*');
+    reply.header(
+      'access-control-expose-headers',
+      'content-type,content-length,content-range,accept-ranges,etag,last-modified,cache-control'
+    );
+    reply.header('cross-origin-resource-policy', 'cross-origin');
+
+    const passthroughHeaders = [
+      'content-type',
+      'content-length',
+      'content-range',
+      'accept-ranges',
+      'etag',
+      'last-modified',
+      'cache-control',
+      'content-disposition',
+    ] as const;
+    passthroughHeaders.forEach((name) => {
+      const value = upstream.headers.get(name);
+      if (value) reply.header(name, value);
+    });
 
     // 仅对成功响应缓存，避免把偶发的 4xx/5xx “缓存成空白图”。
-    if (upstream.ok) {
-      const cacheControl = upstream.headers.get('cache-control');
-      reply.header('cache-control', cacheControl || 'public, max-age=3600');
-    } else {
+    // 上游若未提供 cache-control，则设置一个温和的默认值。
+    if (upstream.ok && !upstream.headers.get('cache-control')) {
+      reply.header('cache-control', 'public, max-age=3600');
+    }
+    if (!upstream.ok) {
       reply.header('cache-control', 'no-store');
     }
 
-    const etag = upstream.headers.get('etag');
-    if (etag) reply.header('etag', etag);
-
-    const lastModified = upstream.headers.get('last-modified');
-    if (lastModified) reply.header('last-modified', lastModified);
-
     reply.status(upstream.status);
 
-    const body = Buffer.from(await upstream.arrayBuffer());
-    reply.send(body);
+    if (!upstream.body) {
+      reply.send(Buffer.from(await upstream.arrayBuffer()));
+      return;
+    }
+
+    // Node fetch 返回 Web ReadableStream；转为 Node stream 以支持流式转发（视频 Range/seek）
+    const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => NodeJS.ReadableStream }).fromWeb;
+    const nodeStream: NodeJS.ReadableStream = typeof fromWeb === 'function'
+      ? fromWeb(upstream.body as unknown)
+      : Readable.from(Buffer.from(await upstream.arrayBuffer()));
+
+    reply.send(nodeStream);
   }
 }
