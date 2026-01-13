@@ -25,7 +25,7 @@ const SORA2_VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
 const SORA2_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
 const SORA2_ASYNC_HOST_HINTS = ['asyncdata.', 'asyncndata.'];
 const SORA2_MAX_FOLLOW_DEPTH = 2;
-const SORA2_FETCH_TIMEOUT_MS = 60000;
+const SORA2_FETCH_TIMEOUT_MS = 120000;
 const SORA2_MAX_RETRY = 3;
 const SORA2_RETRY_BASE_DELAY_MS = 1200;
 const SORA2_POLL_INTERVAL_MS = 5000;
@@ -41,7 +41,7 @@ const SORA2_V2_VIDEO_MODELS: Record<VideoQuality, string> = {
 const SORA2_V2_POLL_INTERVAL_MS = 5000;
 const SORA2_V2_POLL_MAX_ATTEMPTS = 120;
 const SORA2_V2_FAILED_STATUSES = ['failed', 'error', 'cancelled', 'FAILURE'];
-const SORA2_V2_FETCH_TIMEOUT_MS = 60000;
+const SORA2_V2_FETCH_TIMEOUT_MS = 120000;
 
 interface Sora2ResolvedMedia {
   videoUrl?: string;
@@ -414,88 +414,194 @@ export class Sora2VideoService {
           `普通Sora2 video generation attempt ${attempt}/${SORA2_MAX_RETRY} (quality=${quality}, model=${model})`,
         );
 
-        const requestPayload = {
-          model,
-          stream: true,
-          messages: this.buildMessages(options.prompt, options.referenceImageUrls),
+        // Build create payload for /v1/videos (supports JSON creation and optional image URL)
+        const isImageToVideo =
+          options.referenceImageUrls && options.referenceImageUrls.length > 0;
+
+        // choose model based on duration and aspectRatio if provided, otherwise fallback to existing model mapping
+        const selectedModel = (() => {
+          // 默认 10 秒横屏（当未传 duration 或 aspectRatio 时）
+          const durationNum = options.duration ? Number(options.duration) : 10;
+          const isPortrait = options.aspectRatio === '9:16';
+          if (durationNum === 10) return isPortrait ? 'sora2-portrait' : 'sora2-landscape';
+          if (durationNum === 15) return isPortrait ? 'sora2-portrait-15s' : 'sora2-landscape-15s';
+          if (durationNum === 25) return isPortrait ? 'sora2-pro-portrait-25s' : 'sora2-pro-landscape-25s';
+          // 未匹配的时长默认回退为 10s 横屏或竖屏对应模型
+          return isPortrait ? 'sora2-portrait' : 'sora2-landscape';
+        })();
+
+        const createPayload: Record<string, any> = {
+          model: selectedModel,
+          prompt: options.prompt,
         };
+        // 如果未指定 duration，默认 10
+        createPayload.duration = options.duration ? Number(options.duration) : 10;
+        if (isImageToVideo) {
+          // prefer passing the first image URL if available (API accepts image URL in JSON)
+          const imageUrl = options.referenceImageUrls!.find((u) => typeof u === 'string' && u.startsWith('http'));
+          if (imageUrl) {
+            createPayload.image = imageUrl;
+          }
+        }
+        // 打印请求信息（不要泄露完整 API key）
+        try {
+          const maskedKey = (this.apiKey || '').slice(0, 6) ? `${(this.apiKey || '').slice(0, 6)}...` : 'missing';
+          this.logger.debug(
+            `普通Sora2 创建请求: url=${this.apiBase}/v1/videos, model=${selectedModel}, duration=${createPayload.duration}, hasImage=${!!createPayload.image}, promptPreview=${String(createPayload.prompt).slice(
+              0,
+              200,
+            )}, authPrefix=${maskedKey}`,
+          );
+        } catch (logErr) {
+          this.logger.warn('打印 Sora2 请求信息失败', logErr as any);
+        }
 
-        const response = await fetch(`${this.apiBase}/v1/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
-          },
-          body: JSON.stringify(requestPayload),
-        });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), SORA2_FETCH_TIMEOUT_MS);
+        let createResponse: Response;
+        try {
+          createResponse = await fetch(`${this.apiBase}/v1/videos`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify(createPayload),
+            signal: controller.signal,
+          });
+        } catch (fetchErr) {
+          clearTimeout(timer);
+          const name = (fetchErr as any)?.name;
+          const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          this.logger.warn(`普通Sora2 创建任务 fetch 异常 (attempt ${attempt}): ${msg}`, fetchErr as any);
+          throw new ServiceUnavailableException('Sora2 请求失败: fetch failed');
+        } finally {
+          clearTimeout(timer);
+        }
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          const message = errorData?.message || `HTTP ${response.status}`;
+        if (!createResponse.ok) {
+          const errorText = await createResponse.text().catch(() => '');
+          this.logger.error(`❌ 普通Sora2 创建任务失败: HTTP ${createResponse.status}, body=${errorText.slice(0,1000)}`);
+          const parsedError = (() => {
+            try { return JSON.parse(errorText); } catch { return null; }
+          })();
+          const message = parsedError?.message || parsedError?.error?.message || `HTTP ${createResponse.status}`;
           throw new ServiceUnavailableException(`Sora2 请求失败: ${message}`);
         }
 
-        const fullContent = await this.processStream(response);
-        let resolved = await this.resolveSora2Response(fullContent);
+        const createResult = await createResponse.json().catch(() => ({}));
+        this.logger.log(`普通Sora2 创建任务响应: ${JSON.stringify(createResult).slice(0,400)}`);
 
-        if (resolved.status && SORA2_FAILED_STATUSES.includes(resolved.status)) {
-          const errorType = resolved.taskInfo?.error?.type || resolved.status;
-          const message =
-            resolved.taskInfo?.error?.message || resolved.errorMessage || 'Sora2 返回失败状态';
-          throw new BadRequestException(`Sora2 生成失败 [${errorType}]: ${message}`);
+        // If provider returned direct video url (synchronous), return immediately
+        const directVideo = createResult?.video_url || createResult?.output?.video_url || createResult?.result?.video_url || createResult?.output || createResult?.result;
+        if (typeof directVideo === 'string' && directVideo.startsWith('http')) {
+          const durationSec = ((Date.now() - startedAt) / 1000).toFixed(2);
+          this.logger.log(`普通Sora2 视频生成(同步)成功，耗时 ${durationSec}s`);
+          return {
+            videoUrl: directVideo,
+            content: `视频已生成（即时返回）`,
+            thumbnailUrl: undefined,
+            referencedUrls: [directVideo],
+            status: 'succeeded',
+            taskId: createResult?.id || createResult?.task_id,
+            taskInfo: createResult,
+          };
         }
 
-        const needsPoll =
-          (resolved.status && SORA2_POLL_STATUSES.includes(resolved.status)) ||
-          (!resolved.videoUrl && (resolved.taskId || resolved.taskInfo));
+        // extract task id for polling
+        const taskId =
+          createResult?.task_id ||
+          createResult?.id ||
+          createResult?.data?.task_id ||
+          createResult?.data?.id;
 
-        if (needsPoll) {
-          this.logger.log(
-            `Sora2 task ${resolved.taskId ?? 'unknown'} is still processing, start polling`,
-          );
-          const taskUrls = resolved.referencedUrls.filter((url) => this.isAsyncTaskUrl(url));
-          if (taskUrls.length === 0) {
-            throw new ServiceUnavailableException('Sora2 返回处理中状态，但没有可用的任务跟踪链接');
-          }
-
-          const pollResult = await this.pollTaskUntilComplete(taskUrls);
-          if (!pollResult) {
-            throw new ServiceUnavailableException('视频生成超时，请稍后刷新重试');
-          }
-
-          if (pollResult.status && SORA2_FAILED_STATUSES.includes(pollResult.status)) {
-            const errorType = pollResult.taskInfo?.error?.type || pollResult.status;
-            const message =
-              pollResult.taskInfo?.error?.message ||
-              pollResult.errorMessage ||
-              'Sora2 生成失败';
-            throw new BadRequestException(`Sora2 生成失败 [${errorType}]: ${message}`);
-          }
-
-          resolved = pollResult;
+        if (!taskId) {
+          this.logger.error(`Sora2 创建任务未返回 task id，响应: ${JSON.stringify(createResult).slice(0,400)}`);
+          throw new ServiceUnavailableException('Sora2 未返回任务 ID');
         }
 
-        if (!resolved.videoUrl) {
-          const preview = resolved.referencedUrls.slice(0, 5).join('\n');
-          this.logger.error(
-            `Sora2 未返回视频 URL，参考链接: ${preview || '无'}, 内容片段: ${fullContent.slice(0, 200)}`,
-          );
+        // Poll task status with adaptive interval (5s -> up to 30s)
+        const maxAttempts = SORA2_POLL_MAX_ATTEMPTS;
+        let pollAttempt = 0;
+        let interval = 5000;
+        let finalResult: any = null;
+        while (pollAttempt < maxAttempts) {
+          pollAttempt += 1;
+          await this.delay(interval);
+          try {
+            const pollController = new AbortController();
+            const pollTimer = setTimeout(() => pollController.abort(), SORA2_FETCH_TIMEOUT_MS);
+            let statusResp: Response;
+            try {
+              statusResp = await fetch(`${this.apiBase}/v1/videos/${encodeURIComponent(String(taskId))}`, {
+                method: 'GET',
+                headers: { Authorization: `Bearer ${this.apiKey}` },
+                signal: pollController.signal,
+              });
+            } catch (err) {
+              clearTimeout(pollTimer);
+              this.logger.warn(`轮询 Sora2 任务 ${taskId} 异常: ${err instanceof Error ? err.message : err}`);
+              continue;
+            } finally {
+              clearTimeout(pollTimer);
+            }
+
+            if (!statusResp.ok) {
+              const txt = await statusResp.text().catch(() => '');
+              this.logger.warn(`轮询 Sora2 任务非 OK: ${taskId} HTTP ${statusResp.status} ${txt.slice(0,200)}`);
+              continue;
+            }
+
+            const statusData = await statusResp.json().catch(() => ({}));
+            const stat = (statusData?.status || '').toString().toLowerCase();
+            this.logger.debug(`Sora2 status ${taskId} attempt ${pollAttempt}: ${stat}`);
+
+            if (stat === 'completed' || stat === 'success') {
+              finalResult = statusData;
+              break;
+            }
+            if (SORA2_FAILED_STATUSES.includes(stat)) {
+              finalResult = statusData;
+              break;
+            }
+          } catch (err) {
+            this.logger.warn(`轮询 Sora2 任务 ${taskId} 捕获异常: ${err instanceof Error ? err.message : err}`);
+          }
+          // adaptive increase: multiply until cap 30s
+          interval = Math.min(30000, Math.round(interval * 1.5));
+        }
+
+        if (!finalResult) {
+          throw new ServiceUnavailableException('Sora2 视频生成轮询超时');
+        }
+
+        const statusValue = (finalResult?.status || '').toString().toLowerCase();
+        if (SORA2_FAILED_STATUSES.includes(statusValue)) {
+          const msg = finalResult?.error?.message || finalResult?.message || 'Sora2 生成失败';
+          throw new BadRequestException(`Sora2 生成失败: ${msg}`);
+        }
+
+        const videoUrl =
+          finalResult?.video_url ||
+          finalResult?.output?.video_url ||
+          finalResult?.result?.video_url ||
+          (typeof finalResult?.output === 'string' && finalResult.output?.startsWith('http') ? finalResult.output : undefined);
+
+        if (!videoUrl) {
+          this.logger.error(`轮询结束但未找到视频 URL，task=${taskId}, resp=${JSON.stringify(finalResult).slice(0,400)}`);
           throw new ServiceUnavailableException('Sora2 未返回有效的视频 URL');
         }
 
-        const duration = ((Date.now() - startedAt) / 1000).toFixed(2);
-        this.logger.log(`普通Sora2 视频生成成功，耗时 ${duration}s`);
-
+        const totalDur = ((Date.now() - startedAt) / 1000).toFixed(2);
+        this.logger.log(`普通Sora2 视频生成成功，任务 ${taskId}，耗时 ${totalDur}s`);
         return {
-          videoUrl: resolved.videoUrl,
-          content: resolved.taskInfo
-            ? `视频已生成（任务 ID: ${resolved.taskId || resolved.taskInfo?.id || 'unknown'}）`
-            : '视频已生成，可在下方预览。',
-          thumbnailUrl: resolved.thumbnailUrl,
-          referencedUrls: resolved.referencedUrls,
-          status: resolved.status,
-          taskId: resolved.taskId,
-          taskInfo: resolved.taskInfo,
+          videoUrl,
+          content: `视频已生成（任务 ID: ${taskId}）`,
+          thumbnailUrl: finalResult?.thumbnail_url,
+          referencedUrls: videoUrl ? [videoUrl] : [],
+          status: statusValue,
+          taskId,
+          taskInfo: finalResult,
         };
       } catch (error) {
         lastError = error;
