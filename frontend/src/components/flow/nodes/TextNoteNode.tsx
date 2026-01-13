@@ -132,7 +132,7 @@ function TextNoteNodeInner({ id, data, selected }: Props) {
         minWidth={160}
         minHeight={96}
         lineStyle={{ display: 'none' }}
-        handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0, cursor: 'nwse-resize' }}
+        handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0 }}
         onResize={(_, params) => {
           rf.setNodes(ns => ns.map(node => node.id === id ? { ...node, data: { ...(node.data || {}), boxW: params.width, boxH: params.height } } : node));
         }}

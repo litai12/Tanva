@@ -29,6 +29,18 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (trimmed.startsWith("data:image")) return trimmed;
+  if (trimmed.startsWith("blob:")) return trimmed;
+  if (trimmed.startsWith("/api/assets/proxy") || trimmed.startsWith("/assets/proxy")) {
+    return proxifyRemoteAssetUrl(trimmed);
+  }
+  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
+    return trimmed;
+  }
+  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
+    return proxifyRemoteAssetUrl(
+      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ""))}`
+    );
+  }
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
     return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;

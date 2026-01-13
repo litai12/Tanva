@@ -52,10 +52,10 @@ export class OssService {
   async putStream(
     key: string,
     stream: NodeJS.ReadableStream,
-    options?: OSS.PutStreamOptions
+    options?: any
   ): Promise<{ key: string; url: string }> {
     const client = this.client();
-    await client.putStream(key, stream, options);
+    await client.putStream(key, stream, options as any);
     return { key, url: this.publicUrl(key) };
   }
 

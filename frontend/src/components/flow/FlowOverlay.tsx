@@ -64,6 +64,8 @@ import MidjourneyNode from "./nodes/MidjourneyNode";
 import KlingVideoNode from "./nodes/KlingVideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
+import VideoNode from "./nodes/VideoNode";
+import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import { generateThumbnail } from "@/utils/imageHelper";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -93,11 +95,7 @@ import {
   generateWan26R2VViaAPI,
   midjourneyActionViaAPI,
 } from "@/services/aiBackendAPI";
-import {
-  generateVideoByProvider,
-  queryVideoTask,
-  type VideoProvider,
-} from "@/services/videoProviderAPI";
+import { generateVideoByProvider, queryVideoTask, type VideoProvider } from "@/services/videoProviderAPI";
 import { imageUploadService } from "@/services/imageUploadService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import {
@@ -160,6 +158,8 @@ const nodeTypes = {
   doubaoVideo: DoubaoVideoNode,
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
+  video: VideoNode,
+  videoAnalyze: VideoAnalyzeNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -316,7 +316,7 @@ const NODE_CREDITS_MAP: Record<string, number | string> = {
   doubaoVideo: "40-400", // 豆包视频生成 - 可能使用 sora-sd 或 sora-hd
   camera: 0, // 截图节点 - 不消耗积分
   storyboardSplit: 0, // 分镜拆分节点 - 不消耗积分
-
+  
   // Beta 节点
   textPromptPro: 2, // 专业提示词节点 - gemini-text
   imagePro: 0, // 专业图片节点 - 不消耗积分
@@ -332,17 +332,19 @@ const NODE_PALETTE_ITEMS = [
   { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer" },
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node" },
   { key: "image", zh: "图片节点", en: "Image Node" },
+  { key: "video", zh: "视频节点", en: "Video Node" },
+  { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis" },
   { key: "generate", zh: "生成节点", en: "Generate Node" },
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer" },
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate" },
   { key: "midjourney", zh: "Midjourney生成", en: "Midjourney" },
   { key: "three", zh: "三维节点", en: "3D Node" },
-  { key: "sora2Video", zh: "视频生成节点", en: "Sora2" },
-  { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6" },
-  { key: "wan2R2V", zh: "Wan2.6视频融合", en: "Wan2.6 R2V" },
-  { key: "klingVideo", zh: "Kling视频生成", en: "Kling" },
-  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu" },
-  { key: "doubaoVideo", zh: "Seedance视频生成", en: "Seedance 1.5 Pro" },
+  { key: "sora2Video", zh: "视频生成节点", en: "Sora2 Video" },
+  { key: "wan26", zh: "Wan2.6生成视频", en: "Wan2.6 Video" },
+  { key: "wan2R2V", zh: "视频融合", en: "Wan2.6 R2V" },
+  { key: "klingVideo", zh: "可灵视频生成", en: "Kling Video" },
+  { key: "viduVideo", zh: "Vidu视频生成", en: "Vidu Video" },
+  { key: "doubaoVideo", zh: "豆包视频生成", en: "Doubao Video" },
   { key: "camera", zh: "截图节点", en: "Shot Node" },
   { key: "storyboardSplit", zh: "分镜拆分节点", en: "Storyboard Split" },
 ];
@@ -451,13 +453,10 @@ const NodePaletteButton: React.FC<{
   credits?: number | string;
   onClick: () => void;
 }> = ({ zh, en, badge, credits, onClick }) => {
-  const creditsDisplay =
-    credits !== undefined && credits !== 0
-      ? typeof credits === "string"
-        ? credits
-        : credits.toString()
-      : null;
-
+  const creditsDisplay = credits !== undefined && credits !== 0 
+    ? typeof credits === 'string' ? credits : credits.toString()
+    : null;
+  
   return (
     <button
       onClick={onClick}
@@ -2070,33 +2069,80 @@ function FlowInner() {
     []
   );
 
-  const normalizeStableRemoteUrl = React.useCallback(
-    (input: string): string => {
-      const value = input.trim();
-      if (!value) return input;
+  const normalizeStableRemoteUrl = React.useCallback((input: string): string => {
+    const value = input.trim();
+    if (!value) return input;
 
-      // Avoid exporting environment-dependent proxy URLs; keep the original remote URL.
-      try {
-        const url = new URL(
-          value,
-          typeof window !== "undefined"
-            ? window.location.origin
-            : "http://localhost"
-        );
-        const isProxy =
-          url.pathname === "/api/assets/proxy" ||
-          url.pathname === "/assets/proxy" ||
-          value.startsWith("/api/assets/proxy") ||
-          value.startsWith("/assets/proxy");
-        if (isProxy) {
-          const raw = url.searchParams.get("url");
-          if (raw) return decodeURIComponent(raw);
-        }
-      } catch {}
+    // Avoid exporting environment-dependent proxy URLs; keep the original remote URL.
+    try {
+      const url = new URL(
+        value,
+        typeof window !== "undefined"
+          ? window.location.origin
+          : "http://localhost"
+      );
+      const isProxy =
+        url.pathname === "/api/assets/proxy" ||
+        url.pathname === "/assets/proxy" ||
+        value.startsWith("/api/assets/proxy") ||
+        value.startsWith("/assets/proxy");
+      if (isProxy) {
+        const raw = url.searchParams.get("url");
+        if (raw) return decodeURIComponent(raw);
+      }
+    } catch {}
 
-      return value;
+    return value;
+  }, []);
+
+  const isLikelyBase64Blob = React.useCallback((value: unknown): value is string => {
+    if (typeof value !== "string") return false;
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith("data:image/")) return true;
+    if (trimmed.startsWith("blob:")) return true;
+
+    // Heuristic: avoid false positives on regular text; only strip very large blobs.
+    const compact = trimmed.replace(/\s+/g, "");
+    if (compact.length < 2048) return false;
+    if (!/^[A-Za-z0-9+/=]+$/.test(compact)) return false;
+
+    const head = compact.slice(0, 16);
+    const looksLikeCommonImage =
+      head.startsWith("iVBORw0KGgo") || // PNG
+      head.startsWith("/9j/") || // JPEG
+      head.startsWith("R0lGOD") || // GIF
+      head.startsWith("UklGR") || // WEBP
+      head.startsWith("Qk"); // BMP
+
+    // Many base64 blobs end with padding; accept either common image prefix or padding.
+    const hasPadding = compact.endsWith("=") || compact.endsWith("==");
+    return looksLikeCommonImage || hasPadding;
+  }, []);
+
+  const stripLargeInlineBlobsInPlace = React.useCallback(
+    (obj: any) => {
+      if (!obj || typeof obj !== "object") return;
+      for (const [key, rawValue] of Object.entries(obj)) {
+        if (typeof rawValue !== "string") continue;
+        const value = rawValue.trim();
+        if (!value) continue;
+        if (isRemoteUrl(value)) continue;
+        if (!isLikelyBase64Blob(value)) continue;
+
+        const k = String(key).toLowerCase();
+        const shouldKeep =
+          k.includes("prompt") ||
+          k.includes("text") ||
+          k.includes("title") ||
+          k.includes("name") ||
+          k.includes("desc");
+        if (shouldKeep) continue;
+
+        delete obj[key];
+      }
     },
-    []
+    [isLikelyBase64Blob, isRemoteUrl]
   );
 
   // 导出时的状态
@@ -2172,11 +2218,18 @@ function FlowInner() {
           const rawImageUrls: unknown[] = Array.isArray((data as any).imageUrls)
             ? (data as any).imageUrls
             : [];
-          if (rawImages.length || rawImageUrls.length) {
-            const len = Math.max(rawImages.length, rawImageUrls.length);
+          const rawThumbnails: unknown[] = Array.isArray((data as any).thumbnails)
+            ? (data as any).thumbnails
+            : [];
+          if (rawImages.length || rawImageUrls.length || rawThumbnails.length) {
+            const len = Math.max(
+              rawImages.length,
+              rawImageUrls.length,
+              rawThumbnails.length
+            );
             const urls: string[] = [];
             for (let i = 0; i < len; i += 1) {
-              const candidate = rawImageUrls[i] ?? rawImages[i];
+              const candidate = rawImageUrls[i] ?? rawImages[i] ?? rawThumbnails[i];
               const candidateStr =
                 typeof candidate === "string" ? candidate.trim() : "";
               if (!candidateStr) {
@@ -2202,6 +2255,8 @@ function FlowInner() {
             (data as any).imageUrls = urls;
             delete (data as any).images;
             delete (data as any).imageData;
+            delete (data as any).thumbnails;
+            delete (data as any).thumbnail;
           }
 
           // 单图节点
@@ -2213,6 +2268,10 @@ function FlowInner() {
             (typeof (data as any).imageData === "string" &&
             (data as any).imageData.trim()
               ? (data as any).imageData
+              : undefined) ??
+            (typeof (data as any).thumbnail === "string" &&
+            (data as any).thumbnail.trim()
+              ? (data as any).thumbnail
               : undefined);
 
           if (candidateSingle) {
@@ -2226,15 +2285,21 @@ function FlowInner() {
               );
             }
             delete (data as any).imageData;
+            delete (data as any).thumbnail;
+            delete (data as any).thumbnails;
           } else if (
             typeof (data as any).imageData === "string" ||
             typeof (data as any).imageUrl === "string"
           ) {
             delete (data as any).imageData;
+            delete (data as any).thumbnail;
+            delete (data as any).thumbnails;
           } else {
             const historyUrl = getHistoryRemoteUrlForNode(n.id);
             if (historyUrl) (data as any).imageUrl = historyUrl;
           }
+
+          stripLargeInlineBlobsInPlace(data);
 
           return {
             id: n.id,
@@ -2280,6 +2345,7 @@ function FlowInner() {
     cleanNodeData,
     getHistoryRemoteUrlForNode,
     isExporting,
+    stripLargeInlineBlobsInPlace,
     isRemoteUrl,
     normalizeStableRemoteUrl,
     uploadImageToStableUrl,
@@ -2987,7 +3053,9 @@ function FlowInner() {
         | "viduVideo"
         | "doubaoVideo"
         | "storyboardSplit"
-        | "midjourney",
+        | "midjourney"
+        | "video"
+        | "videoAnalyze",
       world: { x: number; y: number }
     ) => {
       // 以默认尺寸中心对齐放置
@@ -3015,6 +3083,8 @@ function FlowInner() {
         doubaoVideo: { w: 280, h: 260 },
         storyboardSplit: { w: 320, h: 400 },
         midjourney: { w: 280, h: 320 },
+        video: { w: 320, h: 280 },
+        videoAnalyze: { w: 280, h: 360 },
       }[type];
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -3149,9 +3219,26 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
-          : type === "klingVideo" ||
-            type === "viduVideo" ||
-            type === "doubaoVideo"
+          : type === "video"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              videoName: undefined,
+              mimeType: undefined,
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "videoAnalyze"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              prompt: "",
+              analysisPrompt: undefined,
+              text: "",
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
           ? {
               status: "idle" as const,
               videoUrl: undefined,
@@ -3160,15 +3247,10 @@ function FlowInner() {
               history: [],
               clipDuration: undefined,
               aspectRatio: undefined,
-              provider:
-                type === "klingVideo"
-                  ? "kling"
-                  : type === "viduVideo"
-                  ? "vidu"
-                  : "doubao",
+              provider: type === "klingVideo" ? "kling" : type === "viduVideo" ? "vidu" : "doubao",
               // Vidu 专用参数
-              resolution: type === "viduVideo" ? ("720p" as const) : undefined,
-              style: type === "viduVideo" ? ("general" as const) : undefined,
+              resolution: type === "viduVideo" ? "720p" as const : undefined,
+              style: type === "viduVideo" ? "general" as const : undefined,
               offPeak: type === "viduVideo" ? false : undefined,
               // 豆包专用参数
               camerafixed: type === "doubaoVideo" ? false : undefined,
@@ -3187,20 +3269,21 @@ function FlowInner() {
     [setNodes]
   );
 
-  const textSourceTypes = React.useMemo(
-    () => [
-      "textPrompt",
-      "textPromptPro",
-      "textChat",
-      "promptOptimize",
-      "analysis",
-      "textNote",
-      "storyboardSplit",
-      "generatePro",
-      "generatePro4",
-    ],
-    []
-  );
+	  const textSourceTypes = React.useMemo(
+	    () => [
+	      "textPrompt",
+	      "textPromptPro",
+	      "textChat",
+	      "promptOptimize",
+	      "analysis",
+	      "videoAnalyze",
+	      "textNote",
+	      "storyboardSplit",
+	      "generatePro",
+	      "generatePro4",
+	    ],
+	    []
+	  );
   const TEXT_PROMPT_MAX_CONNECTIONS = 20;
   const isTextHandle = React.useCallback(
     (handle?: string | null) =>
@@ -3334,6 +3417,7 @@ function FlowInner() {
         ) {
           if (sourceHandle !== "video") return false;
           return [
+            "video", // 上传视频
             "sora2Video",
             "wan2R2V",
             "wan26",
@@ -3451,6 +3535,11 @@ function FlowInner() {
           ].includes(sourceNode.type || "");
         return false;
       }
+      if (targetNode.type === "videoAnalyze") {
+        if (targetHandle === "video")
+          return sourceNode.type === "video";
+        return false;
+      }
       if (targetNode.type === "textChat") {
         if (isTextHandle(targetHandle))
           return textSourceTypes.includes(sourceNode.type || "");
@@ -3545,6 +3634,9 @@ function FlowInner() {
       if (targetNode?.type === "analysis") {
         if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
       }
+      if (targetNode?.type === "videoAnalyze") {
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+      }
       if (targetNode?.type === "textChat") {
         if (isTextHandle(params.targetHandle)) return true;
       }
@@ -3574,6 +3666,13 @@ function FlowInner() {
         ) {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "img")
+          );
+        }
+
+        // 如果是连接到 videoAnalyze(video)，先移除旧的输入线，再添加新线
+        if (tgt?.type === "videoAnalyze" && params.targetHandle === "video") {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === "video")
           );
         }
 
@@ -4533,11 +4632,7 @@ function FlowInner() {
           ) {
             img = data.imageData;
           }
-          if (
-            !img &&
-            typeof data?.imageUrl === "string" &&
-            data.imageUrl.length
-          ) {
+          if (!img && typeof data?.imageUrl === "string" && data.imageUrl.length) {
             img = data.imageUrl;
           }
           return img;
@@ -4646,27 +4741,25 @@ function FlowInner() {
           )
         );
 
-        const generationStartMs = Date.now();
-
         try {
           let imgUrl: string | undefined = undefined;
 
-          if (hasImageInput) {
-            const imageDatas = collectImages(imageEdges);
-            if (!imageDatas.length) throw new Error("图片输入为空");
-            for (const img of imageDatas) {
-              const trimmed = typeof img === "string" ? img.trim() : "";
-              if (!trimmed) continue;
-              if (isRemoteUrl(trimmed)) {
-                imgUrl = normalizeStableRemoteUrl(trimmed);
-                continue;
-              }
-              const dataUrl = ensureDataUrl(trimmed);
-              const uploaded = await uploadImageToOSS(dataUrl, projectId);
-              if (!uploaded) throw new Error("图片上传失败");
-              imgUrl = uploaded;
-            }
-          }
+	          if (hasImageInput) {
+	            const imageDatas = collectImages(imageEdges);
+	            if (!imageDatas.length) throw new Error("图片输入为空");
+	            for (const img of imageDatas) {
+	              const trimmed = typeof img === "string" ? img.trim() : "";
+	              if (!trimmed) continue;
+	              if (isRemoteUrl(trimmed)) {
+	                imgUrl = normalizeStableRemoteUrl(trimmed);
+	                continue;
+	              }
+	              const dataUrl = ensureDataUrl(trimmed);
+	              const uploaded = await uploadImageToOSS(dataUrl, projectId);
+	              if (!uploaded) throw new Error("图片上传失败");
+	              imgUrl = uploaded;
+	            }
+	          }
 
           const size = (node.data as any)?.size || "16:9";
           const resolution = (node.data as any)?.resolution || "720P";
@@ -4703,10 +4796,6 @@ function FlowInner() {
             throw new Error("未返回视频地址");
           }
           const thumbnail = result.data?.thumbnail;
-          const elapsedSeconds = Math.max(
-            1,
-            Math.round((Date.now() - generationStartMs) / 1000)
-          );
           const historyEntry = {
             id: `history-${Date.now()}`,
             videoUrl,
@@ -4714,7 +4803,6 @@ function FlowInner() {
             prompt: promptText,
             quality: hasImageInput ? "I2V" : "T2V",
             createdAt: new Date().toISOString(),
-            elapsedSeconds,
           };
 
           setNodes((ns) =>
@@ -5020,42 +5108,42 @@ function FlowInner() {
           .slice(0, SORA2_MAX_REFERENCE_IMAGES);
         const referenceImages = collectImages(imageEdges);
 
-        const generationStartMs = Date.now();
-        const referenceImageUrls: string[] = [];
-        if (referenceImages.length) {
-          try {
-            for (const img of referenceImages) {
-              const trimmed = typeof img === "string" ? img.trim() : "";
-              if (!trimmed) continue;
-              if (isRemoteUrl(trimmed)) {
-                referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
-                continue;
-              }
-              const dataUrl = ensureDataUrl(trimmed);
-              const uploaded = await uploadImageToOSS(dataUrl, projectId);
-              if (!uploaded) {
-                setNodes((ns) =>
-                  ns.map((n) =>
-                    n.id === nodeId
-                      ? {
-                          ...n,
-                          data: {
-                            ...n.data,
-                            status: "failed",
-                            error: "参考图上传失败",
-                          },
-                        }
-                      : n
-                  )
-                );
-                return;
-              }
-              referenceImageUrls.push(uploaded);
-            }
-          } catch (error) {
-            const msg =
-              error instanceof Error ? error.message : "参考图上传失败";
-            setNodes((ns) =>
+	        const generationStartMs = Date.now();
+	        const referenceImageUrls: string[] = [];
+	        if (referenceImages.length) {
+	          try {
+	            for (const img of referenceImages) {
+	              const trimmed = typeof img === "string" ? img.trim() : "";
+	              if (!trimmed) continue;
+	              if (isRemoteUrl(trimmed)) {
+	                referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
+	                continue;
+	              }
+	              const dataUrl = ensureDataUrl(trimmed);
+	              const uploaded = await uploadImageToOSS(dataUrl, projectId);
+	              if (!uploaded) {
+	                setNodes((ns) =>
+	                  ns.map((n) =>
+	                    n.id === nodeId
+	                      ? {
+	                          ...n,
+	                          data: {
+	                            ...n.data,
+	                            status: "failed",
+	                            error: "参考图上传失败",
+	                          },
+	                        }
+	                      : n
+	                  )
+	                );
+	                return;
+	              }
+	              referenceImageUrls.push(uploaded);
+	            }
+	          } catch (error) {
+	            const msg =
+	              error instanceof Error ? error.message : "参考图上传失败";
+	            setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
                   ? { ...n, data: { ...n.data, status: "failed", error: msg } }
@@ -5223,43 +5311,77 @@ function FlowInner() {
           .slice(0, SORA2_MAX_REFERENCE_IMAGES);
         const referenceImages = collectImages(imageEdges);
 
-        const generationStartMs = Date.now();
-        const referenceImageUrls: string[] = [];
-        if (referenceImages.length) {
-          try {
-            for (const img of referenceImages) {
-              const dataUrl = ensureDataUrl(img);
+	        const generationStartMs = Date.now();
+	        const referenceImageUrls: string[] = [];
+	        if (referenceImages.length) {
+	          try {
+	            const fetchRemoteImageAsDataUrl = async (url: string) => {
+	              const response = await fetch(proxifyRemoteAssetUrl(url), {
+	                credentials: "include",
+	              });
+	              if (!response.ok) {
+	                throw new Error(`参考图拉取失败: ${response.status}`);
+	              }
+	              const blob = await response.blob();
+	              return await new Promise<string>((resolve, reject) => {
+	                const reader = new FileReader();
+	                reader.onload = () => {
+	                  const result = reader.result;
+	                  if (typeof result === "string" && result.startsWith("data:")) {
+	                    resolve(result);
+	                  } else {
+	                    reject(new Error("参考图转换失败"));
+	                  }
+	                };
+	                reader.onerror = () => reject(new Error("参考图读取失败"));
+	                reader.readAsDataURL(blob);
+	              });
+	            };
 
-              // 根据供应商处理图片格式
-              if (provider === "vidu") {
-                // Vidu 需要可访问的 URL，必须上传到 OSS
-                const uploaded = await uploadImageToOSS(dataUrl, projectId);
-                if (!uploaded) {
-                  setNodes((ns) =>
-                    ns.map((n) =>
-                      n.id === nodeId
-                        ? {
-                            ...n,
-                            data: {
-                              ...n.data,
-                              status: "failed",
-                              error: "参考图上传失败",
-                            },
-                          }
-                        : n
-                    )
-                  );
-                  return;
-                }
-                referenceImageUrls.push(uploaded);
-              } else {
-                // 其他供应商直接使用 Base64 Data URI
-                referenceImageUrls.push(dataUrl);
-              }
-            }
-          } catch (error) {
-            const msg =
-              error instanceof Error ? error.message : "参考图上传失败";
+	            for (const img of referenceImages) {
+	              const trimmed = typeof img === "string" ? img.trim() : "";
+	              if (!trimmed) continue;
+
+	              // 根据供应商处理图片格式
+	              if (provider === "vidu") {
+	                // Vidu 需要可访问的 URL，必须上传到 OSS
+	                if (isRemoteUrl(trimmed)) {
+	                  referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
+	                } else {
+	                  const dataUrl = ensureDataUrl(trimmed);
+	                  const uploaded = await uploadImageToOSS(dataUrl, projectId);
+	                  if (!uploaded) {
+	                    setNodes((ns) =>
+	                      ns.map((n) =>
+	                        n.id === nodeId
+	                          ? {
+	                              ...n,
+	                              data: {
+	                                ...n.data,
+	                                status: "failed",
+	                                error: "参考图上传失败",
+	                              },
+	                            }
+	                          : n
+	                      )
+	                    );
+	                    return;
+	                  }
+	                  referenceImageUrls.push(uploaded);
+	                }
+	              } else {
+	                // 其他供应商直接使用 Base64 Data URI
+	                if (isRemoteUrl(trimmed)) {
+	                  const dataUrl = await fetchRemoteImageAsDataUrl(trimmed);
+	                  referenceImageUrls.push(dataUrl);
+	                } else {
+	                  referenceImageUrls.push(ensureDataUrl(trimmed));
+	                }
+	              }
+	            }
+	          } catch (error) {
+	            const msg =
+	              error instanceof Error ? error.message : "参考图上传失败";
             setNodes((ns) =>
               ns.map((n) =>
                 n.id === nodeId
@@ -5284,25 +5406,15 @@ function FlowInner() {
 
         // 根据供应商调整参数
         const aspectRatioForAPI = aspectSetting || undefined;
-
+        
         // 不同供应商支持的时长不同
         let durationForAPI: number | undefined = undefined;
         if (clipDuration) {
-          if (
-            provider === "kling" &&
-            (clipDuration === 5 || clipDuration === 10)
-          ) {
+          if (provider === "kling" && (clipDuration === 5 || clipDuration === 10)) {
             durationForAPI = clipDuration;
-          } else if (
-            provider === "vidu" &&
-            clipDuration >= 1 &&
-            clipDuration <= 10
-          ) {
+          } else if (provider === "vidu" && clipDuration >= 1 && clipDuration <= 10) {
             durationForAPI = clipDuration;
-          } else if (
-            provider === "doubao" &&
-            [3, 4, 5, 6, 8].includes(clipDuration)
-          ) {
+          } else if (provider === "doubao" && [3, 4, 5, 6, 8].includes(clipDuration)) {
             durationForAPI = clipDuration;
           }
         }
@@ -5316,16 +5428,14 @@ function FlowInner() {
             referenceCount: referenceImageUrls.length,
             promptPreview: promptText.slice(0, 120),
           });
-
+          
           // 调用对应供应商的 API
           const createResult = await generateVideoByProvider({
             prompt: promptText,
-            referenceImages:
-              referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+            referenceImages: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
             duration: durationForAPI,
             aspectRatio: aspectRatioForAPI,
             provider: provider as VideoProvider,
-            mode: (node.data as any)?.mode,
             resolution: (node.data as any)?.resolution,
             style: (node.data as any)?.style,
             offPeak: (node.data as any)?.offPeak,
@@ -5352,14 +5462,7 @@ function FlowInner() {
               setNodes((ns) =>
                 ns.map((n) =>
                   n.id === nodeId
-                    ? {
-                        ...n,
-                        data: {
-                          ...n.data,
-                          status: "failed",
-                          error: "任务查询超时",
-                        },
-                      }
+                    ? { ...n, data: { ...n.data, status: "failed", error: "任务查询超时" } }
                     : n
                 )
               );
@@ -5367,29 +5470,17 @@ function FlowInner() {
             }
 
             try {
-              const queryResult = await queryVideoTask(
-                provider as VideoProvider,
-                createResult.taskId
-              );
-
-              if (
-                queryResult.status === "succeeded" ||
-                queryResult.status === "SUCCESS" ||
-                queryResult.status === "succeed"
-              ) {
+              const queryResult = await queryVideoTask(provider as VideoProvider, createResult.taskId);
+              
+              if (queryResult.status === "succeeded" || queryResult.status === "SUCCESS" || queryResult.status === "succeed") {
                 clearInterval(pollTimer);
                 const elapsedSeconds = Math.max(
                   1,
                   Math.round((Date.now() - generationStartMs) / 1000)
                 );
-                const resolvedVideoUrl =
-                  (queryResult as any).ossUrl ||
-                  (queryResult as any).url ||
-                  (queryResult as any).videoUrl ||
-                  (queryResult as any).video_url;
                 const historyEntry = {
                   id: `video-history-${Date.now()}`,
-                  videoUrl: resolvedVideoUrl,
+                  videoUrl: queryResult.videoUrl,
                   thumbnail: queryResult.thumbnailUrl,
                   prompt: promptText,
                   createdAt: new Date().toISOString(),
@@ -5404,11 +5495,10 @@ function FlowInner() {
                       data: {
                         ...previousData,
                         status: "succeeded",
-                        videoUrl: resolvedVideoUrl,
+                        videoUrl: queryResult.videoUrl,
                         thumbnail: queryResult.thumbnailUrl,
                         error: undefined,
-                        videoVersion:
-                          Number(previousData.videoVersion || 0) + 1,
+                        videoVersion: Number(previousData.videoVersion || 0) + 1,
                         history: Array.isArray(previousData.history)
                           ? [historyEntry, ...previousData.history]
                           : [historyEntry],
@@ -5416,22 +5506,12 @@ function FlowInner() {
                     };
                   })
                 );
-              } else if (
-                queryResult.status === "failed" ||
-                queryResult.status === "FAILURE"
-              ) {
+              } else if (queryResult.status === "failed" || queryResult.status === "FAILURE") {
                 clearInterval(pollTimer);
                 setNodes((ns) =>
                   ns.map((n) =>
                     n.id === nodeId
-                      ? {
-                          ...n,
-                          data: {
-                            ...n.data,
-                            status: "failed",
-                            error: (queryResult as any).error || "任务生成失败",
-                          },
-                        }
+                      ? { ...n, data: { ...n.data, status: "failed", error: (queryResult as any).error || "任务生成失败" } }
                       : n
                   )
                 );
@@ -5452,6 +5532,7 @@ function FlowInner() {
           pollTimer = window.setInterval(pollTask, pollInterval);
           // 立即执行一次
           pollTask();
+          
         } catch (error) {
           console.warn("❌ [Flow] Video request failed", {
             nodeId,
@@ -7262,147 +7343,156 @@ function FlowInner() {
     [setNodes, setEdges]
   );
 
-  const saveCurrentAsTemplate = React.useCallback(async () => {
-    const allNodes = rf.getNodes();
-    const selected = allNodes.filter((n: any) => n.selected);
-    const nodesToSave = selected.length ? selected : allNodes;
-    if (!nodesToSave.length) return;
+	  const saveCurrentAsTemplate = React.useCallback(async () => {
+	    const allNodes = rf.getNodes();
+	    const selected = allNodes.filter((n: any) => n.selected);
+	    const nodesToSave = selected.length ? selected : allNodes;
+	    if (!nodesToSave.length) return;
     const edgesAll = rf.getEdges();
     const nodeIdSet = new Set(nodesToSave.map((n) => n.id));
     const edgesToSave = edgesAll.filter(
       (e) => nodeIdSet.has(e.source) && nodeIdSet.has(e.target)
     );
-    const name =
-      prompt("模板名称", `模板_${new Date().toLocaleString()}`) ||
-      `模板_${Date.now()}`;
-    const id = generateId("tpl");
-    const minX = Math.min(...nodesToSave.map((n) => n.position.x));
-    const minY = Math.min(...nodesToSave.map((n) => n.position.y));
-    try {
-      const templateNodes = await Promise.all(
-        nodesToSave.map(async (n: any) => {
-          const raw = { ...(n.data || {}) };
-          delete raw.onRun;
-          delete raw.onSend;
-          const data: any = sanitizeNodeData(raw) || {};
-          delete data.status;
-          delete data.error;
-          delete data.taskId;
-          delete data.buttons;
-          delete data.lastHistoryId;
+	    const name =
+	      prompt("模板名称", `模板_${new Date().toLocaleString()}`) ||
+	      `模板_${Date.now()}`;
+	    const id = generateId("tpl");
+	    const minX = Math.min(...nodesToSave.map((n) => n.position.x));
+	    const minY = Math.min(...nodesToSave.map((n) => n.position.y));
+	    try {
+	      const templateNodes = await Promise.all(
+	        nodesToSave.map(async (n: any) => {
+	          const raw = { ...(n.data || {}) };
+	          delete raw.onRun;
+	          delete raw.onSend;
+	          const data: any = sanitizeNodeData(raw) || {};
+	          delete data.status;
+	          delete data.error;
+	          delete data.taskId;
+	          delete data.buttons;
+	          delete data.lastHistoryId;
 
-          const nodeType = String(n.type || "");
+	          const nodeType = String(n.type || "");
 
-          // 多图：仅存 imageUrls，避免 base64 过大
-          const rawImages: unknown[] = Array.isArray(data.images)
-            ? data.images
-            : [];
-          const rawImageUrls: unknown[] = Array.isArray(data.imageUrls)
-            ? data.imageUrls
-            : [];
-          if (rawImages.length || rawImageUrls.length) {
-            const len = Math.max(rawImages.length, rawImageUrls.length);
-            const urls: string[] = [];
-            for (let i = 0; i < len; i += 1) {
-              const candidate = rawImageUrls[i] ?? rawImages[i];
-              const candidateStr =
-                typeof candidate === "string" ? candidate.trim() : "";
-              if (!candidateStr) {
-                const historyUrl =
-                  nodeType === "generatePro4"
-                    ? getHistoryRemoteUrlForNode(String(n.id), i)
-                    : null;
-                urls.push(historyUrl || "");
-                continue;
-              }
-              if (isRemoteUrl(candidateStr)) {
-                urls.push(normalizeStableRemoteUrl(candidateStr));
-              } else {
-                urls.push(
-                  await uploadImageToStableUrl(
-                    candidateStr,
-                    `flow_template_${id}_${String(n.id)}_${i + 1}.png`
-                  )
-                );
-              }
-            }
-            data.imageUrls = urls;
-            delete data.images;
-            delete data.imageData;
-          }
+	          // 多图：仅存 imageUrls，避免 base64 过大
+	          const rawImages: unknown[] = Array.isArray(data.images) ? data.images : [];
+	          const rawImageUrls: unknown[] = Array.isArray(data.imageUrls) ? data.imageUrls : [];
+            const rawThumbnails: unknown[] = Array.isArray(data.thumbnails) ? data.thumbnails : [];
+		          if (rawImages.length || rawImageUrls.length || rawThumbnails.length) {
+		            const len = Math.max(rawImages.length, rawImageUrls.length, rawThumbnails.length);
+		            const urls: string[] = [];
+		            for (let i = 0; i < len; i += 1) {
+		              const candidate = rawImageUrls[i] ?? rawImages[i] ?? rawThumbnails[i];
+		              const candidateStr =
+		                typeof candidate === "string" ? candidate.trim() : "";
+		              if (!candidateStr) {
+		                const historyUrl =
+		                  nodeType === "generatePro4"
+		                    ? getHistoryRemoteUrlForNode(String(n.id), i)
+		                    : null;
+		                urls.push(historyUrl || "");
+		                continue;
+		              }
+		              if (isRemoteUrl(candidateStr)) {
+		                urls.push(normalizeStableRemoteUrl(candidateStr));
+		              } else {
+		                urls.push(
+		                  await uploadImageToStableUrl(
+		                    candidateStr,
+		                    `flow_template_${id}_${String(n.id)}_${i + 1}.png`
+		                  )
+		                );
+		              }
+		            }
+		            data.imageUrls = urls;
+		            delete data.images;
+		            delete data.imageData;
+                delete data.thumbnails;
+                delete data.thumbnail;
+		          }
 
-          // 单图：仅存 imageUrl，避免 base64 过大
-          const candidateSingle =
-            (typeof data.imageUrl === "string" && data.imageUrl.trim()
-              ? data.imageUrl
-              : undefined) ??
-            (typeof data.imageData === "string" && data.imageData.trim()
-              ? data.imageData
-              : undefined);
-          if (candidateSingle) {
-            const candidateStr = String(candidateSingle).trim();
-            if (isRemoteUrl(candidateStr)) {
-              data.imageUrl = normalizeStableRemoteUrl(candidateStr);
-            } else {
-              data.imageUrl = await uploadImageToStableUrl(
-                candidateStr,
-                `flow_template_${id}_${String(n.id)}.png`
-              );
-            }
-            delete data.imageData;
-          } else if (
-            typeof data.imageData === "string" ||
-            typeof data.imageUrl === "string"
-          ) {
-            delete data.imageData;
-          } else {
-            const historyUrl = getHistoryRemoteUrlForNode(String(n.id));
-            if (historyUrl) data.imageUrl = historyUrl;
-          }
+	          // 单图：仅存 imageUrl，避免 base64 过大
+	          const candidateSingle =
+	            (typeof data.imageUrl === "string" && data.imageUrl.trim()
+	              ? data.imageUrl
+	              : undefined) ??
+	            (typeof data.imageData === "string" && data.imageData.trim()
+	              ? data.imageData
+	              : undefined) ??
+              (typeof data.thumbnail === "string" && data.thumbnail.trim()
+                ? data.thumbnail
+	              : undefined);
+		          if (candidateSingle) {
+		            const candidateStr = String(candidateSingle).trim();
+		            if (isRemoteUrl(candidateStr)) {
+		              data.imageUrl = normalizeStableRemoteUrl(candidateStr);
+		            } else {
+		              data.imageUrl = await uploadImageToStableUrl(
+		                candidateStr,
+		                `flow_template_${id}_${String(n.id)}.png`
+		              );
+		            }
+		            delete data.imageData;
+                delete data.thumbnail;
+                delete data.thumbnails;
+		          } else if (
+		            typeof data.imageData === "string" ||
+		            typeof data.imageUrl === "string"
+		          ) {
+		            delete data.imageData;
+                delete data.thumbnail;
+                delete data.thumbnails;
+		          } else {
+		            const historyUrl = getHistoryRemoteUrlForNode(String(n.id));
+		            if (historyUrl) data.imageUrl = historyUrl;
+		          }
 
-          return {
-            id: n.id,
-            type: n.type || "default",
-            position: { x: n.position.x - minX, y: n.position.y - minY },
-            data,
-            boxW: (n as any).data?.boxW,
-            boxH: (n as any).data?.boxH,
-          };
-        })
-      );
+            stripLargeInlineBlobsInPlace(data);
 
-      const tpl: FlowTemplate = {
-        schemaVersion: 1,
-        id,
-        name,
-        nodes: templateNodes as any,
-        edges: edgesToSave.map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: (e as any).sourceHandle,
-          targetHandle: (e as any).targetHandle,
-          type: e.type || "default",
-          label: typeof e.label === "string" ? e.label : undefined,
-        })) as any,
-      };
-      await saveUserTemplate(tpl);
-      const list = await listUserTemplates();
-      setUserTplList(list);
-      alert("已保存为模板");
-    } catch (error) {
-      console.error("保存模板失败", error);
-      alert("保存模板失败：图片上传或模板序列化失败，请重试");
-    }
-  }, [
-    getHistoryRemoteUrlForNode,
-    isRemoteUrl,
-    normalizeStableRemoteUrl,
-    rf,
-    sanitizeNodeData,
-    setUserTplList,
-    uploadImageToStableUrl,
-  ]);
+	          return {
+	            id: n.id,
+	            type: n.type || "default",
+	            position: { x: n.position.x - minX, y: n.position.y - minY },
+	            data,
+	            boxW: (n as any).data?.boxW,
+	            boxH: (n as any).data?.boxH,
+	          };
+	        })
+	      );
+
+	      const tpl: FlowTemplate = {
+	        schemaVersion: 1,
+	        id,
+	        name,
+	        nodes: templateNodes as any,
+	        edges: edgesToSave.map((e) => ({
+	          id: e.id,
+	          source: e.source,
+	          target: e.target,
+	          sourceHandle: (e as any).sourceHandle,
+	          targetHandle: (e as any).targetHandle,
+	          type: e.type || "default",
+	          label: typeof e.label === "string" ? e.label : undefined,
+	        })) as any,
+	      };
+	      await saveUserTemplate(tpl);
+	      const list = await listUserTemplates();
+	      setUserTplList(list);
+	      alert("已保存为模板");
+	    } catch (error) {
+	      console.error("保存模板失败", error);
+	      alert("保存模板失败：图片上传或模板序列化失败，请重试");
+	    }
+	  }, [
+	    getHistoryRemoteUrlForNode,
+	    isRemoteUrl,
+	    normalizeStableRemoteUrl,
+	    rf,
+	    sanitizeNodeData,
+	    setUserTplList,
+      stripLargeInlineBlobsInPlace,
+	    uploadImageToStableUrl,
+	  ]);
 
   return (
     <div
@@ -7986,9 +8076,7 @@ function FlowInner() {
                             border:
                               "1px solid " +
                               (!activeBuiltinCategory ? "#18181b" : "#e5e7eb"),
-                            background: !activeBuiltinCategory
-                              ? "#18181b"
-                              : "#fff",
+                            background: !activeBuiltinCategory ? "#18181b" : "#fff",
                             color: !activeBuiltinCategory ? "#fff" : "#374151",
                             fontSize: 12,
                             fontWeight: !activeBuiltinCategory ? 600 : 500,

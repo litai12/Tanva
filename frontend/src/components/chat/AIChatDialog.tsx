@@ -304,6 +304,7 @@ const AIChatDialog: React.FC = () => {
     analyzeImage,
   } = useAIChatStore();
   const focusMode = useUIStore((state) => state.focusMode);
+  const showLibraryPanel = useUIStore((state) => state.showLibraryPanel);
 
   // 监听aiProvider变化并打印日志
   React.useEffect(() => {
@@ -855,6 +856,13 @@ const AIChatDialog: React.FC = () => {
       setHistoryVisibility(false, false);
     }
   }, [isMaximized, setHistoryVisibility]);
+
+  // 当库面板打开时，如果历史记录也打开着，则自动关闭历史记录以避免重叠
+  useEffect(() => {
+    if (showLibraryPanel && showHistory) {
+      setHistoryVisibility(false, true);
+    }
+  }, [showLibraryPanel, showHistory, setHistoryVisibility]);
 
   const setMaximizedSafely = useCallback(
     (next: boolean) => {
