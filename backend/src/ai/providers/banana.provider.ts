@@ -407,6 +407,44 @@ export class BananaProvider implements IAIProvider {
     return apiKey.replace(/^Bearer\s+/i, "").trim();
   }
 
+  private normalizeResponseModalities(
+    input: unknown
+  ): Array<"TEXT" | "IMAGE"> | undefined {
+    if (!Array.isArray(input)) return undefined;
+    const normalized = input
+      .map((value) => {
+        const raw = typeof value === "string" ? value.trim() : String(value);
+        if (!raw) return null;
+        const upper = raw.toUpperCase();
+        if (upper === "TEXT" || upper === "IMAGE")
+          return upper as "TEXT" | "IMAGE";
+        // 兼容旧写法：Text/Image
+        if (raw === "Text") return "TEXT";
+        if (raw === "Image") return "IMAGE";
+        this.logger.warn(
+          `[BananaProvider] Ignoring unsupported response modality: ${raw}`
+        );
+        return null;
+      })
+      .filter((v): v is "TEXT" | "IMAGE" => v === "TEXT" || v === "IMAGE");
+
+    const deduped = Array.from(new Set(normalized));
+    return deduped.length ? deduped : undefined;
+  }
+
+  private supportsImageSize(model: string): boolean {
+    const normalized = this.normalizeModelName(model);
+    // 经验：gemini-2.5-flash-image 在 147 API 上不支持 imageSize（会触发 400 invalid argument）
+    // gemini-3 / imagen-3 系列通常支持 imageSize
+    return normalized.startsWith("gemini-3") || normalized.startsWith("imagen-3");
+  }
+
+  private supportsThinkingLevel(model: string): boolean {
+    const normalized = this.normalizeModelName(model);
+    // thinking_level 属于 Gemini 3 特性
+    return normalized.startsWith("gemini-3");
+  }
+
   private async makeRequest(
     model: string,
     contents: any,
@@ -432,15 +470,38 @@ export class BananaProvider implements IAIProvider {
       const generationConfig: any = {};
 
       if (config.responseModalities) {
-        generationConfig.responseModalities = config.responseModalities;
+        const normalized = this.normalizeResponseModalities(
+          config.responseModalities
+        );
+        if (normalized) {
+          generationConfig.responseModalities = normalized;
+        }
       }
 
       if (config.imageConfig) {
-        generationConfig.imageConfig = config.imageConfig;
+        const imageConfig: Record<string, any> = { ...config.imageConfig };
+
+        // 兼容：147 的 gemini-2.5-flash-image 不支持 imageSize 参数，避免直接 400
+        if (!this.supportsImageSize(model) && "imageSize" in imageConfig) {
+          this.logger.warn(
+            `[BananaProvider] Dropping unsupported imageSize for model ${model}`
+          );
+          delete imageConfig.imageSize;
+        }
+
+        if (Object.keys(imageConfig).length > 0) {
+          generationConfig.imageConfig = imageConfig;
+        }
       }
 
       if (config.thinking_level) {
-        generationConfig.thinking_level = config.thinking_level;
+        if (this.supportsThinkingLevel(model)) {
+          generationConfig.thinking_level = config.thinking_level;
+        } else {
+          this.logger.warn(
+            `[BananaProvider] Dropping unsupported thinking_level for model ${model}`
+          );
+        }
       }
 
       // 只有在有内容时才添加 generationConfig
@@ -555,8 +616,8 @@ export class BananaProvider implements IAIProvider {
             (async () => {
               const config: any = {
                 responseModalities: request.imageOnly
-                  ? ["IMAGE"]
-                  : ["TEXT", "IMAGE"],
+                  ? ["Image"]
+                  : ["Text", "Image"],
               };
 
               // 配置 imageConfig（aspectRatio 和 imageSize）
@@ -678,8 +739,8 @@ export class BananaProvider implements IAIProvider {
             (async () => {
               const config: any = {
                 responseModalities: request.imageOnly
-                  ? ["IMAGE"]
-                  : ["TEXT", "IMAGE"],
+                  ? ["Image"]
+                  : ["Text", "Image"],
               };
 
               // 配置 imageConfig（aspectRatio 和 imageSize）
@@ -820,8 +881,8 @@ export class BananaProvider implements IAIProvider {
             (async () => {
               const config: any = {
                 responseModalities: request.imageOnly
-                  ? ["IMAGE"]
-                  : ["TEXT", "IMAGE"],
+                  ? ["Image"]
+                  : ["Text", "Image"],
               };
 
               // 配置 imageConfig（aspectRatio 和 imageSize）
@@ -1008,7 +1069,7 @@ export class BananaProvider implements IAIProvider {
         );
 
         const apiConfig: any = {
-          responseModalities: ["TEXT"],
+          responseModalities: ["Text"],
         };
 
         if (request.enableWebSearch) {
@@ -1179,7 +1240,7 @@ ${
           const result = await this.makeRequest(
             "gemini-2.5-flash",
             [{ text: systemPrompt }, { text: `用户输入: ${request.prompt}` }],
-            { responseModalities: ["TEXT"] }
+            { responseModalities: ["Text"] }
           );
 
           if (!result.textResponse) {
@@ -1358,7 +1419,7 @@ ${request.prompt ? `额外要求：${request.prompt}` : ""}`;
                       },
                     },
                   ],
-                  { responseModalities: ["TEXT"] }
+                  { responseModalities: ["Text"] }
                 ),
                 this.DEFAULT_TIMEOUT,
                 "Image analysis for img2vector"
@@ -1390,7 +1451,7 @@ ${imageAnalysis}
             () =>
               this.withTimeout(
                 this.makeRequest(currentModel, [{ text: vectorPrompt }], {
-                  responseModalities: ["TEXT"],
+                  responseModalities: ["Text"],
                   ...(request.thinkingLevel && !usedFallback
                     ? { thinking_level: request.thinkingLevel }
                     : {}),
@@ -1544,7 +1605,7 @@ ${imageAnalysis}
         );
 
         const apiConfig: any = {
-          responseModalities: ["TEXT"],
+          responseModalities: ["Text"],
         };
 
         // 配置 thinking_level（Gemini 3 特性，降级后不使用）

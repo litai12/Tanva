@@ -64,6 +64,8 @@ import MidjourneyNode from "./nodes/MidjourneyNode";
 import KlingVideoNode from "./nodes/KlingVideoNode";
 import ViduVideoNode from "./nodes/ViduVideoNode";
 import DoubaoVideoNode from "./nodes/DoubaoVideoNode";
+import VideoNode from "./nodes/VideoNode";
+import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import { generateThumbnail } from "@/utils/imageHelper";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -156,6 +158,8 @@ const nodeTypes = {
   doubaoVideo: DoubaoVideoNode,
   storyboardSplit: StoryboardSplitNode,
   midjourney: MidjourneyNode,
+  video: VideoNode,
+  videoAnalyze: VideoAnalyzeNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -328,6 +332,8 @@ const NODE_PALETTE_ITEMS = [
   { key: "promptOptimize", zh: "提示词优化节点", en: "Prompt Optimizer" },
   { key: "analysis", zh: "图像分析节点", en: "Analysis Node" },
   { key: "image", zh: "图片节点", en: "Image Node" },
+  { key: "video", zh: "视频节点", en: "Video Node" },
+  { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis" },
   { key: "generate", zh: "生成节点", en: "Generate Node" },
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer" },
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate" },
@@ -2977,7 +2983,9 @@ function FlowInner() {
         | "viduVideo"
         | "doubaoVideo"
         | "storyboardSplit"
-        | "midjourney",
+        | "midjourney"
+        | "video"
+        | "videoAnalyze",
       world: { x: number; y: number }
     ) => {
       // 以默认尺寸中心对齐放置
@@ -3005,6 +3013,8 @@ function FlowInner() {
         doubaoVideo: { w: 280, h: 260 },
         storyboardSplit: { w: 320, h: 400 },
         midjourney: { w: 280, h: 320 },
+        video: { w: 320, h: 280 },
+        videoAnalyze: { w: 280, h: 360 },
       }[type];
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -3139,6 +3149,25 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "video"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              videoName: undefined,
+              mimeType: undefined,
+              boxW: size.w,
+              boxH: size.h,
+            }
+          : type === "videoAnalyze"
+          ? {
+              status: "idle" as const,
+              videoUrl: undefined,
+              prompt: "",
+              analysisPrompt: undefined,
+              text: "",
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
           ? {
               status: "idle" as const,
@@ -3170,20 +3199,21 @@ function FlowInner() {
     [setNodes]
   );
 
-  const textSourceTypes = React.useMemo(
-    () => [
-      "textPrompt",
-      "textPromptPro",
-      "textChat",
-      "promptOptimize",
-      "analysis",
-      "textNote",
-      "storyboardSplit",
-      "generatePro",
-      "generatePro4",
-    ],
-    []
-  );
+	  const textSourceTypes = React.useMemo(
+	    () => [
+	      "textPrompt",
+	      "textPromptPro",
+	      "textChat",
+	      "promptOptimize",
+	      "analysis",
+	      "videoAnalyze",
+	      "textNote",
+	      "storyboardSplit",
+	      "generatePro",
+	      "generatePro4",
+	    ],
+	    []
+	  );
   const TEXT_PROMPT_MAX_CONNECTIONS = 20;
   const isTextHandle = React.useCallback(
     (handle?: string | null) =>
@@ -3429,6 +3459,11 @@ function FlowInner() {
           ].includes(sourceNode.type || "");
         return false;
       }
+      if (targetNode.type === "videoAnalyze") {
+        if (targetHandle === "video")
+          return sourceNode.type === "video";
+        return false;
+      }
       if (targetNode.type === "textChat") {
         if (isTextHandle(targetHandle))
           return textSourceTypes.includes(sourceNode.type || "");
@@ -3523,6 +3558,9 @@ function FlowInner() {
       if (targetNode?.type === "analysis") {
         if (params.targetHandle === "img") return true; // 仅一条连接，后续替换
       }
+      if (targetNode?.type === "videoAnalyze") {
+        if (params.targetHandle === "video") return true; // 仅一条视频连接
+      }
       if (targetNode?.type === "textChat") {
         if (isTextHandle(params.targetHandle)) return true;
       }
@@ -3552,6 +3590,13 @@ function FlowInner() {
         ) {
           next = next.filter(
             (e) => !(e.target === params.target && e.targetHandle === "img")
+          );
+        }
+
+        // 如果是连接到 videoAnalyze(video)，先移除旧的输入线，再添加新线
+        if (tgt?.type === "videoAnalyze" && params.targetHandle === "video") {
+          next = next.filter(
+            (e) => !(e.target === params.target && e.targetHandle === "video")
           );
         }
 

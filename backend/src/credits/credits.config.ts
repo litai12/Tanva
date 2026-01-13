@@ -59,6 +59,12 @@ export const CREDIT_PRICING_CONFIG = {
     creditsPerCall: 16,
     description: '使用 Gemini 将图像转换为 Paper.js 矢量代码',
   },
+  'gemini-video-analyze': {
+    serviceName: 'Gemini 视频分析',
+    provider: 'gemini',
+    creditsPerCall: 10,
+    description: '使用 Gemini File API 分析视频内容',
+  },
 
   // Sora 视频服务
   'sora-sd': {

@@ -7,6 +7,7 @@ import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { generateThumbnail } from "@/utils/imageHelper";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -105,6 +106,18 @@ const buildImageSrc = (value?: string): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (trimmed.startsWith("data:image")) return trimmed;
+  if (trimmed.startsWith("blob:")) return trimmed;
+  if (trimmed.startsWith("/api/assets/proxy") || trimmed.startsWith("/assets/proxy")) {
+    return proxifyRemoteAssetUrl(trimmed);
+  }
+  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
+    return trimmed;
+  }
+  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
+    return proxifyRemoteAssetUrl(
+      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ""))}`
+    );
+  }
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
     return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
@@ -114,8 +127,9 @@ const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
 
-const ImageContent = React.memo(({ displaySrc, onDrop, onDragOver, onDoubleClick }: {
+const ImageContent = React.memo(({ displaySrc, isResizing, onDrop, onDragOver, onDoubleClick }: {
   displaySrc?: string;
+  isResizing?: boolean;
   onDrop: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDoubleClick: () => void;
@@ -143,11 +157,14 @@ const ImageContent = React.memo(({ displaySrc, onDrop, onDragOver, onDoubleClick
       <img
         src={displaySrc}
         alt=''
+        decoding="async"
+        draggable={false}
         style={{
           width: "100%",
           height: "100%",
           objectFit: "contain",
           background: "#fff",
+          transform: isResizing ? "translateZ(0)" : undefined,
         }}
       />
     ) : (
@@ -187,35 +204,77 @@ function ImageNodeInner({ id, data, selected }: Props) {
   const [isResizing, setIsResizing] = React.useState(false);
   const updateNodeSize = React.useCallback(
     (width: number, height: number) => {
-      const nextWidth = Math.max(width, MIN_WIDTH);
-      const nextHeight = Math.max(height, MIN_HEIGHT);
-      rf.setNodes((ns) =>
-        ns.map((n) =>
-          n.id === id
-            ? {
-                ...n,
-                data: { ...n.data, boxW: nextWidth, boxH: nextHeight },
-              }
-            : n
-        )
-      );
+      const nextWidth = Math.max(1, Math.round(Math.max(width, MIN_WIDTH)));
+      const nextHeight = Math.max(1, Math.round(Math.max(height, MIN_HEIGHT)));
+      rf.setNodes((ns) => {
+        const idx = ns.findIndex((n) => n.id === id);
+        if (idx < 0) return ns;
+        const node = ns[idx];
+        const prevW = (node?.data as any)?.boxW;
+        const prevH = (node?.data as any)?.boxH;
+        if (prevW === nextWidth && prevH === nextHeight) return ns;
+        const next = ns.slice();
+        next[idx] = {
+          ...node,
+          data: { ...(node.data || {}), boxW: nextWidth, boxH: nextHeight },
+        };
+        return next;
+      });
     },
     [rf, id]
   );
+
+  const resizeRafRef = React.useRef<number | null>(null);
+  const resizePendingRef = React.useRef<{ w: number; h: number } | null>(null);
+  const flushResizeRef = React.useRef<(() => void) | null>(null);
+
+  flushResizeRef.current = () => {
+    resizeRafRef.current = null;
+    const pending = resizePendingRef.current;
+    resizePendingRef.current = null;
+    if (!pending) return;
+    updateNodeSize(pending.w, pending.h);
+  };
+
+  const scheduleResize = React.useCallback(
+    (w: number, h: number) => {
+      resizePendingRef.current = { w, h };
+      if (resizeRafRef.current != null) return;
+      resizeRafRef.current = window.requestAnimationFrame(() => {
+        flushResizeRef.current?.();
+      });
+    },
+    []
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (resizeRafRef.current != null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      resizePendingRef.current = null;
+    };
+  }, []);
   const handleResizeStart = React.useCallback(() => {
     setIsResizing(true);
   }, []);
   const handleResize = React.useCallback(
     (_: unknown, params: { width: number; height: number }) => {
       if (!params) return;
-      updateNodeSize(params.width, params.height);
+      scheduleResize(params.width, params.height);
     },
-    [updateNodeSize]
+    [scheduleResize]
   );
   const handleResizeEnd = React.useCallback(
     (_: unknown, params: { width: number; height: number }) => {
       setIsResizing(false);
       if (!params) return;
+      if (resizeRafRef.current != null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
+      resizePendingRef.current = null;
       updateNodeSize(params.width, params.height);
     },
     [updateNodeSize]
@@ -293,6 +352,18 @@ function ImageNodeInner({ id, data, selected }: Props) {
         detail: { id, patch: { imageData: base64, imageName: displayName } },
       });
       window.dispatchEvent(ev);
+
+      // 立刻异步生成缩略图，避免缩放时直接渲染/缩放大图（Windows 上更容易卡顿）
+      generateThumbnail(base64, 400)
+        .then((thumbnail) => {
+          if (!thumbnail) return;
+          window.dispatchEvent(
+            new CustomEvent("flow:updateNodeData", {
+              detail: { id, patch: { thumbnail } },
+            })
+          );
+        })
+        .catch(() => {});
 
       const newImageId = `${id}-${Date.now()}`;
       setCurrentImageId(newImageId);
@@ -488,6 +559,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
       <ImageContent
         displaySrc={displaySrc}
+        isResizing={isResizing}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDoubleClick={handleDoubleClick}

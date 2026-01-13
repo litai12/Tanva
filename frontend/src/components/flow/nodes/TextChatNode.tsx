@@ -271,7 +271,7 @@ const TextChatNode: React.FC<Props> = ({ id, data, selected }) => {
         minHeight={MIN_NODE_HEIGHT}
         color="transparent"
         lineStyle={{ display: 'none' }}
-        handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0, cursor: 'nwse-resize' }}
+        handleStyle={{ background: 'transparent', border: 'none', width: 16, height: 16, opacity: 0 }}
         onResizeEnd={(_, params) => {
           rf.setNodes((nodes) => nodes.map((node) => node.id === id
             ? { ...node, data: { ...node.data, boxW: params.width, boxH: params.height } }
