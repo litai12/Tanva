@@ -4646,6 +4646,8 @@ function FlowInner() {
           )
         );
 
+        const generationStartMs = Date.now();
+
         try {
           let imgUrl: string | undefined = undefined;
 
@@ -4701,6 +4703,10 @@ function FlowInner() {
             throw new Error("未返回视频地址");
           }
           const thumbnail = result.data?.thumbnail;
+          const elapsedSeconds = Math.max(
+            1,
+            Math.round((Date.now() - generationStartMs) / 1000)
+          );
           const historyEntry = {
             id: `history-${Date.now()}`,
             videoUrl,
@@ -4708,6 +4714,7 @@ function FlowInner() {
             prompt: promptText,
             quality: hasImageInput ? "I2V" : "T2V",
             createdAt: new Date().toISOString(),
+            elapsedSeconds,
           };
 
           setNodes((ns) =>
