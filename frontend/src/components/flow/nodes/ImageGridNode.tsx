@@ -18,6 +18,7 @@ type Props = {
     outputImage?: string;
     backgroundColor?: string;
     padding?: number;
+    gap?: number; // 图片之间的间隙宽度
     gridSize?: number; // 自动计算或手动指定
   };
   selected?: boolean;
@@ -58,6 +59,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
 
   const backgroundColor = data.backgroundColor ?? '#ffffff';
   const padding = data.padding ?? 0;
+  const gap = data.gap ?? 16; // 默认 16px 白色间隙
 
   const updateNodeData = React.useCallback((patch: Record<string, any>) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -256,12 +258,13 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         maxHeight = Math.max(maxHeight, img.naturalHeight);
       });
 
-      // 计算画布尺寸
+      // 计算画布尺寸（包含间隙）
       const grid = calculateGridSize(loadedImages.length);
       const cellWidth = maxWidth + padding * 2;
       const cellHeight = maxHeight + padding * 2;
-      const canvasWidth = cellWidth * grid;
-      const canvasHeight = cellHeight * grid;
+      // 画布宽度 = 单元格宽度 * 列数 + 间隙宽度 * (列数 + 1)
+      const canvasWidth = cellWidth * grid + gap * (grid + 1);
+      const canvasHeight = cellHeight * grid + gap * (grid + 1);
 
       // 创建画布
       const canvas = document.createElement('canvas');
@@ -274,14 +277,15 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-      // 绘制每张图片
+      // 绘制每张图片（考虑间隙）
       loadedImages.forEach(({ img }, index) => {
         const row = Math.floor(index / grid);
         const col = index % grid;
 
-        // 计算居中位置
-        const cellX = col * cellWidth;
-        const cellY = row * cellHeight;
+        // 计算单元格起始位置（包含间隙偏移）
+        const cellX = gap + col * (cellWidth + gap);
+        const cellY = gap + row * (cellHeight + gap);
+        // 图片在单元格内居中
         const offsetX = (cellWidth - img.naturalWidth) / 2;
         const offsetY = (cellHeight - img.naturalHeight) / 2;
 
@@ -306,7 +310,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         error: err.message || '拼合失败',
       });
     }
-  }, [allImages, backgroundColor, padding, calculateGridSize, updateNodeData]);
+  }, [allImages, backgroundColor, padding, gap, calculateGridSize, updateNodeData]);
 
   const canCombine = allImages.length > 0 && status !== 'processing';
 

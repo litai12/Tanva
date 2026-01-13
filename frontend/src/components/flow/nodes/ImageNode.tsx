@@ -187,39 +187,84 @@ function ImageNodeInner({ id, data, selected }: Props) {
     )
   );
 
-  // 从连接的节点读取图片（支持 videoFrameExtract 和 imageGrid）
+  // 从连接的节点读取图片（支持 imageGrid / videoFrameExtract / image 的链式传递）
   const connectedFrameImage = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
+        const edges = state.edges || [];
+        const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+        const resolveFromNode = (
+          nodeId: string,
+          incomingEdge?: any,
+          visited: Set<string> = new Set()
+        ): string | undefined => {
+          if (!nodeId) return undefined;
+          if (visited.has(nodeId)) return undefined;
+          visited.add(nodeId);
+
+          const node = nodeById.get(nodeId);
+          if (!node) return undefined;
+
+          const nodeData = node.data || {};
+
+          // imageGrid 节点 - 读取拼合后的图片
+          if (node.type === "imageGrid") {
+            const outputImage = nodeData.outputImage as string | undefined;
+            return outputImage || undefined;
+          }
+
+          // videoFrameExtract 节点 - 读取单帧图片
+          if (node.type === "videoFrameExtract" && incomingEdge?.sourceHandle === "image") {
+            const frames = nodeData.frames as
+              | Array<{ index: number; imageUrl: string; thumbnailDataUrl?: string }>
+              | undefined;
+            if (!frames || frames.length === 0) return undefined;
+
+            const selectedFrameIndex = (nodeData.selectedFrameIndex ?? 1) as number;
+            const idx = selectedFrameIndex - 1;
+            const frame = frames[idx];
+            if (!frame) return undefined;
+
+            return frame.thumbnailDataUrl || frame.imageUrl;
+          }
+
+          // Image 节点 - 支持把上游输入继续往下传
+          if (node.type === "image") {
+            const upstream = edges.find(
+              (e) => e.target === nodeId && e.targetHandle === "img"
+            );
+            const upstreamResolved = upstream
+              ? resolveFromNode(upstream.source, upstream, visited)
+              : undefined;
+            if (upstreamResolved) return upstreamResolved;
+
+            const direct =
+              (nodeData.imageData as string | undefined) ||
+              (nodeData.imageUrl as string | undefined) ||
+              (nodeData.thumbnail as string | undefined);
+            return direct || undefined;
+          }
+
+          // 兜底：尽量兼容其他输出图片的节点
+          const fallback =
+            (nodeData.outputImage as string | undefined) ||
+            (nodeData.imageData as string | undefined) ||
+            (nodeData.imageUrl as string | undefined) ||
+            (nodeData.thumbnail as string | undefined) ||
+            (nodeData.img as string | undefined) ||
+            (nodeData.image as string | undefined);
+          return fallback || undefined;
+        };
+
         // 查找连接到 img 输入句柄的边
-        const edge = state.edges.find(
+        const edgeToThis = edges.find(
           (e) => e.target === id && e.targetHandle === "img"
         );
-        if (!edge) return undefined;
+        if (!edgeToThis) return undefined;
 
-        const sourceNode = state.getNodes().find((n) => n.id === edge.source);
-        if (!sourceNode) return undefined;
-
-        // 处理 imageGrid 节点 - 读取拼合后的图片
-        if (sourceNode.type === "imageGrid") {
-          const outputImage = sourceNode.data?.outputImage as string | undefined;
-          return outputImage || undefined;
-        }
-
-        // 处理 videoFrameExtract 节点 - 读取单帧图片
-        if (sourceNode.type === "videoFrameExtract" && edge.sourceHandle === "image") {
-          const frames = sourceNode.data?.frames as Array<{ index: number; imageUrl: string; thumbnailDataUrl?: string }> | undefined;
-          if (!frames || frames.length === 0) return undefined;
-
-          const selectedFrameIndex = (sourceNode.data?.selectedFrameIndex ?? 1) as number;
-          const idx = selectedFrameIndex - 1;
-          const frame = frames[idx];
-          if (!frame) return undefined;
-
-          return frame.thumbnailDataUrl || frame.imageUrl;
-        }
-
-        return undefined;
+        return resolveFromNode(edgeToThis.source, edgeToThis);
       },
       [id]
     )

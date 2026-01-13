@@ -68,6 +68,7 @@ import VideoNode from "./nodes/VideoNode";
 import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import ImageGridNode from "./nodes/ImageGridNode";
+import ImageSplitNode from "./nodes/ImageSplitNode";
 import { generateThumbnail } from "@/utils/imageHelper";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -164,6 +165,7 @@ const nodeTypes = {
   videoAnalyze: VideoAnalyzeNode,
   videoFrameExtract: VideoFrameExtractNode,
   imageGrid: ImageGridNode,
+  imageSplit: ImageSplitNode,
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
@@ -340,6 +342,7 @@ const NODE_PALETTE_ITEMS = [
   { key: "videoAnalyze", zh: "视频分析节点", en: "Video Analysis" },
   { key: "videoFrameExtract", zh: "视频抽帧节点", en: "Video Frame Extract" },
   { key: "imageGrid", zh: "图片拼合节点", en: "Image Grid" },
+  { key: "imageSplit", zh: "图片分割节点", en: "Image Split" },
   { key: "generate", zh: "生成节点", en: "Generate Node" },
   { key: "generateRef", zh: "参考图生成节点", en: "Generate Refer" },
   { key: "generate4", zh: "生成多张图片节点", en: "Multi Generate" },
@@ -3063,7 +3066,8 @@ function FlowInner() {
         | "video"
         | "videoAnalyze"
         | "videoFrameExtract"
-        | "imageGrid",
+        | "imageGrid"
+        | "imageSplit",
       world: { x: number; y: number }
     ) => {
       // 以默认尺寸中心对齐放置
@@ -3095,6 +3099,7 @@ function FlowInner() {
         videoAnalyze: { w: 280, h: 360 },
         videoFrameExtract: { w: 300, h: 420 },
         imageGrid: { w: 300, h: 380 },
+        imageSplit: { w: 320, h: 400 },
       }[type];
       const id = `${type}_${Date.now()}`;
       const pos = { x: world.x - size.w / 2, y: world.y - size.h / 2 };
@@ -3269,6 +3274,14 @@ function FlowInner() {
               boxW: size.w,
               boxH: size.h,
             }
+          : type === "imageSplit"
+          ? {
+              status: "idle" as const,
+              splitImages: [],
+              outputCount: 9,
+              boxW: size.w,
+              boxH: size.h,
+            }
           : type === "klingVideo" || type === "viduVideo" || type === "doubaoVideo"
           ? {
               status: "idle" as const,
@@ -3358,6 +3371,7 @@ function FlowInner() {
           "three",
           "camera",
           "imageGrid",
+          "imageSplit",
         ];
         if (imageNodeTypes.includes(node.type || "")) return true;
         // videoFrameExtract 的 image 句柄输出单张图片
@@ -3522,6 +3536,12 @@ function FlowInner() {
         }
         return false;
       }
+      if (targetNode.type === "imageSplit") {
+        if (targetHandle === "img") {
+          return isImageSource(sourceNode, sourceHandle);
+        }
+        return false;
+      }
       if (targetNode.type === "textChat") {
         if (isTextHandle(targetHandle))
           return textSourceTypes.includes(sourceNode.type || "");
@@ -3624,6 +3644,9 @@ function FlowInner() {
       }
       if (targetNode?.type === "imageGrid") {
         if (params.targetHandle === "images") return true; // 允许多条图片连接
+      }
+      if (targetNode?.type === "imageSplit") {
+        if (params.targetHandle === "img") return true; // 仅一条图片连接
       }
       if (targetNode?.type === "textChat") {
         if (isTextHandle(params.targetHandle)) return true;
