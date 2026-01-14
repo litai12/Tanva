@@ -77,6 +77,10 @@ export class AuthService {
     const inviteRequired =
       (this.config.get<string>("INVITE_REQUIRED") ?? "true") === "true";
     const trimmedCode = dto.invitationCode?.trim();
+    const nodeEnv = (this.config.get<string>("NODE_ENV") || "development").toLowerCase();
+    const isDev = nodeEnv !== "production";
+    const devInviteCode = this.config.get<string>("DEV_INVITE_CODE")?.trim();
+    const isDevFixedInvite = !!devInviteCode && trimmedCode === devInviteCode;
 
     if (inviteRequired && !trimmedCode) {
       throw new BadRequestException("需要邀请码");
@@ -99,7 +103,7 @@ export class AuthService {
       let inviteContext: { inviterUserId?: string; codeId: string } | null =
         null;
 
-      if (trimmedCode) {
+      if (trimmedCode && !(isDev && isDevFixedInvite)) {
         const invite = await tx.invitationCode.findUnique({
           where: { code: trimmedCode },
         });
