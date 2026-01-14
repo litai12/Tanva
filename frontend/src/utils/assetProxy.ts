@@ -34,12 +34,19 @@ function shouldProxyAssets(): boolean {
   return true;
 }
 
-export function proxifyRemoteAssetUrl(input: string): string {
+export function isAssetProxyEnabled(): boolean {
+  return shouldProxyAssets();
+}
+
+export function proxifyRemoteAssetUrl(
+  input: string,
+  options?: { forceProxy?: boolean }
+): string {
   const value = typeof input === "string" ? input.trim() : "";
   if (!value) return input;
 
   const apiBase = getApiBaseUrl();
-  const proxyEnabled = shouldProxyAssets();
+  const proxyEnabled = options?.forceProxy ? true : shouldProxyAssets();
 
   // 判断是否为视频资源或 presigned 链接（例如包含 X-Amz-* 参数）
   const looksLikeVideo = /\.(mp4|webm|m3u8)(\?|$)/i.test(value);
