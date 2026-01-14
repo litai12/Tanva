@@ -1711,6 +1711,7 @@ function FlowInner() {
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
+  const [fpsMode, setFpsMode] = React.useState<"Drag" | "Image" | null>(null);
 
   // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
   React.useEffect(() => {
@@ -1731,6 +1732,7 @@ function FlowInner() {
     let acc = 0;
     let longFrames = 0;
     let maxDt = 0;
+    let lastMode: "Drag" | "Image" | null = null;
 
     const tick = (nowArg: number) => {
       const now =
@@ -1742,7 +1744,24 @@ function FlowInner() {
       const dt = Math.max(0, now - last);
       last = now;
 
-      if (nodeDraggingRef.current) {
+      const isImageDragging =
+        typeof document !== "undefined" &&
+        Boolean(document.body?.classList.contains("tanva-canvas-dragging"));
+      const mode: "Drag" | "Image" | null = isImageDragging
+        ? "Image"
+        : nodeDraggingRef.current
+        ? "Drag"
+        : null;
+
+      if (mode !== lastMode) {
+        frames = 0;
+        acc = 0;
+        longFrames = 0;
+        maxDt = 0;
+        lastMode = mode;
+      }
+
+      if (mode) {
         frames += 1;
         acc += dt;
         if (dt >= 20) longFrames += 1; // 粗略把 >20ms 视为卡顿帧
@@ -1755,14 +1774,16 @@ function FlowInner() {
       }
 
       if (now - lastReport >= 250) {
-        if (nodeDraggingRef.current && acc > 0) {
+        if (mode && acc > 0) {
           setDragFps((1000 * frames) / acc);
           setDragLongFrames(longFrames);
           setDragMaxFrameMs(maxDt);
+          setFpsMode(mode);
         } else {
           setDragFps(0);
           setDragLongFrames(0);
           setDragMaxFrameMs(0);
+          setFpsMode(null);
         }
         frames = 0;
         acc = 0;
@@ -7088,7 +7109,7 @@ function FlowInner() {
             gap: 6,
             fontSize: 12,
           }}
-          title='显示节点拖拽时的估算帧率（每 250ms 刷新一次）'
+          title='显示拖拽/缩放交互的估算帧率（节点拖拽、图片拖拽/缩放；每 250ms 刷新一次）'
         >
           <input
             type='checkbox'
@@ -7738,14 +7759,15 @@ function FlowInner() {
       {showFpsOverlay && (
         <div
           style={{
-            position: "absolute",
-            left: 16,
-            bottom: 16,
-            zIndex: 20,
+            position: "fixed",
+            top: 12,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 1000,
             pointerEvents: "none",
             fontSize: 12,
             padding: "6px 8px",
-            borderRadius: 8,
+            borderRadius: 16,
             border: "1px solid rgba(229,231,235,0.9)",
             background: "rgba(255,255,255,0.85)",
             color: "#111827",
@@ -7753,8 +7775,8 @@ function FlowInner() {
               'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
           }}
         >
-          Drag FPS: {dragFps ? dragFps.toFixed(1) : "--"} | max:{" "}
-          {dragMaxFrameMs ? dragMaxFrameMs.toFixed(1) : "--"}ms | long:{" "}
+          {(fpsMode || "Image") + " FPS"}: {dragFps ? dragFps.toFixed(1) : "--"}{" "}
+          | max: {dragMaxFrameMs ? dragMaxFrameMs.toFixed(1) : "--"}ms | long:{" "}
           {dragLongFrames}
         </div>
       )}
