@@ -52,6 +52,9 @@ import GlobalImageHistoryPage from '@/components/global-history/GlobalImageHisto
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 import { paperSaveService } from '@/services/paperSaveService';
+import { historyService } from '@/services/historyService';
+import { clipboardService } from '@/services/clipboardService';
+import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { authApi, type GoogleApiKeyInfo } from '@/services/authApi';
 import {
@@ -385,27 +388,36 @@ const FloatingHeader: React.FC = () => {
         const confirmed = window.confirm('确定要清空画布上的全部内容吗？\n此操作将删除所有绘制元素与节点（保留背景/网格），且当前不支持撤销。');
         if (!confirmed) return;
 
-        try {
-            // 清理绘制内容但保留图层结构与系统层
-            paperSaveService.clearCanvasContent();
-
-            // 清空运行时实例，避免残留引用
-            try { (window as any).tanvaImageInstances = []; } catch {}
-            try { (window as any).tanvaModel3DInstances = []; } catch {}
-            try { (window as any).tanvaTextItems = []; } catch {}
-
-            // 触发一次自动保存，记录清空后的状态
-            try { paperSaveService.triggerAutoSave(); } catch {}
-
-            // 同时清空 Flow 节点与连线，并标记为脏以触发文件保存
+        void (async () => {
             try {
-                const api = useProjectContentStore.getState();
-                api.updatePartial({ flow: { nodes: [], edges: [] } }, { markDirty: true });
-            } catch {}
-        } catch (e) {
-            console.error('清空画布失败:', e);
-            alert('清空画布失败，请稍后重试');
-        }
+                // 清理绘制内容但保留图层结构与系统层
+                paperSaveService.clearCanvasContent();
+
+                // 清空运行时实例，避免残留引用
+                try { (window as any).tanvaImageInstances = []; } catch {}
+                try { (window as any).tanvaModel3DInstances = []; } catch {}
+                try { (window as any).tanvaTextItems = []; } catch {}
+
+                // 清理剪贴板/AI 图像缓存，避免仍引用大体积 dataURL/base64
+                try { clipboardService.clear(); } catch {}
+                try { contextManager.clearImageCache(); } catch {}
+
+                // 同时清空 Flow 节点与连线，并标记为脏以触发文件保存
+                try {
+                    const api = useProjectContentStore.getState();
+                    api.updatePartial({ flow: { nodes: [], edges: [] } }, { markDirty: true });
+                } catch {}
+
+                // 立即保存一次，确保 store.paperJson/assets 被快速覆盖为“空场景”
+                try { await paperSaveService.saveImmediately(); } catch {}
+
+                // ⚠️ 该操作声明“不可撤销”：同步重置 undo/redo 历史，释放旧快照引用
+                try { await historyService.resetToCurrent('clear-canvas'); } catch {}
+            } catch (e) {
+                console.error('清空画布失败:', e);
+                alert('清空画布失败，请稍后重试');
+            }
+        })();
     };
 
     const { user, logout, loading, connection } = useAuthStore();
