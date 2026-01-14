@@ -1,4 +1,5 @@
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { getFlowImageBlob, parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 
 export type RemoteUrl = `http://${string}` | `https://${string}`;
 export type BlobUrl = `blob:${string}`;
@@ -79,6 +80,18 @@ export const resolveImageToDataUrl = async (
   const trimmed = value.trim();
   if (!trimmed) return null;
 
+  const flowAssetId = parseFlowImageAssetRef(trimmed);
+  if (flowAssetId) {
+    try {
+      const blob = await getFlowImageBlob(flowAssetId);
+      if (!blob) return null;
+      const dataUrl = await readBlobAsDataUrl(blob);
+      return normalizePossiblyDuplicatedDataUrl(dataUrl);
+    } catch {
+      return null;
+    }
+  }
+
   if (isDataImageUrl(trimmed)) {
     return normalizePossiblyDuplicatedDataUrl(trimmed);
   }
@@ -136,6 +149,22 @@ export const resolveImageToBlob = async (
 ): Promise<Blob | null> => {
   const trimmed = typeof value === "string" ? value.trim() : "";
   if (!trimmed) return null;
+
+  const flowAssetId = parseFlowImageAssetRef(trimmed);
+  if (flowAssetId) {
+    try {
+      return await getFlowImageBlob(flowAssetId);
+    } catch {
+      return null;
+    }
+  }
+
+  // 裸 base64：补 data:image 前缀后再 fetch，避免 atob+大数组导致 JS 堆峰值
+  if (!isRemoteUrl(trimmed) && !isBlobUrl(trimmed) && !isDataUrl(trimmed)) {
+    const compact = trimmed.replace(/\s+/g, "");
+    if (!compact) return null;
+    return await resolveImageToBlob(`data:image/png;base64,${compact}`, options);
+  }
 
   const candidates: string[] = [];
   if (isRemoteUrl(trimmed)) {

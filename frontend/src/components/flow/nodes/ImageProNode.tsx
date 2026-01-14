@@ -7,6 +7,8 @@ import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import ContextMenu from '../../ui/context-menu';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
+import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 
 type Props = {
   id: string;
@@ -113,11 +115,21 @@ function ImageProNodeInner({ id, data, selected }: Props) {
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // 图片源
-  const fullSrc = React.useMemo(() => buildImageSrc(data.imageData || data.imageUrl), [data.imageData, data.imageUrl]);
-  const displaySrc = React.useMemo(
-    () => buildImageSrc(data.thumbnail) || fullSrc,
-    [data.thumbnail, fullSrc]
-  );
+  const rawFullValue = data.imageData || data.imageUrl;
+  const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
+  const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
+  const fullSrc = React.useMemo(() => {
+    if (fullAssetId) return fullAssetUrl || undefined;
+    return buildImageSrc(rawFullValue);
+  }, [fullAssetId, fullAssetUrl, rawFullValue]);
+
+  const rawThumbValue = data.thumbnail;
+  const thumbAssetId = React.useMemo(() => parseFlowImageAssetRef(rawThumbValue), [rawThumbValue]);
+  const thumbAssetUrl = useFlowImageAssetUrl(thumbAssetId);
+  const displaySrc = React.useMemo(() => {
+    if (thumbAssetId) return thumbAssetUrl || fullSrc;
+    return buildImageSrc(rawThumbValue) || fullSrc;
+  }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
 
   // 状态
   const [hover, setHover] = React.useState<string | null>(null);

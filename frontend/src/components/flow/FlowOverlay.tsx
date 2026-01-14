@@ -70,6 +70,7 @@ import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
 import { generateThumbnail } from "@/utils/imageHelper";
+import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -4040,7 +4041,8 @@ function FlowInner() {
             Object.prototype.hasOwnProperty.call(patch, "imageData") &&
             patch.imageData &&
             !Object.prototype.hasOwnProperty.call(patch, "thumbnail") &&
-            (n.type === "image" || n.type === "imagePro")
+            (n.type === "image" || n.type === "imagePro") &&
+            !(typeof patch.imageData === "string" && patch.imageData.trim().startsWith(FLOW_IMAGE_ASSET_PREFIX))
           ) {
             // 先清掉旧 thumbnail，避免显示旧缩略图与新 imageData 不一致
             patch.thumbnail = undefined;

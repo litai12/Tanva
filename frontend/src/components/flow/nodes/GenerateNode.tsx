@@ -7,6 +7,8 @@ import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
+import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 
 type Props = {
   id: string;
@@ -48,8 +50,15 @@ const buildImageSrc = (value?: string): string | undefined => {
 
 function GenerateNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
-  const fullSrc = buildImageSrc(data.imageData || data.imageUrl);
-  const displaySrc = buildImageSrc(data.thumbnail) || fullSrc;
+  const rawFullValue = data.imageData || data.imageUrl;
+  const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
+  const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
+  const fullSrc = fullAssetId ? (fullAssetUrl || undefined) : buildImageSrc(rawFullValue);
+
+  const rawThumbValue = data.thumbnail;
+  const thumbAssetId = React.useMemo(() => parseFlowImageAssetRef(rawThumbValue), [rawThumbValue]);
+  const thumbAssetUrl = useFlowImageAssetUrl(thumbAssetId);
+  const displaySrc = thumbAssetId ? (thumbAssetUrl || fullSrc) : (buildImageSrc(rawThumbValue) || fullSrc);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>("");
