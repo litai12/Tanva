@@ -201,12 +201,37 @@ class ContextManager implements IContextManager {
 
   /**
    * 将当前内存中的会话上下文持久化到本地存储（localStorage）
-   * 注意：为避免把大型 base64 嵌入，ContextManager 在写入前已做裁剪
+   * 注意：为避免把大型 base64 嵌入，写入时会剔除大字段
    */
   private persistContextsToStorage(): void {
     try {
       const entries = Array.from(this.contexts.entries());
-      const serialized = JSON.stringify(entries);
+      const serialized = JSON.stringify(entries, (key, value) => {
+        // 避免将大型 base64 字符串写入 localStorage（会导致 stringify 内存峰值 + 容量超限）
+        if (typeof value === "string" && isBase64Data(value)) {
+          // 统一策略：不持久化任何 base64/dataURL 图像内容（刷新后可通过 remoteUrl/历史重建）
+          return undefined;
+        }
+
+        // 常见的大字段键名（更稳妥：即使不是 base64 也不持久化）
+        if (
+          key === "imageData" ||
+          key === "sourceImageData" ||
+          key === "thumbnail" ||
+          key === "thumbnails" ||
+          key === "sourceImagesData" ||
+          key === "latest"
+        ) {
+          // 对数组字段保留空数组（避免 JSON 中出现 null 占位影响读取逻辑）
+          if (Array.isArray(value)) return [];
+          return undefined;
+        }
+
+        // 视频任务信息可能非常大且与恢复会话无关
+        if (key === "taskInfo") return null;
+
+        return value;
+      });
       localStorage.setItem(this.STORAGE_KEY, serialized);
       localStorage.setItem(
         this.STORAGE_ACTIVE_KEY,
@@ -1408,9 +1433,15 @@ class ContextManager implements IContextManager {
 }
 
 // 创建全局实例
-export const contextManager = new ContextManager();
-
-// 定期清理旧上下文
-setInterval(() => {
-  contextManager.cleanupOldContexts();
-}, 60 * 60 * 1000); // 每小时清理一次
+// 说明：在 Vite/React Fast Refresh 下，模块可能被多次重新执行；若每次都 new 实例会导致定时器与旧实例被引用而无法 GC。
+export const contextManager: ContextManager = (() => {
+  if (typeof window === "undefined") {
+    return new ContextManager();
+  }
+  const globalAny = window as any;
+  if (globalAny.__tanvaContextManager) {
+    return globalAny.__tanvaContextManager as ContextManager;
+  }
+  globalAny.__tanvaContextManager = new ContextManager();
+  return globalAny.__tanvaContextManager as ContextManager;
+})();

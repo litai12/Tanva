@@ -36,13 +36,14 @@ const buildImageSrc = (value?: string): string => {
   if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
     return proxifyRemoteAssetUrl(trimmed);
   }
+  const keyCandidate = trimmed.replace(/^\/+/, '');
+  if (/^(templates|projects|uploads|videos)\//i.test(keyCandidate)) {
+    return proxifyRemoteAssetUrl(
+      `/api/assets/proxy?key=${encodeURIComponent(keyCandidate)}`
+    );
+  }
   if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
     return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`
-    );
   }
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
   return `data:image/png;base64,${trimmed}`;
@@ -73,7 +74,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
     React.useCallback(
       (state: ReactFlowState) => {
         const edges = state.edges.filter(
-          (e) => e.target === id && e.targetHandle === 'images'
+          (e) => e.target === id && (e.targetHandle === 'images' || !e.targetHandle)
         );
         if (edges.length === 0) return [];
 
@@ -104,6 +105,48 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): ImageItem[] => {
           if (!node) return [];
           const d = (node.data ?? {}) as any;
+
+          // ImageSplitNode：按 image1..imageN 读取（无 sourceHandle 时输出全部 splitImages）
+          if (node.type === 'imageSplit') {
+            const normalize = (v: unknown): string | undefined => {
+              if (typeof v !== 'string') return undefined;
+              const trimmed = v.trim();
+              return trimmed ? trimmed : undefined;
+            };
+
+            const splitImages = Array.isArray(d.splitImages) ? (d.splitImages as Array<any>) : [];
+            const pickAt = (idx: number): string | undefined => {
+              const key = `image${idx + 1}`;
+              const direct = normalize(d?.[key]);
+              if (direct) return direct;
+              return normalize(splitImages?.[idx]?.imageData);
+            };
+
+            if (typeof sourceHandle === 'string') {
+              const match = /^image(\d+)$/.exec(sourceHandle);
+              if (match) {
+                const idx = Math.max(0, Number(match[1]) - 1);
+                const value = pickAt(idx);
+                return value
+                  ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
+                  : [];
+              }
+            }
+
+            if (splitImages.length > 0) {
+              return splitImages
+                .map((img, idx) => {
+                  const value = normalize(img?.imageData);
+                  if (!value) return null;
+                  return {
+                    id: `${node.id}-split-${idx + 1}`,
+                    imageData: value,
+                    thumbnailData: value,
+                  } as ImageItem;
+                })
+                .filter((item): item is ImageItem => item !== null);
+            }
+          }
 
           // VideoFrameExtractNode：按 sourceHandle 决定单帧/范围/全部
           if (node.type === 'videoFrameExtract' && Array.isArray(d.frames)) {
