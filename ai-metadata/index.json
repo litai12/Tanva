@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-01-14T08:54:04.847Z",
+  "generatedAt": "2026-01-14T09:06:06.042Z",
   "project": {
     "root": ".",
-    "name": "Tanva",
+    "name": "f9ad-blob-base64",
     "language": "typescript",
     "aliasPaths": []
   },
   "counts": {
-    "trackedFiles": 514,
-    "sourceFiles": 330
+    "trackedFiles": 550,
+    "sourceFiles": 331
   },
   "files": {
     "backend/check-cdn.js": {
@@ -3146,13 +3146,14 @@
     "frontend/src/components/KeyboardShortcuts.tsx": {
       "path": "frontend/src/components/KeyboardShortcuts.tsx",
       "kind": "tsx",
-      "bytes": 3005,
-      "sha256": "050863d0a65ec82ac4a6b68acbb4eeca6e2806926f94604724b1d96b42ffe998",
+      "bytes": 3499,
+      "sha256": "0b3b372f4e5ab9bca8564120f2a3d8b6493733272546755362b139401bfb5f74",
       "importSpecifiers": [
         "@/services/historyService",
         "@/services/paperSaveService",
         "@/services/projectApi",
         "@/stores/projectContentStore",
+        "@/utils/projectContentValidation",
         "@/utils/saveMonitor",
         "react"
       ],
@@ -3292,13 +3293,14 @@
     "frontend/src/components/autosave/ManualSaveButton.tsx": {
       "path": "frontend/src/components/autosave/ManualSaveButton.tsx",
       "kind": "tsx",
-      "bytes": 3301,
-      "sha256": "4f38dd51cd6e8d6284aeb671fe9623e77cd5b8dddc075dce4cb7465b544cc018",
+      "bytes": 3629,
+      "sha256": "55f6c37a2affc98160a2064f95fee17f80c3f8d932212223dc27fabd64e617da",
       "importSpecifiers": [
         "@/services/paperSaveService",
         "@/services/projectApi",
         "@/services/projectThumbnailService",
         "@/stores/projectContentStore",
+        "@/utils/projectContentValidation",
         "@/utils/saveMonitor",
         "react"
       ],
@@ -3457,8 +3459,8 @@
     "frontend/src/components/canvas/DrawingController.tsx": {
       "path": "frontend/src/components/canvas/DrawingController.tsx",
       "kind": "tsx",
-      "bytes": 188995,
-      "sha256": "d2968247b803d8c6061d4a278de46672b9af0fa91107cbe0f79c7047a9d2b437",
+      "bytes": 189388,
+      "sha256": "3c573dee4a0989edaa8683bc3784eb86e42ce1cee179ce2065bc92913d9256ca",
       "importSpecifiers": [
         "./ImageContainer",
         "./ImageUploadComponent",
@@ -6881,13 +6883,15 @@
     "frontend/src/hooks/useProjectAutosave.ts": {
       "path": "frontend/src/hooks/useProjectAutosave.ts",
       "kind": "ts",
-      "bytes": 7411,
-      "sha256": "bb4b7a674164fc9fe380d221a7bb0d5d08e006e26cc50934e2ed6eac533baa53",
+      "bytes": 8719,
+      "sha256": "d1ac18c50ca583c053658f3db616109ecb11a09f15ccc02cc6e0327dcd9dfd85",
       "importSpecifiers": [
+        "@/services/paperSaveService",
         "@/services/projectApi",
         "@/services/projectCacheStore",
         "@/services/projectThumbnailService",
         "@/stores/projectContentStore",
+        "@/utils/projectContentValidation",
         "@/utils/saveMonitor",
         "react"
       ],
@@ -8021,8 +8025,8 @@
     "frontend/src/services/imageUploadService.ts": {
       "path": "frontend/src/services/imageUploadService.ts",
       "kind": "ts",
-      "bytes": 6436,
-      "sha256": "a7d755ff9e79d726fa014717bcbbad5a0a030f6ea933eda4dbf3d3a1f3954aeb",
+      "bytes": 6456,
+      "sha256": "bc30b67524dee45edb3fb9ff1dea1f3f63e4871b48260b44236f4512d12de309",
       "importSpecifiers": [
         "./imageUploadWorkerClient",
         "./ossUploadService",
@@ -8232,8 +8236,8 @@
     "frontend/src/services/ossUploadService.ts": {
       "path": "frontend/src/services/ossUploadService.ts",
       "kind": "ts",
-      "bytes": 6880,
-      "sha256": "fe3c2c771460fd77082a5b6fddcc1c7e48f941660b4ef4ed6c59a8c936c1ca2f",
+      "bytes": 6919,
+      "sha256": "0869b6e6f7cddb68f6b4520cef9ff288899887817aa9189eba145a5421fe3d83",
       "importSpecifiers": [
         "@/utils/logger"
       ],
@@ -8324,8 +8328,8 @@
     "frontend/src/services/paperSaveService.ts": {
       "path": "frontend/src/services/paperSaveService.ts",
       "kind": "ts",
-      "bytes": 39537,
-      "sha256": "454733bbb7f0c12ad79e3f60c12f3f7a2c2627af86e181aa26247a3623315fc7",
+      "bytes": 40102,
+      "sha256": "651d55241ec4b4dbb5e807f2737c11aa61fe2d551f74e28d05ed268ce6e78b92",
       "importSpecifiers": [
         "@/services/imageUploadService",
         "@/services/model3DUploadService",
@@ -10066,6 +10070,31 @@
         "envVars": []
       }
     },
+    "frontend/src/utils/projectContentValidation.ts": {
+      "path": "frontend/src/utils/projectContentValidation.ts",
+      "kind": "ts",
+      "bytes": 813,
+      "sha256": "38e354841c517ffb5827cc19414bc0809c2d6fea750a3213146ec3885248d38e",
+      "importSpecifiers": [
+        "@/types/project",
+        "@/utils/imageSource"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "getNonRemoteImageAssetIds"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/utils/saveMonitor.ts": {
       "path": "frontend/src/utils/saveMonitor.ts",
       "kind": "ts",
@@ -11430,6 +11459,7 @@
           "@/services",
           "@/stores",
           "@/utils",
+          "@/utils",
           "react"
         ]
       },
@@ -11484,6 +11514,7 @@
           "@/services",
           "@/services",
           "@/stores",
+          "@/utils",
           "@/utils",
           "react"
         ]
@@ -12927,7 +12958,9 @@
           "@/services",
           "@/services",
           "@/services",
+          "@/services",
           "@/stores",
+          "@/utils",
           "@/utils",
           "react"
         ]
@@ -13796,6 +13829,14 @@
           "paper"
         ]
       },
+      "frontend/src/utils/projectContentValidation.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/types",
+          "@/utils"
+        ]
+      },
       "frontend/src/utils/saveMonitor.ts": {
         "local": [],
         "localUnresolved": [],
@@ -14423,6 +14464,7 @@
       "frontend/src/utils/paperImageGroup.ts": [],
       "frontend/src/utils/paperImageGroupBlock.ts": [],
       "frontend/src/utils/pathObjectPool.ts": [],
+      "frontend/src/utils/projectContentValidation.ts": [],
       "frontend/src/utils/saveMonitor.ts": [],
       "frontend/src/utils/snapAlignment.ts": [],
       "frontend/src/vite-env.d.ts": [],

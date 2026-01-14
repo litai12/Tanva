@@ -1,9 +1,9 @@
 # AI File Descriptions
 
-- Generated: 2026-01-14T08:54:04.875Z
-- Files: 330
-- Updated (new/changed): 330
-- Carried (unchanged): 0
+- Generated: 2026-01-14T09:06:06.067Z
+- Files: 331
+- Updated (new/changed): 8
+- Carried (unchanged): 323
 
 | file | feature | needsReview | description |
 |---|---:|---:|---|
@@ -112,7 +112,7 @@
 | `frontend/src/components/auth/LoginModal.tsx` | `module` | ✅ | Module `LoginModal` (module). Exports: LoginModal. Ext deps: @/components, @/services, @/stores, lucide-react Tags: auth, flow, token |
 | `frontend/src/components/AuthWrapper.tsx` | `module` | ✅ | Module `AuthWrapper` (module). Exports: AuthWrapper. Ext deps: @/components, @/services, @/stores, react, react-router-dom Tags: auth, token |
 | `frontend/src/components/autosave/AutosaveStatus.tsx` | `module` | ✅ | Module `AutosaveStatus` (module). Exports: AutosaveStatus. Ext deps: @/stores, react |
-| `frontend/src/components/autosave/ManualSaveButton.tsx` | `module` | ✅ | Module `ManualSaveButton` (module). Exports: ManualSaveButton. Ext deps: @/services, @/stores, @/utils, react Storage: tanva_last_good_snapshot_${currentProjectId} |
+| `frontend/src/components/autosave/ManualSaveButton.tsx` | `module` | ✅ | Module `ManualSaveButton` (module). Exports: ManualSaveButton. Ext deps: @/services, @/stores, @/utils Storage: tanva_last_good_snapshot_${currentProjectId} |
 | `frontend/src/components/autosave/ProjectAutosaveManager.tsx` | `module` | ✅ | Module `ProjectAutosaveManager` (module). Exports: ProjectAutosaveManager. Ext deps: @/hooks, @/services, @/stores Tags: canvas | Storage: current_project_id |
 | `frontend/src/components/autosave/SaveDebugPanel.tsx` | `module` | ✅ | Module `SaveDebugPanel` (module). Exports: SaveDebugPanel. Ext deps: @/stores, @/utils, react Tags: flow |
 | `frontend/src/components/canvas/BackgroundRemovalTool.tsx` | `module` | ✅ | Module `BackgroundRemovalTool` (module). Exports: default, BackgroundRemovalTool, BackgroundRemovalToolProps. Ext deps: @/components, @/services, @/utils, lucide-react Tags: canvas |
@@ -198,7 +198,7 @@
 | `frontend/src/components/global-history/GlobalImageDetailModal.tsx` | `module` | ✅ | Module `GlobalImageDetailModal` (module). Exports: default. Ext deps: @/services, lucide-react, react | Local deps: frontend/src/components/ui/button.tsx Tags: flow |
 | `frontend/src/components/global-history/GlobalImageHistoryPage.tsx` | `module` | ✅ | Module `GlobalImageHistoryPage` (module). Exports: default, GlobalImageHistoryPage. Ext deps: @/services, @/stores, lucide-react, react, react-dom | Local deps: frontend/src/components/global-history/GlobalImageDetailModal.tsx, frontend/src/components/ui/button.tsx Tags: flow |
 | `frontend/src/components/Iridescence.tsx` | `module` | ✅ | Module `Iridescence` (module). Exports: Iridescence. Ext deps: ogl, react | Local deps: frontend/src/components/Iridescence.css Tags: canvas |
-| `frontend/src/components/KeyboardShortcuts.tsx` | `module` | ✅ | Module `KeyboardShortcuts` (module). Exports: KeyboardShortcuts. Ext deps: @/services, @/stores, @/utils, react |
+| `frontend/src/components/KeyboardShortcuts.tsx` | `module` | ✅ | Module `KeyboardShortcuts` (module). Exports: KeyboardShortcuts. Ext deps: @/services, @/stores, @/utils |
 | `frontend/src/components/layout/FloatingHeader.tsx` | `module` | ✅ | Module `FloatingHeader` (module). Exports: default. Ext deps: @/components Tags: auth, canvas, flow, gemini, http, settings | API: https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd | Env: DEV |
 | `frontend/src/components/MetallicButton.tsx` | `module` | ✅ | Module `MetallicButton` (module). Exports: MetallicButton. Ext deps: react | Local deps: frontend/src/components/MetallicButton.css |
 | `frontend/src/components/panels/LayerPanel.tsx` | `module` | ✅ | Module `LayerPanel` (module). Exports: default. Ext deps: @/stores, @/utils, lucide-react | Local deps: frontend/src/components/ui/button.tsx, frontend/src/components/ui/context-menu.tsx Tags: canvas, flow, http | API: http://www.w3.org/2000/svg |
@@ -229,7 +229,7 @@
 | `frontend/src/components/ui/textarea.tsx` | `module` | ✅ | Module `textarea` (module). Exports: TextareaProps. Ext deps: @/lib, react |
 | `frontend/src/components/ui/tooltip.tsx` | `module` | ✅ | Module `tooltip` (module). Exports: (none detected). Ext deps: @/lib, @radix-ui/react-tooltip, react Tags: flow |
 | `frontend/src/hooks/useAIImageDisplay.ts` | `module` | ✅ | Module `useAIImageDisplay` (module). Exports: useAIImageDisplay. Ext deps: @/types, @/utils, paper, react Tags: canvas |
-| `frontend/src/hooks/useProjectAutosave.ts` | `module` | ✅ | Module `useProjectAutosave` (module). Exports: useProjectAutosave. Ext deps: @/services, @/stores, @/utils, react Storage: tanva_last_good_snapshot_${currentProjectId} |
+| `frontend/src/hooks/useProjectAutosave.ts` | `module` | ✅ | Module `useProjectAutosave` (module). Exports: useProjectAutosave. Ext deps: @/services, @/stores, @/utils Storage: tanva_last_good_snapshot_${currentProjectId} |
 | `frontend/src/hooks/usePromptOptimization.ts` | `module` | ✅ | Module `usePromptOptimization` (module). Exports: default, usePromptOptimization. Ext deps: @/services, @/types, react |
 | `frontend/src/lib/unitUtils.ts` | `module` | ✅ | Module `unitUtils` (module). Exports: Unit, calculateEffectiveScale, calculateScaleBarLength, formatDisplayUnit, formatSmartDisplayUnit, getAllUnits. Deps: (none detected). Tags: canvas |
 | `frontend/src/lib/utils.ts` | `module` | ✅ | Module `utils` (module). Exports: cn. Ext deps: clsx, tailwind-merge |
@@ -327,6 +327,7 @@
 | `frontend/src/utils/paperImageGroup.ts` | `module` | ✅ | Module `paperImageGroup` (module). Exports: EnsureImageGroupStructureOptions, EnsureImageGroupStructureResult, ImageGroupMetadata, ensureImageGroupStructure. Ext deps: paper |
 | `frontend/src/utils/paperImageGroupBlock.ts` | `module` | ✅ | Module `paperImageGroupBlock` (module). Exports: CreateImageGroupBlockOptions, IMAGE_GROUP_BLOCK_TYPE, createImageGroupBlock, createOrUpdateGroupBlockTitle, deleteImageGroupBlock, deleteImageGroupBlockByGroupId. Ext deps: @/utils, paper |
 | `frontend/src/utils/pathObjectPool.ts` | `module` | ✅ | Module `pathObjectPool` (module). Exports: PathObjectPool, pathObjectPool. Ext deps: paper |
+| `frontend/src/utils/projectContentValidation.ts` | `module` | ✅ | Module `projectContentValidation` (module). Exports: getNonRemoteImageAssetIds. Ext deps: @/types, @/utils |
 | `frontend/src/utils/saveMonitor.ts` | `module` | ✅ | Module `saveMonitor` (module). Exports: attachGlobalDump, saveMonitor. Deps: (none detected). |
 | `frontend/src/utils/snapAlignment.ts` | `module` | ✅ | Module `snapAlignment` (module). Exports: AlignmentEdge, AlignmentLine, ObjectBounds, SnapResult, deduplicateAlignments, detectAlignments. Ext deps: @/types Tags: canvas |
 | `frontend/src/vite-env.d.ts` | `module` | ✅ | Module `vite-env.d` (module). Exports: (none detected). Deps: (none detected). |

@@ -3,7 +3,7 @@ import { logger } from "@/utils/logger";
 export type OssUploadOptions = {
   /** 指定上传的子目录，默认为 `uploads/` */
   dir?: string;
-  /** 最大允许尺寸，默认 20MB */
+  /** 最大允许尺寸，默认 32MB（由后端 presign 默认值决定） */
   maxSize?: number;
   /** 建议文件名（用于推断后缀） */
   fileName?: string;

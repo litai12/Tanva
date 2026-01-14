@@ -4826,7 +4826,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   fileName: raster.data?.fileName as string | undefined,
                   uploadMethod: raster.data?.uploadMethod as string | undefined,
                   aspectRatio: raster.data?.aspectRatio as number | undefined,
-                  remoteUrl: raster.data?.remoteUrl as string | undefined,
+                  remoteUrl:
+                    typeof raster.data?.remoteUrl === "string" &&
+                    /^https?:\/\//i.test(raster.data.remoteUrl)
+                      ? (raster.data.remoteUrl as string)
+                      : undefined,
                 };
 
                 // 记录来源：优先使用远程URL，其次使用非data的source，最后使用内联data
@@ -4834,11 +4838,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   typeof raster.source === "string" ? raster.source : undefined;
                 const remoteUrl =
                   metadataFromRaster.remoteUrl ||
-                  (sourceUrl && !sourceUrl.startsWith("data:")
+                  (sourceUrl && /^https?:\/\//i.test(sourceUrl)
                     ? sourceUrl
                     : undefined);
                 const inlineDataUrl =
-                  sourceUrl && sourceUrl.startsWith("data:")
+                  sourceUrl && (sourceUrl.startsWith("data:") || sourceUrl.startsWith("blob:"))
                     ? sourceUrl
                     : undefined;
 
@@ -4924,6 +4928,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
                   const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
                   const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
+                  const pendingUpload =
+                    !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl);
 
                   // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
                   const originalWidth =
@@ -4942,7 +4948,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       url: resolvedUrl,
                       src: resolvedSrc,
                       fileName: computedMetadata.fileName,
-                      pendingUpload: false,
+                      pendingUpload,
                       width: Math.round(originalWidth),
                       height: Math.round(originalHeight),
                     },
@@ -4972,6 +4978,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
                   const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
                   const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
+                  const pendingUpload =
+                    !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl);
 
                   imageInstances.push({
                     id: ensuredImageId,
@@ -4980,7 +4988,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       url: resolvedUrl,
                       src: resolvedSrc,
                       fileName: metadataFromRaster.fileName,
-                      pendingUpload: raster.data?.pendingUpload ?? false,
+                      pendingUpload,
                     },
                     bounds: {
                       x: raster.position?.x ?? 0,

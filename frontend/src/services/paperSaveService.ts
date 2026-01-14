@@ -242,6 +242,10 @@ class PaperSaveService {
 
       const inlineSource = await this.resolveInlineAssetSource(image);
       if (!inlineSource) {
+        if (!image.pendingUpload) {
+          image.pendingUpload = true;
+          this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
+        }
         continue;
       }
 
@@ -288,9 +292,17 @@ class PaperSaveService {
           );
           uploaded += 1;
         } else {
+          if (!image.pendingUpload) {
+            image.pendingUpload = true;
+            this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
+          }
           failed += 1;
         }
       } catch (error) {
+        if (!image.pendingUpload) {
+          image.pendingUpload = true;
+          this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
+        }
         failed += 1;
         console.warn('自动上传本地图片失败:', error);
       }
@@ -328,6 +340,7 @@ class PaperSaveService {
           const bounds = instance?.bounds;
           const url = data?.url || data?.localDataUrl || data?.src;
           if (!url) return;
+          const pendingUpload = !!data?.pendingUpload || !this.isRemoteUrl(url);
           collectedImageIds.add(instance.id);
           images.push({
             id: instance.id,
@@ -337,7 +350,7 @@ class PaperSaveService {
             width: data?.width,
             height: data?.height,
             contentType: data?.contentType,
-            pendingUpload: !!data?.pendingUpload,
+            pendingUpload,
             localDataUrl: data?.localDataUrl,
             bounds: {
               x: bounds?.x ?? 0,
@@ -1020,7 +1033,7 @@ class PaperSaveService {
       if (hasPendingImages) {
         try {
           const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          const pendingMsg = '存在未上传到 OSS 的本地图片（blob/data），上传完成前无法保存到云端。';
           if (currentError !== pendingMsg) {
             contentStore.setError(pendingMsg);
           }
@@ -1028,7 +1041,7 @@ class PaperSaveService {
       } else {
         try {
           const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传成功的图片，已使用本地副本，请稍后在网络可用时重新上传。';
+          const pendingMsg = '存在未上传到 OSS 的本地图片（blob/data），上传完成前无法保存到云端。';
           if (currentError === pendingMsg) {
             contentStore.setError(null);
           }

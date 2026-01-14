@@ -1,7 +1,7 @@
 # AI Metadata Index
 
-- Generated: 2026-01-14T08:54:04.847Z
-- Source files indexed: 330
+- Generated: 2026-01-14T09:06:06.042Z
+- Source files indexed: 331
 - Schema version: 2
 
 ## Top tags
@@ -27,7 +27,7 @@
 - `frontend/src/components/flow/nodes`: 31
 - `frontend/src/components/canvas`: 23
 - `frontend/src/stores`: 19
-- `frontend/src/utils`: 18
+- `frontend/src/utils`: 19
 - `frontend/src/components/ui`: 16
 - `frontend/src/components/canvas/hooks`: 12
 - `backend/src/ai/services`: 10
