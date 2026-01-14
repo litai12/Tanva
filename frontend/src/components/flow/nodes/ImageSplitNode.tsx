@@ -284,6 +284,36 @@ const detectAndSplitImage = async (imageSrc: string): Promise<SplitImageItem[]> 
 
     img.onload = () => {
       try {
+        // 先用小尺寸采样判断是否值得做“非白色连通域”检测：
+        // 对于照片/满屏内容图，连通域扫描会遍历大量像素并产生巨大队列（内存与 CPU 开销很高），
+        // 而最终也会回落到网格切分，因此直接跳过。
+        const totalPixels = img.width * img.height;
+        const MAX_PIXELS_FOR_REGION_DETECT = 2_000_000; // ~2MP
+        const SAMPLE_SIZE = 96;
+        const sampleCanvas = document.createElement('canvas');
+        sampleCanvas.width = Math.min(SAMPLE_SIZE, img.width);
+        sampleCanvas.height = Math.min(SAMPLE_SIZE, img.height);
+        const sampleCtx = sampleCanvas.getContext('2d');
+        if (sampleCtx) {
+          sampleCtx.drawImage(img, 0, 0, sampleCanvas.width, sampleCanvas.height);
+          const sampled = sampleCtx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height);
+          const sampledData = sampled.data;
+          let white = 0;
+          const total = sampledData.length / 4;
+          for (let i = 0; i < sampledData.length; i += 4) {
+            if (isWhitePixel(sampledData[i], sampledData[i + 1], sampledData[i + 2])) white += 1;
+          }
+          const whiteRatio = total > 0 ? white / total : 0;
+          const looksLikeWhiteBackground = whiteRatio >= 0.55;
+          if (!looksLikeWhiteBackground || totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
+            resolve([]);
+            return;
+          }
+        } else if (totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
+          resolve([]);
+          return;
+        }
+
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
@@ -354,27 +384,28 @@ const findNonWhiteRegions = (
   const visited = new Uint8Array(width * height);
   const regions: Region[] = [];
 
-  // 检查像素是否为非白色
-  const isNonWhite = (x: number, y: number): boolean => {
-    if (x < 0 || x >= width || y < 0 || y >= height) return false;
-    const idx = (y * width + x) * 4;
+  const isNonWhiteIdx = (pixelIdx: number): boolean => {
+    if (pixelIdx < 0 || pixelIdx >= width * height) return false;
+    const idx = pixelIdx * 4;
     return !isWhitePixel(data[idx], data[idx + 1], data[idx + 2]);
   };
 
-  // 使用扫描线算法查找连通区域
+  // 使用连通域（BFS）查找连通区域
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const pixelIdx = y * width + x;
-      if (visited[pixelIdx] || !isNonWhite(x, y)) continue;
+      if (visited[pixelIdx] || !isNonWhiteIdx(pixelIdx)) continue;
 
       // 发现新区域，使用 BFS 扩展
       const region: Region = { minX: x, minY: y, maxX: x, maxY: y };
-      const queue: [number, number][] = [[x, y]];
+      const queue: number[] = [pixelIdx];
       let head = 0;
       visited[pixelIdx] = 1;
 
       while (head < queue.length) {
-        const [cx, cy] = queue[head++]!;
+        const idx = queue[head++]!;
+        const cx = idx % width;
+        const cy = Math.floor(idx / width);
 
         // 更新边界
         region.minX = Math.min(region.minX, cx);
@@ -382,18 +413,34 @@ const findNonWhiteRegions = (
         region.maxX = Math.max(region.maxX, cx);
         region.maxY = Math.max(region.maxY, cy);
 
-        // 检查四个方向的邻居
-        const neighbors: [number, number][] = [
-          [cx - 1, cy], [cx + 1, cy],
-          [cx, cy - 1], [cx, cy + 1],
-        ];
-
-        for (const [nx, ny] of neighbors) {
-          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
-          const nIdx = ny * width + nx;
-          if (visited[nIdx] || !isNonWhite(nx, ny)) continue;
-          visited[nIdx] = 1;
-          queue.push([nx, ny]);
+        // 检查四个方向的邻居（避免每像素创建 neighbors 数组）
+        if (cx > 0) {
+          const nIdx = idx - 1;
+          if (!visited[nIdx] && isNonWhiteIdx(nIdx)) {
+            visited[nIdx] = 1;
+            queue.push(nIdx);
+          }
+        }
+        if (cx + 1 < width) {
+          const nIdx = idx + 1;
+          if (!visited[nIdx] && isNonWhiteIdx(nIdx)) {
+            visited[nIdx] = 1;
+            queue.push(nIdx);
+          }
+        }
+        if (cy > 0) {
+          const nIdx = idx - width;
+          if (!visited[nIdx] && isNonWhiteIdx(nIdx)) {
+            visited[nIdx] = 1;
+            queue.push(nIdx);
+          }
+        }
+        if (cy + 1 < height) {
+          const nIdx = idx + width;
+          if (!visited[nIdx] && isNonWhiteIdx(nIdx)) {
+            visited[nIdx] = 1;
+            queue.push(nIdx);
+          }
         }
       }
 
@@ -581,6 +628,15 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     [connectedImage, data.inputImage, data.inputImageUrl]
   );
 
+  const splitPreviewItems = React.useMemo(() => {
+    const count = Math.min(outputCount, splitImages.length);
+    const items: Array<{ index: number; src: string }> = [];
+    for (let i = 0; i < count; i += 1) {
+      items.push({ index: i, src: buildImageSrc(splitImages[i]?.imageData) || '' });
+    }
+    return items;
+  }, [splitImages, outputCount]);
+
   // 更新节点数据
   const updateNodeData = React.useCallback((patch: Record<string, unknown>) => {
     window.dispatchEvent(new CustomEvent('flow:updateNodeData', {
@@ -590,9 +646,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
   // 同步外部数据变化
   React.useEffect(() => {
-    if (data.splitImages && JSON.stringify(data.splitImages) !== JSON.stringify(splitImages)) {
-      setSplitImages(data.splitImages);
-    }
+    const next = Array.isArray(data.splitImages) ? data.splitImages : [];
+    setSplitImages((prev) => (prev === next ? prev : next));
   }, [data.splitImages]);
 
   React.useEffect(() => {
@@ -654,10 +709,11 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         error: undefined
       };
 
-      // 为每个分割图片创建对应的 imageX 字段
-      images.forEach((img, i) => {
-        imagePatch[`image${i + 1}`] = img.imageData;
-      });
+      // 避免把 base64 同时写入 splitImages + image1..imageN（JSON 序列化/持久化时会成倍膨胀）
+      // 同时清理旧的 imageX 字段，防止下游读取到历史残留。
+      for (let i = 1; i <= MAX_OUTPUT_COUNT; i += 1) {
+        imagePatch[`image${i}`] = undefined;
+      }
 
       updateNodeData(imagePatch);
     } catch (err) {
@@ -924,8 +980,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           flexWrap: 'wrap',
           gap: 4,
         }}>
-          {splitImages.slice(0, outputCount).map((img, i) => (
-            <div key={i} style={{
+          {splitPreviewItems.map(({ index, src }) => (
+            <div key={index} style={{
               width: 48,
               height: 48,
               border: '1px solid #d1d5db',
@@ -934,8 +990,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               position: 'relative',
             }}>
               <img
-                src={buildImageSrc(img.imageData) || ''}
-                alt={`分割 ${i + 1}`}
+                src={src}
+                alt={`分割 ${index + 1}`}
                 decoding="async"
                 loading="lazy"
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -949,7 +1005,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
                 fontSize: 10,
                 padding: '1px 3px',
               }}>
-                {i + 1}
+                {index + 1}
               </span>
             </div>
           ))}

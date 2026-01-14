@@ -1013,25 +1013,61 @@ function FlowInner() {
     return () => document.body.classList.remove("tanva-flow-node-dragging");
   }, [isNodeDragging]);
 
-  const sanitizeNodeData = React.useCallback((input: any) => {
-    try {
-      return JSON.parse(
-        JSON.stringify(input, (_key, value) =>
-          typeof value === "function" ? undefined : value
-        )
-      );
-    } catch {
-      if (!input || typeof input !== "object") return input;
-      if (Array.isArray(input)) {
-        return input.map(sanitizeNodeData);
+  const getFlowSnapshotSignature = React.useCallback(
+    (nodesSnapshot: any, edgesSnapshot: any): string | null => {
+      try {
+        return JSON.stringify(
+          { n: nodesSnapshot, e: edgesSnapshot },
+          (_key, value) => {
+            if (typeof value === "function") return undefined;
+            if (typeof value === "string" && value.length > 1024) {
+              const head = value.slice(0, 64);
+              const tail = value.slice(-64);
+              return `__trim_len=${value.length}__${head}__${tail}`;
+            }
+            return value;
+          }
+        );
+      } catch {
+        return null;
       }
+    },
+    []
+  );
+
+  const sanitizeNodeData = React.useCallback((input: any) => {
+    const seen = new WeakMap<object, any>();
+
+    const walk = (value: any): any => {
+      if (typeof value === "function") return undefined;
+      if (!value || typeof value !== "object") return value;
+
+      // 兼容 JSON.stringify(Date) 的行为
+      if (value instanceof Date) return value.toISOString();
+
+      if (Array.isArray(value)) {
+        const arr = new Array(value.length);
+        for (let i = 0; i < value.length; i += 1) {
+          arr[i] = walk(value[i]);
+        }
+        return arr;
+      }
+
+      const cached = seen.get(value as object);
+      if (cached) return cached;
+
       const result: Record<string, any> = {};
-      Object.entries(input).forEach(([key, value]) => {
-        if (typeof value === "function") return;
-        result[key] = sanitizeNodeData(value);
+      seen.set(value as object, result);
+      Object.entries(value).forEach(([key, child]) => {
+        if (typeof child === "function") return;
+        const sanitized = walk(child);
+        if (sanitized === undefined) return;
+        result[key] = sanitized;
       });
       return result;
-    }
+    };
+
+    return walk(input);
   }, []);
 
   const rfNodesToTplNodes = React.useCallback(
@@ -1607,11 +1643,7 @@ function FlowInner() {
     });
     setEdges(tplEdgesToRfEdges(es));
     // 记录当前从 store 水合的快照，避免立刻写回造成环路
-    try {
-      lastSyncedJSONRef.current = JSON.stringify({ n: ns, e: es });
-    } catch {
-      lastSyncedJSONRef.current = null;
-    }
+    lastSyncedJSONRef.current = getFlowSnapshotSignature(ns, es);
     Promise.resolve().then(() => {
       hydratingFromStoreRef.current = false;
     });
@@ -1623,6 +1655,7 @@ function FlowInner() {
     setEdges,
     tplNodesToRfNodes,
     tplEdgesToRfEdges,
+    getFlowSnapshotSignature,
   ]);
 
   // 切换项目时先清空，避免跨项目残留
@@ -1638,13 +1671,7 @@ function FlowInner() {
       if (!hydrated) return;
       if (hydratingFromStoreRef.current) return;
       if (nodeDraggingRef.current) return; // 拖拽时不高频写回
-      const json = (() => {
-        try {
-          return JSON.stringify({ n: nodesSnapshot, e: edgesSnapshot });
-        } catch {
-          return null;
-        }
-      })();
+      const json = getFlowSnapshotSignature(nodesSnapshot, edgesSnapshot);
       if (json && lastSyncedJSONRef.current === json) return;
       if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
       commitTimerRef.current = window.setTimeout(() => {
@@ -1656,7 +1683,7 @@ function FlowInner() {
         commitTimerRef.current = null;
       }, 120); // 轻微节流，避免频繁渲染
     },
-    [projectId, hydrated, updateProjectPartial]
+    [projectId, hydrated, updateProjectPartial, getFlowSnapshotSignature]
   );
 
   React.useEffect(() => {
