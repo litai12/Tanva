@@ -5,6 +5,10 @@
 - Backend: `backend/` (NestJS)
 - Docs: `frontend/docs/` (primary), plus top-level `*.md`
 
+## Default workflow (helloagents)
+- All tasks default to the helloagents workflow: Analyze → Design → Develop.
+- Use `helloagents/project.md` as SSOT for technical conventions, and keep `helloagents/wiki/` (and `helloagents/CHANGELOG.md` when relevant) in sync with code/doc changes.
+
 ## Common commands
 - Frontend dev: `cd frontend && npm i && npm run dev`
 - Frontend checks: `cd frontend && npm run lint && npm run build`

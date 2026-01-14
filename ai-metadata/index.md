@@ -1,11 +1,11 @@
 # AI Metadata Index
 
-- Generated: 2026-01-14T08:24:01.124Z
-- Source files indexed: 328
+- Generated: 2026-01-14T08:54:04.847Z
+- Source files indexed: 330
 - Schema version: 2
 
 ## Top tags
-- `canvas`: 89
+- `canvas`: 90
 - `flow`: 88
 - `http`: 81
 - `auth`: 64
@@ -14,7 +14,7 @@
 - `token`: 32
 - `settings`: 16
 - `kling`: 10
-- `worker`: 4
+- `worker`: 6
 - `storyboard`: 4
 - `artboard`: 3
 - `zip`: 1
@@ -23,7 +23,7 @@
 - (none detected)
 
 ## Directory overview
-- `frontend/src/services`: 37
+- `frontend/src/services`: 38
 - `frontend/src/components/flow/nodes`: 31
 - `frontend/src/components/canvas`: 23
 - `frontend/src/stores`: 19
@@ -63,8 +63,8 @@
 - `frontend/src/services/authFetch.ts` (referenced by 5)
 - `frontend/src/stores/storageUtils.ts` (referenced by 5)
 - `frontend/src/components/ui/context-menu.tsx` (referenced by 4)
+- `frontend/src/services/ossUploadService.ts` (referenced by 4)
 - `frontend/src/components/flow/nodes/GenericVideoNode.tsx` (referenced by 3)
-- `frontend/src/services/ossUploadService.ts` (referenced by 3)
 - `frontend/src/components/canvas/hooks/useSnapAlignment.ts` (referenced by 2)
 - `frontend/src/components/flow/types.ts` (referenced by 2)
 - `frontend/src/components/ui/loading-spinner.tsx` (referenced by 2)

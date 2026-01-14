@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-01-14T08:24:01.124Z",
+  "generatedAt": "2026-01-14T08:54:04.847Z",
   "project": {
     "root": ".",
-    "name": "1aac-base64-wokers-ca",
+    "name": "Tanva",
     "language": "typescript",
     "aliasPaths": []
   },
   "counts": {
-    "trackedFiles": 512,
-    "sourceFiles": 328
+    "trackedFiles": 514,
+    "sourceFiles": 330
   },
   "files": {
     "backend/check-cdn.js": {
@@ -8051,6 +8051,34 @@
         "envVars": []
       }
     },
+    "frontend/src/services/imageUploadWorkerClient.ts": {
+      "path": "frontend/src/services/imageUploadWorkerClient.ts",
+      "kind": "ts",
+      "bytes": 3216,
+      "sha256": "08f5f922d79e626843770e5edc51e510e42c60d9be58c1c897a61347b57c5d47",
+      "importSpecifiers": [
+        "./ossUploadService"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [
+          "WorkerImageUploadOptions",
+          "WorkerImageUploadResult",
+          "imageUploadWorkerClient"
+        ],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "worker"
+        ],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
     "frontend/src/services/imageUrlCache.ts": {
       "path": "frontend/src/services/imageUrlCache.ts",
       "kind": "ts",
@@ -10110,6 +10138,31 @@
         "feature": "module",
         "routes": [],
         "tags": [],
+        "apiEndpoints": [],
+        "storageKeys": [],
+        "envVars": []
+      }
+    },
+    "frontend/src/workers/imageUploadWorker.ts": {
+      "path": "frontend/src/workers/imageUploadWorker.ts",
+      "kind": "ts",
+      "bytes": 4915,
+      "sha256": "9e8e1e324bd645ee33fc78b391252d40a9a0a94701aa0bb78514a6c69fed33f3",
+      "importSpecifiers": [
+        "@/services/ossUploadService"
+      ],
+      "dynamicImportSpecifiers": [],
+      "exports": {
+        "named": [],
+        "default": false
+      },
+      "semantic": {
+        "feature": "module",
+        "routes": [],
+        "tags": [
+          "canvas",
+          "worker"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -13220,6 +13273,13 @@
           "@/utils"
         ]
       },
+      "frontend/src/services/imageUploadWorkerClient.ts": {
+        "local": [
+          "frontend/src/services/ossUploadService.ts"
+        ],
+        "localUnresolved": [],
+        "external": []
+      },
       "frontend/src/services/imageUrlCache.ts": {
         "local": [
           "frontend/src/services/base64CacheService.ts"
@@ -13753,6 +13813,13 @@
         "localUnresolved": [],
         "external": []
       },
+      "frontend/src/workers/imageUploadWorker.ts": {
+        "local": [],
+        "localUnresolved": [],
+        "external": [
+          "@/services"
+        ]
+      },
       "frontend/tailwind.config.js": {
         "local": [],
         "localUnresolved": [],
@@ -14242,6 +14309,9 @@
       "frontend/src/services/historyService.ts": [],
       "frontend/src/services/imageHistoryService.ts": [],
       "frontend/src/services/imageUploadService.ts": [],
+      "frontend/src/services/imageUploadWorkerClient.ts": [
+        "frontend/src/services/imageUploadService.ts"
+      ],
       "frontend/src/services/imageUrlCache.ts": [],
       "frontend/src/services/improvedSaveService.ts": [],
       "frontend/src/services/indexedDBService.ts": [],
@@ -14249,6 +14319,7 @@
       "frontend/src/services/model3DUploadService.ts": [],
       "frontend/src/services/ossUploadService.ts": [
         "frontend/src/services/imageUploadService.ts",
+        "frontend/src/services/imageUploadWorkerClient.ts",
         "frontend/src/services/model3DPreviewService.ts",
         "frontend/src/services/model3DUploadService.ts"
       ],
@@ -14355,6 +14426,7 @@
       "frontend/src/utils/saveMonitor.ts": [],
       "frontend/src/utils/snapAlignment.ts": [],
       "frontend/src/vite-env.d.ts": [],
+      "frontend/src/workers/imageUploadWorker.ts": [],
       "frontend/tailwind.config.js": [],
       "frontend/test/test-gemini-image.js": [],
       "frontend/vite.config.ts": [],
@@ -14381,9 +14453,6 @@
       ],
       "frontend/src/index.css": [
         "frontend/src/main.tsx"
-      ],
-      "frontend/src/services/imageUploadWorkerClient.ts": [
-        "frontend/src/services/imageUploadService.ts"
       ]
     }
   }

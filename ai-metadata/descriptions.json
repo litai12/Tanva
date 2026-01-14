@@ -1,918 +1,804 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-01-14T08:24:01.148Z",
+  "generatedAt": "2026-01-14T08:54:04.875Z",
   "files": {
     "backend/check-cdn.js": {
       "path": "backend/check-cdn.js",
       "sha256": "feb06a58ea7ba43f650a7c0a6152bc5d74c1ae9ffb6ffba26444a8736e55a48f",
       "feature": "module",
       "description": "Module `check-cdn` (module). Exports: (none detected). Ext deps: fs, path Tags: http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/create-admin.js": {
       "path": "backend/create-admin.js",
       "sha256": "8cbb95643a2f73df7480805baa618ffbb827e10681cefe235fd2bbeab04afd99",
       "feature": "module",
       "description": "Module `create-admin` (module). Exports: (none detected). Ext deps: @prisma/client, bcryptjs",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/admin/admin.controller.ts": {
       "path": "backend/src/admin/admin.controller.ts",
       "sha256": "ae874de39eb06145248b09675fc279ad9419ad405fbd8717dbd106538a5a55c9",
       "feature": "module",
       "description": "Module `admin.controller` (module). Exports: AdminController. Ext deps: @nestjs/common, @nestjs/swagger, fastify Tags: auth, settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/admin/admin.module.ts": {
       "path": "backend/src/admin/admin.module.ts",
       "sha256": "d91d111c3e55fd7c2a83fc551a0c1e73b0cafcc3a59ed62b447f15baf90a79d5",
       "feature": "module",
       "description": "Module `admin.module` (module). Exports: AdminModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/admin/admin.service.ts": {
       "path": "backend/src/admin/admin.service.ts",
       "sha256": "3841dff57974ceeba2d4f32fa1a95c40c342719af4fbcb1cac8b9022db7624b1",
       "feature": "module",
       "description": "Module `admin.service` (module). Exports: AdminDashboardStats, AdminService, ApiUsageStats, UserWithCredits. Ext deps: @nestjs/common Tags: settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/admin/dto/admin.dto.ts": {
       "path": "backend/src/admin/dto/admin.dto.ts",
       "sha256": "b669d5f79828ae516a1db009e9c08211bd9ca8913e416b6469e149dcb0fb00ab",
       "feature": "module",
       "description": "Module `admin.dto` (module). Exports: ApiUsageRecordsQueryDto, ApiUsageStatsQueryDto, UpdateUserRoleDto, UpdateUserStatusDto, UsersQueryDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/admin/dto/template.dto.ts": {
       "path": "backend/src/admin/dto/template.dto.ts",
       "sha256": "0842542aa04706df5b7acf29df6158eeb531b5a51d3b0aae675b3b5c21ea0c08",
       "feature": "module",
       "description": "Module `template.dto` (module). Exports: CreateTemplateDto, TemplateQueryDto, UpdateTemplateDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/admin/services/template.service.ts": {
       "path": "backend/src/admin/services/template.service.ts",
       "sha256": "0ef681cbf9e96a71ae4afe23d49d89d8e52767ce9297d66ad0cde894db424860",
       "feature": "module",
       "description": "Module `template.service` (module). Exports: TemplateService. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai-public/ai-public.controller.ts": {
       "path": "backend/src/ai-public/ai-public.controller.ts",
       "sha256": "765f33afe59e3eec03479da322f1c59710fd89edc5b119ae3684e4f8c7d5a828",
       "feature": "module",
       "description": "Module `ai-public.controller` (module). Exports: AiPublicController. Ext deps: @nestjs/common, @nestjs/swagger Tags: gemini, http | API: https://...",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai-public/ai-public.module.ts": {
       "path": "backend/src/ai-public/ai-public.module.ts",
       "sha256": "2e35951ac840bfd751535e3c512106cd71f70f01df68eff09f235c56ff30fe00",
       "feature": "module",
       "description": "Module `ai-public.module` (module). Exports: AiPublicModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai-public/ai-public.service.ts": {
       "path": "backend/src/ai-public/ai-public.service.ts",
       "sha256": "d4debbf59daf96039f491c728de3192a7604ec3c16b8630ae6ee6e38cb197d67",
       "feature": "module",
       "description": "Module `ai-public.service` (module). Exports: AiPublicService. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/ai-provider.factory.ts": {
       "path": "backend/src/ai/ai-provider.factory.ts",
       "sha256": "a043386e8fee9911e894073695b85b8c6cbce0ed1a676741e6d7df62190a2e04",
       "feature": "module",
       "description": "Module `ai-provider.factory` (module). Exports: AIProviderFactory. Ext deps: @nestjs/common, @nestjs/config Tags: gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/ai.controller.ts": {
       "path": "backend/src/ai/ai.controller.ts",
       "sha256": "86b021e52055fe224658f7d396c6642ec02a8c2595c08f8c8b75ac7643c84d15",
       "feature": "module",
       "description": "Module `ai.controller` (module). Exports: AiController. Ext deps: @google/genai, @nestjs/common, @nestjs/swagger, child_process, fs Tags: auth, canvas, gemini, http, kling, worker | API: https://api1.147ai.com, https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis | Env: BANANA_API_KEY, DASHSCOPE_API_KEY, GOOGLE_GEMINI_API_KEY, SORA2_API_ENDPOINT",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/ai.module.ts": {
       "path": "backend/src/ai/ai.module.ts",
       "sha256": "5467c03578263fec09b726709f3062359677fc97c2496dfa5a1864a14210a5c5",
       "feature": "module",
       "description": "Module `ai.module` (module). Exports: AiModule. Ext deps: @nestjs/common, @nestjs/config Tags: auth, gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/ai.service.ts": {
       "path": "backend/src/ai/ai.service.ts",
       "sha256": "6006d22deca697457e1cd730081172c04f721eed9060616d26bc1a9df44b99ae",
       "feature": "module",
       "description": "Module `ai.service` (module). Exports: AiService. Ext deps: @google/genai, @nestjs/common, @nestjs/config Tags: gemini, settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/background-removal.dto.ts": {
       "path": "backend/src/ai/dto/background-removal.dto.ts",
       "sha256": "35aa23d9f556aed391f91e12030dfc2df60dc2914b8637d0352af1ad7868c6f9",
       "feature": "module",
       "description": "Module `background-removal.dto` (module). Exports: RemoveBackgroundDto. Ext deps: class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/image-generation.dto.ts": {
       "path": "backend/src/ai/dto/image-generation.dto.ts",
       "sha256": "e518c14ddaafd8529dff427812001ec03ac825c0c3835a77331872f4430bac87",
       "feature": "module",
       "description": "Module `image-generation.dto` (module). Exports: AnalyzeImageDto, BlendImagesDto, Convert2Dto3DDto, EditImageDto, ExpandImageDto, GenerateImageDto. Ext deps: class-validator Tags: gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/img2vector.dto.ts": {
       "path": "backend/src/ai/dto/img2vector.dto.ts",
       "sha256": "9cb1eb0d8b628e2b5affd34563b811507b3cb1da63d03a9747caaa3f299cfcad",
       "feature": "module",
       "description": "Module `img2vector.dto` (module). Exports: Img2VectorRequestDto, Img2VectorResponseDto. Ext deps: class-transformer, class-validator Tags: canvas, gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/paperjs-generation.dto.ts": {
       "path": "backend/src/ai/dto/paperjs-generation.dto.ts",
       "sha256": "533a94657e62af805fe622b06386be2031a5f1f5108b264c8b16bfb3dfe12451",
       "feature": "module",
       "description": "Module `paperjs-generation.dto` (module). Exports: PaperJSGenerateRequestDto, PaperJSGenerateResponseDto. Ext deps: class-transformer, class-validator Tags: canvas, gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/tool-selection.dto.ts": {
       "path": "backend/src/ai/dto/tool-selection.dto.ts",
       "sha256": "0cc0ae3626f65585496a23118eaae67ddb18e9e53b1760dd46a7c407bd277dce",
       "feature": "module",
       "description": "Module `tool-selection.dto` (module). Exports: ToolSelectionRequestDto. Ext deps: class-transformer, class-validator Tags: gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/veo-video.dto.ts": {
       "path": "backend/src/ai/dto/veo-video.dto.ts",
       "sha256": "ce26e23fe5931a47ac344da5ee2c61925c7f5d57c84b23da96219195d83f31f2",
       "feature": "module",
       "description": "Module `veo-video.dto` (module). Exports: VeoGenerateVideoDto, VeoModelType, VeoModelsResponseDto, VeoVideoResponseDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/video-analysis.dto.ts": {
       "path": "backend/src/ai/dto/video-analysis.dto.ts",
       "sha256": "2045884e5a63b32898f912e468386ec4ec5411f0fc99e6a89d2bf3e6fc124ca3",
       "feature": "module",
       "description": "Module `video-analysis.dto` (module). Exports: AnalyzeVideoDto, VideoAnalysisResultDto. Ext deps: class-validator Tags: gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/video-generation.dto.ts": {
       "path": "backend/src/ai/dto/video-generation.dto.ts",
       "sha256": "74f6d84418c5d389a220950736c057549eda5a30304e0d61dc52d7a1cbd42d2a",
       "feature": "module",
       "description": "Module `video-generation.dto` (module). Exports: GenerateVideoDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/dto/video-provider.dto.ts": {
       "path": "backend/src/ai/dto/video-provider.dto.ts",
       "sha256": "dc606851da390ec5e4e181652ea720f231089ecf15301d972a131322d4351bb5",
       "feature": "module",
       "description": "Module `video-provider.dto` (module). Exports: VideoProviderRequestDto. Ext deps: @nestjs/swagger, class-validator Tags: kling",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/image-generation.service.ts": {
       "path": "backend/src/ai/image-generation.service.ts",
       "sha256": "ec628f55253abdbc68292aba940c62ca19ff333b3c2c40ee423a3d012ed44d5b",
       "feature": "module",
       "description": "Module `image-generation.service` (module). Exports: ImageGenerationResult, ImageGenerationService. Ext deps: @google/genai, @nestjs/common, @nestjs/config Tags: auth, canvas, gemini, http, settings, worker",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/interceptors/cost-tracking.interceptor.ts": {
       "path": "backend/src/ai/interceptors/cost-tracking.interceptor.ts",
       "sha256": "9ded93f4cb6d66769bfccb10ef16d2be1f0fdd92eb1d14a8c9043c9a7ead7d56",
       "feature": "module",
       "description": "Module `cost-tracking.interceptor` (module). Exports: CostTrackingInterceptor. Ext deps: @nestjs/common, rxjs Tags: gemini, http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/providers/ai-provider.interface.ts": {
       "path": "backend/src/ai/providers/ai-provider.interface.ts",
       "sha256": "1a32446716a074d4a931dbe1406b7319c2fdb0b13b541b45c922b226ec020078",
       "feature": "module",
       "description": "Module `ai-provider.interface` (module). Exports: AIProviderConfig, AIProviderResponse, AnalysisResult, IAIProvider, ImageAnalysisRequest, ImageBlendRequest. Deps: (none detected). Tags: canvas, gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/providers/banana.provider.ts": {
       "path": "backend/src/ai/providers/banana.provider.ts",
       "sha256": "2ef5b0f59eada4bad3ab4e7ca4e8c8b444143b8f5fdc0f9087a195dedcae9008",
       "feature": "module",
       "description": "Module `banana.provider` (module). Exports: BananaProvider. Ext deps: @nestjs/common, @nestjs/config, sharp Tags: auth, canvas, gemini, http, settings | API: https://api1.147ai.com/v1beta/models",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/providers/gemini-pro.provider.ts": {
       "path": "backend/src/ai/providers/gemini-pro.provider.ts",
       "sha256": "b9925ed269043437ccd3b3700c1caefa85a2e99557df8b9994c259b23f1d0c26",
       "feature": "module",
       "description": "Module `gemini-pro.provider` (module). Exports: GeminiProProvider. Ext deps: @google/genai, @nestjs/common, @nestjs/config Tags: auth, gemini, http, settings, worker",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/providers/midjourney.provider.ts": {
       "path": "backend/src/ai/providers/midjourney.provider.ts",
       "sha256": "374669204c9ad8c5083b59c28883f3c807c7aba0004d863139d1dc1319973ddb",
       "feature": "module",
       "description": "Module `midjourney.provider` (module). Exports: MidjourneyProvider. Ext deps: @nestjs/common, @nestjs/config Tags: auth, http | API: https://api1.147ai.com",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/providers/runninghub.provider.ts": {
       "path": "backend/src/ai/providers/runninghub.provider.ts",
       "sha256": "83754febd92a6f7434441f29122f5dfd2339fc6715b513c0de4c992f24673b09",
       "feature": "module",
       "description": "Module `runninghub.provider` (module). Exports: RunningHubProvider. Ext deps: @nestjs/common, @nestjs/config Tags: http | API: https://www.runninghub.ai",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/background-removal.service.ts": {
       "path": "backend/src/ai/services/background-removal.service.ts",
       "sha256": "0c723e71ad4167103588f762a98037d7d559b29be1cbb66fd2571fce52983ffa",
       "feature": "module",
       "description": "Module `background-removal.service` (module). Exports: BackgroundRemovalService. Ext deps: @imgly/background-removal-node, @nestjs/common, @nestjs/config, fs, path Tags: http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/convert-2d-to-3d.service.ts": {
       "path": "backend/src/ai/services/convert-2d-to-3d.service.ts",
       "sha256": "893ed7f6667c93c0f5dd1417c11b7c7f6eae98e8b176e4575a1bb7c332116aeb",
       "feature": "module",
       "description": "Module `convert-2d-to-3d.service` (module). Exports: Convert2Dto3DService. Ext deps: @nestjs/common, @nestjs/config Tags: flow, http | API: http://100.65.126.121:7865/api/comfy/run, https://output.tgtai.com/view/${fileName}",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/cost-calculator.service.ts": {
       "path": "backend/src/ai/services/cost-calculator.service.ts",
       "sha256": "4295aacc5c9ae41e20ad9b50488b2ab78dde7916d521df6ee6377c3cfa125897",
       "feature": "module",
       "description": "Module `cost-calculator.service` (module). Exports: CostCalculatorService. Ext deps: @nestjs/common Tags: gemini, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/cost-tracking.module.ts": {
       "path": "backend/src/ai/services/cost-tracking.module.ts",
       "sha256": "6013a92960ecc036d0b472c8787d203e1a6947016754b85cd98ba59611df362a",
       "feature": "module",
       "description": "Module `cost-tracking.module` (module). Exports: CostTrackingModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/expand-image.service.ts": {
       "path": "backend/src/ai/services/expand-image.service.ts",
       "sha256": "ddcc65665a3b6b8f1f38ea3308aad7f091b8ebfe08439574a62a834f793d0687",
       "feature": "module",
       "description": "Module `expand-image.service` (module). Exports: ExpandImageService. Ext deps: @nestjs/common, @nestjs/config Tags: flow, http | API: http://100.65.126.121:7865/api/comfy/run, https://output.tgtai.com/view/${fileName}",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/sora2-video.service.ts": {
       "path": "backend/src/ai/services/sora2-video.service.ts",
       "sha256": "099117c534a2decd76f4b80cf2bc4ebe31f5eb40174d71abb25ea22f06e80b36",
       "feature": "module",
       "description": "Module `sora2-video.service` (module). Exports: SORA2_PROVIDER_SETTING_KEY, Sora2Provider, Sora2VideoResult, Sora2VideoService. Ext deps: @nestjs/common Tags: auth, http | API: https://ai.t8star.cn, https://api1.147ai.com | Env: SORA2_API_ENDPOINT, SORA2_API_KEY, SORA2_HD_MODEL, SORA2_SD_MODEL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/veo-video.service.ts": {
       "path": "backend/src/ai/services/veo-video.service.ts",
       "sha256": "f0fb8cc752c552c100663b2128b6d381d7503e333b98215487cc5611e85c2502",
       "feature": "module",
       "description": "Module `veo-video.service` (module). Exports: VeoGenerateVideoOptions, VeoModel, VeoVideoResult, VeoVideoService. Ext deps: @nestjs/common, @nestjs/config Tags: auth, http | API: https://api1.147ai.com",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/video-provider.service.ts": {
       "path": "backend/src/ai/services/video-provider.service.ts",
       "sha256": "33c0b694f50271972ad7c5c1507eadd306cdc09bc810030f726cf730f751bfd8",
       "feature": "module",
       "description": "Module `video-provider.service` (module). Exports: VideoGenerationResult, VideoProviderService. Ext deps: @nestjs/common, stream Tags: auth, http, kling | API: https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks, https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/${taskId} | Env: DOUBAO_API_KEY, KLING_API_KEY, VIDU_API_KEY",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/video-watermark.service.ts": {
       "path": "backend/src/ai/services/video-watermark.service.ts",
       "sha256": "861f5aa75023accaa4cb301917d5b12590848997c471a01dbd6ab677d1cfb980",
       "feature": "module",
       "description": "Module `video-watermark.service` (module). Exports: VideoWatermarkService. Ext deps: @nestjs/common, ali-oss, child_process, crypto, fs, os Env: WATERMARK_PATH",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/ai/services/watermark.util.ts": {
       "path": "backend/src/ai/services/watermark.util.ts",
       "sha256": "7515278462d6644517e47b2e200c14c6089b0cac390f425e4fe3af2cc622cbcc",
       "feature": "module",
       "description": "Module `watermark.util` (module). Exports: applyWatermarkToBase64. Ext deps: fs, path, sharp Env: WATERMARK_PATH",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/app.module.ts": {
       "path": "backend/src/app.module.ts",
       "sha256": "b38b8911cad8973bc81de2c933b67e4e10b2d28e3d5538da588f0e2db6becd6d",
       "feature": "module",
       "description": "Module `app.module` (module). Exports: AppModule. Ext deps: @nestjs/common, @nestjs/config Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/auth.controller.ts": {
       "path": "backend/src/auth/auth.controller.ts",
       "sha256": "ec0ebd1b3b4d327c36365ff68d46f3f54a0254d90a6ab5d7d2cd1eebaf0025fa",
       "feature": "module",
       "description": "Module `auth.controller` (module). Exports: AuthController. Ext deps: @nestjs/common, @nestjs/swagger Tags: auth, http, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/auth.module.ts": {
       "path": "backend/src/auth/auth.module.ts",
       "sha256": "1ab45aa219be9b3ff894278ae43aa06ddd51b79e5eecd6fd54329909ff4f7e21",
       "feature": "module",
       "description": "Module `auth.module` (module). Exports: AuthModule. Ext deps: @nestjs/common, @nestjs/jwt, @nestjs/passport Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/auth.service.ts": {
       "path": "backend/src/auth/auth.service.ts",
       "sha256": "7be2d3702ee9e63d1a0e72203b5321440c3267bea299096bf41b78ce65a9cfd7",
       "feature": "module",
       "description": "Module `auth.service` (module). Exports: AuthService. Ext deps: @nestjs/common, @nestjs/config, @nestjs/jwt, bcryptjs Tags: auth, http, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/dto/login.dto.ts": {
       "path": "backend/src/auth/dto/login.dto.ts",
       "sha256": "9802121af31fd0e92e7230721849430ed1c0eea3203032792d5bcf2ed3973d06",
       "feature": "module",
       "description": "Module `login.dto` (module). Exports: LoginDto. Ext deps: @nestjs/swagger, class-validator Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/dto/register.dto.ts": {
       "path": "backend/src/auth/dto/register.dto.ts",
       "sha256": "49f755909e34f3e5f079e0031609a4e6b71f000f83e8fc499dc774fea9189a51",
       "feature": "module",
       "description": "Module `register.dto` (module). Exports: RegisterDto. Ext deps: @nestjs/swagger, class-validator Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/dto/reset-password.dto.ts": {
       "path": "backend/src/auth/dto/reset-password.dto.ts",
       "sha256": "5c84ec12a0cb5ed82b7d40147edc7b55b1bddb8f7bd81f3874758dced8f470bf",
       "feature": "module",
       "description": "Module `reset-password.dto` (module). Exports: ResetPasswordDto. Ext deps: @nestjs/swagger, class-validator Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/dto/sms-login.dto.ts": {
       "path": "backend/src/auth/dto/sms-login.dto.ts",
       "sha256": "e421e38128efdc8cfb1818e1a731cc94c1d98139f364bbd86c32269f04780787",
       "feature": "module",
       "description": "Module `sms-login.dto` (module). Exports: SmsLoginDto. Ext deps: @nestjs/swagger, class-validator Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/guards/api-key-or-jwt.guard.ts": {
       "path": "backend/src/auth/guards/api-key-or-jwt.guard.ts",
       "sha256": "6a19c1638f71cc0476f47634369216c6990e690c401b0eea884bb80b99558db7",
       "feature": "module",
       "description": "Module `api-key-or-jwt.guard` (module). Exports: ApiKeyOrJwtGuard. Ext deps: @nestjs/common, @nestjs/config, @nestjs/passport Tags: auth, http, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/guards/jwt.guard.ts": {
       "path": "backend/src/auth/guards/jwt.guard.ts",
       "sha256": "b360a7d971b3c389d935c57b700a2352238fb6240fe7e94b864eb64cf8856f48",
       "feature": "module",
       "description": "Module `jwt.guard` (module). Exports: JwtAuthGuard. Ext deps: @nestjs/common, @nestjs/passport Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/guards/refresh.guard.ts": {
       "path": "backend/src/auth/guards/refresh.guard.ts",
       "sha256": "fcf2ac03e4d2a6d1829d047d7473b4b2816e10cf46d59c384cdc3d8979c217e9",
       "feature": "module",
       "description": "Module `refresh.guard` (module). Exports: RefreshAuthGuard. Ext deps: @nestjs/common, @nestjs/passport Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/sms.service.ts": {
       "path": "backend/src/auth/sms.service.ts",
       "sha256": "4294acb3a86c64937a76c2e9e2bd456a7ae6afd4f60d8f4b95206061db4adb69",
       "feature": "module",
       "description": "Module `sms.service` (module). Exports: default, SmsService. Ext deps: @alicloud/sms-sdk, @nestjs/common, @nestjs/config, ioredis Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/strategies/jwt.strategy.ts": {
       "path": "backend/src/auth/strategies/jwt.strategy.ts",
       "sha256": "e1c36b3d70e2568b6201ba03819ba63b3c76a4764634c6adefedfe514097b473",
       "feature": "module",
       "description": "Module `jwt.strategy` (module). Exports: JwtStrategy. Ext deps: @nestjs/common, @nestjs/config, @nestjs/passport, passport-jwt Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/auth/strategies/refresh.strategy.ts": {
       "path": "backend/src/auth/strategies/refresh.strategy.ts",
       "sha256": "4935e6ca6a2bf9f84b8776a00b48ee976c7161a65c6a5357d1d4b14fa6129042",
       "feature": "module",
       "description": "Module `refresh.strategy` (module). Exports: RefreshJwtStrategy. Ext deps: @nestjs/common, @nestjs/config, @nestjs/passport, passport-jwt Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/config/logger.config.ts": {
       "path": "backend/src/config/logger.config.ts",
       "sha256": "a826c6fb81ae293b437e4fd3a4d53099a2f21f2c1552f1269eddd22e351b3c60",
       "feature": "module",
       "description": "Module `logger.config` (module). Exports: getLoggerConfig. Deps: (none detected). Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/credits/credits.config.ts": {
       "path": "backend/src/credits/credits.config.ts",
       "sha256": "1e65d26fd5bc6f6394e34cf786ba1760a27d4d185ac6cf5439fa09fc7abbbf2f",
       "feature": "module",
       "description": "Module `credits.config` (module). Exports: CREDIT_PRICING_CONFIG, DAILY_LOGIN_REWARD_CREDITS, DEFAULT_NEW_USER_CREDITS, ServiceType. Deps: (none detected). Tags: gemini, kling, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/credits/credits.controller.ts": {
       "path": "backend/src/credits/credits.controller.ts",
       "sha256": "409930c92586d5ac693c89a7034c46bf2f8925701e113e1ba0dbb616e351af21",
       "feature": "module",
       "description": "Module `credits.controller` (module). Exports: CreditsController. Ext deps: @nestjs/common, @nestjs/swagger, fastify Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/credits/credits.module.ts": {
       "path": "backend/src/credits/credits.module.ts",
       "sha256": "bbe7f8c64e4bcec05f03246221e73dcca0fb265fb8bf3d8dee194e5b91f80764",
       "feature": "module",
       "description": "Module `credits.module` (module). Exports: CreditsModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/credits/credits.service.ts": {
       "path": "backend/src/credits/credits.service.ts",
       "sha256": "c0169d0daeb00cb66a3c7799baadea44c62ee222f656ab103459637854ddad6c",
       "feature": "module",
       "description": "Module `credits.service` (module). Exports: AddCreditsResult, ApiUsageParams, CreditsService, DeductCreditsResult. Ext deps: @nestjs/common Tags: token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/credits/dto/credits.dto.ts": {
       "path": "backend/src/credits/dto/credits.dto.ts",
       "sha256": "bf592d7655f6499a8dbc6ed4425b9ea54a29ab1e86ea1e7c355371ca50d2cca8",
       "feature": "module",
       "description": "Module `credits.dto` (module). Exports: AdminAddCreditsDto, AdminDeductCreditsDto, ApiResponseStatus, ApiUsageQueryDto, GetBalanceResponseDto, PricingResponseDto. Ext deps: @nestjs/swagger, class-validator Tags: token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/global-image-history/dto/global-image-history.dto.ts": {
       "path": "backend/src/global-image-history/dto/global-image-history.dto.ts",
       "sha256": "e7a8092c2cc94825f1858fee6ff3e416ce1b0addf10b8ffd26a8b95a6a4fc136",
       "feature": "module",
       "description": "Module `global-image-history.dto` (module). Exports: CreateGlobalImageHistoryDto, QueryGlobalImageHistoryDto. Ext deps: class-transformer, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/global-image-history/global-image-history.controller.ts": {
       "path": "backend/src/global-image-history/global-image-history.controller.ts",
       "sha256": "4f9d4e01d44415d993ef410158063a9cc6872256fbd297d50d58c6be495ace16",
       "feature": "module",
       "description": "Module `global-image-history.controller` (module). Exports: GlobalImageHistoryController. Ext deps: @nestjs/common, @nestjs/swagger Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/global-image-history/global-image-history.module.ts": {
       "path": "backend/src/global-image-history/global-image-history.module.ts",
       "sha256": "a7a6dba8390cddda356dc6a0db230121db738fce0fd88ebf694d2781df308003",
       "feature": "module",
       "description": "Module `global-image-history.module` (module). Exports: GlobalImageHistoryModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/global-image-history/global-image-history.service.ts": {
       "path": "backend/src/global-image-history/global-image-history.service.ts",
       "sha256": "8ae74cf3726ac50c38db11a05a7d74f2c871bf9d8a4816d514393559e9da63e9",
       "feature": "module",
       "description": "Module `global-image-history.service` (module). Exports: GlobalImageHistoryService. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/health/health.controller.ts": {
       "path": "backend/src/health/health.controller.ts",
       "sha256": "627a6e87ae3ea140ab0969a6c1c21e982a622526be7a2365bb4c19cf589b86f2",
       "feature": "module",
       "description": "Module `health.controller` (module). Exports: HealthController. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/health/health.module.ts": {
       "path": "backend/src/health/health.module.ts",
       "sha256": "8e6fe50b38d87d28ed07af3285935f9496908c98eabd92c987b1b6d8def8d08b",
       "feature": "module",
       "description": "Module `health.module` (module). Exports: HealthModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/invites/invites.controller.ts": {
       "path": "backend/src/invites/invites.controller.ts",
       "sha256": "16d6b419bdc55c278d603620f354aa95929c0c17d19b96217aef7d7a346ec05f",
       "feature": "module",
       "description": "Module `invites.controller` (module). Exports: InvitesController. Ext deps: @nestjs/common, @nestjs/swagger Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/invites/invites.module.ts": {
       "path": "backend/src/invites/invites.module.ts",
       "sha256": "23b56ce41d0776b28ff12a28221b84a0bf25cbd9df4472626069891b805997ac",
       "feature": "module",
       "description": "Module `invites.module` (module). Exports: InvitesModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/invites/invites.service.ts": {
       "path": "backend/src/invites/invites.service.ts",
       "sha256": "d5cc54f276acc31a86b581634b6483991b434f44a963da655a274146324bb978",
       "feature": "module",
       "description": "Module `invites.service` (module). Exports: InvitesService. Ext deps: @nestjs/common, crypto",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/main.ts": {
       "path": "backend/src/main.ts",
       "sha256": "172f3d111c7f22b803d7e38d8b1e15256fa6483559bafa76869a19339674925e",
       "feature": "module",
       "description": "Module `main` (module). Exports: (none detected). Ext deps: @fastify/compress, @fastify/cookie, @fastify/cors, @fastify/helmet, @fastify/multipart, @nestjs/common Tags: auth, http, token, zip | Env: ALL_PROXY, HOST, HTTPS_PROXY, HTTP_PROXY",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/oss/assets.controller.ts": {
       "path": "backend/src/oss/assets.controller.ts",
       "sha256": "ece5192c87bd3853a4b38c0afa692ba82c533f7373eef7000cfb9d093e6ba99b",
       "feature": "module",
       "description": "Module `assets.controller` (module). Exports: AssetsController. Ext deps: @nestjs/common, @nestjs/swagger, fastify, node:stream Tags: http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/oss/oss.module.ts": {
       "path": "backend/src/oss/oss.module.ts",
       "sha256": "7ff8383c53888eeaf7430eebb5cad189d85d0dcecea303689e4d335dfec7b74f",
       "feature": "module",
       "description": "Module `oss.module` (module). Exports: OssModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/oss/oss.service.ts": {
       "path": "backend/src/oss/oss.service.ts",
       "sha256": "7b7b79c838920a9eb8514efa7f02c3fc94ec62bef8d776ddbda6af2ba5b86f5d",
       "feature": "module",
       "description": "Module `oss.service` (module). Exports: OssService. Ext deps: @nestjs/common, @nestjs/config, ali-oss, crypto Tags: http, kling | API: https://${bucket}.${region}.aliyuncs.com, https://${host}/${key}",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/oss/uploads.controller.ts": {
       "path": "backend/src/oss/uploads.controller.ts",
       "sha256": "6d13c21602173babf4d382198c9eacd2dccdfe7dc9311e166474137fe8cee5eb",
       "feature": "module",
       "description": "Module `uploads.controller` (module). Exports: UploadsController. Ext deps: @nestjs/common, @nestjs/platform-express, @nestjs/swagger, stream Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/oss/video-frames.controller.ts": {
       "path": "backend/src/oss/video-frames.controller.ts",
       "sha256": "b617dc54cd9c986cb9b1cf1fbe0a48336a83451ff12c8b2595f29128b85ea569",
       "feature": "module",
       "description": "Module `video-frames.controller` (module). Exports: VideoFramesController. Ext deps: @nestjs/common, @nestjs/swagger, child_process, fs, os, path",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/personal-library/dto/update-personal-library-asset.dto.ts": {
       "path": "backend/src/personal-library/dto/update-personal-library-asset.dto.ts",
       "sha256": "1cab6674cc8ce75361a3f2d36ffaf91eaa433c5a97d28f3b436646b116644585",
       "feature": "module",
       "description": "Module `update-personal-library-asset.dto` (module). Exports: UpdatePersonalLibraryAssetDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/personal-library/dto/upsert-personal-library-asset.dto.ts": {
       "path": "backend/src/personal-library/dto/upsert-personal-library-asset.dto.ts",
       "sha256": "1ab540c50815299153c063d90542ea26e91c4d14b154beb3ddace072ae265e1d",
       "feature": "module",
       "description": "Module `upsert-personal-library-asset.dto` (module). Exports: UpsertPersonalLibraryAssetDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/personal-library/personal-library.controller.ts": {
       "path": "backend/src/personal-library/personal-library.controller.ts",
       "sha256": "e385c19055d6d1da24bdb35de66becfc6b28532dc0d97b1efcb6baaf3a7a7a8b",
       "feature": "module",
       "description": "Module `personal-library.controller` (module). Exports: PersonalLibraryController. Ext deps: @nestjs/common, @nestjs/swagger Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/personal-library/personal-library.module.ts": {
       "path": "backend/src/personal-library/personal-library.module.ts",
       "sha256": "4a059ec872245322bbf201a6a957a39e727e6f12b6d3c385bf59554f13e74fc6",
       "feature": "module",
       "description": "Module `personal-library.module` (module). Exports: PersonalLibraryModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/personal-library/personal-library.service.ts": {
       "path": "backend/src/personal-library/personal-library.service.ts",
       "sha256": "6918ff5e352bd4e043cb526ffe7b55c29928f8c320725d956e59ebfddd38f49a",
       "feature": "module",
       "description": "Module `personal-library.service` (module). Exports: PersonalLibraryAsset, PersonalLibraryAssetType, PersonalLibraryService. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/prisma/prisma.module.ts": {
       "path": "backend/src/prisma/prisma.module.ts",
       "sha256": "9223a0889abb0669020e94a9b8c1e68274cdc05533c1f79d84fe516450e94ebd",
       "feature": "module",
       "description": "Module `prisma.module` (module). Exports: PrismaModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/prisma/prisma.service.ts": {
       "path": "backend/src/prisma/prisma.service.ts",
       "sha256": "e36a10e57dd866d1528453dffc7ba372291df908d8c376dbb8e888a820d26573",
       "feature": "module",
       "description": "Module `prisma.service` (module). Exports: PrismaService. Ext deps: @nestjs/common, @prisma/client",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/projects/dto/create-project.dto.ts": {
       "path": "backend/src/projects/dto/create-project.dto.ts",
       "sha256": "07a4288abf5d87545aa174c2a144281956e96e713b4a66d1b14f77b377222fd1",
       "feature": "module",
       "description": "Module `create-project.dto` (module). Exports: CreateProjectDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/projects/dto/update-project-content.dto.ts": {
       "path": "backend/src/projects/dto/update-project-content.dto.ts",
       "sha256": "373b596947f9b3a2d08b81d0c231b093f8f1b118009fc9de320cef2a606411fb",
       "feature": "module",
       "description": "Module `update-project-content.dto` (module). Exports: UpdateProjectContentDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/projects/dto/update-project.dto.ts": {
       "path": "backend/src/projects/dto/update-project.dto.ts",
       "sha256": "cf18755edbf938245405f5bc1b57a87a430f1a84bca6c04c2df08b8712e63838",
       "feature": "module",
       "description": "Module `update-project.dto` (module). Exports: UpdateProjectDto. Ext deps: class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/projects/projects.controller.ts": {
       "path": "backend/src/projects/projects.controller.ts",
       "sha256": "f74530dacba41f49748cddda21c3df7122f7480d36123c632980164b8bf40197",
       "feature": "module",
       "description": "Module `projects.controller` (module). Exports: ProjectsController. Ext deps: @nestjs/common, @nestjs/swagger Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/projects/projects.module.ts": {
       "path": "backend/src/projects/projects.module.ts",
       "sha256": "270df40e61d2bd71f20e3da9528ebce71bc3216e68c1af363aacdb8b57638117",
       "feature": "module",
       "description": "Module `projects.module` (module). Exports: ProjectsModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/projects/projects.service.ts": {
       "path": "backend/src/projects/projects.service.ts",
       "sha256": "4a9af56cd967bdf8d870433cfe26ee5bc13a5de2e304d1b4695b420d10d2a870",
       "feature": "module",
       "description": "Module `projects.service` (module). Exports: ProjectsService. Ext deps: @nestjs/common, @prisma/client Tags: auth, canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/templates/templates.controller.ts": {
       "path": "backend/src/templates/templates.controller.ts",
       "sha256": "775bd412ece3440273aa072f87c4742fa841b894d7bf7a5bde405ee57f25235e",
       "feature": "module",
       "description": "Module `templates.controller` (module). Exports: TemplatesController. Ext deps: @nestjs/common, @nestjs/swagger",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/templates/templates.module.ts": {
       "path": "backend/src/templates/templates.module.ts",
       "sha256": "936b3bf38050b7e4b450dda03b7fd86a27cb4f2584864eb3c6ae71bb7aa40114",
       "feature": "module",
       "description": "Module `templates.module` (module). Exports: TemplatesModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/users/dto/create-user.dto.ts": {
       "path": "backend/src/users/dto/create-user.dto.ts",
       "sha256": "f0a6b11c6f28ae5f76f83274835b59141302702d8cd4a78e195509cb7140148d",
       "feature": "module",
       "description": "Module `create-user.dto` (module). Exports: CreateUserDto. Ext deps: @nestjs/swagger, class-validator",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/users/users.controller.ts": {
       "path": "backend/src/users/users.controller.ts",
       "sha256": "52975fdbbd0e24e76f2a44d73187bfe3d28545713a7e81020c6c43d77a7a4398",
       "feature": "module",
       "description": "Module `users.controller` (module). Exports: UsersController. Ext deps: @nestjs/common, @nestjs/swagger Tags: auth, gemini, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/users/users.module.ts": {
       "path": "backend/src/users/users.module.ts",
       "sha256": "433680b270a046d5d7745339665a2228a424863d4fac44aed7996ca1d0192afd",
       "feature": "module",
       "description": "Module `users.module` (module). Exports: UsersModule. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "backend/src/users/users.service.ts": {
       "path": "backend/src/users/users.service.ts",
       "sha256": "e0b1ffea66626d83af0cdefd20f970b6ab06322e144c1ed55d90125aadf757af",
       "feature": "module",
       "description": "Module `users.service` (module). Exports: UpdateGoogleApiKeyDto, UsersService. Ext deps: @nestjs/common",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/eslint.config.js": {
       "path": "frontend/eslint.config.js",
       "sha256": "ae3388404029f8f8f380621aefa82195369820648dbbccd0ebe6dfa6b6f8e006",
       "feature": "module",
       "description": "Module `eslint.config` (module). Exports: default. Ext deps: @eslint/js, eslint, eslint-plugin-react-hooks, eslint-plugin-react-refresh, globals, typescript-eslint",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/postcss.config.js": {
       "path": "frontend/postcss.config.js",
       "sha256": "190c877db466995bf1482f4a16abd06e04a89ede3119341e2a86ff96e1737b27",
       "feature": "module",
       "description": "Module `postcss.config` (module). Exports: default. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/App.tsx": {
       "path": "frontend/src/App.tsx",
       "sha256": "a6b22b05eee147b5742673db06b9e998b504addfb2f55ab654e28b298262a945",
       "feature": "module",
       "description": "Module `App` (module). Exports: default. Ext deps: @/components, @/pages Tags: auth, canvas, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/AccountBadge.tsx": {
       "path": "frontend/src/components/AccountBadge.tsx",
       "sha256": "9fa3457e1e1097daf470975143ea4fa27d9178ec9d76eb28206f241c6ff4f944",
       "feature": "module",
       "description": "Module `AccountBadge` (module). Exports: AccountBadge. Ext deps: @/stores, react-router-dom Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/AppLoader.tsx": {
       "path": "frontend/src/components/AppLoader.tsx",
       "sha256": "1cf59e52a01cc246505d0b21af9802ffd61bae33c589772a955519a1ca61847c",
       "feature": "module",
       "description": "Module `AppLoader` (module). Exports: AppLoader. Ext deps: @/components, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/AppLoadingIndicator.tsx": {
       "path": "frontend/src/components/AppLoadingIndicator.tsx",
       "sha256": "7fc9b619f5e17bd2e47ff1ae11bb42e0497b530d792faa0ce19cbf634bd19644",
       "feature": "module",
       "description": "Module `AppLoadingIndicator` (module). Exports: AppLoadingIndicator. Ext deps: @/components, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/AuthWrapper.tsx": {
       "path": "frontend/src/components/AuthWrapper.tsx",
       "sha256": "4ae8964d5a0765f61f1fa5ef0062debef8b793b2483220d9380391e2318ffbb3",
       "feature": "module",
       "description": "Module `AuthWrapper` (module). Exports: AuthWrapper. Ext deps: @/components, @/services, @/stores, react, react-router-dom Tags: auth, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/GlassButton.tsx": {
       "path": "frontend/src/components/GlassButton.tsx",
       "sha256": "7fa744b9efcc2748dbe04d293fe23cbe005a565aab3d3b97f576345e920e2c9c",
       "feature": "module",
       "description": "Module `GlassButton` (module). Exports: default. Ext deps: react Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/Iridescence.tsx": {
       "path": "frontend/src/components/Iridescence.tsx",
       "sha256": "aebd10cf4d81a3fd73b8d255c44e1659727f7d550b141feb98089f6ea2b59a35",
       "feature": "module",
       "description": "Module `Iridescence` (module). Exports: Iridescence. Ext deps: ogl, react | Local deps: frontend/src/components/Iridescence.css Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/KeyboardShortcuts.tsx": {
       "path": "frontend/src/components/KeyboardShortcuts.tsx",
       "sha256": "050863d0a65ec82ac4a6b68acbb4eeca6e2806926f94604724b1d96b42ffe998",
       "feature": "module",
       "description": "Module `KeyboardShortcuts` (module). Exports: KeyboardShortcuts. Ext deps: @/services, @/stores, @/utils, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/MetallicButton.tsx": {
       "path": "frontend/src/components/MetallicButton.tsx",
       "sha256": "c83d7602350184d3e20a79e281b4a222ee257c13c1369faa8421e7bbecdeeb0b",
       "feature": "module",
       "description": "Module `MetallicButton` (module). Exports: MetallicButton. Ext deps: react | Local deps: frontend/src/components/MetallicButton.css",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/auth/ForgotPasswordModal.tsx": {
       "path": "frontend/src/components/auth/ForgotPasswordModal.tsx",
       "sha256": "52bb82239b18b4c2a6e1459b6eb7a27c082c07a9d3f18697682c6d7b12003df1",
       "feature": "module",
       "description": "Module `ForgotPasswordModal` (module). Exports: ForgotPasswordModal. Ext deps: @/components, @/services, lucide-react, react, react-dom Tags: auth, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/auth/LoginModal.tsx": {
       "path": "frontend/src/components/auth/LoginModal.tsx",
       "sha256": "91e0b8870dae405e9abd193d191afde340765e2d6d7b1f65e042b2aed62303d7",
       "feature": "module",
       "description": "Module `LoginModal` (module). Exports: LoginModal. Ext deps: @/components, @/services, @/stores, lucide-react Tags: auth, flow, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/autosave/AutosaveStatus.tsx": {
       "path": "frontend/src/components/autosave/AutosaveStatus.tsx",
       "sha256": "f700d9fb34a98b86c451b619fb1670abf9ed4041409595d32bc0302a122b1a9b",
       "feature": "module",
       "description": "Module `AutosaveStatus` (module). Exports: AutosaveStatus. Ext deps: @/stores, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/autosave/ManualSaveButton.tsx": {
       "path": "frontend/src/components/autosave/ManualSaveButton.tsx",
       "sha256": "4f38dd51cd6e8d6284aeb671fe9623e77cd5b8dddc075dce4cb7465b544cc018",
       "feature": "module",
       "description": "Module `ManualSaveButton` (module). Exports: ManualSaveButton. Ext deps: @/services, @/stores, @/utils, react Storage: tanva_last_good_snapshot_${currentProjectId}",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/autosave/ProjectAutosaveManager.tsx": {
       "path": "frontend/src/components/autosave/ProjectAutosaveManager.tsx",
       "sha256": "7e4d0a82304d8245eb1c947bc80d1581c289f7ee954d5eb378a41b47b323e81d",
       "feature": "module",
       "description": "Module `ProjectAutosaveManager` (module). Exports: ProjectAutosaveManager. Ext deps: @/hooks, @/services, @/stores Tags: canvas | Storage: current_project_id",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/autosave/SaveDebugPanel.tsx": {
       "path": "frontend/src/components/autosave/SaveDebugPanel.tsx",
       "sha256": "e07c85a8ca42ec07fe24d31cbf697d45e3f3c46e8adb54f0f2d1e70898d6a75b",
       "feature": "module",
       "description": "Module `SaveDebugPanel` (module). Exports: SaveDebugPanel. Ext deps: @/stores, @/utils, react Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/BackgroundRemovalTool.tsx": {
       "path": "frontend/src/components/canvas/BackgroundRemovalTool.tsx",
       "sha256": "ba3bbdb150ccc9ffa772ee72692f28110423600c3acf66a0248ec60c181a8b4d",
       "feature": "module",
       "description": "Module `BackgroundRemovalTool` (module). Exports: default, BackgroundRemovalTool, BackgroundRemovalToolProps. Ext deps: @/components, @/services, @/utils, lucide-react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/BackgroundRemovedImageExport.tsx": {
       "path": "frontend/src/components/canvas/BackgroundRemovedImageExport.tsx",
       "sha256": "6e272b51ceae42b181cf94637ab137cdaa3956dd641bb205c7147efc3d1710f5",
       "feature": "module",
       "description": "Module `BackgroundRemovedImageExport` (module). Exports: default, BackgroundRemovedImageExport, BackgroundRemovedImageExportProps. Ext deps: @/components, @/services, @/utils, lucide-react, paper Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/DrawingController.tsx": {
       "path": "frontend/src/components/canvas/DrawingController.tsx",
@@ -926,48 +812,42 @@
       "sha256": "63133ef388933f606715ea044f77e3b3e7886bd3d34052503fea71a2309c61f3",
       "feature": "module",
       "description": "Module `ExpandImageSelector` (module). Exports: default. Ext deps: lucide-react, paper, react, react-dom | Local deps: frontend/src/components/ui/button.tsx, frontend/src/components/ui/dropdown-menu.tsx Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/FocusModeButton.tsx": {
       "path": "frontend/src/components/canvas/FocusModeButton.tsx",
       "sha256": "574dee414504cfe27c69d80a34c55d10310fe9e957bb14747cc65a26c7fd4ad1",
       "feature": "module",
       "description": "Module `FocusModeButton` (module). Exports: default. Ext deps: @/stores, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/GlobalZoomCapture.tsx": {
       "path": "frontend/src/components/canvas/GlobalZoomCapture.tsx",
       "sha256": "9f0edcfcb0988124bee03ce8a0382c8538d67ced875e56c19ddddc5fa350327d",
       "feature": "module",
       "description": "Module `GlobalZoomCapture` (module). Exports: default. Ext deps: @/lib, @/stores, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/GridRenderer.tsx": {
       "path": "frontend/src/components/canvas/GridRenderer.tsx",
       "sha256": "2a5fd4739ad548465a40583fb7f3d53d12f022e3519e1ca83dfd3d9006b87ff6",
       "feature": "module",
       "description": "Module `GridRenderer` (module). Exports: default. Ext deps: @/stores, @/utils, paper, react Tags: canvas | Env: DEV",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/ImageContainer.tsx": {
       "path": "frontend/src/components/canvas/ImageContainer.tsx",
       "sha256": "0fe647f437b119602d83c26d3ff7b4907604e27d8420600506ebb21425640438",
       "feature": "module",
       "description": "Module `ImageContainer` (module). Exports: default. Ext deps: @/services | Local deps: frontend/src/components/canvas/ExpandImageSelector.tsx, frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/components/ui/button.tsx, frontend/src/components/ui/loading-spinner.tsx Tags: canvas, flow, gemini, http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/ImageSizeIndicator.tsx": {
       "path": "frontend/src/components/canvas/ImageSizeIndicator.tsx",
       "sha256": "29d132aac9c85f7271050632c7c5c00886ff2db50c13b71e86b6d08477045179",
       "feature": "module",
       "description": "Module `ImageSizeIndicator` (module). Exports: default. Ext deps: lucide-react, react Tags: canvas | Storage: tanva-use-original-size",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/ImageUploadComponent.tsx": {
       "path": "frontend/src/components/canvas/ImageUploadComponent.tsx",
@@ -981,1072 +861,938 @@
       "sha256": "4a8c55f47c9d0a8cfe9597dd669b22a873ef083e921ea134e71127443eb8cbaa",
       "feature": "module",
       "description": "Module `InteractionController` (module). Exports: default. Ext deps: @/lib, @/stores, @/utils, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/Model3DContainer.tsx": {
       "path": "frontend/src/components/canvas/Model3DContainer.tsx",
       "sha256": "0a641968adb5b47140aae4a7057d436d2a875e15aa5ef45155922b08ca570714",
       "feature": "module",
       "description": "Module `Model3DContainer` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, lucide-react, paper | Local deps: frontend/src/components/canvas/Model3DViewer.tsx, frontend/src/components/ui/button.tsx, frontend/src/components/ui/loading-spinner.tsx Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/Model3DUploadComponent.tsx": {
       "path": "frontend/src/components/canvas/Model3DUploadComponent.tsx",
       "sha256": "2c81025f6acf0a65830643db0c5c071700231b4a2c83bcd254e8bc64ff891f65",
       "feature": "module",
       "description": "Module `Model3DUploadComponent` (module). Exports: default. Ext deps: @/services, @/utils, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/Model3DViewer.tsx": {
       "path": "frontend/src/components/canvas/Model3DViewer.tsx",
       "sha256": "760b9dfee59ee903406b97f4ced354ff6d9a5645ccf91dad1afc39a8cc7f9f75",
       "feature": "module",
       "description": "Module `Model3DViewer` (module). Exports: default. Ext deps: @/services, @/utils, @react-three/drei, @react-three/fiber, react, three Tags: canvas, flow | Env: DEV",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/PaperCanvasManager.tsx": {
       "path": "frontend/src/components/canvas/PaperCanvasManager.tsx",
       "sha256": "0008f66db3a9de86fb8bae38e5944afc19b3fed5b92b060eda34d093b3bb8f2d",
       "feature": "module",
       "description": "Module `PaperCanvasManager` (module). Exports: default. Ext deps: @/stores, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/ScaleBarRenderer.tsx": {
       "path": "frontend/src/components/canvas/ScaleBarRenderer.tsx",
       "sha256": "669fe3727a86afdf39b4d7d368bcfd06d4acf2c43148c105a6a5331052ff6c5b",
       "feature": "module",
       "description": "Module `ScaleBarRenderer` (module). Exports: default. Ext deps: @/lib, @/stores, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/SelectionBoxOverlay.tsx": {
       "path": "frontend/src/components/canvas/SelectionBoxOverlay.tsx",
       "sha256": "50d990131542649d61421050ede2784301b5721ac3bfb4193c7f4b14748890cb",
       "feature": "module",
       "description": "Module `SelectionBoxOverlay` (module). Exports: default. Ext deps: paper, react Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/SelectionGroupToolbar.tsx": {
       "path": "frontend/src/components/canvas/SelectionGroupToolbar.tsx",
       "sha256": "1d189e4ebd30214c72057900cd829504926260c65f06d2c59c34a49b4adc285a",
       "feature": "module",
       "description": "Module `SelectionGroupToolbar` (module). Exports: default. Ext deps: lucide-react, react | Local deps: frontend/src/components/ui/button.tsx Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/SimpleTextEditor.tsx": {
       "path": "frontend/src/components/canvas/SimpleTextEditor.tsx",
       "sha256": "c1690930d1e9c5e8a875abedb55262926cc74af8b7954807dafa7b9434816399",
       "feature": "module",
       "description": "Module `SimpleTextEditor` (module). Exports: default. Ext deps: @/stores, @/utils, paper, react Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/SnapGuideRenderer.tsx": {
       "path": "frontend/src/components/canvas/SnapGuideRenderer.tsx",
       "sha256": "6cc6e574421a561d77f2baa68c7372caef2906b4f201479282ae1655f63489dd",
       "feature": "module",
       "description": "Module `SnapGuideRenderer` (module). Exports: SnapGuideRenderer. Ext deps: @/utils, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/TextEditor.tsx": {
       "path": "frontend/src/components/canvas/TextEditor.tsx",
       "sha256": "d8332ec6ab22c53137e327d8e64d85cd2bedeec82d02d8c97519bed79b8f61d3",
       "feature": "module",
       "description": "Module `TextEditor` (module). Exports: default. Ext deps: @/components, @/lib, @/stores, @/types Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/TextSelectionOverlay.tsx": {
       "path": "frontend/src/components/canvas/TextSelectionOverlay.tsx",
       "sha256": "7017564511a0165918f5089e136be8fe0374ba5bd730882875699cbf6a7bc77b",
       "feature": "module",
       "description": "Module `TextSelectionOverlay` (module). Exports: default. Ext deps: @/stores, @/utils, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/ZoomIndicator.tsx": {
       "path": "frontend/src/components/canvas/ZoomIndicator.tsx",
       "sha256": "af7eea474fb685b390a5484bc794b50ce8979a7a7f5dd176795e892a4c1bdf5c",
       "feature": "module",
       "description": "Module `ZoomIndicator` (module). Exports: default. Ext deps: @/components, @/stores, @/utils, paper, react Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/drawing/DrawingLayerManager.ts": {
       "path": "frontend/src/components/canvas/drawing/DrawingLayerManager.ts",
       "sha256": "b7b262a15ac8846a4a24648210e34325066bbdab68f05186759fdd2fcae2bf9c",
       "feature": "module",
       "description": "Module `DrawingLayerManager` (module). Exports: DrawingLayerManager. Ext deps: @/stores, paper Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useDrawingTools.ts": {
       "path": "frontend/src/components/canvas/hooks/useDrawingTools.ts",
       "sha256": "d134c36cd696c29c14f7aca2ce3dfc71b9a9f007fddba2295545b1e53265a586",
       "feature": "module",
       "description": "Module `useDrawingTools` (module). Exports: useDrawingTools. Ext deps: @/stores, @/types, @/utils, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useEraserTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useEraserTool.ts",
       "sha256": "208c929841c7d2b35704701d8059212efed62b4c7ff4d88a94086200a1daed34",
       "feature": "module",
       "description": "Module `useEraserTool` (module). Exports: useEraserTool. Ext deps: @/types, @/utils, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useImageTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useImageTool.ts",
       "sha256": "76b6e5d906a97414e6e5eac7b40ab3dcbca855ece9b39a8ba9e2c8bab21e7fd9",
       "feature": "module",
       "description": "Module `useImageTool` (module). Exports: useImageTool. Ext deps: @/services, @/stores, @/types, @/utils Tags: canvas | Storage: tanva-use-original-size",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useInteractionController.ts": {
       "path": "frontend/src/components/canvas/hooks/useInteractionController.ts",
       "sha256": "84e31a84fd20e1c6ddb5471f8e223c0698ded6c92850afb16a5ba4e6ea033625",
       "feature": "module",
       "description": "Module `useInteractionController` (module). Exports: useInteractionController. Ext deps: @/services, @/stores, @/types | Local deps: frontend/src/components/canvas/hooks/useSnapAlignment.ts Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useModel3DTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useModel3DTool.ts",
       "sha256": "4cc05f1d2271cbd5f0aee43b8f31e05b638a7a449572fc785e44e8d17ac9caca",
       "feature": "module",
       "description": "Module `useModel3DTool` (module). Exports: useModel3DTool. Ext deps: @/services, @/stores, @/types Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/usePathEditor.ts": {
       "path": "frontend/src/components/canvas/hooks/usePathEditor.ts",
       "sha256": "b646a28fd96b685bc3d793bd51041dd4c6ba38789059481fa0a22f90d416b8f3",
       "feature": "module",
       "description": "Module `usePathEditor` (module). Exports: usePathEditor. Ext deps: @/utils, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useQuickImageUpload.ts": {
       "path": "frontend/src/components/canvas/hooks/useQuickImageUpload.ts",
       "sha256": "4be311eaaaac9a6e024b687ce96aee479f3e96fa2434314139e6d76bc584d3f8",
       "feature": "module",
       "description": "Module `useQuickImageUpload` (module). Exports: useQuickImageUpload. Ext deps: @/services, @/stores, @/types Tags: canvas, http | API: /api/assets/proxy | Storage: tanva-use-original-size",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useSelectionTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useSelectionTool.ts",
       "sha256": "3f01732ef6e5437cc643ad3a78c5b3cd3dd823c765641e98419bad83e6160db2",
       "feature": "module",
       "description": "Module `useSelectionTool` (module). Exports: useSelectionTool. Ext deps: @/types, @/utils, paper, react Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useSimpleTextTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useSimpleTextTool.ts",
       "sha256": "d2a7b8c3a4208fffa2d340c853837fec88215eec2a94302c9a664b6ddac744ef",
       "feature": "module",
       "description": "Module `useSimpleTextTool` (module). Exports: SimpleTextItem, useSimpleTextTool. Ext deps: @/services, @/stores, @/types, @/utils, paper Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useSnapAlignment.ts": {
       "path": "frontend/src/components/canvas/hooks/useSnapAlignment.ts",
       "sha256": "2ebb44ee4e75b0356e670d3edaa8608b1c0d72839b2a94c028dd00366593a786",
       "feature": "module",
       "description": "Module `useSnapAlignment` (module). Exports: SnapAlignmentAPI, useSnapAlignment. Ext deps: @/stores, @/types, @/utils, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useTextTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useTextTool.ts",
       "sha256": "9585c0488a304369c98a9c9f25580724ff3bb1b781b9b20ce41dc854732cbfd3",
       "feature": "module",
       "description": "Module `useTextTool` (module). Exports: useTextTool. Ext deps: @/stores, @/types, @/utils, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/canvas/hooks/useVideoTool.ts": {
       "path": "frontend/src/components/canvas/hooks/useVideoTool.ts",
       "sha256": "af41d370e2d307a0774da7dcbb9894f8485900a3736f11839053b60a286f637a",
       "feature": "module",
       "description": "Module `useVideoTool` (module). Exports: useVideoTool. Ext deps: @/services, @/stores, @/types, @/utils Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/chat/AIChatDialog.tsx": {
       "path": "frontend/src/components/chat/AIChatDialog.tsx",
       "sha256": "1ab3a539061dd3aa249eb1dda517e436fa78786a1e1b653ef2e3a6423e2a57f7",
       "feature": "module",
       "description": "Module `AIChatDialog` (module). Exports: default. Ext deps: @/components Tags: canvas, flow, gemini, http, settings | API: http://www.w3.org/2000/svg",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/chat/PromptOptimizationPanel.tsx": {
       "path": "frontend/src/components/chat/PromptOptimizationPanel.tsx",
       "sha256": "bd7666118628b71ef997e5f8a43c1ca246c4db2420b73cb8887d220b6a6f210b",
       "feature": "module",
       "description": "Module `PromptOptimizationPanel` (module). Exports: default, PromptOptimizationSettings. Ext deps: @/components, @/hooks, @/services, @/stores Tags: settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/debug/CachedImageDebug.tsx": {
       "path": "frontend/src/components/debug/CachedImageDebug.tsx",
       "sha256": "17c7f935a08b3a40ba9766359c687254491bebb09c5fc6f8e062b2a5b0f6d768",
       "feature": "module",
       "description": "Module `CachedImageDebug` (module). Exports: default. Ext deps: @/services, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/debug/HistoryDebugPanel.tsx": {
       "path": "frontend/src/components/debug/HistoryDebugPanel.tsx",
       "sha256": "4cab8725a3f934e60d59b35dec672794fd6c3cc2d4acbda02771f58e02fcb995",
       "feature": "module",
       "description": "Module `HistoryDebugPanel` (module). Exports: default. Ext deps: @/components, @/services, lucide-react, react Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/debug/MemoryDebugPanel.tsx": {
       "path": "frontend/src/components/debug/MemoryDebugPanel.tsx",
       "sha256": "415f3301cb833eddac0c7cb1e38bfd046cc030bb0ecf1a7612d26c760a64c2a6",
       "feature": "module",
       "description": "Module `MemoryDebugPanel` (module). Exports: default. Ext deps: @/components, @/utils, lucide-react, react Tags: flow | Env: DEV",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/debug/OriginCross.tsx": {
       "path": "frontend/src/components/debug/OriginCross.tsx",
       "sha256": "52c5b7dfd0a14357cc41a4d94d4a9260171840bc5abedfc28be98b8781f2d5f9",
       "feature": "module",
       "description": "Module `OriginCross` (module). Exports: default. Ext deps: @/stores, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/FlowOverlay.tsx": {
       "path": "frontend/src/components/flow/FlowOverlay.tsx",
       "sha256": "96afa912a06c6426fd5154a57d16616791a6201466d493c4d033c25d1d3edcf4",
       "feature": "module",
       "description": "Module `FlowOverlay` (module). Exports: FlowOverlay. Ext deps: @/components, @/lib, @/services | Local deps: frontend/src/components/flow/MiniMapImageOverlay.tsx, frontend/src/components/flow/PersonalLibraryPanel.tsx, frontend/src/components/flow/flow.css, frontend/src/components/flow/nodes/AnalyzeNode.tsx Tags: canvas, flow, gemini, http, kling, reactflow, storyboard | API: /api/assets/proxy, http://localhost | Env: DEV",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/MiniMapImageOverlay.tsx": {
       "path": "frontend/src/components/flow/MiniMapImageOverlay.tsx",
       "sha256": "25aeb6e9c5c3b38410fec55929ccad3b9c4691f4cdf8520d7450baf5739f6983",
       "feature": "module",
       "description": "Module `MiniMapImageOverlay` (module). Exports: default. Ext deps: @/stores, paper, react, react-dom Tags: canvas, flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/NodeGroupWrapper.tsx": {
       "path": "frontend/src/components/flow/NodeGroupWrapper.tsx",
       "sha256": "60c28afc9507bffd2d3772f5898f07ad7059b559f0ec8982a40d4bca0f304b54",
       "feature": "module",
       "description": "Module `NodeGroupWrapper` (module). Exports: NodeGroupWrapper. Ext deps: @/lib, lucide-react, react, reactflow | Local deps: frontend/src/components/flow/types.ts Tags: flow, http, reactflow | API: http://www.w3.org/2000/svg",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/PersonalLibraryPanel.tsx": {
       "path": "frontend/src/components/flow/PersonalLibraryPanel.tsx",
       "sha256": "1a24f8d75fad46be5450075ade543c1f483235db9cb5c3e70dbf82bc0529e4e2",
       "feature": "module",
       "description": "Module `PersonalLibraryPanel` (module). Exports: default. Ext deps: @/services, @/stores, @/types | Local deps: frontend/src/components/flow/PersonalLibraryPanel.css Tags: canvas, flow, http | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/AnalysisOutputNode.tsx": {
       "path": "frontend/src/components/flow/nodes/AnalysisOutputNode.tsx",
       "sha256": "016bf9bd401fa6b567c158bd092549bcfdbebbf73e097804e1afc10a6f4d2a0f",
       "feature": "module",
       "description": "Module `AnalysisOutputNode` (module). Exports: default. Ext deps: react, reactflow Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/AnalyzeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/AnalyzeNode.tsx",
       "sha256": "00df660552576b6d5c6dc1189925f6e4d3869bf9373849d2f421ec23b532feb1",
       "feature": "module",
       "description": "Module `AnalyzeNode` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, react, reactflow | Local deps: frontend/src/components/ui/ImagePreviewModal.tsx Tags: flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/CameraNode.tsx": {
       "path": "frontend/src/components/flow/nodes/CameraNode.tsx",
       "sha256": "4108f6332db1f46a3e820df10062967d401485166c8f9655a5fa74c2cc35280d",
       "feature": "module",
       "description": "Module `CameraNode` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, lucide-react, react | Local deps: frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/stores/imageHistoryStore.ts Tags: canvas, flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/DoubaoVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/DoubaoVideoNode.tsx",
       "sha256": "f7236564ae35c9f45b2e8865d0d28dfbd4fbdbf8d21508257dfdcdffb4c14964",
       "feature": "module",
       "description": "Module `DoubaoVideoNode` (module). Exports: default. Local deps: frontend/src/components/flow/nodes/GenericVideoNode.tsx Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/Generate4Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Generate4Node.tsx",
       "sha256": "861ebf0ac5ea5beccd22825ff6364dace13128be9c784d74f1299b1a06d86e69",
       "feature": "module",
       "description": "Module `Generate4Node` (module). Exports: default. Ext deps: @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/ui/ImagePreviewModal.tsx Tags: flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/GenerateNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateNode.tsx",
       "sha256": "0bda58e64c57a612717a42244b6c90a3e7b00d92c7f576029d19c97cd248f36e",
       "feature": "module",
       "description": "Module `GenerateNode` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx, frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/stores/imageHistoryStore.ts Tags: flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/GeneratePro4Node.tsx": {
       "path": "frontend/src/components/flow/nodes/GeneratePro4Node.tsx",
       "sha256": "7c99e0a7aacc8fff737b845d78c31e2078ddba2f81abc4ee125a7058a73d4103",
       "feature": "module",
       "description": "Module `GeneratePro4Node` (module). Exports: default. Ext deps: @/lib, @/services, @/stores, @/utils, lucide-react | Local deps: frontend/src/components/flow/utils/textSource.ts, frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/components/ui/context-menu.tsx Tags: flow, gemini, http, reactflow | API: /api/assets/proxy, http://www.w3.org/2000/svg",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/GenerateProNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateProNode.tsx",
       "sha256": "21c85ce89498b6babba58f83967a8d91fac7e7cceb1ee2790bf051d77fae7a47",
       "feature": "module",
       "description": "Module `GenerateProNode` (module). Exports: default. Ext deps: @/lib, @/services, @/stores, @/utils, lucide-react | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx, frontend/src/components/flow/utils/textSource.ts, frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/components/ui/context-menu.tsx Tags: flow, gemini, http, reactflow | API: /api/assets/proxy, http://www.w3.org/2000/svg",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerateReferenceNode.tsx",
       "sha256": "09b2b7db593e5baa238ecbb779054991a705fe226c2ec1cda44b5efc05229829",
       "feature": "module",
       "description": "Module `GenerateReferenceNode` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx, frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/stores/imageHistoryStore.ts Tags: flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/GenerationProgressBar.tsx": {
       "path": "frontend/src/components/flow/nodes/GenerationProgressBar.tsx",
       "sha256": "eaa7ac3a20fc34d139b51245f66dfa11e862db87d34ddd151d4f545e01c05c32",
       "feature": "module",
       "description": "Module `GenerationProgressBar` (module). Exports: GenerationProgressBar. Ext deps: react Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/GenericVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/GenericVideoNode.tsx",
       "sha256": "f2dcbda169fa53bc79f9b6c5d66918ddd5c73a7b5db19ee66c85f6bd829f786f",
       "feature": "module",
       "description": "Module `GenericVideoNode` (module). Exports: default, VideoProvider. Ext deps: @/stores, @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx Tags: auth, flow, kling, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/ImageGridNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageGridNode.tsx",
       "sha256": "1dbeafb7e3281f0d60c97bce21cfcbcc970991d3ed29617f677c96a1034f0787",
       "feature": "module",
       "description": "Module `ImageGridNode` (module). Exports: default. Ext deps: @/utils, react, reactflow Tags: canvas, flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/ImageNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageNode.tsx",
       "sha256": "b73e105bda4538fb3285affe3e0157030183a18e798f79296f5f6a9e48118d99",
       "feature": "module",
       "description": "Module `ImageNode` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, @reactflow/node-resizer, react | Local deps: frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/stores/imageHistoryStore.ts Tags: flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/ImageProNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageProNode.tsx",
       "sha256": "e5c5598953b1c1128384c9319f1261d04b9d5cde67293be5fd7785a4dfe2f7ea",
       "feature": "module",
       "description": "Module `ImageProNode` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/components/ui/context-menu.tsx, frontend/src/stores/imageHistoryStore.ts Tags: flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/ImageSplitNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ImageSplitNode.tsx",
       "sha256": "8eefce3492522ba85ea8da01b42fb91fc1a90909c458c4385bfa43eacfec3cd2",
       "feature": "module",
       "description": "Module `ImageSplitNode` (module). Exports: default. Ext deps: @/utils, react, reactflow Tags: canvas, flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/KlingVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/KlingVideoNode.tsx",
       "sha256": "16ee67c7dcd3a20e5ec9e9e18913d7282d4b1dec5d296a3161b1b39433865b20",
       "feature": "module",
       "description": "Module `KlingVideoNode` (module). Exports: default. Local deps: frontend/src/components/flow/nodes/GenericVideoNode.tsx Tags: flow, kling",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/MidjourneyNode.tsx": {
       "path": "frontend/src/components/flow/nodes/MidjourneyNode.tsx",
       "sha256": "91f0de2369381ea94bdd27652f6cd4996f2455a4a8036d3c95be383ee3f34947",
       "feature": "module",
       "description": "Module `MidjourneyNode` (module). Exports: default. Ext deps: @/stores, @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx, frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/stores/imageHistoryStore.ts Tags: flow, http, reactflow | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/PromptOptimizeNode.tsx",
       "sha256": "5587990a7ae85dc63e185a6c0946ff20be112fac497ca5e2aa26364b93fd6676",
       "feature": "module",
       "description": "Module `PromptOptimizeNode` (module). Exports: default. Ext deps: @/components, @/hooks, @/services, @/stores, react, reactflow | Local deps: frontend/src/components/flow/utils/textSource.ts Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/Sora2VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Sora2VideoNode.tsx",
       "sha256": "ec5d301ede809eac7f214c5aa1f067a88387c40e623fd1e965392a6c9d81c527",
       "feature": "module",
       "description": "Module `Sora2VideoNode` (module). Exports: default. Ext deps: @/stores, @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx Tags: auth, flow, http, reactflow | API: https://xxx.webp](https://xxx.webp",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/StoryboardSplitNode.tsx": {
       "path": "frontend/src/components/flow/nodes/StoryboardSplitNode.tsx",
       "sha256": "2614b8504cc4f77d7a1f4b1db8dfceb832eb11701a3702c13dabf5bb3db9dd0c",
       "feature": "module",
       "description": "Module `StoryboardSplitNode` (module). Exports: default. Ext deps: react, reactflow Tags: flow, reactflow, storyboard",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/TextChatNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextChatNode.tsx",
       "sha256": "823f802faab3993435492cb9e71a338fed7df732fa7a5d5ed8fd64fae9472fea",
       "feature": "module",
       "description": "Module `TextChatNode` (module). Exports: default. Ext deps: @/services, @/stores, react, reactflow | Local deps: frontend/src/components/flow/utils/textSource.ts Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/TextNoteNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextNoteNode.tsx",
       "sha256": "758af7e882f3ffb582e6d012010523e3820032b4a5ef3619b7e50d845b580760",
       "feature": "module",
       "description": "Module `TextNoteNode` (module). Exports: default. Ext deps: react, reactflow Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/TextPromptNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextPromptNode.tsx",
       "sha256": "45bf2a4f9fb0082042e71f42d33769a5dda43cb9da1aafa30ccdbb38c38c3b82",
       "feature": "module",
       "description": "Module `TextPromptNode` (module). Exports: default. Ext deps: react, reactflow | Local deps: frontend/src/components/flow/utils/textSource.ts Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/TextPromptProNode.tsx": {
       "path": "frontend/src/components/flow/nodes/TextPromptProNode.tsx",
       "sha256": "3b1994be91d46b91589540d7279b7c8ce586cb5f9eea6ea806c66232fe0dac65",
       "feature": "module",
       "description": "Module `TextPromptProNode` (module). Exports: default. Ext deps: lucide-react, react, reactflow | Local deps: frontend/src/components/flow/utils/textSource.ts Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/ThreeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ThreeNode.tsx",
       "sha256": "bd3b6be32e96fa84957f2ffa85b7b174c47e310403de0b00c7eaef95c4c75030",
       "feature": "module",
       "description": "Module `ThreeNode` (module). Exports: default. Ext deps: @/services, @/stores, @/utils, lucide-react, react, reactflow | Local deps: frontend/src/components/ui/ImagePreviewModal.tsx, frontend/src/stores/imageHistoryStore.ts Tags: canvas, flow, http, reactflow | API: /api/assets/proxy, https://www.gstatic.com/draco/v1/decoders/",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx": {
       "path": "frontend/src/components/flow/nodes/VideoAnalyzeNode.tsx",
       "sha256": "d93a8ead48b97057d96b304293f85f86e39b1412abf8c8efe13a6c9fbd9385ec",
       "feature": "module",
       "description": "Module `VideoAnalyzeNode` (module). Exports: default. Ext deps: react, reactflow Tags: flow, gemini, http, reactflow | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/VideoFrameExtractNode.tsx": {
       "path": "frontend/src/components/flow/nodes/VideoFrameExtractNode.tsx",
       "sha256": "38c33a42f1d5160dfeaa8b8bfa1d7f35ebfccc9f131210c74c417fe11ce38b55",
       "feature": "module",
       "description": "Module `VideoFrameExtractNode` (module). Exports: default. Ext deps: @/utils, react, reactflow Tags: canvas, flow, http, reactflow | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/VideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/VideoNode.tsx",
       "sha256": "ab1703673e5ced3cb8659ed25f4bbaefef7ebc2253ad63074fbd76040b5b82f5",
       "feature": "module",
       "description": "Module `VideoNode` (module). Exports: default. Ext deps: @/services, @/stores, react, reactflow Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/ViduVideoNode.tsx": {
       "path": "frontend/src/components/flow/nodes/ViduVideoNode.tsx",
       "sha256": "6529eba34e5ef737d244befb3545b5b3d65e0d9d2edc04a7beefecd3397cfbd3",
       "feature": "module",
       "description": "Module `ViduVideoNode` (module). Exports: default. Local deps: frontend/src/components/flow/nodes/GenericVideoNode.tsx Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/Wan26Node.tsx": {
       "path": "frontend/src/components/flow/nodes/Wan26Node.tsx",
       "sha256": "ee9dcfbaaf64a4ff959b043845731d7597a87d7074f800721e3c11ebff706577",
       "feature": "module",
       "description": "Module `Wan26Node` (module). Exports: default. Ext deps: @/stores, lucide-react, react, reactflow | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/nodes/Wan2R2VNode.tsx": {
       "path": "frontend/src/components/flow/nodes/Wan2R2VNode.tsx",
       "sha256": "488514dc908f03ccb231dfec7d5ec49090c658750636e7e2bf99f04ddc107ac0",
       "feature": "module",
       "description": "Module `Wan2R2VNode` (module). Exports: default. Ext deps: lucide-react, react, reactflow | Local deps: frontend/src/components/flow/nodes/GenerationProgressBar.tsx Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/types.ts": {
       "path": "frontend/src/components/flow/types.ts",
       "sha256": "cc7ff9d49aa19cfe623a110a588f769e91b28cd2f4a64b55484067bea3954826",
       "feature": "module",
       "description": "Module `types` (module). Exports: AnyEdge, AnyNode, AnyNodeData, Generate4Data, GenerateData, GenerateProData. Ext deps: reactflow Tags: flow, reactflow, storyboard",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/flow/utils/textSource.ts": {
       "path": "frontend/src/components/flow/utils/textSource.ts",
       "sha256": "b2b733174190da3e295fe2a249d4b30b6d2b92f7c02e7604547701e51a0d1634",
       "feature": "module",
       "description": "Module `textSource` (module). Exports: resolveTextFromSourceNode. Ext deps: reactflow Tags: flow, reactflow, storyboard",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/global-history/GlobalImageDetailModal.tsx": {
       "path": "frontend/src/components/global-history/GlobalImageDetailModal.tsx",
       "sha256": "71ff5fab579a2383c7a1627ad8d4a8cfa5f3ce07671743bdfc7236a110c86660",
       "feature": "module",
       "description": "Module `GlobalImageDetailModal` (module). Exports: default. Ext deps: @/services, lucide-react, react | Local deps: frontend/src/components/ui/button.tsx Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/global-history/GlobalImageHistoryPage.tsx": {
       "path": "frontend/src/components/global-history/GlobalImageHistoryPage.tsx",
       "sha256": "dc3924eaae35366fb419c1f8807ba4a596e0d477975262f0c88c09aaa680f66b",
       "feature": "module",
       "description": "Module `GlobalImageHistoryPage` (module). Exports: default, GlobalImageHistoryPage. Ext deps: @/services, @/stores, lucide-react, react, react-dom | Local deps: frontend/src/components/global-history/GlobalImageDetailModal.tsx, frontend/src/components/ui/button.tsx Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/layout/FloatingHeader.tsx": {
       "path": "frontend/src/components/layout/FloatingHeader.tsx",
       "sha256": "9d489210951e3ddff06d4408b231663862ab0ee56cc5596dc4e575639f0d2244",
       "feature": "module",
       "description": "Module `FloatingHeader` (module). Exports: default. Ext deps: @/components Tags: auth, canvas, flow, gemini, http, settings | API: https://gcnyatv1ofs3.feishu.cn/docx/U5Jzd18dLoCtvlxhHdDcoRgVnWd | Env: DEV",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/panels/LayerPanel.tsx": {
       "path": "frontend/src/components/panels/LayerPanel.tsx",
       "sha256": "eeb6286c5776ae640784d21880bae0726ae6d31f1363427328e79d9d8ebc850f",
       "feature": "module",
       "description": "Module `LayerPanel` (module). Exports: default. Ext deps: @/stores, @/utils, lucide-react | Local deps: frontend/src/components/ui/button.tsx, frontend/src/components/ui/context-menu.tsx Tags: canvas, flow, http | API: http://www.w3.org/2000/svg",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/panels/LibraryPanel.tsx": {
       "path": "frontend/src/components/panels/LibraryPanel.tsx",
       "sha256": "f822c4921e6caa0781a8a10e78e65e1e9b40648cbeae54664b5debe2e48607bc",
       "feature": "module",
       "description": "Module `LibraryPanel` (module). Exports: default. Ext deps: @/services, @/stores | Local deps: frontend/src/components/ui/button.tsx Tags: canvas, flow, http | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/projects/ProjectManagerModal.tsx": {
       "path": "frontend/src/components/projects/ProjectManagerModal.tsx",
       "sha256": "33e29d27d15b5c2b2953ae3f302d2ac49229d0fdff2d8f9f057002c950b7a1cb",
       "feature": "module",
       "description": "Module `ProjectManagerModal` (module). Exports: ProjectManagerModal. Ext deps: @/components, @/stores, lucide-react, react, react-dom Tags: flow, http | API: http://www.w3.org/2000/svg",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/sandbox/CodeSandboxPanel.tsx": {
       "path": "frontend/src/components/sandbox/CodeSandboxPanel.tsx",
       "sha256": "022b5cd2e73f9a31e3afb3d9c4949ab53861add875654613f233abc6567560cf",
       "feature": "module",
       "description": "Module `CodeSandboxPanel` (module). Exports: default. Ext deps: @/components, @/lib, @/services, @/stores Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/template/SharedTemplateCard.tsx": {
       "path": "frontend/src/components/template/SharedTemplateCard.tsx",
       "sha256": "1c0872dac8707c178826b618635de1ab2e1754f86dc22f3b57bb554c5356595a",
       "feature": "module",
       "description": "Module `SharedTemplateCard` (module). Exports: SharedTemplateCard. Ext deps: @/types, react | Local deps: frontend/src/components/template/template-card.css",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/template/TemplateLibraryOverlay.tsx": {
       "path": "frontend/src/components/template/TemplateLibraryOverlay.tsx",
       "sha256": "6f629b64eea79549e9d9132f469aff23512391804d51643665fa117d39a285f4",
       "feature": "module",
       "description": "Module `TemplateLibraryOverlay` (module). Exports: default. Ext deps: @/components, @/stores, @/types, react Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/template/TemplateModal.tsx": {
       "path": "frontend/src/components/template/TemplateModal.tsx",
       "sha256": "d1b1021cdb40c1e04315ad0612fbb41556c1c1a4d561a5b26eb1374096ecb76d",
       "feature": "module",
       "description": "Module `TemplateModal` (module). Exports: TemplateModal. Ext deps: @/services, @/types, lucide-react, react, react-dom | Local deps: frontend/src/components/template/SharedTemplateCard.tsx Tags: flow, reactflow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/toolbar/ColorPicker.tsx": {
       "path": "frontend/src/components/toolbar/ColorPicker.tsx",
       "sha256": "e193bc48496ccf9f8eb569aa2b4617558d81eaaac4b8f5ae47538ff7a0f791e4",
       "feature": "module",
       "description": "Module `ColorPicker` (module). Exports: default. Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/toolbar/LayerTool.tsx": {
       "path": "frontend/src/components/toolbar/LayerTool.tsx",
       "sha256": "b945f4f1d00b4d2a604c5e9aa128dfbd218db24867d96980435cc25f2a55d878",
       "feature": "module",
       "description": "Module `LayerTool` (module). Exports: default. Ext deps: @/lib, @/stores, lucide-react, react | Local deps: frontend/src/components/ui/button.tsx",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/toolbar/TextStylePanel.tsx": {
       "path": "frontend/src/components/toolbar/TextStylePanel.tsx",
       "sha256": "b4406e7aecfedeb45f105ecf69c10f0f927fe6999dd556a8db1d57b2e7ebf0ee",
       "feature": "module",
       "description": "Module `TextStylePanel` (module). Exports: default. Ext deps: @/components, @/lib, lucide-react, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/toolbar/ToolBar.tsx": {
       "path": "frontend/src/components/toolbar/ToolBar.tsx",
       "sha256": "f80495c232e4e3b4c92eca0ba54447e461c68424e61b5b612ee1c3ad9f373266",
       "feature": "module",
       "description": "Module `ToolBar` (module). Exports: default. Ext deps: @/lib, @/stores, @/utils, lucide-react | Local deps: frontend/src/components/toolbar/ColorPicker.tsx, frontend/src/components/toolbar/TextStylePanel.tsx, frontend/src/components/ui/button.tsx, frontend/src/components/ui/separator.tsx Tags: canvas, flow | Storage: tanva-use-original-size",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/ImagePreviewModal.tsx": {
       "path": "frontend/src/components/ui/ImagePreviewModal.tsx",
       "sha256": "0aff84ab7a2eeec5a6e8b0fff23f0f11b82b822eff0865bf529b99009e09d6f7",
       "feature": "module",
       "description": "Module `ImagePreviewModal` (module). Exports: default, ImageItem. Ext deps: lucide-react, react, react-dom | Local deps: frontend/src/components/ui/ImagePreviewModal.css, frontend/src/components/ui/button.tsx Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/LoadingSpinner.tsx": {
       "path": "frontend/src/components/ui/LoadingSpinner.tsx",
       "sha256": "909635d07f9c9d2b85b968361f092a132f51f82c983f2efa5fc65483df0a9d99",
       "feature": "module",
       "description": "Module `LoadingSpinner` (module). Exports: LoadingSpinner. Ext deps: lucide-react, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/alert.tsx": {
       "path": "frontend/src/components/ui/alert.tsx",
       "sha256": "ed78a053a9db783f48d5dfab7398b630f87c17ed2e237b6f30a3eb153675960c",
       "feature": "module",
       "description": "Module `alert` (module). Exports: (none detected). Ext deps: @/lib, class-variance-authority, react Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/badge.tsx": {
       "path": "frontend/src/components/ui/badge.tsx",
       "sha256": "7a256dc25568e1ea3b82439749a2f204a93e5f6b0d7faa6eb3bf1f6d009e8d51",
       "feature": "module",
       "description": "Module `badge` (module). Exports: BadgeProps. Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/button.tsx": {
       "path": "frontend/src/components/ui/button.tsx",
       "sha256": "dd506a484cb745d20d607819c806510c2894c8d009b3a51b5359181c6148150c",
       "feature": "module",
       "description": "Module `button` (module). Exports: ButtonProps. Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/card.tsx": {
       "path": "frontend/src/components/ui/card.tsx",
       "sha256": "57b7c873d1b71cc5cbf2eadab710b10babfa1eb05810a05b0c99ed8705acffde",
       "feature": "module",
       "description": "Module `card` (module). Exports: (none detected). Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/context-menu.tsx": {
       "path": "frontend/src/components/ui/context-menu.tsx",
       "sha256": "ad1ecd88e28c7bead2d2ec97d828b358f4eea457ea18b7d8a7ffcd6b24517da6",
       "feature": "module",
       "description": "Module `context-menu` (module). Exports: default. Ext deps: react, react-dom",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/dropdown-menu.tsx": {
       "path": "frontend/src/components/ui/dropdown-menu.tsx",
       "sha256": "b203b63949e148ee25913c1555b5a03face9f420cabd1fdd488be36af730818f",
       "feature": "module",
       "description": "Module `dropdown-menu` (module). Exports: DropdownMenu, DropdownMenuContent, DropdownMenuContentProps, DropdownMenuItem, DropdownMenuItemProps, DropdownMenuLabel. Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/input.tsx": {
       "path": "frontend/src/components/ui/input.tsx",
       "sha256": "5f572a66b617598f8a81a789b31dbf91374279c773b5c31ef14ab953dc52d4c9",
       "feature": "module",
       "description": "Module `input` (module). Exports: InputProps. Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/label.tsx": {
       "path": "frontend/src/components/ui/label.tsx",
       "sha256": "292b45ff630de012921e116cbdc4d201202ecf23358315f1d458962774778859",
       "feature": "module",
       "description": "Module `label` (module). Exports: (none detected). Ext deps: @/lib, @radix-ui/react-label, class-variance-authority, react Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/loading-spinner.tsx": {
       "path": "frontend/src/components/ui/loading-spinner.tsx",
       "sha256": "bb6bd11ba6aa407c2893b5fce0719afda50249d70848ae5d298ac40de0d9a87a",
       "feature": "module",
       "description": "Module `loading-spinner` (module). Exports: LoadingSpinner. Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/separator.tsx": {
       "path": "frontend/src/components/ui/separator.tsx",
       "sha256": "429bc8837d97c0453cf5b40e452fa1a35b3192d8a6e78f93b1fb99866d0556ec",
       "feature": "module",
       "description": "Module `separator` (module). Exports: (none detected). Ext deps: @/lib, @radix-ui/react-separator, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/switch.tsx": {
       "path": "frontend/src/components/ui/switch.tsx",
       "sha256": "6d7e11e8c4e79077172e1e62dce1727d93db0888a02b805242fca506d384724b",
       "feature": "module",
       "description": "Module `switch` (module). Exports: (none detected). Ext deps: @/lib, @radix-ui/react-switch, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/tabs.tsx": {
       "path": "frontend/src/components/ui/tabs.tsx",
       "sha256": "7d0e839ad658301a40e01533e9b07c892b2220cd9eaf27c7c1fac95c44e5a519",
       "feature": "module",
       "description": "Module `tabs` (module). Exports: (none detected). Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/textarea.tsx": {
       "path": "frontend/src/components/ui/textarea.tsx",
       "sha256": "b8c27e2f6fa08a81a441e5167b7fe34bb1190cda645a347015337f71c5ab1844",
       "feature": "module",
       "description": "Module `textarea` (module). Exports: TextareaProps. Ext deps: @/lib, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/components/ui/tooltip.tsx": {
       "path": "frontend/src/components/ui/tooltip.tsx",
       "sha256": "758fd4f6f22c79ce2d12995c074f156c0a462ba6c9e6cc8df5023b6bdd128f84",
       "feature": "module",
       "description": "Module `tooltip` (module). Exports: (none detected). Ext deps: @/lib, @radix-ui/react-tooltip, react Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/hooks/useAIImageDisplay.ts": {
       "path": "frontend/src/hooks/useAIImageDisplay.ts",
       "sha256": "8dac904c7af57fb06ba30bb4017665b97ca61ec32e86ca2ad88b7d6decc2ee53",
       "feature": "module",
       "description": "Module `useAIImageDisplay` (module). Exports: useAIImageDisplay. Ext deps: @/types, @/utils, paper, react Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/hooks/useProjectAutosave.ts": {
       "path": "frontend/src/hooks/useProjectAutosave.ts",
       "sha256": "bb4b7a674164fc9fe380d221a7bb0d5d08e006e26cc50934e2ed6eac533baa53",
       "feature": "module",
       "description": "Module `useProjectAutosave` (module). Exports: useProjectAutosave. Ext deps: @/services, @/stores, @/utils, react Storage: tanva_last_good_snapshot_${currentProjectId}",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/hooks/usePromptOptimization.ts": {
       "path": "frontend/src/hooks/usePromptOptimization.ts",
       "sha256": "3ea8f5f2b92dd427f912b1e88b6ceeec51e8d244bb56bdc338a25724d9d18657",
       "feature": "module",
       "description": "Module `usePromptOptimization` (module). Exports: default, usePromptOptimization. Ext deps: @/services, @/types, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/lib/unitUtils.ts": {
       "path": "frontend/src/lib/unitUtils.ts",
       "sha256": "55eb47f428b0bce77c7465dbb1e325274098e612259040b577baeda53129c0dd",
       "feature": "module",
       "description": "Module `unitUtils` (module). Exports: Unit, calculateEffectiveScale, calculateScaleBarLength, formatDisplayUnit, formatSmartDisplayUnit, getAllUnits. Deps: (none detected). Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/lib/utils.ts": {
       "path": "frontend/src/lib/utils.ts",
       "sha256": "72ff1aaf166acc4846a5fc09eae1ab05a3f85febe981546c5af919db2acc23da",
       "feature": "module",
       "description": "Module `utils` (module). Exports: cn. Ext deps: clsx, tailwind-merge",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/lib/zoomUtils.ts": {
       "path": "frontend/src/lib/zoomUtils.ts",
       "sha256": "9e5472023f4dc631c6971fc796f673016dc52c2d6573b8cfc88f744ee050afc7",
       "feature": "module",
       "description": "Module `zoomUtils` (module). Exports: computeSmoothZoom, normalizeWheelDelta. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/main.tsx": {
       "path": "frontend/src/main.tsx",
       "sha256": "f0f450c494520608ebf16632178010c5f283a0fc7059e74ee3c84ec9c97880df",
       "feature": "module",
       "description": "Module `main` (module). Exports: (none detected). Ext deps: @/pages | Local deps: frontend/src/App.tsx, frontend/src/index.css Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/Admin.tsx": {
       "path": "frontend/src/pages/Admin.tsx",
       "sha256": "d6fc5b5fa34b5faf5e82a3947c531d357429e4c76bd87b3e6442cb5fc0ac0fc4",
       "feature": "module",
       "description": "Module `Admin` (module). Exports: Admin. Ext deps: @/components, @/services, @/stores, react Tags: auth, flow, gemini, http, settings, token | API: /api/admin/templates/categories, http://localhost:4000 | Storage: authToken | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/Canvas.tsx": {
       "path": "frontend/src/pages/Canvas.tsx",
       "sha256": "0d933c6d11a204cb1ceb44ff74786ea4082279653f59c73b454d1237bfa306af",
       "feature": "module",
       "description": "Module `Canvas` (module). Exports: default. Ext deps: @/components Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/Home.tsx": {
       "path": "frontend/src/pages/Home.tsx",
       "sha256": "d22c201cfd85c62cf5fe2c270d04c1474d4bb6847d3f1a911ac714924e8f8fbc",
       "feature": "module",
       "description": "Module `Home` (module). Exports: Home. Ext deps: @/components, @/stores, react, react-router-dom Tags: auth, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/MyCredits.tsx": {
       "path": "frontend/src/pages/MyCredits.tsx",
       "sha256": "2af844ee2dd22d4b1433bf236c3131512d2c6d903e8c1e993f8f31890069fbaf",
       "feature": "module",
       "description": "Module `MyCredits` (module). Exports: default. Ext deps: @/components, @/lib, @/services, lucide-react, react, react-router-dom Tags: flow, gemini",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/OSSDemo.tsx": {
       "path": "frontend/src/pages/OSSDemo.tsx",
       "sha256": "03560eba60e3c044d7d43e783272bbce105b7a6f762f28091aa6106319208ed4",
       "feature": "module",
       "description": "Module `OSSDemo` (module). Exports: OSSDemo. Ext deps: @/components, react Tags: http | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/PromptOptimizerDemo.tsx": {
       "path": "frontend/src/pages/PromptOptimizerDemo.tsx",
       "sha256": "b82e3562aa3fedde9e343e5b1a6d02ce40a31db74874db01a919e9f4edf46628",
       "feature": "module",
       "description": "Module `PromptOptimizerDemo` (module). Exports: default. Ext deps: @/hooks, @/stores, react Tags: token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/RunningHubTest.tsx": {
       "path": "frontend/src/pages/RunningHubTest.tsx",
       "sha256": "b1ba74a6ad117f2b9e0a673d90cc12ca3a03f89b33416c5f84876b5d0d5181da",
       "feature": "module",
       "description": "Module `RunningHubTest` (module). Exports: default. Ext deps: @/services, @/types, react Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/Sora2Test.tsx": {
       "path": "frontend/src/pages/Sora2Test.tsx",
       "sha256": "c866655424322638cee96d9439a7e96c98b6b215ee7c32133d24fcec73008476",
       "feature": "module",
       "description": "Module `Sora2Test` (module). Exports: default. Ext deps: @/components, @/services, @/stores, react Tags: auth, flow, http, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/Workspace.tsx": {
       "path": "frontend/src/pages/Workspace.tsx",
       "sha256": "abad9e312a76ab1e6f16079ccd9f3e86279275da61554eea360b98e265b3a88c",
       "feature": "module",
       "description": "Module `Workspace` (module). Exports: Workspace. Ext deps: @/components, @/services, react, react-router-dom",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/auth/Login.tsx": {
       "path": "frontend/src/pages/auth/Login.tsx",
       "sha256": "7f9ae25d3555dc9e463f7c357de48b195d438741a5a1b52ded73d0d64b0f932b",
       "feature": "module",
       "description": "Module `Login` (module). Exports: LoginPage. Ext deps: @/components, @/services, @/stores Tags: auth, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/pages/auth/Register.tsx": {
       "path": "frontend/src/pages/auth/Register.tsx",
       "sha256": "9dd9072339f48386b94ad837a922c50103a3c095d579a0d8019996b578c14f5d",
       "feature": "module",
       "description": "Module `Register` (module). Exports: RegisterPage. Ext deps: @/components, @/stores, react, react-router-dom Tags: auth, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/routes/ProtectedRoute.tsx": {
       "path": "frontend/src/routes/ProtectedRoute.tsx",
       "sha256": "7425544796e9bca179e0e0db34932cbc0c1b09e9c4b492f87aabd8324d7f10f0",
       "feature": "module",
       "description": "Module `ProtectedRoute` (module). Exports: ProtectedRoute. Ext deps: @/components, @/stores, react, react-router-dom Tags: auth",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/AutoScreenshotService.ts": {
       "path": "frontend/src/services/AutoScreenshotService.ts",
       "sha256": "3c35ddb59af3cfeec076eaca5f2560e818eda75b1dd70f2c97a771e52c983a3b",
       "feature": "module",
       "description": "Module `AutoScreenshotService` (module). Exports: AutoScreenshotService, DrawableElement, ScreenshotOptions, ScreenshotResult. Ext deps: @/types, @/utils, paper Tags: artboard, canvas, flow, reactflow, settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/adminApi.ts": {
       "path": "frontend/src/services/adminApi.ts",
       "sha256": "5d62d03704a2224eaa7e95f67cfc3f139659c36cf1f8625a3f9c3cfe660b97fd",
       "feature": "module",
       "description": "Module `adminApi` (module). Exports: ApiUsageRecord, ApiUsageStats, ClaimDailyRewardResult, DailyRewardStatus, DashboardStats, InvitationCode. Deps: (none detected). Tags: http, settings, token | API: /api/admin/dashboard, /api/admin/pricing | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/aiBackendAPI.ts": {
       "path": "frontend/src/services/aiBackendAPI.ts",
       "sha256": "536e99d8135ec3d5be4f99c5b46e3411cbebb24ad6daa7ddf7b04278b19ba174",
       "feature": "module",
       "description": "Module `aiBackendAPI` (module). Exports: VideoGenerationRequest, VideoGenerationResult, analyzeImageViaAPI, blendImagesViaAPI, editImageViaAPI, generateImageViaAPI. Ext deps: @/types, @/utils, uuid | Local deps: frontend/src/services/authFetch.ts Tags: auth, flow, gemini, http | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/aiImageService.ts": {
       "path": "frontend/src/services/aiImageService.ts",
       "sha256": "eab7c58e83815feeb945c42c7fdc7ad59966d5fc22e1c9d2a00691d546a894f1",
       "feature": "module",
       "description": "Module `aiImageService` (module). Exports: default, aiImageService. Ext deps: @/types, uuid | Local deps: frontend/src/services/tokenRefreshManager.ts Tags: auth, http, token | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/authApi.ts": {
       "path": "frontend/src/services/authApi.ts",
       "sha256": "f91f28c26809a755e891e2520f09796ad232951abb2853975795c3af679684f0",
       "feature": "module",
       "description": "Module `authApi` (module). Exports: GoogleApiKeyInfo, UserInfo, authApi, clearStoredLastAuthAt, getStoredLastAuthAt, getStoredTokenExpiry. Deps: (none detected). Tags: auth, http, token | API: http://localhost:4000, https://your-backend-domain.com | Env: VITE_API_BASE_URL, VITE_AUTH_MODE",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/authFetch.ts": {
       "path": "frontend/src/services/authFetch.ts",
       "sha256": "58768e17fb16e838800254a44d0360e27b81b708c0f2169da41c667d426ac1b6",
       "feature": "module",
       "description": "Module `authFetch` (module). Exports: fetchWithAuth. Ext deps: @/stores | Local deps: frontend/src/services/tokenRefreshManager.ts Tags: auth, token | API: /api/auth/refresh",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/backgroundRemovalService.ts": {
       "path": "frontend/src/services/backgroundRemovalService.ts",
       "sha256": "42f817bc90414934aef0ee092be3846f941d99aebffa78e4dab0677ccf425265",
       "feature": "module",
       "description": "Module `backgroundRemovalService` (module). Exports: default, BackgroundRemovalResult, backgroundRemovalService. Ext deps: @/utils Tags: http | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/base64CacheService.ts": {
       "path": "frontend/src/services/base64CacheService.ts",
       "sha256": "10c610b9e8706d76680010c84959960207482170c96cdcc2bb4ecdaf0585adc5",
       "feature": "module",
       "description": "Module `base64CacheService` (module). Exports: base64CacheService. Deps: (none detected). Tags: http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/clipboardService.ts": {
       "path": "frontend/src/services/clipboardService.ts",
       "sha256": "90a1eb5755ed17f3e8a08cd55f3d696eecb1a818a1e2e814a25370c9ec5460f3",
       "feature": "module",
       "description": "Module `clipboardService` (module). Exports: CanvasClipboardData, ClipboardFlowNode, ClipboardZone, FlowClipboardData, PathClipboardSnapshot, clipboardService. Ext deps: @/types Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/contextManager.ts": {
       "path": "frontend/src/services/contextManager.ts",
       "sha256": "bb9197ad9cb16dbbec10b0baf8d3d73dcebde738f0aff29c65c8487ee350e60c",
       "feature": "module",
       "description": "Module `contextManager` (module). Exports: contextManager. Ext deps: @/stores, @/types Tags: http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/convert2Dto3DService.ts": {
       "path": "frontend/src/services/convert2Dto3DService.ts",
       "sha256": "3697630efa6d503feb1fae76efeeef753907c8cef1f6f7a630d0187c784bcee4",
       "feature": "module",
       "description": "Module `convert2Dto3DService` (module). Exports: Convert2Dto3DRequest, Convert2Dto3DResponse, convert2Dto3D. Ext deps: @/utils Tags: http | API: /api/ai/convert-2d-to-3d, http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/expandImageService.ts": {
       "path": "frontend/src/services/expandImageService.ts",
       "sha256": "63ad24a8c2364e7562ab99911a7252957e12c19a822d9eca860f097fc5b71f4f",
       "feature": "module",
       "description": "Module `expandImageService` (module). Exports: ExpandImageRequest, ExpandImageResponse, expandImage. Ext deps: @/utils Tags: http | API: /api/ai/expand-image, http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/globalImageHistoryApi.ts": {
       "path": "frontend/src/services/globalImageHistoryApi.ts",
       "sha256": "73660eb7036fb12e73a24cd3dbd96884710df25a909fce9737c87fec240bfda3",
       "feature": "module",
       "description": "Module `globalImageHistoryApi` (module). Exports: CreateGlobalImageHistoryDto, GlobalImageHistoryItem, globalImageHistoryApi. Local deps: frontend/src/services/authFetch.ts Tags: auth, http | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/hdUpscaleService.ts": {
       "path": "frontend/src/services/hdUpscaleService.ts",
       "sha256": "5b085490f910f643c55eea58a500c153dcdfb813c2b3c354b3d304b3da1e1cdc",
       "feature": "module",
       "description": "Module `hdUpscaleService` (module). Exports: OptimizeHdImageParams, OptimizeHdImageResult, optimizeHdImage. Ext deps: @/utils Tags: flow, http | API: http://100.65.126.121:7865/api/comfy/run, https://output.tgtai.com/view/ | Env: VITE_COMFYUI_API_URL, VITE_COMFYUI_OUTPUT_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/historyService.ts": {
       "path": "frontend/src/services/historyService.ts",
       "sha256": "f6b20754ada310aff3a590ff66ffea695656d1266341ecb875739522290b316f",
       "feature": "module",
       "description": "Module `historyService` (module). Exports: HistoryDebugInfo, historyService. Ext deps: @/services, @/stores, @/types Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/imageHistoryService.ts": {
       "path": "frontend/src/services/imageHistoryService.ts",
       "sha256": "e960fe704b494ccfdf2878da647a44d40090cab2b5c678ff3a7a686429d02c1f",
       "feature": "module",
       "description": "Module `imageHistoryService` (module). Exports: migrateImageHistoryToRemote, recordImageHistoryEntry. Ext deps: @/services, @/stores Tags: http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/imageUploadService.ts": {
       "path": "frontend/src/services/imageUploadService.ts",
@@ -2055,573 +1801,516 @@
       "description": "Module `imageUploadService` (module). Exports: ImageUploadOptions, ImageUploadResult, imageUploadService. Ext deps: @/utils | Local deps: frontend/src/services/imageUploadWorkerClient.ts, frontend/src/services/ossUploadService.ts Tags: canvas, worker",
       "needsReview": true
     },
+    "frontend/src/services/imageUploadWorkerClient.ts": {
+      "path": "frontend/src/services/imageUploadWorkerClient.ts",
+      "sha256": "08f5f922d79e626843770e5edc51e510e42c60d9be58c1c897a61347b57c5d47",
+      "feature": "module",
+      "description": "Module `imageUploadWorkerClient` (module). Exports: WorkerImageUploadOptions, WorkerImageUploadResult, imageUploadWorkerClient. Local deps: frontend/src/services/ossUploadService.ts Tags: worker",
+      "needsReview": true
+    },
     "frontend/src/services/imageUrlCache.ts": {
       "path": "frontend/src/services/imageUrlCache.ts",
       "sha256": "224a893849ddec59877a1c78793a79c4d955e514b2f0476776218cefb95aff53",
       "feature": "module",
       "description": "Module `imageUrlCache` (module). Exports: default, imageUrlCache. Local deps: frontend/src/services/base64CacheService.ts",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/improvedSaveService.ts": {
       "path": "frontend/src/services/improvedSaveService.ts",
       "sha256": "fd00311dfe220261f5f6095c438ff583679ff3ce8f3e750acd4c218541a82158",
       "feature": "module",
       "description": "Module `improvedSaveService` (module). Exports: ImprovedSaveService, SaveConfig, SaveStats, improvedSaveService. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/indexedDBService.ts": {
       "path": "frontend/src/services/indexedDBService.ts",
       "sha256": "fa28820e2620fb6bf4ff93adb212dfb32689e6ce8cbedd37d1182cbd8c2a8ab4",
       "feature": "module",
       "description": "Module `indexedDBService` (module). Exports: STORE_NAMES, StoreName, closeDB, idbClear, idbCount, idbDelete. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/model3DPreviewService.ts": {
       "path": "frontend/src/services/model3DPreviewService.ts",
       "sha256": "cf6f6ce6e951f5418ee8badffe6b277b782801b4ede721f8108c2f3f857edf83",
       "feature": "module",
       "description": "Module `model3DPreviewService` (module). Exports: Model3DPreviewOptions, model3DPreviewService. Ext deps: @/utils, three | Local deps: frontend/src/services/ossUploadService.ts Tags: http | API: https://www.gstatic.com/draco/v1/decoders/",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/model3DUploadService.ts": {
       "path": "frontend/src/services/model3DUploadService.ts",
       "sha256": "50815dcb8c03522519bfb47534c877be3a74c1b2216c4ccc04f04e8cd7bb9611",
       "feature": "module",
       "description": "Module `model3DUploadService` (module). Exports: Model3DAsset, Model3DCameraState, Model3DData, Model3DFormat, Model3DUploadOptions, Model3DUploadResult. Ext deps: @/utils | Local deps: frontend/src/services/ossUploadService.ts",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/ossUploadService.ts": {
       "path": "frontend/src/services/ossUploadService.ts",
       "sha256": "fe3c2c771460fd77082a5b6fddcc1c7e48f941660b4ef4ed6c59a8c936c1ca2f",
       "feature": "module",
       "description": "Module `ossUploadService` (module). Exports: OssUploadOptions, OssUploadResult, dataURLToBlob, fileToDataURL, getImageDimensions, ossUploadService. Ext deps: @/utils Tags: http | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/paperBackgroundRemovalService.ts": {
       "path": "frontend/src/services/paperBackgroundRemovalService.ts",
       "sha256": "63ae0a31f9e7d9e23d1fe3605c9458f42dc4924c6a38d8c056a1848dc05ad24b",
       "feature": "module",
       "description": "Module `paperBackgroundRemovalService` (module). Exports: default, PaperBackgroundRemovalOptions. Ext deps: @/utils, paper Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/paperSandboxService.ts": {
       "path": "frontend/src/services/paperSandboxService.ts",
       "sha256": "1815855904a0b0f296824fb8dc82284c120780508974b44950b7e345d4cd66fa",
       "feature": "module",
       "description": "Module `paperSandboxService` (module). Exports: SandboxApplyResult, SandboxExecutionResult, paperSandboxService. Ext deps: @/stores, paper Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/paperSaveService.ts": {
       "path": "frontend/src/services/paperSaveService.ts",
       "sha256": "454733bbb7f0c12ad79e3f60c12f3f7a2c2627af86e181aa26247a3623315fc7",
       "feature": "module",
       "description": "Module `paperSaveService` (module). Exports: paperSaveService. Ext deps: @/services, @/stores, @/types, @/utils Tags: canvas, http | API: /api/assets/proxy",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/personalLibraryApi.ts": {
       "path": "frontend/src/services/personalLibraryApi.ts",
       "sha256": "ec3e8ab63dd8062948176b66229094e30882b8d93394f73a1018185b02509be8",
       "feature": "module",
       "description": "Module `personalLibraryApi` (module). Exports: personalLibraryApi. Ext deps: @/stores | Local deps: frontend/src/services/authFetch.ts Tags: auth, http | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/projectApi.ts": {
       "path": "frontend/src/services/projectApi.ts",
       "sha256": "cf430473975f03befa0828821f3456a4cedd0ac7124e9f768dc9ab11324f0680",
       "feature": "module",
       "description": "Module `projectApi` (module). Exports: Project, projectApi. Ext deps: @/types | Local deps: frontend/src/services/authFetch.ts Tags: auth, http | API: http://localhost:4000, https://your-backend-domain.com | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/projectCacheStore.ts": {
       "path": "frontend/src/services/projectCacheStore.ts",
       "sha256": "6a09da22166f0c9d23f74b4ceceb239df774fdbddc9a4a425117550d19be8f3e",
       "feature": "module",
       "description": "Module `projectCacheStore` (module). Exports: ProjectCacheEntry, ProjectMeta, deleteProjectCache, getProjectCache, isCacheValid, setProjectCache. Ext deps: @/types",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/projectThumbnailService.ts": {
       "path": "frontend/src/services/projectThumbnailService.ts",
       "sha256": "5f2f09cfbcf03de35827916109e9e6d9115a68df78ca2491ad16204340a073cf",
       "feature": "module",
       "description": "Module `projectThumbnailService` (module). Exports: refreshProjectThumbnail. Ext deps: @/services, @/stores, @/utils Tags: artboard, canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/promptOptimizationService.ts": {
       "path": "frontend/src/services/promptOptimizationService.ts",
       "sha256": "dce315c214b2860af66ccdc8180394176784f8a641035d5604cfa1bd8a919b50",
       "feature": "module",
       "description": "Module `promptOptimizationService` (module). Exports: default, PromptOptimizationRequest, PromptOptimizationResult, promptOptimizationService. Ext deps: @/services, @/types Tags: gemini, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/promptTidyService.ts": {
       "path": "frontend/src/services/promptTidyService.ts",
       "sha256": "638e93bcb48e3038303e6a37c6bdadae8eca01c1edb8b953569e93b0da09bd5f",
       "feature": "module",
       "description": "Module `promptTidyService` (module). Exports: PromptTidyRequest, PromptTidyResult, tidyPrompt. Ext deps: @/services, @/types Tags: gemini, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/publicTemplateService.ts": {
       "path": "frontend/src/services/publicTemplateService.ts",
       "sha256": "091e3a265a486b35a35ce2f8948ba61634f5db42d63f69ddae2dece1fd71dbc2",
       "feature": "module",
       "description": "Module `publicTemplateService` (module). Exports: CreateTemplateRequest, PublicTemplate, TemplateListResponse, TemplateQueryParams, UpdateTemplateRequest, buildAuthHeaders. Ext deps: @/types Tags: auth, flow, http, token | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/sora2Service.ts": {
       "path": "frontend/src/services/sora2Service.ts",
       "sha256": "e5b9ea92a14acb7abf4c3d1c062104b2d6d635934106d4e72b3b32a65e6e36a4",
       "feature": "module",
       "description": "Module `sora2Service` (module). Exports: default, Sora2CompletionResponse, Sora2Content, Sora2ImageContent, Sora2Message, Sora2Request, Sora2StreamResponse. Ext deps: @/types Tags: auth, http, token | API: https://api1.147ai.com | Env: VITE_SORA2_API_ENDPOINT, VITE_SORA2_MODEL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/templateStore.ts": {
       "path": "frontend/src/services/templateStore.ts",
       "sha256": "40833fadf698f8d98c9cf3b5bd8c08da41031fca1e7a93df2ffc941287808fde",
       "feature": "module",
       "description": "Module `templateStore` (module). Exports: deleteUserTemplate, generateId, getUserTemplate, listUserTemplates, loadBuiltInTemplateById, loadBuiltInTemplateIndex. Ext deps: @/types | Local deps: frontend/src/services/publicTemplateService.ts Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/tokenRefreshManager.ts": {
       "path": "frontend/src/services/tokenRefreshManager.ts",
       "sha256": "636dfe3cc243ad7b8c87ac31d610871d9dfbb10ae76348f902275cd6b8f0115e",
       "feature": "module",
       "description": "Module `tokenRefreshManager` (module). Exports: TokenEvent, tokenRefreshManager. Deps: (none detected). Tags: auth, http, token | API: http://localhost:4000 | Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/services/videoProviderAPI.ts": {
       "path": "frontend/src/services/videoProviderAPI.ts",
       "sha256": "a29062e9d91f8ec80e3ecbae0e14748fe29e7932fe6eb0a5c0c1c9aeb29fff5d",
       "feature": "module",
       "description": "Module `videoProviderAPI` (module). Exports: VideoGenerationRequest, VideoGenerationResult, VideoProvider, generateVideoByProvider, queryVideoTask. Local deps: frontend/src/services/authFetch.ts, frontend/src/utils/assetProxy.ts Tags: auth, http, kling",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/aiChatStore.ts": {
       "path": "frontend/src/stores/aiChatStore.ts",
       "sha256": "68c22e06184334174a05d796e1673d65105580bd87ef8203298e7a5f939a3d10",
       "feature": "module",
       "description": "Module `aiChatStore` (module). Exports: ChatMessage, ChatSessionSummary, DEFAULT_SORA2_VIDEO_QUALITY, GenerationStatus, ManualAIMode, SORA2_VIDEO_MODELS. Ext deps: @/services Tags: canvas, flow, gemini, http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/appStore.ts": {
       "path": "frontend/src/stores/appStore.ts",
       "sha256": "489f809296fbaed43cab37b4147542c7026eb7ca232a872895289ad0f1a53afd",
       "feature": "module",
       "description": "Module `appStore` (module). Exports: useCanvasActions, useGridState, useScaleBarState, useStateDebug, useUIState, useViewportState. Ext deps: react | Local deps: frontend/src/stores/canvasStore.ts, frontend/src/stores/uiStore.ts Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/authStore.ts": {
       "path": "frontend/src/stores/authStore.ts",
       "sha256": "bfbf5bbff23aff0b14faaa8a787066cd703b696ae19c1499a72673cf9c463074",
       "feature": "module",
       "description": "Module `authStore` (module). Exports: useAuthStore. Ext deps: @/services, zustand Tags: auth | Storage: mock_user",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/canvasStore.ts": {
       "path": "frontend/src/stores/canvasStore.ts",
       "sha256": "ca2e552d362b42bf6e1621df9c7db46fc54d0f563d1152fa6ff7ff60b108e108",
       "feature": "module",
       "description": "Module `canvasStore` (module). Exports: GridStyle, useCanvasGrid, useCanvasScale, useCanvasStore, useCanvasUnits, useCanvasZoom. Ext deps: @/lib, zustand | Local deps: frontend/src/stores/projectStore.ts, frontend/src/stores/storageUtils.ts Tags: canvas, settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/flowStore.ts": {
       "path": "frontend/src/stores/flowStore.ts",
       "sha256": "dcc2e41c27b8bb282d24edd971d6fa56f09e1197976dc33de270d66aaeb9afdd",
       "feature": "module",
       "description": "Module `flowStore` (module). Exports: FlowBackgroundVariant, useFlowBackground, useFlowInteraction, useFlowStore, useFlowViewport. Ext deps: zustand | Local deps: frontend/src/stores/storageUtils.ts Tags: canvas, flow, reactflow, settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/globalImageHistoryStore.ts": {
       "path": "frontend/src/stores/globalImageHistoryStore.ts",
       "sha256": "33a81044796f7fb9fbfd3e504767f5a17c5178eb2860e4e9cbc0db961357ac72",
       "feature": "module",
       "description": "Module `globalImageHistoryStore` (module). Exports: useGlobalImageHistoryStore. Ext deps: @/services, zustand",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/imageHistoryStore.ts": {
       "path": "frontend/src/stores/imageHistoryStore.ts",
       "sha256": "7d7a92eab73bca749aed897ed4eed169a48c610a62ca0c2265cfbbbd5df1263a",
       "feature": "module",
       "description": "Module `imageHistoryStore` (module). Exports: ImageHistoryItem, useImageHistoryStore. Ext deps: @/services, zustand Tags: canvas, http | Storage: image-history",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/index.ts": {
       "path": "frontend/src/stores/index.ts",
       "sha256": "95b9e7828b2fb06168e89ddbaa55137478beb6cb2b3414609591b0877eded314",
       "feature": "module",
       "description": "Module `index` (module). Exports: (none detected). Local deps: frontend/src/stores/aiChatStore.ts, frontend/src/stores/appStore.ts, frontend/src/stores/canvasStore.ts, frontend/src/stores/flowStore.ts Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/layerStore.ts": {
       "path": "frontend/src/stores/layerStore.ts",
       "sha256": "a5d46f8ad2ec8749cf1177def659c5587476446e2905a656ce818e3e792f5ca9",
       "feature": "module",
       "description": "Module `layerStore` (module). Exports: LayerMeta, useLayerStore. Ext deps: paper, zustand",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/nodeGroupStore.ts": {
       "path": "frontend/src/stores/nodeGroupStore.ts",
       "sha256": "bbd1451f1a43ba9d846bdee2aac67784011ed912de376395c35cd34e3f23a9b2",
       "feature": "module",
       "description": "Module `nodeGroupStore` (module). Exports: useAllGroups, useGroup, useNodeGroupId, useNodeGroupStore. Ext deps: zustand | Local deps: frontend/src/components/flow/types.ts Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/persistStorage.ts": {
       "path": "frontend/src/stores/persistStorage.ts",
       "sha256": "abeeae63625dfdb623569261c565342fc45e166dbd1b82c9c3d3162ef5a501c7",
       "feature": "module",
       "description": "Module `persistStorage` (module). Exports: createSafeStorage. Ext deps: zustand",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/personalLibraryStore.ts": {
       "path": "frontend/src/stores/personalLibraryStore.ts",
       "sha256": "95d50263abcbeede6f66973c43236947f40b693b100bd804db2e03cdd2609617",
       "feature": "module",
       "description": "Module `personalLibraryStore` (module). Exports: PersonalAssetType, PersonalImageAsset, PersonalLibraryAsset, PersonalLibraryBase, PersonalLibraryStore, PersonalModelAsset. Ext deps: @/services, zustand Tags: http | Storage: personal-library",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/projectContentStore.ts": {
       "path": "frontend/src/stores/projectContentStore.ts",
       "sha256": "c407ac09de87dbb7a348605d89dc033ac95282422029d322d4873bcb08a01cff",
       "feature": "module",
       "description": "Module `projectContentStore` (module). Exports: useProjectContentStore. Ext deps: @/types, zustand Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/projectStore.ts": {
       "path": "frontend/src/stores/projectStore.ts",
       "sha256": "351dbc9c400d62e756f7d5f71967d6df4949d9415e89f0fabe6dfb4d793cf79b",
       "feature": "module",
       "description": "Module `projectStore` (module). Exports: useProjectStore. Ext deps: @/services, zustand",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/sandboxStore.ts": {
       "path": "frontend/src/stores/sandboxStore.ts",
       "sha256": "da7cd36a18a8c89f74d563d71cd27341e5720b87862c3b169b6671b9e683992a",
       "feature": "module",
       "description": "Module `sandboxStore` (module). Exports: SandboxLogEntry, SandboxLogType, useSandboxStore. Ext deps: zustand | Local deps: frontend/src/stores/storageUtils.ts",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/storageUtils.ts": {
       "path": "frontend/src/stores/storageUtils.ts",
       "sha256": "c5fc9ddca32fa25643c731346c280decf8d9404a73a82775ef14f63e23e35e86",
       "feature": "module",
       "description": "Module `storageUtils` (module). Exports: createSafeStorage. Ext deps: zustand",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/textStore.ts": {
       "path": "frontend/src/stores/textStore.ts",
       "sha256": "cb3b81ad1dbbd7ac8fd08bf255950aac4cdc6f55f4ccecb356cf5105c2629b43",
       "feature": "module",
       "description": "Module `textStore` (module). Exports: useCurrentTextStyle, useSelectedTexts, useTextActions, useTextEditorConfig, useTextInstances, useTextStore. Ext deps: @/types, @/utils, paper, uuid, zustand",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/toolStore.ts": {
       "path": "frontend/src/stores/toolStore.ts",
       "sha256": "6f8f06c47fa2758d153363ffab7006e3e589180d8d850da3fca0fce504e4e537",
       "feature": "module",
       "description": "Module `toolStore` (module). Exports: DrawMode, useCurrentTool, useDrawingProps, useToolActions, useToolStore. Ext deps: @/utils, zustand | Local deps: frontend/src/stores/storageUtils.ts Tags: settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/stores/uiStore.ts": {
       "path": "frontend/src/stores/uiStore.ts",
       "sha256": "5d08c042ffcc9d944d526583972191cb19cd345d8557e535eb0d3a9685420666",
       "feature": "module",
       "description": "Module `uiStore` (module). Exports: useUIStore. Ext deps: zustand | Local deps: frontend/src/stores/storageUtils.ts Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/types/ai.ts": {
       "path": "frontend/src/types/ai.ts",
       "sha256": "6f357419a80d507797e78cfcc965555fac5735c3c38513047011b464034788f7",
       "feature": "module",
       "description": "Module `ai` (module). Exports: AIError, AIGenerationStatus, AIImageAnalysisResult, AIImageAnalyzeRequest, AIImageBlendRequest, AIImageEditRequest. Deps: (none detected). Tags: canvas, gemini, token",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/types/canvas.ts": {
       "path": "frontend/src/types/canvas.ts",
       "sha256": "b768df7b4229f34cdeb4e57266738c97af250ee27862e4948106f98e0fd951e1",
       "feature": "module",
       "description": "Module `canvas` (module). Exports: DrawingContext, DrawingToolEventHandlers, DrawingToolState, ImageDragState, ImageInstance, ImageResizeState. Ext deps: @/services, paper | Local deps: frontend/src/types/paper.ts Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/types/context.ts": {
       "path": "frontend/src/types/context.ts",
       "sha256": "9b39bbe56d623efd14b71b7a1f37a2e3629a6add00f9e047c95f9363b68f639a",
       "feature": "module",
       "description": "Module `context` (module). Exports: ContextConfig, ConversationContext, DEFAULT_CONTEXT_CONFIG, IContextManager, ImageHistory, OperationHistory. Ext deps: @/stores",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/types/paper.ts": {
       "path": "frontend/src/types/paper.ts",
       "sha256": "2b0719a61600869089d8811b0c4762b25903233e298fef7397c725a9309f4830",
       "feature": "module",
       "description": "Module `paper` (module). Exports: ExtendedGroup, ExtendedPaperItem, ExtendedPath, ExtendedPointText, ExtendedRaster, PaperItemData. Ext deps: paper",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/types/project.ts": {
       "path": "frontend/src/types/project.ts",
       "sha256": "59a740c17436447b776b175fb78a68d46bc7bb8e3cd7000e95aaf017e38ef5ad",
       "feature": "module",
       "description": "Module `project` (module). Exports: CanvasViewStateSnapshot, FlowGraphSnapshot, ImageAssetSnapshot, ModelAssetSnapshot, ProjectAssetsSnapshot, ProjectContentSnapshot. Ext deps: @/services, @/stores, @/types Tags: canvas, flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/types/template.ts": {
       "path": "frontend/src/types/template.ts",
       "sha256": "f03abbfad4912e69b4522efe19552a4b2f6b044ebc6cf17391ce0b608b138a1c",
       "feature": "module",
       "description": "Module `template` (module). Exports: FlowTemplate, FlowTemplateV1, TemplateEdge, TemplateIndexEntry, TemplateNode. Deps: (none detected). Tags: flow",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/types/text.ts": {
       "path": "frontend/src/types/text.ts",
       "sha256": "552228bbe792cedad6302c6c7497c4299aa996072fc60b59bc450f94de846e23",
       "feature": "module",
       "description": "Module `text` (module). Exports: COMMON_FONTS, CreateTextParams, DEFAULT_TEXT_EDITOR_CONFIG, DEFAULT_TEXT_STYLE, TextBackground, TextDragState. Ext deps: paper",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/BoundsCalculator.ts": {
       "path": "frontend/src/utils/BoundsCalculator.ts",
       "sha256": "6c936cd63e0f0cacfc8a005dadf55b3a0cdd83e54781a9e4b0d1998afc55aee5",
       "feature": "module",
       "description": "Module `BoundsCalculator` (module). Exports: Bounds, BoundsCalculator, ContentBounds. Ext deps: @/types, @/utils, paper Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/assetProxy.ts": {
       "path": "frontend/src/utils/assetProxy.ts",
       "sha256": "cff1872cfd651828388eecb4d779c563523d93f2ce8e729f3ca202bfd7d252dd",
       "feature": "module",
       "description": "Module `assetProxy` (module). Exports: getApiBaseUrl, isAssetProxyEnabled, proxifyRemoteAssetUrl. Deps: (none detected). Tags: http | API: /api/assets/proxy, http://localhost:4000 | Env: DEV, VITE_API_BASE_URL, VITE_PROXY_ASSETS",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/asyncLimit.ts": {
       "path": "frontend/src/utils/asyncLimit.ts",
       "sha256": "e65112513ced39826063e8f103e7bb50c61fc3c48f0a64ae3a20c3b4917d3bb1",
       "feature": "module",
       "description": "Module `asyncLimit` (module). Exports: AsyncTask, createAsyncLimiter, mapWithLimit. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/cursorStyles.ts": {
       "path": "frontend/src/utils/cursorStyles.ts",
       "sha256": "836af40b032c328eb4d2f4c9db63862b79e7f95d9ab5cc6032697fa842c69349",
       "feature": "module",
       "description": "Module `cursorStyles` (module). Exports: applyCursorForDrawMode, getCursorForDrawMode. Ext deps: @/stores Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/downloadHelper.ts": {
       "path": "frontend/src/utils/downloadHelper.ts",
       "sha256": "4119b7c75448b0ad0513678868144800a76fde090c08431aa3c6796b5887d940",
       "feature": "module",
       "description": "Module `downloadHelper` (module). Exports: downloadCanvasAsImage, downloadFile, downloadImage, getSuggestedFileName. Deps: (none detected). Tags: canvas, http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/gridRenderOptimizer.ts": {
       "path": "frontend/src/utils/gridRenderOptimizer.ts",
       "sha256": "0bc691bc08b7352b8bfdbea68a907c73174deb4fcc478c87e0e018879c4ee352",
       "feature": "module",
       "description": "Module `gridRenderOptimizer` (module). Exports: GridRenderBounds, GridRenderConfig, assessPerformanceLevel, calculateGridRenderBounds, calculateRenderMultiplier, formatGridRenderBounds. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/imageHelper.ts": {
       "path": "frontend/src/utils/imageHelper.ts",
       "sha256": "7e09af11a3f82f3ec116b166b0dc0bd1daa641f8a1af8a07915eef2962afe8ab",
       "feature": "module",
       "description": "Module `imageHelper` (module). Exports: TrimTransparentResult, generateThumbnail, loadImageElement, trimTransparentPng. Ext deps: @/utils Tags: canvas, http",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/imagePreview.ts": {
       "path": "frontend/src/utils/imagePreview.ts",
       "sha256": "a53a10bf9a674f3f75970b5d5e89a241df827b1e2424f212d5789c5eac447faf",
       "feature": "module",
       "description": "Module `imagePreview` (module). Exports: ImagePreviewOptions, createImagePreviewDataUrl. Deps: (none detected). Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/imageSource.ts": {
       "path": "frontend/src/utils/imageSource.ts",
       "sha256": "723b4773ad590e67b8387104ad0d275e0da3d393f7f4bd257ee040c429bb6e5f",
       "feature": "module",
       "description": "Module `imageSource` (module). Exports: BlobUrl, DataImageUrl, DataUrl, RemoteUrl, isBlobUrl, isDataImageUrl. Ext deps: @/utils Tags: http | API: http://${string}, https://${string}",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/improvedMemoryMonitor.ts": {
       "path": "frontend/src/utils/improvedMemoryMonitor.ts",
       "sha256": "a2f59b20d1b2fdc28a1481e6f783ba43986751f1862e62ebdbda928472de4479",
       "feature": "module",
       "description": "Module `improvedMemoryMonitor` (module). Exports: CleanupAction, ImprovedMemoryMonitor, MemoryStats, improvedMemoryMonitor. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/logger.ts": {
       "path": "frontend/src/utils/logger.ts",
       "sha256": "cfe1ef611be86b3b735505b90ebcc5564ed2c8414d432a4aca798c0269915b21",
       "feature": "module",
       "description": "Module `logger` (module). Exports: logger. Deps: (none detected). Env: DEV",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/memoryMonitor.ts": {
       "path": "frontend/src/utils/memoryMonitor.ts",
       "sha256": "59f2eac03aa5625a8124232db7a9041b5616600c831a875bde999d41a461d71a",
       "feature": "module",
       "description": "Module `memoryMonitor` (module). Exports: MemoryMonitor, MemoryStats, memoryMonitor. Ext deps: paper",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/paperCoords.ts": {
       "path": "frontend/src/utils/paperCoords.ts",
       "sha256": "4dab1b59e7b49df5c60ffefbc794b7b5dbc27168cee48d14b3c45a7ffe7b9584",
       "feature": "module",
       "description": "Module `paperCoords` (module). Exports: clientToProject, getDpr, isGroup, isPath, isPointText, isRaster. Ext deps: paper Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/paperImageGroup.ts": {
       "path": "frontend/src/utils/paperImageGroup.ts",
       "sha256": "1dcdb6ffa8b283bec69e00a304040c69c917e275634affd90790b7984fde3742",
       "feature": "module",
       "description": "Module `paperImageGroup` (module). Exports: EnsureImageGroupStructureOptions, EnsureImageGroupStructureResult, ImageGroupMetadata, ensureImageGroupStructure. Ext deps: paper",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/paperImageGroupBlock.ts": {
       "path": "frontend/src/utils/paperImageGroupBlock.ts",
       "sha256": "deacee0258e8a9fa2d4d8704f5c5848b81d20cfbbb83aac3b1c7e4832e624808",
       "feature": "module",
       "description": "Module `paperImageGroupBlock` (module). Exports: CreateImageGroupBlockOptions, IMAGE_GROUP_BLOCK_TYPE, createImageGroupBlock, createOrUpdateGroupBlockTitle, deleteImageGroupBlock, deleteImageGroupBlockByGroupId. Ext deps: @/utils, paper",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/pathObjectPool.ts": {
       "path": "frontend/src/utils/pathObjectPool.ts",
       "sha256": "1dd3669ba45cfb562a70497c9d0c58328366337ab6fc8fc8149994397b37c39d",
       "feature": "module",
       "description": "Module `pathObjectPool` (module). Exports: PathObjectPool, pathObjectPool. Ext deps: paper",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/saveMonitor.ts": {
       "path": "frontend/src/utils/saveMonitor.ts",
       "sha256": "efbbf99faa44157d3402860cdaa36e765cbf13ea13184a235c633429ffaf3a68",
       "feature": "module",
       "description": "Module `saveMonitor` (module). Exports: attachGlobalDump, saveMonitor. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/utils/snapAlignment.ts": {
       "path": "frontend/src/utils/snapAlignment.ts",
       "sha256": "f9399e609c2fcb5194cefba941db533c3e18229645fc825eabd0d52997d45bfd",
       "feature": "module",
       "description": "Module `snapAlignment` (module). Exports: AlignmentEdge, AlignmentLine, ObjectBounds, SnapResult, deduplicateAlignments, detectAlignments. Ext deps: @/types Tags: canvas",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/src/vite-env.d.ts": {
       "path": "frontend/src/vite-env.d.ts",
       "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5",
       "feature": "module",
       "description": "Module `vite-env.d` (module). Exports: (none detected). Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
+    },
+    "frontend/src/workers/imageUploadWorker.ts": {
+      "path": "frontend/src/workers/imageUploadWorker.ts",
+      "sha256": "9e8e1e324bd645ee33fc78b391252d40a9a0a94701aa0bb78514a6c69fed33f3",
+      "feature": "module",
+      "description": "Module `imageUploadWorker` (module). Exports: (none detected). Ext deps: @/services Tags: canvas, worker",
+      "needsReview": true
     },
     "frontend/tailwind.config.js": {
       "path": "frontend/tailwind.config.js",
       "sha256": "2e0d69bc68389bc6c455a4982951214f872561c877f3796241257cfac14de1c4",
       "feature": "module",
       "description": "Module `tailwind.config` (module). Exports: default. Deps: (none detected).",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/test/test-gemini-image.js": {
       "path": "frontend/test/test-gemini-image.js",
       "sha256": "3db5ffad3599a7aa290c73a15eee917bbe9184e0030a80f07d24e167c2cd7c89",
       "feature": "module",
       "description": "Module `test-gemini-image` (module). Exports: (none detected). Ext deps: @google/genai, node:fs Tags: gemini, settings",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "frontend/vite.config.ts": {
       "path": "frontend/vite.config.ts",
       "sha256": "66b289a1ddfae8f18de4395576be106b54da8f684565951e13ffee10a7b4edff",
       "feature": "module",
       "description": "Module `vite.config` (module). Exports: default. Ext deps: @vitejs/plugin-react, node:url, vite Tags: http | API: http://localhost:4000",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "src/components/layout/AppLoadingOverlay.tsx": {
       "path": "src/components/layout/AppLoadingOverlay.tsx",
       "sha256": "017d9ce1f298c3fb81bf4fc0f2de919c10c98e6da3163d3a744d12fbc7981e24",
       "feature": "module",
       "description": "Module `AppLoadingOverlay` (module). Exports: default. Ext deps: @/components, @/lib, lucide-react, react",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "test-env.js": {
       "path": "test-env.js",
       "sha256": "3d190c0747857c8019bf007ca57640f92d07a3e9b8cae7ee6ae0cee45786a8ee",
       "feature": "module",
       "description": "Module `test-env` (module). Exports: (none detected). Deps: (none detected). Env: VITE_API_BASE_URL",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     },
     "test_kling_small_image.js": {
       "path": "test_kling_small_image.js",
       "sha256": "a3f5ce1a6521917761f2080d79acde194fa649cc23f912ca549654521b2a927b",
       "feature": "module",
       "description": "Module `test_kling_small_image` (module). Exports: (none detected). Ext deps: fs Tags: auth, http, kling",
-      "needsReview": true,
-      "carriedFrom": "2026-01-14T07:52:49.805Z"
+      "needsReview": true
     }
   }
 }

@@ -1,9 +1,9 @@
 # AI File Descriptions
 
-- Generated: 2026-01-14T08:24:01.148Z
-- Files: 328
-- Updated (new/changed): 3
-- Carried (unchanged): 325
+- Generated: 2026-01-14T08:54:04.875Z
+- Files: 330
+- Updated (new/changed): 330
+- Carried (unchanged): 0
 
 | file | feature | needsReview | description |
 |---|---:|---:|---|
@@ -264,6 +264,7 @@
 | `frontend/src/services/historyService.ts` | `module` | ✅ | Module `historyService` (module). Exports: HistoryDebugInfo, historyService. Ext deps: @/services, @/stores, @/types Tags: canvas, flow |
 | `frontend/src/services/imageHistoryService.ts` | `module` | ✅ | Module `imageHistoryService` (module). Exports: migrateImageHistoryToRemote, recordImageHistoryEntry. Ext deps: @/services, @/stores Tags: http |
 | `frontend/src/services/imageUploadService.ts` | `module` | ✅ | Module `imageUploadService` (module). Exports: ImageUploadOptions, ImageUploadResult, imageUploadService. Ext deps: @/utils | Local deps: frontend/src/services/imageUploadWorkerClient.ts, frontend/src/services/ossUploadService.ts Tags: canvas, worker |
+| `frontend/src/services/imageUploadWorkerClient.ts` | `module` | ✅ | Module `imageUploadWorkerClient` (module). Exports: WorkerImageUploadOptions, WorkerImageUploadResult, imageUploadWorkerClient. Local deps: frontend/src/services/ossUploadService.ts Tags: worker |
 | `frontend/src/services/imageUrlCache.ts` | `module` | ✅ | Module `imageUrlCache` (module). Exports: default, imageUrlCache. Local deps: frontend/src/services/base64CacheService.ts |
 | `frontend/src/services/improvedSaveService.ts` | `module` | ✅ | Module `improvedSaveService` (module). Exports: ImprovedSaveService, SaveConfig, SaveStats, improvedSaveService. Deps: (none detected). |
 | `frontend/src/services/indexedDBService.ts` | `module` | ✅ | Module `indexedDBService` (module). Exports: STORE_NAMES, StoreName, closeDB, idbClear, idbCount, idbDelete. Deps: (none detected). |
@@ -329,6 +330,7 @@
 | `frontend/src/utils/saveMonitor.ts` | `module` | ✅ | Module `saveMonitor` (module). Exports: attachGlobalDump, saveMonitor. Deps: (none detected). |
 | `frontend/src/utils/snapAlignment.ts` | `module` | ✅ | Module `snapAlignment` (module). Exports: AlignmentEdge, AlignmentLine, ObjectBounds, SnapResult, deduplicateAlignments, detectAlignments. Ext deps: @/types Tags: canvas |
 | `frontend/src/vite-env.d.ts` | `module` | ✅ | Module `vite-env.d` (module). Exports: (none detected). Deps: (none detected). |
+| `frontend/src/workers/imageUploadWorker.ts` | `module` | ✅ | Module `imageUploadWorker` (module). Exports: (none detected). Ext deps: @/services Tags: canvas, worker |
 | `frontend/tailwind.config.js` | `module` | ✅ | Module `tailwind.config` (module). Exports: default. Deps: (none detected). |
 | `frontend/test/test-gemini-image.js` | `module` | ✅ | Module `test-gemini-image` (module). Exports: (none detected). Ext deps: @google/genai, node:fs Tags: gemini, settings |
 | `frontend/vite.config.ts` | `module` | ✅ | Module `vite.config` (module). Exports: default. Ext deps: @vitejs/plugin-react, node:url, vite Tags: http | API: http://localhost:4000 |
