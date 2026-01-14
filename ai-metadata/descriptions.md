@@ -1,9 +1,9 @@
 # AI File Descriptions
 
-- Generated: 2026-01-14T07:52:49.805Z
+- Generated: 2026-01-14T08:24:01.148Z
 - Files: 328
-- Updated (new/changed): 328
-- Carried (unchanged): 0
+- Updated (new/changed): 3
+- Carried (unchanged): 325
 
 | file | feature | needsReview | description |
 |---|---:|---:|---|
@@ -263,7 +263,7 @@
 | `frontend/src/services/hdUpscaleService.ts` | `module` | ✅ | Module `hdUpscaleService` (module). Exports: OptimizeHdImageParams, OptimizeHdImageResult, optimizeHdImage. Ext deps: @/utils Tags: flow, http | API: http://100.65.126.121:7865/api/comfy/run, https://output.tgtai.com/view/ | Env: VITE_COMFYUI_API_URL, VITE_COMFYUI_OUTPUT_BASE_URL |
 | `frontend/src/services/historyService.ts` | `module` | ✅ | Module `historyService` (module). Exports: HistoryDebugInfo, historyService. Ext deps: @/services, @/stores, @/types Tags: canvas, flow |
 | `frontend/src/services/imageHistoryService.ts` | `module` | ✅ | Module `imageHistoryService` (module). Exports: migrateImageHistoryToRemote, recordImageHistoryEntry. Ext deps: @/services, @/stores Tags: http |
-| `frontend/src/services/imageUploadService.ts` | `module` | ✅ | Module `imageUploadService` (module). Exports: ImageUploadOptions, ImageUploadResult, imageUploadService. Ext deps: @/utils | Local deps: frontend/src/services/ossUploadService.ts |
+| `frontend/src/services/imageUploadService.ts` | `module` | ✅ | Module `imageUploadService` (module). Exports: ImageUploadOptions, ImageUploadResult, imageUploadService. Ext deps: @/utils | Local deps: frontend/src/services/imageUploadWorkerClient.ts, frontend/src/services/ossUploadService.ts Tags: canvas, worker |
 | `frontend/src/services/imageUrlCache.ts` | `module` | ✅ | Module `imageUrlCache` (module). Exports: default, imageUrlCache. Local deps: frontend/src/services/base64CacheService.ts |
 | `frontend/src/services/improvedSaveService.ts` | `module` | ✅ | Module `improvedSaveService` (module). Exports: ImprovedSaveService, SaveConfig, SaveStats, improvedSaveService. Deps: (none detected). |
 | `frontend/src/services/indexedDBService.ts` | `module` | ✅ | Module `indexedDBService` (module). Exports: STORE_NAMES, StoreName, closeDB, idbClear, idbCount, idbDelete. Deps: (none detected). |

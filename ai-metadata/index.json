@@ -1,14 +1,14 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-01-14T07:52:49.761Z",
+  "generatedAt": "2026-01-14T08:24:01.124Z",
   "project": {
     "root": ".",
-    "name": "Tanva",
+    "name": "1aac-base64-wokers-ca",
     "language": "typescript",
     "aliasPaths": []
   },
   "counts": {
-    "trackedFiles": 507,
+    "trackedFiles": 512,
     "sourceFiles": 328
   },
   "files": {
@@ -3457,8 +3457,8 @@
     "frontend/src/components/canvas/DrawingController.tsx": {
       "path": "frontend/src/components/canvas/DrawingController.tsx",
       "kind": "tsx",
-      "bytes": 187111,
-      "sha256": "a3a0d79268e10a6446ff2e3017f03ad33009f4acae5f7b818966960c3e66af23",
+      "bytes": 188995,
+      "sha256": "d2968247b803d8c6061d4a278de46672b9af0fa91107cbe0f79c7047a9d2b437",
       "importSpecifiers": [
         "./ImageContainer",
         "./ImageUploadComponent",
@@ -3719,11 +3719,10 @@
     "frontend/src/components/canvas/ImageUploadComponent.tsx": {
       "path": "frontend/src/components/canvas/ImageUploadComponent.tsx",
       "kind": "tsx",
-      "bytes": 3817,
-      "sha256": "1354676b68498ef4d42d0940c28f6cdf6d39d3ef5c4b3f4c244f9c98e6aeb6b5",
+      "bytes": 3461,
+      "sha256": "7774d7bb51586d3431ef49b761860667428e990e37cbabbe939caa8454e3edfe",
       "importSpecifiers": [
         "@/services/imageUploadService",
-        "@/services/ossUploadService",
         "@/types/canvas",
         "@/utils/logger",
         "react"
@@ -8022,9 +8021,10 @@
     "frontend/src/services/imageUploadService.ts": {
       "path": "frontend/src/services/imageUploadService.ts",
       "kind": "ts",
-      "bytes": 4869,
-      "sha256": "6fcbf36f9d5a0ca2ba88bed622ca626594d9b07a45af7d69bfd09bcf6aac4c9f",
+      "bytes": 6436,
+      "sha256": "a7d755ff9e79d726fa014717bcbbad5a0a030f6ea933eda4dbf3d3a1f3954aeb",
       "importSpecifiers": [
+        "./imageUploadWorkerClient",
         "./ossUploadService",
         "@/utils/asyncLimit",
         "@/utils/imageSource",
@@ -8042,7 +8042,10 @@
       "semantic": {
         "feature": "module",
         "routes": [],
-        "tags": [],
+        "tags": [
+          "canvas",
+          "worker"
+        ],
         "apiEndpoints": [],
         "storageKeys": [],
         "envVars": []
@@ -11623,7 +11626,6 @@
         "localUnresolved": [],
         "external": [
           "@/services",
-          "@/services",
           "@/types",
           "@/utils",
           "react"
@@ -13208,6 +13210,7 @@
       },
       "frontend/src/services/imageUploadService.ts": {
         "local": [
+          "frontend/src/services/imageUploadWorkerClient.ts",
           "frontend/src/services/ossUploadService.ts"
         ],
         "localUnresolved": [],
@@ -14378,6 +14381,9 @@
       ],
       "frontend/src/index.css": [
         "frontend/src/main.tsx"
+      ],
+      "frontend/src/services/imageUploadWorkerClient.ts": [
+        "frontend/src/services/imageUploadService.ts"
       ]
     }
   }

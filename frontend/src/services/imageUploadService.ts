@@ -2,6 +2,7 @@ import { logger } from '@/utils/logger';
 import { dataURLToBlob, getImageDimensions, uploadToOSS, type OssUploadOptions } from './ossUploadService';
 import { createAsyncLimiter } from '@/utils/asyncLimit';
 import { isRemoteUrl, resolveImageToBlob } from '@/utils/imageSource';
+import { imageUploadWorkerClient } from './imageUploadWorkerClient';
 
 export interface ImageUploadOptions extends OssUploadOptions {
   /** 允许的最大文件大小，默认 10MB */
@@ -53,6 +54,42 @@ async function uploadImageFile(file: File, options: ImageUploadOptions = {}): Pr
 
   return uploadLimiter.run(async () => {
     try {
+      const resolvedFileName = options.fileName || file.name;
+
+      // 优先使用 worker + OffscreenCanvas 上传（避免主线程阻塞与 base64 中转）
+      if (imageUploadWorkerClient.isSupported()) {
+        try {
+          const workerResult = await imageUploadWorkerClient.uploadImageFile(file, {
+            ...options,
+            fileName: resolvedFileName,
+            contentType: options.contentType || file.type,
+          });
+
+          if (workerResult.success && workerResult.asset?.url) {
+            return {
+              success: true,
+              asset: {
+                id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                url: workerResult.asset.url,
+                key: workerResult.asset.key,
+                fileName: workerResult.asset.fileName || resolvedFileName,
+                width: workerResult.asset.width,
+                height: workerResult.asset.height,
+                contentType:
+                  workerResult.asset.contentType || options.contentType || file.type,
+              },
+            };
+          }
+
+          // worker 返回失败时，降级走主线程上传（提升兼容性与成功率）
+          if (!workerResult.success) {
+            logger.debug('Worker 图片上传失败，降级到主线程上传:', workerResult.error);
+          }
+        } catch (error) {
+          logger.debug('Worker 图片上传异常，降级到主线程上传:', error);
+        }
+      }
+
       // SVG 文件可能无法通过 Image 获取尺寸，使用默认值
       let width: number | undefined;
       let height: number | undefined;
@@ -67,9 +104,9 @@ async function uploadImageFile(file: File, options: ImageUploadOptions = {}): Pr
 
       const uploadResult = await uploadToOSS(file, {
         ...options,
-        fileName: options.fileName || file.name,
+        fileName: resolvedFileName,
         maxSize: options.maxSize ?? options.maxFileSize ?? 20 * 1024 * 1024,
-        contentType: file.type,
+        contentType: options.contentType || file.type,
       });
 
       if (!uploadResult.success || !uploadResult.url) {
@@ -82,10 +119,10 @@ async function uploadImageFile(file: File, options: ImageUploadOptions = {}): Pr
           id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           url: uploadResult.url,
           key: uploadResult.key,
-          fileName: options.fileName || file.name,
+          fileName: resolvedFileName,
           width,
           height,
-          contentType: file.type,
+          contentType: options.contentType || file.type,
         },
       };
     } catch (error: any) {

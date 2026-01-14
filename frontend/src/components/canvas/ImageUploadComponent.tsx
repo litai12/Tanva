@@ -1,7 +1,6 @@
 import { logger } from '@/utils/logger';
 import React, { useRef, useCallback } from 'react';
 import { imageUploadService } from '@/services/imageUploadService';
-import { ossUploadService } from '@/services/ossUploadService';
 import type { StoredImageAsset } from '@/types/canvas';
 
 interface ImageUploadComponentProps {
@@ -43,20 +42,15 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
           src: result.asset.url,
         });
       } else {
-        // fallback to local data URL
-        const [dataUrl, dims] = await Promise.all([
-          ossUploadService.fileToDataURL(file),
-          ossUploadService.getImageDimensions(file),
-        ]);
+        // fallback to blob URL（避免 base64）
+        const blobUrl = URL.createObjectURL(file);
         const fallbackAsset: StoredImageAsset = {
           id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          url: dataUrl,
-          src: dataUrl,
+          url: blobUrl,
+          src: blobUrl,
           fileName: file.name,
-          width: dims.width,
-          height: dims.height,
           pendingUpload: true,
-          localDataUrl: dataUrl,
+          localDataUrl: blobUrl,
         };
         onImageUploaded(fallbackAsset);
         console.error('❌ 图片上传失败，已使用本地副本:', result.error);
@@ -66,19 +60,15 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       console.error('❌ 图片处理异常:', error);
       if (file) {
         try {
-          const [dataUrl, dims] = await Promise.all([
-            ossUploadService.fileToDataURL(file),
-            ossUploadService.getImageDimensions(file),
-          ]);
+          // fallback to blob URL（避免 base64）
+          const blobUrl = URL.createObjectURL(file);
           const fallbackAsset: StoredImageAsset = {
             id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            url: dataUrl,
-            src: dataUrl,
+            url: blobUrl,
+            src: blobUrl,
             fileName: file.name,
             pendingUpload: true,
-            localDataUrl: dataUrl,
-            width: dims.width,
-            height: dims.height,
+            localDataUrl: blobUrl,
           };
           onImageUploaded(fallbackAsset);
           onUploadError('图片上传失败，已使用本地副本');

@@ -74,14 +74,10 @@ const extractLocalImageData = (imageData: unknown): string | null => {
   return null;
 };
 
-// 提取图片的任何可用源（优先 inline 数据，其次远程 URL）
+// 提取图片的任何可用源（优先远程 URL，其次 inline 数据）
 const extractAnyImageSource = (imageData: unknown): string | null => {
   if (!imageData || typeof imageData !== "object") return null;
   const data = imageData as Record<string, unknown>;
-
-  // 优先使用 inline 数据（base64/blob）
-  const localData = extractLocalImageData(imageData);
-  if (localData) return localData;
 
   // 其次使用远程 URL
   const urlCandidates = ["url", "src", "remoteUrl"];
@@ -96,6 +92,10 @@ const extractAnyImageSource = (imageData: unknown): string | null => {
     }
   }
 
+  // 再使用 inline 数据（blob/base64）
+  const localData = extractLocalImageData(imageData);
+  if (localData) return localData;
+
   return null;
 };
 
@@ -105,15 +105,6 @@ const isEditableElement = (el: Element | null): boolean => {
   if (tag === "input" || tag === "textarea") return true;
   const anyEl = el as any;
   return !!anyEl?.isContentEditable;
-};
-
-const fileToDataURL = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 };
 
 const normalizeImageFileName = (
@@ -162,29 +153,7 @@ const seemsImageUrl = (text: string): boolean => {
   return false;
 };
 
-const fetchImagePayload = async (url: string): Promise<string> => {
-  let payload = url;
-  try {
-    const ctrl = new AbortController();
-    const id = setTimeout(() => ctrl.abort(), 5000);
-    const resp = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(id);
-    if (resp.ok) {
-      const blob = await resp.blob();
-      if (blob.type.startsWith("image/")) {
-        payload = await new Promise<string>((resolve, reject) => {
-          const fr = new FileReader();
-          fr.onload = () => resolve(String(fr.result || ""));
-          fr.onerror = reject;
-          fr.readAsDataURL(blob);
-        });
-      }
-    }
-  } catch {
-    // ignore fetch errors and fall back to raw URL
-  }
-  return payload;
-};
+const fetchImagePayload = async (url: string): Promise<string> => url;
 
 const looksLikeSvgMarkup = (value: string): boolean => {
   const trimmed = value.trim();
@@ -525,10 +494,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             return cached?.remoteUrl ?? null;
           })();
 
-          const dataToCache = imageDataForCache || remoteUrl;
-          if (dataToCache) {
+          if (remoteUrl) {
+            // 画布侧不缓存 base64/dataURL：只缓存远程 URL，避免内存与序列化开销
             contextManager.cacheLatestImage(
-              dataToCache,
+              null,
               imageInstance.id,
               cached?.prompt || "快速上传图片",
               {
@@ -541,6 +510,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               id: imageInstance.id,
               bounds: imageInstance.bounds,
             });
+          } else if (imageDataForCache) {
+            contextManager.cacheLatestImage(
+              imageDataForCache,
+              imageInstance.id,
+              cached?.prompt || "快速上传图片",
+              {
+                bounds: imageInstance.bounds,
+                layerId: imageInstance.layerId,
+                remoteUrl: null,
+              }
+            );
           } else {
             console.warn("⚠️ 未找到可缓存的图像数据，保持现有缓存", {
               imageId: imageInstance.id,
@@ -622,9 +602,43 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               // 阻止默认粘贴（避免在页面其它位置插入）
               e.preventDefault();
               try {
-                const dataUrl = await fileToDataURL(file);
-                // 直接复用快速上传放置逻辑，默认落在视口中心
-                await uploadImageToCanvas?.(dataUrl, file.name);
+                const uploadDir = projectId
+                  ? `projects/${projectId}/images/`
+                  : "uploads/images/";
+                const uploadResult = await imageUploadService.uploadImageFile(
+                  file,
+                  {
+                    projectId,
+                    dir: uploadDir,
+                    fileName: file.name,
+                  }
+                );
+
+                if (uploadResult.success && uploadResult.asset?.url) {
+                  await uploadImageToCanvas?.(
+                    {
+                      ...uploadResult.asset,
+                      src: uploadResult.asset.url,
+                    },
+                    uploadResult.asset.fileName || file.name
+                  );
+                } else {
+                  // fallback: blob URL（避免 base64）
+                  const blobUrl = URL.createObjectURL(file);
+                  await uploadImageToCanvas?.(
+                    {
+                      id: `local_img_${Date.now()}_${Math.random()
+                        .toString(36)
+                        .slice(2, 8)}`,
+                      url: blobUrl,
+                      src: blobUrl,
+                      fileName: file.name,
+                      pendingUpload: true,
+                      localDataUrl: blobUrl,
+                    },
+                    file.name
+                  );
+                }
               } catch (err) {
                 console.error("粘贴图片处理失败:", err);
               }
@@ -665,7 +679,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [uploadImageToCanvas]);
+  }, [projectId, uploadImageToCanvas]);
 
   const fetchSvgText = useCallback(
     async (url: string): Promise<string | null> => {
@@ -875,9 +889,38 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           event.stopPropagation();
           const file = imageFiles[0];
           try {
-            const dataUrl = await fileToDataURL(file);
+            const uploadDir = projectId
+              ? `projects/${projectId}/images/`
+              : "uploads/images/";
+            const uploadResult = await imageUploadService.uploadImageFile(file, {
+              projectId,
+              dir: uploadDir,
+              fileName: file.name,
+            });
+
+            const payload = (() => {
+              if (uploadResult.success && uploadResult.asset?.url) {
+                return {
+                  ...uploadResult.asset,
+                  src: uploadResult.asset.url,
+                };
+              }
+
+              // fallback: blob URL（避免 base64）
+              const blobUrl = URL.createObjectURL(file);
+              return {
+                id: `local_img_${Date.now()}_${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`,
+                url: blobUrl,
+                src: blobUrl,
+                fileName: file.name,
+                pendingUpload: true,
+                localDataUrl: blobUrl,
+              };
+            })();
             await uploadImageToCanvas?.(
-              dataUrl,
+              payload as any,
               file.name,
               undefined,
               { x: projectPoint.x, y: projectPoint.y },
@@ -917,7 +960,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("drop", handleDrop);
     };
-  }, [canvasRef, insertSvgAssetToCanvas, uploadImageToCanvas]);
+  }, [canvasRef, insertSvgAssetToCanvas, projectId, uploadImageToCanvas]);
 
   useEffect(() => {
     const handleInsertSvg = (event: CustomEvent) => {
@@ -1575,22 +1618,28 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           })();
 
           // 将该图片作为最新缓存，并写入位置信息（中心通过bounds在需要时计算）
-          const dataToCache = imageDataForCache || remoteUrl;
-          if (dataToCache) {
+          if (remoteUrl) {
+            // 画布侧不缓存 base64/dataURL：只缓存远程 URL
+            contextManager.cacheLatestImage(null, img.id, "用户选择的图片", {
+              bounds: img.bounds,
+              layerId: img.layerId,
+              remoteUrl,
+            });
+            logger.debug("📌 已基于选中图片更新缓存位置:", {
+              id: img.id,
+              bounds: img.bounds,
+            });
+          } else if (imageDataForCache) {
             contextManager.cacheLatestImage(
-              dataToCache,
+              imageDataForCache,
               img.id,
               "用户选择的图片",
               {
                 bounds: img.bounds,
                 layerId: img.layerId,
-                remoteUrl,
+                remoteUrl: null,
               }
             );
-            logger.debug("📌 已基于选中图片更新缓存位置:", {
-              id: img.id,
-              bounds: img.bounds,
-            });
           } else {
             console.warn("⚠️ 选中图片缺少可缓存的数据，跳过缓存更新", {
               imageId,
@@ -1601,8 +1650,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
 
           // 🔥 同步选中图片到AI对话框
-          // 优先使用 inline 数据，其次使用远程 URL
-          const imageSourceForAI = imageDataForCache || remoteUrl;
+          const imageSourceForAI = remoteUrl || imageDataForCache;
           if (addToSelection) {
             // 多选模式：收集所有选中图片的数据
             const allSelectedImages: string[] = [];

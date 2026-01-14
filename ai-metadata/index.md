@@ -1,11 +1,11 @@
 # AI Metadata Index
 
-- Generated: 2026-01-14T07:52:49.761Z
+- Generated: 2026-01-14T08:24:01.124Z
 - Source files indexed: 328
 - Schema version: 2
 
 ## Top tags
-- `canvas`: 88
+- `canvas`: 89
 - `flow`: 88
 - `http`: 81
 - `auth`: 64
@@ -14,8 +14,8 @@
 - `token`: 32
 - `settings`: 16
 - `kling`: 10
+- `worker`: 4
 - `storyboard`: 4
-- `worker`: 3
 - `artboard`: 3
 - `zip`: 1
 
