@@ -2377,10 +2377,11 @@ function FlowInner() {
         type: "application/json",
       });
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
+      a.href = blobUrl;
       a.download = `tanva-template-${Date.now()}.json`;
       a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
     } catch (err) {
       console.error("导出失败", err);
       alert("导出失败：图片上传或 JSON 生成失败，请重试");
@@ -3560,6 +3561,10 @@ function FlowInner() {
               sourceHandle === "images-range"
             );
           }
+          // imageSplit 输出为 image1..imageN
+          if (sourceNode.type === "imageSplit") {
+            return typeof sourceHandle === "string" && /^image\d+$/.test(sourceHandle);
+          }
           return [
             "image",
             "imagePro",
@@ -3571,6 +3576,7 @@ function FlowInner() {
             "generatePro",
             "generatePro4",
             "midjourney",
+            "imageGrid",
           ].includes(sourceNode.type || "");
         }
         return false;
