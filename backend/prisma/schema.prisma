@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                         String                 @id @default(uuid())
+  email                      String?                @unique
+  phone                      String                 @unique
+  passwordHash               String
+  name                       String?
+  avatarUrl                  String?
+  role                       String                 @default("user")
+  status                     String                 @default("active")
+  googleCustomApiKey         String?
+  googleKeyMode              String                 @default("official")
+  googleOfficialVerified     Boolean                @default(false)
+  googleOfficialVerifiedAt   DateTime?
+  lastLoginAt                DateTime?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  invitedById                String?
+  apiUsageRecords            ApiUsageRecord[]
+  creditAccount              CreditAccount?
+  globalImageHistory         GlobalImageHistory[]
+  invitationCodes            InvitationCode[]
+  invitationRedemptions      InvitationRedemption[] @relation("InvitationRedemptionInvitee")
+  invitationRedemptionsGiven InvitationRedemption[] @relation("InvitationRedemptionInviter")
+  projects                   Project[]
+  refreshTokens              RefreshToken[]
+  invitedBy                  User?                  @relation("UserInvitedBy", fields: [invitedById], references: [id])
+  invites                    User[]                 @relation("UserInvitedBy")
+
+  // 索引优化：加速用户验证和查找
+  @@index([phone, status])  // 手机号登录优化
+  @@index([email, status])  // 邮箱登录优化（如果支持）
+  @@index([role, status])   // 角色筛选优化
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  userAgent String?
+  ip        String?
+  isRevoked Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  // 索引优化：加速token验证和清理
+  @@index([userId, isRevoked])           // 用户活跃token查询
+  @@index([expiresAt])                   // 过期token清理
+  @@index([userId, expiresAt, isRevoked]) // 复合索引：用户未过期未撤销token
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  userId         String
+  name           String
+  ossPrefix      String
+  mainKey        String
+  thumbnailUrl   String?
+  contentVersion Int      @default(1)
+  contentJson    Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id])
+
+  // 索引优化：加速项目列表查询
+  @@index([userId, createdAt])     // 用户项目列表，按创建时间倒序
+  @@index([userId, updatedAt])     // 用户项目列表，按更新时间倒序
+  @@index([createdAt])             // 全局项目统计
+}
+
+model CreditAccount {
+  id                String              @id @default(uuid())
+  userId            String              @unique
+  balance           Int                 @default(0)
+  totalEarned       Int                 @default(0)
+  totalSpent        Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  lastDailyRewardAt DateTime?
+  user              User                @relation(fields: [userId], references: [id])
+  transactions      CreditTransaction[]
+}
+
+model CreditTransaction {
+  id            String        @id @default(uuid())
+  accountId     String
+  type          String
+  amount        Int
+  balanceBefore Int
+  balanceAfter  Int
+  description   String
+  apiUsageId    String?
+  metadata      Json?
+  createdAt     DateTime      @default(now())
+  account       CreditAccount @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@index([type])
+}
+
+model ApiUsageRecord {
+  id               String   @id @default(uuid())
+  userId           String
+  serviceType      String
+  serviceName      String
+  provider         String
+  model            String?
+  creditsUsed      Int
+  inputTokens      Int?
+  outputTokens     Int?
+  inputImageCount  Int?
+  outputImageCount Int?
+  requestParams    Json?
+  responseStatus   String
+  errorMessage     String?
+  processingTime   Int?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([serviceType])
+  @@index([provider])
+  @@index([responseStatus])
+}
+
+model CreditPricing {
+  id               String   @id @default(uuid())
+  serviceType      String   @unique
+  serviceName      String
+  provider         String
+  creditsPerCall   Int
+  description      String?
+  isActive         Boolean  @default(true)
+  maxInputTokens   Int?
+  maxContextLength Int?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model CreditPackage {
+  id           String   @id @default(uuid())
+  name         String
+  credits      Int
+  price        Decimal  @db.Decimal(10, 2)
+  bonusCredits Int      @default(0)
+  description  String?
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model InvitationCode {
+  id            String                 @id @default(uuid())
+  code          String                 @unique
+  status        String                 @default("active")
+  maxUses       Int                    @default(1)
+  usedCount     Int                    @default(0)
+  inviterUserId String?
+  metadata      Json?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  inviter       User?                  @relation(fields: [inviterUserId], references: [id])
+  redemptions   InvitationRedemption[]
+
+  @@index([status])
+}
+
+model InvitationRedemption {
+  id            String         @id @default(uuid())
+  codeId        String
+  inviteeUserId String
+  inviterUserId String?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  code          InvitationCode @relation(fields: [codeId], references: [id])
+  invitee       User           @relation("InvitationRedemptionInvitee", fields: [inviteeUserId], references: [id])
+  inviter       User?          @relation("InvitationRedemptionInviter", fields: [inviterUserId], references: [id])
+
+  @@index([codeId])
+  @@index([inviteeUserId])
+}
+
+model GlobalImageHistory {
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId            String
+  imageUrl          String
+  prompt            String?
+  sourceType        String
+  sourceProjectId   String?
+  sourceProjectName String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([sourceType])
+}
+
+model PublicTemplate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  category       String?
+  description    String?
+  tags           String[]
+  thumbnail      String?
+  templateData   Json     @default("{}")
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  thumbnailSmall String?
+
+  @@index([category], map: "idx_publictemplate_category")
+  @@index([thumbnailSmall], map: "idx_publictemplate_thumbnailsmall")
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  metadata    Json?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model postgres_log {
+  log_time               DateTime? @db.Timestamptz(3)
+  user_name              String?
+  database_name          String?
+  process_id             Int?
+  connection_from        String?
+  session_id             String
+  session_line_num       BigInt
+  command_tag            String?
+  session_start_time     DateTime? @db.Timestamptz(6)
+  virtual_transaction_id String?
+  transaction_id         BigInt?
+  error_severity         String?
+  sql_state_code         String?
+  message                String?
+  detail                 String?
+  hint                   String?
+  internal_query         String?
+  internal_query_pos     Int?
+  context                String?
+  query                  String?
+  query_pos              Int?
+  location               String?
+  application_name       String?
+  backend_type           String?
+  leader_pid             Int?
+  query_id               BigInt?
+
+  @@ignore
+}
