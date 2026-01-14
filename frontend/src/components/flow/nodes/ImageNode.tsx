@@ -186,11 +186,96 @@ function ImageNodeInner({ id, data, selected }: Props) {
       [id]
     )
   );
+
+  // 从连接的节点读取图片（支持 imageGrid / videoFrameExtract / image 的链式传递）
+  const connectedFrameImage = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edges = state.edges || [];
+        const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+        const resolveFromNode = (
+          nodeId: string,
+          incomingEdge?: any,
+          visited: Set<string> = new Set()
+        ): string | undefined => {
+          if (!nodeId) return undefined;
+          if (visited.has(nodeId)) return undefined;
+          visited.add(nodeId);
+
+          const node = nodeById.get(nodeId);
+          if (!node) return undefined;
+
+          const nodeData = node.data || {};
+
+          // imageGrid 节点 - 读取拼合后的图片
+          if (node.type === "imageGrid") {
+            const outputImage = nodeData.outputImage as string | undefined;
+            return outputImage || undefined;
+          }
+
+          // videoFrameExtract 节点 - 读取单帧图片
+          if (node.type === "videoFrameExtract" && incomingEdge?.sourceHandle === "image") {
+            const frames = nodeData.frames as
+              | Array<{ index: number; imageUrl: string; thumbnailDataUrl?: string }>
+              | undefined;
+            if (!frames || frames.length === 0) return undefined;
+
+            const selectedFrameIndex = (nodeData.selectedFrameIndex ?? 1) as number;
+            const idx = selectedFrameIndex - 1;
+            const frame = frames[idx];
+            if (!frame) return undefined;
+
+          // 节点展示优先使用缩略图（thumbnailDataUrl）；链路传递的“原图优先”在下游节点的解析里处理
+          return frame.thumbnailDataUrl || frame.imageUrl;
+        }
+
+          // Image 节点 - 支持把上游输入继续往下传
+          if (node.type === "image") {
+            const upstream = edges.find(
+              (e) => e.target === nodeId && e.targetHandle === "img"
+            );
+            const upstreamResolved = upstream
+              ? resolveFromNode(upstream.source, upstream, visited)
+              : undefined;
+            if (upstreamResolved) return upstreamResolved;
+
+            const direct =
+              (nodeData.imageData as string | undefined) ||
+              (nodeData.imageUrl as string | undefined) ||
+              (nodeData.thumbnail as string | undefined);
+            return direct || undefined;
+          }
+
+          // 兜底：尽量兼容其他输出图片的节点
+          const fallback =
+            (nodeData.outputImage as string | undefined) ||
+            (nodeData.imageData as string | undefined) ||
+            (nodeData.imageUrl as string | undefined) ||
+            (nodeData.thumbnail as string | undefined) ||
+            (nodeData.img as string | undefined) ||
+            (nodeData.image as string | undefined);
+          return fallback || undefined;
+        };
+
+        // 查找连接到 img 输入句柄的边
+        const edgeToThis = edges.find(
+          (e) => e.target === id && e.targetHandle === "img"
+        );
+        if (!edgeToThis) return undefined;
+
+        return resolveFromNode(edgeToThis.source, edgeToThis);
+      },
+      [id]
+    )
+  );
+
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   const fullSrc = React.useMemo(
-    () => buildImageSrc(data.imageData || data.imageUrl),
-    [data.imageData, data.imageUrl]
+    () => buildImageSrc(connectedFrameImage || data.imageData || data.imageUrl),
+    [connectedFrameImage, data.imageData, data.imageUrl]
   );
   const displaySrc = React.useMemo(
     () => buildImageSrc(data.thumbnail) || fullSrc,
@@ -375,7 +460,15 @@ function ImageNodeInner({ id, data, selected }: Props) {
         nodeType: "image",
         fileName: file.name || `flow_image_${newImageId}.png`,
         projectId,
-      });
+      }).then(({ remoteUrl }) => {
+        // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积与渲染压力
+        if (!remoteUrl) return;
+        window.dispatchEvent(
+          new CustomEvent("flow:updateNodeData", {
+            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },
+          })
+        );
+      }).catch(() => {});
     };
     reader.readAsDataURL(file);
   }, [id, projectId]);

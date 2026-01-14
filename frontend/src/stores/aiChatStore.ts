@@ -6670,12 +6670,23 @@ if (typeof window !== "undefined") {
     // 订阅 messages 变化并记录对话快照
     let previousMessages = useAIChatStore.getState().messages;
 
-    useAIChatStore.subscribe((state) => {
+    // Vite/React Fast Refresh 下，模块可能被多次重新执行；清理旧订阅，避免重复订阅导致内存增长
+    const globalAny = window as any;
+    const prevUnsub = globalAny.__tanvaAIChatDebugUnsubscribe;
+    if (typeof prevUnsub === "function") {
+      try {
+        prevUnsub();
+      } catch {}
+    }
+
+    globalAny.__tanvaAIChatDebugUnsubscribe = useAIChatStore.subscribe(
+      (state) => {
       const messages = state.messages;
       if (messages === previousMessages) return;
       previousMessages = messages;
       logChatConversationSnapshot(messages);
-    });
+      }
+    );
 
     (window as any).tanvaDebugConversation = () => {
       const messages = useAIChatStore.getState().messages;
@@ -6686,6 +6697,24 @@ if (typeof window !== "undefined") {
     console.warn("⚠️ 初始化AI对话调试订阅失败:", error);
   }
 }
+
+try {
+  const hot = (import.meta as any)?.hot;
+  if (hot) {
+    hot.dispose(() => {
+      try {
+        const globalAny = window as any;
+        const unsub = globalAny.__tanvaAIChatDebugUnsubscribe;
+        if (typeof unsub === "function") {
+          try {
+            unsub();
+          } catch {}
+        }
+        globalAny.__tanvaAIChatDebugUnsubscribe = null;
+      } catch {}
+    });
+  }
+} catch {}
 
 /**
  * 上传音频到 OSS

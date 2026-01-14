@@ -318,8 +318,7 @@ input[type="text"],
 /* Image 类型句柄 - 橙色 */
 .tanva-flow-overlay .react-flow__handle[data-handleid="img"],
 .tanva-flow-overlay .react-flow__handle[data-handleid="image"],
-.tanva-flow-overlay .react-flow__handle[data-handleid="image1"],
-.tanva-flow-overlay .react-flow__handle[data-handleid="image2"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="image"],
 .tanva-flow-overlay .react-flow__handle[data-handleid="refer"],
 .tanva-flow-overlay .react-flow__handle[data-handleid="img1"],
 .tanva-flow-overlay .react-flow__handle[data-handleid="img2"],
@@ -334,6 +333,13 @@ input[type="text"],
 .tanva-flow-overlay .react-flow__handle[data-handleid^="video-"] {
   background: #a855f7 !important;
   border-color: #9333ea !important;
+}
+
+/* Images 类型句柄 (多图) - 黄色 */
+.tanva-flow-overlay .react-flow__handle[data-handleid="images"],
+.tanva-flow-overlay .react-flow__handle[data-handleid^="images-"] {
+  background: #eab308 !important;
+  border-color: #ca8a04 !important;
 }
 
 /* 放大不可见热区，不改变视觉尺寸 */

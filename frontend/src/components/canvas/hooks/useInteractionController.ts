@@ -723,6 +723,8 @@ export const useInteractionController = ({
           resizeStartBounds: actualBounds,
           resizeStartPoint: point
         });
+        // 调整大小时也禁用工具栏/Flow 节点事件，避免快速拖动时经过悬浮工具栏导致交互中断
+        document.body.classList.add('tanva-canvas-dragging');
         return;
       }
 
@@ -1163,6 +1165,14 @@ export const useInteractionController = ({
 
   // ========== 鼠标移动事件处理 ==========
   const handleMouseMove = useCallback((event: MouseEvent) => {
+    // Flow 拖拽/连线时，跳过 Canvas 侧的重计算（Paper hitTest / update 等），避免双系统同时处理 mousemove 导致掉帧。
+    if (
+      typeof document !== 'undefined' &&
+      (document.body.classList.contains('tanva-flow-node-dragging') ||
+        document.body.classList.contains('tanva-flow-connecting'))
+    ) {
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     isAltPressedRef.current = event.altKey;
@@ -1959,6 +1969,7 @@ export const useInteractionController = ({
         });
         historyService.commit('resize-image').catch(() => {});
         // 调整图片大小不触发自动保存，仅记录历史
+        document.body.classList.remove('tanva-canvas-dragging');
         return;
       }
 

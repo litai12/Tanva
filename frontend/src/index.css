@@ -256,7 +256,11 @@ html, body, #root {
 body.tanva-canvas-dragging [data-image-toolbar],
 body.tanva-canvas-dragging [data-image-toolbar] *,
 body.tanva-canvas-dragging [data-model-toolbar],
-body.tanva-canvas-dragging [data-model-toolbar] * {
+body.tanva-canvas-dragging [data-model-toolbar] *,
+body.tanva-selection-dragging [data-image-toolbar],
+body.tanva-selection-dragging [data-image-toolbar] *,
+body.tanva-selection-dragging [data-model-toolbar],
+body.tanva-selection-dragging [data-model-toolbar] * {
   pointer-events: none !important;
 }
 

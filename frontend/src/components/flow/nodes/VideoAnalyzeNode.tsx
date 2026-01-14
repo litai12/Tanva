@@ -162,10 +162,7 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
     >
       {/* 标题栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>🎥</span>
-          <span>Video Analysis</span>
-        </div>
+        <div style={{ fontWeight: 600 }}>Video Analysis</div>
         <button
           onClick={onAnalyze}
           disabled={!canRun}
