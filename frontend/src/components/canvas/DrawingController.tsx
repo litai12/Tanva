@@ -43,6 +43,7 @@ import type { Model3DData } from "@/services/model3DUploadService";
 import { clientToProject } from "@/utils/paperCoords";
 import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
+import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
   usePersonalLibraryStore,
   createPersonalAssetId,
@@ -1043,6 +1044,170 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     quickImageUploadRef.current = quickImageUpload;
   }, [quickImageUpload]);
+
+  // 🔥 AI 生成图片：上传到 OSS 后，尽早把画布上的 placeholder 图片替换为远程 URL（释放 base64/blob 内存）
+  useEffect(() => {
+    const tryUpgrade = (params: {
+      placeholderId: string;
+      remoteUrl: string;
+    }): boolean => {
+      const { placeholderId, remoteUrl } = params;
+      if (!placeholderId || !remoteUrl) return false;
+
+      let upgraded = false;
+      const objectUrlsToMaybeRevoke = new Set<string>();
+
+      // 1) 更新运行时图片实例（window.tanvaImageInstances）
+      try {
+        const instances = (window as any).tanvaImageInstances as any[] | undefined;
+        if (Array.isArray(instances) && instances.length > 0) {
+          let changed = false;
+          const next = instances.map((inst) => {
+            if (!inst || inst.id !== placeholderId) return inst;
+            const imageData = inst.imageData || {};
+
+            const localCandidates = [
+              imageData.localDataUrl,
+              imageData.url,
+              imageData.src,
+            ].filter((v: any) => typeof v === "string" && v.startsWith("blob:"));
+            localCandidates.forEach((v: string) => objectUrlsToMaybeRevoke.add(v));
+
+            // 已经是远程且无本地数据则跳过
+            if (
+              typeof imageData.url === "string" &&
+              imageData.url.startsWith("http") &&
+              imageData.url === remoteUrl &&
+              !imageData.localDataUrl
+            ) {
+              return inst;
+            }
+
+            changed = true;
+            upgraded = true;
+            return {
+              ...inst,
+              imageData: {
+                ...imageData,
+                url: remoteUrl,
+                src: remoteUrl,
+                remoteUrl,
+                pendingUpload: false,
+                localDataUrl: undefined,
+              },
+            };
+          });
+
+          if (changed) {
+            (window as any).tanvaImageInstances = next;
+          }
+        }
+      } catch {}
+
+      // 2) 更新 Paper.js Raster（用 data.imageId 关联）
+      try {
+        const project = paper?.project as any;
+        if (project?.getItems) {
+          const rasterClass = (paper as any).Raster;
+          const rasters = project.getItems({ class: rasterClass }) as any[];
+          const proxied = proxifyRemoteAssetUrl(remoteUrl);
+
+          rasters.forEach((raster) => {
+            if (!raster) return;
+            const imageId = raster.data?.imageId;
+            if (imageId !== placeholderId) return;
+
+            const currentSource = typeof raster.source === "string" ? raster.source : "";
+            if (currentSource.startsWith("blob:")) {
+              objectUrlsToMaybeRevoke.add(currentSource);
+            }
+
+            raster.data = {
+              ...(raster.data || {}),
+              remoteUrl,
+              pendingUpload: false,
+            };
+
+            try {
+              (raster as any).crossOrigin = "anonymous";
+            } catch {}
+
+            try {
+              raster.source = proxied;
+              upgraded = true;
+            } catch {}
+          });
+
+          if (upgraded) {
+            try {
+              paper.view?.update();
+            } catch {}
+          }
+        }
+      } catch {}
+
+      // 3) 尝试回收 blob: ObjectURL（确保不再被任何实例引用）
+      if (objectUrlsToMaybeRevoke.size > 0) {
+        try {
+          const instances = (window as any).tanvaImageInstances as any[] | undefined;
+          const stillUsed = (url: string) => {
+            if (!Array.isArray(instances)) return false;
+            return instances.some((inst) => {
+              const d = inst?.imageData;
+              return (
+                d?.localDataUrl === url ||
+                d?.url === url ||
+                d?.src === url
+              );
+            });
+          };
+
+          objectUrlsToMaybeRevoke.forEach((url) => {
+            if (!url.startsWith("blob:")) return;
+            if (stillUsed(url)) return;
+            try {
+              URL.revokeObjectURL(url);
+            } catch {}
+          });
+        } catch {}
+      }
+
+      return upgraded;
+    };
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const placeholderId = String(detail.placeholderId || "");
+      const remoteUrl = String(detail.remoteUrl || "");
+      if (!placeholderId || !remoteUrl) return;
+
+      let attempts = 0;
+      const maxAttempts = 10;
+      const attempt = () => {
+        const ok = tryUpgrade({ placeholderId, remoteUrl });
+        if (ok) {
+          logger.upload?.("🔄 [Canvas] 已将占位图升级为远程 URL", {
+            placeholderId,
+            remoteUrl: remoteUrl.substring(0, 80),
+          });
+          return;
+        }
+        if (attempts >= maxAttempts) return;
+        attempts += 1;
+        setTimeout(attempt, 250 * attempts);
+      };
+
+      attempt();
+    };
+
+    window.addEventListener("tanva:upgradeImageSource", handler as EventListener);
+    return () => {
+      window.removeEventListener(
+        "tanva:upgradeImageSource",
+        handler as EventListener
+      );
+    };
+  }, []);
 
   // 监听预测占位符事件，提前在画布上标记预计位置与尺寸
   useEffect(() => {
