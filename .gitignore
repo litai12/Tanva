@@ -34,5 +34,4 @@ frontend/bake/.env.production
 frontend/bake/back/.env
 frontend/bake/back/.env.production
 
-ai-metadata
 .npm-cache
