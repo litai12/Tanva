@@ -227,8 +227,9 @@ function ImageNodeInner({ id, data, selected }: Props) {
             const frame = frames[idx];
             if (!frame) return undefined;
 
-            return frame.thumbnailDataUrl || frame.imageUrl;
-          }
+          // 节点展示优先使用缩略图（thumbnailDataUrl）；链路传递的“原图优先”在下游节点的解析里处理
+          return frame.thumbnailDataUrl || frame.imageUrl;
+        }
 
           // Image 节点 - 支持把上游输入继续往下传
           if (node.type === "image") {
@@ -459,7 +460,15 @@ function ImageNodeInner({ id, data, selected }: Props) {
         nodeType: "image",
         fileName: file.name || `flow_image_${newImageId}.png`,
         projectId,
-      });
+      }).then(({ remoteUrl }) => {
+        // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积与渲染压力
+        if (!remoteUrl) return;
+        window.dispatchEvent(
+          new CustomEvent("flow:updateNodeData", {
+            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },
+          })
+        );
+      }).catch(() => {});
     };
     reader.readAsDataURL(file);
   }, [id, projectId]);

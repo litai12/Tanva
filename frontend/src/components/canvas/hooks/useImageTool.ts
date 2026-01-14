@@ -1053,8 +1053,6 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       return img;
     }));
     eventHandlers.onImageResize?.(imageId, newBounds);
-    try { paperSaveService.triggerAutoSave(); } catch {}
-    try { historyService.commit('resize-image').catch(() => {}); } catch {}
   }, [eventHandlers.onImageResize, isRasterItem]);
 
   // ========== 图片删除 ==========

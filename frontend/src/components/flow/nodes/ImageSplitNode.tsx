@@ -108,7 +108,8 @@ const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): strin
     const idx = Math.max(0, Number(selectedFrameIndex) - 1);
     const frame = frames[idx];
     if (!frame) return undefined;
-    return normalizeString(frame.thumbnailDataUrl) || normalizeString(frame.imageUrl);
+    // 输出语义优先使用原图（imageUrl），缩略图仅用于预览
+    return normalizeString(frame.imageUrl) || normalizeString(frame.thumbnailDataUrl);
   }
 
   // Generate4 / GeneratePro4：按 img1..img4 读取
@@ -161,7 +162,7 @@ const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): Upst
       return frames
         .slice(start, end)
         .map((frame, i) => {
-          const value = normalizeString(frame.thumbnailDataUrl) || normalizeString(frame.imageUrl);
+          const value = normalizeString(frame.imageUrl) || normalizeString(frame.thumbnailDataUrl);
           return value ? { id: `${node.id}-range-${start + i + 1}`, imageData: value } : null;
         })
         .filter(Boolean) as UpstreamImageItem[];
@@ -170,7 +171,7 @@ const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): Upst
     // 默认：全部帧（兼容未标注 sourceHandle 的旧边）
     return frames
       .map((frame, i) => {
-        const value = normalizeString(frame.thumbnailDataUrl) || normalizeString(frame.imageUrl);
+        const value = normalizeString(frame.imageUrl) || normalizeString(frame.thumbnailDataUrl);
         return value ? { id: `${node.id}-images-${i + 1}`, imageData: value } : null;
       })
       .filter(Boolean) as UpstreamImageItem[];
@@ -935,6 +936,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               <img
                 src={buildImageSrc(img.imageData) || ''}
                 alt={`分割 ${i + 1}`}
+                decoding="async"
+                loading="lazy"
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
               <span style={{

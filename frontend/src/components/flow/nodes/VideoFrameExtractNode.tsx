@@ -32,6 +32,22 @@ type Props = {
 const DEFAULT_INTERVAL = 3;
 const MAX_PREVIEW_FRAMES = 4;
 
+const buildOssThumbnailUrl = (rawUrl: string, width: number): string => {
+  const trimmed = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  if (!trimmed) return rawUrl;
+  if (!/^https?:\/\//i.test(trimmed)) return rawUrl;
+  try {
+    const url = new URL(trimmed);
+    // 仅对阿里云 OSS 做缩略图参数，其他来源保持原样
+    if (!url.hostname.endsWith('.aliyuncs.com')) return rawUrl;
+    if (url.searchParams.has('x-oss-process')) return rawUrl;
+    url.searchParams.set('x-oss-process', `image/resize,w_${Math.max(1, Math.round(width))}`);
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+};
+
 // 后端 API 基础地址
 const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL &&
@@ -135,7 +151,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       index: f.index,
       timestamp: f.timestamp,
       imageUrl: f.imageUrl,
-      thumbnailDataUrl: f.imageUrl,
+      thumbnailDataUrl: buildOssThumbnailUrl(f.imageUrl, 320),
     }));
 
     updateNodeData({
@@ -465,6 +481,8 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                 <img
                   src={frame.thumbnailDataUrl}
                   alt={`帧 ${frame.index}`}
+                  decoding="async"
+                  loading="lazy"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
                 <div
@@ -753,6 +771,8 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   <img
                     src={frame.thumbnailDataUrl}
                     alt={`帧 ${frame.index}`}
+                    decoding="async"
+                    loading="lazy"
                     style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover' }}
                   />
                   <div style={{ padding: '4px 6px', background: '#f9fafb', fontSize: 11 }}>

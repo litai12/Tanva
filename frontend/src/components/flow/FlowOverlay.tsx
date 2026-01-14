@@ -169,7 +169,27 @@ const nodeTypes = {
 };
 
 // 自定义边组件 - 选中时在终点显示删除按钮
-function CustomEdge({
+const EDGE_DELETE_BUTTON_STYLE: React.CSSProperties = {
+  width: 16,
+  height: 16,
+  borderRadius: "50%",
+  background: "#ef4444",
+  border: "2px solid #fff",
+  color: "#fff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: "bold",
+  lineHeight: 0,
+  boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+  position: "relative",
+  zIndex: 10000,
+  padding: 0,
+};
+
+const CustomEdge = React.memo(function CustomEdge({
   id,
   sourceX,
   sourceY,
@@ -220,25 +240,7 @@ function CustomEdge({
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onClick={handleDelete}
-              style={{
-                width: 16,
-                height: 16,
-                borderRadius: "50%",
-                background: "#ef4444",
-                border: "2px solid #fff",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                fontSize: 14,
-                fontWeight: "bold",
-                lineHeight: 0,
-                boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-                position: "relative",
-                zIndex: 10000,
-                padding: 0,
-              }}
+              style={EDGE_DELETE_BUTTON_STYLE}
               title='删除连线'
             >
               <span style={{ marginTop: -2 }}>−</span>
@@ -248,7 +250,7 @@ function CustomEdge({
       )}
     </>
   );
-}
+});
 
 const edgeTypes = {
   default: CustomEdge,
@@ -999,7 +1001,17 @@ function FlowInner() {
   const hydratingFromStoreRef = React.useRef(false);
   const lastSyncedJSONRef = React.useRef<string | null>(null);
   const nodeDraggingRef = React.useRef(false);
+  const [isNodeDragging, setIsNodeDragging] = React.useState(false);
   const commitTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (isNodeDragging) {
+      document.body.classList.add("tanva-flow-node-dragging");
+    } else {
+      document.body.classList.remove("tanva-flow-node-dragging");
+    }
+    return () => document.body.classList.remove("tanva-flow-node-dragging");
+  }, [isNodeDragging]);
 
   const sanitizeNodeData = React.useCallback((input: any) => {
     try {
@@ -1699,6 +1711,12 @@ function FlowInner() {
   const [dragFps, setDragFps] = React.useState<number>(0);
   const [dragLongFrames, setDragLongFrames] = React.useState<number>(0);
   const [dragMaxFrameMs, setDragMaxFrameMs] = React.useState<number>(0);
+
+  // 方便性能排查：开发环境默认打开拖拽 FPS 监控（可在面板里随时关掉）
+  React.useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    setShowFpsOverlay(true);
+  }, [setShowFpsOverlay]);
 
   React.useEffect(() => {
     if (!showFpsOverlay) return;
@@ -7529,6 +7547,7 @@ function FlowInner() {
         onEdgesChange={onEdgesChangeWithHistory}
         onNodeDragStart={(event, node) => {
           nodeDraggingRef.current = true;
+          setIsNodeDragging(true);
           // 检测 Alt 键是否按下
           const altPressed = event.altKey;
           if (altPressed) {
@@ -7634,6 +7653,7 @@ function FlowInner() {
         }}
         onNodeDragStop={(event, node) => {
           nodeDraggingRef.current = false;
+          setIsNodeDragging(false);
 
           // Alt+拖拽复制：副本已在 dragStart 时创建，这里只需提交历史
           if (
@@ -7708,9 +7728,11 @@ function FlowInner() {
           />
         )}
         {/* 视口由 Canvas 驱动，禁用 MiniMap 交互避免竞态 - 专注模式下隐藏 */}
-        {!focusMode && <MiniMap pannable={false} zoomable={false} />}
+        {!focusMode && !isNodeDragging && (
+          <MiniMap pannable={false} zoomable={false} />
+        )}
         {/* 将画布上的图片以绿色块显示在 MiniMap 内 - 专注模式下隐藏 */}
-        {!focusMode && <MiniMapImageOverlay />}
+        {!focusMode && !isNodeDragging && <MiniMapImageOverlay />}
       </ReactFlow>
 
       {showFpsOverlay && (

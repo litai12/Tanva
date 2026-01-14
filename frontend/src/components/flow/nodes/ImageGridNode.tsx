@@ -5,6 +5,7 @@ import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 type ImageItem = {
   id: string;
   imageData: string; // base64 或 URL
+  thumbnailData?: string; // 节点预览用缩略图（可选）
   width?: number;
   height?: number;
 };
@@ -79,17 +80,25 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         const result: ImageItem[] = [];
         const nodes = state.getNodes();
 
-        const readSingleImageFromNode = (node: Node<any>): string | undefined => {
+        const readSingleImageFromNode = (
+          node: Node<any>
+        ): { full?: string; thumb?: string } => {
           const d = node.data as any;
-          const value =
+          const fullCandidate =
             d?.imageData ??
             d?.outputImage ??
             d?.imageUrl ??
-            d?.thumbnail ??
-            d?.thumbnailDataUrl;
-          if (typeof value !== 'string') return undefined;
-          const trimmed = value.trim();
-          return trimmed ? trimmed : undefined;
+            d?.thumbnailDataUrl ??
+            d?.thumbnail;
+          const thumbCandidate = d?.thumbnail ?? d?.thumbnailDataUrl;
+
+          const normalize = (v: unknown): string | undefined => {
+            if (typeof v !== 'string') return undefined;
+            const trimmed = v.trim();
+            return trimmed ? trimmed : undefined;
+          };
+
+          return { full: normalize(fullCandidate), thumb: normalize(thumbCandidate) };
         };
 
         const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): ImageItem[] => {
@@ -129,11 +138,18 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             }
 
             return outputFrames
-              .map((frame) => ({
-                id: `${node.id}-frame-${frame.index}`,
-                imageData: frame.thumbnailDataUrl || frame.imageUrl,
-              }))
-              .filter((item) => !!item.imageData);
+              .map((frame) => {
+                const imageData = frame.imageUrl || frame.thumbnailDataUrl;
+                if (!imageData) return null;
+                const item: ImageItem = {
+                  id: `${node.id}-frame-${frame.index}`,
+                  // 拼合需尽量使用原图（imageUrl），缩略图仅用于预览
+                  imageData,
+                  thumbnailData: frame.thumbnailDataUrl || frame.imageUrl || undefined,
+                };
+                return item;
+              })
+              .filter((item): item is ImageItem => item !== null);
           }
 
           // Generate4 / GeneratePro4：支持 img1..img4（单张）以及 images（全量）
@@ -153,7 +169,11 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             if (match) {
               const idx = Math.max(0, Number(match[1]) - 1);
               const value = pickAt(idx);
-              return value ? [{ id: `${node.id}-img${idx + 1}`, imageData: value }] : [];
+              const thumbRaw = typeof thumbs[idx] === 'string' ? thumbs[idx] : undefined;
+              const thumb = thumbRaw?.trim() ? thumbRaw.trim() : undefined;
+              return value
+                ? [{ id: `${node.id}-img${idx + 1}`, imageData: value, thumbnailData: thumb }]
+                : [];
             }
 
             // images 或未识别句柄：按“图集”处理，输出全部可用图片
@@ -162,7 +182,10 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
               const max = Math.max(urls.length, imgs.length, thumbs.length, 0);
               for (let idx = 0; idx < max; idx += 1) {
                 const value = pickAt(idx);
-                if (value) out.push({ id: `${node.id}-img${idx + 1}`, imageData: value });
+                if (!value) continue;
+                const thumbRaw = typeof thumbs[idx] === 'string' ? thumbs[idx] : undefined;
+                const thumb = thumbRaw?.trim() ? thumbRaw.trim() : undefined;
+                out.push({ id: `${node.id}-img${idx + 1}`, imageData: value, thumbnailData: thumb });
               }
               return out;
             }
@@ -181,14 +204,17 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                 if (typeof value !== 'string') continue;
                 const trimmed = value.trim();
                 if (!trimmed) continue;
-                out.push({ id: `${node.id}-images-${idx + 1}`, imageData: trimmed });
+                const thumbRaw = typeof thumbs[idx] === 'string' ? thumbs[idx] : undefined;
+                const thumb = thumbRaw?.trim() ? thumbRaw.trim() : undefined;
+                out.push({ id: `${node.id}-images-${idx + 1}`, imageData: trimmed, thumbnailData: thumb });
               }
               return out;
             }
           }
 
-          const single = readSingleImageFromNode(node);
-          return single ? [{ id: node.id, imageData: single }] : [];
+          const { full, thumb } = readSingleImageFromNode(node);
+          const resolvedFull = full || thumb;
+          return resolvedFull ? [{ id: node.id, imageData: resolvedFull, thumbnailData: thumb }] : [];
         };
 
         edges.forEach((edge) => {
@@ -373,8 +399,10 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                 }}
               >
                 <img
-                  src={buildImageSrc(item.imageData)}
+                  src={buildImageSrc(item.thumbnailData || item.imageData)}
                   alt={`图片 ${index + 1}`}
+                  decoding="async"
+                  loading="lazy"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
                 <div
