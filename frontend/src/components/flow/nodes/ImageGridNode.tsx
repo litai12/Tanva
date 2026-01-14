@@ -1,6 +1,14 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
+import {
+  createEphemeralFlowImageObjectUrl,
+  parseFlowImageAssetRef,
+  putFlowImageBlobs,
+  toFlowImageAssetRef,
+} from '@/services/flowImageAssetStore';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 type ImageItem = {
   id: string;
@@ -49,10 +57,30 @@ const buildImageSrc = (value?: string): string => {
   return `data:image/png;base64,${trimmed}`;
 };
 
+function FlowImagePreview({ value, alt }: { value: string; alt: string }) {
+  const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
+  const assetUrl = useFlowImageAssetUrl(assetId);
+  const src = assetId ? (assetUrl || '') : buildImageSrc(value);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      decoding="async"
+      loading="lazy"
+      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+    />
+  );
+}
+
 function ImageGridNodeInner({ id, data, selected = false }: Props) {
   const { status = 'idle', error, images = [], outputImage } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const projectId = useProjectContentStore((s) => s.projectId);
+
+  const outputAssetId = React.useMemo(() => parseFlowImageAssetRef(outputImage), [outputImage]);
+  const outputAssetUrl = useFlowImageAssetUrl(outputAssetId);
+  const outputPreviewSrc = outputAssetId ? (outputAssetUrl || '') : (outputImage || '');
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected
@@ -305,17 +333,27 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
 
     updateNodeData({ status: 'processing', error: undefined });
 
+    let loadedImages: Array<{ img: HTMLImageElement; item: ImageItem; revoke?: () => void }> = [];
     try {
       // 加载所有图片并获取尺寸
-      const loadedImages = await Promise.all(
-        allImages.map((item) => {
-          return new Promise<{ img: HTMLImageElement; item: ImageItem }>((resolve, reject) => {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => resolve({ img, item });
+      loadedImages = await Promise.all(
+        allImages.map(async (item) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+
+          const value = item.imageData;
+          const assetId = parseFlowImageAssetRef(value);
+          const ephemeral = assetId ? await createEphemeralFlowImageObjectUrl(assetId) : null;
+          const src = assetId ? (ephemeral?.url || '') : buildImageSrc(value);
+          if (!src) throw new Error(`图片加载失败: ${item.id}`);
+
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
             img.onerror = () => reject(new Error(`图片加载失败: ${item.id}`));
-            img.src = buildImageSrc(item.imageData);
+            img.src = src;
           });
+
+          return { img, item, revoke: ephemeral?.revoke };
         })
       );
 
@@ -361,12 +399,16 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         ctx.drawImage(img, cellX + offsetX, cellY + offsetY);
       });
 
-      // 导出为 base64
-      const outputBase64 = canvas.toDataURL('image/png');
+      // 导出为 Blob（避免生成巨型 base64 字符串导致内存峰值）
+      const outputBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('导出失败'))), 'image/png');
+      });
+      const [assetId] = await putFlowImageBlobs([{ blob: outputBlob, projectId, nodeId: id }]);
+      if (!assetId) throw new Error('写入图片缓存失败');
 
       updateNodeData({
         status: 'ready',
-        outputImage: outputBase64,
+        outputImage: toFlowImageAssetRef(assetId),
         gridSize: grid,
       });
 
@@ -378,8 +420,12 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         status: 'error',
         error: err.message || '拼合失败',
       });
+    } finally {
+      try {
+        loadedImages.forEach((it) => it.revoke?.());
+      } catch {}
     }
-  }, [allImages, backgroundColor, padding, gap, calculateGridSize, updateNodeData]);
+  }, [allImages, backgroundColor, padding, gap, calculateGridSize, updateNodeData, projectId, id]);
 
   const canCombine = allImages.length > 0 && status !== 'processing';
 
@@ -441,13 +487,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                   position: 'relative',
                 }}
               >
-                <img
-                  src={buildImageSrc(item.thumbnailData || item.imageData)}
-                  alt={`图片 ${index + 1}`}
-                  decoding="async"
-                  loading="lazy"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
+                <FlowImagePreview value={item.thumbnailData || item.imageData} alt={`图片 ${index + 1}`} />
                 <div
                   style={{
                     position: 'absolute',
@@ -515,7 +555,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             }}
           >
             <img
-              src={outputImage}
+              src={outputPreviewSrc}
               alt="拼合结果"
               style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
             />

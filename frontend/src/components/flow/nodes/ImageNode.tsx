@@ -8,6 +8,8 @@ import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { generateThumbnail } from "@/utils/imageHelper";
+import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
+import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -273,14 +275,21 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const fullSrc = React.useMemo(
-    () => buildImageSrc(connectedFrameImage || data.imageData || data.imageUrl),
-    [connectedFrameImage, data.imageData, data.imageUrl]
-  );
-  const displaySrc = React.useMemo(
-    () => buildImageSrc(data.thumbnail) || fullSrc,
-    [data.thumbnail, fullSrc]
-  );
+  const rawFullValue = connectedFrameImage || data.imageData || data.imageUrl;
+  const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
+  const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
+  const fullSrc = React.useMemo(() => {
+    if (fullAssetId) return fullAssetUrl || undefined;
+    return buildImageSrc(rawFullValue);
+  }, [fullAssetId, fullAssetUrl, rawFullValue]);
+
+  const rawThumbValue = data.thumbnail;
+  const thumbAssetId = React.useMemo(() => parseFlowImageAssetRef(rawThumbValue), [rawThumbValue]);
+  const thumbAssetUrl = useFlowImageAssetUrl(thumbAssetId);
+  const displaySrc = React.useMemo(() => {
+    if (thumbAssetId) return thumbAssetUrl || fullSrc;
+    return buildImageSrc(rawThumbValue) || fullSrc;
+  }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);

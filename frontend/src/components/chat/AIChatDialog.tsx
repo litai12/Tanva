@@ -62,6 +62,8 @@ import type {
 import PromptOptimizationPanel from "@/components/chat/PromptOptimizationPanel";
 import type { PromptOptimizationSettings } from "@/components/chat/PromptOptimizationPanel";
 import promptOptimizationService from "@/services/promptOptimizationService";
+import { contextManager } from "@/services/contextManager";
+import { toRenderableImageSrc } from "@/utils/imageSource";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -325,6 +327,7 @@ const AIChatDialog: React.FC = () => {
   const [hoverToggleZone, setHoverToggleZone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+  const ownedObjectUrlsRef = useRef<Set<string>>(new Set());
   const historyRef = useRef<HTMLDivElement>(null);
   const historyInitialHeightRef = useRef<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -1200,6 +1203,95 @@ const AIChatDialog: React.FC = () => {
     });
   }, [messages]);
 
+  const createOwnedObjectUrl = useCallback((file: File): string => {
+    const url = URL.createObjectURL(file);
+    ownedObjectUrlsRef.current.add(url);
+    return url;
+  }, []);
+
+  const revokeOwnedObjectUrl = useCallback((url?: string | null) => {
+    if (!url || typeof url !== "string") return;
+    if (!url.startsWith("blob:")) return;
+    if (!ownedObjectUrlsRef.current.has(url)) return;
+    try {
+      URL.revokeObjectURL(url);
+    } catch {}
+    ownedObjectUrlsRef.current.delete(url);
+  }, []);
+
+  // 组件卸载时，回收本组件创建的所有 ObjectURL，避免内存泄漏
+  useEffect(() => {
+    return () => {
+      ownedObjectUrlsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      });
+      ownedObjectUrlsRef.current.clear();
+    };
+  }, []);
+
+  const handleRemoveBlendImage = useCallback(
+    (index: number) => {
+      const url = sourceImagesForBlending[index];
+      revokeOwnedObjectUrl(url);
+      removeImageFromBlending(index);
+    },
+    [removeImageFromBlending, revokeOwnedObjectUrl, sourceImagesForBlending]
+  );
+
+  const clearBlendImagesWithRevoke = useCallback(() => {
+    sourceImagesForBlending.forEach((url) => revokeOwnedObjectUrl(url));
+    clearImagesForBlending();
+  }, [clearImagesForBlending, revokeOwnedObjectUrl, sourceImagesForBlending]);
+
+  // 当 Store/消息不再引用某个 blob URL 时，自动回收（避免由流程自动清空造成的“无人 revoke”泄漏）
+  useEffect(() => {
+    const referenced = new Set<string>();
+    const addIfBlob = (value?: unknown) => {
+      if (typeof value !== "string") return;
+      if (!value.startsWith("blob:")) return;
+      referenced.add(value);
+    };
+
+    addIfBlob(sourceImageForEditing);
+    addIfBlob(sourceImageForAnalysis);
+    sourceImagesForBlending.forEach((v) => addIfBlob(v));
+
+    // ContextManager 可能会缓存“最新图像”（例如用户刚上传的 blob URL）
+    // 如果这里不算作引用，后续 UI 清空 sourceImage 时会误 revoke，导致“编辑最新图”失效
+    try {
+      const cached = contextManager.getCurrentContext()?.cachedImages;
+      addIfBlob(cached?.latest);
+    } catch {}
+
+    // 消息里可能暂存 sourceImageData/sourceImagesData（用于回显/重发），避免误 revoke
+    messages.forEach((msg) => {
+      addIfBlob((msg as any).sourceImageData);
+      const list = (msg as any).sourceImagesData;
+      if (Array.isArray(list)) {
+        list.forEach((v) => addIfBlob(v));
+      }
+      addIfBlob((msg as any).imageData);
+      addIfBlob((msg as any).thumbnail);
+    });
+
+    const toRevoke: string[] = [];
+    ownedObjectUrlsRef.current.forEach((url) => {
+      if (!referenced.has(url)) {
+        toRevoke.push(url);
+      }
+    });
+
+    toRevoke.forEach((url) => revokeOwnedObjectUrl(url));
+  }, [
+    messages,
+    revokeOwnedObjectUrl,
+    sourceImageForAnalysis,
+    sourceImageForEditing,
+    sourceImagesForBlending,
+  ]);
+
   // 处理粘贴事件 - 支持从剪贴板粘贴图片
   const handlePaste = useCallback(
     (event: React.ClipboardEvent) => {
@@ -1244,14 +1336,8 @@ const AIChatDialog: React.FC = () => {
         imageItems.forEach((item) => {
           const file = item.getAsFile();
           if (!file) return;
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const imageData = e.target?.result as string;
-            if (imageData) {
-              addImageForBlending(imageData);
-            }
-          };
-          reader.readAsDataURL(file);
+          const objectUrl = createOwnedObjectUrl(file);
+          addImageForBlending(objectUrl);
         });
       } else {
         // 没有现有图片：根据粘贴数量决定模式
@@ -1259,28 +1345,16 @@ const AIChatDialog: React.FC = () => {
           // 单图：设置为编辑模式
           const file = imageItems[0].getAsFile();
           if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const imageData = e.target?.result as string;
-              if (imageData) {
-                setSourceImageForEditing(imageData);
-              }
-            };
-            reader.readAsDataURL(file);
+            const objectUrl = createOwnedObjectUrl(file);
+            setSourceImageForEditing(objectUrl);
           }
         } else {
           // 多图：设置为融合模式
           imageItems.forEach((item) => {
             const file = item.getAsFile();
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const imageData = e.target?.result as string;
-              if (imageData) {
-                addImageForBlending(imageData);
-              }
-            };
-            reader.readAsDataURL(file);
+            const objectUrl = createOwnedObjectUrl(file);
+            addImageForBlending(objectUrl);
           });
         }
       }
@@ -1292,6 +1366,7 @@ const AIChatDialog: React.FC = () => {
       sourceImagesForBlending,
       sourceImageForAnalysis,
       addImageForBlending,
+      createOwnedObjectUrl,
       setSourceImageForEditing,
       setSourceImageForAnalysis,
     ]
@@ -1323,32 +1398,20 @@ const AIChatDialog: React.FC = () => {
 
       // 添加新选择的图片到融合数组
       Array.from(files).forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const imageData = e.target?.result as string;
-          addImageForBlending(imageData);
-        };
-        reader.readAsDataURL(file);
+        const objectUrl = createOwnedObjectUrl(file);
+        addImageForBlending(objectUrl);
       });
     } else {
       // 没有现有图片：根据选择数量决定模式
       if (files.length === 1) {
         // 单图：默认设置为编辑模式（AI会智能判断是编辑还是分析）
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const imageData = e.target?.result as string;
-          setSourceImageForEditing(imageData);
-        };
-        reader.readAsDataURL(files[0]);
+        const objectUrl = createOwnedObjectUrl(files[0]);
+        setSourceImageForEditing(objectUrl);
       } else {
         // 多图：设置为融合模式
         Array.from(files).forEach((file) => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const imageData = e.target?.result as string;
-            addImageForBlending(imageData);
-          };
-          reader.readAsDataURL(file);
+          const objectUrl = createOwnedObjectUrl(file);
+          addImageForBlending(objectUrl);
         });
       }
     }
@@ -1365,11 +1428,13 @@ const AIChatDialog: React.FC = () => {
       setSourceImageForAnalysis(null);
 
       if (info.type === "edit") {
-        clearImagesForBlending();
+        clearBlendImagesWithRevoke();
+        revokeOwnedObjectUrl(sourceImageForEditing);
         setSourceImageForEditing(info.sourceImage);
       } else if (info.type === "blend") {
+        revokeOwnedObjectUrl(sourceImageForEditing);
         setSourceImageForEditing(null);
-        clearImagesForBlending();
+        clearBlendImagesWithRevoke();
         info.sourceImages.forEach((imageData) =>
           addImageForBlending(imageData)
         );
@@ -1383,10 +1448,12 @@ const AIChatDialog: React.FC = () => {
     },
     [
       addImageForBlending,
-      clearImagesForBlending,
+      clearBlendImagesWithRevoke,
       setCurrentInput,
       setSourceImageForAnalysis,
       setSourceImageForEditing,
+      revokeOwnedObjectUrl,
+      sourceImageForEditing,
     ]
   );
 
@@ -1458,7 +1525,8 @@ const AIChatDialog: React.FC = () => {
       }
 
       const content = (message.content || "").trim();
-      clearImagesForBlending();
+      clearBlendImagesWithRevoke();
+      revokeOwnedObjectUrl(sourceImageForEditing);
       setSourceImageForEditing(null);
       setSourceImageForAnalysis(null);
 
@@ -1482,12 +1550,14 @@ const AIChatDialog: React.FC = () => {
     },
     [
       addImageForBlending,
-      clearImagesForBlending,
+      clearBlendImagesWithRevoke,
       handleResendFromInfo,
       setCurrentInput,
       setSourceImageForAnalysis,
       setSourceImageForEditing,
       showToast,
+      revokeOwnedObjectUrl,
+      sourceImageForEditing,
     ]
   );
 
@@ -1510,7 +1580,8 @@ const AIChatDialog: React.FC = () => {
       setPendingTaskCount((prev) => prev + 1);
 
       // 🔥 清空所有 UI 状态中的源图像，确保不会在对话框上方显示图片
-      clearImagesForBlending();
+      clearBlendImagesWithRevoke();
+      revokeOwnedObjectUrl(sourceImageForEditing);
       setSourceImageForEditing(null);
       setSourceImageForAnalysis(null);
 
@@ -1566,13 +1637,15 @@ const AIChatDialog: React.FC = () => {
     [
       analyzeImage,
       blendImages,
-      clearImagesForBlending,
+      clearBlendImagesWithRevoke,
       editImage,
       generationStatus.isGenerating,
       processUserInput,
       setSourceImageForAnalysis,
       setSourceImageForEditing,
       showToast,
+      revokeOwnedObjectUrl,
+      sourceImageForEditing,
     ]
   );
 
@@ -1894,6 +1967,7 @@ const AIChatDialog: React.FC = () => {
 
   // 移除源图像
   const handleRemoveSourceImage = () => {
+    revokeOwnedObjectUrl(sourceImageForEditing);
     setSourceImageForEditing(null);
   };
 
@@ -2699,7 +2773,7 @@ const AIChatDialog: React.FC = () => {
                         {index + 1}
                       </div>
                       <button
-                        onClick={() => removeImageFromBlending(index)}
+                        onClick={() => handleRemoveBlendImage(index)}
                         className='absolute flex items-center justify-center w-4 h-4 text-white transition-opacity bg-red-500 rounded-full opacity-0 -top-1 -right-1 hover:bg-red-600 group-hover:opacity-100'
                         title={`删除图片 ${index + 1}`}
                       >
@@ -3525,16 +3599,8 @@ const AIChatDialog: React.FC = () => {
 
                     const rawImageSrc =
                       message.imageRemoteUrl ||
-                      (message.imageData
-                        ? message.imageData.startsWith("data:image")
-                          ? message.imageData
-                          : `data:image/png;base64,${message.imageData}`
-                        : undefined) ||
-                      (message.thumbnail
-                        ? message.thumbnail.startsWith("data:image")
-                          ? message.thumbnail
-                          : `data:image/png;base64,${message.thumbnail}`
-                        : undefined);
+                      toRenderableImageSrc(message.imageData) ||
+                      toRenderableImageSrc(message.thumbnail);
 
                     const imageSrc = normalizeDataUrl(rawImageSrc);
 

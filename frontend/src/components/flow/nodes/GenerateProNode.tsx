@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import ContextMenu from '../../ui/context-menu';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
+import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -75,16 +77,22 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
   const { status, error } = data;
 
   // 原图用于预览和下载
-  const fullSrc = React.useMemo(
-    () => buildImageSrc(data.imageData || data.imageUrl),
-    [data.imageData, data.imageUrl]
-  );
+  const rawFullValue = data.imageData || data.imageUrl;
+  const fullAssetId = React.useMemo(() => parseFlowImageAssetRef(rawFullValue), [rawFullValue]);
+  const fullAssetUrl = useFlowImageAssetUrl(fullAssetId);
+  const fullSrc = React.useMemo(() => {
+    if (fullAssetId) return fullAssetUrl || undefined;
+    return buildImageSrc(rawFullValue);
+  }, [fullAssetId, fullAssetUrl, rawFullValue]);
 
   // 缩略图用于节点显示（优先使用缩略图，没有则用原图）
-  const displaySrc = React.useMemo(
-    () => buildImageSrc(data.thumbnail) || fullSrc,
-    [data.thumbnail, fullSrc]
-  );
+  const rawThumbValue = data.thumbnail;
+  const thumbAssetId = React.useMemo(() => parseFlowImageAssetRef(rawThumbValue), [rawThumbValue]);
+  const thumbAssetUrl = useFlowImageAssetUrl(thumbAssetId);
+  const displaySrc = React.useMemo(() => {
+    if (thumbAssetId) return thumbAssetUrl || fullSrc;
+    return buildImageSrc(rawThumbValue) || fullSrc;
+  }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
 
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);

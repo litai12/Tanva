@@ -4,6 +4,7 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
+import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 
 export default function ManualSaveButton() {
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -25,6 +26,12 @@ export default function ManualSaveButton() {
       const { projectId: currentProjectId, content, version } = store;
       if (!currentProjectId || !content) {
         setError('当前没有可以保存的内容');
+        return;
+      }
+
+      const invalidImageIds = getNonRemoteImageAssetIds(content);
+      if (invalidImageIds.length > 0) {
+        setError(`存在未上传到 OSS 的图片（${invalidImageIds.length} 张），上传完成前无法保存`);
         return;
       }
 

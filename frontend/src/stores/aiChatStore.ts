@@ -26,6 +26,8 @@ import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
+import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
+import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from "@/utils/imageSource";
 import {
   STORE_NAMES,
   idbGet,
@@ -62,6 +64,9 @@ let generatingImageCount = 0;
 
 const placeholderLogger = logger.scope("placeholder");
 
+// 限制图片上传并发，避免同时 atob/encode/上传导致内存峰值
+const aiChatUploadLimiter = createAsyncLimiter(2);
+
 // IndexedDB 存储的会话数据结构
 interface IDBSessionsData {
   id: string;
@@ -82,28 +87,54 @@ const optimizeMessagesMemory = (messages: ChatMessage[]): ChatMessage[] => {
     if (!isOldMessage) return msg;
 
     const hasRemoteUrl = !!(msg.imageRemoteUrl && msg.imageRemoteUrl.startsWith("http"));
+    const hasBlobSource =
+      (typeof msg.sourceImageData === "string" && msg.sourceImageData.startsWith("blob:")) ||
+      (Array.isArray(msg.sourceImagesData) &&
+        msg.sourceImagesData.some(
+          (v) => typeof v === "string" && v.startsWith("blob:")
+        )) ||
+      (typeof msg.thumbnail === "string" && msg.thumbnail.startsWith("blob:"));
 
-    // 只有在有远程URL时才清理，确保用户仍可下载
-    if (!hasRemoteUrl) return msg;
+    // 只有在有远程URL（可回放）或 blob URL（不可持久化且容易泄漏）时才清理
+    if (!hasRemoteUrl && !hasBlobSource) return msg;
 
     const nextMsg = { ...msg };
     let changed = false;
 
-    // 有远程URL时，直接清理 imageData
-    if (msg.imageData) {
+    // 有远程URL时，直接清理 imageData（完整 base64）
+    if (hasRemoteUrl && msg.imageData) {
       nextMsg.imageData = undefined;
       changed = true;
     }
 
     // 清理 sourceImageData
-    if (msg.sourceImageData) {
+    if (
+      msg.sourceImageData &&
+      (hasRemoteUrl || msg.sourceImageData.startsWith("blob:"))
+    ) {
       nextMsg.sourceImageData = undefined;
       changed = true;
     }
 
     // 清理 sourceImagesData 数组
     if (Array.isArray(msg.sourceImagesData) && msg.sourceImagesData.length > 0) {
-      nextMsg.sourceImagesData = [];
+      if (hasRemoteUrl) {
+        nextMsg.sourceImagesData = [];
+        changed = true;
+      } else {
+        const filtered = msg.sourceImagesData.filter(
+          (v) => !(typeof v === "string" && v.startsWith("blob:"))
+        );
+        if (filtered.length !== msg.sourceImagesData.length) {
+          nextMsg.sourceImagesData = filtered;
+          changed = true;
+        }
+      }
+    }
+
+    // blob thumbnail 无法跨刷新复用，且会占用内存
+    if (typeof msg.thumbnail === "string" && msg.thumbnail.startsWith("blob:")) {
+      nextMsg.thumbnail = undefined;
       changed = true;
     }
 
@@ -751,6 +782,8 @@ const dropLargeInline = (value?: string | null): string | undefined => {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  // blob URL 仅在当前页面会话有效，不能持久化（刷新后会失效）
+  if (/^blob:/i.test(trimmed)) return undefined;
   // remove whitespace to measure real length
   const compact = trimmed.replace(/\s+/g, "");
   if (compact.length > INLINE_MEDIA_LIMIT) return undefined;
@@ -1290,10 +1323,11 @@ async function buildRunningHubProviderOptions(params: {
   const { primaryImage, referenceImage, projectId, onStageUpdate } = params;
 
   onStageUpdate?.("上传SU截图", 25);
-  const primaryUrl = await uploadImageToOSS(
-    ensureDataUrl(primaryImage),
-    projectId
-  );
+  const primaryDataUrl = await resolveImageToDataUrl(primaryImage);
+  if (!primaryDataUrl) {
+    throw new Error("SU 截图读取失败，请重新选择图片。");
+  }
+  const primaryUrl = await uploadImageToOSS(primaryDataUrl, projectId);
   if (!primaryUrl) {
     throw new Error("SU 截图上传失败，请稍后重试。");
   }
@@ -1309,10 +1343,11 @@ async function buildRunningHubProviderOptions(params: {
 
   if (referenceImage) {
     onStageUpdate?.("上传参考图", 30);
-    const referenceUrl = await uploadImageToOSS(
-      ensureDataUrl(referenceImage),
-      projectId
-    );
+    const referenceDataUrl = await resolveImageToDataUrl(referenceImage);
+    if (!referenceDataUrl) {
+      throw new Error("参考图读取失败，请重新选择图片。");
+    }
+    const referenceUrl = await uploadImageToOSS(referenceDataUrl, projectId);
     if (!referenceUrl) {
       throw new Error("参考图上传失败，请稍后重试。");
     }
@@ -1346,31 +1381,41 @@ export async function uploadImageToOSS(
   imageData: string,
   projectId?: string | null
 ): Promise<string | null> {
-  try {
-    if (!imageData || !imageData.includes("base64,")) {
-      console.warn("⚠️ 无效的图片数据，跳过上传");
-      return null;
-    }
+  return aiChatUploadLimiter.run(async () => {
+    try {
+      if (!imageData || typeof imageData !== "string") {
+        console.warn("⚠️ 无效的图片数据，跳过上传");
+        return null;
+      }
 
-    const blob = dataURLToBlob(imageData);
-    const result = await ossUploadService.uploadToOSS(blob, {
-      dir: "ai-chat-images/",
-      projectId,
-      fileName: `ai-chat-${Date.now()}.png`,
-      contentType: "image/png",
-      maxSize: 10 * 1024 * 1024, // 10MB
-    });
+      // 优先用 fetch(dataURL/blobURL) -> blob，避免 atob+大数组导致 JS 堆峰值
+      const blob =
+        (await resolveImageToBlob(imageData, { preferProxy: true })) ||
+        (imageData.includes("base64,") ? dataURLToBlob(imageData) : null);
 
-    if (result.success && result.url) {
-      return result.url;
-    } else {
+      if (!blob) {
+        console.warn("⚠️ 图片转换 Blob 失败，跳过上传");
+        return null;
+      }
+
+      const result = await ossUploadService.uploadToOSS(blob, {
+        dir: "ai-chat-images/",
+        projectId,
+        fileName: `ai-chat-${Date.now()}.png`,
+        contentType: blob.type || "image/png",
+        maxSize: 10 * 1024 * 1024, // 10MB
+      });
+
+      if (result.success && result.url) {
+        return result.url;
+      }
       console.error("❌ 图片上传失败:", result.error);
       return null;
+    } catch (error) {
+      console.error("❌ 图片上传异常:", error);
+      return null;
     }
-  } catch (error) {
-    console.error("❌ 图片上传异常:", error);
-    return null;
-  }
+  });
 }
 
 const serializeConversation = async (
@@ -1389,18 +1434,22 @@ const serializeConversation = async (
       msg.imageData.trim().length > 0
   );
 
-  const uploadResults = await Promise.all(
-    messagesNeedingUpload.map(async (msg) => {
+  // ⚠️ 用并发限制替换 Promise.all，避免一次性上传多张大图导致内存峰值
+  const uploadResults = await mapWithLimit(
+    messagesNeedingUpload,
+    1,
+    async (msg) => {
       try {
-        const dataUrl = ensureDataUrl(msg.imageData!);
-        const ossUrl = await uploadImageToOSS(dataUrl, projectId);
+        const uploadInput = toRenderableImageSrc(msg.imageData) ?? msg.imageData!;
+        const ossUrl = await uploadImageToOSS(uploadInput, projectId);
         return { messageId: msg.id, ossUrl };
       } catch (error) {
         console.warn("⚠️ 上传消息图片失败，使用本地数据回退:", error);
         return { messageId: msg.id, ossUrl: null };
       }
-    })
+    }
   );
+  
 
   const imageUrlMap = new Map<string, string | null>();
   uploadResults.forEach(({ messageId, ossUrl }) => {
@@ -1431,7 +1480,7 @@ const serializeConversation = async (
       const fallbackThumbnail = dropLargeInline(
         message.thumbnail ??
           (!remoteUrl && message.imageData
-            ? ensureDataUrl(message.imageData)
+            ? toRenderableImageSrc(message.imageData) ?? message.imageData
             : undefined)
       );
 
@@ -1997,6 +2046,24 @@ export const useAIChatStore = create<AIChatState>()(
           remoteUrl: remoteUrl ?? undefined,
           thumbnail: previewDataUrl ?? dataUrl,
         };
+
+        // 🔥 若图片已落到画布（placeholderId 对应画布 imageId），尽早把画布图片升级为远程 URL，并释放 base64/blob 内存
+        if (assets.remoteUrl && typeof window !== "undefined") {
+          try {
+            const placeholderId = `ai-placeholder-${aiMessageId}`;
+            window.dispatchEvent(
+              new CustomEvent("tanva:upgradeImageSource", {
+                detail: {
+                  placeholderId,
+                  remoteUrl: assets.remoteUrl,
+                  aiMessageId,
+                },
+              })
+            );
+          } catch {
+            // ignore
+          }
+        }
 
         if (assets.remoteUrl || assets.thumbnail) {
           get().updateMessage(aiMessageId, (msg) => ({
@@ -2819,11 +2886,8 @@ export const useAIChatStore = create<AIChatState>()(
                           ...msg,
                           content: messageContent,
                           imageData: imageRemoteUrl ? undefined : inlineImageData,
-                          thumbnail: imageRemoteUrl
-                            ? imageRemoteUrl
-                            : inlineImageData
-                            ? ensureDataUrl(inlineImageData)
-                            : msg.thumbnail,
+                          // 避免把完整 base64 同时存两份（imageData + thumbnail），缩略图由后续异步流程生成/回填
+                          thumbnail: imageRemoteUrl ? imageRemoteUrl : msg.thumbnail,
                           imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                           metadata: result.data?.metadata,
                           provider: state.aiProvider,
@@ -2849,9 +2913,7 @@ export const useAIChatStore = create<AIChatState>()(
                 if (message) {
                   message.content = messageContent;
                   message.imageData = inlineImageData;
-                  if (inlineImageData) {
-                    message.thumbnail = ensureDataUrl(inlineImageData);
-                  }
+                  // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
                   message.imageRemoteUrl =
                     imageRemoteUrl || message.imageRemoteUrl;
                   message.metadata = result.data?.metadata;
@@ -3194,7 +3256,9 @@ export const useAIChatStore = create<AIChatState>()(
           logProcessStep(metrics, "editImage entered");
 
           // 🔥 并行模式：不检查全局状态
-          const normalizedSourceImage = ensureDataUrl(sourceImage);
+          const displaySourceImage = showImagePlaceholder
+            ? toRenderableImageSrc(sourceImage)
+            : null;
 
           const override = options?.override;
           let aiMessageId: string | undefined;
@@ -3212,7 +3276,7 @@ export const useAIChatStore = create<AIChatState>()(
               ...msg,
               content: `编辑图像: ${prompt}`,
               sourceImageData: showImagePlaceholder
-                ? normalizedSourceImage
+                ? displaySourceImage ?? msg.sourceImageData
                 : msg.sourceImageData,
             }));
             get().updateMessage(aiMessageId, (msg) => ({
@@ -3220,7 +3284,7 @@ export const useAIChatStore = create<AIChatState>()(
               content: "正在编辑图像...",
               expectsImageOutput: true,
               sourceImageData: showImagePlaceholder
-                ? normalizedSourceImage
+                ? displaySourceImage ?? msg.sourceImageData
                 : msg.sourceImageData,
               generationStatus: {
                 ...(msg.generationStatus || {
@@ -3241,7 +3305,7 @@ export const useAIChatStore = create<AIChatState>()(
             };
 
             if (showImagePlaceholder) {
-              messageData.sourceImageData = normalizedSourceImage;
+              messageData.sourceImageData = displaySourceImage ?? undefined;
             }
 
             state.addMessage(messageData);
@@ -3258,7 +3322,7 @@ export const useAIChatStore = create<AIChatState>()(
               },
               expectsImageOutput: true,
               sourceImageData: showImagePlaceholder
-                ? normalizedSourceImage
+                ? displaySourceImage ?? undefined
                 : undefined,
               provider: state.aiProvider,
             };
@@ -3363,6 +3427,12 @@ export const useAIChatStore = create<AIChatState>()(
               error: null,
               stage: "正在编辑",
             });
+
+            // ✅ 统一把源图解析为 dataURL（支持 dataURL/base64/blob/remote），避免把 blob/remote 当作 base64 拼接
+            const normalizedSourceImage = await resolveImageToDataUrl(sourceImage);
+            if (!normalizedSourceImage) {
+              throw new Error("源图像读取失败，请重新选择图片。");
+            }
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
             // 每秒更新一次，每次增加约0.79%
@@ -3516,11 +3586,7 @@ export const useAIChatStore = create<AIChatState>()(
                           ...msg,
                           content: messageContent,
                           imageData: imageRemoteUrl ? undefined : inlineImageData,
-                          thumbnail: imageRemoteUrl
-                            ? imageRemoteUrl
-                            : inlineImageData
-                            ? ensureDataUrl(inlineImageData)
-                            : msg.thumbnail,
+                          thumbnail: imageRemoteUrl ? imageRemoteUrl : msg.thumbnail,
                           imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                           metadata: result.data?.metadata,
                           provider: state.aiProvider,
@@ -3544,9 +3610,7 @@ export const useAIChatStore = create<AIChatState>()(
                 if (message) {
                   message.content = messageContent;
                   message.imageData = inlineImageData;
-                  if (inlineImageData) {
-                    message.thumbnail = ensureDataUrl(inlineImageData);
-                  }
+                  // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
                   message.imageRemoteUrl =
                     imageRemoteUrl || message.imageRemoteUrl;
                   message.metadata = result.data?.metadata;
@@ -4045,6 +4109,19 @@ export const useAIChatStore = create<AIChatState>()(
               stage: "正在融合",
             });
 
+            // ✅ 统一把融合源图解析为 dataURL（支持 dataURL/base64/blob/remote），避免直接把 blob/remote 传给后端
+            const normalizedSourceImages = await mapWithLimit(
+              sourceImages,
+              2,
+              async (img) => {
+                const resolved = await resolveImageToDataUrl(img);
+                if (!resolved) {
+                  throw new Error("融合图片读取失败，请重新选择图片。");
+                }
+                return resolved;
+              }
+            );
+
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
             // 每秒更新一次，每次增加约0.79%
             logProcessStep(metrics, "blendImages progress interval start");
@@ -4078,7 +4155,7 @@ export const useAIChatStore = create<AIChatState>()(
 
             const result = await blendImagesViaAPI({
               prompt,
-              sourceImages,
+              sourceImages: normalizedSourceImages,
               model: modelToUse,
               aiProvider: state.aiProvider,
               outputFormat: "png",
@@ -4109,11 +4186,7 @@ export const useAIChatStore = create<AIChatState>()(
                           ...msg,
                           content: messageContent,
                           imageData: imageRemoteUrl ? undefined : inlineImageData,
-                          thumbnail: imageRemoteUrl
-                            ? imageRemoteUrl
-                            : inlineImageData
-                            ? ensureDataUrl(inlineImageData)
-                            : msg.thumbnail,
+                          thumbnail: imageRemoteUrl ? imageRemoteUrl : msg.thumbnail,
                           imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                           metadata: result.data?.metadata,
                           provider: state.aiProvider,
@@ -4138,9 +4211,7 @@ export const useAIChatStore = create<AIChatState>()(
                 if (message) {
                   message.content = messageContent;
                   message.imageData = inlineImageData;
-                  if (inlineImageData) {
-                    message.thumbnail = ensureDataUrl(inlineImageData);
-                  }
+                  // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
                   message.imageRemoteUrl =
                     imageRemoteUrl || message.imageRemoteUrl;
                   message.metadata = result.data?.metadata;
@@ -4485,11 +4556,7 @@ export const useAIChatStore = create<AIChatState>()(
                           ...msg,
                           content: messageContent,
                           imageData: imageRemoteUrl ? undefined : inlineImageData,
-                          thumbnail: imageRemoteUrl
-                            ? imageRemoteUrl
-                            : inlineImageData
-                            ? ensureDataUrl(inlineImageData)
-                            : msg.thumbnail,
+                          thumbnail: imageRemoteUrl ? imageRemoteUrl : msg.thumbnail,
                           imageRemoteUrl: imageRemoteUrl || msg.imageRemoteUrl,
                           metadata: result.data?.metadata,
                           provider: "midjourney",
@@ -4514,10 +4581,9 @@ export const useAIChatStore = create<AIChatState>()(
                   messageRef.imageData = imageRemoteUrl
                     ? undefined
                     : inlineImageData;
+                  // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
                   if (imageRemoteUrl) {
                     messageRef.thumbnail = imageRemoteUrl;
-                  } else if (inlineImageData) {
-                    messageRef.thumbnail = ensureDataUrl(inlineImageData);
                   }
                   messageRef.imageRemoteUrl =
                     imageRemoteUrl || messageRef.imageRemoteUrl;
@@ -4589,10 +4655,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 🔥 并行模式：不检查全局状态
 
-          // 确保图像数据有正确的data URL前缀
-          const formattedImageData = sourceImage.startsWith("data:image")
-            ? sourceImage
-            : `data:image/png;base64,${sourceImage}`;
+          const displaySourceImage = toRenderableImageSrc(sourceImage);
           const override = options?.override;
           let aiMessageId: string | undefined;
 
@@ -4601,12 +4664,12 @@ export const useAIChatStore = create<AIChatState>()(
             get().updateMessage(override.userMessageId, (msg) => ({
               ...msg,
               content: prompt ? `分析图片: ${prompt}` : "分析这张图片",
-              sourceImageData: formattedImageData,
+              sourceImageData: displaySourceImage ?? msg.sourceImageData,
             }));
             get().updateMessage(aiMessageId, (msg) => ({
               ...msg,
               content: "正在分析图片...",
-              sourceImageData: formattedImageData,
+              sourceImageData: displaySourceImage ?? msg.sourceImageData,
               generationStatus: {
                 ...(msg.generationStatus || {
                   isGenerating: true,
@@ -4622,7 +4685,7 @@ export const useAIChatStore = create<AIChatState>()(
             state.addMessage({
               type: "user",
               content: prompt ? `分析图片: ${prompt}` : "分析这张图片",
-              sourceImageData: formattedImageData,
+              sourceImageData: displaySourceImage ?? undefined,
             });
 
             // 🔥 创建占位 AI 消息
@@ -4635,7 +4698,7 @@ export const useAIChatStore = create<AIChatState>()(
                 error: null,
                 stage: "准备中",
               },
-              sourceImageData: formattedImageData,
+              sourceImageData: displaySourceImage ?? undefined,
               provider: state.aiProvider,
             };
 
@@ -4657,6 +4720,12 @@ export const useAIChatStore = create<AIChatState>()(
               error: null,
               stage: "正在分析",
             });
+
+            // ✅ 统一把源图解析为 dataURL（支持 dataURL/base64/blob/remote）
+            const formattedImageData = await resolveImageToDataUrl(sourceImage);
+            if (!formattedImageData) {
+              throw new Error("源图像读取失败，请重新选择图片。");
+            }
 
             // 模拟进度更新 - 2分钟（120秒）内从0%到95%
             // 每秒更新一次，每次增加约0.79%
@@ -5192,11 +5261,8 @@ export const useAIChatStore = create<AIChatState>()(
               for (const img of referenceImageList) {
                 if (!img) continue;
                 try {
-                  const dataUrl = ensureDataUrl(img);
-                  const uploadedUrl = await uploadImageToOSS(
-                    dataUrl,
-                    projectId
-                  );
+                  const uploadInput = toRenderableImageSrc(img) ?? img;
+                  const uploadedUrl = await uploadImageToOSS(uploadInput, projectId);
                   if (uploadedUrl) {
                     referenceImageUrls.push(uploadedUrl);
                   } else {

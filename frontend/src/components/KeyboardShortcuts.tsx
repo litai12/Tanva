@@ -4,6 +4,7 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { historyService } from '@/services/historyService';
+import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 
 export default function KeyboardShortcuts() {
   useEffect(() => {
@@ -36,6 +37,17 @@ export default function KeyboardShortcuts() {
           const store = useProjectContentStore.getState();
           const { projectId, content, version } = store;
           if (!projectId || !content) return;
+          const invalidImageIds = getNonRemoteImageAssetIds(content);
+          if (invalidImageIds.length > 0) {
+            try {
+              useProjectContentStore
+                .getState()
+                .setError(
+                  `存在未上传到 OSS 的图片（${invalidImageIds.length} 张），上传完成前无法保存`
+                );
+            } catch {}
+            return;
+          }
           store.setSaving(true);
           const result = await projectApi.saveContent(projectId, { content, version });
           store.markSaved(result.version, result.updatedAt ?? new Date().toISOString());

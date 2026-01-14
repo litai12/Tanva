@@ -50,7 +50,7 @@ export class AuthController {
     }
   }
 
-  // 短信登录（固定验证码 336699）
+  // 短信登录（开发/调试模式支持固定验证码，默认 336699，可用 SMS_FIXED_CODE 覆盖）
   @Post('login-sms')
   @HttpCode(HttpStatus.OK)
   async loginSms(@Body() dto: SmsLoginDto, @Req() req: any, @Res({ passthrough: true }) res: any) {

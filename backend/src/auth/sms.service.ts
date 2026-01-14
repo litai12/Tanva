@@ -32,6 +32,15 @@ export class SmsService {
     }
   }
 
+  private isDevMode(): boolean {
+    const nodeEnv = (this.config.get<string>('NODE_ENV') || 'development').toLowerCase();
+    return nodeEnv !== 'production';
+  }
+
+  private fixedCode(): string {
+    return String(this.config.get<string>('SMS_FIXED_CODE') || '336699');
+  }
+
   private genCode(): string {
     // always produce 6 digits (may start with 0)
     return Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
@@ -74,7 +83,7 @@ export class SmsService {
 
   /**
    * Send verification code to phone and store it (ttl seconds)
-   * Returns the code when in debug mode (no ALI keys or SMS_DEBUG=true).
+   * Returns debugCode in dev/debug mode.
    */
   async sendCode(phone: string): Promise<{ ok: true; debugCode?: string }> {
     // 限流：同一手机号 60 秒内只允许一次发送
@@ -105,8 +114,10 @@ export class SmsService {
       }, lockTtlSec * 1000 + 1000);
     }
 
-    const code = this.genCode();
     const ttl = Number(this.config.get<number>('SMS_CODE_TTL') ?? 300);
+    const smsDebug = this.config.get('SMS_DEBUG') === 'true';
+    const allowDebugCode = this.isDevMode() || smsDebug;
+    const code = allowDebugCode ? this.fixedCode() : this.genCode();
 
     // If Ali SMS client is available and keys exist, try to call it.
     if (AliSmsClient && this.config.get('ALI_ACCESS_KEY_ID') && this.config.get('ALI_ACCESS_KEY_SECRET')) {
@@ -146,18 +157,16 @@ export class SmsService {
     // 写入验证码（如果使用 Redis 则写入 Redis；否则内存）
     await this.setCode(phone, code, ttl);
 
-    // Do NOT return debugCode in responses to the client.
-    // For debugging, the generated code is logged server-side but not exposed to clients.
-    if (!AliSmsClient || !this.config.get('ALI_ACCESS_KEY_ID')) {
-      this.logger.log(`SMS not sent (missing ALI keys). Generated code=${code} for ${phone}`);
-      return { ok: true };
-    }
-
+    if (allowDebugCode) return { ok: true, debugCode: code };
     return { ok: true };
   }
 
   async verifyCode(phone: string, inputCode: string) {
     const real = await this.getCode(phone);
+    const smsDebug = this.config.get('SMS_DEBUG') === 'true';
+    if (!real && (this.isDevMode() || smsDebug) && inputCode === this.fixedCode()) {
+      return { ok: true };
+    }
     if (!real) return { ok: false, msg: '验证码已过期' };
     if (real !== inputCode) return { ok: false, msg: '验证码错误' };
     await this.delCode(phone);
@@ -166,5 +175,4 @@ export class SmsService {
 }
 
 export default SmsService;
-
 

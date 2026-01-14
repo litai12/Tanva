@@ -33,3 +33,5 @@ frontend/bake/.env.local
 frontend/bake/.env.production
 frontend/bake/back/.env
 frontend/bake/back/.env.production
+
+.npm-cache

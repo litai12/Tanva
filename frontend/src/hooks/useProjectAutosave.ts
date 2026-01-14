@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { projectApi } from '@/services/projectApi';
+import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { setProjectCache } from '@/services/projectCacheStore';
+import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 
 const AUTOSAVE_INTERVAL = 60 * 1000; // 1 分钟定时保存
 const DEBOUNCE_DELAY = 5 * 1000; // 5 秒防抖保存（用户停止操作后）
@@ -51,22 +53,50 @@ export function useProjectAutosave(projectId: string | null) {
 
     try {
       savingLockRef.current = true;
+      let contentToSave = currentContent;
+      let versionToSave = currentVersion;
+      let counterToSave = savedAtCounter;
+
+      // 防止把 blob:/data: 本地资源直接落盘到后端：先尝试触发一次 PaperSaveService 补传 OSS
+      if (getNonRemoteImageAssetIds(contentToSave).length > 0) {
+        try {
+          await paperSaveService.saveImmediately();
+          const storeAfterFlush = useProjectContentStore.getState();
+          if (storeAfterFlush.projectId === currentProjectId && storeAfterFlush.content) {
+            contentToSave = storeAfterFlush.content;
+            versionToSave = storeAfterFlush.version;
+            counterToSave = storeAfterFlush.dirtyCounter;
+          }
+        } catch {}
+      }
+
+      const invalidImageIds = getNonRemoteImageAssetIds(contentToSave);
+      if (invalidImageIds.length > 0) {
+        const message = `存在未上传到 OSS 的图片（${invalidImageIds.length} 张），上传完成前无法保存`;
+        saveMonitor.push(currentProjectId, 'save_blocked_local_assets', {
+          count: invalidImageIds.length,
+          attempt,
+        });
+        setError(message);
+        return;
+      }
+
       setSaving(true);
-      const result = await projectApi.saveContent(currentProjectId, { content: currentContent, version: currentVersion });
+      const result = await projectApi.saveContent(currentProjectId, { content: contentToSave, version: versionToSave });
 
       // 传递保存时的 dirtyCounter，让 markSaved 判断是否有新修改
-      markSaved(result.version, result.updatedAt ?? new Date().toISOString(), savedAtCounter);
+      markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterToSave);
 
       // 记录事件并写入本地良好快照（兜底恢复用）
       try {
         saveMonitor.push(currentProjectId, 'save_success', {
           version: result.version,
           updatedAt: result.updatedAt,
-          paperJsonLen: (currentContent as any)?.meta?.paperJsonLen || (currentContent as any)?.paperJson?.length || 0,
-          layerCount: (currentContent as any)?.layers?.length || 0,
+          paperJsonLen: (contentToSave as any)?.meta?.paperJsonLen || (contentToSave as any)?.paperJson?.length || 0,
+          layerCount: (contentToSave as any)?.layers?.length || 0,
           attempt,
         });
-        const paperJson = (currentContent as any)?.paperJson as string | undefined;
+        const paperJson = (contentToSave as any)?.paperJson as string | undefined;
         if (paperJson && paperJson.length > 0) {
           if (paperJson.length <= MAX_LOCAL_SNAPSHOT_LENGTH) {
             const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
@@ -86,7 +116,7 @@ export function useProjectAutosave(projectId: string | null) {
       // 更新本地缓存
       setProjectCache({
         projectId: currentProjectId,
-        content: currentContent,
+        content: contentToSave,
         version: result.version,
         updatedAt: result.updatedAt ?? new Date().toISOString(),
         cachedAt: new Date().toISOString(),
