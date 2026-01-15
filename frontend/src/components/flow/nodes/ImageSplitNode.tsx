@@ -1093,7 +1093,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   // 一键生成 Image 节点并连接
   const handleGenerateImageNodes = React.useCallback(() => {
     const legacy = Array.isArray(data.splitImages) ? data.splitImages : [];
-    const count = Math.min(outputCount, legacy.length > 0 ? legacy.length : splitRects.length);
+    const count = Math.min(outputCount, Math.max(splitRects.length, legacy.length));
     if (!canSplit) {
       window.dispatchEvent(
         new CustomEvent('toast', {
@@ -1137,7 +1137,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       id: string;
       type: string;
       position: { x: number; y: number };
-      data: { imageData?: string; label?: string; boxW: number; boxH: number };
+      data: {
+        imageData?: string;
+        imageUrl?: string;
+        crop?: { x: number; y: number; width: number; height: number; sourceWidth?: number; sourceHeight?: number };
+        label?: string;
+        boxW: number;
+        boxH: number;
+      };
     }> = [];
 
     const newEdges: Array<{
@@ -1147,6 +1154,18 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       target: string;
       targetHandle: string;
     }> = [];
+
+    const baseRef =
+      normalizeString(connectedImage) ||
+      normalizeString(rawInputImage) ||
+      normalizeString(data.inputImageUrl) ||
+      normalizeString(data.inputImage) ||
+      '';
+    const basePatch = baseRef
+      ? (isPersistableImageRef(baseRef) ? { imageUrl: baseRef } : { imageData: baseRef })
+      : null;
+    const cropSourceWidth = sourceSize.width > 0 ? sourceSize.width : undefined;
+    const cropSourceHeight = sourceSize.height > 0 ? sourceSize.height : undefined;
 
     for (let i = 0; i < count; i++) {
       const imageNodeId = `image-${id}-${i + 1}-${Date.now()}`;
@@ -1162,7 +1181,25 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           boxH: imageNodeHeight,
         },
       });
-      if (legacy.length > 0) {
+      const rect = splitRects[i];
+      const canUseCrop =
+        !!basePatch &&
+        !!rect &&
+        rect.width > 0 &&
+        rect.height > 0;
+
+      if (canUseCrop && rect) {
+        Object.assign(newNodes[newNodes.length - 1]!.data, basePatch);
+        newNodes[newNodes.length - 1]!.data.crop = {
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          sourceWidth: cropSourceWidth,
+          sourceHeight: cropSourceHeight,
+        };
+      } else if (legacy.length > 0) {
+        // 兜底：缺少 baseRef 时沿用 legacy 切片数据
         newNodes[newNodes.length - 1]!.data.imageData = legacy[i]!.imageData;
       }
 
@@ -1177,7 +1214,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
     rf.setNodes((nodes) => [...nodes, ...newNodes]);
     rf.setEdges((edges) => [...edges, ...newEdges]);
-  }, [rf, id, data.splitImages, outputCount, splitRects.length, boxW, boxH, canSplit]);
+  }, [rf, id, data.inputImage, data.inputImageUrl, data.splitImages, outputCount, splitRects, boxW, boxH, canSplit, connectedImage, rawInputImage, sourceSize.height, sourceSize.width]);
 
   return (
     <div style={{
