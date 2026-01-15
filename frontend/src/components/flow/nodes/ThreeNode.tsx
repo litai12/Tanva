@@ -34,6 +34,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const modelRef = React.useRef<THREE.Object3D | null>(null);
   const gridRef = React.useRef<THREE.GridHelper | null>(null);
   const axesRef = React.useRef<THREE.AxesHelper | null>(null);
+  const resizeObserverRef = React.useRef<ResizeObserver | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const renderPendingRef = React.useRef<number | null>(null);
   const fileInput = React.useRef<HTMLInputElement | null>(null);
@@ -87,6 +88,16 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     if (renderPendingRef.current !== null) {
       cancelAnimationFrame(renderPendingRef.current);
       renderPendingRef.current = null;
+    }
+
+    // 断开 ResizeObserver
+    if (resizeObserverRef.current) {
+      try {
+        resizeObserverRef.current.disconnect();
+      } catch (e) {
+        console.warn('Disconnect ResizeObserver error:', e);
+      }
+      resizeObserverRef.current = null;
     }
 
     // 释放 OrbitControls
@@ -179,14 +190,28 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     });
   }, []);
 
+  const syncRendererSizeToContainer = React.useCallback(() => {
+    const container = containerRef.current;
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    if (!container || !renderer || !camera) return;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (width <= 0 || height <= 0) return;
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    requestRender();
+  }, [requestRender]);
+
   const initIfNeeded = React.useCallback(() => {
     if (!containerRef.current) return;
     if (rendererRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const fallbackW = (boxSizeRef.current.boxW || 260) - 16;
     const fallbackH = (boxSizeRef.current.boxH || 220) - 64;
-    const w = Math.max(220, Math.floor(rect.width || fallbackW));
-    const h = Math.max(140, Math.floor(rect.height || fallbackH));
+    const w = Math.max(220, Math.floor(containerRef.current.clientWidth || rect.width || fallbackW));
+    const h = Math.max(140, Math.floor(containerRef.current.clientHeight || rect.height || fallbackH));
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#ffffff');
     const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
@@ -232,22 +257,22 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     sceneRef.current = scene;
     cameraRef.current = camera;
     rendererRef.current = renderer;
+    syncRendererSizeToContainer();
     requestRender();
 
     // Resize observer to keep renderer matching container size
+    if (resizeObserverRef.current) {
+      try {
+        resizeObserverRef.current.disconnect();
+      } catch {}
+      resizeObserverRef.current = null;
+    }
     const ro = new ResizeObserver(() => {
-      if (!containerRef.current) return;
-      const r = rendererRef.current, c = cameraRef.current;
-      const { width, height } = containerRef.current.getBoundingClientRect();
-      if (r && c && width > 0 && height > 0) {
-        r.setSize(width, height);
-        c.aspect = width / height;
-        c.updateProjectionMatrix();
-        requestRender();
-      }
+      syncRendererSizeToContainer();
     });
     ro.observe(containerRef.current);
-  }, [requestRender]);
+    resizeObserverRef.current = ro;
+  }, [requestRender, syncRendererSizeToContainer]);
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
@@ -258,13 +283,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   }, [initIfNeeded, disposeResources]);
 
   const onResize = (w: number, h: number) => {
-    const r = rendererRef.current, c = cameraRef.current;
-    if (r && c) {
-      r.setSize(Math.max(220, w - 16), Math.max(140, h - 64));
-      c.aspect = r.domElement.width / r.domElement.height;
-      c.updateProjectionMatrix();
-      requestRender();
-    }
+    boxSizeRef.current = { boxW: w, boxH: h };
+    requestAnimationFrame(() => syncRendererSizeToContainer());
   };
 
   const fitToObject = (obj: THREE.Object3D) => {
