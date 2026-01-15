@@ -17,6 +17,7 @@ type Props = {
     imageData?: string;
     imageUrl?: string;
     modelUrl?: string;
+    modelName?: string;
     boxW?: number; boxH?: number;
     onSend?: (id: string) => void;
   };
@@ -40,8 +41,45 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const [preview, setPreview] = React.useState(false);
   const [currentImageId, setCurrentImageId] = React.useState<string>('');
   const lastModelUrlRef = React.useRef<string | undefined>(undefined);
+  const [isModelUploading, setIsModelUploading] = React.useState(false);
+  const boxSizeRef = React.useRef<{ boxW?: number; boxH?: number }>({
+    boxW: data.boxW,
+    boxH: data.boxH,
+  });
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected ? '0 0 0 2px rgba(37,99,235,0.12)' : '0 1px 2px rgba(0,0,0,0.04)';
+
+  React.useEffect(() => {
+    boxSizeRef.current = { boxW: data.boxW, boxH: data.boxH };
+  }, [data.boxW, data.boxH]);
+
+  const updateNodeData = React.useCallback((patch: Record<string, any>) => {
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch },
+      })
+    );
+  }, [id]);
+
+  const normalizeModelUrl = React.useCallback((input: string): string => {
+    const raw = (input || '').trim();
+    if (!raw) return input;
+    if (raw.startsWith('/api/assets/proxy') || raw.startsWith('/assets/proxy')) {
+      return proxifyRemoteAssetUrl(raw);
+    }
+    if (raw.startsWith('/') || raw.startsWith('./') || raw.startsWith('../')) {
+      return raw;
+    }
+    if (/^(templates|projects|uploads|videos)\//i.test(raw)) {
+      return proxifyRemoteAssetUrl(
+        `/api/assets/proxy?key=${encodeURIComponent(raw.replace(/^\/+/, ''))}`
+      );
+    }
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      return proxifyRemoteAssetUrl(raw);
+    }
+    return raw;
+  }, []);
 
   // 资源释放函数 (High Priority Cleanup)
   const disposeResources = React.useCallback(() => {
@@ -99,6 +137,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     modelRef.current = null;
     gridRef.current = null;
     axesRef.current = null;
+    lastModelUrlRef.current = undefined;
   }, []);
   
   // 使用全局图片历史记录
@@ -144,8 +183,10 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     if (!containerRef.current) return;
     if (rendererRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const w = Math.max(220, Math.floor(rect.width || ((data.boxW || 260) - 16)));
-    const h = Math.max(140, Math.floor(rect.height || ((data.boxH || 220) - 64)));
+    const fallbackW = (boxSizeRef.current.boxW || 260) - 16;
+    const fallbackH = (boxSizeRef.current.boxH || 220) - 64;
+    const w = Math.max(220, Math.floor(rect.width || fallbackW));
+    const h = Math.max(140, Math.floor(rect.height || fallbackH));
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#ffffff');
     const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
@@ -206,7 +247,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       }
     });
     ro.observe(containerRef.current);
-  }, [data.boxW, data.boxH, requestRender]);
+  }, [requestRender]);
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
@@ -227,23 +268,29 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   };
 
   const fitToObject = (obj: THREE.Object3D) => {
-    const camera = cameraRef.current!;
-    const controls = controlsRef.current!;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
     const box = new THREE.Box3().setFromObject(obj);
+    if (box.isEmpty()) return;
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
-    const maxDim = Math.max(size.x, size.y, size.z);
+    // 将模型中心移动到原点，保证 OrbitControls 围绕中心旋转
+    obj.position.sub(center);
+
+    const maxDim = Math.max(size.x, size.y, size.z, Number.EPSILON);
     const fov = camera.fov * (Math.PI / 180);
-    let dist = (maxDim / (2 * Math.tan(fov / 2))); // distance required to fit object
+    let dist = maxDim / (2 * Math.tan(fov / 2)); // distance required to fit object
     dist *= 1.3; // padding
+    dist = Math.max(dist, 0.5);
     const direction = new THREE.Vector3(1, 0.8, 1).normalize();
-    camera.position.copy(center.clone().add(direction.multiplyScalar(dist)));
-    camera.near = dist / 100;
-    camera.far = dist * 100;
+    camera.position.copy(direction.multiplyScalar(dist));
+    camera.near = Math.max(dist / 100, 0.01);
+    camera.far = Math.max(dist * 100, 50);
     camera.updateProjectionMatrix();
-    controls.target.copy(center);
+    controls.target.set(0, 0, 0);
     controls.update();
   };
 
@@ -281,6 +328,28 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     setErr('加载模型失败，可能需要开启 Draco/KTX2 解码或检查链接是否可访问');
   }, []);
 
+  const uploadModelAndPersist = React.useCallback(async (file: File) => {
+    setIsModelUploading(true);
+    try {
+      const { model3DUploadService } = await import('@/services/model3DUploadService');
+      const result = await model3DUploadService.uploadModelFile(file, {
+        projectId: projectId ?? undefined,
+      });
+      if (!result.success || !result.asset?.url) {
+        throw new Error(result.error || '3D模型上传失败');
+      }
+      updateNodeData({
+        modelUrl: result.asset.url,
+        modelName: result.asset.fileName,
+      });
+    } catch (e: any) {
+      console.error('❌ 3D model upload failed:', e);
+      setErr(e?.message || '3D模型上传失败，请重试');
+    } finally {
+      setIsModelUploading(false);
+    }
+  }, [projectId, updateNodeData]);
+
   const loadModelFromFile = React.useCallback((file: File) => {
     initIfNeeded();
     const url = URL.createObjectURL(file);
@@ -303,8 +372,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     if (!url) return;
     initIfNeeded();
     const loader = createLoader();
+    const resolved = normalizeModelUrl(url);
     loader.load(
-      url,
+      resolved,
       (gltf) => {
         mountModel(gltf.scene);
       },
@@ -318,10 +388,11 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   // Keep effect below loadModelFromUrl so dependency array doesn't hit TDZ
   React.useEffect(() => {
     if (!data.modelUrl) return;
-    if (lastModelUrlRef.current === data.modelUrl) return;
-    lastModelUrlRef.current = data.modelUrl;
+    const resolved = normalizeModelUrl(data.modelUrl);
+    if (lastModelUrlRef.current === resolved && modelRef.current) return;
+    lastModelUrlRef.current = resolved;
     loadModelFromUrl(data.modelUrl);
-  }, [data.modelUrl, loadModelFromUrl]);
+  }, [data.modelUrl, loadModelFromUrl, normalizeModelUrl]);
 
   const capture = () => {
     initIfNeeded();
@@ -481,7 +552,9 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ fontWeight: 600 }}>3D</div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => fileInput.current?.click()} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>Upload</button>
+          <button disabled={isModelUploading} onClick={() => fileInput.current?.click()} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, opacity: isModelUploading ? 0.6 : 1, cursor: isModelUploading ? 'not-allowed' : 'pointer' }}>
+            {isModelUploading ? 'Uploading...' : 'Upload'}
+          </button>
           <button onClick={addTestCube} style={{ fontSize: 12, padding: '4px 8px', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }}>Cube</button>
           <button onClick={capture} style={{ fontSize: 12, padding: '4px 8px', background: '#111827', color: '#fff', borderRadius: 6 }}>Capture</button>
           <button onClick={sendToCanvas} disabled={!data.imageData && !data.imageUrl} title={!data.imageData && !data.imageUrl ? '无可发送的图像' : '发送到画布'} style={{ fontSize: 12, padding: '4px 8px', background: !data.imageData && !data.imageUrl ? '#e5e7eb' : '#111827', color: '#fff', borderRadius: 6 }}>
@@ -489,7 +562,19 @@ function ThreeNodeInner({ id, data, selected }: Props) {
           </button>
         </div>
       </div>
-      <input ref={fileInput} type="file" accept=".glb,.gltf,model/gltf-binary,model/gltf+json" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) loadModelFromFile(f); }} />
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.currentTarget.value = '';
+          if (!f) return;
+          loadModelFromFile(f);
+          void uploadModelAndPersist(f);
+        }}
+      />
       <div
         onDoubleClick={() => src && setPreview(true)}
         className="nodrag nowheel"
