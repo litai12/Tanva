@@ -74,6 +74,14 @@ export type StoryboardSplitData = {
 
 export type ImageSplitStatus = 'idle' | 'processing' | 'succeeded' | 'failed';
 
+export type SplitRectItem = {
+  index: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export type SplitImageItem = {
   index: number;
   imageData: string;
@@ -87,6 +95,11 @@ export type ImageSplitData = {
   status?: ImageSplitStatus;
   inputImage?: string;
   inputImageUrl?: string;
+  // 方案A：持久化仅保存裁切矩形与原图引用（不保存切片图片数据）
+  splitRects?: SplitRectItem[];
+  sourceWidth?: number;
+  sourceHeight?: number;
+  // legacy：历史数据可能仍包含切片图片（将逐步迁移到 splitRects）
   splitImages?: SplitImageItem[];
   outputCount?: number;
   error?: string;

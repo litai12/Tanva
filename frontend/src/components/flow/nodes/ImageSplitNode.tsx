@@ -15,20 +15,22 @@ import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
 import {
   getFlowImageBlob,
   parseFlowImageAssetRef,
-  putFlowImageBlobs,
-  toFlowImageAssetRef,
 } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { imageUploadService } from '@/services/imageUploadService';
 
 // 类型定义
-type SplitImageItem = {
+type SplitRectItem = {
   index: number;
-  imageData: string; // flow-asset / base64 / URL
   x: number;
   y: number;
   width: number;
   height: number;
+};
+
+type LegacySplitImageItem = SplitRectItem & {
+  imageData: string; // flow-asset / base64 / URL
 };
 
 type UpstreamImageItem = {
@@ -42,7 +44,12 @@ type Props = {
     status?: 'idle' | 'processing' | 'succeeded' | 'failed';
     inputImage?: string;
     inputImageUrl?: string;
-    splitImages?: SplitImageItem[];
+    // 方案A：仅持久化裁切矩形，不持久化切片图片数据
+    splitRects?: SplitRectItem[];
+    sourceWidth?: number;
+    sourceHeight?: number;
+    // legacy：历史数据可能仍包含 splitImages
+    splitImages?: LegacySplitImageItem[];
     outputCount?: number;
     error?: string;
     boxW?: number;
@@ -97,7 +104,7 @@ const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): strin
       const direct = normalizeString(d[key]);
       if (direct) return direct;
 
-      const splitImages = d.splitImages as SplitImageItem[] | undefined;
+      const splitImages = d.splitImages as LegacySplitImageItem[] | undefined;
       const idx = Math.max(0, Number(match[1]) - 1);
       const fromList = splitImages?.[idx]?.imageData;
       return normalizeString(fromList);
@@ -195,14 +202,14 @@ const readImagesFromNode = (node: Node<any>, sourceHandle?: string | null): Upst
         const direct = normalizeString(d[key]);
         if (direct) return [{ id: `${node.id}-${key}`, imageData: direct }];
 
-        const splitImages = d.splitImages as SplitImageItem[] | undefined;
+        const splitImages = d.splitImages as LegacySplitImageItem[] | undefined;
         const idx = Math.max(0, Number(match[1]) - 1);
         const fromList = normalizeString(splitImages?.[idx]?.imageData);
         return fromList ? [{ id: `${node.id}-split-${idx + 1}`, imageData: fromList }] : [];
       }
     }
 
-    const splitImages = d.splitImages as SplitImageItem[] | undefined;
+    const splitImages = d.splitImages as LegacySplitImageItem[] | undefined;
     if (Array.isArray(splitImages) && splitImages.length > 0) {
       return splitImages
         .map((img, idx) => {
@@ -238,7 +245,13 @@ const isWhitePixel = (r: number, g: number, b: number, threshold = 250): boolean
   return r >= threshold && g >= threshold && b >= threshold;
 };
 
-const splitImageByGrid = async (imageSrc: string, count: number): Promise<SplitImageItem[]> => {
+type SplitRectsResult = {
+  rects: SplitRectItem[];
+  sourceWidth: number;
+  sourceHeight: number;
+};
+
+const splitRectsByGrid = async (imageSrc: string, count: number): Promise<SplitRectsResult> => {
   const safeCount = Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, Math.floor(count || DEFAULT_OUTPUT_COUNT)));
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -249,7 +262,7 @@ const splitImageByGrid = async (imageSrc: string, count: number): Promise<SplitI
         const cols = Math.max(1, Math.ceil(Math.sqrt(safeCount)));
         const rows = Math.max(1, Math.ceil(safeCount / cols));
 
-        const splitImages: SplitImageItem[] = [];
+        const rects: SplitRectItem[] = [];
 
         for (let i = 0; i < safeCount; i += 1) {
           const row = Math.floor(i / cols);
@@ -263,18 +276,10 @@ const splitImageByGrid = async (imageSrc: string, count: number): Promise<SplitI
           const w = Math.max(1, x1 - x0);
           const h = Math.max(1, y1 - y0);
 
-          const regionCanvas = document.createElement('canvas');
-          regionCanvas.width = w;
-          regionCanvas.height = h;
-          const regionCtx = regionCanvas.getContext('2d');
-          if (!regionCtx) continue;
-
-          regionCtx.drawImage(img, x0, y0, w, h, 0, 0, w, h);
-          const base64 = regionCanvas.toDataURL('image/png').split(',')[1];
-          splitImages.push({ index: i, imageData: base64, x: x0, y: y0, width: w, height: h });
+          rects.push({ index: i, x: x0, y: y0, width: w, height: h });
         }
 
-        resolve(splitImages);
+        resolve({ rects, sourceWidth: img.width, sourceHeight: img.height });
       } catch (err) {
         reject(err);
       }
@@ -286,7 +291,7 @@ const splitImageByGrid = async (imageSrc: string, count: number): Promise<SplitI
 };
 
 // 智能检测并分割图片
-const detectAndSplitImage = async (imageSrc: string): Promise<SplitImageItem[]> => {
+const detectAndSplitRects = async (imageSrc: string): Promise<SplitRectsResult> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -315,11 +320,11 @@ const detectAndSplitImage = async (imageSrc: string): Promise<SplitImageItem[]> 
           const whiteRatio = total > 0 ? white / total : 0;
           const looksLikeWhiteBackground = whiteRatio >= 0.55;
           if (!looksLikeWhiteBackground || totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
-            resolve([]);
+            resolve({ rects: [], sourceWidth: img.width, sourceHeight: img.height });
             return;
           }
         } else if (totalPixels > MAX_PIXELS_FOR_REGION_DETECT) {
-          resolve([]);
+          resolve({ rects: [], sourceWidth: img.width, sourceHeight: img.height });
           return;
         }
 
@@ -340,29 +345,13 @@ const detectAndSplitImage = async (imageSrc: string): Promise<SplitImageItem[]> 
         // 检测非白色区域的边界框
         const regions = findNonWhiteRegions(data, width, height);
 
-        // 提取每个区域的图片
-        const splitImages: SplitImageItem[] = [];
+        const rects: SplitRectItem[] = [];
         regions.forEach((region, index) => {
-          const regionCanvas = document.createElement('canvas');
-          const regionCtx = regionCanvas.getContext('2d');
-          if (!regionCtx) return;
-
           const regionWidth = region.maxX - region.minX + 1;
           const regionHeight = region.maxY - region.minY + 1;
 
-          regionCanvas.width = regionWidth;
-          regionCanvas.height = regionHeight;
-
-          regionCtx.drawImage(
-            img,
-            region.minX, region.minY, regionWidth, regionHeight,
-            0, 0, regionWidth, regionHeight
-          );
-
-          const base64 = regionCanvas.toDataURL('image/png').split(',')[1];
-          splitImages.push({
+          rects.push({
             index,
-            imageData: base64,
             x: region.minX,
             y: region.minY,
             width: regionWidth,
@@ -370,7 +359,7 @@ const detectAndSplitImage = async (imageSrc: string): Promise<SplitImageItem[]> 
           });
         });
 
-        resolve(splitImages);
+        resolve({ rects, sourceWidth: img.width, sourceHeight: img.height });
       } catch (err) {
         reject(err);
       }
@@ -473,27 +462,58 @@ const findNonWhiteRegions = (
   return regions;
 };
 
-function SplitImagePreview({ index, value }: { index: number; value: string }) {
-  const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
-  const assetUrl = useFlowImageAssetUrl(assetId);
-  const src = assetId ? (assetUrl || undefined) : (buildImageSrc(value) || undefined);
+function SplitRectPreview({
+  index,
+  rect,
+  sourceSrc,
+  sourceWidth,
+  sourceHeight,
+}: {
+  index: number;
+  rect: SplitRectItem;
+  sourceSrc?: string;
+  sourceWidth?: number;
+  sourceHeight?: number;
+}) {
+  const thumbSize = 48;
+  const canRender =
+    !!sourceSrc &&
+    typeof sourceWidth === 'number' &&
+    typeof sourceHeight === 'number' &&
+    sourceWidth > 0 &&
+    sourceHeight > 0 &&
+    rect.width > 0 &&
+    rect.height > 0;
+
+  const scale = canRender ? Math.max(thumbSize / rect.width, thumbSize / rect.height) : 1;
+  const displayW = canRender ? sourceWidth! * scale : 0;
+  const displayH = canRender ? sourceHeight! * scale : 0;
+  const offsetX = canRender ? -rect.x * scale + (thumbSize - rect.width * scale) / 2 : 0;
+  const offsetY = canRender ? -rect.y * scale + (thumbSize - rect.height * scale) / 2 : 0;
 
   return (
     <div style={{
-      width: 48,
-      height: 48,
+      width: thumbSize,
+      height: thumbSize,
       border: '1px solid #d1d5db',
       borderRadius: 4,
       overflow: 'hidden',
       position: 'relative',
     }}>
-      {src ? (
+      {canRender ? (
         <img
-          src={src}
+          src={sourceSrc}
           alt={`分割 ${index + 1}`}
           decoding="async"
           loading="lazy"
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          draggable={false}
+          style={{
+            position: 'absolute',
+            left: offsetX,
+            top: offsetY,
+            width: displayW,
+            height: displayH,
+          }}
         />
       ) : (
         <div style={{ width: '100%', height: '100%', background: '#f3f4f6' }} />
@@ -520,7 +540,23 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   const edgesRef = React.useRef<Edge[]>(edges);
   const projectId = useProjectContentStore((s) => s.projectId);
 
-  const [splitImages, setSplitImages] = React.useState<SplitImageItem[]>(data.splitImages || []);
+  const [splitRects, setSplitRects] = React.useState<SplitRectItem[]>(() => {
+    if (Array.isArray(data.splitRects) && data.splitRects.length > 0) {
+      return data.splitRects;
+    }
+    const legacy = Array.isArray(data.splitImages) ? data.splitImages : [];
+    return legacy.map((it) => ({
+      index: it.index,
+      x: it.x,
+      y: it.y,
+      width: it.width,
+      height: it.height,
+    }));
+  });
+  const [sourceSize, setSourceSize] = React.useState<{ width: number; height: number }>(() => ({
+    width: typeof data.sourceWidth === 'number' ? data.sourceWidth : 0,
+    height: typeof data.sourceHeight === 'number' ? data.sourceHeight : 0,
+  }));
   const [outputCount, setOutputCount] = React.useState<number>(
     Math.min(MAX_OUTPUT_COUNT, Math.max(MIN_OUTPUT_COUNT, data.outputCount || DEFAULT_OUTPUT_COUNT))
   );
@@ -692,9 +728,30 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
   // 同步外部数据变化
   React.useEffect(() => {
-    const next = Array.isArray(data.splitImages) ? data.splitImages : [];
-    setSplitImages((prev) => (prev === next ? prev : next));
-  }, [data.splitImages]);
+    const nextRects = Array.isArray(data.splitRects) ? data.splitRects : [];
+    if (nextRects.length > 0) {
+      setSplitRects((prev) => (prev === nextRects ? prev : nextRects));
+    } else {
+      const legacy = Array.isArray(data.splitImages) ? data.splitImages : [];
+      const derived = legacy.map((it) => ({
+        index: it.index,
+        x: it.x,
+        y: it.y,
+        width: it.width,
+        height: it.height,
+      }));
+      setSplitRects((prev) => (prev.length ? prev : derived));
+    }
+
+    const nextSourceWidth = typeof data.sourceWidth === 'number' ? data.sourceWidth : 0;
+    const nextSourceHeight = typeof data.sourceHeight === 'number' ? data.sourceHeight : 0;
+    if (nextSourceWidth > 0 && nextSourceHeight > 0) {
+      setSourceSize((prev) => {
+        if (prev.width === nextSourceWidth && prev.height === nextSourceHeight) return prev;
+        return { width: nextSourceWidth, height: nextSourceHeight };
+      });
+    }
+  }, [data.splitRects, data.splitImages, data.sourceWidth, data.sourceHeight]);
 
   React.useEffect(() => {
     const count = data.outputCount || DEFAULT_OUTPUT_COUNT;
@@ -706,8 +763,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   // 执行分割
   const handleSplit = React.useCallback(async () => {
     if (!normalizeString(rawInputImage)) {
-      updateNodeData({ status: 'failed', error: '没有输入图片', splitImages: [] });
-      setSplitImages([]);
+      updateNodeData({ status: 'failed', error: '没有输入图片', splitRects: [] });
+      setSplitRects([]);
+      setSourceSize({ width: 0, height: 0 });
       return;
     }
 
@@ -715,165 +773,147 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     updateNodeData({ status: 'processing', error: undefined });
 
     try {
-      let images: SplitImageItem[] = [];
+      const normalizePersistableRef = (value: string): string => {
+        const trimmed = value.trim();
+        if (!trimmed) return trimmed;
 
-      // 优先：若输入来源是 imageGrid，直接还原其输入图片列表（更准确，也避免像素级误分割）
-      if (upstreamImageGridInputs.length > 0) {
-        const imported = await Promise.all(
-          upstreamImageGridInputs.slice(0, MAX_OUTPUT_COUNT).map(async (item, i) => {
-            const raw = normalizeString(item.imageData);
-            if (!raw) return null;
-            const alreadyAsset = parseFlowImageAssetRef(raw);
-            if (alreadyAsset) {
-              return {
-                index: i,
-                imageData: raw,
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-              } as SplitImageItem;
-            }
-
-            const fetchable = buildImageSrc(raw);
-            const shouldMaterialize =
-              !!fetchable &&
-              (/^data:/i.test(fetchable) || /^blob:/i.test(fetchable) || !/^(https?:|\/|\.\/|\.\.\/)/i.test(raw));
-
-            if (!fetchable || !shouldMaterialize) {
-              return {
-                index: i,
-                imageData: raw,
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-              } as SplitImageItem;
-            }
-
-            const resp = await fetch(fetchable, /^blob:/i.test(fetchable) ? {} : { mode: 'cors', credentials: 'omit' });
-            if (!resp.ok) throw new Error('图片加载失败');
-            const blob = await resp.blob();
-            const [assetId] = await putFlowImageBlobs([{ blob, projectId, nodeId: id }]);
-            return {
-              index: i,
-              imageData: toFlowImageAssetRef(assetId),
-              x: 0,
-              y: 0,
-              width: 0,
-              height: 0,
-            } as SplitImageItem;
-          })
-        );
-        images = (imported.filter(Boolean) as SplitImageItem[]).slice(0, MAX_OUTPUT_COUNT);
-      } else {
-        // 优先使用 Worker + OffscreenCanvas（避免主线程卡顿与 base64 产物）
-        if (imageSplitWorkerClient.isSupported()) {
-          const source = await (async () => {
-            if (inputAssetId) {
-              const blob = await getFlowImageBlob(inputAssetId);
-              if (!blob) throw new Error('图片资源不存在');
-              return { kind: 'blob' as const, blob };
-            }
-            const url = buildImageSrc(rawInputImage);
-            if (!url) throw new Error('图片加载失败');
-            return { kind: 'url' as const, url };
-          })();
-
-          const result = await imageSplitWorkerClient.splitImage(source, { outputCount });
-          if (!result.success || !Array.isArray(result.items)) {
-            throw new Error(result.error || '分割失败');
-          }
-
-          const slicedItems = result.items.slice(0, MAX_OUTPUT_COUNT);
-          const blobs = slicedItems.map((it) => new Blob([it.buffer], { type: it.contentType || 'image/png' }));
-          const assetIds = await putFlowImageBlobs(blobs.map((blob) => ({ blob, projectId, nodeId: id })));
-
-          images = slicedItems.map((it, idx) => ({
-            index: it.index ?? idx,
-            imageData: toFlowImageAssetRef(assetIds[idx]!),
-            x: it.x,
-            y: it.y,
-            width: it.width,
-            height: it.height,
-          }));
-        } else {
-          if (!inputImageSrc) throw new Error('图片加载失败');
-          images = await detectAndSplitImage(inputImageSrc);
+        if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
+          try {
+            const url = new URL(trimmed, window.location.origin);
+            const key = url.searchParams.get('key');
+            if (key) return key.replace(/^\/+/, '');
+            const remote = url.searchParams.get('url');
+            if (remote) return remote;
+          } catch {}
+          return trimmed;
         }
-      }
 
-      // 对“整张图是一个连通块 / 无法识别区域”的情况做兜底：按输出数量做等分网格切图
-      const tooManyPieces = images && images.length > Math.min(MAX_OUTPUT_COUNT, Math.max(outputCount, DEFAULT_OUTPUT_COUNT)) * 2;
-      if (!images || images.length <= 1 || tooManyPieces) {
-        if (!inputImageSrc) throw new Error('图片加载失败');
-        images = await splitImageByGrid(inputImageSrc, outputCount);
-      }
-      images = (images || []).slice(0, MAX_OUTPUT_COUNT);
+        const withoutLeading = trimmed.replace(/^\/+/, '');
+        if (/^(templates|projects|uploads|videos)\//i.test(withoutLeading)) {
+          return withoutLeading;
+        }
 
-      // 统一把 data:/blob:/裸 base64 物化为 flow-asset，避免把大字符串写入 Flow 数据
-      const blobEntries = (
-        await Promise.all(
-          images.map(async (img, idx) => {
-            const raw = normalizeString(img?.imageData);
-            if (!raw) return null;
-            if (parseFlowImageAssetRef(raw)) return null;
+        return trimmed;
+      };
 
-            const fetchable = buildImageSrc(raw);
-            if (!fetchable) return null;
-            if (!/^data:/i.test(fetchable) && !/^blob:/i.test(fetchable)) return null;
+      const rawInput = normalizeString(rawInputImage)!;
+      const normalizedInputRef = normalizePersistableRef(rawInput);
+      const isEmbedded =
+        /^data:/i.test(normalizedInputRef) ||
+        /^blob:/i.test(normalizedInputRef) ||
+        !!parseFlowImageAssetRef(normalizedInputRef);
+      const isHttp = /^https?:\/\//i.test(normalizedInputRef);
+      const isKey = /^(templates|projects|uploads|videos)\//i.test(normalizedInputRef);
+      const isPath =
+        normalizedInputRef.startsWith('/') ||
+        normalizedInputRef.startsWith('./') ||
+        normalizedInputRef.startsWith('../') ||
+        normalizedInputRef.startsWith('/api/assets/proxy') ||
+        normalizedInputRef.startsWith('/assets/proxy');
 
-            const resp = await fetch(fetchable, /^blob:/i.test(fetchable) ? {} : { mode: 'cors', credentials: 'omit' });
-            if (!resp.ok) return null;
-            const blob = await resp.blob();
-            return { idx, blob };
-          })
-        )
-      ).filter(Boolean) as Array<{ idx: number; blob: Blob }>;
-
-      if (blobEntries.length > 0) {
-        const assetIds = await putFlowImageBlobs(
-          blobEntries.map((it) => ({ blob: it.blob, projectId, nodeId: id }))
-        );
-        const next = images.slice();
-        blobEntries.forEach((it, i) => {
-          const img = next[it.idx];
-          const assetId = assetIds[i];
-          if (!img || !assetId) return;
-          next[it.idx] = { ...img, imageData: toFlowImageAssetRef(assetId) };
+      // 方案A：确保持久化的输入图片引用是“可复现/可寻址”的（远程URL/OSS key 等）
+      let persistedInputRef = normalizedInputRef;
+      if (isEmbedded || (!isHttp && !isKey && !isPath)) {
+        const uploadResult = await imageUploadService.uploadImageSource(rawInput, {
+          projectId: projectId ?? undefined,
+          dir: projectId ? `projects/${projectId}/flow/images/` : 'uploads/flow/images/',
+          fileName: `image_split_${id}_${Date.now()}.png`,
         });
-        images = next;
+        if (!uploadResult.success || !uploadResult.asset?.url) {
+          throw new Error(uploadResult.error || '输入图片上传失败');
+        }
+        persistedInputRef = (uploadResult.asset.key || uploadResult.asset.url).trim();
       }
-      setSplitImages(images);
+
+      const preferredCount = upstreamImageGridInputs.length > 0
+        ? Math.max(outputCount, upstreamImageGridInputs.length)
+        : outputCount;
+      const safeCount = Math.min(
+        MAX_OUTPUT_COUNT,
+        Math.max(MIN_OUTPUT_COUNT, Math.floor(preferredCount || DEFAULT_OUTPUT_COUNT))
+      );
+
+      let rects: SplitRectItem[] = [];
+      let sourceWidth = 0;
+      let sourceHeight = 0;
+
+      // 优先使用 Worker + OffscreenCanvas（避免主线程卡顿）
+      if (imageSplitWorkerClient.isSupported()) {
+        const source = await (async () => {
+          if (inputAssetId) {
+            const blob = await getFlowImageBlob(inputAssetId);
+            if (!blob) throw new Error('图片资源不存在');
+            return { kind: 'blob' as const, blob };
+          }
+          const url = buildImageSrc(persistedInputRef);
+          if (!url) throw new Error('图片加载失败');
+          return { kind: 'url' as const, url };
+        })();
+
+        const result = await imageSplitWorkerClient.splitImageRects(source, { outputCount: safeCount });
+        if (!result.success || !Array.isArray(result.rects)) {
+          throw new Error(result.error || '分割失败');
+        }
+        rects = result.rects.slice(0, MAX_OUTPUT_COUNT);
+        sourceWidth = result.sourceWidth ?? 0;
+        sourceHeight = result.sourceHeight ?? 0;
+      } else {
+        if (!inputImageSrc) throw new Error('图片加载失败');
+        const detected = await detectAndSplitRects(inputImageSrc);
+        rects = detected.rects;
+        sourceWidth = detected.sourceWidth;
+        sourceHeight = detected.sourceHeight;
+
+        // 对“整张图是一个连通块 / 无法识别区域”的情况做兜底：按输出数量做等分网格切图
+        const tooManyPieces =
+          rects.length > Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
+        if (rects.length <= 1 || tooManyPieces) {
+          const grid = await splitRectsByGrid(inputImageSrc, safeCount);
+          rects = grid.rects;
+          sourceWidth = grid.sourceWidth;
+          sourceHeight = grid.sourceHeight;
+        }
+        rects = rects.slice(0, MAX_OUTPUT_COUNT);
+      }
+
+      setSplitRects(rects);
+      if (sourceWidth > 0 && sourceHeight > 0) {
+        setSourceSize({ width: sourceWidth, height: sourceHeight });
+      }
 
       // 自动扩展输出端口数量
-      const newOutputCount = Math.min(MAX_OUTPUT_COUNT, Math.max(outputCount, images.length));
+      const newOutputCount = Math.min(MAX_OUTPUT_COUNT, Math.max(outputCount, rects.length));
       if (newOutputCount !== outputCount) {
         setOutputCount(newOutputCount);
       }
 
-      // 构建每个输出端口对应的数据
-      const imagePatch: Record<string, unknown> = {
+      const patch: Record<string, unknown> = {
         status: 'succeeded',
-        splitImages: images,
+        inputImageUrl: persistedInputRef,
+        inputImage: undefined,
+        splitRects: rects,
+        sourceWidth: sourceWidth || undefined,
+        sourceHeight: sourceHeight || undefined,
         outputCount: newOutputCount,
         error: undefined
       };
 
-      // 避免把 base64 同时写入 splitImages + image1..imageN（JSON 序列化/持久化时会成倍膨胀）
-      // 同时清理旧的 imageX 字段，防止下游读取到历史残留。
+      // 清理旧字段（避免历史残留误读，也避免把临时图片数据落库）
+      patch.splitImages = undefined;
       for (let i = 1; i <= MAX_OUTPUT_COUNT; i += 1) {
-        imagePatch[`image${i}`] = undefined;
+        patch[`image${i}`] = undefined;
       }
 
-      updateNodeData(imagePatch);
+      updateNodeData(patch);
     } catch (err) {
       updateNodeData({
         status: 'failed',
         error: err instanceof Error ? err.message : '分割失败',
-        splitImages: []
+        splitRects: [],
+        splitImages: undefined
       });
-      setSplitImages([]);
+      setSplitRects([]);
+      setSourceSize({ width: 0, height: 0 });
     } finally {
       setIsProcessing(false);
     }
@@ -899,6 +939,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
   const boxW = data.boxW || 320;
   const boxH = data.boxH || 400;
+  const canGenerateNodes = Array.isArray(data.splitImages) && data.splitImages.length > 0;
 
   // 当输出端口数量变化时，强制 React Flow 重新计算句柄位置
   React.useEffect(() => {
@@ -907,7 +948,18 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
   // 一键生成 Image 节点并连接
   const handleGenerateImageNodes = React.useCallback(() => {
-    if (splitImages.length === 0) return;
+    const legacy = Array.isArray(data.splitImages) ? data.splitImages : [];
+    if (legacy.length === 0) {
+      window.dispatchEvent(
+        new CustomEvent('toast', {
+          detail: {
+            message: '方案A：ImageSplit 仅保存裁切矩形，不支持一键生成独立图片节点',
+            type: 'info',
+          },
+        })
+      );
+      return;
+    }
 
     const currentNode = rf.getNode(id);
     if (!currentNode) return;
@@ -921,7 +973,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     const gapY = 20;
 
     const startX = nodeX + nodeWidth + gapX;
-    const count = Math.min(splitImages.length, outputCount);
+    const count = Math.min(legacy.length, outputCount);
 
     const totalHeight = count * imageNodeHeight + (count - 1) * gapY;
     const startY = nodeY + (boxH - totalHeight) / 2;
@@ -950,7 +1002,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         type: 'image',
         position: { x: startX, y },
         data: {
-          imageData: splitImages[i].imageData,
+          imageData: legacy[i]!.imageData,
           label: `图片 ${i + 1}`,
           boxW: imageNodeWidth,
           boxH: imageNodeHeight,
@@ -968,7 +1020,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
     rf.setNodes((nodes) => [...nodes, ...newNodes]);
     rf.setEdges((edges) => [...edges, ...newEdges]);
-  }, [rf, id, splitImages, outputCount, boxW, boxH]);
+  }, [rf, id, data.splitImages, outputCount, boxW, boxH]);
 
   return (
     <div style={{
@@ -1005,18 +1057,18 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         <div style={{ display: 'flex', gap: 6 }}>
           <button
             onClick={handleGenerateImageNodes}
-            disabled={splitImages.length === 0}
+            disabled={!canGenerateNodes}
             style={{
               fontSize: 12,
               padding: '4px 10px',
-              background: splitImages.length > 0 ? '#059669' : '#9ca3af',
+              background: canGenerateNodes ? '#059669' : '#9ca3af',
               color: '#fff',
               borderRadius: 6,
               border: 'none',
-              cursor: splitImages.length > 0 ? 'pointer' : 'not-allowed',
-              opacity: splitImages.length > 0 ? 1 : 0.6,
+              cursor: canGenerateNodes ? 'pointer' : 'not-allowed',
+              opacity: canGenerateNodes ? 1 : 0.6,
             }}
-            title="一键生成 Image 节点并连接"
+            title={canGenerateNodes ? '一键生成 Image 节点并连接（legacy）' : '方案A：不支持一键生成独立图片节点'}
           >
             生成节点
           </button>
@@ -1104,7 +1156,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       {/* 状态显示 */}
       <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
         状态: {data.status === 'succeeded'
-          ? `已分割 ${splitImages.length} 张图片`
+          ? `已分割 ${splitRects.length} 张图片`
           : data.status === 'processing'
             ? '处理中...'
             : data.status === 'failed'
@@ -1118,7 +1170,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       )}
 
       {/* 分割结果预览 */}
-      {splitImages.length > 0 && (
+      {splitRects.length > 0 && (
         <div style={{
           flex: 1,
           minHeight: 80,
@@ -1131,8 +1183,15 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           flexWrap: 'wrap',
           gap: 4,
         }}>
-          {splitImages.slice(0, outputCount).map((img, i) => (
-            <SplitImagePreview key={i} index={i} value={img.imageData} />
+          {splitRects.slice(0, outputCount).map((rect, i) => (
+            <SplitRectPreview
+              key={`${rect.index}-${i}`}
+              index={i}
+              rect={rect}
+              sourceSrc={inputImageSrc}
+              sourceWidth={sourceSize.width}
+              sourceHeight={sourceSize.height}
+            />
           ))}
         </div>
       )}

@@ -14,6 +14,14 @@ type ImageItem = {
   id: string;
   imageData: string; // base64 或 URL
   thumbnailData?: string; // 节点预览用缩略图（可选）
+  crop?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
   width?: number;
   height?: number;
 };
@@ -57,18 +65,57 @@ const buildImageSrc = (value?: string): string => {
   return `data:image/png;base64,${trimmed}`;
 };
 
-function FlowImagePreview({ value, alt }: { value: string; alt: string }) {
+function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {
+  const value = item.thumbnailData || item.imageData;
   const assetId = React.useMemo(() => parseFlowImageAssetRef(value), [value]);
   const assetUrl = useFlowImageAssetUrl(assetId);
   const src = assetId ? (assetUrl || '') : buildImageSrc(value);
+
+  const thumbSize = 48;
+  const crop = item.crop;
+  const canCrop =
+    !!src &&
+    !!crop &&
+    crop.width > 0 &&
+    crop.height > 0 &&
+    typeof crop.sourceWidth === 'number' &&
+    typeof crop.sourceHeight === 'number' &&
+    crop.sourceWidth > 0 &&
+    crop.sourceHeight > 0;
+
+  const scale = canCrop ? Math.max(thumbSize / crop!.width, thumbSize / crop!.height) : 1;
+  const displayW = canCrop ? crop!.sourceWidth! * scale : 0;
+  const displayH = canCrop ? crop!.sourceHeight! * scale : 0;
+  const offsetX = canCrop ? -crop!.x * scale + (thumbSize - crop!.width * scale) / 2 : 0;
+  const offsetY = canCrop ? -crop!.y * scale + (thumbSize - crop!.height * scale) / 2 : 0;
+
   return (
-    <img
-      src={src}
-      alt={alt}
-      decoding="async"
-      loading="lazy"
-      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-    />
+    <>
+      {canCrop ? (
+        <img
+          src={src}
+          alt={alt}
+          decoding="async"
+          loading="lazy"
+          draggable={false}
+          style={{
+            position: 'absolute',
+            left: offsetX,
+            top: offsetY,
+            width: displayW,
+            height: displayH,
+          }}
+        />
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          decoding="async"
+          loading="lazy"
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      )}
+    </>
   );
 }
 
@@ -142,6 +189,11 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
               return trimmed ? trimmed : undefined;
             };
 
+            const base = normalize(d?.inputImageUrl) || normalize(d?.inputImage);
+            const splitRects = Array.isArray(d.splitRects) ? (d.splitRects as Array<any>) : [];
+            const sourceWidth = typeof d.sourceWidth === 'number' ? d.sourceWidth : undefined;
+            const sourceHeight = typeof d.sourceHeight === 'number' ? d.sourceHeight : undefined;
+
             const splitImages = Array.isArray(d.splitImages) ? (d.splitImages as Array<any>) : [];
             const pickAt = (idx: number): string | undefined => {
               const key = `image${idx + 1}`;
@@ -154,11 +206,42 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
               const match = /^image(\d+)$/.exec(sourceHandle);
               if (match) {
                 const idx = Math.max(0, Number(match[1]) - 1);
+                const rect = splitRects?.[idx];
+                const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
+                const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);
+                const w = typeof rect?.width === 'number' ? rect.width : Number(rect?.width ?? 0);
+                const h = typeof rect?.height === 'number' ? rect.height : Number(rect?.height ?? 0);
+                if (base && Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+                  return [{
+                    id: `${node.id}-crop-${idx + 1}`,
+                    imageData: base,
+                    thumbnailData: base,
+                    crop: { x, y, width: w, height: h, sourceWidth, sourceHeight },
+                  }];
+                }
                 const value = pickAt(idx);
                 return value
                   ? [{ id: `${node.id}-image${idx + 1}`, imageData: value, thumbnailData: value }]
                   : [];
               }
+            }
+
+            if (base && splitRects.length > 0) {
+              return splitRects
+                .map((rect, idx) => {
+                  const x = typeof rect?.x === 'number' ? rect.x : Number(rect?.x ?? 0);
+                  const y = typeof rect?.y === 'number' ? rect.y : Number(rect?.y ?? 0);
+                  const w = typeof rect?.width === 'number' ? rect.width : Number(rect?.width ?? 0);
+                  const h = typeof rect?.height === 'number' ? rect.height : Number(rect?.height ?? 0);
+                  if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
+                  return {
+                    id: `${node.id}-crop-${idx + 1}`,
+                    imageData: base,
+                    thumbnailData: base,
+                    crop: { x, y, width: w, height: h, sourceWidth, sourceHeight },
+                  } as ImageItem;
+                })
+                .filter((item): item is ImageItem => item !== null);
             }
 
             if (splitImages.length > 0) {
@@ -333,7 +416,14 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
 
     updateNodeData({ status: 'processing', error: undefined });
 
-    let loadedImages: Array<{ img: HTMLImageElement; item: ImageItem; revoke?: () => void }> = [];
+    let loadedImages: Array<{
+      img: HTMLImageElement;
+      item: ImageItem;
+      revoke?: () => void;
+      effectiveWidth: number;
+      effectiveHeight: number;
+      cropParams?: { sx: number; sy: number; sw: number; sh: number } | null;
+    }> = [];
     try {
       // 加载所有图片并获取尺寸
       loadedImages = await Promise.all(
@@ -353,16 +443,47 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
             img.src = src;
           });
 
-          return { img, item, revoke: ephemeral?.revoke };
+          const crop = item.crop;
+          let effectiveWidth = img.naturalWidth;
+          let effectiveHeight = img.naturalHeight;
+          let cropParams: { sx: number; sy: number; sw: number; sh: number } | null = null;
+
+          if (crop && crop.width > 0 && crop.height > 0) {
+            const sourceW =
+              typeof crop.sourceWidth === 'number' && crop.sourceWidth > 0
+                ? crop.sourceWidth
+                : img.naturalWidth;
+            const sourceH =
+              typeof crop.sourceHeight === 'number' && crop.sourceHeight > 0
+                ? crop.sourceHeight
+                : img.naturalHeight;
+
+            const scaleX = sourceW > 0 ? img.naturalWidth / sourceW : 1;
+            const scaleY = sourceH > 0 ? img.naturalHeight / sourceH : 1;
+
+            const sx = Math.max(0, Math.min(img.naturalWidth - 1, crop.x * scaleX));
+            const sy = Math.max(0, Math.min(img.naturalHeight - 1, crop.y * scaleY));
+            const swRaw = Math.max(1, crop.width * scaleX);
+            const shRaw = Math.max(1, crop.height * scaleY);
+
+            const sw = Math.max(1, Math.min(img.naturalWidth - sx, swRaw));
+            const sh = Math.max(1, Math.min(img.naturalHeight - sy, shRaw));
+
+            cropParams = { sx, sy, sw, sh };
+            effectiveWidth = sw;
+            effectiveHeight = sh;
+          }
+
+          return { img, item, revoke: ephemeral?.revoke, effectiveWidth, effectiveHeight, cropParams };
         })
       );
 
       // 找出最大尺寸
       let maxWidth = 0;
       let maxHeight = 0;
-      loadedImages.forEach(({ img }) => {
-        maxWidth = Math.max(maxWidth, img.naturalWidth);
-        maxHeight = Math.max(maxHeight, img.naturalHeight);
+      loadedImages.forEach(({ effectiveWidth, effectiveHeight }) => {
+        maxWidth = Math.max(maxWidth, effectiveWidth);
+        maxHeight = Math.max(maxHeight, effectiveHeight);
       });
 
       // 计算画布尺寸（包含间隙）
@@ -385,7 +506,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
       // 绘制每张图片（考虑间隙）
-      loadedImages.forEach(({ img }, index) => {
+      loadedImages.forEach(({ img, cropParams, effectiveWidth, effectiveHeight }, index) => {
         const row = Math.floor(index / grid);
         const col = index % grid;
 
@@ -393,10 +514,24 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
         const cellX = gap + col * (cellWidth + gap);
         const cellY = gap + row * (cellHeight + gap);
         // 图片在单元格内居中
-        const offsetX = (cellWidth - img.naturalWidth) / 2;
-        const offsetY = (cellHeight - img.naturalHeight) / 2;
+        const offsetX = (cellWidth - effectiveWidth) / 2;
+        const offsetY = (cellHeight - effectiveHeight) / 2;
 
-        ctx.drawImage(img, cellX + offsetX, cellY + offsetY);
+        if (cropParams) {
+          ctx.drawImage(
+            img,
+            cropParams.sx,
+            cropParams.sy,
+            cropParams.sw,
+            cropParams.sh,
+            cellX + offsetX,
+            cellY + offsetY,
+            effectiveWidth,
+            effectiveHeight
+          );
+        } else {
+          ctx.drawImage(img, cellX + offsetX, cellY + offsetY, effectiveWidth, effectiveHeight);
+        }
       });
 
       // 导出为 Blob（避免生成巨型 base64 字符串导致内存峰值）
@@ -487,7 +622,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
                   position: 'relative',
                 }}
               >
-                <FlowImagePreview value={item.thumbnailData || item.imageData} alt={`图片 ${index + 1}`} />
+                <FlowImagePreview item={item} alt={`图片 ${index + 1}`} />
                 <div
                   style={{
                     position: 'absolute',
