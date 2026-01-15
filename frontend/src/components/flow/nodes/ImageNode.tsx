@@ -9,6 +9,8 @@ import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import { resolveImageToBlob } from "@/utils/imageSource";
+import { shallow } from "zustand/shallow";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -289,6 +291,240 @@ function ImageNodeInner({ id, data, selected }: Props) {
     if (thumbAssetId) return thumbAssetUrl || fullSrc;
     return buildImageSrc(rawThumbValue) || fullSrc;
   }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
+
+  // ImageSplit -> Image：运行时裁剪预览（不落库）
+  const imageSplitCropInfo = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edges = state.edges || [];
+        const edgeToThis = edges.find((e) => e.target === id && e.targetHandle === "img");
+        if (!edgeToThis) return null;
+
+        const srcNode = state.getNodes().find((n) => n.id === edgeToThis.source);
+        if (!srcNode || srcNode.type !== "imageSplit") return null;
+
+        const handle = (edgeToThis as any).sourceHandle as string | undefined;
+        const match = typeof handle === "string" ? /^image(\\d+)$/.exec(handle) : null;
+        if (!match) return null;
+        const idx = Math.max(0, Number(match[1]) - 1);
+
+        const d = (srcNode.data || {}) as any;
+        const baseRef =
+          (typeof d.inputImageUrl === "string" && d.inputImageUrl.trim()) ||
+          (typeof d.inputImage === "string" && d.inputImage.trim()) ||
+          "";
+        if (!baseRef) return null;
+
+        const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+        const rect = splitRects?.[idx];
+        const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+        const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+        const w = typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
+        const h = typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
+
+        const sourceWidth = typeof d.sourceWidth === "number" ? d.sourceWidth : undefined;
+        const sourceHeight = typeof d.sourceHeight === "number" ? d.sourceHeight : undefined;
+        return {
+          baseRef,
+          rect: { x, y, width: w, height: h },
+          sourceWidth,
+          sourceHeight,
+        };
+      },
+      [id]
+    ),
+    shallow
+  );
+
+  const [imageSplitPreviewSrc, setImageSplitPreviewSrc] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (imageSplitPreviewSrc && imageSplitPreviewSrc.startsWith("blob:")) {
+        try { URL.revokeObjectURL(imageSplitPreviewSrc); } catch {}
+      }
+    };
+  }, [imageSplitPreviewSrc]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const makeCanvas = (cw: number, ch: number): any => {
+      if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(cw, ch);
+      const canvas = document.createElement("canvas");
+      canvas.width = cw;
+      canvas.height = ch;
+      return canvas;
+    };
+
+    const canvasToBlob = async (canvas: any): Promise<Blob> => {
+      if (canvas && typeof canvas.convertToBlob === "function") {
+        return await canvas.convertToBlob({ type: "image/png" });
+      }
+      return await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b: Blob | null) => (b ? resolve(b) : reject(new Error("导出失败"))),
+          "image/png"
+        );
+      });
+    };
+
+    const run = async () => {
+      if (!imageSplitCropInfo) {
+        setImageSplitPreviewSrc(null);
+        return;
+      }
+
+      const src = buildImageSrc(imageSplitCropInfo.baseRef);
+      if (!src) {
+        setImageSplitPreviewSrc(null);
+        return;
+      }
+
+      const blob = await resolveImageToBlob(src, { preferProxy: true });
+      if (!blob || cancelled) {
+        if (!cancelled) setImageSplitPreviewSrc(null);
+        return;
+      }
+
+      const rect = imageSplitCropInfo.rect;
+
+      const cropWithBitmap = async (): Promise<string | null> => {
+        if (typeof createImageBitmap !== "function") return null;
+        const bitmap = await createImageBitmap(blob);
+        try {
+          const naturalW = bitmap.width;
+          const naturalH = bitmap.height;
+          if (!naturalW || !naturalH) return null;
+
+          const srcW =
+            typeof imageSplitCropInfo.sourceWidth === "number" && imageSplitCropInfo.sourceWidth > 0
+              ? imageSplitCropInfo.sourceWidth
+              : naturalW;
+          const srcH =
+            typeof imageSplitCropInfo.sourceHeight === "number" && imageSplitCropInfo.sourceHeight > 0
+              ? imageSplitCropInfo.sourceHeight
+              : naturalH;
+
+          const scaleX = srcW > 0 ? naturalW / srcW : 1;
+          const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+          const sx = Math.max(0, Math.min(naturalW - 1, rect.x * scaleX));
+          const sy = Math.max(0, Math.min(naturalH - 1, rect.y * scaleY));
+          const swRaw = Math.max(1, rect.width * scaleX);
+          const shRaw = Math.max(1, rect.height * scaleY);
+          const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+          const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+          // 预览尺寸上限：避免一次生成过多大图导致内存激增
+          const MAX_PREVIEW_DIM = 512;
+          const outScale = Math.min(1, MAX_PREVIEW_DIM / Math.max(sw, sh));
+          const outW = Math.max(1, Math.round(sw * outScale));
+          const outH = Math.max(1, Math.round(sh * outScale));
+
+          const canvas = makeCanvas(outW, outH);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return null;
+
+          ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
+          const outBlob = await canvasToBlob(canvas);
+          return URL.createObjectURL(outBlob);
+        } finally {
+          try { bitmap.close(); } catch {}
+        }
+      };
+
+      const cropWithImageElement = async (): Promise<string | null> => {
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error("图片解码失败"));
+            img.src = objectUrl;
+          });
+
+          const naturalW = img.naturalWidth || img.width;
+          const naturalH = img.naturalHeight || img.height;
+          if (!naturalW || !naturalH) return null;
+
+          const srcW =
+            typeof imageSplitCropInfo.sourceWidth === "number" && imageSplitCropInfo.sourceWidth > 0
+              ? imageSplitCropInfo.sourceWidth
+              : naturalW;
+          const srcH =
+            typeof imageSplitCropInfo.sourceHeight === "number" && imageSplitCropInfo.sourceHeight > 0
+              ? imageSplitCropInfo.sourceHeight
+              : naturalH;
+
+          const scaleX = srcW > 0 ? naturalW / srcW : 1;
+          const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+          const sx = Math.max(0, Math.min(naturalW - 1, rect.x * scaleX));
+          const sy = Math.max(0, Math.min(naturalH - 1, rect.y * scaleY));
+          const swRaw = Math.max(1, rect.width * scaleX);
+          const shRaw = Math.max(1, rect.height * scaleY);
+          const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+          const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+          const MAX_PREVIEW_DIM = 512;
+          const outScale = Math.min(1, MAX_PREVIEW_DIM / Math.max(sw, sh));
+          const outW = Math.max(1, Math.round(sw * outScale));
+          const outH = Math.max(1, Math.round(sh * outScale));
+
+          const canvas = makeCanvas(outW, outH);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return null;
+
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+          const outBlob = await canvasToBlob(canvas);
+          return URL.createObjectURL(outBlob);
+        } finally {
+          try { URL.revokeObjectURL(objectUrl); } catch {}
+        }
+      };
+
+      let croppedUrl: string | null = null;
+      try {
+        croppedUrl = await cropWithBitmap();
+      } catch {
+        croppedUrl = null;
+      }
+      if (!croppedUrl) {
+        try {
+          croppedUrl = await cropWithImageElement();
+        } catch {
+          croppedUrl = null;
+        }
+      }
+
+      if (cancelled) {
+        if (croppedUrl && croppedUrl.startsWith("blob:")) {
+          try { URL.revokeObjectURL(croppedUrl); } catch {}
+        }
+        return;
+      }
+
+      setImageSplitPreviewSrc(croppedUrl);
+    };
+
+    run().catch(() => {
+      if (!cancelled) setImageSplitPreviewSrc(null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    imageSplitCropInfo?.baseRef,
+    imageSplitCropInfo?.rect?.x,
+    imageSplitCropInfo?.rect?.y,
+    imageSplitCropInfo?.rect?.width,
+    imageSplitCropInfo?.rect?.height,
+    imageSplitCropInfo?.sourceWidth,
+    imageSplitCropInfo?.sourceHeight,
+  ]);
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -651,7 +887,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
       )}
 
       <ImageContent
-        displaySrc={displaySrc}
+        displaySrc={imageSplitPreviewSrc || displaySrc}
         isResizing={isResizing}
         onDrop={onDrop}
         onDragOver={onDragOver}

@@ -1002,7 +1002,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
   const boxW = data.boxW || 320;
   const boxH = data.boxH || 400;
-  const canGenerateNodes = Array.isArray(data.splitImages) && data.splitImages.length > 0;
+  const hasLegacySplitImages = Array.isArray(data.splitImages) && data.splitImages.length > 0;
+  const canGenerateNodes = canSplit && (splitRects.length > 0 || hasLegacySplitImages);
 
   // 当输出端口数量变化时，强制 React Flow 重新计算句柄位置
   React.useEffect(() => {
@@ -1012,11 +1013,23 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
   // 一键生成 Image 节点并连接
   const handleGenerateImageNodes = React.useCallback(() => {
     const legacy = Array.isArray(data.splitImages) ? data.splitImages : [];
-    if (legacy.length === 0) {
+    const count = Math.min(outputCount, legacy.length > 0 ? legacy.length : splitRects.length);
+    if (!canSplit) {
       window.dispatchEvent(
         new CustomEvent('toast', {
           detail: {
-            message: '方案A：ImageSplit 仅保存裁切矩形，不生成独立图片节点；请直接把 image1..imageN 输出连到下游，运行时会按裁切矩形自动裁图。',
+            message: '没有可用的输入图片，无法生成节点（请先连接输入并完成 Split）。',
+            type: 'info',
+          },
+        })
+      );
+      return;
+    }
+    if (count <= 0) {
+      window.dispatchEvent(
+        new CustomEvent('toast', {
+          detail: {
+            message: '未发现分割结果：请先点击 Split 再生成节点。',
             type: 'info',
           },
         })
@@ -1036,7 +1049,6 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     const gapY = 20;
 
     const startX = nodeX + nodeWidth + gapX;
-    const count = Math.min(legacy.length, outputCount);
 
     const totalHeight = count * imageNodeHeight + (count - 1) * gapY;
     const startY = nodeY + (boxH - totalHeight) / 2;
@@ -1045,7 +1057,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       id: string;
       type: string;
       position: { x: number; y: number };
-      data: { imageData: string; label: string; boxW: number; boxH: number };
+      data: { imageData?: string; label?: string; boxW: number; boxH: number };
     }> = [];
 
     const newEdges: Array<{
@@ -1065,12 +1077,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         type: 'image',
         position: { x: startX, y },
         data: {
-          imageData: legacy[i]!.imageData,
           label: `图片 ${i + 1}`,
           boxW: imageNodeWidth,
           boxH: imageNodeHeight,
         },
       });
+      if (legacy.length > 0) {
+        newNodes[newNodes.length - 1]!.data.imageData = legacy[i]!.imageData;
+      }
 
       newEdges.push({
         id: `edge-${id}-${imageNodeId}`,
@@ -1083,7 +1097,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
     rf.setNodes((nodes) => [...nodes, ...newNodes]);
     rf.setEdges((edges) => [...edges, ...newEdges]);
-  }, [rf, id, data.splitImages, outputCount, boxW, boxH]);
+  }, [rf, id, data.splitImages, outputCount, splitRects.length, boxW, boxH, canSplit]);
 
   return (
     <div style={{
@@ -1131,7 +1145,13 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               cursor: canGenerateNodes ? 'pointer' : 'not-allowed',
               opacity: canGenerateNodes ? 1 : 0.6,
             }}
-            title={canGenerateNodes ? '一键生成 Image 节点并连接（legacy）' : '方案A：不生成独立图片节点；直接连 image1..imageN 输出到下游即可'}
+            title={
+              !canGenerateNodes
+                ? (canSplit ? '请先完成 Split 再生成节点' : '请先连接输入图片并完成 Split')
+                : hasLegacySplitImages
+                  ? '一键生成 Image 节点并连接（legacy：使用 splitImages）'
+                  : '一键生成 Image 节点并连接（方案A：基于 splitRects，运行时裁图，不落库）'
+            }
           >
             生成节点
           </button>
@@ -1218,12 +1238,12 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       {/* 状态显示 */}
       <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
-        状态: {data.status === 'succeeded'
-          ? `已分割 ${splitRects.length} 张图片`
-          : data.status === 'processing'
-            ? '处理中...'
-            : data.status === 'failed'
-              ? '失败'
+        状态: {isProcessing
+          ? '处理中...'
+          : data.status === 'failed'
+            ? '失败'
+            : splitRects.length > 0
+              ? `已分割 ${splitRects.length} 张图片`
               : 'idle'}
       </div>
 
