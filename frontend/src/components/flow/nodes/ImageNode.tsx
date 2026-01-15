@@ -376,13 +376,7 @@ function ImageNodeInner({ id, data, selected }: Props) {
         return;
       }
 
-      const src = buildImageSrc(imageSplitCropInfo.baseRef);
-      if (!src) {
-        setImageSplitPreviewSrc(null);
-        return;
-      }
-
-      const blob = await resolveImageToBlob(src, { preferProxy: true });
+      const blob = await resolveImageToBlob(imageSplitCropInfo.baseRef, { preferProxy: true });
       if (!blob || cancelled) {
         if (!cancelled) setImageSplitPreviewSrc(null);
         return;
