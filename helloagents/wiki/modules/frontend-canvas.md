@@ -12,7 +12,18 @@
   - `TextEditor.tsx` / `SimpleTextEditor.tsx`：文字编辑
 - `frontend/src/components/canvas/hooks/`：与画布交互相关 hooks
 
+## 图片引用协议（重要）
+- **可持久化（允许落库/落 JSON）**：remote URL、OSS key（如 `projects/...`）、同源路径（`/`/`./`/`../`）、以及 `/api/assets/proxy?...`（保存时建议去代理包装为 key/remote URL）。
+- **仅运行时临时态（禁止持久化）**：`data:`、`blob:`、`flow-asset:`、裸 base64（只能用于预览；保存前必须上传并替换为远程 URL/OSS key，否则应阻止保存）。
+- **统一工具**：`frontend/src/utils/imageSource.ts`
+  - `toRenderableImageSrc`：把 key/proxy/remote/path 转成可渲染的 src（自动走 proxy 降低 CORS）。
+  - `isPersistableImageRef` / `normalizePersistableImageRef`：保存前判定与规范化（避免把 proxy/data/blob 写进设计 JSON）。
+  - `resolveImageToBlob` / `resolveImageToDataUrl`：上传/AI/edit 等需要 blob/dataURL 的场景。
+- **Paper.js Raster 约定**：
+  - `raster.source` 用 `toRenderableImageSrc(...)` 的结果（展示用）。
+  - `raster.data.key`（OSS key）/ `raster.data.remoteUrl`（http(s)）用于持久化与“需要真实 URL”的能力调用。
+  - 保存由 `frontend/src/services/paperSaveService.ts` 统一处理：上传 pending 图片、替换引用、避免内联大数据落库。
+
 ## 依赖
 - `paper`、`@types/paper`
 -（可选）3D：`three`、`@react-three/fiber`、`@react-three/drei`
-

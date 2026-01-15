@@ -9,6 +9,7 @@ import { logger } from "@/utils/logger";
 import { historyService } from "@/services/historyService";
 import { paperSaveService } from "@/services/paperSaveService";
 import { isGroup, isRaster } from "@/utils/paperCoords";
+import { toRenderableImageSrc } from "@/utils/imageSource";
 import type {
   VideoInstance,
   VideoDragState,
@@ -263,7 +264,7 @@ export const useVideoTool = ({
           }
           thumbnail.bounds = finalBounds;
         };
-        thumbnail.source = asset.thumbnail;
+        thumbnail.source = toRenderableImageSrc(asset.thumbnail) || asset.thumbnail;
         videoRect.addChild(thumbnail);
       }
 

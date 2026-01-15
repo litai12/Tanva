@@ -2,6 +2,8 @@
  * 下载工具函数
  */
 
+import { toRenderableImageSrc } from "@/utils/imageSource";
+
 /**
  * 下载图片文件
  * @param imageData - 图片数据URL或base64数据
@@ -13,12 +15,7 @@ export const downloadImage = (imageData: string, fileName: string = 'image') => 
     const link = document.createElement('a');
     
     // 处理不同格式的图片数据
-    let downloadUrl = imageData;
-    
-    // 如果是base64格式但没有data URL前缀，添加前缀
-    if (!imageData.startsWith('data:') && !imageData.startsWith('http')) {
-      downloadUrl = `data:image/png;base64,${imageData}`;
-    }
+    const downloadUrl = toRenderableImageSrc(imageData) || imageData;
     
     // 设置下载属性
     link.href = downloadUrl;
@@ -34,7 +31,8 @@ export const downloadImage = (imageData: string, fileName: string = 'image') => 
     console.error('❌ 图片下载失败:', error);
     // 如果下载失败，尝试在新窗口打开图片
     try {
-      window.open(imageData, '_blank');
+      const url = toRenderableImageSrc(imageData) || imageData;
+      window.open(url, '_blank');
     } catch (openError) {
       console.error('❌ 无法打开图片:', openError);
     }
@@ -82,10 +80,11 @@ export const getSuggestedFileName = (originalName?: string, prefix: string = 'do
  */
 export const downloadFile = async (url: string, fileName: string = 'download') => {
   try {
+    const resolvedUrl = toRenderableImageSrc(url) || url;
     // 如果是data URL或blob URL，直接下载
-    if (url.startsWith('data:') || url.startsWith('blob:')) {
+    if (resolvedUrl.startsWith('data:') || resolvedUrl.startsWith('blob:')) {
       const link = document.createElement('a');
-      link.href = url;
+      link.href = resolvedUrl;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
@@ -95,7 +94,7 @@ export const downloadFile = async (url: string, fileName: string = 'download') =
     }
 
     // 如果是HTTP/HTTPS URL，先fetch再下载
-    const response = await fetch(url);
+    const response = await fetch(resolvedUrl);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -118,7 +117,8 @@ export const downloadFile = async (url: string, fileName: string = 'download') =
     console.error('❌ 文件下载失败:', error);
     // 如果下载失败，尝试在新窗口打开
     try {
-      window.open(url, '_blank');
+      const resolvedUrl = toRenderableImageSrc(url) || url;
+      window.open(resolvedUrl, '_blank');
     } catch (openError) {
       console.error('❌ 无法打开文件:', openError);
       throw error;

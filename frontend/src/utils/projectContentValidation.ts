@@ -1,5 +1,5 @@
 import type { ProjectContentSnapshot } from "@/types/project";
-import { isRemoteUrl } from "@/utils/imageSource";
+import { isPersistableImageRef } from "@/utils/imageSource";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 
 export function getNonRemoteImageAssetIds(
@@ -12,7 +12,7 @@ export function getNonRemoteImageAssetIds(
   for (const image of images) {
     const url = typeof image?.url === "string" ? image.url.trim() : "";
     const src = typeof image?.src === "string" ? image.src.trim() : "";
-    const hasRemote = isRemoteUrl(url) || isRemoteUrl(src);
+    const hasRemote = isPersistableImageRef(url) || isPersistableImageRef(src);
     if (hasRemote && !image?.pendingUpload) continue;
     if (typeof image?.id === "string" && image.id.length > 0) {
       ids.push(image.id);

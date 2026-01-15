@@ -45,6 +45,13 @@ import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
+  isAssetKeyRef,
+  isPersistableImageRef,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  toRenderableImageSrc,
+} from "@/utils/imageSource";
+import {
   usePersonalLibraryStore,
   createPersonalAssetId,
   type PersonalImageAsset,
@@ -80,16 +87,13 @@ const extractAnyImageSource = (imageData: unknown): string | null => {
   const data = imageData as Record<string, unknown>;
 
   // 其次使用远程 URL
-  const urlCandidates = ["url", "src", "remoteUrl"];
+  const urlCandidates = ["url", "src", "remoteUrl", "key"];
   for (const key of urlCandidates) {
     const candidate = data[key];
-    if (
-      typeof candidate === "string" &&
-      candidate.length > 0 &&
-      candidate.startsWith("http")
-    ) {
-      return candidate;
-    }
+    if (typeof candidate !== "string" || candidate.length === 0) continue;
+    const normalized = normalizePersistableImageRef(candidate);
+    if (!normalized || !isPersistableImageRef(normalized)) continue;
+    return toRenderableImageSrc(candidate) || candidate;
   }
 
   // 再使用 inline 数据（blob/base64）
@@ -148,8 +152,16 @@ const normalizeImageFileName = (
 };
 
 const seemsImageUrl = (text: string): boolean => {
-  if (!text || !/^https?:\/\//i.test(text)) return false;
-  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(text)) return true;
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (!trimmed) return false;
+
+  const normalized = normalizePersistableImageRef(trimmed);
+  if (!normalized || !isPersistableImageRef(normalized)) return false;
+
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)([?#].*)?$/i.test(trimmed)) return true;
+  if (isAssetKeyRef(normalized)) return true;
+  if (trimmed.includes("/api/assets/proxy") || trimmed.includes("/assets/proxy")) return true;
+
   return false;
 };
 
@@ -1089,18 +1101,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   }, [quickImageUpload]);
 
   // 🔥 AI 生成图片：上传到 OSS 后，尽早把画布上的 placeholder 图片替换为远程 URL（释放 base64/blob 内存）
-  useEffect(() => {
-    const tryUpgrade = (params: {
-      placeholderId: string;
-      remoteUrl: string;
-    }): boolean => {
-      const { placeholderId, remoteUrl } = params;
-      if (!placeholderId || !remoteUrl) return false;
+	  useEffect(() => {
+	    const tryUpgrade = (params: {
+	      placeholderId: string;
+	      remoteUrl: string;
+	    }): boolean => {
+	      const { placeholderId, remoteUrl } = params;
+	      if (!placeholderId || !remoteUrl) return false;
 
-      let upgraded = false;
-      const objectUrlsToMaybeRevoke = new Set<string>();
+	      const normalizedIncoming = normalizePersistableImageRef(remoteUrl) || remoteUrl;
+	      const incomingKey = isAssetKeyRef(normalizedIncoming) ? normalizedIncoming : undefined;
+	      const incomingSrc = isRemoteUrl(normalizedIncoming)
+	        ? normalizedIncoming
+	        : undefined;
+	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
 
-      // 1) 更新运行时图片实例（window.tanvaImageInstances）
+	      let upgraded = false;
+	      const objectUrlsToMaybeRevoke = new Set<string>();
+
+	      // 1) 更新运行时图片实例（window.tanvaImageInstances）
       try {
         const instances = (window as any).tanvaImageInstances as any[] | undefined;
         if (Array.isArray(instances) && instances.length > 0) {
@@ -1113,33 +1132,41 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageData.localDataUrl,
               imageData.url,
               imageData.src,
-            ].filter((v: any) => typeof v === "string" && v.startsWith("blob:"));
-            localCandidates.forEach((v: string) => objectUrlsToMaybeRevoke.add(v));
+	            ].filter((v: any) => typeof v === "string" && v.startsWith("blob:"));
+	            localCandidates.forEach((v: string) => objectUrlsToMaybeRevoke.add(v));
 
-            // 已经是远程且无本地数据则跳过
-            if (
-              typeof imageData.url === "string" &&
-              imageData.url.startsWith("http") &&
-              imageData.url === remoteUrl &&
-              !imageData.localDataUrl
-            ) {
-              return inst;
-            }
+	            // 已经是远程且无本地数据则跳过
+	            if (
+	              typeof imageData.url === "string" &&
+	              isPersistableImageRef(imageData.url) &&
+	              normalizePersistableImageRef(imageData.url) === persistedUrl &&
+	              !imageData.localDataUrl
+	            ) {
+	              return inst;
+	            }
 
-            changed = true;
-            upgraded = true;
-            return {
-              ...inst,
-              imageData: {
-                ...imageData,
-                url: remoteUrl,
-                src: remoteUrl,
-                remoteUrl,
-                pendingUpload: false,
-                localDataUrl: undefined,
-              },
-            };
-          });
+	            const normalizedPrevSrc =
+	              typeof imageData.src === "string" ? normalizePersistableImageRef(imageData.src) : "";
+	            const nextSrc =
+	              incomingSrc ||
+	              (normalizedPrevSrc && isRemoteUrl(normalizedPrevSrc) ? normalizedPrevSrc : "") ||
+	              persistedUrl;
+
+	            changed = true;
+	            upgraded = true;
+	            return {
+	              ...inst,
+	              imageData: {
+	                ...imageData,
+	                url: persistedUrl,
+	                src: nextSrc,
+	                key: incomingKey || imageData.key,
+	                remoteUrl: isRemoteUrl(nextSrc) ? nextSrc : imageData.remoteUrl,
+	                pendingUpload: false,
+	                localDataUrl: undefined,
+	              },
+	            };
+	          });
 
           if (changed) {
             (window as any).tanvaImageInstances = next;
@@ -1147,39 +1174,43 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         }
       } catch {}
 
-      // 2) 更新 Paper.js Raster（用 data.imageId 关联）
-      try {
-        const project = paper?.project as any;
-        if (project?.getItems) {
-          const rasterClass = (paper as any).Raster;
-          const rasters = project.getItems({ class: rasterClass }) as any[];
-          const proxied = proxifyRemoteAssetUrl(remoteUrl);
+	      // 2) 更新 Paper.js Raster（用 data.imageId 关联）
+	      try {
+	        const project = paper?.project as any;
+	        if (project?.getItems) {
+	          const rasterClass = (paper as any).Raster;
+	          const rasters = project.getItems({ class: rasterClass }) as any[];
+	          const proxied =
+	            toRenderableImageSrc(persistedUrl) ||
+	            toRenderableImageSrc(remoteUrl) ||
+	            proxifyRemoteAssetUrl(remoteUrl);
 
-          rasters.forEach((raster) => {
-            if (!raster) return;
-            const imageId = raster.data?.imageId;
-            if (imageId !== placeholderId) return;
+	          rasters.forEach((raster) => {
+	            if (!raster) return;
+	            const imageId = raster.data?.imageId;
+	            if (imageId !== placeholderId) return;
 
             const currentSource = typeof raster.source === "string" ? raster.source : "";
             if (currentSource.startsWith("blob:")) {
               objectUrlsToMaybeRevoke.add(currentSource);
             }
 
-            raster.data = {
-              ...(raster.data || {}),
-              remoteUrl,
-              pendingUpload: false,
-            };
+	            raster.data = {
+	              ...(raster.data || {}),
+	              ...(incomingSrc ? { remoteUrl: incomingSrc } : null),
+	              ...(incomingKey ? { key: incomingKey } : null),
+	              pendingUpload: false,
+	            };
 
             try {
               (raster as any).crossOrigin = "anonymous";
             } catch {}
 
-            try {
-              raster.source = proxied;
-              upgraded = true;
-            } catch {}
-          });
+	            try {
+	              raster.source = proxied;
+	              upgraded = true;
+	            } catch {}
+	          });
 
           if (upgraded) {
             try {
@@ -3623,12 +3654,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         try {
           let credentials: RequestCredentials | undefined;
-          if (source.startsWith("http")) {
-            try {
-              const origin = new URL(source).origin;
-              credentials =
-                origin === window.location.origin ? "include" : "omit";
-            } catch {
+	          if (isRemoteUrl(source)) {
+	            try {
+	              const origin = new URL(source).origin;
+	              credentials =
+	                origin === window.location.origin ? "include" : "omit";
+	            } catch {
               credentials = "omit";
             }
           }
@@ -3667,9 +3698,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           logger.debug("图片发送到库：上传失败，尝试降级为直接引用URL", error);
         }
 
-        // 兜底：上传失败时，若已有远程 URL，直接用原 URL
-        const finalUrl =
-          uploadedUrl || (source.startsWith("http") ? source : null);
+	        // 兜底：上传失败时，若已有远程 URL，直接用原 URL
+	        const finalUrl =
+	          uploadedUrl ||
+	          (isPersistableImageRef(normalizePersistableImageRef(source)) ? source : null);
         if (!finalUrl) {
           throw new Error("无法获得可持久化的图像地址");
         }
@@ -4816,35 +4848,63 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 imageGroup.data.type = "image";
                 imageGroup.data.imageId = ensuredImageId;
 
-                const metadataFromRaster = {
-                  originalWidth: raster.data?.originalWidth as
-                    | number
-                    | undefined,
-                  originalHeight: raster.data?.originalHeight as
-                    | number
-                    | undefined,
-                  fileName: raster.data?.fileName as string | undefined,
-                  uploadMethod: raster.data?.uploadMethod as string | undefined,
-                  aspectRatio: raster.data?.aspectRatio as number | undefined,
-                  remoteUrl:
-                    typeof raster.data?.remoteUrl === "string" &&
-                    /^https?:\/\//i.test(raster.data.remoteUrl)
-                      ? (raster.data.remoteUrl as string)
-                      : undefined,
-                };
-
-                // 记录来源：优先使用远程URL，其次使用非data的source，最后使用内联data
-                const sourceUrl =
-                  typeof raster.source === "string" ? raster.source : undefined;
-                const remoteUrl =
-                  metadataFromRaster.remoteUrl ||
-                  (sourceUrl && /^https?:\/\//i.test(sourceUrl)
-                    ? sourceUrl
-                    : undefined);
-                const inlineDataUrl =
-                  sourceUrl && (sourceUrl.startsWith("data:") || sourceUrl.startsWith("blob:"))
-                    ? sourceUrl
-                    : undefined;
+	                const sourceUrl =
+	                  typeof raster.source === "string" ? raster.source.trim() : "";
+	                const inlineDataUrl =
+	                  sourceUrl &&
+	                  (sourceUrl.startsWith("data:") || sourceUrl.startsWith("blob:"))
+	                    ? sourceUrl
+	                    : undefined;
+	
+	                const key = (() => {
+	                  const fromData =
+	                    typeof raster.data?.key === "string"
+	                      ? normalizePersistableImageRef(raster.data.key)
+	                      : "";
+	                  const normalizedData = fromData.replace(/^\/+/, "");
+	                  if (normalizedData && isAssetKeyRef(normalizedData)) return normalizedData;
+	
+	                  const fromSource = sourceUrl ? normalizePersistableImageRef(sourceUrl) : "";
+	                  const normalizedSource = fromSource.replace(/^\/+/, "");
+	                  if (normalizedSource && isAssetKeyRef(normalizedSource)) return normalizedSource;
+	
+	                  return undefined;
+	                })();
+	
+	                const remoteUrl = (() => {
+	                  const fromData =
+	                    typeof raster.data?.remoteUrl === "string"
+	                      ? normalizePersistableImageRef(raster.data.remoteUrl)
+	                      : "";
+	                  if (fromData && isRemoteUrl(fromData)) return fromData;
+	
+	                  const fromSource = sourceUrl ? normalizePersistableImageRef(sourceUrl) : "";
+	                  if (fromSource && isRemoteUrl(fromSource)) return fromSource;
+	
+	                  return undefined;
+	                })();
+	
+	                const persistedFromSource = (() => {
+	                  const normalized = sourceUrl ? normalizePersistableImageRef(sourceUrl) : "";
+	                  if (normalized && isPersistableImageRef(normalized)) return normalized;
+	                  return undefined;
+	                })();
+	
+	                const persistedRef = key || remoteUrl || persistedFromSource;
+	
+	                const metadataFromRaster = {
+	                  originalWidth: raster.data?.originalWidth as
+	                    | number
+	                    | undefined,
+	                  originalHeight: raster.data?.originalHeight as
+	                    | number
+	                    | undefined,
+	                  fileName: raster.data?.fileName as string | undefined,
+	                  uploadMethod: raster.data?.uploadMethod as string | undefined,
+	                  aspectRatio: raster.data?.aspectRatio as number | undefined,
+	                  remoteUrl,
+	                  key,
+	                };
 
                 // 统一设置raster.data，提前补上id以便后续事件使用
 	                raster.data = {
@@ -4909,8 +4969,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       (boundsRect.height
                         ? boundsRect.width / boundsRect.height
                         : undefined),
-                    remoteUrl: metadataFromRaster.remoteUrl || remoteUrl,
-                  };
+	                    remoteUrl,
+	                  };
 
 	                  ensureImageGroupStructure({
 	                    raster,
@@ -4926,10 +4986,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     paper.view?.update();
                   } catch {}
 
-                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
-                  const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
-                  const pendingUpload =
-                    !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl);
+	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
+	                  const resolvedSrc = persistedRef
+	                    ? toRenderableImageSrc(persistedRef) || persistedRef
+	                    : inlineDataUrl ?? resolvedUrl;
+	                  const pendingUpload = !persistedRef;
 
                   // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
                   const originalWidth =
@@ -4943,14 +5004,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	                  return {
 	                    id: ensuredImageId,
-                    imageData: {
-                      id: ensuredImageId,
-                      url: resolvedUrl,
-                      src: resolvedSrc,
-                      fileName: computedMetadata.fileName,
-                      pendingUpload,
-                      width: Math.round(originalWidth),
-                      height: Math.round(originalHeight),
+	                    imageData: {
+	                      id: ensuredImageId,
+	                      url: resolvedUrl,
+	                      key,
+	                      src: resolvedSrc,
+	                      fileName: computedMetadata.fileName,
+	                      pendingUpload,
+	                      width: Math.round(originalWidth),
+	                      height: Math.round(originalHeight),
                     },
 	                    bounds: {
 	                      x: boundsRect.x,
@@ -4976,20 +5038,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   }
                 } else {
                   // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
-                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
-                  const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
-                  const pendingUpload =
-                    !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl);
+	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
+	                  const resolvedSrc = persistedRef
+	                    ? toRenderableImageSrc(persistedRef) || persistedRef
+	                    : inlineDataUrl ?? resolvedUrl;
+	                  const pendingUpload = !persistedRef;
 
                   imageInstances.push({
                     id: ensuredImageId,
-                    imageData: {
-                      id: ensuredImageId,
-                      url: resolvedUrl,
-                      src: resolvedSrc,
-                      fileName: metadataFromRaster.fileName,
-                      pendingUpload,
-                    },
+	                    imageData: {
+	                      id: ensuredImageId,
+	                      url: resolvedUrl,
+	                      key,
+	                      src: resolvedSrc,
+	                      fileName: metadataFromRaster.fileName,
+	                      pendingUpload,
+	                    },
                     bounds: {
                       x: raster.position?.x ?? 0,
                       y: raster.position?.y ?? 0,

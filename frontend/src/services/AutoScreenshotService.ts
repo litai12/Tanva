@@ -11,6 +11,7 @@ import { trimTransparentPng } from '@/utils/imageHelper';
 import type { ImageInstance, Model3DInstance } from '@/types/canvas';
 import { logger } from '@/utils/logger';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { toRenderableImageSrc } from '@/utils/imageSource';
 
 export interface ScreenshotOptions {
   /** 输出图片格式 */
@@ -1016,7 +1017,7 @@ export class AutoScreenshotService {
           if (needsReload) {
             try {
               // 尝试使用代理 URL 重新加载图片，确保设置 crossOrigin
-              const proxiedSrc = proxifyRemoteAssetUrl(imgSrc);
+              const proxiedSrc = toRenderableImageSrc(imgSrc) || proxifyRemoteAssetUrl(imgSrc);
               const cleanImg = await this.loadImageFromSrc(proxiedSrc);
               imageToDraw = cleanImg;
               logger.debug('✅ 跨域图片已重新加载（设置 crossOrigin）', { src: imgSrc });
@@ -1468,7 +1469,7 @@ export class AutoScreenshotService {
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error('图片加载失败'));
-      const finalSrc = proxifyRemoteAssetUrl(src);
+      const finalSrc = toRenderableImageSrc(src) || proxifyRemoteAssetUrl(src);
       if (!/^data:/i.test(finalSrc) && !/^blob:/i.test(finalSrc)) {
         img.crossOrigin = 'anonymous';
       }

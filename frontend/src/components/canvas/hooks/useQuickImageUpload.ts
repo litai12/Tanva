@@ -11,9 +11,16 @@ import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
 import { imageUploadService } from '@/services/imageUploadService';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { isRaster } from '@/utils/paperCoords';
 import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
+import {
+    isAssetKeyRef,
+    isAssetProxyRef,
+    isPersistableImageRef,
+    isRemoteUrl,
+    normalizePersistableImageRef,
+    toRenderableImageSrc,
+} from '@/utils/imageSource';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
 
 interface UseQuickImageUploadProps {
@@ -27,18 +34,34 @@ const isInlineDataUrl = (value?: string | null): value is string => {
     return value.startsWith('data:image') || value.startsWith('blob:');
 };
 
-const isRemoteUrl = (value?: string | null): value is string => {
-    if (typeof value !== 'string') return false;
-    return /^https?:\/\//i.test(value.trim());
-};
+const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string; key?: string } => {
+    const normalizedUrl = normalizePersistableImageRef(asset.url);
+    const normalizedSrc = normalizePersistableImageRef(asset.src);
+    const normalizedKey = normalizePersistableImageRef(asset.key);
 
-const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string } => {
-    const remoteUrl = isRemoteUrl(asset.url) ? asset.url : isRemoteUrl(asset.src) ? asset.src : undefined;
-    if (remoteUrl) {
-        return { source: proxifyRemoteAssetUrl(remoteUrl), remoteUrl };
-    }
-    const inline = isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : isInlineDataUrl(asset.src) ? asset.src : undefined;
-    return { source: inline || asset.url, remoteUrl: undefined };
+    // remoteUrl 仅用于“回退到直连”/一些需要 http(s) 的能力
+    const remoteUrl = isRemoteUrl(normalizedSrc)
+        ? normalizedSrc
+        : isRemoteUrl(normalizedUrl)
+            ? normalizedUrl
+            : undefined;
+
+    const key = (normalizedKey && isAssetKeyRef(normalizedKey))
+        ? normalizedKey
+        : (normalizedUrl && isAssetKeyRef(normalizedUrl))
+            ? normalizedUrl
+            : undefined;
+
+    // 显示优先：localDataUrl（预览/占位）-> key -> src/url
+    const displayCandidate =
+        (isInlineDataUrl(asset.localDataUrl) ? asset.localDataUrl : undefined) ||
+        key ||
+        normalizedSrc ||
+        normalizedUrl ||
+        asset.url;
+
+    const renderable = toRenderableImageSrc(displayCandidate) || displayCandidate;
+    return { source: renderable, remoteUrl, key };
 };
 
 const shouldUseAnonymousCrossOrigin = (source: string): boolean => {
@@ -909,16 +932,18 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         let asset: StoredImageAsset | null = null;
         const skipUpload = Boolean(extraOptions?.placeholderId); // AI生成的占位符无需等待上传即可落盘
         if (typeof imagePayload === 'string') {
-            // 🔥 检查是否是远程 URL 还是 base64 data URL
-            const isRemoteUrl = imagePayload.startsWith('http://') || imagePayload.startsWith('https://');
-            
-            if (isRemoteUrl) {
-                // 如果是远程 URL，直接使用，不需要上传
-                logger.upload(`🌐 [handleQuickImageUploaded] 检测到远程 URL，直接使用: ${imagePayload.substring(0, 50)}...`);
+            // 🔥 统一判定：是否为“可持久化图片引用”（remote URL / proxy path / OSS key / 相对路径）
+            const normalizedPersisted = normalizePersistableImageRef(imagePayload);
+            const isPersisted = !!normalizedPersisted && isPersistableImageRef(normalizedPersisted);
+
+            if (isPersisted) {
+                // 已是可持久化引用：直接使用，不需要上传
+                logger.upload(`🌐 [handleQuickImageUploaded] 检测到可持久化图片引用，直接使用: ${String(imagePayload).substring(0, 50)}...`);
                 asset = {
                     id: `remote_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    url: imagePayload,
-                    src: imagePayload,
+                    url: normalizedPersisted,
+                    key: isAssetKeyRef(normalizedPersisted) ? normalizedPersisted : undefined,
+                    src: toRenderableImageSrc(normalizedPersisted) || normalizedPersisted,
                     fileName: fileName || 'remote-image.png',
                     pendingUpload: false,
                 };
@@ -983,6 +1008,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
         const pickedSource = pickRasterSource(asset);
         let rasterSource = pickedSource.source;
         const resolvedRemoteUrl = pickedSource.remoteUrl;
+        const resolvedKey = pickedSource.key;
         try {
             ensureDrawingLayer();
 
@@ -1194,8 +1220,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     }
                 } catch {}
                 raster.position = targetPosition;
-                if (resolvedRemoteUrl) {
-                    raster.data = { ...(raster.data || {}), remoteUrl: resolvedRemoteUrl };
+                if (resolvedRemoteUrl || resolvedKey) {
+                    raster.data = {
+                        ...(raster.data || {}),
+                        ...(resolvedRemoteUrl ? { remoteUrl: resolvedRemoteUrl } : null),
+                        ...(resolvedKey ? { key: resolvedKey } : null),
+                    };
                 }
 
                 return raster;
@@ -1713,7 +1743,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 if (
                     !hasRetriedProxyFallback &&
                     resolvedRemoteUrl &&
-                    (rasterSource.startsWith('/api/assets/proxy') || rasterSource.startsWith('/assets/proxy'))
+                    isAssetProxyRef(rasterSource)
                 ) {
                     hasRetriedProxyFallback = true;
                     rasterSource = resolvedRemoteUrl;

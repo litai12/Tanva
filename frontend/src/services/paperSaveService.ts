@@ -5,6 +5,14 @@ import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import {
+  isAssetKeyRef,
+  isPersistableImageRef,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  toRenderableImageSrc,
+} from '@/utils/imageSource';
+import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -17,15 +25,14 @@ class PaperSaveService {
   private pendingSaveReason: string | null = null;
   private rasterLoadHooked = new WeakSet<object>();
 
-  private isRemoteUrl(value?: string | null): boolean {
-    if (typeof value !== 'string') return false;
-    return /^https?:\/\//i.test(value.trim());
-  }
-
   private isInlineImageSource(value: unknown): value is string {
     if (typeof value !== 'string') return false;
     const trimmed = value.trim();
-    return trimmed.startsWith('data:image/') || trimmed.startsWith('blob:');
+    return (
+      trimmed.startsWith('data:image/') ||
+      trimmed.startsWith('blob:') ||
+      trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)
+    );
   }
 
   /**
@@ -89,16 +96,20 @@ class PaperSaveService {
         if (!raster || (typeof raster !== 'object' && typeof raster !== 'function')) return;
 
         const dataRemoteUrl = typeof raster?.data?.remoteUrl === 'string' ? raster.data.remoteUrl.trim() : '';
+        const dataKey = typeof raster?.data?.key === 'string' ? raster.data.key.trim() : '';
         const sourceString = typeof raster.source === 'string' ? raster.source.trim() : '';
 
         const candidate =
-          (dataRemoteUrl && this.isRemoteUrl(dataRemoteUrl) ? dataRemoteUrl : '') ||
-          (sourceString && this.isRemoteUrl(sourceString) ? sourceString : '');
+          (dataKey && isPersistableImageRef(dataKey) ? dataKey : '') ||
+          (dataRemoteUrl ? normalizePersistableImageRef(dataRemoteUrl) : '') ||
+          (sourceString ? normalizePersistableImageRef(sourceString) : '');
 
         if (!candidate || this.isInlineImageSource(candidate)) return;
+        if (!isPersistableImageRef(candidate)) return;
 
-        const proxied = proxifyRemoteAssetUrl(candidate);
-        const shouldProxy = proxied !== candidate;
+        const renderable = toRenderableImageSrc(candidate);
+        if (!renderable) return;
+        const shouldProxy = renderable !== candidate;
 
         const shouldUseAnonymous = (() => {
           if (shouldProxy) return true;
@@ -117,7 +128,7 @@ class PaperSaveService {
         if (!shouldProxy) return;
 
         if (typeof raster.source === 'string') {
-          raster.source = proxied;
+          raster.source = renderable;
           return;
         }
 
@@ -126,7 +137,7 @@ class PaperSaveService {
           if (shouldUseAnonymous) {
             try { maybeImg.crossOrigin = 'anonymous'; } catch {}
           }
-          try { maybeImg.src = proxied; } catch {}
+          try { maybeImg.src = renderable; } catch {}
         }
       });
     } catch (error) {
@@ -164,7 +175,7 @@ class PaperSaveService {
         }
         continue;
       }
-      if (!this.isRemoteUrl(trimmed) && trimmed.length > 128) {
+      if (!isPersistableImageRef(trimmed) && trimmed.length > 128) {
         const compact = trimmed.replace(/\s+/g, '');
         const base64Pattern = /^[A-Za-z0-9+/=]+$/;
         if (base64Pattern.test(compact)) {
@@ -230,7 +241,10 @@ class PaperSaveService {
     let failed = 0;
 
     for (const image of assets.images) {
-      const hasRemote = this.isRemoteUrl(image.url) || this.isRemoteUrl(image.src);
+      const hasRemote =
+        isPersistableImageRef(image.url) ||
+        isPersistableImageRef(image.src) ||
+        isPersistableImageRef(image.key || null);
       if (hasRemote) {
         if (image.pendingUpload) {
           image.pendingUpload = false;
@@ -271,7 +285,7 @@ class PaperSaveService {
 
         if (uploadResult.success && uploadResult.asset?.url) {
           const uploadedAsset = uploadResult.asset;
-          image.url = uploadedAsset.url;
+          image.url = (uploadedAsset.key || uploadedAsset.url).trim();
           image.src = uploadedAsset.url;
           image.key = uploadedAsset.key || image.key;
           image.fileName = image.fileName || uploadedAsset.fileName;
@@ -338,14 +352,26 @@ class PaperSaveService {
         instances.forEach((instance) => {
           const data = instance?.imageData;
           const bounds = instance?.bounds;
-          const url = data?.url || data?.localDataUrl || data?.src;
+          const rawUrl = typeof data?.url === 'string' ? data.url.trim() : '';
+          const rawSrc = typeof data?.src === 'string' ? data.src.trim() : '';
+          const rawKey = typeof data?.key === 'string' ? data.key.trim() : '';
+          const normalizedUrl = rawUrl ? normalizePersistableImageRef(rawUrl) : '';
+          const normalizedSrc = rawSrc ? normalizePersistableImageRef(rawSrc) : '';
+          const normalizedKey = rawKey ? normalizePersistableImageRef(rawKey) : '';
+
+          const persistedRef =
+            (normalizedKey && isPersistableImageRef(normalizedKey) ? normalizedKey : '') ||
+            (normalizedUrl && isPersistableImageRef(normalizedUrl) ? normalizedUrl : '') ||
+            (normalizedSrc && isPersistableImageRef(normalizedSrc) ? normalizedSrc : '');
+
+          const url = persistedRef || data?.localDataUrl || rawUrl || rawSrc;
           if (!url) return;
-          const pendingUpload = !!data?.pendingUpload || !this.isRemoteUrl(url);
+          const pendingUpload = !!data?.pendingUpload || !isPersistableImageRef(url);
           collectedImageIds.add(instance.id);
           images.push({
             id: instance.id,
             url,
-            key: data?.key,
+            key: persistedRef && isAssetKeyRef(persistedRef) ? persistedRef : (data?.key || normalizedKey || undefined),
             fileName: data?.fileName,
             width: data?.width,
             height: data?.height,
@@ -359,7 +385,7 @@ class PaperSaveService {
               height: bounds?.height ?? 0,
             },
             layerId: this.normalizeLayerId(instance?.layerId || instance?.layer?.name),
-            src: url,
+            src: persistedRef && normalizedSrc ? normalizedSrc : (data?.src || url),
           });
         });
       }
@@ -383,9 +409,10 @@ class PaperSaveService {
               // 获取图片源
               const source = raster.source;
               const remoteUrl = raster?.data?.remoteUrl;
-              const url = this.isRemoteUrl(remoteUrl) ? remoteUrl
-                : (typeof source === 'string' && this.isRemoteUrl(source)) ? source
-                : null;
+              const key = typeof raster?.data?.key === 'string' ? raster.data.key.trim() : '';
+              const url = (key && isPersistableImageRef(key) ? key : null)
+                || (typeof remoteUrl === 'string' && isPersistableImageRef(remoteUrl) ? normalizePersistableImageRef(remoteUrl) : null)
+                || (typeof source === 'string' && isPersistableImageRef(source) ? normalizePersistableImageRef(source) : null);
 
               // 如果没有远程 URL，尝试从 canvas 获取 dataUrl
               let localDataUrl: string | undefined;
@@ -416,6 +443,7 @@ class PaperSaveService {
                   height: bounds?.height ?? 0,
                 },
                 layerId: this.normalizeLayerId(raster?.layer?.name),
+                key: key || undefined,
               });
               console.log(`📷 从 Paper.js 补充采集图片: ${imageId}`);
             });
@@ -501,8 +529,8 @@ class PaperSaveService {
   private sanitizeAssets(assets: { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[]; videos: VideoAssetSnapshot[] }) {
     const sanitizedImages = assets.images.map((asset) => {
       const next: ImageAssetSnapshot = { ...asset };
-      const hasRemoteUrl = this.isRemoteUrl(next.url);
-      const hasRemoteSrc = this.isRemoteUrl(next.src || '');
+      const hasRemoteUrl = isPersistableImageRef(next.url);
+      const hasRemoteSrc = isPersistableImageRef(next.src || '');
 
       if (hasRemoteUrl) {
         next.src = next.url;
@@ -554,18 +582,23 @@ class PaperSaveService {
         const asset = assetMap.get(String(imageId));
         if (!asset) return;
 
-        const remoteUrl = (asset.url && this.isRemoteUrl(asset.url))
-          ? asset.url
-          : asset.src && this.isRemoteUrl(asset.src)
-            ? asset.src
-            : undefined;
+        const persistedRef =
+          (asset.key && isPersistableImageRef(asset.key) ? asset.key : undefined) ||
+          (asset.url && isPersistableImageRef(asset.url) ? asset.url : undefined) ||
+          (asset.src && isPersistableImageRef(asset.src) ? asset.src : undefined);
 
-        if (remoteUrl) {
+        const renderable = persistedRef ? toRenderableImageSrc(persistedRef) : null;
+        const remoteUrl =
+          (asset.src && isRemoteUrl(asset.src) ? asset.src : undefined) ||
+          (asset.url && isRemoteUrl(asset.url) ? asset.url : undefined);
+
+        if (renderable) {
           if (typeof raster.source === 'string' && this.isInlineImageSource(raster.source)) {
-            raster.source = remoteUrl;
+            raster.source = renderable;
           }
           if (!raster.data) raster.data = {};
-          raster.data.remoteUrl = remoteUrl;
+          if (remoteUrl) raster.data.remoteUrl = remoteUrl;
+          if (asset.key) raster.data.key = asset.key;
         }
 
         if (raster.data) {

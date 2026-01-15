@@ -35,6 +35,7 @@ import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
 import { editImageViaAPI } from "@/services/aiBackendAPI";
 import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
+import { resolveImageToDataUrl, toRenderableImageSrc } from "@/utils/imageSource";
 
 const EXPAND_PRESET_PROMPT = "不改变图片比例，填充白色部分";
 
@@ -50,21 +51,7 @@ const ensureDataUrlString = (
 };
 
 const normalizeImageSrc = (value?: string | null): string => {
-  if (!value) return "";
-  const trimmed = value.trim();
-  // 允许同源的 proxy 资源（如 /api/assets/proxy?...），否则会被误判为 base64 导致空白
-  if (
-    /^data:image\//i.test(trimmed) ||
-    /^https?:\/\//i.test(trimmed) ||
-    /^blob:/i.test(trimmed) ||
-    trimmed.startsWith("/api/") ||
-    trimmed.startsWith("/assets/") ||
-    trimmed.startsWith("./") ||
-    trimmed.startsWith("../")
-  ) {
-    return trimmed;
-  }
-  return `data:image/png;base64,${trimmed}`;
+  return toRenderableImageSrc(value) || "";
 };
 
 const _composeExpandedImage = async (
@@ -507,38 +494,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       input: string | null
     ): Promise<string | null> => {
       if (!input) return null;
-      if (input.startsWith("data:image/")) {
-        return input;
-      }
-
-      // 对于远程URL，只在必要时才转换为Base64；仅为获得URL时应复用已有远程链接
-      if (/^https?:\/\//i.test(input) || input.startsWith("blob:")) {
-        try {
-          const response = await fetch(input);
-          const blob = await response.blob();
-          return await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              if (typeof reader.result === "string") {
-                resolve(reader.result);
-              } else {
-                reject(new Error("无法读取图像数据"));
-              }
-            };
-            reader.onerror = () =>
-              reject(reader.error ?? new Error("读取图像数据失败"));
-            reader.readAsDataURL(blob);
-          });
-        } catch (convertError) {
-          console.warn(
-            "⚠️ 无法转换远程图像为Base64，尝试使用Canvas数据",
-            convertError
-          );
-          return null;
-        }
-      }
-
-      return input;
+      return await resolveImageToDataUrl(input, { preferProxy: true });
     };
 
     let result: string | null = null;
