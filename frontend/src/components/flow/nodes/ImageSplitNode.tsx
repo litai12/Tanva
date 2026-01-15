@@ -476,6 +476,7 @@ function SplitRectPreview({
   sourceHeight?: number;
 }) {
   const thumbSize = 48;
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const canRender =
     !!sourceSrc &&
     typeof sourceWidth === 'number' &&
@@ -485,11 +486,78 @@ function SplitRectPreview({
     rect.width > 0 &&
     rect.height > 0;
 
-  const scale = canRender ? Math.max(thumbSize / rect.width, thumbSize / rect.height) : 1;
-  const displayW = canRender ? sourceWidth! * scale : 0;
-  const displayH = canRender ? sourceHeight! * scale : 0;
-  const offsetX = canRender ? -rect.x * scale + (thumbSize - rect.width * scale) / 2 : 0;
-  const offsetY = canRender ? -rect.y * scale + (thumbSize - rect.height * scale) / 2 : 0;
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = Math.max(1, Math.round(thumbSize * dpr));
+    canvas.height = Math.max(1, Math.round(thumbSize * dpr));
+    canvas.style.width = `${thumbSize}px`;
+    canvas.style.height = `${thumbSize}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, thumbSize, thumbSize);
+
+    if (!canRender || !sourceSrc) {
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, thumbSize, thumbSize);
+      return;
+    }
+
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
+
+    const draw = () => {
+      if (cancelled) return;
+      const srcW = sourceWidth || img.naturalWidth || img.width;
+      const srcH = sourceHeight || img.naturalHeight || img.height;
+
+      const scaleX = srcW > 0 ? (img.naturalWidth || img.width) / srcW : 1;
+      const scaleY = srcH > 0 ? (img.naturalHeight || img.height) / srcH : 1;
+
+      const sxRaw = rect.x * scaleX;
+      const syRaw = rect.y * scaleY;
+      const swRaw = rect.width * scaleX;
+      const shRaw = rect.height * scaleY;
+
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+
+      const sx = Math.max(0, Math.min(naturalW - 1, sxRaw));
+      const sy = Math.max(0, Math.min(naturalH - 1, syRaw));
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+      // cover 渲染：让裁剪块填满 48x48
+      const scale = Math.max(thumbSize / sw, thumbSize / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      const dx = (thumbSize - dw) / 2;
+      const dy = (thumbSize - dh) / 2;
+
+      ctx.clearRect(0, 0, thumbSize, thumbSize);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, thumbSize, thumbSize);
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    };
+
+    img.onload = draw;
+    img.onerror = () => {
+      if (cancelled) return;
+      ctx.clearRect(0, 0, thumbSize, thumbSize);
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, thumbSize, thumbSize);
+    };
+    img.src = sourceSrc;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canRender, rect.height, rect.width, rect.x, rect.y, sourceHeight, sourceSrc, sourceWidth]);
 
   return (
     <div style={{
@@ -500,24 +568,7 @@ function SplitRectPreview({
       overflow: 'hidden',
       position: 'relative',
     }}>
-      {canRender ? (
-        <img
-          src={sourceSrc}
-          alt={`分割 ${index + 1}`}
-          decoding="async"
-          loading="lazy"
-          draggable={false}
-          style={{
-            position: 'absolute',
-            left: offsetX,
-            top: offsetY,
-            width: displayW,
-            height: displayH,
-          }}
-        />
-      ) : (
-        <div style={{ width: '100%', height: '100%', background: '#f3f4f6' }} />
-      )}
+      <canvas ref={canvasRef} style={{ display: 'block' }} />
       <span style={{
         position: 'absolute',
         bottom: 0,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position, useReactFlow } from 'reactflow';
 import { Copy, Trash2, Download, FolderPlus, Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
@@ -111,6 +111,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, o
 ));
 
 function ImageProNodeInner({ id, data, selected }: Props) {
+  const rf = useReactFlow();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -199,6 +200,10 @@ function ImageProNodeInner({ id, data, selected }: Props) {
       }).then(({ remoteUrl }) => {
         // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积
         if (!remoteUrl) return;
+        try {
+          const current = rf.getNode(id);
+          if ((current?.data as any)?.imageData !== base64) return;
+        } catch {}
         window.dispatchEvent(
           new CustomEvent('flow:updateNodeData', {
             detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },

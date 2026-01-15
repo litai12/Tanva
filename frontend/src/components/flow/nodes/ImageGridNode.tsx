@@ -5,10 +5,9 @@ import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import {
   createEphemeralFlowImageObjectUrl,
   parseFlowImageAssetRef,
-  putFlowImageBlobs,
-  toFlowImageAssetRef,
 } from '@/services/flowImageAssetStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { imageUploadService } from '@/services/imageUploadService';
 
 type ImageItem = {
   id: string;
@@ -72,6 +71,7 @@ function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {
   const src = assetId ? (assetUrl || '') : buildImageSrc(value);
 
   const thumbSize = 48;
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const crop = item.crop;
   const canCrop =
     !!src &&
@@ -83,39 +83,93 @@ function FlowImagePreview({ item, alt }: { item: ImageItem; alt: string }) {
     crop.sourceWidth > 0 &&
     crop.sourceHeight > 0;
 
-  const scale = canCrop ? Math.max(thumbSize / crop!.width, thumbSize / crop!.height) : 1;
-  const displayW = canCrop ? crop!.sourceWidth! * scale : 0;
-  const displayH = canCrop ? crop!.sourceHeight! * scale : 0;
-  const offsetX = canCrop ? -crop!.x * scale + (thumbSize - crop!.width * scale) / 2 : 0;
-  const offsetY = canCrop ? -crop!.y * scale + (thumbSize - crop!.height * scale) / 2 : 0;
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = Math.max(1, Math.round(thumbSize * dpr));
+    canvas.height = Math.max(1, Math.round(thumbSize * dpr));
+    canvas.style.width = `${thumbSize}px`;
+    canvas.style.height = `${thumbSize}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, thumbSize, thumbSize);
+
+    if (!src) {
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, thumbSize, thumbSize);
+      return;
+    }
+
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
+
+    const draw = () => {
+      if (cancelled) return;
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+      if (naturalW <= 0 || naturalH <= 0) return;
+
+      ctx.clearRect(0, 0, thumbSize, thumbSize);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, thumbSize, thumbSize);
+
+      if (canCrop && crop) {
+        const sourceW = crop.sourceWidth || naturalW;
+        const sourceH = crop.sourceHeight || naturalH;
+
+        const scaleX = sourceW > 0 ? naturalW / sourceW : 1;
+        const scaleY = sourceH > 0 ? naturalH / sourceH : 1;
+
+        const sxRaw = crop.x * scaleX;
+        const syRaw = crop.y * scaleY;
+        const swRaw = crop.width * scaleX;
+        const shRaw = crop.height * scaleY;
+
+        const sx = Math.max(0, Math.min(naturalW - 1, sxRaw));
+        const sy = Math.max(0, Math.min(naturalH - 1, syRaw));
+        const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+        const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+        const scale = Math.max(thumbSize / sw, thumbSize / sh);
+        const dw = sw * scale;
+        const dh = sh * scale;
+        const dx = (thumbSize - dw) / 2;
+        const dy = (thumbSize - dh) / 2;
+
+        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+        return;
+      }
+
+      // 无裁剪：cover
+      const scale = Math.max(thumbSize / naturalW, thumbSize / naturalH);
+      const dw = naturalW * scale;
+      const dh = naturalH * scale;
+      const dx = (thumbSize - dw) / 2;
+      const dy = (thumbSize - dh) / 2;
+      ctx.drawImage(img, 0, 0, naturalW, naturalH, dx, dy, dw, dh);
+    };
+
+    img.onload = draw;
+    img.onerror = () => {
+      if (cancelled) return;
+      ctx.clearRect(0, 0, thumbSize, thumbSize);
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fillRect(0, 0, thumbSize, thumbSize);
+    };
+    img.src = src;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canCrop, crop?.height, crop?.sourceHeight, crop?.sourceWidth, crop?.width, crop?.x, crop?.y, src]);
 
   return (
-    <>
-      {canCrop ? (
-        <img
-          src={src}
-          alt={alt}
-          decoding="async"
-          loading="lazy"
-          draggable={false}
-          style={{
-            position: 'absolute',
-            left: offsetX,
-            top: offsetY,
-            width: displayW,
-            height: displayH,
-          }}
-        />
-      ) : (
-        <img
-          src={src}
-          alt={alt}
-          decoding="async"
-          loading="lazy"
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-      )}
-    </>
+    <canvas ref={canvasRef} aria-label={alt} style={{ display: 'block' }} />
   );
 }
 
@@ -127,7 +181,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
 
   const outputAssetId = React.useMemo(() => parseFlowImageAssetRef(outputImage), [outputImage]);
   const outputAssetUrl = useFlowImageAssetUrl(outputAssetId);
-  const outputPreviewSrc = outputAssetId ? (outputAssetUrl || '') : (outputImage || '');
+  const outputPreviewSrc = outputAssetId ? (outputAssetUrl || '') : buildImageSrc(outputImage);
 
   const borderColor = selected ? '#2563eb' : '#e5e7eb';
   const boxShadow = selected
@@ -538,12 +592,19 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       const outputBlob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('导出失败'))), 'image/png');
       });
-      const [assetId] = await putFlowImageBlobs([{ blob: outputBlob, projectId, nodeId: id }]);
-      if (!assetId) throw new Error('写入图片缓存失败');
+      const uploadResult = await imageUploadService.uploadImageSource(outputBlob, {
+        projectId: projectId ?? undefined,
+        dir: projectId ? `projects/${projectId}/flow/images/` : 'uploads/flow/images/',
+        fileName: `image_grid_${id}_${Date.now()}.png`,
+        contentType: 'image/png',
+      });
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        throw new Error(uploadResult.error || '图片上传失败');
+      }
 
       updateNodeData({
         status: 'ready',
-        outputImage: toFlowImageAssetRef(assetId),
+        outputImage: (uploadResult.asset.key || uploadResult.asset.url).trim(),
         gridSize: grid,
       });
 

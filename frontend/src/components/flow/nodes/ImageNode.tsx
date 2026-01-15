@@ -7,7 +7,6 @@ import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
-import { generateThumbnail } from "@/utils/imageHelper";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 
@@ -447,18 +446,6 @@ function ImageNodeInner({ id, data, selected }: Props) {
       });
       window.dispatchEvent(ev);
 
-      // 立刻异步生成缩略图，避免缩放时直接渲染/缩放大图（Windows 上更容易卡顿）
-      generateThumbnail(base64, 400)
-        .then((thumbnail) => {
-          if (!thumbnail) return;
-          window.dispatchEvent(
-            new CustomEvent("flow:updateNodeData", {
-              detail: { id, patch: { thumbnail } },
-            })
-          );
-        })
-        .catch(() => {});
-
       const newImageId = `${id}-${Date.now()}`;
       setCurrentImageId(newImageId);
       void recordImageHistoryEntry({
@@ -472,9 +459,13 @@ function ImageNodeInner({ id, data, selected }: Props) {
       }).then(({ remoteUrl }) => {
         // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积与渲染压力
         if (!remoteUrl) return;
+        try {
+          const current = rf.getNode(id);
+          if ((current?.data as any)?.imageData !== base64) return;
+        } catch {}
         window.dispatchEvent(
           new CustomEvent("flow:updateNodeData", {
-            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },
+            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined } },
           })
         );
       }).catch(() => {});

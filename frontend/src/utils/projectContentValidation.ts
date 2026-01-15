@@ -1,5 +1,6 @@
 import type { ProjectContentSnapshot } from "@/types/project";
 import { isRemoteUrl } from "@/utils/imageSource";
+import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 
 export function getNonRemoteImageAssetIds(
   content: ProjectContentSnapshot | null | undefined
@@ -22,3 +23,100 @@ export function getNonRemoteImageAssetIds(
   return ids;
 }
 
+function isPersistableDesignJsonImageRef(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  if (
+    trimmed.startsWith("/api/assets/proxy") ||
+    trimmed.startsWith("/assets/proxy")
+  ) {
+    return true;
+  }
+  if (
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../")
+  ) {
+    return true;
+  }
+  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) return true;
+  return false;
+}
+
+function isInlineOrLocalDesignJsonImageRef(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith("data:image/")) return true;
+  if (trimmed.startsWith("blob:")) return true;
+  if (trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)) return true;
+  // 兜底：图片字段里出现的“非 URL/非路径”的字符串，按不允许持久化处理（通常是裸 base64）
+  return !isPersistableDesignJsonImageRef(trimmed);
+}
+
+function isImageLikeKey(key: string): boolean {
+  const k = key.toLowerCase();
+  if (k === "img" || k === "image") return true;
+
+  // 常见图片引用字段（避免误伤 imageModel/imageSize 等配置字段）
+  const imageRefSuffixes = [
+    "imagedata",
+    "imageurl",
+    "imageurls",
+    "images",
+    "outputimage",
+    "inputimage",
+    "inputimageurl",
+    "sourceimage",
+    "sourceimages",
+    "thumb",
+    "thumbnail",
+    "thumbnails",
+    "thumbnaildataurl",
+    "thumbnailurl",
+    "poster",
+    "cover",
+  ];
+
+  return imageRefSuffixes.some((suffix) => k === suffix || k.endsWith(suffix));
+}
+
+export function getNonPersistableFlowImageNodeIds(
+  content: ProjectContentSnapshot | null | undefined
+): string[] {
+  const nodes = content?.flow?.nodes ?? [];
+  if (!Array.isArray(nodes) || nodes.length === 0) return [];
+
+  const invalid = new Set<string>();
+
+  const walk = (nodeId: string, value: unknown, pathKeys: string[]) => {
+    if (invalid.has(nodeId)) return;
+
+    if (typeof value === "string") {
+      const isImageField = pathKeys.some((k) => typeof k === "string" && isImageLikeKey(k));
+      if (!isImageField) return;
+      if (isInlineOrLocalDesignJsonImageRef(value)) {
+        invalid.add(nodeId);
+      }
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item, idx) => walk(nodeId, item, [...pathKeys, String(idx)]));
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
+        walk(nodeId, v, [...pathKeys, k]);
+      });
+    }
+  };
+
+  for (const node of nodes as Array<{ id?: string; data?: unknown }>) {
+    const nodeId = typeof node?.id === "string" && node.id ? node.id : "unknown";
+    walk(nodeId, node?.data, []);
+  }
+
+  return Array.from(invalid);
+}

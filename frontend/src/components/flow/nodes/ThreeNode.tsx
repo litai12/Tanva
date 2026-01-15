@@ -349,7 +349,40 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       nodeType: '3d',
       fileName: `three_capture_${newImageId}.png`,
       projectId,
-    });
+    })
+      .then(({ remoteUrl }) => {
+        if (!remoteUrl) return;
+        try {
+          const current = rf.getNode(id);
+          if ((current?.data as any)?.imageData !== base64) return;
+        } catch {}
+        // 用远程 URL 替换节点内的 base64，避免写入项目 JSON/DB
+        window.dispatchEvent(
+          new CustomEvent('flow:updateNodeData', {
+            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined } },
+          })
+        );
+
+        // 同步更新下游 Image 节点（避免 base64 传播并落库）
+        try {
+          const outs = rf.getEdges().filter((e) => e.source === id);
+          for (const ed of outs) {
+            const tgt = rf.getNode(ed.target);
+            if (tgt?.type === 'image') {
+              if ((tgt?.data as any)?.imageData !== base64) continue;
+              window.dispatchEvent(
+                new CustomEvent('flow:updateNodeData', {
+                  detail: {
+                    id: ed.target,
+                    patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined },
+                  },
+                })
+              );
+            }
+          }
+        } catch {}
+      })
+      .catch(() => {});
     setCurrentImageId(newImageId);
     
     // 向下游 Image 节点传播

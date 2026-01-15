@@ -312,7 +312,7 @@ class PaperSaveService {
       console.log(`📤 自动补全了 ${uploaded} 张本地图片的远程URL`);
     }
     if (failed > 0) {
-      console.warn(`⚠️ 仍有 ${failed} 张图片缺少远程URL，将以内联数据保存`);
+      console.warn(`⚠️ 仍有 ${failed} 张图片缺少远程URL，保存将被阻止（需先完成上传）`);
     }
 
     return assets;

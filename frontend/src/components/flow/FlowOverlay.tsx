@@ -69,7 +69,6 @@ import VideoAnalyzeNode from "./nodes/VideoAnalyzeNode";
 import VideoFrameExtractNode from "./nodes/VideoFrameExtractNode";
 import ImageGridNode from "./nodes/ImageGridNode";
 import ImageSplitNode from "./nodes/ImageSplitNode";
-import { generateThumbnail } from "@/utils/imageHelper";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useFlowStore, FlowBackgroundVariant } from "@/stores/flowStore";
@@ -3996,6 +3995,10 @@ function FlowInner() {
                 return true;
               return false;
             };
+            const safeIncomingThumbnail =
+              normalizedIncomingThumbnail && isLikelyRemoteImageRef(normalizedIncomingThumbnail)
+                ? normalizedIncomingThumbnail
+                : "";
             setNodes((ns) =>
               ns.map((n) => {
                 if (n.id !== target.id) return n;
@@ -4005,7 +4008,7 @@ function FlowInner() {
                     : {};
                 const thumbPatch =
                   target.type === "image" || target.type === "imagePro"
-                    ? { thumbnail: normalizedIncomingThumbnail || undefined }
+                    ? { thumbnail: safeIncomingThumbnail || undefined }
                     : {};
                 const imagePatch = isLikelyRemoteImageRef(img)
                   ? { imageUrl: img, imageData: undefined }
@@ -4022,27 +4025,6 @@ function FlowInner() {
                 };
               })
             );
-
-            // 若目标是 Image 且没有可用缩略图，异步生成缩略图（用于节点渲染性能）
-            if (
-              (target.type === "image" || target.type === "imagePro") &&
-              !normalizedIncomingThumbnail
-            ) {
-              generateThumbnail(img, 400)
-                .then((thumbnail) => {
-                  if (!thumbnail) return;
-                  setNodes((ns) =>
-                    ns.map((n) => {
-                      if (n.id !== target.id) return n;
-                      const current =
-                        (n.data as any)?.imageUrl || (n.data as any)?.imageData;
-                      if (current !== img) return n;
-                      return { ...n, data: { ...n.data, thumbnail } };
-                    })
-                  );
-                })
-                .catch(() => {});
-            }
           }
         }
       } catch {}
@@ -4071,9 +4053,6 @@ function FlowInner() {
       // 处理位置偏移（用于中心点缩放）
       const positionOffset = detail.patch?._positionOffset;
 
-      let shouldAutoGenerateThumbnail = false;
-      let thumbnailSourceImageData: string | undefined;
-
       setNodes((ns) =>
         ns.map((n) => {
           if (n.id !== detail.id) return n;
@@ -4088,6 +4067,10 @@ function FlowInner() {
           ) {
             patch.imageName = undefined;
           }
+          // imageData 更新时一并清理 thumbnail，避免旧缩略图残留（且 thumbnail 不落库）
+          if (Object.prototype.hasOwnProperty.call(patch, "imageData")) {
+            patch.thumbnail = undefined;
+          }
           // imageData 清空时一并清理 thumbnail，避免大字符串残留
           if (
             Object.prototype.hasOwnProperty.call(patch, "imageData") &&
@@ -4096,18 +4079,16 @@ function FlowInner() {
             patch.thumbnail = undefined;
           }
 
-          // 图片节点：若写入 imageData 但未提供 thumbnail，异步生成缩略图
-          if (
-            Object.prototype.hasOwnProperty.call(patch, "imageData") &&
-            patch.imageData &&
-            !Object.prototype.hasOwnProperty.call(patch, "thumbnail") &&
-            (n.type === "image" || n.type === "imagePro") &&
-            !(typeof patch.imageData === "string" && patch.imageData.trim().startsWith(FLOW_IMAGE_ASSET_PREFIX))
-          ) {
-            // 先清掉旧 thumbnail，避免显示旧缩略图与新 imageData 不一致
-            patch.thumbnail = undefined;
-            shouldAutoGenerateThumbnail = true;
-            thumbnailSourceImageData = patch.imageData;
+          // 设计 JSON 不允许持久化 data:/blob:/flow-asset:/裸 base64；thumbnail 仅用于预览，统一不落库
+          if (typeof patch.thumbnail === "string") {
+            const t = patch.thumbnail.trim();
+            if (
+              t.startsWith("data:") ||
+              t.startsWith("blob:") ||
+              t.startsWith(FLOW_IMAGE_ASSET_PREFIX)
+            ) {
+              patch.thumbnail = undefined;
+            }
           }
 
           // 如果有位置偏移，同时更新节点位置
@@ -4132,22 +4113,6 @@ function FlowInner() {
             (e) => !(e.target === detail.id && e.targetHandle === "img")
           )
         );
-      }
-
-      if (shouldAutoGenerateThumbnail && thumbnailSourceImageData) {
-        generateThumbnail(thumbnailSourceImageData, 400)
-          .then((thumbnail) => {
-            if (!thumbnail) return;
-            setNodes((ns) =>
-              ns.map((n) => {
-                if (n.id !== detail.id) return n;
-                if ((n.data as any)?.imageData !== thumbnailSourceImageData)
-                  return n;
-                return { ...n, data: { ...n.data, thumbnail } };
-              })
-            );
-          })
-          .catch(() => {});
       }
     };
     window.addEventListener("flow:updateNodeData", handler as EventListener);
@@ -4595,16 +4560,6 @@ function FlowInner() {
           } as any,
         ])
       );
-      generateThumbnail(imageDataForNode, 400)
-        .then((thumbnail) => {
-          if (!thumbnail) return;
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === id ? { ...n, data: { ...n.data, thumbnail } } : n
-            )
-          );
-        })
-        .catch(() => {});
 
       // 异步上传到 OSS：成功后用远程 URL 替换节点内的内联数据，避免写入项目 JSON/DB
       try {
@@ -4773,22 +4728,6 @@ function FlowInner() {
             .catch(() => {});
         }
 
-        if (previewSource) {
-          generateThumbnail(previewSource, 400)
-            .then((thumbnail) => {
-              if (!thumbnail) return;
-              setNodes((ns) =>
-                ns.map((n) => {
-                  if (n.id !== detail.nodeId) return n;
-                  const current =
-                    (n.data as any)?.imageUrl || (n.data as any)?.imageData;
-                  if (current !== previewSource) return n;
-                  return { ...n, data: { ...n.data, thumbnail } };
-                })
-              );
-            })
-            .catch(() => {});
-        }
       } catch (error) {
         const msg =
           error instanceof Error ? error.message : "Midjourney 操作失败";
@@ -5983,21 +5922,6 @@ function FlowInner() {
           }
 
           if (previewSource) {
-            generateThumbnail(previewSource, 400)
-              .then((thumbnail) => {
-                if (!thumbnail) return;
-                setNodes((ns) =>
-                  ns.map((n) => {
-                    if (n.id !== nodeId) return n;
-                    const current =
-                      (n.data as any)?.imageUrl || (n.data as any)?.imageData;
-                    if (current !== previewSource) return n;
-                    return { ...n, data: { ...n.data, thumbnail } };
-                  })
-                );
-              })
-              .catch(() => {});
-
             // 更新下游节点
             const mjOuts = rf.getEdges().filter((e) => e.source === nodeId);
             if (mjOuts.length) {
@@ -6391,54 +6315,6 @@ function FlowInner() {
           )
         );
 
-        // 为 generate4 节点异步生成缩略图
-        if (hasAny) {
-          Promise.all(
-            produced.map((img) =>
-              img ? generateThumbnail(img, 200) : Promise.resolve(null)
-            )
-          )
-            .then((thumbs) => {
-              const thumbnails = thumbs.map((t) => t || "");
-              const outEdges = rf.getEdges().filter((e) => e.source === nodeId);
-              const thumbByTarget = new Map<
-                string,
-                { thumbnail: string; imageData?: string }
-              >();
-              for (const edge of outEdges) {
-                const handle = (edge as any).sourceHandle as string | undefined;
-                const idx =
-                  handle && handle.startsWith("img")
-                    ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
-                    : 0;
-                const thumb = thumbnails[idx];
-                if (!thumb) continue;
-                thumbByTarget.set(edge.target, {
-                  thumbnail: thumb,
-                  imageData: produced[idx],
-                });
-              }
-              setNodes((ns) =>
-                ns.map((n) => {
-                  if (n.id === nodeId)
-                    return { ...n, data: { ...n.data, thumbnails } };
-                  const hit = thumbByTarget.get(n.id);
-                  if (!hit) return n;
-                  if (n.type !== "image") return n;
-                  if (
-                    hit.imageData &&
-                    (n.data as any)?.imageData !== hit.imageData
-                  )
-                    return n;
-                  return {
-                    ...n,
-                    data: { ...n.data, thumbnail: hit.thumbnail },
-                  };
-                })
-              );
-            })
-            .catch(() => {});
-        }
         return;
       }
 
@@ -6670,54 +6546,6 @@ function FlowInner() {
           )
         );
 
-        // 为 generatePro4 节点异步生成缩略图
-        if (hasAny) {
-          Promise.all(
-            produced.map((img) =>
-              img ? generateThumbnail(img, 200) : Promise.resolve(null)
-            )
-          )
-            .then((thumbs) => {
-              const thumbnails = thumbs.map((t) => t || "");
-              const outEdges = rf.getEdges().filter((e) => e.source === nodeId);
-              const thumbByTarget = new Map<
-                string,
-                { thumbnail: string; imageData?: string }
-              >();
-              for (const edge of outEdges) {
-                const handle = (edge as any).sourceHandle as string | undefined;
-                const idx =
-                  handle && handle.startsWith("img")
-                    ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
-                    : 0;
-                const thumb = thumbnails[idx];
-                if (!thumb) continue;
-                thumbByTarget.set(edge.target, {
-                  thumbnail: thumb,
-                  imageData: produced[idx],
-                });
-              }
-              setNodes((ns) =>
-                ns.map((n) => {
-                  if (n.id === nodeId)
-                    return { ...n, data: { ...n.data, thumbnails } };
-                  const hit = thumbByTarget.get(n.id);
-                  if (!hit) return n;
-                  if (n.type !== "image") return n;
-                  if (
-                    hit.imageData &&
-                    (n.data as any)?.imageData !== hit.imageData
-                  )
-                    return n;
-                  return {
-                    ...n,
-                    data: { ...n.data, thumbnail: hit.thumbnail },
-                  };
-                })
-              );
-            })
-            .catch(() => {});
-        }
         return;
       }
 
@@ -6807,42 +6635,6 @@ function FlowInner() {
               : n
           )
         );
-
-        // 为单图节点异步生成缩略图
-        if (
-          imgBase64 &&
-          ["generatePro", "generate", "generateRef"].includes(node.type || "")
-        ) {
-          const imageDataForThumb = imgBase64;
-          generateThumbnail(imageDataForThumb, 400)
-            .then((thumbnail) => {
-              if (!thumbnail) return;
-              const outTargets = new Set(
-                rf
-                  .getEdges()
-                  .filter((e) => e.source === nodeId)
-                  .map((e) => e.target)
-              );
-              setNodes((ns) =>
-                ns.map((n) => {
-                  // 更新当前生成节点自身
-                  if (n.id === nodeId) {
-                    if ((n.data as any)?.imageData !== imageDataForThumb)
-                      return n;
-                    return { ...n, data: { ...n.data, thumbnail } };
-                  }
-                  // 同步更新下游 Image 节点的缩略图（避免 Image 节点直接渲染大图）
-                  if (outTargets.has(n.id) && n.type === "image") {
-                    if ((n.data as any)?.imageData !== imageDataForThumb)
-                      return n;
-                    return { ...n, data: { ...n.data, thumbnail } };
-                  }
-                  return n;
-                })
-              );
-            })
-            .catch(() => {});
-        }
 
         if (imgBase64) {
           const outs = rf.getEdges().filter((e) => e.source === nodeId);

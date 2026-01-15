@@ -82,7 +82,8 @@ function CameraNodeInner({ id, data, selected }: Props) {
         }
       );
       if (res.success && res.dataUrl) {
-        const base64 = res.dataUrl.split(",")[1];
+        const dataUrl = res.dataUrl;
+        const base64 = dataUrl.split(",")[1];
         rf.setNodes((ns) =>
           ns.map((n) =>
             n.id === id ? { ...n, data: { ...n.data, imageData: base64 } } : n
@@ -99,7 +100,55 @@ function CameraNodeInner({ id, data, selected }: Props) {
           nodeType: "camera",
           fileName: `camera_capture_${newImageId}.png`,
           projectId,
-        });
+        })
+          .then(({ remoteUrl }) => {
+            if (!remoteUrl) return;
+            // 用远程 URL 替换节点内的 base64，避免写入项目 JSON/DB
+            rf.setNodes((ns) =>
+              ns.map((n) =>
+                n.id === id
+                  ? ((n.data as any)?.imageData !== base64
+                      ? n
+                      : {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            imageUrl: remoteUrl,
+                            imageData: undefined,
+                            thumbnail: undefined,
+                          },
+                        })
+                  : n
+              )
+            );
+
+            // 同步更新下游 Image 节点（避免 base64 传播并落库）
+            try {
+              const outs = rf.getEdges().filter((e) => e.source === id);
+              if (outs.length) {
+                rf.setNodes((ns) =>
+                  ns.map((n) => {
+                    const hits = outs.filter((e) => e.target === n.id);
+                    if (!hits.length) return n;
+                    if (n.type === "image") {
+                      if ((n.data as any)?.imageData !== base64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+                    return n;
+                  })
+                );
+              }
+            } catch {}
+          })
+          .catch(() => {});
         setCurrentImageId(newImageId);
 
         // 向下游 Image 节点传播

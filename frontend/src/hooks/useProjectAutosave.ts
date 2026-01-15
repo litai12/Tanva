@@ -5,7 +5,7 @@ import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { setProjectCache } from '@/services/projectCacheStore';
-import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
+import { getNonRemoteImageAssetIds, getNonPersistableFlowImageNodeIds } from '@/utils/projectContentValidation';
 
 const AUTOSAVE_INTERVAL = 60 * 1000; // 1 分钟定时保存
 const DEBOUNCE_DELAY = 5 * 1000; // 5 秒防抖保存（用户停止操作后）
@@ -70,11 +70,13 @@ export function useProjectAutosave(projectId: string | null) {
         } catch {}
       }
 
-      const invalidImageIds = getNonRemoteImageAssetIds(contentToSave);
-      if (invalidImageIds.length > 0) {
-        const message = `存在未上传到 OSS 的图片（${invalidImageIds.length} 张），上传完成前无法保存`;
+      const invalidCanvasImageIds = getNonRemoteImageAssetIds(contentToSave);
+      const invalidFlowNodeIds = getNonPersistableFlowImageNodeIds(contentToSave);
+      if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
+        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），上传完成前无法保存`;
         saveMonitor.push(currentProjectId, 'save_blocked_local_assets', {
-          count: invalidImageIds.length,
+          canvasCount: invalidCanvasImageIds.length,
+          flowCount: invalidFlowNodeIds.length,
           attempt,
         });
         setError(message);

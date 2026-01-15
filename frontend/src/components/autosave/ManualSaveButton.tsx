@@ -4,7 +4,7 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
-import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
+import { getNonRemoteImageAssetIds, getNonPersistableFlowImageNodeIds } from '@/utils/projectContentValidation';
 
 export default function ManualSaveButton() {
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -29,9 +29,10 @@ export default function ManualSaveButton() {
         return;
       }
 
-      const invalidImageIds = getNonRemoteImageAssetIds(content);
-      if (invalidImageIds.length > 0) {
-        setError(`存在未上传到 OSS 的图片（${invalidImageIds.length} 张），上传完成前无法保存`);
+      const invalidCanvasImageIds = getNonRemoteImageAssetIds(content);
+      const invalidFlowNodeIds = getNonPersistableFlowImageNodeIds(content);
+      if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
+        setError(`存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），上传完成前无法保存`);
         return;
       }
 
