@@ -1016,7 +1016,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       window.dispatchEvent(
         new CustomEvent('toast', {
           detail: {
-            message: '方案A：ImageSplit 仅保存裁切矩形，不支持一键生成独立图片节点',
+            message: '方案A：ImageSplit 仅保存裁切矩形，不生成独立图片节点；请直接把 image1..imageN 输出连到下游，运行时会按裁切矩形自动裁图。',
             type: 'info',
           },
         })
@@ -1131,7 +1131,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
               cursor: canGenerateNodes ? 'pointer' : 'not-allowed',
               opacity: canGenerateNodes ? 1 : 0.6,
             }}
-            title={canGenerateNodes ? '一键生成 Image 节点并连接（legacy）' : '方案A：不支持一键生成独立图片节点'}
+            title={canGenerateNodes ? '一键生成 Image 节点并连接（legacy）' : '方案A：不生成独立图片节点；直接连 image1..imageN 输出到下游即可'}
           >
             生成节点
           </button>

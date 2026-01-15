@@ -89,6 +89,7 @@ import {
   type ClipboardFlowNode,
 } from "@/services/clipboardService";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { resolveImageToBlob, resolveImageToDataUrl } from "@/utils/imageSource";
 import { aiImageService } from "@/services/aiImageService";
 import {
   generateImageViaAPI,
@@ -4801,6 +4802,352 @@ function FlowInner() {
           .filter(
             (img): img is string => typeof img === "string" && img.length > 0
           );
+
+      // 运行时图片输入归一化：
+      // - 允许节点数据里是 URL/OSS key/flow-asset/base64
+      // - 对后端 AI 接口：统一转换成 dataURL(base64) 再发送（避免后端不支持 URL）
+      // - 对 ImageSplit：按 splitRects 动态裁切生成 dataURL（不落库）
+      const toFetchableUrl = (value: string): string | null => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (!trimmed) return null;
+
+        if (
+          /^data:/i.test(trimmed) ||
+          /^blob:/i.test(trimmed) ||
+          (typeof FLOW_IMAGE_ASSET_PREFIX === "string" &&
+            trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX))
+        ) {
+          return trimmed;
+        }
+
+        if (
+          trimmed.startsWith("/api/assets/proxy") ||
+          trimmed.startsWith("/assets/proxy")
+        ) {
+          return proxifyRemoteAssetUrl(trimmed);
+        }
+
+        const withoutLeading = trimmed.replace(/^\/+/, "");
+        if (/^(templates|projects|uploads|videos)\//i.test(withoutLeading)) {
+          return proxifyRemoteAssetUrl(
+            `/api/assets/proxy?key=${encodeURIComponent(withoutLeading)}`
+          );
+        }
+
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+        if (
+          trimmed.startsWith("/") ||
+          trimmed.startsWith("./") ||
+          trimmed.startsWith("../")
+        ) {
+          try {
+            return new URL(trimmed, window.location.origin).toString();
+          } catch {
+            return null;
+          }
+        }
+
+        return null;
+      };
+
+      const blobToDataUrl = async (blob: Blob): Promise<string> =>
+        await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result;
+            if (typeof result === "string" && result.startsWith("data:")) {
+              resolve(result);
+            } else {
+              reject(new Error("blob 转 dataURL 失败"));
+            }
+          };
+          reader.onerror = () => reject(new Error("blob 转 dataURL 失败"));
+          reader.readAsDataURL(blob);
+        });
+
+      const resolveImageValueToDataUrlForBackend = async (
+        value?: string
+      ): Promise<string | null> => {
+        const trimmed = typeof value === "string" ? value.trim() : "";
+        if (!trimmed) return null;
+
+        if (trimmed.startsWith("data:")) return trimmed;
+
+        const fetchable = toFetchableUrl(trimmed);
+        if (fetchable) {
+          // resolveImageToDataUrl 内部会处理 flow-asset/blob/http，并优先走 proxy 以降低 CORS 失败概率
+          return await resolveImageToDataUrl(fetchable, { preferProxy: true });
+        }
+
+        // 兜底：认为是裸 base64（注意：设计 JSON 不允许落库，但运行时可用）
+        return ensureDataUrl(trimmed);
+      };
+
+      const cropImageToDataUrl = async (params: {
+        baseRef: string;
+        rect: { x: number; y: number; width: number; height: number };
+        sourceWidth?: number;
+        sourceHeight?: number;
+      }): Promise<string | null> => {
+        const baseRef = params.baseRef?.trim?.() || "";
+        if (!baseRef) return null;
+
+        const w = Math.max(1, Math.round(params.rect.width));
+        const h = Math.max(1, Math.round(params.rect.height));
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+          return null;
+        }
+
+        const fetchable = toFetchableUrl(baseRef) || ensureDataUrl(baseRef);
+        const blob = await resolveImageToBlob(fetchable, { preferProxy: true });
+        if (!blob) return null;
+
+        const makeCanvas = (cw: number, ch: number): any => {
+          if (typeof OffscreenCanvas !== "undefined") {
+            return new OffscreenCanvas(cw, ch);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = cw;
+          canvas.height = ch;
+          return canvas;
+        };
+
+        const canvasToBlob = async (canvas: any): Promise<Blob> => {
+          if (canvas && typeof canvas.convertToBlob === "function") {
+            return await canvas.convertToBlob({ type: "image/png" });
+          }
+          return await new Promise<Blob>((resolve, reject) => {
+            canvas.toBlob(
+              (b: Blob | null) => (b ? resolve(b) : reject(new Error("导出失败"))),
+              "image/png"
+            );
+          });
+        };
+
+        // 优先使用 ImageBitmap（更快且不受 CORS 影响，因为我们是 blob）
+        if (typeof createImageBitmap === "function") {
+          const bitmap = await createImageBitmap(blob);
+          try {
+            const naturalW = bitmap.width;
+            const naturalH = bitmap.height;
+            if (!naturalW || !naturalH) return null;
+
+            const srcW =
+              typeof params.sourceWidth === "number" && params.sourceWidth > 0
+                ? params.sourceWidth
+                : naturalW;
+            const srcH =
+              typeof params.sourceHeight === "number" && params.sourceHeight > 0
+                ? params.sourceHeight
+                : naturalH;
+
+            const scaleX = srcW > 0 ? naturalW / srcW : 1;
+            const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+            const sx = Math.max(
+              0,
+              Math.min(naturalW - 1, params.rect.x * scaleX)
+            );
+            const sy = Math.max(
+              0,
+              Math.min(naturalH - 1, params.rect.y * scaleY)
+            );
+            const swRaw = Math.max(1, params.rect.width * scaleX);
+            const shRaw = Math.max(1, params.rect.height * scaleY);
+            const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+            const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+            const outW = Math.max(1, Math.round(sw));
+            const outH = Math.max(1, Math.round(sh));
+            const canvas = makeCanvas(outW, outH);
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return null;
+            ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
+            const outBlob = await canvasToBlob(canvas);
+            return await blobToDataUrl(outBlob);
+          } finally {
+            try {
+              bitmap.close();
+            } catch {}
+          }
+        }
+
+        // 兼容性兜底：HTMLImageElement
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error("图片解码失败"));
+            img.src = objectUrl;
+          });
+
+          const naturalW = img.naturalWidth || img.width;
+          const naturalH = img.naturalHeight || img.height;
+          if (!naturalW || !naturalH) return null;
+
+          const srcW =
+            typeof params.sourceWidth === "number" && params.sourceWidth > 0
+              ? params.sourceWidth
+              : naturalW;
+          const srcH =
+            typeof params.sourceHeight === "number" && params.sourceHeight > 0
+              ? params.sourceHeight
+              : naturalH;
+
+          const scaleX = srcW > 0 ? naturalW / srcW : 1;
+          const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+          const sx = Math.max(0, Math.min(naturalW - 1, params.rect.x * scaleX));
+          const sy = Math.max(0, Math.min(naturalH - 1, params.rect.y * scaleY));
+          const swRaw = Math.max(1, params.rect.width * scaleX);
+          const shRaw = Math.max(1, params.rect.height * scaleY);
+          const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+          const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+          const outW = Math.max(1, Math.round(sw));
+          const outH = Math.max(1, Math.round(sh));
+          const canvas = makeCanvas(outW, outH);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return null;
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+          const outBlob = await canvasToBlob(canvas);
+          return await blobToDataUrl(outBlob);
+        } finally {
+          try {
+            URL.revokeObjectURL(objectUrl);
+          } catch {}
+        }
+      };
+
+      const resolveNodeImageToDataUrl = async (
+        node: RFNode,
+        sourceHandle?: string | null,
+        visited: Set<string> = new Set()
+      ): Promise<string | null> => {
+        if (!node || !node.id) return null;
+        if (visited.has(node.id)) return null;
+        visited.add(node.id);
+
+        const d = (node.data ?? {}) as any;
+        const handle =
+          typeof sourceHandle === "string" ? sourceHandle.trim() : "";
+
+        if (node.type === "imageSplit") {
+          const base =
+            (typeof d.inputImageUrl === "string" && d.inputImageUrl.trim()) ||
+            (typeof d.inputImage === "string" && d.inputImage.trim()) ||
+            "";
+
+          const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+          const match = handle ? /^image(\d+)$/.exec(handle) : null;
+          const idx = match ? Math.max(0, Number(match[1]) - 1) : 0;
+
+          const rect = splitRects?.[idx];
+          const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+          const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+          const w =
+            typeof rect?.width === "number"
+              ? rect.width
+              : Number(rect?.width ?? 0);
+          const h =
+            typeof rect?.height === "number"
+              ? rect.height
+              : Number(rect?.height ?? 0);
+
+          if (base && Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+            return await cropImageToDataUrl({
+              baseRef: base,
+              rect: { x, y, width: w, height: h },
+              sourceWidth: typeof d.sourceWidth === "number" ? d.sourceWidth : undefined,
+              sourceHeight: typeof d.sourceHeight === "number" ? d.sourceHeight : undefined,
+            });
+          }
+
+          // legacy 兜底：有些历史数据可能仍保存了 splitImages
+          const splitImages = Array.isArray(d.splitImages) ? d.splitImages : [];
+          const legacy = splitImages?.[idx]?.imageData;
+          if (typeof legacy === "string" && legacy.trim()) {
+            return await resolveImageValueToDataUrlForBackend(legacy);
+          }
+          return null;
+        }
+
+        if (node.type === "imageGrid") {
+          const out =
+            typeof d.outputImage === "string" ? d.outputImage.trim() : "";
+          return out ? await resolveImageValueToDataUrlForBackend(out) : null;
+        }
+
+        if (node.type === "videoFrameExtract" && handle === "image") {
+          const frames = Array.isArray(d.frames) ? d.frames : [];
+          const selectedFrameIndex = Number(d.selectedFrameIndex ?? 1);
+          const idx = Math.max(0, selectedFrameIndex - 1);
+          const frame = frames[idx];
+          const value =
+            (typeof frame?.imageUrl === "string" && frame.imageUrl.trim()) ||
+            (typeof frame?.thumbnailDataUrl === "string" && frame.thumbnailDataUrl.trim()) ||
+            "";
+          return value ? await resolveImageValueToDataUrlForBackend(value) : null;
+        }
+
+        if (node.type === "generate4" || node.type === "generatePro4") {
+          const idx = handle?.startsWith("img")
+            ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
+            : 0;
+          const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
+          const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];
+          const thumbs = Array.isArray(d?.thumbnails) ? (d.thumbnails as string[]) : [];
+          const candidate =
+            (typeof urls[idx] === "string" && urls[idx].trim()) ||
+            (typeof imgs[idx] === "string" && imgs[idx].trim()) ||
+            (typeof thumbs[idx] === "string" && thumbs[idx].trim()) ||
+            (typeof d?.imageData === "string" && d.imageData.trim()) ||
+            (typeof d?.imageUrl === "string" && d.imageUrl.trim()) ||
+            "";
+          return candidate
+            ? await resolveImageValueToDataUrlForBackend(candidate)
+            : null;
+        }
+
+        const direct =
+          (typeof d.imageData === "string" && d.imageData.trim()) ||
+          (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+          "";
+        if (direct) {
+          return await resolveImageValueToDataUrlForBackend(direct);
+        }
+
+        // Image/ImagePro 作为“显示节点”时，图片可能来自上游连线；这里做一次向上追溯
+        if (node.type === "image" || node.type === "imagePro") {
+          const upstream = currentEdges.find(
+            (e) => e.target === node.id && e.targetHandle === "img"
+          );
+          if (upstream) {
+            const src = rf.getNode(upstream.source);
+            if (src) {
+              return await resolveNodeImageToDataUrl(
+                src as any,
+                (upstream as any).sourceHandle,
+                visited
+              );
+            }
+          }
+        }
+
+        return null;
+      };
+
+      const resolveEdgeImageToDataUrl = async (edge: Edge): Promise<string | null> => {
+        const srcNode = rf.getNode(edge.source);
+        if (!srcNode) return null;
+        return await resolveNodeImageToDataUrl(
+          srcNode as any,
+          (edge as any).sourceHandle,
+          new Set()
+        );
+      };
       const getTextPromptForNode = (targetId: string) => {
         const textEdge = currentEdges.find(
           (e) => e.target === targetId && e.targetHandle === "text"
@@ -6047,6 +6394,19 @@ function FlowInner() {
 
       let imageDatas: string[] = [];
 
+      const resolveEdgesAsDataUrls = async (edges: Edge[]): Promise<string[]> => {
+        const out: string[] = [];
+        for (const edge of edges) {
+          try {
+            const dataUrl = await resolveEdgeImageToDataUrl(edge);
+            if (dataUrl) out.push(dataUrl);
+          } catch {
+            // ignore single-edge failure, allow other inputs
+          }
+        }
+        return out;
+      };
+
       if (node.type === "generateRef") {
         const primaryEdges = currentEdges
           .filter(
@@ -6063,14 +6423,14 @@ function FlowInner() {
           )
           .slice(0, 1);
         imageDatas = [
-          ...collectImages(primaryEdges),
-          ...collectImages(referEdges),
+          ...(await resolveEdgesAsDataUrls(primaryEdges)),
+          ...(await resolveEdgesAsDataUrls(referEdges)),
         ];
       } else {
         const imgEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
           .slice(0, 6);
-        imageDatas = collectImages(imgEdges);
+        imageDatas = await resolveEdgesAsDataUrls(imgEdges);
       }
 
       console.log(`[Flow Debug] Node ${nodeId} (${node.type}) 准备运行:`, {
