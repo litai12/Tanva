@@ -2021,6 +2021,20 @@ function FlowInner() {
   const lastApplied = React.useRef<{ x: number; y: number; z: number } | null>(
     null
   );
+  const syncViewportToCanvasStore = () => {
+    try {
+      const state = useCanvasStore.getState();
+      const z = state.zoom || 1;
+      const dpr =
+        typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+      const x = ((state.panX || 0) * z) / dpr;
+      const y = ((state.panY || 0) * z) / dpr;
+      lastApplied.current = { x, y, z };
+      rfRef.current.setViewport({ x, y, zoom: z }, { duration: 0 });
+    } catch {
+      /* noop */
+    }
+  };
   React.useEffect(() => {
     // 使用 Zustand subscribe 直接监听状态变化，绕过 React 渲染周期
     const unsubscribe = useCanvasStore.subscribe((state) => {
@@ -8511,6 +8525,7 @@ function FlowInner() {
                 altDragStartRef.current = null;
               }
             }, 0);
+            syncViewportToCanvasStore();
             return;
           }
 
@@ -8521,6 +8536,7 @@ function FlowInner() {
           const ns = rfNodesToTplNodes((rf.getNodes?.() || nodes) as any);
           const es = rfEdgesToTplEdges(rf.getEdges?.() || edges);
           scheduleCommit(ns, es);
+          syncViewportToCanvasStore();
         }}
         onConnect={onConnect}
         onConnectStart={onConnectStart}
@@ -8532,6 +8548,8 @@ function FlowInner() {
         edgeTypes={edgeTypes}
         fitView={false}
         panOnDrag={!isPointerMode}
+        autoPanOnNodeDrag={false}
+        autoPanOnConnect={false}
         zoomOnScroll={false}
         zoomOnPinch={false}
         zoomOnDoubleClick={false}
