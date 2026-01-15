@@ -195,7 +195,16 @@ function ImageProNodeInner({ id, data, selected }: Props) {
         nodeType: 'imagePro',
         fileName: file.name || `flow_image_${newImageId}.png`,
         projectId,
-      });
+        keepThumbnail: false,
+      }).then(({ remoteUrl }) => {
+        // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积
+        if (!remoteUrl) return;
+        window.dispatchEvent(
+          new CustomEvent('flow:updateNodeData', {
+            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },
+          })
+        );
+      }).catch(() => {});
     };
     reader.readAsDataURL(file);
   }, [id, projectId]);
@@ -279,13 +288,14 @@ function ImageProNodeInner({ id, data, selected }: Props) {
 
   // 添加到库
   const handleAddToLibrary = React.useCallback(() => {
-    if (!data.imageData) return;
+    const source = data.imageUrl || data.imageData;
+    if (!source) return;
     window.dispatchEvent(
       new CustomEvent('flow:addToLibrary', {
-        detail: { imageData: data.imageData, nodeId: id, nodeType: 'imagePro' },
+        detail: { imageData: source, nodeId: id, nodeType: 'imagePro' },
       })
     );
-  }, [data.imageData, id]);
+  }, [data.imageData, data.imageUrl, id]);
 
   // 发送到画板
   const onSend = React.useCallback(() => {
@@ -565,19 +575,19 @@ function ImageProNodeInner({ id, data, selected }: Props) {
               label: '添加到库',
               icon: <FolderPlus className="w-4 h-4" />,
               onClick: handleAddToLibrary,
-              disabled: !data.imageData,
+              disabled: !(data.imageData || data.imageUrl),
             },
             {
               label: '下载图片',
               icon: <Download className="w-4 h-4" />,
               onClick: handleDownload,
-              disabled: !data.imageData,
+              disabled: !(data.imageData || data.imageUrl),
             },
             {
               label: '发送到画板',
               icon: <SendIcon className="w-4 h-4" />,
               onClick: onSend,
-              disabled: !data.imageData,
+              disabled: !(data.imageData || data.imageUrl),
             },
           ]}
         />

@@ -2,8 +2,6 @@ import React from "react";
 import { Handle, Position, useReactFlow } from "reactflow";
 import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
-import { recordImageHistoryEntry } from "@/services/imageHistoryService";
-import { useProjectContentStore } from "@/stores/projectContentStore";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { cn } from "@/lib/utils";
 import { resolveTextFromSourceNode } from "../utils/textSource";
@@ -94,7 +92,6 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
   const imageBoxRef = React.useRef<HTMLDivElement>(null);
 
   // 全局状态
-  const projectId = useProjectContentStore((state) => state.projectId);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
   const isProMode = aiProvider === 'gemini-pro' || aiProvider === 'banana';
 
@@ -320,28 +317,6 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isImageSizeMenuOpen]);
-
-  // 当图片数据更新时，添加到全局历史记录
-  React.useEffect(() => {
-    if (images.length > 0 && status === "succeeded") {
-      images.forEach((img, idx) => {
-        if (img) {
-          const newImageId = `${id}-${idx}-${Date.now()}`;
-          void recordImageHistoryEntry({
-            id: newImageId,
-            base64: img,
-            title: `GeneratePro4节点 #${
-              idx + 1
-            } ${new Date().toLocaleTimeString()}`,
-            nodeId: id,
-            nodeType: "generatePro4",
-            fileName: `flow_generatepro4_${newImageId}.png`,
-            projectId,
-          });
-        }
-      });
-    }
-  }, [images, status, id, projectId]);
 
   React.useEffect(() => {
     if (!preview) return;
@@ -1152,19 +1127,19 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
               label: '添加到库',
               icon: <FolderPlus className="w-4 h-4" />,
               onClick: handleAddToLibrary,
-              disabled: !images.length,
+              disabled: !(images.length || imageUrls.length),
             },
             {
               label: '下载图片',
               icon: <Download className="w-4 h-4" />,
               onClick: () => handleDownload(0),
-              disabled: !images.length,
+              disabled: !(images.length || imageUrls.length),
             },
             {
               label: '发送到画板',
               icon: <SendIcon className="w-4 h-4" />,
               onClick: onSend,
-              disabled: !images.length,
+              disabled: !(images.length || imageUrls.length),
             },
           ]}
         />

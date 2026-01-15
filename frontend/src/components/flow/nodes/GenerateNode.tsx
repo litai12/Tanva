@@ -3,7 +3,6 @@ import { Handle, Position } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
-import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
@@ -152,23 +151,6 @@ function GenerateNodeInner({ id, data, selected }: Props) {
     data.onSend?.(id);
   }, [data, id]);
 
-  // 当图片数据更新时，添加到全局历史记录
-  React.useEffect(() => {
-    if (data.imageData && status === "succeeded") {
-      const newImageId = `${id}-${Date.now()}`;
-      setCurrentImageId(newImageId);
-      void recordImageHistoryEntry({
-        id: newImageId,
-        base64: data.imageData,
-        title: `Generate节点 ${new Date().toLocaleTimeString()}`,
-        nodeId: id,
-        nodeType: "generate",
-        fileName: `flow_generate_${newImageId}.png`,
-        projectId,
-      });
-    }
-  }, [data.imageData, status, id, projectId]);
-
   // 处理图片切换
   const handleImageChange = React.useCallback(
     (imageId: string) => {
@@ -231,16 +213,16 @@ function GenerateNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={onSend}
-            disabled={!data.imageData}
-            title={!data.imageData ? "无可发送的图像" : "发送到画布"}
+            disabled={!(data.imageData || data.imageUrl)}
+            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
             style={{
               fontSize: 12,
               padding: "4px 8px",
-              background: !data.imageData ? "#e5e7eb" : "#111827",
+              background: !(data.imageData || data.imageUrl) ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
               border: "none",
-              cursor: !data.imageData ? "not-allowed" : "pointer",
+              cursor: !(data.imageData || data.imageUrl) ? "not-allowed" : "pointer",
             }}
           >
             <SendIcon size={14} strokeWidth={2} />

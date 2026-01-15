@@ -6,7 +6,8 @@
     "start": "node dist/main.js",
     "build": "tsc -p tsconfig.build.json",
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
-    "lint": "echo 'no lint configured'"
+    "lint": "echo 'no lint configured'",
+    "sanitize:design-json": "ts-node scripts/sanitize-design-json.ts"
   },
   "dependencies": {
     "@alicloud/sms-sdk": "^1.1.6",

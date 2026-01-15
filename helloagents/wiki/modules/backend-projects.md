@@ -20,3 +20,6 @@
 ## 数据模型关联
 - `Project`（`contentJson`, `contentVersion`, `thumbnailUrl`, `ossPrefix` 等）
 
+## 约束（设计 JSON）
+- `contentJson` 属于「设计 JSON」：只允许保存远程 URL/路径引用；禁止 `data:`/`blob:`/裸 base64（如 `iVBORw0...`）进入 DB/OSS。
+- 后端会在读写 `contentJson` 时做清洗（见 `backend/src/utils/designJsonSanitizer.ts`）；历史数据可用 `backend/scripts/sanitize-design-json.ts` 批量修复。

@@ -240,12 +240,12 @@ function CameraNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={sendToCanvas}
-            disabled={!data.imageData}
-            title={!data.imageData ? "无可发送的图像" : "发送到画布"}
+            disabled={!(data.imageData || data.imageUrl)}
+            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
             style={{
               fontSize: 12,
               padding: "4px 8px",
-              background: !data.imageData ? "#e5e7eb" : "#111827",
+              background: !(data.imageData || data.imageUrl) ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
             }}

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/co
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
+import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
 
 @Injectable()
 export class ProjectsService {
@@ -158,7 +159,7 @@ export class ProjectsService {
 
     if (!project.mainKey) {
       return {
-        content: (project as any).contentJson || null,
+        content: sanitizeDesignJson((project as any).contentJson || null),
         version: project.contentVersion,
         updatedAt: project.updatedAt,
       };
@@ -166,8 +167,9 @@ export class ProjectsService {
 
     try {
       const content = await this.oss.getJSON(project.mainKey);
+      const resolved = sanitizeDesignJson(content ?? ((project as any).contentJson || null));
       return {
-        content: content ?? ((project as any).contentJson || null),
+        content: resolved,
         version: project.contentVersion ?? 1,
         updatedAt: project.updatedAt,
       };
@@ -175,7 +177,7 @@ export class ProjectsService {
       // eslint-disable-next-line no-console
       console.warn('OSS getJSON failed, returning null content:', err);
       return {
-        content: (project as any).contentJson || null,
+        content: sanitizeDesignJson((project as any).contentJson || null),
         version: project.contentVersion ?? 1,
         updatedAt: project.updatedAt,
       };
@@ -196,9 +198,10 @@ export class ProjectsService {
     if (project.userId !== userId) throw new UnauthorizedException();
     const prefix = project.ossPrefix || `projects/${userId}/${project.id}/`;
     const mainKey = project.mainKey || `${prefix}project.json`;
+    const sanitizedContent = sanitizeDesignJson(content);
 
     try {
-      await this.oss.putJSON(mainKey, content);
+      await this.oss.putJSON(mainKey, sanitizedContent);
     } catch (err) {
       // 在开发环境中，OSS错误不应该阻止项目内容更新
       // eslint-disable-next-line no-console
@@ -213,9 +216,9 @@ export class ProjectsService {
       contentVersion: newVersion,
     };
     const contentForStorage =
-      !supportsThumbnailColumn && content
-        ? this.patchContentThumbnail(content as any, this.extractThumbnail(project) || null)
-        : content;
+      !supportsThumbnailColumn && sanitizedContent
+        ? this.patchContentThumbnail(sanitizedContent as any, this.extractThumbnail(project) || null)
+        : sanitizedContent;
     let updated2: any;
     try {
       updated2 = await this.prisma.project.update({

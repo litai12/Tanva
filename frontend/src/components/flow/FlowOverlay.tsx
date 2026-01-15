@@ -1037,11 +1037,44 @@ function FlowInner() {
   );
 
   const sanitizeNodeData = React.useCallback((input: any) => {
+    const BASE64_IMAGE_MAGIC_PREFIXES = [
+      "iVBORw0KGgo", // png
+      "/9j/", // jpeg
+      "R0lGOD", // gif
+      "UklGR", // webp
+      "PHN2Zy", // svg
+    ];
+
+    const looksLikeBase64 = (value: string): boolean => {
+      const compact = value.replace(/\s+/g, "");
+      if (compact.length < 4096) return false;
+      if (compact.length % 4 !== 0) return false;
+      return /^[A-Za-z0-9+/]+={0,2}$/.test(compact);
+    };
+
+    const shouldDropPersistedString = (value: string): boolean => {
+      const trimmed = value?.trim?.() || "";
+      if (!trimmed) return false;
+      if (/^data:/i.test(trimmed)) return true;
+      if (/^blob:/i.test(trimmed)) return true;
+      if (typeof FLOW_IMAGE_ASSET_PREFIX === "string" && trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)) {
+        return true;
+      }
+      const compact = trimmed.replace(/\s+/g, "");
+      if (BASE64_IMAGE_MAGIC_PREFIXES.some((p) => compact.startsWith(p)) && compact.length >= 32) {
+        return true;
+      }
+      return looksLikeBase64(compact);
+    };
+
     const seen = new WeakMap<object, any>();
 
     const walk = (value: any): any => {
       if (typeof value === "function") return undefined;
-      if (!value || typeof value !== "object") return value;
+      if (!value || typeof value !== "object") {
+        if (typeof value === "string" && shouldDropPersistedString(value)) return undefined;
+        return value;
+      }
 
       // 兼容 JSON.stringify(Date) 的行为
       if (value instanceof Date) return value.toISOString();
@@ -3905,8 +3938,11 @@ function FlowInner() {
               handle && handle.startsWith("img")
                 ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
                 : 0;
+            const imageUrls = (src.data as any)?.imageUrls as
+              | string[]
+              | undefined;
             const imgs = (src.data as any)?.images as string[] | undefined;
-            img = imgs?.[idx];
+            img = imageUrls?.[idx] || imgs?.[idx];
             const thumbs = (src.data as any)?.thumbnails as
               | string[]
               | undefined;
@@ -3921,14 +3957,14 @@ function FlowInner() {
             }
             if (!img) {
               // 回退到 imageData（若实现了镜像）
-              img = (src.data as any)?.imageData;
+              img = (src.data as any)?.imageUrl || (src.data as any)?.imageData;
               incomingImageName =
                 incomingImageName ?? (src.data as any)?.imageName;
               incomingThumbnail =
                 incomingThumbnail ?? (src.data as any)?.thumbnail;
             }
           } else {
-            img = (src?.data as any)?.imageData;
+            img = (src?.data as any)?.imageUrl || (src?.data as any)?.imageData;
             incomingImageName = (src?.data as any)?.imageName;
             incomingThumbnail = (src?.data as any)?.thumbnail;
           }
@@ -3941,6 +3977,25 @@ function FlowInner() {
               ? incomingThumbnail.trim()
               : "";
           if (img) {
+            const isLikelyRemoteImageRef = (value: string): boolean => {
+              const trimmed = value?.trim?.() || "";
+              if (!trimmed) return false;
+              if (/^https?:\/\//i.test(trimmed)) return true;
+              if (
+                trimmed.startsWith("/api/assets/proxy") ||
+                trimmed.startsWith("/assets/proxy")
+              )
+                return true;
+              if (
+                trimmed.startsWith("/") ||
+                trimmed.startsWith("./") ||
+                trimmed.startsWith("../")
+              )
+                return true;
+              if (/^(templates|projects|uploads|videos)\//i.test(trimmed))
+                return true;
+              return false;
+            };
             setNodes((ns) =>
               ns.map((n) => {
                 if (n.id !== target.id) return n;
@@ -3952,11 +4007,14 @@ function FlowInner() {
                   target.type === "image" || target.type === "imagePro"
                     ? { thumbnail: normalizedIncomingThumbnail || undefined }
                     : {};
+                const imagePatch = isLikelyRemoteImageRef(img)
+                  ? { imageUrl: img, imageData: undefined }
+                  : { imageData: img };
                 return {
                   ...n,
                   data: {
                     ...n.data,
-                    imageData: img,
+                    ...imagePatch,
                     imageName: normalizedIncomingName || undefined,
                     ...thumbPatch,
                     ...resetStatus,
@@ -3976,7 +4034,9 @@ function FlowInner() {
                   setNodes((ns) =>
                     ns.map((n) => {
                       if (n.id !== target.id) return n;
-                      if ((n.data as any)?.imageData !== img) return n;
+                      const current =
+                        (n.data as any)?.imageUrl || (n.data as any)?.imageData;
+                      if (current !== img) return n;
                       return { ...n, data: { ...n.data, thumbnail } };
                     })
                   );
@@ -4506,6 +4566,7 @@ function FlowInner() {
         imageName?: string;
       };
       if (!detail?.imageData) return;
+      const imageDataForNode = detail.imageData;
       const normalizedImageName = detail.imageName?.trim();
       const rect = containerRef.current?.getBoundingClientRect();
       const screenPosition = {
@@ -4524,7 +4585,7 @@ function FlowInner() {
             type: "image",
             position,
             data: {
-              imageData: detail.imageData,
+              imageData: imageDataForNode,
               label: detail.label || "Image",
               imageName: normalizedImageName || undefined,
               boxW: 260,
@@ -4534,7 +4595,7 @@ function FlowInner() {
           } as any,
         ])
       );
-      generateThumbnail(detail.imageData, 400)
+      generateThumbnail(imageDataForNode, 400)
         .then((thumbnail) => {
           if (!thumbnail) return;
           setNodes((ns) =>
@@ -4544,6 +4605,41 @@ function FlowInner() {
           );
         })
         .catch(() => {});
+
+      // 异步上传到 OSS：成功后用远程 URL 替换节点内的内联数据，避免写入项目 JSON/DB
+      try {
+        const projectId = useProjectContentStore.getState().projectId;
+        const historyId = `${id}-${Date.now()}`;
+        void recordImageHistoryEntry({
+          id: historyId,
+          base64: imageDataForNode,
+          title: normalizedImageName || "Flow Image",
+          nodeId: id,
+          nodeType: "image",
+          fileName: `${normalizedImageName || `flow_image_${historyId}`}.png`,
+          projectId,
+          keepThumbnail: false,
+        })
+          .then(({ remoteUrl }) => {
+            if (!remoteUrl) return;
+            setNodes((ns) =>
+              ns.map((n) => {
+                if (n.id !== id) return n;
+                if ((n.data as any)?.imageData !== imageDataForNode) return n;
+                return {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    imageUrl: remoteUrl,
+                    imageData: undefined,
+                    thumbnail: undefined,
+                  },
+                };
+              })
+            );
+          })
+          .catch(() => {});
+      } catch {}
       try {
         historyService.commit("flow-create-image-from-canvas").catch(() => {});
       } catch {}
@@ -4608,8 +4704,11 @@ function FlowInner() {
         const metadata = result.data.metadata || {};
         const midjourneyMeta = metadata.midjourney || {};
         const midjourneyImageUrl = midjourneyMeta.imageUrl || metadata.imageUrl;
-        const resolvedImageData = imgBase64 || midjourneyImageUrl;
-        const historyId = resolvedImageData
+        const normalizedMidjourneyUrl =
+          typeof midjourneyImageUrl === "string" ? midjourneyImageUrl.trim() : "";
+        const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
+        const previewSource = hasRemoteUrl ? normalizedMidjourneyUrl : imgBase64;
+        const historyId = previewSource
           ? `${detail.nodeId}-${Date.now()}`
           : undefined;
 
@@ -4622,11 +4721,11 @@ function FlowInner() {
                   data: {
                     ...n.data,
                     status: "succeeded",
-                    imageData: resolvedImageData,
+                    imageData: hasRemoteUrl ? undefined : imgBase64,
                     error: undefined,
                     taskId: midjourneyMeta.taskId || detail.taskId,
                     buttons: midjourneyMeta.buttons,
-                    imageUrl: midjourneyMeta.imageUrl,
+                    imageUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
                     promptEn: midjourneyMeta.promptEn,
                     lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
                   },
@@ -4641,8 +4740,8 @@ function FlowInner() {
           const projectId = useProjectContentStore.getState().projectId;
           void recordImageHistoryEntry({
             id: historyId,
-            base64: imgBase64,
-            remoteUrl: imgBase64 ? undefined : midjourneyImageUrl,
+            base64: hasRemoteUrl ? undefined : imgBase64,
+            remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
             title: `Midjourney ${
               detail.label || "Action"
             } ${new Date().toLocaleTimeString()}`,
@@ -4650,18 +4749,40 @@ function FlowInner() {
             nodeType: "midjourney",
             fileName: `flow_midjourney_${historyId}.png`,
             projectId,
-          });
+            keepThumbnail: false,
+          })
+            .then(({ remoteUrl }) => {
+              if (!remoteUrl) return;
+              if (hasRemoteUrl) return;
+              setNodes((ns) =>
+                ns.map((n) => {
+                  if (n.id !== detail.nodeId) return n;
+                  if ((n.data as any)?.imageData !== imgBase64) return n;
+                  return {
+                    ...n,
+                    data: {
+                      ...n.data,
+                      imageUrl: remoteUrl,
+                      imageData: undefined,
+                      thumbnail: undefined,
+                    },
+                  };
+                })
+              );
+            })
+            .catch(() => {});
         }
 
-        if (resolvedImageData) {
-          generateThumbnail(resolvedImageData, 400)
+        if (previewSource) {
+          generateThumbnail(previewSource, 400)
             .then((thumbnail) => {
               if (!thumbnail) return;
               setNodes((ns) =>
                 ns.map((n) => {
                   if (n.id !== detail.nodeId) return n;
-                  if ((n.data as any)?.imageData !== resolvedImageData)
-                    return n;
+                  const current =
+                    (n.data as any)?.imageUrl || (n.data as any)?.imageData;
+                  if (current !== previewSource) return n;
                   return { ...n, data: { ...n.data, thumbnail } };
                 })
               );
@@ -5771,8 +5892,11 @@ function FlowInner() {
           const midjourneyMeta = mjMetadata.midjourney || {};
           const midjourneyImageUrl =
             midjourneyMeta.imageUrl || mjMetadata.imageUrl;
-          const resolvedImageData = mjImgBase64 || midjourneyImageUrl;
-          const historyId = resolvedImageData
+          const normalizedMidjourneyUrl =
+            typeof midjourneyImageUrl === "string" ? midjourneyImageUrl.trim() : "";
+          const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
+          const previewSource = hasRemoteUrl ? normalizedMidjourneyUrl : mjImgBase64;
+          const historyId = previewSource
             ? `${nodeId}-${Date.now()}`
             : undefined;
 
@@ -5785,11 +5909,11 @@ function FlowInner() {
                     data: {
                       ...n.data,
                       status: "succeeded",
-                      imageData: resolvedImageData,
+                      imageData: hasRemoteUrl ? undefined : mjImgBase64,
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
                       buttons: midjourneyMeta.buttons,
-                      imageUrl: midjourneyMeta.imageUrl,
+                      imageUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
                       promptEn: midjourneyMeta.promptEn,
                       lastHistoryId:
                         historyId ?? (n.data as any)?.lastHistoryId,
@@ -5810,25 +5934,64 @@ function FlowInner() {
                 : "Blend";
             void recordImageHistoryEntry({
               id: historyId,
-              base64: mjImgBase64,
-              remoteUrl: mjImgBase64 ? undefined : midjourneyImageUrl,
+              base64: hasRemoteUrl ? undefined : mjImgBase64,
+              remoteUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
               title: `Midjourney ${actionLabel} ${new Date().toLocaleTimeString()}`,
               nodeId,
               nodeType: "midjourney",
               fileName: `flow_midjourney_${historyId}.png`,
               projectId,
-            });
+              keepThumbnail: false,
+            })
+              .then(({ remoteUrl }) => {
+                if (!remoteUrl) return;
+                if (hasRemoteUrl) return;
+                const outs = rf.getEdges().filter((e) => e.source === nodeId);
+                setNodes((ns) =>
+                  ns.map((n) => {
+                    // 更新当前 midjourney 节点自身
+                    if (n.id === nodeId) {
+                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+                    // 同步更新下游 Image 节点，避免把 base64 写入项目 JSON
+                    if (outs.some((e) => e.target === n.id) && n.type === "image") {
+                      if ((n.data as any)?.imageData !== mjImgBase64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+                    return n;
+                  })
+                );
+              })
+              .catch(() => {});
           }
 
-          if (resolvedImageData) {
-            generateThumbnail(resolvedImageData, 400)
+          if (previewSource) {
+            generateThumbnail(previewSource, 400)
               .then((thumbnail) => {
                 if (!thumbnail) return;
                 setNodes((ns) =>
                   ns.map((n) => {
                     if (n.id !== nodeId) return n;
-                    if ((n.data as any)?.imageData !== resolvedImageData)
-                      return n;
+                    const current =
+                      (n.data as any)?.imageUrl || (n.data as any)?.imageData;
+                    if (current !== previewSource) return n;
                     return { ...n, data: { ...n.data, thumbnail } };
                   })
                 );
@@ -5847,7 +6010,9 @@ function FlowInner() {
                       ...n,
                       data: {
                         ...n.data,
-                        imageData: resolvedImageData,
+                        ...(hasRemoteUrl
+                          ? { imageUrl: normalizedMidjourneyUrl, imageData: undefined }
+                          : { imageData: mjImgBase64 }),
                         thumbnail: undefined,
                       },
                     };
@@ -6132,6 +6297,78 @@ function FlowInner() {
                 })
               );
             }
+
+            // 异步上传并写入远程 URL（避免 base64 落盘到项目 JSON/DB）
+            try {
+              const projectId = useProjectContentStore.getState().projectId;
+              const slotIndex = i;
+              const historyId = `${nodeId}-${slotIndex}-${Date.now()}`;
+              void recordImageHistoryEntry({
+                id: historyId,
+                base64: generatedImage,
+                title: `Generate4 #${slotIndex + 1} ${new Date().toLocaleTimeString()}`,
+                nodeId,
+                nodeType: "generate",
+                fileName: `flow_generate4_${historyId}.png`,
+                projectId,
+                keepThumbnail: false,
+              })
+                .then(({ remoteUrl }) => {
+                  if (!remoteUrl) return;
+                  const outEdges = rf
+                    .getEdges()
+                    .filter(
+                      (e) =>
+                        e.source === nodeId &&
+                        (e as any).sourceHandle === `img${slotIndex + 1}`
+                    );
+                  setNodes((ns) =>
+                    ns.map((n) => {
+                      // 更新 generate4 节点本身：写入 imageUrls 并清理对应 images 槽位
+                      if (n.id === nodeId) {
+                        const prevUrls = Array.isArray((n.data as any)?.imageUrls)
+                          ? ([...(n.data as any).imageUrls] as string[])
+                          : [];
+                        prevUrls[slotIndex] = remoteUrl;
+                        const prevImages = Array.isArray((n.data as any)?.images)
+                          ? ([...(n.data as any).images] as any[])
+                          : [];
+                        if (prevImages[slotIndex] === generatedImage) {
+                          prevImages[slotIndex] = "";
+                        }
+                        return {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            imageUrls: prevUrls,
+                            images: prevImages,
+                          },
+                        };
+                      }
+
+                      // 更新下游 Image 节点：替换为远程 URL，清理 base64
+                      if (
+                        outEdges.some((e) => e.target === n.id) &&
+                        n.type === "image" &&
+                        (n.data as any)?.imageData === generatedImage
+                      ) {
+                        return {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            imageUrl: remoteUrl,
+                            imageData: undefined,
+                            thumbnail: undefined,
+                          },
+                        };
+                      }
+
+                      return n;
+                    })
+                  );
+                })
+                .catch(() => {});
+            } catch {}
           }
 
           updateMultiGenerateProgress(i + 1);
@@ -6335,6 +6572,79 @@ function FlowInner() {
                   })
                 );
               }
+
+              // 异步上传并写入远程 URL（避免 base64 落盘到项目 JSON/DB）
+              try {
+                const projectId = useProjectContentStore.getState().projectId;
+                const slotIndex = result.index;
+                const base64 = result.image;
+                const historyId = `${nodeId}-${slotIndex}-${Date.now()}`;
+                void recordImageHistoryEntry({
+                  id: historyId,
+                  base64,
+                  title: `GeneratePro4 #${slotIndex + 1} ${new Date().toLocaleTimeString()}`,
+                  nodeId,
+                  nodeType: "generatePro4",
+                  fileName: `flow_generatepro4_${historyId}.png`,
+                  projectId,
+                  keepThumbnail: false,
+                })
+                  .then(({ remoteUrl }) => {
+                    if (!remoteUrl) return;
+                    const outEdges = rf
+                      .getEdges()
+                      .filter(
+                        (e) =>
+                          e.source === nodeId &&
+                          (e as any).sourceHandle === `img${slotIndex + 1}`
+                      );
+                    setNodes((ns) =>
+                      ns.map((n) => {
+                        // 更新 generatePro4 节点本身：写入 imageUrls 并清理对应 images 槽位
+                        if (n.id === nodeId) {
+                          const prevUrls = Array.isArray((n.data as any)?.imageUrls)
+                            ? ([...(n.data as any).imageUrls] as string[])
+                            : [];
+                          prevUrls[slotIndex] = remoteUrl;
+                          const prevImages = Array.isArray((n.data as any)?.images)
+                            ? ([...(n.data as any).images] as any[])
+                            : [];
+                          if (prevImages[slotIndex] === base64) {
+                            prevImages[slotIndex] = "";
+                          }
+                          return {
+                            ...n,
+                            data: {
+                              ...n.data,
+                              imageUrls: prevUrls,
+                              images: prevImages,
+                            },
+                          };
+                        }
+
+                        // 更新下游 Image 节点：替换为远程 URL，清理 base64
+                        if (
+                          outEdges.some((e) => e.target === n.id) &&
+                          n.type === "image" &&
+                          (n.data as any)?.imageData === base64
+                        ) {
+                          return {
+                            ...n,
+                            data: {
+                              ...n.data,
+                              imageUrl: remoteUrl,
+                              imageData: undefined,
+                              thumbnail: undefined,
+                            },
+                          };
+                        }
+
+                        return n;
+                      })
+                    );
+                  })
+                  .catch(() => {});
+              } catch {}
             } else if (result.error) {
               errors.push(`图${result.index + 1}: ${result.error}`);
             }
@@ -6555,6 +6865,75 @@ function FlowInner() {
             );
           }
         }
+
+        // 异步上传并写入远程 URL（避免 base64 落盘到项目 JSON/DB）
+        if (imgBase64) {
+          try {
+            const projectId = useProjectContentStore.getState().projectId;
+            const historyId = `${nodeId}-${Date.now()}`;
+            const historyNodeType =
+              node.type === "generatePro" ? "generatePro" : "generate";
+            void recordImageHistoryEntry({
+              id: historyId,
+              base64: imgBase64,
+              title: `${
+                node.type === "generatePro"
+                  ? "GeneratePro"
+                  : node.type === "generateRef"
+                  ? "GenerateRef"
+                  : "Generate"
+              } ${new Date().toLocaleTimeString()}`,
+              nodeId,
+              nodeType: historyNodeType,
+              fileName: `flow_${node.type || "generate"}_${historyId}.png`,
+              projectId,
+              keepThumbnail: false,
+            })
+              .then(({ remoteUrl }) => {
+                if (!remoteUrl) return;
+                const outs = rf.getEdges().filter((e) => e.source === nodeId);
+                setNodes((ns) =>
+                  ns.map((n) => {
+                    // 更新当前生成节点自身
+                    if (n.id === nodeId) {
+                      if ((n.data as any)?.imageData !== imgBase64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                          lastHistoryId:
+                            historyId ?? (n.data as any)?.lastHistoryId,
+                        },
+                      };
+                    }
+
+                    // 同步更新下游 Image 节点：替换为远程 URL，清理 base64
+                    if (
+                      outs.some((e) => e.target === n.id) &&
+                      n.type === "image" &&
+                      (n.data as any)?.imageData === imgBase64
+                    ) {
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+
+                    return n;
+                  })
+                );
+              })
+              .catch(() => {});
+          } catch {}
+        }
       } catch (err: any) {
         const msg = err?.message || String(err);
         setNodes((ns) =>
@@ -6577,14 +6956,33 @@ function FlowInner() {
       const normalizeForCanvas = (value?: string): string | null => {
         const trimmed = value?.trim();
         if (!trimmed) return null;
-        if (/^data:/i.test(trimmed) || /^https?:\/\//i.test(trimmed))
+        if (
+          trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX) // 本地 IndexedDB 引用不直接外发
+        )
+          return null;
+        if (
+          /^data:/i.test(trimmed) ||
+          /^https?:\/\//i.test(trimmed) ||
+          trimmed.startsWith("/api/assets/proxy") ||
+          trimmed.startsWith("/assets/proxy") ||
+          trimmed.startsWith("/") ||
+          trimmed.startsWith("./") ||
+          trimmed.startsWith("../") ||
+          /^(templates|projects|uploads|videos)\//i.test(trimmed)
+        )
           return trimmed;
         return `data:image/png;base64,${trimmed}`;
       };
 
       if (node.type === "generate4" || node.type === "generatePro4") {
         const imgs = ((node.data as any)?.images as string[] | undefined) || [];
-        const normalizedImages = imgs
+        const urls =
+          ((node.data as any)?.imageUrls as string[] | undefined) || [];
+        const merged = Array.from(
+          { length: Math.max(imgs.length, urls.length) },
+          (_, idx) => urls[idx] || imgs[idx]
+        );
+        const normalizedImages = merged
           .map(normalizeForCanvas)
           .filter(Boolean) as string[];
         if (!normalizedImages.length) {
@@ -6630,7 +7028,8 @@ function FlowInner() {
 
       // 默认单图（generate / generatePro / generateRef）
       const dataUrl = normalizeForCanvas(
-        (node.data as any)?.imageData as string | undefined
+        ((node.data as any)?.imageUrl as string | undefined) ||
+          ((node.data as any)?.imageData as string | undefined)
       );
       if (!dataUrl) {
         window.dispatchEvent(
