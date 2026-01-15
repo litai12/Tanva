@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
+import { flowSaveService } from '@/services/flowSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { historyService } from '@/services/historyService';
@@ -34,6 +35,7 @@ export default function KeyboardShortcuts() {
         if (!storeBefore.projectId || storeBefore.saving) return;
         try {
           await paperSaveService.saveImmediately();
+          await flowSaveService.flushImageSplitInputImages();
           const store = useProjectContentStore.getState();
           const { projectId, content, version } = store;
           if (!projectId || !content) return;

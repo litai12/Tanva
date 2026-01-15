@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
+import { flowSaveService } from '@/services/flowSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
@@ -61,6 +62,19 @@ export function useProjectAutosave(projectId: string | null) {
       if (getNonRemoteImageAssetIds(contentToSave).length > 0) {
         try {
           await paperSaveService.saveImmediately();
+          const storeAfterFlush = useProjectContentStore.getState();
+          if (storeAfterFlush.projectId === currentProjectId && storeAfterFlush.content) {
+            contentToSave = storeAfterFlush.content;
+            versionToSave = storeAfterFlush.version;
+            counterToSave = storeAfterFlush.dirtyCounter;
+          }
+        } catch {}
+      }
+
+      // Flow 里允许运行时使用 flow-asset/base64；但保存接口不支持，需在保存前补传并替换为 URL/OSS key
+      if (getNonPersistableFlowImageNodeIds(contentToSave).length > 0) {
+        try {
+          await flowSaveService.flushImageSplitInputImages();
           const storeAfterFlush = useProjectContentStore.getState();
           if (storeAfterFlush.projectId === currentProjectId && storeAfterFlush.content) {
             contentToSave = storeAfterFlush.content;

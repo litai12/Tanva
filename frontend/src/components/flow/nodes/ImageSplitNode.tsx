@@ -12,13 +12,10 @@ import {
 } from 'reactflow';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
-import {
-  getFlowImageBlob,
-  parseFlowImageAssetRef,
-} from '@/services/flowImageAssetStore';
+import { parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
-import { imageUploadService } from '@/services/imageUploadService';
+import { isPersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
 
 // 类型定义
 type SplitRectItem = {
@@ -61,6 +58,91 @@ type Props = {
 const MIN_OUTPUT_COUNT = 1;
 const MAX_OUTPUT_COUNT = 50;
 const DEFAULT_OUTPUT_COUNT = 9;
+
+const normalizeMimeType = (type: string): string => {
+  const lower = type.trim().toLowerCase();
+  if (lower === 'image/jpg') return 'image/jpeg';
+  return lower;
+};
+
+const isRasterImage = (type: string): boolean => {
+  const lower = normalizeMimeType(type);
+  return (
+    lower === 'image/png' ||
+    lower === 'image/jpeg' ||
+    lower === 'image/webp'
+  );
+};
+
+const shouldBypassCanvasReencode = (type: string): boolean => {
+  const lower = normalizeMimeType(type);
+  if (lower === 'image/gif') return true; // 保留动图
+  if (lower === 'image/svg+xml') return true; // 保留矢量
+  return false;
+};
+
+const estimateSafeCanvas = (width: number, height: number): boolean => {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+  if (width <= 0 || height <= 0) return false;
+  // 避免在主线程创建超大画布导致内存峰值过高
+  return width * height <= 32_000_000; // ~32MP
+};
+
+const makeCanvas = (width: number, height: number): HTMLCanvasElement | OffscreenCanvas => {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(width, height);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  return canvas;
+};
+
+const canvasToBlob = async (
+  canvas: HTMLCanvasElement | OffscreenCanvas,
+  options: { type: string; quality?: number }
+): Promise<Blob> => {
+  if ('convertToBlob' in canvas && typeof canvas.convertToBlob === 'function') {
+    return await canvas.convertToBlob(options);
+  }
+  return await new Promise<Blob>((resolve, reject) => {
+    (canvas as HTMLCanvasElement).toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('导出失败'))),
+      options.type,
+      options.quality
+    );
+  });
+};
+
+// 仅用于运行时：通过 canvas 重编码，去除 EXIF/元数据，确保后续裁切坐标系一致（但不上传 OSS）
+const normalizeBlobForRuntime = async (blob: Blob): Promise<Blob> => {
+  const type = normalizeMimeType(blob.type || 'image/png');
+  if (!type.startsWith('image/')) return blob;
+  if (shouldBypassCanvasReencode(type)) return blob;
+  if (!isRasterImage(type)) return blob;
+  if (typeof createImageBitmap !== 'function') return blob;
+
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(blob);
+    const width = bitmap.width;
+    const height = bitmap.height;
+
+    if (!estimateSafeCanvas(width, height)) return blob;
+
+    const canvas = makeCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return blob;
+
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const quality = type === 'image/jpeg' || type === 'image/webp' ? 0.92 : undefined;
+    return await canvasToBlob(canvas, { type, quality });
+  } catch {
+    return blob;
+  } finally {
+    if (bitmap) {
+      try { bitmap.close(); } catch {}
+    }
+  }
+};
 
 const normalizeString = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
@@ -830,6 +912,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     setIsProcessing(true);
     updateNodeData({ status: 'processing', error: undefined });
 
+    let revokeObjectUrl: (() => void) | null = null;
     try {
       const normalizePersistableRef = (value: string): string => {
         const trimmed = value.trim();
@@ -856,33 +939,24 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       const rawInput = normalizeString(rawInputImage)!;
       const normalizedInputRef = normalizePersistableRef(rawInput);
-      const isEmbedded =
-        /^data:/i.test(normalizedInputRef) ||
-        /^blob:/i.test(normalizedInputRef) ||
-        !!parseFlowImageAssetRef(normalizedInputRef);
-      const isHttp = /^https?:\/\//i.test(normalizedInputRef);
-      const isKey = /^(templates|projects|uploads|videos)\//i.test(normalizedInputRef);
-      const isPath =
-        normalizedInputRef.startsWith('/') ||
-        normalizedInputRef.startsWith('./') ||
-        normalizedInputRef.startsWith('../') ||
-        normalizedInputRef.startsWith('/api/assets/proxy') ||
-        normalizedInputRef.startsWith('/assets/proxy');
+      // 图片分割本身不需要上传 OSS：优先用 blob/canvas 在运行时完成；
+      // 只有当“保存/接口调用”不支持 canvas 时，才在对应链路里上传并替换引用。
+      let runtimeInputRef = normalizedInputRef;
+      let runtimeBlob: Blob | null = null;
 
-      // 方案A：确保持久化的输入图片引用是“可复现/可寻址”的（远程URL/OSS key 等）
-      let persistedInputRef = normalizedInputRef;
-      let uploaded = false;
-      if (isEmbedded || (!isHttp && !isKey && !isPath)) {
-        const uploadResult = await imageUploadService.uploadImageSource(rawInput, {
-          projectId: projectId ?? undefined,
-          dir: projectId ? `projects/${projectId}/flow/images/` : 'uploads/flow/images/',
-          fileName: `image_split_${id}_${Date.now()}.png`,
-        });
-        if (!uploadResult.success || !uploadResult.asset?.url) {
-          throw new Error(uploadResult.error || '输入图片上传失败');
-        }
-        persistedInputRef = (uploadResult.asset.key || uploadResult.asset.url).trim();
-        uploaded = true;
+      if (!isPersistableImageRef(normalizedInputRef)) {
+        const blob = await resolveImageToBlob(rawInput, { preferProxy: true });
+        if (!blob) throw new Error('无法读取图片数据');
+        const normalizedBlob = await normalizeBlobForRuntime(blob);
+        runtimeBlob = normalizedBlob;
+
+        const [assetId] = await putFlowImageBlobs([{
+          blob: normalizedBlob,
+          projectId: projectId ?? null,
+          nodeId: id,
+        }]);
+        if (!assetId) throw new Error('图片暂存失败');
+        runtimeInputRef = toFlowImageAssetRef(assetId);
       }
 
       const preferredCount = upstreamImageGridInputs.length > 0
@@ -899,15 +973,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       // 优先使用 Worker + OffscreenCanvas（避免主线程卡顿）
       if (imageSplitWorkerClient.isSupported()) {
-        const source = await (async () => {
-          // 注意：当输入来源是 flow-asset/base64 等临时态时，会先上传并“去元数据/重新编码”，
-          // 此时必须以 uploaded 后的最终图片作为切割输入，否则会出现坐标系不一致（预览/下游裁切变形）。
-          if (!uploaded && inputAssetId) {
-            const blob = await getFlowImageBlob(inputAssetId);
-            if (!blob) throw new Error('图片资源不存在');
-            return { kind: 'blob' as const, blob };
-          }
-          const url = buildImageSrc(persistedInputRef);
+        const source = ((): { kind: 'blob'; blob: Blob } | { kind: 'url'; url: string } => {
+          if (runtimeBlob) return { kind: 'blob' as const, blob: runtimeBlob };
+          const url = buildImageSrc(runtimeInputRef);
           if (!url) throw new Error('图片加载失败');
           return { kind: 'url' as const, url };
         })();
@@ -920,7 +988,16 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         sourceWidth = result.sourceWidth ?? 0;
         sourceHeight = result.sourceHeight ?? 0;
       } else {
-        const splitSrc = buildImageSrc(persistedInputRef) || inputImageSrc;
+        let splitSrc: string | undefined;
+        if (runtimeBlob) {
+          const objectUrl = URL.createObjectURL(runtimeBlob);
+          splitSrc = objectUrl;
+          revokeObjectUrl = () => {
+            try { URL.revokeObjectURL(objectUrl); } catch {}
+          };
+        } else {
+          splitSrc = buildImageSrc(runtimeInputRef) || inputImageSrc;
+        }
         if (!splitSrc) throw new Error('图片加载失败');
         const detected = await detectAndSplitRects(splitSrc);
         rects = detected.rects;
@@ -952,7 +1029,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       const patch: Record<string, unknown> = {
         status: 'succeeded',
-        inputImageUrl: persistedInputRef,
+        inputImageUrl: runtimeInputRef,
         inputImage: undefined,
         splitRects: rects,
         sourceWidth: sourceWidth || undefined,
@@ -978,6 +1055,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       setSplitRects([]);
       setSourceSize({ width: 0, height: 0 });
     } finally {
+      try {
+        revokeObjectUrl?.();
+      } catch {}
       setIsProcessing(false);
     }
   }, [id, inputAssetId, inputImageSrc, outputCount, projectId, rawInputImage, updateNodeData, upstreamImageGridInputs]);

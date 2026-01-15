@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
+import { flowSaveService } from '@/services/flowSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
@@ -21,6 +22,7 @@ export default function ManualSaveButton() {
 
     try {
       await paperSaveService.saveImmediately();
+      await flowSaveService.flushImageSplitInputImages();
 
       const store = useProjectContentStore.getState();
       const { projectId: currentProjectId, content, version } = store;
