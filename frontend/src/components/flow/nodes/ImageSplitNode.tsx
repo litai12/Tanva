@@ -709,7 +709,14 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     )
   );
 
-  const rawInputImage = connectedImage || data.inputImage || data.inputImageUrl;
+  const rawInputImage = React.useMemo(() => {
+    const persisted = normalizeString(data.inputImageUrl) || normalizeString(data.inputImage);
+    // 方案A：当已有 splitRects 时，优先使用持久化的原图引用，保证“坐标系一致”（避免上传/去 EXIF 后坐标不匹配导致预览变形）
+    if (persisted && Array.isArray(data.splitRects) && data.splitRects.length > 0) {
+      return persisted;
+    }
+    return connectedImage || data.inputImage || data.inputImageUrl;
+  }, [connectedImage, data.inputImage, data.inputImageUrl, data.splitRects]);
   const inputAssetId = React.useMemo(() => parseFlowImageAssetRef(rawInputImage), [rawInputImage]);
   const inputAssetUrl = useFlowImageAssetUrl(inputAssetId);
 
@@ -813,6 +820,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
 
       // 方案A：确保持久化的输入图片引用是“可复现/可寻址”的（远程URL/OSS key 等）
       let persistedInputRef = normalizedInputRef;
+      let uploaded = false;
       if (isEmbedded || (!isHttp && !isKey && !isPath)) {
         const uploadResult = await imageUploadService.uploadImageSource(rawInput, {
           projectId: projectId ?? undefined,
@@ -823,6 +831,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           throw new Error(uploadResult.error || '输入图片上传失败');
         }
         persistedInputRef = (uploadResult.asset.key || uploadResult.asset.url).trim();
+        uploaded = true;
       }
 
       const preferredCount = upstreamImageGridInputs.length > 0
@@ -840,7 +849,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       // 优先使用 Worker + OffscreenCanvas（避免主线程卡顿）
       if (imageSplitWorkerClient.isSupported()) {
         const source = await (async () => {
-          if (inputAssetId) {
+          // 注意：当输入来源是 flow-asset/base64 等临时态时，会先上传并“去元数据/重新编码”，
+          // 此时必须以 uploaded 后的最终图片作为切割输入，否则会出现坐标系不一致（预览/下游裁切变形）。
+          if (!uploaded && inputAssetId) {
             const blob = await getFlowImageBlob(inputAssetId);
             if (!blob) throw new Error('图片资源不存在');
             return { kind: 'blob' as const, blob };
@@ -858,8 +869,9 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         sourceWidth = result.sourceWidth ?? 0;
         sourceHeight = result.sourceHeight ?? 0;
       } else {
-        if (!inputImageSrc) throw new Error('图片加载失败');
-        const detected = await detectAndSplitRects(inputImageSrc);
+        const splitSrc = buildImageSrc(persistedInputRef) || inputImageSrc;
+        if (!splitSrc) throw new Error('图片加载失败');
+        const detected = await detectAndSplitRects(splitSrc);
         rects = detected.rects;
         sourceWidth = detected.sourceWidth;
         sourceHeight = detected.sourceHeight;
@@ -868,7 +880,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         const tooManyPieces =
           rects.length > Math.min(MAX_OUTPUT_COUNT, Math.max(safeCount, DEFAULT_OUTPUT_COUNT)) * 2;
         if (rects.length <= 1 || tooManyPieces) {
-          const grid = await splitRectsByGrid(inputImageSrc, safeCount);
+          const grid = await splitRectsByGrid(splitSrc, safeCount);
           rects = grid.rects;
           sourceWidth = grid.sourceWidth;
           sourceHeight = grid.sourceHeight;
