@@ -5458,11 +5458,7 @@ function FlowInner() {
         if (referenceImages.length) {
           try {
             const fetchRemoteImageAsDataUrl = async (url: string) => {
-              // 强制使用代理来避免OSS CORS问题
-              const proxiedUrl = proxifyRemoteAssetUrl(url, {
-                forceProxy: true,
-              });
-              const response = await fetch(proxiedUrl, {
+              const response = await fetch(proxifyRemoteAssetUrl(url), {
                 credentials: "include",
               });
               if (!response.ok) {
