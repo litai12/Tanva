@@ -272,26 +272,34 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const controls = controlsRef.current;
     if (!camera || !controls) return;
     const box = new THREE.Box3().setFromObject(obj);
-    if (box.isEmpty()) return;
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
-    // 将模型中心移动到原点，保证 OrbitControls 围绕中心旋转
-    obj.position.sub(center);
+    if (box.isEmpty() || !Number.isFinite(box.min.x) || !Number.isFinite(box.max.x)) return;
 
-    const maxDim = Math.max(size.x, size.y, size.z, Number.EPSILON);
-    const fov = camera.fov * (Math.PI / 180);
-    let dist = maxDim / (2 * Math.tan(fov / 2)); // distance required to fit object
-    dist *= 1.3; // padding
+    const center = box.getCenter(new THREE.Vector3());
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const radius = Math.max(sphere.radius, Number.EPSILON);
+
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const aspect = Math.max(camera.aspect, Number.EPSILON);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const minFov = Math.max(Math.min(vFov, hFov), Number.EPSILON);
+
+    let dist = radius / Math.sin(minFov / 2);
+    dist *= 1.25; // padding
     dist = Math.max(dist, 0.5);
+
     const direction = new THREE.Vector3(1, 0.8, 1).normalize();
-    camera.position.copy(direction.multiplyScalar(dist));
+    camera.position.copy(center.clone().add(direction.multiplyScalar(dist)));
     camera.near = Math.max(dist / 100, 0.01);
-    camera.far = Math.max(dist * 100, 50);
+    camera.far = Math.max(dist + radius * 4, 50);
     camera.updateProjectionMatrix();
-    controls.target.set(0, 0, 0);
+
+    controls.target.copy(center);
     controls.update();
+    // 清理上一轮 OrbitControls 的惯性/增量，保证落点稳定
+    try {
+      controls.saveState();
+      controls.reset();
+    } catch {}
   };
 
   const mountModel = React.useCallback((object: THREE.Object3D) => {
