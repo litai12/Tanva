@@ -19,6 +19,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 - 项目内容加载：前端对同项目 `GET /api/projects/:id/content` 做并发去重；后端 OSS 未配置/禁用时跳过读写并设置超时，减少重复下载与长时间卡顿。
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
+- Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
 - Canvas：修复将 OSS key/proxy/path 误判为 base64/待上传导致图片置灰的问题（含快速上传、导入重建实例、视频缩略图与下载链路）。
 - 前端鉴权：补齐部分直连请求未触发自动退出的问题；统一用 `fetchWithAuth`/`triggerAuthExpired` 处理 401/403，并在登录失效时清理本地会话缓存（`frontend/src/services/authEvents.ts`、`frontend/src/services/authFetch.ts`）。
 - Flow：禁用节点拖拽时的自动平移（`autoPanOnNodeDrag`），并在 `dragStop` 强制回同步视口，避免快速拖动节点时视口漂移导致其他节点整体偏移。

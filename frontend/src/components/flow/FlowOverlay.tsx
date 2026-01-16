@@ -5340,6 +5340,19 @@ function FlowInner() {
           new Set()
         );
       };
+
+      const resolveEdgesAsDataUrls = async (edges: Edge[]): Promise<string[]> => {
+        const out: string[] = [];
+        for (const edge of edges) {
+          try {
+            const dataUrl = await resolveEdgeImageToDataUrl(edge);
+            if (dataUrl) out.push(dataUrl);
+          } catch {
+            // ignore single-edge failure, allow other inputs
+          }
+        }
+        return out;
+      };
       const getTextPromptForNode = (targetId: string) => {
         const textEdge = currentEdges.find(
           (e) => e.target === targetId && e.targetHandle === "text"
@@ -5436,7 +5449,7 @@ function FlowInner() {
           let imgUrl: string | undefined = undefined;
 
           if (hasImageInput) {
-            const imageDatas = collectImages(imageEdges);
+            const imageDatas = await resolveEdgesAsDataUrls(imageEdges);
             if (!imageDatas.length) throw new Error("图片输入为空");
             for (const img of imageDatas) {
               const trimmed = typeof img === "string" ? img.trim() : "";
@@ -5797,7 +5810,7 @@ function FlowInner() {
         const imageEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "image")
           .slice(0, SORA2_MAX_REFERENCE_IMAGES);
-        const referenceImages = collectImages(imageEdges);
+        const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
 
         const generationStartMs = Date.now();
         const referenceImageUrls: string[] = [];
@@ -6000,7 +6013,7 @@ function FlowInner() {
         const imageEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "image")
           .slice(0, SORA2_MAX_REFERENCE_IMAGES);
-        const referenceImages = collectImages(imageEdges);
+        const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
 
         const generationStartMs = Date.now();
         const referenceImageUrls: string[] = [];
@@ -6621,19 +6634,6 @@ function FlowInner() {
       }
 
       let imageDatas: string[] = [];
-
-      const resolveEdgesAsDataUrls = async (edges: Edge[]): Promise<string[]> => {
-        const out: string[] = [];
-        for (const edge of edges) {
-          try {
-            const dataUrl = await resolveEdgeImageToDataUrl(edge);
-            if (dataUrl) out.push(dataUrl);
-          } catch {
-            // ignore single-edge failure, allow other inputs
-          }
-        }
-        return out;
-      };
 
       if (node.type === "generateRef") {
         const primaryEdges = currentEdges
