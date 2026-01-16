@@ -35,6 +35,8 @@ function ThreeNodeInner({ id, data, selected }: Props) {
   const gridRef = React.useRef<THREE.GridHelper | null>(null);
   const axesRef = React.useRef<THREE.AxesHelper | null>(null);
   const resizeObserverRef = React.useRef<ResizeObserver | null>(null);
+  const isNodeResizingRef = React.useRef(false);
+  const resizeCommitRafRef = React.useRef<number | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const renderPendingRef = React.useRef<number | null>(null);
   const fileInput = React.useRef<HTMLInputElement | null>(null);
@@ -84,6 +86,11 @@ function ThreeNodeInner({ id, data, selected }: Props) {
 
   // 资源释放函数 (High Priority Cleanup)
   const disposeResources = React.useCallback(() => {
+    if (resizeCommitRafRef.current !== null) {
+      cancelAnimationFrame(resizeCommitRafRef.current);
+      resizeCommitRafRef.current = null;
+    }
+
     // 停止渲染调度
     if (renderPendingRef.current !== null) {
       cancelAnimationFrame(renderPendingRef.current);
@@ -194,6 +201,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     const container = containerRef.current;
     const renderer = rendererRef.current;
     const camera = cameraRef.current;
+    const scene = sceneRef.current;
     if (!container || !renderer || !camera) return;
     const width = container.clientWidth;
     const height = container.clientHeight;
@@ -201,8 +209,20 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    requestRender();
-  }, [requestRender]);
+    if (scene) {
+      controlsRef.current?.update();
+      renderer.render(scene, camera);
+    }
+  }, []);
+
+  const scheduleRendererSizeSync = React.useCallback(() => {
+    if (resizeCommitRafRef.current !== null) return;
+    resizeCommitRafRef.current = requestAnimationFrame(() => {
+      resizeCommitRafRef.current = null;
+      if (isNodeResizingRef.current) return;
+      syncRendererSizeToContainer();
+    });
+  }, [syncRendererSizeToContainer]);
 
   const initIfNeeded = React.useCallback(() => {
     if (!containerRef.current) return;
@@ -268,11 +288,12 @@ function ThreeNodeInner({ id, data, selected }: Props) {
       resizeObserverRef.current = null;
     }
     const ro = new ResizeObserver(() => {
-      syncRendererSizeToContainer();
+      if (isNodeResizingRef.current) return;
+      scheduleRendererSizeSync();
     });
     ro.observe(containerRef.current);
     resizeObserverRef.current = ro;
-  }, [requestRender, syncRendererSizeToContainer]);
+  }, [requestRender, scheduleRendererSizeSync, syncRendererSizeToContainer]);
 
   React.useEffect(() => {
     const t = setTimeout(() => initIfNeeded(), 0); // 等布局稳定再初始化
@@ -284,7 +305,15 @@ function ThreeNodeInner({ id, data, selected }: Props) {
 
   const onResize = (w: number, h: number) => {
     boxSizeRef.current = { boxW: w, boxH: h };
-    requestAnimationFrame(() => syncRendererSizeToContainer());
+    // Resize 拖拽过程中不频繁 setSize，避免 WebGL 画布被清空造成闪烁；
+    // canvas CSS 已是 100% 铺满，拖拽时由浏览器做缩放，结束后再一次性同步 renderer。
+    isNodeResizingRef.current = true;
+  };
+
+  const onResizeEnd = (w: number, h: number) => {
+    boxSizeRef.current = { boxW: w, boxH: h };
+    isNodeResizingRef.current = false;
+    scheduleRendererSizeSync();
   };
 
   const fitToObject = (obj: THREE.Object3D) => {
@@ -575,7 +604,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     <div style={{ width: data.boxW || 280, height: data.boxH || 260, padding: 8, background: '#fff', border: `1px solid ${borderColor}`, borderRadius: 8, boxShadow, transition: 'border-color 0.15s ease, box-shadow 0.15s ease', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       <NodeResizer isVisible={!!selected} minWidth={220} minHeight={200} color="transparent" lineStyle={{ display: 'none' }} handleStyle={{ background: 'transparent', border: 'none', width: 12, height: 12, opacity: 0 }}
         onResize={(e, p) => { onResize(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
-        onResizeEnd={(e, p) => { onResize(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
+        onResizeEnd={(e, p) => { onResizeEnd(p.width, p.height); rf.setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, boxW: p.width, boxH: p.height } } : n)); }}
       />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ fontWeight: 600 }}>3D</div>
