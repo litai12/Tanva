@@ -56,6 +56,7 @@ import { historyService } from '@/services/historyService';
 import { clipboardService } from '@/services/clipboardService';
 import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import WorkflowHistoryButton from '@/components/workflow-history/WorkflowHistoryButton';
 import { authApi, type GoogleApiKeyInfo } from '@/services/authApi';
 import {
     claimDailyReward,
@@ -112,6 +113,7 @@ const FloatingHeader: React.FC = () => {
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
+    const projectId = useProjectContentStore((s) => s.projectId);
     // Header 下拉中的快速切换与新建，直接复用项目管理的函数
     const handleQuickSwitch = (projectId: string) => {
         if (!projectId || projectId === currentProject?.id) return;
@@ -1349,6 +1351,8 @@ return (
                             <span className="hidden sm:inline">素材库</span>
                         </Button>
                     )}
+
+                    <WorkflowHistoryButton projectId={projectId} />
 
                     {/* 帮助按钮 */}
                     <Button

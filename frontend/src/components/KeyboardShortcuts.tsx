@@ -52,7 +52,7 @@ export default function KeyboardShortcuts() {
             return;
           }
           store.setSaving(true);
-          const result = await projectApi.saveContent(projectId, { content, version });
+          const result = await projectApi.saveContent(projectId, { content, version, createWorkflowHistory: true });
           store.markSaved(result.version, result.updatedAt ?? new Date().toISOString());
           try {
             saveMonitor.push(projectId, 'kb_save_success', {

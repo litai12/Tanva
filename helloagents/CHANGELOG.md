@@ -5,6 +5,9 @@ All notable changes to this knowledge base will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning (knowledge-base versioning).
 
 ## [Unreleased]
+### Added
+- 工作流历史版本：新增 `WorkflowHistory` 表（按 `userId + projectId + updatedAt` 复合主键），后端提供查询接口；前端右上角增加 n8n 风格历史按钮与“恢复并保存”交互。
+
 ### Changed
 - Flow：Image Split 分割运行时使用 `canvas/flow-asset`（Split 时不再强制上传 OSS）；保存前通过 `frontend/src/services/flowSaveService.ts` 自动补传并将 `inputImageUrl` 替换为远程 URL/OSS key，持久化仍为 `inputImageUrl + splitRects`；Worker 侧计算降低主线程峰值。
 - 设计 JSON：`Project.contentJson` / `PublicTemplate.templateData` 强制禁止 `data:`/`blob:`/base64 图片进入 DB/OSS（后端清洗 + 提供批量修复脚本）。

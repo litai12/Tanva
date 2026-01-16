@@ -40,7 +40,7 @@ export default function ManualSaveButton() {
 
       setSaving(true);
 
-      const result = await projectApi.saveContent(currentProjectId, { content, version });
+      const result = await projectApi.saveContent(currentProjectId, { content, version, createWorkflowHistory: true });
 
       markSaved(result.version, result.updatedAt ?? new Date().toISOString());
       void refreshProjectThumbnail(currentProjectId, { force: true });
