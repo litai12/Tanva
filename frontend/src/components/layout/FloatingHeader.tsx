@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -80,6 +81,7 @@ const MAX_QUICK_PROJECTS = 5;
 
 const FloatingHeader: React.FC = () => {
     const navigate = useNavigate();
+    const guardLeave = usePendingUploadLeaveGuard();
     const {
         showLibraryPanel,
         showGrid,
@@ -115,9 +117,12 @@ const FloatingHeader: React.FC = () => {
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
     const projectId = useProjectContentStore((s) => s.projectId);
     // Header 下拉中的快速切换与新建，直接复用项目管理的函数
-    const handleQuickSwitch = (projectId: string) => {
-        if (!projectId || projectId === currentProject?.id) return;
-        open(projectId);
+    const handleQuickSwitch = (targetProjectId: string) => {
+        if (!targetProjectId || targetProjectId === currentProject?.id) return;
+        guardLeave(() => open(targetProjectId), {
+            title: '切换项目前确认',
+            message: '仍有图片未上传完成，切换项目可能导致图片丢失或无法保存到云端。',
+        });
     };
     const [editingTitle, setEditingTitle] = useState(false);
     const [titleInput, setTitleInput] = useState('');
@@ -134,7 +139,12 @@ const FloatingHeader: React.FC = () => {
                     await rename(currentProject.id, name);
                 }
             } else {
-                await create(name);
+                guardLeave(async () => {
+                    await create(name);
+                }, {
+                    title: '新建项目前确认',
+                    message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                });
             }
         } finally {
             setEditingTitle(false);
@@ -365,7 +375,10 @@ const FloatingHeader: React.FC = () => {
 
     const handleLogoClick = () => {
         logger.debug('Logo clicked - navigating to home');
-        navigate('/');
+        guardLeave(() => navigate('/'), {
+            title: '还有图片未上传完成',
+            message: '离开将中断上传，可能导致图片丢失或无法保存到云端。',
+        });
     };
 
 
@@ -513,14 +526,19 @@ const FloatingHeader: React.FC = () => {
     const showLibraryButton = false; // 临时关闭素材库入口，后续恢复时改为 true
     const handleLogout = async () => {
         if (loading) return;
-        try {
-            console.log('🔴 开始退出登录...');
-            await logout();
-            console.log('✅ 登出成功，准备跳转...');
-            navigate('/auth/login', { replace: true });
-        } catch (err) {
-            console.error('❌ 退出登录失败:', err);
-        }
+        guardLeave(async () => {
+            try {
+                console.log('🔴 开始退出登录...');
+                await logout();
+                console.log('✅ 登出成功，准备跳转...');
+                navigate('/auth/login', { replace: true });
+            } catch (err) {
+                console.error('❌ 退出登录失败:', err);
+            }
+        }, {
+            title: '还有图片未上传完成',
+            message: '退出登录将中断上传，可能导致图片丢失或无法保存到云端。',
+        });
     };
     const recentProjects = useMemo(() => {
         const sliced = projects.slice(0, MAX_QUICK_PROJECTS);
@@ -661,7 +679,10 @@ const FloatingHeader: React.FC = () => {
                             <Button
                                 variant="outline"
                                 className="h-10 text-sm rounded-xl"
-                                onClick={() => navigate('/')}
+                                onClick={() => guardLeave(() => navigate('/'), {
+                                    title: '还有图片未上传完成',
+                                    message: '离开将中断上传，可能导致图片丢失或无法保存到云端。',
+                                })}
                             >
                                 <Home className="w-4 h-4 mr-2" />
                                 返回首页
@@ -1309,9 +1330,14 @@ return (
                                     打开/管理文件
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                    onClick={async (event) => {
+                                    onClick={(event) => {
                                         event.preventDefault();
-                                        await create();
+                                        guardLeave(async () => {
+                                            await create();
+                                        }, {
+                                            title: '新建项目前确认',
+                                            message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                                        });
                                     }}
                                     className="flex items-center justify-between gap-3 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
                                 >
