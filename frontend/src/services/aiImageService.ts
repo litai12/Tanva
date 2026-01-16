@@ -10,6 +10,7 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { tokenRefreshManager } from "./tokenRefreshManager";
+import { triggerAuthExpired } from "./authEvents";
 import type {
   AIImageGenerateRequest,
   AIImageEditRequest,
@@ -312,6 +313,9 @@ class AIImageService {
         if (refreshed) {
           return this.callAPI<T>(url, request, `${operationType} (retry)`, 0);
         }
+
+        // 刷新失败：说明登录态已失效，触发自动退出/弹窗
+        triggerAuthExpired();
 
         const fallback = await this.callPublicAPI<T>(
           url,

@@ -186,7 +186,7 @@ export const authApi = {
         // 更新本地token过期时间（假设24小时有效期）
         if (user) {
           setStoredTokenExpiry(Date.now() + 24 * 60 * 60 * 1000);
-      setStoredLastAuthAt(Date.now());
+          setStoredLastAuthAt(Date.now());
         }
 
         return { user, source: "server" };
@@ -222,6 +222,14 @@ export const authApi = {
         }
       }
       console.warn("authApi.me not ok:", res.status);
+
+      // 明确未授权：清空本地会话，避免“假登录”
+      if (res.status === 401 || res.status === 403) {
+        clearSession();
+        clearStoredTokenExpiry();
+        clearStoredLastAuthAt();
+        return { user: null, source: null };
+      }
 
       // 如果网络请求失败但本地有用户信息，返回本地数据
       if (localUser) {
@@ -381,6 +389,13 @@ export const authApi = {
       }
       if (!res.ok) {
         console.warn("authApi.me not ok:", res.status);
+        // 明确未授权：清空本地会话，避免“假登录”
+        if (res.status === 401 || res.status === 403) {
+          clearSession();
+          clearStoredTokenExpiry();
+          clearStoredLastAuthAt();
+          return null;
+        }
         // 尝试使用本地持久化的用户，避免开发场景下的闪跳登录
         return loadSession();
       }

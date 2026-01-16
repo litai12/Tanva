@@ -78,6 +78,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       connection: null,
       error: reason || '登录状态已失效，请重新登录',
     });
-    try { localStorage.removeItem('mock_user'); } catch {}
+    try {
+      localStorage.removeItem('mock_user');
+      localStorage.removeItem('token_expiry');
+      localStorage.removeItem('last_auth_at');
+    } catch {}
   }
 }));

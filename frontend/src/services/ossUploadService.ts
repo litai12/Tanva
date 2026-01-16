@@ -1,4 +1,5 @@
 import { logger } from "@/utils/logger";
+import { fetchWithAuth } from "./authFetch";
 
 export type OssUploadOptions = {
   /** 指定上传的子目录，默认为 `uploads/` */
@@ -96,10 +97,9 @@ async function requestPresign(
       ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
       : "http://localhost:4000";
 
-  const res = await fetch(`${API_BASE}/api/uploads/presign`, {
+  const res = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ dir, maxSize }),
   });
   const data = await res.json();

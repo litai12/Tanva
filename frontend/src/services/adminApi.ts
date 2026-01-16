@@ -1,3 +1,5 @@
+import { fetchWithAuth } from "./authFetch";
+
 // 后端基础地址（可通过 .env 的 VITE_API_BASE_URL 覆盖）
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
@@ -13,10 +15,7 @@ const buildUrl = (path: string) => {
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 async function request(path: string, options: RequestInit = {}) {
-  const response = await fetch(buildUrl(path), {
-    credentials: "include",
-    ...options,
-  });
+  const response = await fetchWithAuth(buildUrl(path), options);
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.message || "请求失败");

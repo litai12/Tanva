@@ -6,6 +6,7 @@
  */
 
 import { logger } from "@/utils/logger";
+import { fetchWithAuth } from "./authFetch";
 
 // 后端基础地址，统一从 .env 中读取；无配置默认 http://localhost:4000
 const API_BASE =
@@ -194,12 +195,11 @@ class BackgroundRemovalService {
     try {
       logger.info(`🌐 Removing background from URL: ${url}`);
 
-      const response = await fetch(`${API_BASE}/api/ai/remove-background`, {
+      const response = await fetchWithAuth(`${API_BASE}/api/ai/remove-background`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include",
         body: JSON.stringify({
           imageData: url,
           source: "url",
@@ -236,11 +236,10 @@ class BackgroundRemovalService {
    */
   async isAvailable(): Promise<boolean> {
     try {
-      const response = await fetch(
+      const response = await fetchWithAuth(
         `${API_BASE}/api/ai/background-removal-info`,
         {
           method: "GET",
-          credentials: "include",
         }
       );
       return response.ok;
@@ -254,11 +253,10 @@ class BackgroundRemovalService {
    */
   async getInfo() {
     try {
-      const response = await fetch(
+      const response = await fetchWithAuth(
         `${API_BASE}/api/ai/background-removal-info`,
         {
           method: "GET",
-          credentials: "include",
         }
       );
       if (!response.ok) throw new Error("Failed to fetch info");

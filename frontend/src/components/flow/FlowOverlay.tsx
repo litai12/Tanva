@@ -2,6 +2,7 @@
 import React from "react";
 import { Trash2, Plus, Upload, Download } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
+import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
 import paper from "paper";
 import ReactFlow, {
@@ -6006,9 +6007,7 @@ function FlowInner() {
         if (referenceImages.length) {
           try {
             const fetchRemoteImageAsDataUrl = async (url: string) => {
-              const response = await fetch(proxifyRemoteAssetUrl(url), {
-                credentials: "include",
-              });
+              const response = await fetchWithAuth(proxifyRemoteAssetUrl(url));
               if (!response.ok) {
                 throw new Error(`参考图拉取失败: ${response.status}`);
               }

@@ -4,6 +4,7 @@
  */
 
 import { logger } from "@/utils/logger";
+import { fetchWithAuth } from "./authFetch";
 // 后端基础地址，可通过 .env 的 VITE_API_BASE_URL 覆盖，默认 http://localhost:4000
 const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
@@ -33,12 +34,11 @@ export async function convert2Dto3D(
   request: Convert2Dto3DRequest
 ): Promise<Convert2Dto3DResponse> {
   try {
-    const response = await fetch(buildUrl("/api/ai/convert-2d-to-3d"), {
+    const response = await fetchWithAuth(buildUrl("/api/ai/convert-2d-to-3d"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      credentials: "include",
       body: JSON.stringify(request),
     });
 
