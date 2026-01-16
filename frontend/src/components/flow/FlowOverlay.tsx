@@ -5303,19 +5303,76 @@ function FlowInner() {
             : null;
         }
 
-        const direct =
-          (typeof d.imageData === "string" && d.imageData.trim()) ||
-          (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
-          "";
-        if (direct) {
-          return await resolveImageValueToDataUrlForBackend(direct);
-        }
-
-        // Image/ImagePro 作为“显示节点”时，图片可能来自上游连线；这里做一次向上追溯
         if (node.type === "image" || node.type === "imagePro") {
           const upstream = currentEdges.find(
             (e) => e.target === node.id && e.targetHandle === "img"
           );
+
+          const crop = (d as any)?.crop as
+            | {
+                x?: unknown;
+                y?: unknown;
+                width?: unknown;
+                height?: unknown;
+                sourceWidth?: unknown;
+                sourceHeight?: unknown;
+              }
+            | undefined;
+          if (crop) {
+            const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);
+            const y = typeof crop.y === "number" ? crop.y : Number(crop.y ?? 0);
+            const w =
+              typeof crop.width === "number"
+                ? crop.width
+                : Number(crop.width ?? 0);
+            const h =
+              typeof crop.height === "number"
+                ? crop.height
+                : Number(crop.height ?? 0);
+
+            const sourceWidth =
+              typeof crop.sourceWidth === "number"
+                ? crop.sourceWidth
+                : Number(crop.sourceWidth ?? 0);
+            const sourceHeight =
+              typeof crop.sourceHeight === "number"
+                ? crop.sourceHeight
+                : Number(crop.sourceHeight ?? 0);
+
+            const baseRef =
+              (typeof d.imageData === "string" && d.imageData.trim()) ||
+              (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+              "";
+
+            // 优先使用节点本地 baseRef；缺失时回溯上游连线作为裁切基底
+            const base =
+              baseRef ||
+              (upstream
+                ? await resolveNodeImageToDataUrl(
+                    rf.getNode(upstream.source) as any,
+                    (upstream as any).sourceHandle,
+                    visited
+                  )
+                : "");
+
+            if (
+              base &&
+              Number.isFinite(x) &&
+              Number.isFinite(y) &&
+              w > 0 &&
+              h > 0
+            ) {
+              const cropped = await cropImageToDataUrl({
+                baseRef: base,
+                rect: { x, y, width: w, height: h },
+                sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+                sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+              });
+              if (cropped) return cropped;
+            }
+          }
+
+          // Image/ImagePro 作为“显示节点”时，图片可能来自上游连线；优先向上追溯以匹配当前显示内容
           if (upstream) {
             const src = rf.getNode(upstream.source);
             if (src) {
@@ -5326,6 +5383,14 @@ function FlowInner() {
               );
             }
           }
+        }
+
+        const direct =
+          (typeof d.imageData === "string" && d.imageData.trim()) ||
+          (typeof d.imageUrl === "string" && d.imageUrl.trim()) ||
+          "";
+        if (direct) {
+          return await resolveImageValueToDataUrlForBackend(direct);
         }
 
         return null;
@@ -6343,7 +6408,7 @@ function FlowInner() {
         const mjImageEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "img")
           .slice(0, 6);
-        const mjImageDatas = collectImages(mjImageEdges);
+        const mjImageDatas = await resolveEdgesAsDataUrls(mjImageEdges);
 
         setNodes((ns) =>
           ns.map((n) =>
