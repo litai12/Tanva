@@ -6,10 +6,10 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import ContextMenu from '../../ui/context-menu';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { fileToDataUrl } from '@/utils/imageConcurrency';
+import { toCanonicalPersistableImageRef, toRenderableImageSrc } from '@/utils/imageSource';
 
 type Props = {
   id: string;
@@ -26,23 +26,10 @@ type Props = {
 
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('blob:')) return trimmed;
-  if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
-    return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`
-    );
-  }
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
-  return `data:image/png;base64,${trimmed}`;
+  const canonical = toCanonicalPersistableImageRef(value);
+  return (toRenderableImageSrc(canonical || value) || undefined) as
+    | string
+    | undefined;
 };
 
 const MIN_IMAGE_WIDTH = 150;
@@ -100,6 +87,8 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, o
         <img
           src={displaySrc}
           alt=""
+          decoding="async"
+          loading="lazy"
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         />
       ) : (

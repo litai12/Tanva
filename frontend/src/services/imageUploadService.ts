@@ -1,7 +1,7 @@
 import { logger } from '@/utils/logger';
 import { dataURLToBlobAsync, getImageDimensions, uploadToOSS, type OssUploadOptions } from './ossUploadService';
 import { createAsyncLimiter } from '@/utils/asyncLimit';
-import { isRemoteUrl, resolveImageToBlob } from '@/utils/imageSource';
+import { isAssetKeyRef, isRemoteUrl, resolveImageToBlob, toCanonicalPersistableImageRef } from '@/utils/imageSource';
 import { imageUploadWorkerClient } from './imageUploadWorkerClient';
 import { useUploadTaskStore } from '@/stores/uploadTaskStore';
 
@@ -143,18 +143,21 @@ async function uploadImageSource(
   options: ImageUploadOptions = {}
 ): Promise<ImageUploadResult> {
   try {
-    // 已是远程 URL：不重复上传，直接返回
-    if (typeof source === 'string' && isRemoteUrl(source)) {
-      const url = source.trim();
-      return {
-        success: true,
-        asset: {
-          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          url,
-          fileName: options.fileName,
-          contentType: options.contentType,
-        },
-      };
+    // 已是可持久化远程引用（URL / OSS key / proxy 包装）：不重复上传，直接返回
+    if (typeof source === 'string') {
+      const canonical = toCanonicalPersistableImageRef(source);
+      if (canonical && (isRemoteUrl(canonical) || isAssetKeyRef(canonical))) {
+        return {
+          success: true,
+          asset: {
+            id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            url: canonical,
+            key: isAssetKeyRef(canonical) ? canonical : undefined,
+            fileName: options.fileName,
+            contentType: options.contentType,
+          },
+        };
+      }
     }
 
     if (source instanceof File) {

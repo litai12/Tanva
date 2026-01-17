@@ -9,9 +9,9 @@ import { useAIChatStore } from '@/stores/aiChatStore';
 import { cn } from '@/lib/utils';
 import { resolveTextFromSourceNode } from '../utils/textSource';
 import ContextMenu from '../../ui/context-menu';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
+import { toCanonicalPersistableImageRef, toRenderableImageSrc } from '@/utils/imageSource';
 
 // 长宽比图标
 const AspectRatioIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
@@ -46,23 +46,10 @@ type Props = {
 
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('blob:')) return trimmed;
-  if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
-    return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`
-    );
-  }
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return proxifyRemoteAssetUrl(trimmed);
-  return `data:image/png;base64,${trimmed}`;
+  const canonical = toCanonicalPersistableImageRef(value);
+  return (toRenderableImageSrc(canonical || value) || undefined) as
+    | string
+    | undefined;
 };
 
 const MIN_IMAGE_WIDTH = 150;
@@ -562,7 +549,13 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             justifyContent: 'center',
           }}>
             {displaySrc ? (
-              <img src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <img
+                src={displaySrc}
+                alt=""
+                decoding="async"
+                loading="lazy"
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              />
             ) : (
               <span style={{ fontSize: 12, color: '#9ca3af' }}>等待生成</span>
             )}

@@ -6,10 +6,11 @@ import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { fileToDataUrl } from "@/utils/imageConcurrency";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import { imageResourceManager } from "@/services/imageResourceManager";
+import { toCanonicalPersistableImageRef, toRenderableImageSrc } from "@/utils/imageSource";
 import { shallow } from "zustand/shallow";
 
 const RESIZE_EDGE_THICKNESS = 8;
@@ -114,24 +115,10 @@ type Props = {
 
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith("data:image")) return trimmed;
-  if (trimmed.startsWith("blob:")) return trimmed;
-  if (trimmed.startsWith("/api/assets/proxy") || trimmed.startsWith("/assets/proxy")) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
-    return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ""))}`
-    );
-  }
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return proxifyRemoteAssetUrl(trimmed);
-  return `data:image/png;base64,${trimmed}`;
+  const canonical = toCanonicalPersistableImageRef(value);
+  return (toRenderableImageSrc(canonical || value) || undefined) as
+    | string
+    | undefined;
 };
 
 const MIN_WIDTH = 320;
@@ -206,13 +193,10 @@ const CanvasCropPreview = React.memo(({
     }
 
     let cancelled = false;
-    const img = new Image();
-    img.decoding = "async";
+    let releaseBitmap = null as null | (() => void);
+    let fallbackImg = null as null | HTMLImageElement;
 
-    const onLoad = () => {
-      if (cancelled) return;
-      const naturalW = img.naturalWidth || img.width;
-      const naturalH = img.naturalHeight || img.height;
+    const drawFromSource = (naturalW: number, naturalH: number, source: any) => {
       if (!naturalW || !naturalH) {
         drawPlaceholder();
         return;
@@ -244,28 +228,61 @@ const CanvasCropPreview = React.memo(({
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+      ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh);
     };
 
-    const onError = () => {
+    const run = async () => {
+      try {
+        const handle = await imageResourceManager.acquireImageBitmap(src, {
+          maxDimension: isResizing ? 256 : 512,
+          intrinsicWidth: sourceWidth,
+          intrinsicHeight: sourceHeight,
+        });
+        if (cancelled) {
+          handle.release();
+          return;
+        }
+        releaseBitmap = handle.release;
+        drawFromSource(handle.bitmap.width, handle.bitmap.height, handle.bitmap);
+        return;
+      } catch {
+        // fallback: HTMLImageElement
+      }
+
       if (cancelled) return;
-      drawPlaceholder();
+      const img = new Image();
+      fallbackImg = img;
+      img.decoding = "async";
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        if (cancelled) return;
+        drawFromSource(img.naturalWidth || img.width, img.naturalHeight || img.height, img);
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        drawPlaceholder();
+      };
+      img.src = src;
     };
 
-    img.onload = onLoad;
-    img.onerror = onError;
-    img.src = src;
+    run();
 
     return () => {
       cancelled = true;
-      img.onload = null;
-      img.onerror = null;
+      try {
+        releaseBitmap?.();
+      } catch {}
+      if (fallbackImg) {
+        fallbackImg.onload = null;
+        fallbackImg.onerror = null;
+      }
     };
   }, [
     rect?.height,
     rect?.width,
     rect?.x,
     rect?.y,
+    isResizing,
     size.h,
     size.w,
     sourceHeight,
@@ -332,6 +349,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, onDrop, o
         src={displaySrc}
         alt=''
         decoding="async"
+        loading="lazy"
         draggable={false}
         style={{
           width: "100%",

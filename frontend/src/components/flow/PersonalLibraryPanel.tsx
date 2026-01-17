@@ -581,6 +581,8 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
                     <img
                       src={asset.thumbnail || asset.url}
                       alt={asset.name}
+                      decoding="async"
+                      loading="lazy"
                       style={{
                         width: "100%",
                         height: "100%",
@@ -821,6 +823,8 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({
       <img
         src={previewSrc}
         alt={`${asset.name} 预览`}
+        decoding="async"
+        loading="lazy"
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
     );

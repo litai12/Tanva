@@ -63,7 +63,7 @@ import PromptOptimizationPanel from "@/components/chat/PromptOptimizationPanel";
 import type { PromptOptimizationSettings } from "@/components/chat/PromptOptimizationPanel";
 import promptOptimizationService from "@/services/promptOptimizationService";
 import { contextManager } from "@/services/contextManager";
-import { toRenderableImageSrc } from "@/utils/imageSource";
+import { toCanonicalPersistableImageRef, toRenderableImageSrc } from "@/utils/imageSource";
 
 type ManualModeOption = {
   value: ManualAIMode;
@@ -3597,28 +3597,43 @@ const AIChatDialog: React.FC = () => {
                       message.expectsImageOutput
                     );
 
-                    const rawImageSrc =
-                      message.imageRemoteUrl ||
-                      toRenderableImageSrc(message.imageData) ||
-                      toRenderableImageSrc(message.thumbnail);
+                    const toRenderable = (value?: string | null): string | undefined => {
+                      if (!value) return undefined;
+                      const canonical = toCanonicalPersistableImageRef(value);
+                      return toRenderableImageSrc(canonical || value) || undefined;
+                    };
 
-                    const imageSrc = normalizeDataUrl(rawImageSrc);
+                    // 预览区优先使用 thumbnail，避免列表里直接解码原图导致内存暴涨
+                    const previewSrc = normalizeDataUrl(
+                      toRenderable(message.thumbnail) ||
+                        toRenderable(message.imageRemoteUrl) ||
+                        toRenderable(message.imageData)
+                    );
+
+                    // 点击预览优先使用原图
+                    const fullSrc = normalizeDataUrl(
+                      toRenderable(message.imageRemoteUrl) ||
+                        toRenderable(message.imageData) ||
+                        toRenderable(message.thumbnail)
+                    );
 
                     const imageSize = isCompact ? "w-28 h-28" : "w-32 h-32";
 
-                    if (imageSrc) {
+                    if (previewSrc) {
                       return (
                         <img
-                          src={imageSrc}
+                          src={previewSrc}
                           alt={`AI生成的图像${
                             message.groupIndex !== undefined
                               ? ` ${message.groupIndex + 1}`
                               : ""
                           }`}
                           className={`${imageSize} object-cover rounded-lg border shadow-sm hover:shadow-md transition-shadow cursor-pointer`}
+                          decoding="async"
+                          loading="lazy"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleImagePreview(imageSrc, "AI生成的图像");
+                            handleImagePreview(fullSrc || previewSrc, "AI生成的图像");
                           }}
                           title='点击全屏预览'
                         />

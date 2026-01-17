@@ -9,6 +9,7 @@ import { paperSaveService } from '@/services/paperSaveService';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { useProjectStore } from '@/stores/projectStore';
 import { contextManager } from '@/services/contextManager';
+import { imageResourceManager } from '@/services/imageResourceManager';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { getProjectCache, setProjectCache, isCacheValid } from '@/services/projectCacheStore';
 import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
@@ -32,6 +33,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
       }
       try { useAIChatStore.getState().resetSessions(); } catch {}
       try { contextManager.clearImageCache(); } catch {}
+      try { imageResourceManager.clear(); } catch {}
       // 不再清空图片历史，保留跨文件的历史记录
       // try { useImageHistoryStore.getState().clearHistory(); } catch {}
       // 清空画布与运行时实例
@@ -47,6 +49,7 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
     paperSaveService.cancelPending();
     // 切换项目时清理跨项目的缓存/历史，避免“隐藏图片信息继承”
     try { contextManager.clearImageCache(); } catch {}
+    try { imageResourceManager.clear(); } catch {}
     // 不再清空图片历史，避免切换文件导致历史丢失
     // try { useImageHistoryStore.getState().clearHistory(); } catch {}
     // 立即清空当前画布，避免在新建空项目时残留旧图像

@@ -10,13 +10,13 @@ import {
   type Edge,
   type Node,
 } from 'reactflow';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
 import { parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
-import { isPersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
+import { isPersistableImageRef, resolveImageToBlob, toCanonicalPersistableImageRef, toRenderableImageSrc } from '@/utils/imageSource';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
+import { imageResourceManager } from '@/services/imageResourceManager';
 
 // 类型定义
 type SplitRectItem = {
@@ -138,25 +138,10 @@ const normalizeString = (value: unknown): string | undefined => {
 // 构建图片 src
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith('data:image')) return trimmed;
-  if (trimmed.startsWith('blob:')) return trimmed;
-  if (trimmed.startsWith('/api/assets/proxy') || trimmed.startsWith('/assets/proxy')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
-    return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ''))}`
-    );
-  }
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  return `data:image/png;base64,${trimmed}`;
+  const canonical = toCanonicalPersistableImageRef(value);
+  return (toRenderableImageSrc(canonical || value) || undefined) as
+    | string
+    | undefined;
 };
 
 const readImageFromNode = (node: Node<any>, sourceHandle?: string | null): string | undefined => {
@@ -574,25 +559,20 @@ function SplitRectPreview({
     }
 
     let cancelled = false;
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.decoding = 'async';
+    let releaseBitmap: null | (() => void) = null;
+    let fallbackImg: null | HTMLImageElement = null;
 
-    const draw = () => {
-      if (cancelled) return;
-      const srcW = sourceWidth || img.naturalWidth || img.width;
-      const srcH = sourceHeight || img.naturalHeight || img.height;
+    const drawFromSource = (naturalW: number, naturalH: number, source: any) => {
+      const srcW = sourceWidth || naturalW;
+      const srcH = sourceHeight || naturalH;
 
-      const scaleX = srcW > 0 ? (img.naturalWidth || img.width) / srcW : 1;
-      const scaleY = srcH > 0 ? (img.naturalHeight || img.height) / srcH : 1;
+      const scaleX = srcW > 0 ? naturalW / srcW : 1;
+      const scaleY = srcH > 0 ? naturalH / srcH : 1;
 
       const sxRaw = rect.x * scaleX;
       const syRaw = rect.y * scaleY;
       const swRaw = rect.width * scaleX;
       const shRaw = rect.height * scaleY;
-
-      const naturalW = img.naturalWidth || img.width;
-      const naturalH = img.naturalHeight || img.height;
 
       const sx = Math.max(0, Math.min(naturalW - 1, sxRaw));
       const sy = Math.max(0, Math.min(naturalH - 1, syRaw));
@@ -609,20 +589,56 @@ function SplitRectPreview({
       ctx.clearRect(0, 0, thumbSize, thumbSize);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, thumbSize, thumbSize);
-      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+      ctx.drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh);
     };
 
-    img.onload = draw;
-    img.onerror = () => {
+    const run = async () => {
+      try {
+        const handle = await imageResourceManager.acquireImageBitmap(sourceSrc, {
+          maxDimension: 256,
+          intrinsicWidth: sourceWidth,
+          intrinsicHeight: sourceHeight,
+        });
+        if (cancelled) {
+          handle.release();
+          return;
+        }
+        releaseBitmap = handle.release;
+        drawFromSource(handle.bitmap.width, handle.bitmap.height, handle.bitmap);
+        return;
+      } catch {
+        // fallback
+      }
+
       if (cancelled) return;
-      ctx.clearRect(0, 0, thumbSize, thumbSize);
-      ctx.fillStyle = '#f3f4f6';
-      ctx.fillRect(0, 0, thumbSize, thumbSize);
+      const img = new Image();
+      fallbackImg = img;
+      img.crossOrigin = 'anonymous';
+      img.decoding = 'async';
+      img.onload = () => {
+        if (cancelled) return;
+        drawFromSource(img.naturalWidth || img.width, img.naturalHeight || img.height, img);
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        ctx.clearRect(0, 0, thumbSize, thumbSize);
+        ctx.fillStyle = '#f3f4f6';
+        ctx.fillRect(0, 0, thumbSize, thumbSize);
+      };
+      img.src = sourceSrc;
     };
-    img.src = sourceSrc;
+
+    run();
 
     return () => {
       cancelled = true;
+      try {
+        releaseBitmap?.();
+      } catch {}
+      if (fallbackImg) {
+        fallbackImg.onload = null;
+        fallbackImg.onerror = null;
+      }
     };
   }, [canRender, rect.height, rect.width, rect.x, rect.y, sourceHeight, sourceSrc, sourceWidth]);
 
@@ -1326,6 +1342,8 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
           <img
             src={inputImageSrc}
             alt="输入图片"
+            decoding="async"
+            loading="lazy"
             style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain' }}
           />
         ) : (

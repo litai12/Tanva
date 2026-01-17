@@ -4,8 +4,8 @@ import ImagePreviewModal from '../../ui/ImagePreviewModal';
 import { aiImageService } from '@/services/aiImageService';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
-import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { blobToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
+import { toCanonicalPersistableImageRef, toRenderableImageSrc } from '@/utils/imageSource';
 
 type Props = {
   id: string;
@@ -23,28 +23,17 @@ type Props = {
 // 默认提示词
 const DEFAULT_ANALYSIS_PROMPT = '分析一下这张图的内容，尽可能描述出来场景中的物体和特点，用一段提示词的方式输出';
 
+const buildImageSrc = (value?: string | null): string | undefined => {
+  if (!value) return undefined;
+  const canonical = toCanonicalPersistableImageRef(value);
+  return (toRenderableImageSrc(canonical || value) || undefined) as
+    | string
+    | undefined;
+};
+
 function AnalysisNodeInner({ id, data, selected = false }: Props) {
   const { status, error } = data;
-  const previewSrc = (() => {
-    const raw = (data.imageData || data.imageUrl)?.trim();
-    if (!raw) return undefined;
-    if (raw.startsWith('data:image')) return raw;
-    if (raw.startsWith('blob:')) return raw;
-    if (raw.startsWith('/api/assets/proxy') || raw.startsWith('/assets/proxy')) {
-      return proxifyRemoteAssetUrl(raw);
-    }
-    if (raw.startsWith('/') || raw.startsWith('./') || raw.startsWith('../')) {
-      return raw;
-    }
-    if (/^(templates|projects|uploads|videos)\//i.test(raw)) {
-      return proxifyRemoteAssetUrl(
-        `/api/assets/proxy?key=${encodeURIComponent(raw.replace(/^\/+/, ''))}`
-      );
-    }
-    if (raw.startsWith('http://') || raw.startsWith('https://'))
-      return proxifyRemoteAssetUrl(raw);
-    return `data:image/png;base64,${raw}`;
-  })();
+  const previewSrc = buildImageSrc((data.imageData || data.imageUrl)?.trim() || undefined);
   const [hover, setHover] = React.useState<string | null>(null);
   const [preview, setPreview] = React.useState(false);
   const aiProvider = useAIChatStore((state) => state.aiProvider);
@@ -93,33 +82,19 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         const raw = (data.imageData || data.imageUrl)?.trim() || '';
         if (!raw) throw new Error('缺少图片输入');
         if (raw.startsWith('data:image')) return raw;
-        const fetchUrl = (() => {
-          if (raw.startsWith('blob:')) return raw;
-          if (raw.startsWith('/api/assets/proxy') || raw.startsWith('/assets/proxy')) {
-            return proxifyRemoteAssetUrl(raw);
-          }
-          if (raw.startsWith('/') || raw.startsWith('./') || raw.startsWith('../')) {
-            return raw;
-          }
-          if (/^(templates|projects|uploads|videos)\//i.test(raw)) {
-            return proxifyRemoteAssetUrl(
-              `/api/assets/proxy?key=${encodeURIComponent(raw.replace(/^\/+/, ''))}`
-            );
-          }
-          if (raw.startsWith('http://') || raw.startsWith('https://')) {
-            return proxifyRemoteAssetUrl(raw);
-          }
-          return '';
-        })();
 
-        if (fetchUrl) {
-          // 类型定义要求 base64，这里在前端将远程图转成 dataURL
-          const response = await fetchWithAuth(fetchUrl);
-          if (!response.ok) throw new Error(`图片加载失败: ${response.status}`);
-          const blob = await responseToBlob(response);
-          return await blobToDataUrl(blob);
+        const renderable = buildImageSrc(raw);
+        if (renderable && renderable.startsWith('data:image')) return renderable;
+
+        if (!renderable) {
+          return `data:image/png;base64,${raw}`;
         }
-        return `data:image/png;base64,${raw}`;
+
+        // 类型定义要求 base64，这里在前端将远程图转成 dataURL
+        const response = await fetchWithAuth(renderable);
+        if (!response.ok) throw new Error(`图片加载失败: ${response.status}`);
+        const blob = await responseToBlob(response);
+        return await blobToDataUrl(blob);
       };
 
       const result = await aiImageService.analyzeImage({
@@ -221,6 +196,8 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
           <img
             src={previewSrc}
             alt=""
+            decoding="async"
+            loading="lazy"
             style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
           />
         ) : (

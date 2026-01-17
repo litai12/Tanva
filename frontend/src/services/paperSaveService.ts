@@ -10,6 +10,7 @@ import {
   isPersistableImageRef,
   isRemoteUrl,
   normalizePersistableImageRef,
+  toCanonicalPersistableImageRef,
   toRenderableImageSrc,
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
@@ -44,40 +45,115 @@ class PaperSaveService {
     if (!jsonString) return jsonString;
 
     try {
-      // 匹配阿里云 OSS URL 的正则（包括 URL 末尾可能的引号前字符）
-      // 格式: https://xxx.oss-cn-xxx.aliyuncs.com/...
-      // 注意：JSON 中 URL 被双引号包裹，所以用 [^"\s] 来匹配到引号前停止
-      const ossUrlPattern = /(https?:\/\/[^"\s]+\.aliyuncs\.com[^"\s]*)/g;
-
-      console.log('[preprocessJsonForProxy] 开始处理，JSON 长度:', jsonString.length);
-
+      const parsed = JSON.parse(jsonString) as unknown;
       let processedCount = 0;
-      let skippedCount = 0;
-      const result = jsonString.replace(ossUrlPattern, (match) => {
-        // 跳过已经是代理 URL 的
-        if (match.includes('/api/assets/proxy')) {
-          skippedCount++;
-          return match;
+
+      const walk = (node: any) => {
+        if (!node) return;
+
+        if (Array.isArray(node)) {
+          // Paper.js exportJSON 的节点格式通常为 [ "ClassName", { ...props }, ... ]
+          if (
+            node.length >= 2 &&
+            typeof node[0] === 'string' &&
+            node[1] &&
+            typeof node[1] === 'object' &&
+            !Array.isArray(node[1])
+          ) {
+            const props = node[1] as any;
+            const source = typeof props.source === 'string' ? props.source.trim() : '';
+            if (source) {
+              const dataKey = typeof props?.data?.key === 'string' ? props.data.key.trim() : '';
+              const dataRemoteUrl = typeof props?.data?.remoteUrl === 'string' ? props.data.remoteUrl.trim() : '';
+              const candidate =
+                (dataKey && isPersistableImageRef(dataKey) ? dataKey : '') ||
+                (dataRemoteUrl && isPersistableImageRef(dataRemoteUrl) ? dataRemoteUrl : '') ||
+                source;
+
+              const normalized = toCanonicalPersistableImageRef(candidate);
+              if (normalized && !this.isInlineImageSource(normalized)) {
+                const renderable = toRenderableImageSrc(normalized);
+                if (renderable && renderable !== source) {
+                  props.source = renderable;
+                  processedCount += 1;
+                }
+              }
+            }
+          }
+
+          node.forEach(walk);
+          return;
         }
 
-        const proxied = proxifyRemoteAssetUrl(match);
-        if (proxied !== match) {
-          processedCount++;
-          console.log('[preprocessJsonForProxy] 转换:', match.substring(0, 80), '...');
-          return proxied;
+        if (typeof node === 'object') {
+          Object.values(node).forEach(walk);
         }
-        console.log('[preprocessJsonForProxy] 未转换:', match.substring(0, 80));
-        return match;
-      });
+      };
 
-      console.log(`[preprocessJsonForProxy] 完成: 转换=${processedCount}, 跳过=${skippedCount}`);
+      walk(parsed);
+
       if (processedCount > 0) {
-        console.log(`🔄 预处理 JSON：已将 ${processedCount} 个 OSS URL 转换为代理 URL`);
+        console.log(`🔄 预处理 paperJson：已将 ${processedCount} 个图片 source 转换为可渲染的 proxy URL`);
       }
 
-      return result;
+      return JSON.stringify(parsed);
     } catch (error) {
       console.warn('[PaperSaveService] 预处理 JSON 失败，使用原始内容:', error);
+      return jsonString;
+    }
+  }
+
+  /**
+   * 反向处理 Paper.js JSON：将运行时 proxy URL（含 localhost）还原为可持久化的远程引用（key/url）。
+   * - 只处理 `source` 字段，避免污染 data.remoteUrl/data.key 等持久化元数据
+   */
+  private postprocessJsonForPersist(jsonString: string): string {
+    if (!jsonString) return jsonString;
+
+    try {
+      const parsed = JSON.parse(jsonString) as unknown;
+      let processedCount = 0;
+
+      const walk = (node: any) => {
+        if (!node) return;
+
+        if (Array.isArray(node)) {
+          if (
+            node.length >= 2 &&
+            typeof node[0] === 'string' &&
+            node[1] &&
+            typeof node[1] === 'object' &&
+            !Array.isArray(node[1])
+          ) {
+            const props = node[1] as any;
+            const source = typeof props.source === 'string' ? props.source.trim() : '';
+            if (source) {
+              const normalized = normalizePersistableImageRef(source);
+              const canonical = normalized ? toCanonicalPersistableImageRef(normalized) : '';
+              if (canonical && canonical !== source) {
+                props.source = canonical;
+                processedCount += 1;
+              }
+            }
+          }
+          node.forEach(walk);
+          return;
+        }
+
+        if (typeof node === 'object') {
+          Object.values(node).forEach(walk);
+        }
+      };
+
+      walk(parsed);
+
+      if (processedCount > 0) {
+        console.log(`🧹 paperJson 持久化清理：已移除 ${processedCount} 个 proxy/localhost 图片 source`);
+      }
+
+      return JSON.stringify(parsed);
+    } catch (error) {
+      console.warn('[PaperSaveService] 持久化清理 paperJson 失败，使用原始内容:', error);
       return jsonString;
     }
   }
@@ -530,16 +606,35 @@ class PaperSaveService {
   private sanitizeAssets(assets: { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[]; videos: VideoAssetSnapshot[] }) {
     const sanitizedImages = assets.images.map((asset) => {
       const next: ImageAssetSnapshot = { ...asset };
-      const hasRemoteUrl = isPersistableImageRef(next.url);
-      const hasRemoteSrc = isPersistableImageRef(next.src || '');
+      const canonicalKey = typeof next.key === 'string' ? toCanonicalPersistableImageRef(next.key) : '';
+      const canonicalUrl = typeof next.url === 'string' ? toCanonicalPersistableImageRef(next.url) : '';
+      const canonicalSrc = typeof next.src === 'string' ? toCanonicalPersistableImageRef(next.src) : '';
 
-      if (hasRemoteUrl) {
-        next.src = next.url;
-      } else if (!hasRemoteUrl && hasRemoteSrc) {
-        next.url = next.src!;
+      const chosen =
+        (canonicalKey && isPersistableImageRef(canonicalKey) ? canonicalKey : '') ||
+        (canonicalUrl && isPersistableImageRef(canonicalUrl) ? canonicalUrl : '') ||
+        (canonicalSrc && isPersistableImageRef(canonicalSrc) ? canonicalSrc : '');
+
+      if (chosen) {
+        next.url = chosen;
+        next.src = chosen;
+        if (isAssetKeyRef(chosen)) {
+          next.key = chosen;
+        } else if (canonicalKey && isAssetKeyRef(canonicalKey)) {
+          next.key = canonicalKey;
+        }
+      } else {
+        // fallback：尽量保持 url/src 一致（历史数据兼容）
+        const hasRemoteUrl = isPersistableImageRef(next.url);
+        const hasRemoteSrc = isPersistableImageRef(next.src || '');
+        if (hasRemoteUrl) {
+          next.src = next.url;
+        } else if (!hasRemoteUrl && hasRemoteSrc) {
+          next.url = next.src!;
+        }
       }
 
-      if (!next.pendingUpload && hasRemoteUrl) {
+      if (!next.pendingUpload && isPersistableImageRef(next.url)) {
         delete next.localDataUrl;
       }
 
@@ -733,7 +828,7 @@ class PaperSaveService {
         if (!jsonString || (typeof jsonString === 'string' && jsonString.length === 0)) {
           return JSON.stringify({ layers: [] });
         }
-        return jsonString as string;
+        return this.postprocessJsonForPersist(jsonString as string);
       } finally {
         // 恢复 helper items（逆序插入可保证每个 parent 内按原 index 升序恢复）
         for (let i = detachedHelpers.length - 1; i >= 0; i--) {

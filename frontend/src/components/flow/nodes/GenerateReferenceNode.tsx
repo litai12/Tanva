@@ -5,9 +5,9 @@ import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
-import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import { toCanonicalPersistableImageRef, toRenderableImageSrc } from "@/utils/imageSource";
 
 type Props = {
   id: string;
@@ -26,24 +26,10 @@ type Props = {
 
 const buildImageSrc = (value?: string): string | undefined => {
   if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.startsWith("data:image")) return trimmed;
-  if (trimmed.startsWith("blob:")) return trimmed;
-  if (trimmed.startsWith("/api/assets/proxy") || trimmed.startsWith("/assets/proxy")) {
-    return proxifyRemoteAssetUrl(trimmed);
-  }
-  if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
-    return trimmed;
-  }
-  if (/^(templates|projects|uploads|videos)\//i.test(trimmed)) {
-    return proxifyRemoteAssetUrl(
-      `/api/assets/proxy?key=${encodeURIComponent(trimmed.replace(/^\/+/, ""))}`
-    );
-  }
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://"))
-    return proxifyRemoteAssetUrl(trimmed);
-  return `data:image/png;base64,${trimmed}`;
+  const canonical = toCanonicalPersistableImageRef(value);
+  return (toRenderableImageSrc(canonical || value) || undefined) as
+    | string
+    | undefined;
 };
 
 const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
@@ -223,6 +209,8 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           <img
             src={displaySrc}
             alt=''
+            decoding="async"
+            loading="lazy"
             style={{
               width: "100%",
               height: "100%",

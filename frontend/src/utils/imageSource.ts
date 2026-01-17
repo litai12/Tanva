@@ -103,6 +103,42 @@ export const normalizePersistableImageRef = (value?: string | null): string => {
   return trimmed;
 };
 
+/**
+ * 将“可持久化图片引用”进一步收敛为稳定的唯一远程引用：
+ * - 先去掉 /api/assets/proxy 包装（normalizePersistableImageRef）
+ * - 对 OSS 直链（*.aliyuncs.com）且无 query/hash 的情况：若 pathname 看起来像 OSS key，则转换为 key
+ *
+ * 目的：
+ * - 让同一张图在运行时/持久化层尽量只有一个“身份”（避免 proxy/url/key 多形态导致重复下载/重复解码/重复纹理）
+ */
+export const toCanonicalPersistableImageRef = (value?: string | null): string => {
+  const normalized = normalizePersistableImageRef(value);
+  const trimmed = normalized.trim();
+  if (!trimmed) return "";
+
+  if (isAssetKeyRef(trimmed)) {
+    return trimmed.replace(/^\/+/, "");
+  }
+
+  if (isRemoteUrl(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      // 带 query/hash 的（例如签名/裁切参数）不做收敛，避免破坏可用性
+      if (url.search || url.hash) return trimmed;
+      // 仅对 OSS 域名做 key 提取，避免误判外部站点路径
+      if (!url.hostname.endsWith(".aliyuncs.com")) return trimmed;
+      const keyCandidate = url.pathname.replace(/^\/+/, "");
+      if (isAssetKeyRef(keyCandidate)) {
+        return keyCandidate;
+      }
+    } catch {
+      return trimmed;
+    }
+  }
+
+  return trimmed;
+};
+
 const normalizePossiblyDuplicatedDataUrl = (dataUrl: string): string => {
   const trimmed = dataUrl.trim();
   if (!/^data:image\//i.test(trimmed)) return trimmed;
