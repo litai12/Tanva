@@ -37,6 +37,42 @@ class PaperSaveService {
   }
 
   /**
+   * Paper.js exportJSON 会把 Raster.source 序列化为“当前可渲染的 src”。
+   * 运行时为了规避 CORS，我们会把 key/remote URL 包装成 `/api/assets/proxy?...`（开发态还可能带上 `http://localhost:5173`）。
+   *
+   * 但写入后端的设计 JSON（Project.contentJson）必须只持久化可长期可用的引用（remote URL / OSS key / 同源路径），
+   * 因此这里把 `http(s)://.../api/assets/proxy?...` 或 `/api/assets/proxy?...` 统一反解为 key/url，避免把本地域名或 proxy 包装落库。
+   */
+  private postprocessJsonForPersistence(jsonString: string): string {
+    if (!jsonString) return jsonString;
+    try {
+      // 匹配绝对/相对的 assets proxy URL（以 JSON 字符串中的引号为边界）
+      const proxyUrlPattern =
+        /(?:https?:\/\/[^"\s]+)?(?:\/api\/assets\/proxy|\/assets\/proxy)\?[^"\s]*/g;
+
+      let processedCount = 0;
+      const result = jsonString.replace(proxyUrlPattern, (match) => {
+        const normalized = normalizePersistableImageRef(match);
+        if (normalized && normalized !== match) {
+          processedCount += 1;
+          return normalized;
+        }
+        return match;
+      });
+
+      if (processedCount > 0) {
+        console.log(
+          `[postprocessJsonForPersistence] 已将 ${processedCount} 个 proxy URL 反解为可持久化引用`
+        );
+      }
+      return result;
+    } catch (error) {
+      console.warn('[PaperSaveService] 反解 proxy URL 失败，使用原始内容:', error);
+      return jsonString;
+    }
+  }
+
+  /**
    * 预处理 Paper.js JSON，将 OSS URL 替换为代理 URL
    * 必须在 importJSON 之前调用，否则图片会使用原始 URL 加载导致 CORS 错误
    */
@@ -799,7 +835,7 @@ class PaperSaveService {
         if (!jsonString || (typeof jsonString === 'string' && jsonString.length === 0)) {
           return JSON.stringify({ layers: [] });
         }
-        return jsonString as string;
+        return this.postprocessJsonForPersistence(jsonString as string);
       } finally {
         // 恢复 helper items（逆序插入可保证每个 parent 内按原 index 升序恢复）
         for (let i = detachedHelpers.length - 1; i >= 0; i--) {

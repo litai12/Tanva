@@ -26,6 +26,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Assets Proxy：`GET /api/assets/proxy` 跟随重定向前主动 cancel 上一个响应体，并在客户端中断时 abort 上游 fetch，降低高频图片代理下的内存/连接占用。
 - 前端图片转码：新增全局并发限流（暂定 10），收口图片生成/转化（`canvas.toDataURL/toBlob`、`FileReader.readAsDataURL`、`Response.blob`、`createImageBitmap/WebCodecs` 等）并在 AI Chat/Flow/画布等链路复用，降低多图场景瞬时内存峰值与卡顿。
 - 截图：`AutoScreenshotService` 绘制 Raster 时仅在“确实跨域且未设置 crossOrigin”场景才重载图片，避免同源 `/api/assets/proxy` 资源被重复请求导致的接口刷屏与内存抖动。
+- Canvas：保存 `paperJson` 时将 `*/api/assets/proxy?...` 反解为 remote URL/OSS key，避免把 `http://localhost:5173/...` 等运行时代理地址落库。
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
 - Flow：Image Split 生成的 Image 节点（`crop`）在下游运行时按裁切结果传参，避免仍使用完整原图。
