@@ -978,7 +978,8 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     url: localSource,
                     src: localSource,
                     fileName: resolvedName,
-                    pendingUpload: false,
+                    // AI 场景仍需要在后台补传 OSS，保存前必须确保可持久化引用
+                    pendingUpload: true,
                     localDataUrl: localSource,
                 };
                 fileName = resolvedName;
@@ -1635,7 +1636,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                    imageData: {
 	                        id: imageId,
 	                        url: asset.url,
-	                        src: asset.url,
+	                        src: asset.src || asset.url,
 	                        localDataUrl: asset.localDataUrl,
 	                        key: asset.key,
 	                        fileName: fileName,
@@ -1643,6 +1644,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                        width: Math.round(originalWidth),
 	                        height: Math.round(originalHeight),
 	                        contentType: asset.contentType,
+	                        pendingUpload: !!asset.pendingUpload,
 	                    },
 	                    bounds: {
 	                        x: raster.bounds.x,

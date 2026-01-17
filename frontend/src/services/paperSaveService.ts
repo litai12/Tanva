@@ -13,7 +13,7 @@ import {
   toRenderableImageSrc,
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
-import { canvasToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
+import { canvasToBlob, canvasToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -185,9 +185,55 @@ class PaperSaveService {
   private async convertBlobUrlToBlob(blobUrl: string): Promise<Blob | null> {
     try {
       const response = await fetch(blobUrl);
+      if (!response.ok) return null;
       return await responseToBlob(response);
     } catch (error) {
       console.warn('解析 blob URL 失败:', error);
+      return null;
+    }
+  }
+
+  private findRasterCanvasByImageId(imageId: string): HTMLCanvasElement | OffscreenCanvas | null {
+    if (!imageId) return null;
+    try {
+      if (!this.isPaperProjectReady()) return null;
+      const project = paper.project as any;
+      const rasterClass = (paper as any).Raster;
+      if (!project?.getItems || !rasterClass) return null;
+
+      const rasters = project.getItems({ class: rasterClass }) as any[];
+      if (!Array.isArray(rasters) || rasters.length === 0) return null;
+
+      for (const raster of rasters) {
+        const rid =
+          raster?.data?.imageId ||
+          raster?.parent?.data?.imageId ||
+          raster?.data?.id ||
+          raster?.id;
+        if (String(rid) !== String(imageId)) continue;
+        const canvas = raster?.canvas as any;
+        if (canvas) return canvas as HTMLCanvasElement | OffscreenCanvas;
+      }
+    } catch {}
+    return null;
+  }
+
+  private async resolveRasterCanvasAsInlineSource(asset: ImageAssetSnapshot): Promise<
+    | { kind: 'blob'; value: Blob }
+    | null
+  > {
+    try {
+      const canvas = this.findRasterCanvasByImageId(asset.id);
+      if (!canvas) return null;
+      const type =
+        typeof asset.contentType === 'string' && asset.contentType.startsWith('image/')
+          ? asset.contentType
+          : 'image/png';
+      const blob = await canvasToBlob(canvas, { type });
+      if (!blob || blob.size <= 0) return null;
+      return { kind: 'blob', value: blob };
+    } catch (error) {
+      console.warn('从 Raster.canvas 兜底解析图片失败:', error);
       return null;
     }
   }
@@ -210,6 +256,9 @@ class PaperSaveService {
         if (blob) {
           return { kind: 'blob', value: blob };
         }
+        // blob URL 可能已被回收/刷新失效；尝试从已渲染的 Raster.canvas 兜底
+        const fallback = await this.resolveRasterCanvasAsInlineSource(asset);
+        if (fallback) return fallback;
         continue;
       }
       if (!isPersistableImageRef(trimmed) && trimmed.length > 128) {
@@ -220,7 +269,8 @@ class PaperSaveService {
         }
       }
     }
-    return null;
+    // 最后兜底：允许仅靠 Raster.canvas 获取上传内容（避免某些分支只剩失效 blob）
+    return await this.resolveRasterCanvasAsInlineSource(asset);
   }
 
   private buildRuntimeImageInstanceMap(): Map<string, any> {
@@ -440,8 +490,7 @@ class PaperSaveService {
             for (const raster of rasters) {
               if (!raster) continue;
               const imageId = raster?.data?.imageId || raster?.parent?.data?.imageId;
-              // 🔥 过滤掉占位符 ID，避免将占位符当作实际图片采集
-              if (!imageId || collectedImageIds.has(imageId) || imageId.startsWith('ai-placeholder-msg_')) continue;
+              if (!imageId || collectedImageIds.has(imageId)) continue;
 
               // 获取图片源
               const source = raster.source;
