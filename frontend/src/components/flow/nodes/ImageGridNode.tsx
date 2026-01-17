@@ -8,6 +8,7 @@ import {
 } from '@/services/flowImageAssetStore';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { imageUploadService } from '@/services/imageUploadService';
+import { canvasToBlob } from '@/utils/imageConcurrency';
 
 type ImageItem = {
   id: string;
@@ -589,9 +590,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
       });
 
       // 导出为 Blob（避免生成巨型 base64 字符串导致内存峰值）
-      const outputBlob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('导出失败'))), 'image/png');
-      });
+      const outputBlob = await canvasToBlob(canvas, { type: 'image/png' });
       const uploadResult = await imageUploadService.uploadImageSource(outputBlob, {
         projectId: projectId ?? undefined,
         dir: projectId ? `projects/${projectId}/flow/images/` : 'uploads/flow/images/',

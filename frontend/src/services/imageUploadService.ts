@@ -1,5 +1,5 @@
 import { logger } from '@/utils/logger';
-import { dataURLToBlob, getImageDimensions, uploadToOSS, type OssUploadOptions } from './ossUploadService';
+import { dataURLToBlobAsync, getImageDimensions, uploadToOSS, type OssUploadOptions } from './ossUploadService';
 import { createAsyncLimiter } from '@/utils/asyncLimit';
 import { isRemoteUrl, resolveImageToBlob } from '@/utils/imageSource';
 import { imageUploadWorkerClient } from './imageUploadWorkerClient';
@@ -168,7 +168,7 @@ async function uploadImageSource(
       // 优先用 fetch 解码 dataURL/blobURL/remoteURL，减少 JS 堆峰值；失败则回退到 atob 解码 dataURL
       blob =
         (await resolveImageToBlob(source, { preferProxy: true })) ||
-        (source.startsWith('data:') ? dataURLToBlob(source) : null);
+        (source.startsWith('data:') ? await dataURLToBlobAsync(source) : null);
     }
 
     if (!blob) {

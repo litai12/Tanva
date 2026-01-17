@@ -1,5 +1,6 @@
 import { logger } from "@/utils/logger";
 import { fetchWithAuth } from "./authFetch";
+import { dataUrlToBlob, fileToDataUrl } from "@/utils/imageConcurrency";
 
 export type OssUploadOptions = {
   /** 指定上传的子目录，默认为 `uploads/` */
@@ -84,6 +85,15 @@ export function dataURLToBlob(dataURL: string): Blob {
     return new Blob([array], { type: mime });
   }
   return new Blob([decodeURIComponent(raw)], { type: mime });
+}
+
+export async function dataURLToBlobAsync(dataURL: string): Promise<Blob> {
+  try {
+    return await dataUrlToBlob(dataURL);
+  } catch {
+    // 兜底：极端情况下 fetch(data:) 不可用时回退到同步解码
+    return dataURLToBlob(dataURL);
+  }
 }
 
 async function requestPresign(
@@ -208,27 +218,16 @@ export async function fileToDataURL(
   file: File | Blob,
   mimeType?: string
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        resolve(result);
-      } else {
-        reject(new Error("文件读取失败"));
-      }
-    };
-    reader.onerror = () => reject(new Error("文件读取失败"));
-    if (file instanceof File && mimeType && file.type !== mimeType) {
-      // 直接读取即可，mimeType 信息由 File 自身提供
-    }
-    reader.readAsDataURL(file);
-  });
+  if (file instanceof File && mimeType && file.type !== mimeType) {
+    // 直接读取即可，mimeType 信息由 File 自身提供
+  }
+  return await fileToDataUrl(file);
 }
 
 export const ossUploadService = {
   uploadToOSS,
   dataURLToBlob,
+  dataURLToBlobAsync,
   getImageDimensions,
   fileToDataURL,
 };

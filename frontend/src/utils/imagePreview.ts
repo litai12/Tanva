@@ -2,7 +2,7 @@
  * 生成缩略图数据 URL，默认保持较小尺寸以减少内存占用。
  */
 
-import { createAsyncLimiter } from '@/utils/asyncLimit';
+import { runWithImageConcurrency } from '@/utils/imageConcurrency';
 
 export type ImagePreviewOptions = {
   maxSize?: number;
@@ -24,8 +24,6 @@ const PREVIEW_CACHE_TTL_MS = 10 * 60 * 1000;
 const PREVIEW_CACHE_MAX_ENTRIES = 30;
 const previewCache = new Map<string, PreviewCacheEntry>();
 const previewInFlight = new Map<string, Promise<string>>();
-// 限制并发生成缩略图，避免多图同时解码/转码导致内存峰值
-const previewComputeLimiter = createAsyncLimiter(1);
 
 const purgePreviewCache = () => {
   const now = Date.now();
@@ -117,7 +115,7 @@ export async function createImagePreviewDataUrl(
     return pending;
   }
 
-  const compute = previewComputeLimiter.run(async (): Promise<string> => {
+  const compute = runWithImageConcurrency(async (): Promise<string> => {
     const maxSize = options.maxSize ?? 512;
     const mimeType = options.mimeType ?? 'image/webp';
     const quality = options.quality ?? 0.85;

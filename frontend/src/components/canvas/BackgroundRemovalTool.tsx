@@ -5,6 +5,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { logger } from '@/utils/logger';
 import { ImageIcon, Wand2Icon, XIcon } from 'lucide-react';
+import { fileToDataUrl } from '@/utils/imageConcurrency';
 
 export interface BackgroundRemovalToolProps {
   onRemoveComplete?: (imageData: string) => void;
@@ -48,13 +49,9 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
         throw new Error('File size too large (max 100MB)');
       }
 
-      // 转换为base64
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        setSelectedImage(result);
-      };
-      reader.readAsDataURL(file);
+      // 转换为 base64(dataURL)，并做全局并发限流
+      const dataUrl = await fileToDataUrl(file);
+      setSelectedImage(dataUrl);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error reading file';
       logger.error('File selection error:', message);

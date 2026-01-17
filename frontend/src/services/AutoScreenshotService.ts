@@ -12,6 +12,7 @@ import type { ImageInstance, Model3DInstance } from '@/types/canvas';
 import { logger } from '@/utils/logger';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { toRenderableImageSrc } from '@/utils/imageSource';
+import { canvasToBlob, canvasToDataUrl, dataUrlToBlob } from '@/utils/imageConcurrency';
 
 export interface ScreenshotOptions {
   /** 输出图片格式 */
@@ -1515,9 +1516,11 @@ export class AutoScreenshotService {
     // 生成数据URL（捕获 SecurityError，通常由跨域图片导致 canvas 被污染引起）
     let dataUrl: string;
     try {
-      dataUrl = options.format === 'jpeg' 
-        ? canvas.toDataURL(mimeType, options.quality)
-        : canvas.toDataURL(mimeType);
+      dataUrl = await canvasToDataUrl(
+        canvas,
+        mimeType,
+        options.format === 'jpeg' ? options.quality : undefined
+      );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
         logger.error('❌ 截图生成失败: SecurityError: The operation is insecure.', {
@@ -1532,15 +1535,7 @@ export class AutoScreenshotService {
     // 生成Blob（同样需要捕获 SecurityError）
     let blob: Blob;
     try {
-      blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(blob);
-          } else {
-            reject(new Error('无法生成Blob'));
-          }
-        }, mimeType, options.quality);
-      });
+      blob = await canvasToBlob(canvas, { type: mimeType, quality: options.quality });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
         logger.error('❌ Blob 生成失败: SecurityError: The operation is insecure.', {
@@ -1570,7 +1565,7 @@ export class AutoScreenshotService {
           };
 
           // 根据裁剪后的 dataURL 重建 Blob
-          blob = await (await fetch(dataUrl)).blob();
+          blob = await dataUrlToBlob(dataUrl);
 
           logger.debug('🪄 截图自动裁剪透明边框', {
             cropBounds: trimResult.cropBounds,

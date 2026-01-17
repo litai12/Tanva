@@ -3,6 +3,7 @@
  */
 
 import { toRenderableImageSrc } from "@/utils/imageSource";
+import { canvasToBlob } from "@/utils/imageConcurrency";
 
 /**
  * 下载图片文件
@@ -51,8 +52,22 @@ export const downloadCanvasAsImage = (
   quality: number = 0.92
 ) => {
   try {
-    const dataURL = canvas.toDataURL('image/png', quality);
-    downloadImage(dataURL, fileName);
+    void (async () => {
+      const blob = await canvasToBlob(canvas, { type: "image/png", quality });
+      const blobUrl = URL.createObjectURL(blob);
+      try {
+        downloadImage(blobUrl, fileName);
+      } finally {
+        // 释放 blob URL，避免内存泄漏
+        setTimeout(() => {
+          try {
+            URL.revokeObjectURL(blobUrl);
+          } catch {}
+        }, 0);
+      }
+    })().catch((error) => {
+      console.error("❌ Canvas下载失败:", error);
+    });
   } catch (error) {
     console.error('❌ Canvas下载失败:', error);
   }

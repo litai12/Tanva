@@ -13,6 +13,7 @@ import {
   toRenderableImageSrc,
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
+import { canvasToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -148,7 +149,7 @@ class PaperSaveService {
   private async convertBlobUrlToBlob(blobUrl: string): Promise<Blob | null> {
     try {
       const response = await fetch(blobUrl);
-      return await response.blob();
+      return await responseToBlob(response);
     } catch (error) {
       console.warn('解析 blob URL 失败:', error);
       return null;
@@ -338,7 +339,7 @@ class PaperSaveService {
     return name;
   }
 
-  private gatherAssets(): { images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[]; videos: VideoAssetSnapshot[] } {
+  private async gatherAssets(): Promise<{ images: ImageAssetSnapshot[]; models: ModelAssetSnapshot[]; texts: TextAssetSnapshot[]; videos: VideoAssetSnapshot[] }> {
     const images: ImageAssetSnapshot[] = [];
     const models: ModelAssetSnapshot[] = [];
     const texts: TextAssetSnapshot[] = [];
@@ -400,11 +401,11 @@ class PaperSaveService {
         if (rasterClass) {
           const rasters = (paper.project as any).getItems?.({ class: rasterClass }) as any[];
           if (Array.isArray(rasters)) {
-            rasters.forEach((raster: any) => {
-              if (!raster) return;
+            for (const raster of rasters) {
+              if (!raster) continue;
               const imageId = raster?.data?.imageId || raster?.parent?.data?.imageId;
               // 🔥 过滤掉占位符 ID，避免将占位符当作实际图片采集
-              if (!imageId || collectedImageIds.has(imageId) || imageId.startsWith('ai-placeholder-msg_')) return;
+              if (!imageId || collectedImageIds.has(imageId) || imageId.startsWith('ai-placeholder-msg_')) continue;
 
               // 获取图片源
               const source = raster.source;
@@ -414,16 +415,16 @@ class PaperSaveService {
                 || (typeof remoteUrl === 'string' && isPersistableImageRef(remoteUrl) ? normalizePersistableImageRef(remoteUrl) : null)
                 || (typeof source === 'string' && isPersistableImageRef(source) ? normalizePersistableImageRef(source) : null);
 
-              // 如果没有远程 URL，尝试从 canvas 获取 dataUrl
+              // 如果没有远程 URL，尝试从 canvas 获取 dataUrl（限流，避免多图瞬时转码导致内存峰值）
               let localDataUrl: string | undefined;
               if (!url && raster.canvas) {
                 try {
-                  localDataUrl = raster.canvas.toDataURL('image/png');
+                  localDataUrl = await canvasToDataUrl(raster.canvas, 'image/png');
                 } catch {}
               }
 
               const finalUrl = url || localDataUrl;
-              if (!finalUrl) return;
+              if (!finalUrl) continue;
 
               const bounds = raster.bounds;
               collectedImageIds.add(imageId);
@@ -446,7 +447,7 @@ class PaperSaveService {
                 key: key || undefined,
               });
               console.log(`📷 从 Paper.js 补充采集图片: ${imageId}`);
-            });
+            }
           }
         }
       }
@@ -1058,7 +1059,7 @@ class PaperSaveService {
         return;
       }
 
-      const gatheredAssets = this.gatherAssets();
+      const gatheredAssets = await this.gatherAssets();
       const sanitizedAssets = this.sanitizeAssets(gatheredAssets);
       const normalizedAssets = await this.ensureRemoteAssets(sanitizedAssets);
       const hasPendingImages = normalizedAssets.images.some((img) => img.pendingUpload);

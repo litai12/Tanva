@@ -36,6 +36,7 @@ import { isGroup, isRaster } from "@/utils/paperCoords";
 import { editImageViaAPI } from "@/services/aiBackendAPI";
 import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
 import { resolveImageToDataUrl, toRenderableImageSrc } from "@/utils/imageSource";
+import { canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
 const EXPAND_PRESET_PROMPT = "不改变图片比例，填充白色部分";
 
@@ -97,7 +98,7 @@ const _composeExpandedImage = async (
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
   return {
-    dataUrl: canvas.toDataURL("image/png"),
+    dataUrl: await canvasToDataUrl(canvas, "image/png"),
     width: canvasWidth,
     height: canvasHeight,
   };
@@ -529,7 +530,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         isRaster(child)
       ) as paper.Raster;
       if (raster && raster.canvas) {
-        const canvasData = raster.canvas.toDataURL("image/png");
+        const canvasData = await canvasToDataUrl(raster.canvas, "image/png");
         result = await ensureDataUrl(canvasData);
         if (result) {
           // 缓存结果
@@ -816,9 +817,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
             if (!imageDataUrl) {
               throw new Error("无法获取当前图片的图像数据");
             }
-
-            const response = await fetch(imageDataUrl);
-            const blob = await response.blob();
+            const blob = await dataUrlToBlob(imageDataUrl);
 
             const uploadResult = await uploadToOSS(blob, {
               dir: projectId

@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { logger } from "@/utils/logger";
-import { uploadToOSS, dataURLToBlob } from "./ossUploadService";
+import { uploadToOSS, dataURLToBlobAsync } from "./ossUploadService";
+import { canvasToDataUrl } from "@/utils/imageConcurrency";
 
 export interface Model3DPreviewOptions {
   width?: number;
@@ -106,10 +107,10 @@ function frameCamera(
   return true;
 }
 
-function renderPreview(
+async function renderPreview(
   object: THREE.Object3D,
   options: Required<Model3DPreviewOptions>
-): string | null {
+): Promise<string | null> {
   if (!isBrowserEnvironment()) return null;
 
   const renderer = new THREE.WebGLRenderer({
@@ -146,13 +147,16 @@ function renderPreview(
   }
 
   renderer.render(scene, camera);
-  const dataUrl = renderer.domElement.toDataURL("image/png");
-
-  disposeObject3D(object);
-  scene.clear();
-  renderer.dispose();
-
-  return dataUrl;
+  try {
+    return await canvasToDataUrl(renderer.domElement, "image/png");
+  } catch (error) {
+    logger.warn("生成 3D 预览图失败", error);
+    return null;
+  } finally {
+    disposeObject3D(object);
+    scene.clear();
+    renderer.dispose();
+  }
 }
 
 function createCacheKey(
@@ -181,7 +185,7 @@ async function generatePreviewFromUrl(
       if (!gltf?.scene) {
         return null;
       }
-      return renderPreview(gltf.scene, merged);
+      return await renderPreview(gltf.scene, merged);
     } catch (error) {
       logger.warn("生成 3D 预览失败", error);
       return null;
@@ -213,7 +217,7 @@ async function generatePreviewAndUpload(
   }
 
   try {
-    const blob = dataURLToBlob(dataUrl);
+    const blob = await dataURLToBlobAsync(dataUrl);
     const fileName = `preview_${Date.now()}.png`;
     const result = await uploadToOSS(blob, {
       dir: 'uploads/personal-library/previews/',

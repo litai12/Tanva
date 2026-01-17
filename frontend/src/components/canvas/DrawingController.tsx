@@ -51,6 +51,7 @@ import {
   normalizePersistableImageRef,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
+import { responseToBlob } from "@/utils/imageConcurrency";
 import {
   usePersonalLibraryStore,
   createPersonalAssetId,
@@ -3859,7 +3860,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             credentials ? { credentials } : undefined
           );
           if (response.ok) {
-            const blob = await response.blob();
+            const blob = await responseToBlob(response);
             const fileName = normalizeImageFileName(
               instance.imageData?.fileName,
               blob.type || instance.imageData?.contentType

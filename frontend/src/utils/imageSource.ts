@@ -4,6 +4,7 @@ import {
   getFlowImageBlob,
   parseFlowImageAssetRef,
 } from "@/services/flowImageAssetStore";
+import { blobToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 
 export type RemoteUrl = `http://${string}` | `https://${string}`;
 export type BlobUrl = `blob:${string}`;
@@ -115,25 +116,6 @@ const normalizePossiblyDuplicatedDataUrl = (dataUrl: string): string => {
   return trimmed;
 };
 
-const readBlobAsDataUrl = (blob: Blob): Promise<string> =>
-  new Promise((resolve, reject) => {
-    try {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result;
-        if (typeof result === "string" && result.length > 0) {
-          resolve(result);
-        } else {
-          reject(new Error("blob 转 dataURL 失败"));
-        }
-      };
-      reader.onerror = () => reject(new Error("blob 转 dataURL 失败"));
-      reader.readAsDataURL(blob);
-    } catch (error) {
-      reject(error instanceof Error ? error : new Error("blob 转 dataURL 失败"));
-    }
-  });
-
 /**
  * 用于 <img src> 的安全格式化：
  * - data:image/* -> 原样（并修复重复前缀）
@@ -187,7 +169,7 @@ export const resolveImageToDataUrl = async (
     try {
       const blob = await getFlowImageBlob(flowAssetId);
       if (!blob) return null;
-      const dataUrl = await readBlobAsDataUrl(blob);
+      const dataUrl = await blobToDataUrl(blob);
       return normalizePossiblyDuplicatedDataUrl(dataUrl);
     } catch {
       return null;
@@ -248,8 +230,8 @@ export const resolveImageToDataUrl = async (
         : { mode: "cors", credentials: "omit" };
       const response = await fetch(url, init);
       if (!response.ok) continue;
-      const blob = await response.blob();
-      const dataUrl = await readBlobAsDataUrl(blob);
+      const blob = await responseToBlob(response);
+      const dataUrl = await blobToDataUrl(blob);
       return normalizePossiblyDuplicatedDataUrl(dataUrl);
     } catch {
       // try next candidate
@@ -327,7 +309,7 @@ export const resolveImageToBlob = async (
         : { mode: "cors", credentials: "omit" };
       const response = await fetch(url, init);
       if (!response.ok) continue;
-      return await response.blob();
+      return await responseToBlob(response);
     } catch {
       // try next candidate
     }

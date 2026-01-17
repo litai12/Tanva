@@ -1,4 +1,5 @@
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { canvasToDataUrl } from '@/utils/imageConcurrency';
 
 export interface TrimTransparentResult {
   dataUrl: string;
@@ -123,7 +124,7 @@ export async function trimTransparentPng(
   }
 
   trimmedCtx.putImageData(ctx.getImageData(minX, minY, cropWidth, cropHeight), 0, 0);
-  const trimmedDataUrl = trimmedCanvas.toDataURL('image/png');
+  const trimmedDataUrl = await canvasToDataUrl(trimmedCanvas, 'image/png');
 
   return {
     dataUrl: trimmedDataUrl,
@@ -176,7 +177,7 @@ export async function generateThumbnail(
     ctx.drawImage(image, 0, 0, newWidth, newHeight);
 
     // 返回 JPEG 格式以减小体积
-    return canvas.toDataURL('image/jpeg', quality);
+    return await canvasToDataUrl(canvas, 'image/jpeg', quality);
   } catch {
     return null;
   }

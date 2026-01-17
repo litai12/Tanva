@@ -9,6 +9,7 @@ import { useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import ContextMenu from '../ui/context-menu';
 import { isRaster } from '@/utils/paperCoords';
+import { canvasToDataUrl } from '@/utils/imageConcurrency';
 
 interface LayerItemData {
     id: string;
@@ -278,7 +279,7 @@ const LayerPanel: React.FC = () => {
         };
     }, [showLayerPanel, layers]);
 
-    const generateLayerThumb = (id: string): string | null => {
+    const generateLayerThumb = async (id: string): Promise<string | null> => {
         try {
             if (!paper.project) return null;
             const pl = paper.project.layers.find(l => l.name === `layer_${id}`);
@@ -422,7 +423,7 @@ const LayerPanel: React.FC = () => {
 
                 // 返回 data URL，处理跨域污染错误
                 try {
-                    return thumbCanvas.toDataURL('image/png', 1.0);
+                    return await canvasToDataUrl(thumbCanvas, 'image/png', 1.0);
                 } catch (e) {
                     // SecurityError: canvas 被跨域图片污染，无法导出
                     if (e instanceof SecurityError || 
@@ -480,7 +481,7 @@ const LayerPanel: React.FC = () => {
     };
 
     // 生成3D模型缩略图 
-    const generate3DModelThumb = (modelItem: LayerItemData): string | null => {
+    const generate3DModelThumb = async (modelItem: LayerItemData): Promise<string | null> => {
         try {
             // 查找对应的3D模型实例
             const model3DInstances = (window as any).tanvaModel3DInstances || [];
@@ -496,7 +497,7 @@ const LayerPanel: React.FC = () => {
 
             if (modelInstance?.modelData) {
                 // 尝试获取3D模型的真实缩略图
-                const realThumb = capture3DModelThumbnail(modelInstance);
+                const realThumb = await capture3DModelThumbnail(modelInstance);
                 if (realThumb) {
                     return realThumb;
                 }
@@ -514,7 +515,7 @@ const LayerPanel: React.FC = () => {
     };
 
     // 捕获3D模型的真实缩略图
-    const capture3DModelThumbnail = (modelInstance: any): string | null => {
+    const capture3DModelThumbnail = async (modelInstance: any): Promise<string | null> => {
         try {
             // 查找对应的3D容器DOM元素
             const modelContainers = document.querySelectorAll('[data-model-id]');
@@ -578,7 +579,7 @@ const LayerPanel: React.FC = () => {
             thumbCtx.drawImage(canvas, offsetX, offsetY, drawWidth, drawHeight);
 
             // 转换为base64
-            return thumbCanvas.toDataURL('image/png');
+            return await canvasToDataUrl(thumbCanvas, 'image/png');
 
         } catch (e) {
             console.error('捕获3D模型缩略图失败:', e);
@@ -621,38 +622,48 @@ const LayerPanel: React.FC = () => {
             isGeneratingThumb.current = true;
 
             requestAnimationFrame(() => {
-                const items = layerItems[nextId] || [];
-                let thumb: string | null = null;
+                void (async () => {
+                    const items = layerItems[nextId] || [];
+                    let thumb: string | null = null;
 
-                if (items.length === 1) {
-                    const item = items[0];
-                    if (item.type === 'image') {
-                        thumb = generateImageThumb(item);
-                    } else if (item.type === 'model3d') {
-                        thumb = generate3DModelThumb(item);
+                    if (items.length === 1) {
+                        const item = items[0];
+                        if (item.type === 'image') {
+                            thumb = generateImageThumb(item);
+                        } else if (item.type === 'model3d') {
+                            thumb = await generate3DModelThumb(item);
+                        }
                     }
-                }
 
-                if (!thumb) {
-                    thumb = generateLayerThumb(nextId);
-                }
+                    if (!thumb) {
+                        thumb = await generateLayerThumb(nextId);
+                    }
 
-                // 无论成功还是失败都缓存结果，避免跨域污染导致的无限重试
-                // 失败时缓存空字符串，显示占位符
-                thumbCache.current[nextId] = {
-                    dataUrl: thumb || '',
-                    timestamp: Date.now()
-                };
-                if (thumb) {
-                    setRefreshTrigger(prev => prev + 1);
-                }
+                    // 无论成功还是失败都缓存结果，避免跨域污染导致的无限重试
+                    // 失败时缓存空字符串，显示占位符
+                    thumbCache.current[nextId] = {
+                        dataUrl: thumb || '',
+                        timestamp: Date.now()
+                    };
+                    if (thumb) {
+                        setRefreshTrigger(prev => prev + 1);
+                    }
+                })()
+                  .catch((e) => {
+                      console.error('生成缩略图失败:', e);
+                      thumbCache.current[nextId] = {
+                          dataUrl: '',
+                          timestamp: Date.now()
+                      };
+                  })
+                  .finally(() => {
+                      isGeneratingThumb.current = false;
 
-                isGeneratingThumb.current = false;
-
-                // 处理队列中的下一个
-                if (thumbGenerationQueue.current.size > 0) {
-                    setTimeout(processQueue, 16);
-                }
+                      // 处理队列中的下一个
+                      if (thumbGenerationQueue.current.size > 0) {
+                          setTimeout(processQueue, 16);
+                      }
+                  });
             });
         };
 
@@ -794,14 +805,14 @@ const LayerPanel: React.FC = () => {
     };
 
     // 处理AI编辑图像
-    const handleAIEditImage = (item: LayerItemData) => {
+    const handleAIEditImage = async (item: LayerItemData) => {
         if (item.type !== 'image' || !item.paperItem) return;
 
         try {
             // 找到图像的Raster对象
             const raster = item.paperItem.children?.find(child => isRaster(child)) as paper.Raster;
             if (raster && raster.canvas) {
-                const imageData = raster.canvas.toDataURL('image/png');
+                const imageData = await canvasToDataUrl(raster.canvas, 'image/png');
                 setSourceImageForEditing(imageData);
                 showDialog();
             }
@@ -1597,7 +1608,7 @@ const LayerPanel: React.FC = () => {
                         {
                             label: 'AI编辑图像',
                             icon: <Sparkles className="w-4 h-4" />,
-                            onClick: () => handleAIEditImage(contextMenu.item!),
+                            onClick: () => { void handleAIEditImage(contextMenu.item!).catch(() => {}); },
                         }
                     ] : []),
                     {

@@ -9,6 +9,7 @@ import ContextMenu from '../../ui/context-menu';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { parseFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
+import { fileToDataUrl } from '@/utils/imageConcurrency';
 
 type Props = {
   id: string;
@@ -174,44 +175,40 @@ function ImageProNodeInner({ id, data, selected }: Props) {
     if (!file.type.startsWith('image/')) return;
 
     const normalizedFileName = (file.name || '').trim();
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.includes(',') ? result.split(',')[1] : result;
-      const displayName = normalizedFileName || '未命名图片';
+    const result = await fileToDataUrl(file);
+    const base64 = result.includes(',') ? result.split(',')[1] : result;
+    const displayName = normalizedFileName || '未命名图片';
 
+    window.dispatchEvent(
+      new CustomEvent('flow:updateNodeData', {
+        detail: { id, patch: { imageData: base64, imageName: displayName } },
+      })
+    );
+
+    const newImageId = `${id}-${Date.now()}`;
+    setCurrentImageId(newImageId);
+    void recordImageHistoryEntry({
+      id: newImageId,
+      base64,
+      title: displayName,
+      nodeId: id,
+      nodeType: 'imagePro',
+      fileName: file.name || `flow_image_${newImageId}.png`,
+      projectId,
+      keepThumbnail: false,
+    }).then(({ remoteUrl }) => {
+      // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积
+      if (!remoteUrl) return;
+      try {
+        const current = rf.getNode(id);
+        if ((current?.data as any)?.imageData !== base64) return;
+      } catch {}
       window.dispatchEvent(
         new CustomEvent('flow:updateNodeData', {
-          detail: { id, patch: { imageData: base64, imageName: displayName } },
+          detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },
         })
       );
-
-      const newImageId = `${id}-${Date.now()}`;
-      setCurrentImageId(newImageId);
-      void recordImageHistoryEntry({
-        id: newImageId,
-        base64,
-        title: displayName,
-        nodeId: id,
-        nodeType: 'imagePro',
-        fileName: file.name || `flow_image_${newImageId}.png`,
-        projectId,
-        keepThumbnail: false,
-      }).then(({ remoteUrl }) => {
-        // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积
-        if (!remoteUrl) return;
-        try {
-          const current = rf.getNode(id);
-          if ((current?.data as any)?.imageData !== base64) return;
-        } catch {}
-        window.dispatchEvent(
-          new CustomEvent('flow:updateNodeData', {
-            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },
-          })
-        );
-      }).catch(() => {});
-    };
-    reader.readAsDataURL(file);
+    }).catch(() => {});
   }, [id, projectId]);
 
   // 拖拽处理

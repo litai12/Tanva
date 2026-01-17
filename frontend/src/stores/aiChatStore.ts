@@ -20,7 +20,7 @@ import {
 import { useUIStore } from "@/stores/uiStore";
 import { contextManager } from "@/services/contextManager";
 import { useProjectContentStore } from "@/stores/projectContentStore";
-import { ossUploadService, dataURLToBlob } from "@/services/ossUploadService";
+import { ossUploadService, dataURLToBlob, dataURLToBlobAsync } from "@/services/ossUploadService";
 import { createSafeStorage } from "@/stores/storageUtils";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useImageHistoryStore } from "@/stores/imageHistoryStore";
@@ -28,6 +28,7 @@ import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
 import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
 import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from "@/utils/imageSource";
+import { blobToDataUrl as blobToDataUrlLimited, canvasToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   STORE_NAMES,
   idbGet,
@@ -712,18 +713,13 @@ const normalizeInlineImageData = (value?: string | null): string | null => {
   return null;
 };
 
-const readBlobAsDataUrl = (blob: Blob): Promise<string | null> =>
-  new Promise((resolve) => {
-    try {
-      const reader = new FileReader();
-      reader.onload = () =>
-        resolve(typeof reader.result === "string" ? reader.result : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    } catch {
-      resolve(null);
-    }
-  });
+const readBlobAsDataUrl = async (blob: Blob): Promise<string | null> => {
+  try {
+    return await blobToDataUrlLimited(blob);
+  } catch {
+    return null;
+  }
+};
 
 const fetchImageAsDataUrl = async (url: string): Promise<string | null> => {
   try {
@@ -732,7 +728,7 @@ const fetchImageAsDataUrl = async (url: string): Promise<string | null> => {
       : { mode: "cors", credentials: "omit" };
     const response = await fetch(url, init);
     if (!response.ok) return null;
-    const blob = await response.blob();
+    const blob = await responseToBlob(response);
     return await readBlobAsDataUrl(blob);
   } catch (error) {
     console.warn("⚠️ 获取图片并转换为 DataURL 失败:", error);
@@ -1064,15 +1060,6 @@ export async function requestSora2VideoGeneration(
   options?.onProgress?.("解析视频响应", 85);
   return response.data;
 }
-const blobToDataUrl = (blob: Blob): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () =>
-      resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(reader.error || new Error("读取 Blob 失败"));
-    reader.readAsDataURL(blob);
-  });
-
 const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
   try {
     const controller = new AbortController();
@@ -1086,8 +1073,8 @@ const downloadUrlAsDataUrl = async (url: string): Promise<string | null> => {
       console.warn("⚠️ 下载缩略图失败:", url, response.status);
       return null;
     }
-    const blob = await response.blob();
-    return await blobToDataUrl(blob);
+    const blob = await responseToBlob(response);
+    return await blobToDataUrlLimited(blob);
   } catch (error) {
     console.warn("⚠️ 无法下载缩略图:", url, error);
     return null;
@@ -1147,7 +1134,7 @@ const captureVideoPosterFromBlob = async (
         try {
           const seekTime = Math.min(0.2, (video.duration || 1) * 0.1);
           const handleSeeked = () => {
-            try {
+            void (async () => {
               const canvas = document.createElement("canvas");
               canvas.width = video.videoWidth || 960;
               canvas.height = video.videoHeight || 540;
@@ -1157,13 +1144,13 @@ const captureVideoPosterFromBlob = async (
                 return;
               }
               ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              const dataUrl = canvas.toDataURL("image/png");
+              const dataUrl = await canvasToDataUrl(canvas, "image/png");
               cleanup();
               resolve(dataUrl);
-            } catch (error) {
+            })().catch((error) => {
               console.warn("⚠️ 无法捕获视频帧:", error);
               fail();
-            }
+            });
           };
           if (seekTime > 0) {
             video.currentTime = seekTime;
@@ -1393,7 +1380,7 @@ export async function uploadImageToOSS(
       // 优先用 fetch(dataURL/blobURL) -> blob，避免 atob+大数组导致 JS 堆峰值
       const blob =
         (await resolveImageToBlob(imageData, { preferProxy: true })) ||
-        (imageData.includes("base64,") ? dataURLToBlob(imageData) : null);
+        (imageData.includes("base64,") ? await dataURLToBlobAsync(imageData) : null);
 
       if (!blob) {
         console.warn("⚠️ 图片转换 Blob 失败，跳过上传");

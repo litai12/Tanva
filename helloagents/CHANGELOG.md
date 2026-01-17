@@ -19,7 +19,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - 项目内容加载：前端对同项目 `GET /api/projects/:id/content` 做并发去重；后端 OSS 未配置/禁用时跳过读写并设置超时，减少重复下载与长时间卡顿。
-- AI Chat：一次性多图生成改为受控并发（按 `imageSize`/`deviceMemory` 动态降到 1~2），并限制历史/缩略图处理并发；缩略图优先远程 URL，避免多张大图同时转码导致瞬时内存峰值。
+- 前端图片转码：新增全局并发限流（暂定 10），收口图片生成/转化（`canvas.toDataURL/toBlob`、`FileReader.readAsDataURL`、`Response.blob`、`createImageBitmap/WebCodecs` 等）并在 AI Chat/Flow/画布等链路复用，降低多图场景瞬时内存峰值与卡顿。
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
 - Flow：Image Split 生成的 Image 节点（`crop`）在下游运行时按裁切结果传参，避免仍使用完整原图。

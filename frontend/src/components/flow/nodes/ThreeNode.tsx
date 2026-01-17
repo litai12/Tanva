@@ -10,6 +10,7 @@ import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { canvasToDataUrl } from '@/utils/imageConcurrency';
 
 type Props = {
   id: string;
@@ -451,7 +452,7 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     loadModelFromUrl(data.modelUrl);
   }, [data.modelUrl, loadModelFromUrl, normalizeModelUrl]);
 
-  const capture = () => {
+  const capture = async () => {
     initIfNeeded();
     const renderer = rendererRef.current!;
     const scene = sceneRef.current!;
@@ -459,70 +460,73 @@ function ThreeNodeInner({ id, data, selected }: Props) {
     // 确保一次即时渲染并开启保留绘制缓冲，避免抓到空帧
     const oldPDB = (renderer as any).preserveDrawingBuffer;
     (renderer as any).preserveDrawingBuffer = true;
-    renderer.render(scene, camera);
-    const canvas = renderer.domElement;
-    const dataUrl = canvas.toDataURL('image/png');
-    (renderer as any).preserveDrawingBuffer = oldPDB;
-    const base64 = dataUrl.split(',')[1];
-    // 更新自身
-    window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: base64 } } }));
-    
-    // 添加到全局历史记录
-    const newImageId = `${id}-${Date.now()}`;
-    void recordImageHistoryEntry({
-      id: newImageId,
-      base64,
-      title: `3D节点截图 ${new Date().toLocaleTimeString()}`,
-      nodeId: id,
-      nodeType: '3d',
-      fileName: `three_capture_${newImageId}.png`,
-      projectId,
-    })
-      .then(({ remoteUrl }) => {
-        if (!remoteUrl) return;
-        try {
-          const current = rf.getNode(id);
-          if ((current?.data as any)?.imageData !== base64) return;
-        } catch {}
-        // 用远程 URL 替换节点内的 base64，避免写入项目 JSON/DB
-        window.dispatchEvent(
-          new CustomEvent('flow:updateNodeData', {
-            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined } },
-          })
-        );
-
-        // 同步更新下游 Image 节点（避免 base64 传播并落库）
-        try {
-          const outs = rf.getEdges().filter((e) => e.source === id);
-          for (const ed of outs) {
-            const tgt = rf.getNode(ed.target);
-            if (tgt?.type === 'image') {
-              if ((tgt?.data as any)?.imageData !== base64) continue;
-              window.dispatchEvent(
-                new CustomEvent('flow:updateNodeData', {
-                  detail: {
-                    id: ed.target,
-                    patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined },
-                  },
-                })
-              );
-            }
-          }
-        } catch {}
-      })
-      .catch(() => {});
-    setCurrentImageId(newImageId);
-    
-    // 向下游 Image 节点传播
     try {
-      const outs = rf.getEdges().filter(e => e.source === id);
-      for (const ed of outs) {
-        const tgt = rf.getNode(ed.target);
-        if (tgt?.type === 'image') {
-          window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id: ed.target, patch: { imageData: base64 } } }));
+      renderer.render(scene, camera);
+      const canvas = renderer.domElement;
+      const dataUrl = await canvasToDataUrl(canvas, 'image/png');
+      const base64 = dataUrl.split(',')[1];
+      // 更新自身
+      window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id, patch: { imageData: base64 } } }));
+      
+      // 添加到全局历史记录
+      const newImageId = `${id}-${Date.now()}`;
+      void recordImageHistoryEntry({
+        id: newImageId,
+        base64,
+        title: `3D节点截图 ${new Date().toLocaleTimeString()}`,
+        nodeId: id,
+        nodeType: '3d',
+        fileName: `three_capture_${newImageId}.png`,
+        projectId,
+      })
+        .then(({ remoteUrl }) => {
+          if (!remoteUrl) return;
+          try {
+            const current = rf.getNode(id);
+            if ((current?.data as any)?.imageData !== base64) return;
+          } catch {}
+          // 用远程 URL 替换节点内的 base64，避免写入项目 JSON/DB
+          window.dispatchEvent(
+            new CustomEvent('flow:updateNodeData', {
+              detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined } },
+            })
+          );
+  
+          // 同步更新下游 Image 节点（避免 base64 传播并落库）
+          try {
+            const outs = rf.getEdges().filter((e) => e.source === id);
+            for (const ed of outs) {
+              const tgt = rf.getNode(ed.target);
+              if (tgt?.type === 'image') {
+                if ((tgt?.data as any)?.imageData !== base64) continue;
+                window.dispatchEvent(
+                  new CustomEvent('flow:updateNodeData', {
+                    detail: {
+                      id: ed.target,
+                      patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined },
+                    },
+                  })
+                );
+              }
+            }
+          } catch {}
+        })
+        .catch(() => {});
+      setCurrentImageId(newImageId);
+      
+      // 向下游 Image 节点传播
+      try {
+        const outs = rf.getEdges().filter(e => e.source === id);
+        for (const ed of outs) {
+          const tgt = rf.getNode(ed.target);
+          if (tgt?.type === 'image') {
+            window.dispatchEvent(new CustomEvent('flow:updateNodeData', { detail: { id: ed.target, patch: { imageData: base64 } } }));
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    } finally {
+      (renderer as any).preserveDrawingBuffer = oldPDB;
+    }
   };
 
   const addTestCube = () => {

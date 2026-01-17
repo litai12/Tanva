@@ -16,6 +16,7 @@ import { parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { isPersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
+import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
 
 // 类型定义
 type SplitRectItem = {
@@ -96,22 +97,6 @@ const makeCanvas = (width: number, height: number): HTMLCanvasElement | Offscree
   return canvas;
 };
 
-const canvasToBlob = async (
-  canvas: HTMLCanvasElement | OffscreenCanvas,
-  options: { type: string; quality?: number }
-): Promise<Blob> => {
-  if ('convertToBlob' in canvas && typeof canvas.convertToBlob === 'function') {
-    return await canvas.convertToBlob(options);
-  }
-  return await new Promise<Blob>((resolve, reject) => {
-    (canvas as HTMLCanvasElement).toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('导出失败'))),
-      options.type,
-      options.quality
-    );
-  });
-};
-
 // 仅用于运行时：通过 canvas 重编码，去除 EXIF/元数据，确保后续裁切坐标系一致（但不上传 OSS）
 const normalizeBlobForRuntime = async (blob: Blob): Promise<Blob> => {
   const type = normalizeMimeType(blob.type || 'image/png');
@@ -122,7 +107,7 @@ const normalizeBlobForRuntime = async (blob: Blob): Promise<Blob> => {
 
   let bitmap: ImageBitmap | null = null;
   try {
-    bitmap = await createImageBitmap(blob);
+    bitmap = await createImageBitmapLimited(blob);
     const width = bitmap.width;
     const height = bitmap.height;
 

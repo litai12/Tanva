@@ -11,6 +11,7 @@ import { logger } from '@/utils/logger';
 import { cn } from '@/lib/utils';
 import paper from 'paper';
 import { isRaster } from '@/utils/paperCoords';
+import { canvasToDataUrl } from '@/utils/imageConcurrency';
 
 // 统一画板：移除 Node 模式专属按钮组件
 
@@ -365,7 +366,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
   };
 
   // 处理AI编辑图像功能
-  const handleAIEditImage = () => {
+  const handleAIEditImage = async () => {
     // 检查画布中是否有选中的图像
     const imageInstances = (window as any).tanvaImageInstances || [];
     const selectedImage = imageInstances.find((img: any) => img.isSelected);
@@ -383,7 +384,7 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
         if (imageGroup) {
           const raster = imageGroup.children.find(child => isRaster(child)) as paper.Raster;
           if (raster && raster.canvas) {
-            const imageData = raster.canvas.toDataURL('image/png');
+            const imageData = await canvasToDataUrl(raster.canvas, 'image/png');
             setSourceImageForEditing(imageData);
             showDialog();
             console.log('🎨 已选择图像进行AI编辑');

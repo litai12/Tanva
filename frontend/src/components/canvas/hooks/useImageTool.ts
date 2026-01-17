@@ -529,20 +529,13 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         return primarySrc;
       }
 
-      // 备用方案：从Paper.js获取（已缩放，可能质量较低）
-      console.warn('⚠️ AI编辑：未找到原始图片数据，使用canvas数据（可能已缩放）');
-      // 🔥 使用 findImagePaperItem 进行深度搜索
-      const imageGroup = findImagePaperItem(imageId);
+      // 次优：运行时缓存（可能是 dataURL）
+      const localDataUrl = imageInstance.imageData?.localDataUrl;
+      if (localDataUrl) return localDataUrl;
 
-      if (!imageGroup) return null;
-
-      const raster = isGroup(imageGroup)
-        ? imageGroup.children.find(child => isRaster(child)) as paper.Raster
-        : (isRaster(imageGroup) ? imageGroup as paper.Raster : null);
-      if (!raster || !raster.canvas) return null;
-
-      // 将canvas转换为base64（已缩放，可能质量较低）
-      return raster.canvas.toDataURL('image/png');
+      // 兜底：不在同步路径里做 canvas -> dataURL（多图场景会打爆内存）
+      // 需要时应走异步链路（例如 ImageContainer.resolveImageDataUrl 中的限流版本）。
+      return null;
     } catch (error) {
       console.error('获取图像数据失败:', error);
       return null;

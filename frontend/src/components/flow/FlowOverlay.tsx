@@ -91,6 +91,12 @@ import {
 } from "@/services/clipboardService";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import { resolveImageToBlob, resolveImageToDataUrl } from "@/utils/imageSource";
+import {
+  blobToDataUrl,
+  canvasToBlob,
+  createImageBitmapLimited,
+  responseToBlob,
+} from "@/utils/imageConcurrency";
 import { aiImageService } from "@/services/aiImageService";
 import {
   generateImageViaAPI,
@@ -178,21 +184,6 @@ const createThumbnailDataUrl = async (
     const blob = await resolveImageToBlob(src, { preferProxy: true });
     if (!blob) return null;
 
-    const blobToDataUrl = async (b: Blob): Promise<string> =>
-      await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result;
-          if (typeof result === "string" && result.startsWith("data:")) {
-            resolve(result);
-          } else {
-            reject(new Error("blob 转 dataURL 失败"));
-          }
-        };
-        reader.onerror = () => reject(new Error("blob 转 dataURL 失败"));
-        reader.readAsDataURL(b);
-      });
-
     const makeCanvas = (w: number, h: number): any => {
       if (typeof OffscreenCanvas !== "undefined") {
         return new OffscreenCanvas(w, h);
@@ -203,21 +194,8 @@ const createThumbnailDataUrl = async (
       return canvas;
     };
 
-    const canvasToBlob = async (canvas: any): Promise<Blob> => {
-      if (canvas && typeof canvas.convertToBlob === "function") {
-        return await canvas.convertToBlob({ type: "image/jpeg", quality: 0.82 });
-      }
-      return await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob(
-          (b: Blob | null) => (b ? resolve(b) : reject(new Error("导出失败"))),
-          "image/jpeg",
-          0.82
-        );
-      });
-    };
-
     if (typeof createImageBitmap === "function") {
-      const bitmap = await createImageBitmap(blob);
+      const bitmap = await createImageBitmapLimited(blob);
       try {
         const w0 = bitmap.width || 1;
         const h0 = bitmap.height || 1;
@@ -228,7 +206,10 @@ const createThumbnailDataUrl = async (
         const ctx = canvas.getContext("2d");
         if (!ctx) return null;
         ctx.drawImage(bitmap, 0, 0, w, h);
-        const outBlob = await canvasToBlob(canvas);
+        const outBlob = await canvasToBlob(canvas, {
+          type: "image/jpeg",
+          quality: 0.82,
+        });
         return await blobToDataUrl(outBlob);
       } finally {
         try {
@@ -4560,7 +4541,7 @@ function FlowInner() {
                 credentials ? { credentials } : undefined
               );
               if (response.ok) {
-                const blob = await response.blob();
+                const blob = await responseToBlob(response);
                 const file = new File([blob], fileName, {
                   type: blob.type || "image/png",
                 });
@@ -5043,21 +5024,6 @@ function FlowInner() {
         return null;
       };
 
-      const blobToDataUrl = async (blob: Blob): Promise<string> =>
-        await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result;
-            if (typeof result === "string" && result.startsWith("data:")) {
-              resolve(result);
-            } else {
-              reject(new Error("blob 转 dataURL 失败"));
-            }
-          };
-          reader.onerror = () => reject(new Error("blob 转 dataURL 失败"));
-          reader.readAsDataURL(blob);
-        });
-
       const resolveImageValueToDataUrlForBackend = async (
         value?: string
       ): Promise<string | null> => {
@@ -5105,21 +5071,9 @@ function FlowInner() {
           return canvas;
         };
 
-        const canvasToBlob = async (canvas: any): Promise<Blob> => {
-          if (canvas && typeof canvas.convertToBlob === "function") {
-            return await canvas.convertToBlob({ type: "image/png" });
-          }
-          return await new Promise<Blob>((resolve, reject) => {
-            canvas.toBlob(
-              (b: Blob | null) => (b ? resolve(b) : reject(new Error("导出失败"))),
-              "image/png"
-            );
-          });
-        };
-
         // 优先使用 ImageBitmap（更快且不受 CORS 影响，因为我们是 blob）
         if (typeof createImageBitmap === "function") {
-          const bitmap = await createImageBitmap(blob);
+          const bitmap = await createImageBitmapLimited(blob);
           try {
             const naturalW = bitmap.width;
             const naturalH = bitmap.height;
@@ -5156,7 +5110,7 @@ function FlowInner() {
             const ctx = canvas.getContext("2d");
             if (!ctx) return null;
             ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
-            const outBlob = await canvasToBlob(canvas);
+            const outBlob = await canvasToBlob(canvas, { type: "image/png" });
             return await blobToDataUrl(outBlob);
           } finally {
             try {
@@ -5204,7 +5158,7 @@ function FlowInner() {
           const ctx = canvas.getContext("2d");
           if (!ctx) return null;
           ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
-          const outBlob = await canvasToBlob(canvas);
+          const outBlob = await canvasToBlob(canvas, { type: "image/png" });
           return await blobToDataUrl(outBlob);
         } finally {
           try {
@@ -6089,23 +6043,8 @@ function FlowInner() {
               if (!response.ok) {
                 throw new Error(`参考图拉取失败: ${response.status}`);
               }
-              const blob = await response.blob();
-              return await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const result = reader.result;
-                  if (
-                    typeof result === "string" &&
-                    result.startsWith("data:")
-                  ) {
-                    resolve(result);
-                  } else {
-                    reject(new Error("参考图转换失败"));
-                  }
-                };
-                reader.onerror = () => reject(new Error("参考图读取失败"));
-                reader.readAsDataURL(blob);
-              });
+              const blob = await responseToBlob(response);
+              return await blobToDataUrl(blob);
             };
 
             for (const img of referenceImages) {

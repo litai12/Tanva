@@ -19,6 +19,7 @@ import {
 import { model3DPreviewService } from "@/services/model3DPreviewService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { blobToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -324,14 +325,8 @@ const LibraryPanel: React.FC = () => {
         credentials: resolveImageFetchCredentials(fetchUrl),
       });
       if (!response.ok) return null;
-      const blob = await response.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () =>
-          resolve(typeof reader.result === "string" ? reader.result : null);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-      });
+      const blob = await responseToBlob(response);
+      return await blobToDataUrl(blob);
     } catch (error) {
       console.warn("[LibraryPanel] 将远程图片转换为 DataURL 失败:", error);
       return null;
