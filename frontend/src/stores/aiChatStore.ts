@@ -2906,8 +2906,12 @@ export const useAIChatStore = create<AIChatState>()(
                 );
                 if (message) {
                   message.content = messageContent;
-                  message.imageData = inlineImageData;
+                  // 避免在 contextManager 里长期保留完整 base64（内存会线性增长）
+                  message.imageData = imageRemoteUrl ? undefined : inlineImageData;
                   // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
+                  if (imageRemoteUrl) {
+                    message.thumbnail = imageRemoteUrl;
+                  }
                   message.imageRemoteUrl =
                     imageRemoteUrl || message.imageRemoteUrl;
                   message.metadata = result.data?.metadata;
@@ -3607,8 +3611,12 @@ export const useAIChatStore = create<AIChatState>()(
                 );
                 if (message) {
                   message.content = messageContent;
-                  message.imageData = inlineImageData;
+                  // 避免在 contextManager 里长期保留完整 base64（内存会线性增长）
+                  message.imageData = imageRemoteUrl ? undefined : inlineImageData;
                   // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
+                  if (imageRemoteUrl) {
+                    message.thumbnail = imageRemoteUrl;
+                  }
                   message.imageRemoteUrl =
                     imageRemoteUrl || message.imageRemoteUrl;
                   message.metadata = result.data?.metadata;
@@ -4212,8 +4220,12 @@ export const useAIChatStore = create<AIChatState>()(
                 );
                 if (message) {
                   message.content = messageContent;
-                  message.imageData = inlineImageData;
+                  // 避免在 contextManager 里长期保留完整 base64（内存会线性增长）
+                  message.imageData = imageRemoteUrl ? undefined : inlineImageData;
                   // thumbnail 由后续异步流程生成/回填，避免重复持有大字符串
+                  if (imageRemoteUrl) {
+                    message.thumbnail = imageRemoteUrl;
+                  }
                   message.imageRemoteUrl =
                     imageRemoteUrl || message.imageRemoteUrl;
                   message.metadata = result.data?.metadata;
