@@ -10,7 +10,8 @@ import { useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import ContextMenu from '../ui/context-menu';
 import { isRaster } from '@/utils/paperCoords';
-import { canvasToBlob } from '@/utils/imageConcurrency';
+import { canvasToBlob, canvasToDataUrl } from '@/utils/imageConcurrency';
+import { isRemoteUrl, normalizePersistableImageRef } from '@/utils/imageSource';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { paperSaveService } from '@/services/paperSaveService';
 import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
@@ -881,6 +882,16 @@ const LayerPanel: React.FC = () => {
         try {
             // 找到图像的Raster对象
             const raster = item.paperItem.children?.find(child => isRaster(child)) as paper.Raster;
+            const metaRemote =
+                typeof (raster as any)?.data?.remoteUrl === 'string'
+                    ? normalizePersistableImageRef((raster as any).data.remoteUrl)
+                    : '';
+            if (metaRemote && isRemoteUrl(metaRemote)) {
+                setSourceImageForEditing(metaRemote);
+                showDialog();
+                return;
+            }
+
             if (raster && raster.canvas) {
                 const imageData = await canvasToDataUrl(raster.canvas, 'image/png');
                 setSourceImageForEditing(imageData);

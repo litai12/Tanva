@@ -25,6 +25,7 @@ class PaperSaveService {
   private lastSaveTimestamp = 0;
   private pendingSaveReason: string | null = null;
   private rasterLoadHooked = new WeakSet<object>();
+  private persistableImageRefMap: Map<string, string> | null = null;
 
   private isInlineImageSource(value: unknown): value is string {
     if (typeof value !== 'string') return false;
@@ -65,7 +66,63 @@ class PaperSaveService {
           `[postprocessJsonForPersistence] 已将 ${processedCount} 个 proxy URL 反解为可持久化引用`
         );
       }
-      return result;
+
+      const persistableRefMap = this.persistableImageRefMap;
+      if (!persistableRefMap || persistableRefMap.size === 0) {
+        return result;
+      }
+
+      const hasInlineSource =
+        result.includes('blob:') ||
+        result.includes('data:image/') ||
+        result.includes(FLOW_IMAGE_ASSET_PREFIX);
+      if (!hasInlineSource) {
+        return result;
+      }
+
+      try {
+        const parsed = JSON.parse(result);
+        let replacedCount = 0;
+
+        const visit = (node: any) => {
+          if (!node) return;
+          if (Array.isArray(node)) {
+            if (node.length >= 2 && node[0] === 'Raster') {
+              const props = node[1] as any;
+              if (props && typeof props === 'object') {
+                const source = typeof props.source === 'string' ? props.source : '';
+                if (source && this.isInlineImageSource(source)) {
+                  const imageIdRaw =
+                    props?.data?.imageId ?? props?.data?.id ?? props?.data?.imageID;
+                  const imageId = imageIdRaw !== undefined && imageIdRaw !== null
+                    ? String(imageIdRaw)
+                    : '';
+                  const persisted = imageId ? persistableRefMap.get(imageId) : undefined;
+                  if (persisted && isPersistableImageRef(persisted)) {
+                    props.source = persisted;
+                    replacedCount += 1;
+                  }
+                }
+              }
+            }
+            node.forEach(visit);
+            return;
+          }
+          if (typeof node === 'object') {
+            Object.values(node).forEach(visit);
+          }
+        };
+
+        visit(parsed);
+        if (replacedCount > 0) {
+          console.log(
+            `[postprocessJsonForPersistence] 已将 ${replacedCount} 个 inline Raster.source 替换为可持久化引用`
+          );
+        }
+        return JSON.stringify(parsed);
+      } catch {
+        return result;
+      }
     } catch (error) {
       console.warn('[PaperSaveService] 反解 proxy URL 失败，使用原始内容:', error);
       return jsonString;
@@ -331,6 +388,7 @@ class PaperSaveService {
       const hasRemote =
         isPersistableImageRef(image.url) ||
         isPersistableImageRef(image.src) ||
+        isPersistableImageRef(image.remoteUrl) ||
         isPersistableImageRef(image.key || null);
       if (hasRemote) {
         if (image.pendingUpload) {
@@ -373,8 +431,10 @@ class PaperSaveService {
         if (uploadResult.success && uploadResult.asset?.url) {
           const uploadedAsset = uploadResult.asset;
           image.url = (uploadedAsset.key || uploadedAsset.url).trim();
-          image.src = uploadedAsset.url;
           image.key = uploadedAsset.key || image.key;
+          image.remoteUrl = uploadedAsset.url;
+          // 持久化快照里保留远程 src，避免保存 blob/dataURL 到设计 JSON
+          image.src = uploadedAsset.url;
           image.fileName = image.fileName || uploadedAsset.fileName;
           image.width = image.width || uploadedAsset.width;
           image.height = image.height || uploadedAsset.height;
@@ -384,8 +444,8 @@ class PaperSaveService {
             image.id,
             {
               url: image.url,
-              src: image.src,
               key: image.key,
+              remoteUrl: image.remoteUrl,
               pendingUpload: false,
               localDataUrl: undefined,
             },
@@ -672,16 +732,11 @@ class PaperSaveService {
           (asset.key && isPersistableImageRef(asset.key) ? asset.key : undefined) ||
           (asset.url && isPersistableImageRef(asset.url) ? asset.url : undefined) ||
           (asset.src && isPersistableImageRef(asset.src) ? asset.src : undefined);
-
-        const renderable = persistedRef ? toRenderableImageSrc(persistedRef) : null;
         const remoteUrl =
           (asset.src && isRemoteUrl(asset.src) ? asset.src : undefined) ||
           (asset.url && isRemoteUrl(asset.url) ? asset.url : undefined);
 
-        if (renderable) {
-          if (typeof raster.source === 'string' && this.isInlineImageSource(raster.source)) {
-            raster.source = renderable;
-          }
+        if (persistedRef) {
           if (!raster.data) raster.data = {};
           if (remoteUrl) raster.data.remoteUrl = remoteUrl;
           if (asset.key) raster.data.key = asset.key;
@@ -1247,7 +1302,28 @@ class PaperSaveService {
         const pendingImageIds = normalizedAssets.images
           .filter((img) => img.pendingUpload)
           .map((img) => img.id);
-        paperJson = this.serializePaperProject(pendingImageIds);
+
+        const persistableRefMap = new Map<string, string>();
+        normalizedAssets.images.forEach((img) => {
+          const id = typeof img?.id === 'string' ? img.id.trim() : '';
+          if (!id) return;
+          const candidates = [img.key, img.url, img.remoteUrl, img.src];
+          for (const candidate of candidates) {
+            if (typeof candidate !== 'string') continue;
+            const normalized = normalizePersistableImageRef(candidate);
+            if (normalized && isPersistableImageRef(normalized)) {
+              persistableRefMap.set(id, normalized);
+              break;
+            }
+          }
+        });
+
+        this.persistableImageRefMap = persistableRefMap;
+        try {
+          paperJson = this.serializePaperProject(pendingImageIds);
+        } finally {
+          this.persistableImageRefMap = null;
+        }
         // 统计层/元素数量
         let layerCount = 0; let itemCount = 0;
         try {

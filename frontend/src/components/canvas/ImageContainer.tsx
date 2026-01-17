@@ -35,7 +35,13 @@ import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
 import { editImageViaAPI } from "@/services/aiBackendAPI";
 import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
-import { resolveImageToDataUrl, toRenderableImageSrc } from "@/utils/imageSource";
+import {
+  isPersistableImageRef,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  resolveImageToDataUrl,
+  toRenderableImageSrc,
+} from "@/utils/imageSource";
 import { canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
 const EXPAND_PRESET_PROMPT = "不改变图片比例，填充白色部分";
@@ -107,6 +113,8 @@ const _composeExpandedImage = async (
 interface ImageData {
   id: string;
   url?: string;
+  key?: string;
+  remoteUrl?: string;
   src?: string;
   fileName?: string;
   pendingUpload?: boolean;
@@ -440,7 +448,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return;
     }
 
-    const src = imageData.url || imageData.src || imageData.localDataUrl;
+    const rawSource = imageData.src || imageData.localDataUrl || imageData.url;
+    const src = rawSource ? toRenderableImageSrc(rawSource) || rawSource : "";
     if (!src) {
       setNaturalSize(null);
       return;
@@ -509,7 +518,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
     }
 
-    const urlSource = imageData.url || imageData.src || null;
+    const urlSource =
+      imageData.src ||
+      imageData.localDataUrl ||
+      imageData.remoteUrl ||
+      imageData.url ||
+      null;
     result = await ensureDataUrl(urlSource);
     if (result) {
       // 缓存结果
@@ -546,6 +560,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     imageData.id,
     imageData.url,
     imageData.src,
+    imageData.remoteUrl,
+    imageData.localDataUrl,
     projectId,
   ]);
 
@@ -556,8 +572,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.stopPropagation();
 
       const run = async () => {
-        const imageDataUrl = await resolveImageDataUrl();
-        if (!imageDataUrl) {
+        const remoteCandidate = (() => {
+          const candidates = [imageData.remoteUrl, imageData.src, imageData.url];
+          for (const candidate of candidates) {
+            if (typeof candidate !== "string") continue;
+            const trimmed = candidate.trim();
+            if (!trimmed) continue;
+            const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+            if (isRemoteUrl(normalized)) return normalized;
+          }
+          return null;
+        })();
+
+        const imageSource = remoteCandidate || (await resolveImageDataUrl());
+        if (!imageSource) {
           console.error("❌ 无法获取图像数据");
           return;
         }
@@ -575,11 +603,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }
 
           // 已有图片：添加新图片到融合模式
-          addImageForBlending(imageDataUrl);
+          addImageForBlending(imageSource);
           logger.debug("🎨 已添加图像到融合模式");
         } else {
           // 没有现有图片：设置为编辑图片
-          setSourceImageForEditing(imageDataUrl);
+          setSourceImageForEditing(imageSource);
           logger.debug("🎨 已设置图像为编辑模式");
         }
 
@@ -597,6 +625,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       showDialog,
       sourceImageForEditing,
       sourceImagesForBlending,
+      imageData.remoteUrl,
+      imageData.src,
+      imageData.url,
     ]
   );
 
@@ -620,6 +651,38 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.stopPropagation();
 
       const run = async () => {
+        const persistableRef = (() => {
+          const candidates = [
+            imageData.remoteUrl,
+            imageData.key,
+            imageData.url,
+            imageData.src,
+          ];
+          for (const candidate of candidates) {
+            if (typeof candidate !== "string") continue;
+            const trimmed = candidate.trim();
+            if (!trimmed) continue;
+            const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+            if (isPersistableImageRef(normalized)) return normalized;
+          }
+          return null;
+        })();
+
+        // 优先走远程引用，避免把 base64 写入 Flow 节点/项目 JSON
+        if (persistableRef) {
+          window.dispatchEvent(
+            new CustomEvent("flow:createImageNode", {
+              detail: {
+                imageUrl: persistableRef,
+                label: "Image",
+                imageName: imageData.fileName || `图片 ${imageData.id}`,
+              },
+            })
+          );
+          logger.debug("🧩 已请求创建Flow Image节点（remote）");
+          return;
+        }
+
         const imageDataUrl = await resolveImageDataUrl();
         if (!imageDataUrl) {
           console.warn("⚠️ 无法获取图像数据，无法创建Flow节点");
@@ -644,7 +707,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         console.error("将图片发送到Flow失败:", error);
       });
     },
-    [imageData.fileName, resolveImageDataUrl]
+    [
+      imageData.fileName,
+      imageData.id,
+      imageData.key,
+      imageData.remoteUrl,
+      imageData.src,
+      imageData.url,
+      resolveImageDataUrl,
+    ]
   );
 
   const handleBackgroundRemoval = useCallback(
@@ -798,20 +869,44 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           )[0];
 
           let rasterSource: string | null = null;
+          let rasterRemoteUrl: string | null = null;
           if (imageGroup) {
             const raster = imageGroup.children.find((child) =>
               isRaster(child)
             ) as paper.Raster | undefined;
-            if (raster && raster.source) {
-              rasterSource =
-                typeof raster.source === "string" ? raster.source : null;
+            if (raster) {
+              if (raster.source) {
+                rasterSource =
+                  typeof raster.source === "string" ? raster.source : null;
+              }
+              const metaRemote =
+                typeof (raster as any)?.data?.remoteUrl === "string"
+                  ? normalizePersistableImageRef((raster as any).data.remoteUrl)
+                  : "";
+              rasterRemoteUrl = metaRemote && isRemoteUrl(metaRemote) ? metaRemote : null;
             }
           }
 
-          const currentUrl = rasterSource || imageData.url || imageData.src;
+          const directRemote = (() => {
+            const candidates = [
+              rasterRemoteUrl,
+              imageData.remoteUrl,
+              rasterSource,
+              imageData.url,
+              imageData.src,
+            ];
+            for (const candidate of candidates) {
+              if (typeof candidate !== "string") continue;
+              const trimmed = candidate.trim();
+              if (!trimmed) continue;
+              const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+              if (isRemoteUrl(normalized)) return normalized;
+            }
+            return null;
+          })();
 
-          if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
-            imageUrl = currentUrl;
+          if (directRemote) {
+            imageUrl = directRemote;
           } else {
             const imageDataUrl = await resolveImageDataUrl();
             if (!imageDataUrl) {
@@ -911,6 +1006,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageData.id,
       imageData.url,
       imageData.src,
+      imageData.remoteUrl,
       resolveImageDataUrl,
       isConvertingTo3D,
       realTimeBounds,
@@ -1413,7 +1509,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         <ExpandImageSelector
           imageBounds={realTimeBounds}
           imageId={imageData.id}
-          imageUrl={imageData.url || imageData.src || ""}
+          imageUrl={
+            imageData.src ||
+            imageData.localDataUrl ||
+            imageData.remoteUrl ||
+            imageData.url ||
+            ""
+          }
           onSelect={handleExpandSelect}
           onCancel={handleExpandCancel}
         />

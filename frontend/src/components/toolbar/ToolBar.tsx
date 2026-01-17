@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import paper from 'paper';
 import { isRaster } from '@/utils/paperCoords';
 import { canvasToDataUrl } from '@/utils/imageConcurrency';
+import { isRemoteUrl, normalizePersistableImageRef } from '@/utils/imageSource';
 
 // 统一画板：移除 Node 模式专属按钮组件
 
@@ -383,6 +384,30 @@ const ToolBar: React.FC<ToolBarProps> = ({ onClearCanvas }) => {
 
         if (imageGroup) {
           const raster = imageGroup.children.find(child => isRaster(child)) as paper.Raster;
+          const remoteCandidate = (() => {
+            const candidates = [
+              selectedImage?.imageData?.remoteUrl,
+              selectedImage?.imageData?.url,
+              selectedImage?.imageData?.src,
+              (raster as any)?.data?.remoteUrl,
+            ];
+            for (const candidate of candidates) {
+              if (typeof candidate !== "string") continue;
+              const trimmed = candidate.trim();
+              if (!trimmed) continue;
+              const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+              if (isRemoteUrl(normalized)) return normalized;
+            }
+            return null;
+          })();
+
+          if (remoteCandidate) {
+            setSourceImageForEditing(remoteCandidate);
+            showDialog();
+            console.log('🎨 已选择图像进行AI编辑');
+            return;
+          }
+
           if (raster && raster.canvas) {
             const imageData = await canvasToDataUrl(raster.canvas, 'image/png');
             setSourceImageForEditing(imageData);

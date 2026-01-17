@@ -4698,11 +4698,15 @@ function FlowInner() {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail as {
         imageData?: string;
+        imageUrl?: string;
         label?: string;
         imageName?: string;
       };
-      if (!detail?.imageData) return;
-      const imageDataForNode = detail.imageData;
+      const imageUrlForNode =
+        typeof detail?.imageUrl === "string" ? detail.imageUrl.trim() : "";
+      const imageDataForNode =
+        typeof detail?.imageData === "string" ? detail.imageData.trim() : "";
+      if (!imageUrlForNode && !imageDataForNode) return;
       const normalizedImageName = detail.imageName?.trim();
       const rect = containerRef.current?.getBoundingClientRect();
       const screenPosition = {
@@ -4721,7 +4725,8 @@ function FlowInner() {
             type: "image",
             position,
             data: {
-              imageData: imageDataForNode,
+              imageUrl: imageUrlForNode || undefined,
+              imageData: imageUrlForNode ? undefined : imageDataForNode,
               label: detail.label || "Image",
               imageName: normalizedImageName || undefined,
               boxW: 260,
@@ -4731,6 +4736,28 @@ function FlowInner() {
           } as any,
         ])
       );
+
+      // 已有远程 URL：无需再上传替换
+      if (imageUrlForNode) {
+        try {
+          const projectId = useProjectContentStore.getState().projectId;
+          const historyId = `${id}-${Date.now()}`;
+          void recordImageHistoryEntry({
+            id: historyId,
+            remoteUrl: imageUrlForNode,
+            title: normalizedImageName || "Flow Image",
+            nodeId: id,
+            nodeType: "image",
+            fileName: `${normalizedImageName || `flow_image_${historyId}`}.png`,
+            projectId,
+            keepThumbnail: false,
+          }).catch(() => {});
+        } catch {}
+        try {
+          historyService.commit("flow-create-image-from-canvas").catch(() => {});
+        } catch {}
+        return;
+      }
 
       // 异步上传到 OSS：成功后用远程 URL 替换节点内的内联数据，避免写入项目 JSON/DB
       try {

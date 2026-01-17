@@ -12,6 +12,8 @@ export interface StoredImageAsset {
   id: string;
   url: string;
   key?: string;
+  /** http(s) 直连（用于需要外链 URL 的能力），不落 data/blob/base64 */
+  remoteUrl?: string;
   fileName?: string;
   width?: number;
   height?: number;
