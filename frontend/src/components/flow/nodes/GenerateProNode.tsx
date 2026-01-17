@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import SmartImage from '../../ui/SmartImage';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -562,7 +563,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             justifyContent: 'center',
           }}>
             {displaySrc ? (
-              <img src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <SmartImage src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             ) : (
               <span style={{ fontSize: 12, color: '#9ca3af' }}>等待生成</span>
             )}

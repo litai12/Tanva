@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "../ui/button";
+import SmartImage from "../ui/SmartImage";
 import {
   ChevronRight,
   Upload,
@@ -672,7 +673,7 @@ const LibraryPanel: React.FC = () => {
           {/* 预览图 */}
           <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
             {selectedAsset.type === "2d" || selectedAsset.type === "svg" ? (
-              <img
+              <SmartImage
                 src={selectedAsset.thumbnail || selectedAsset.url}
                 alt={selectedAsset.name}
                 className='w-full h-full object-contain'
@@ -854,7 +855,7 @@ const LibraryPanel: React.FC = () => {
                     onDragStart={(e) => handleDragStart(asset, e)}
                   >
                     {is2dOrSvg ? (
-                      <img
+                      <SmartImage
                         src={asset.thumbnail || asset.url}
                         alt={asset.name}
                         className='w-full h-full object-cover'
@@ -954,7 +955,7 @@ const ModelPreview: React.FC<ModelPreviewProps> = ({
 
   if (previewSrc) {
     return (
-      <img
+      <SmartImage
         src={previewSrc}
         alt={`${asset.name} 预览`}
         className={`w-full h-full ${large ? "object-contain" : "object-cover"}`}

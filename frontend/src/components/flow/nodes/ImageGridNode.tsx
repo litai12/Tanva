@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import SmartImage from '../../ui/SmartImage';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import {
@@ -749,7 +750,7 @@ function ImageGridNodeInner({ id, data, selected = false }: Props) {
               border: '1px solid #e5e7eb',
             }}
           >
-            <img
+            <SmartImage
               src={outputPreviewSrc}
               alt="拼合结果"
               style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}

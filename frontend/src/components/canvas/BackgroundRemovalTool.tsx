@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import SmartImage from '@/components/ui/SmartImage';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { logger } from '@/utils/logger';
 import { ImageIcon, Wand2Icon, XIcon } from 'lucide-react';
@@ -143,7 +144,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
             </div>
           ) : (
             <div className="relative group">
-              <img
+              <SmartImage
                 src={selectedImage}
                 alt="Selected"
                 className="w-full max-h-96 object-cover rounded-2xl border-2 border-gray-100 shadow-md group-hover:shadow-lg transition-shadow"

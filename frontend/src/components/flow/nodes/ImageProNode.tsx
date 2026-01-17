@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 import { Copy, Trash2, Download, FolderPlus, Send as SendIcon } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import SmartImage from '../../ui/SmartImage';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -97,7 +98,7 @@ const ImageContent = React.memo(({ displaySrc, isDragOver, onDrop, onDragOver, o
       }}
     >
       {displaySrc ? (
-        <img
+        <SmartImage
           src={displaySrc}
           alt=""
           style={{ width: '100%', height: '100%', objectFit: 'contain' }}

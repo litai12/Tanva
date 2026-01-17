@@ -17,6 +17,7 @@ import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { isPersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
+import SmartImage from '../../ui/SmartImage';
 
 // 类型定义
 type SplitRectItem = {
@@ -1323,7 +1324,7 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
         gap: 6,
       }}>
         {inputImageSrc ? (
-          <img
+          <SmartImage
             src={inputImageSrc}
             alt="输入图片"
             style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain' }}

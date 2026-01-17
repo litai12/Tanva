@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { contextManager } from '@/services/contextManager';
+import SmartImage from '@/components/ui/SmartImage';
 
 interface CachedImageInfo {
   imageId: string;
@@ -337,7 +338,7 @@ const CachedImageDebug: React.FC = () => {
                 )}
                 <div className="w-full">
                   {hasImage ? (
-                    <img
+                    <SmartImage
                       src={previewSrc || ''}
                       alt="cached preview"
                       className="block w-full max-w-[236px] max-h-[140px] object-contain rounded"

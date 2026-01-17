@@ -3,6 +3,7 @@ import { Handle, Position, NodeResizer, useReactFlow } from "reactflow";
 import { Send as SendIcon, Camera } from "lucide-react";
 import { AutoScreenshotService } from "@/services/AutoScreenshotService";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -317,8 +318,9 @@ function CameraNodeInner({ id, data, selected }: Props) {
         }}
       >
         {src ? (
-          <img
+          <SmartImage
             src={src}
+            alt=""
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (

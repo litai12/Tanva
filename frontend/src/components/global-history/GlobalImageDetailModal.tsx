@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Download, Trash2, Calendar, Folder, Tag } from 'lucide-react';
 import { Button } from '../ui/button';
+import SmartImage from '../ui/SmartImage';
 import type { GlobalImageHistoryItem } from '@/services/globalImageHistoryApi';
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
@@ -77,7 +78,7 @@ const GlobalImageDetailModal: React.FC<GlobalImageDetailModalProps> = ({
         <div className="flex-1 overflow-auto p-4 flex gap-4">
           {/* 图片预览 */}
           <div className="flex-1 flex items-center justify-center bg-black/50 rounded-lg">
-            <img
+            <SmartImage
               src={item.imageUrl}
               alt={item.prompt || '图片'}
               className="max-w-full max-h-[60vh] object-contain"

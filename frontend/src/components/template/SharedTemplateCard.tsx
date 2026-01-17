@@ -1,5 +1,6 @@
 import React from 'react';
 import type { TemplateIndexEntry } from '@/types/template';
+import SmartImage from '@/components/ui/SmartImage';
 import './template-card.css';
 
 interface Props {
@@ -22,12 +23,12 @@ export default function SharedTemplateCard({ item, onClick, onDelete, showDelete
     <div className="tpl-card" onClick={onClick}>
       <div className="tpl-card-thumb">
         {item.thumbnail ? (
-          <img src={item.thumbnail} alt={item.name} className="tpl-card-img" />
+          <SmartImage src={item.thumbnail} alt={item.name} className="tpl-card-img" />
         ) : (
           <div className="tpl-card-noimg">暂无预览</div>
         )}
         {item.thumbnailSmall ? (
-          <img src={item.thumbnailSmall} alt={`${item.name}-mini`} className="tpl-card-small" />
+          <SmartImage src={item.thumbnailSmall} alt={`${item.name}-mini`} className="tpl-card-small" />
         ) : null}
       </div>
       <div className="tpl-card-body">
@@ -50,5 +51,4 @@ export default function SharedTemplateCard({ item, onClick, onDelete, showDelete
     </div>
   );
 }
-
 

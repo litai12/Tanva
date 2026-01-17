@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import paper from 'paper';
 import { Button } from '../ui/button';
+import SmartImage from '../ui/SmartImage';
 import { X, Send, Ruler } from 'lucide-react';
 import {
   DropdownMenu,
@@ -479,7 +480,7 @@ const ExpandImageSelector: React.FC<ExpandImageSelectorProps> = ({
               }}
             />
             {imageUrl && previewImagePosition && (
-              <img
+              <SmartImage
                 src={imageUrl}
                 alt=""
                 style={{

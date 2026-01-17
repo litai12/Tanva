@@ -2,6 +2,7 @@ import React from "react";
 import { Handle, Position } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 type Props = {
@@ -124,7 +125,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         title={img ? "双击全屏预览" : undefined}
       >
         {displaySrc ? (
-          <img
+          <SmartImage
             src={displaySrc}
             alt=''
             style={{

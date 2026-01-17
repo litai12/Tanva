@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
+import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
 import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
@@ -218,7 +219,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         title={previewSrc ? 'Double click to preview' : undefined}
       >
         {previewSrc ? (
-          <img
+          <SmartImage
             src={previewSrc}
             alt=""
             style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}

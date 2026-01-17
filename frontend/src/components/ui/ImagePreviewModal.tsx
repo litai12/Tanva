@@ -6,6 +6,7 @@ import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronUp, ChevronDown } from 'lucide-react';
 import { Button } from './button';
+import SmartImage from './SmartImage';
 import './ImagePreviewModal.css';
 
 export interface ImageItem {
@@ -153,7 +154,7 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
           style={{ paddingRight: hasCollection ? '240px' : '0' }}
           onClick={(e) => e.stopPropagation()}
         >
-          <img
+          <SmartImage
             src={imageSrc}
             alt={imageTitle}
             className="shadow-2xl"
@@ -163,8 +164,11 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
               maxHeight: '100vh',
               width: 'auto',
               height: 'auto',
-              objectFit: 'contain'
+              objectFit: 'contain',
             }}
+            placeholder={
+              <div className="text-white/70 text-sm">加载中...</div>
+            }
             onLoad={() => console.log('预览图片加载成功')}
             onError={(e) => {
               console.error('预览图片加载失败:', e);
@@ -219,11 +223,12 @@ const ImagePreviewModal: React.FC<ImagePreviewModalProps> = ({
                         </div>
                       )}
                       <div className="aspect-video bg-gray-800">
-                        <img
+                        <SmartImage
                           src={item.src}
                           alt={item.title || `图片 ${index + 1}`}
                           className="w-full h-full object-cover"
                           loading="lazy"
+                          placeholder={<div className="w-full h-full bg-gray-800" />}
                         />
                       </div>
                       {/* 标题 - hover时显示 */}

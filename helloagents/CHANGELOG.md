@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 设计 JSON：`Project.contentJson` / `PublicTemplate.templateData` 强制禁止 `data:`/`blob:`/base64 图片进入 DB/OSS（后端清洗 + 提供批量修复脚本）。
 - Flow：图片节点输出以远程 URL/OSS key 为主（Camera/Three/ImageGrid/VideoFrameExtract 等不再持久化 base64/缩略图/`flow-asset:`）；运行时允许临时引用，但保存前会对 `content.flow` 做内联图片校验/补传替换，避免落库。
 - Canvas：统一图片引用适配（remote URL / `/api/assets/proxy` / OSS key / 相对路径），并将 `<img>`/Paper.js Raster 的展示源统一收口到 `frontend/src/utils/imageSource.ts`（`toRenderableImageSrc`、`isPersistableImageRef`、`normalizePersistableImageRef`、`resolveImageToBlob/DataUrl`）。
+- 前端 UI：画板/图层/缩略图等展示引入 `SmartImage`/`useNonBase64ImageSrc`，将 `data:image/*`/裸 base64 渲染统一转换为 `blob:`（objectURL）或走 `canvas`，减少大字符串驻留与内存峰值。
 - 前端：支持通过 `VITE_PROXY_ASSETS=false` + `VITE_ASSET_PUBLIC_BASE_URL` 直连 OSS/CDN（将 `projects/...` 等 key 拼成可访问 URL），减少对 `/api/assets/proxy` 的依赖。
 - 前端：编辑器内若存在上传中/待上传图片，离开页面/切换项目/退出登录时弹出确认提示（覆盖 `beforeunload` 与浏览器前进后退）。
 - 清空画布：重置 undo/redo 历史并清理剪贴板/图像缓存，避免清空后仍被旧快照引用导致内存不降。

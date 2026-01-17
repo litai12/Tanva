@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import SmartImage from '../../ui/SmartImage';
 import { isAssetProxyEnabled, proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -497,7 +498,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   position: 'relative',
                 }}
               >
-                <img
+                <SmartImage
                   src={frame.thumbnailDataUrl}
                   alt={`帧 ${frame.index}`}
                   decoding="async"
@@ -787,7 +788,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                     setShowAllFrames(false);
                   }}
                 >
-                  <img
+                  <SmartImage
                     src={frame.thumbnailDataUrl}
                     alt={`帧 ${frame.index}`}
                     decoding="async"

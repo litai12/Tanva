@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
+import SmartImage from '@/components/ui/SmartImage';
 import { Check, Trash2 } from 'lucide-react';
 import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
 
@@ -301,7 +302,7 @@ export default function ProjectManagerModal() {
                               <Check className="h-4 w-4" />
                             </button>
                           )}
-                          <img
+                          <SmartImage
                             src={p.thumbnailUrl || placeholderThumb}
                             alt={p.name}
                             className="h-full w-auto max-w-full object-contain"

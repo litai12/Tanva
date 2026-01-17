@@ -1,6 +1,7 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
 import { Video, Share2, Download } from "lucide-react";
+import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 
 type Props = {
@@ -185,7 +186,7 @@ function Wan2R2VNodeInner({ id, data, selected }: Props) {
     }
     if (sanitizedThumbnail) {
       return (
-        <img
+        <SmartImage
           src={sanitizedThumbnail}
           alt='video thumbnail'
           style={commonMediaStyle}

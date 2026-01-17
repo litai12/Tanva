@@ -4,6 +4,7 @@ import { Trash2, Plus, Upload, Download } from "lucide-react";
 import { fetchTemplateCategories } from "@/services/publicTemplateService";
 import { fetchWithAuth } from "@/services/authFetch";
 import SharedTemplateCard from "@/components/template/SharedTemplateCard";
+import SmartImage from "@/components/ui/SmartImage";
 import paper from "paper";
 import ReactFlow, {
   MiniMap,
@@ -651,7 +652,7 @@ const UserTemplateCard: React.FC<{
         }}
       >
         {item.thumbnail ? (
-          <img
+          <SmartImage
             src={item.thumbnail}
             alt={item.name}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}

@@ -1,6 +1,7 @@
 import React from "react";
 import { Handle, Position } from "reactflow";
 import { AlertTriangle, Video, Share2, Download } from "lucide-react";
+import SmartImage from "../../ui/SmartImage";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useAuthStore } from "@/stores/authStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
@@ -438,7 +439,7 @@ function GenericVideoNodeInner({ id, data, selected }: Props) {
     }
     if (sanitizedThumbnail) {
       return (
-        <img
+        <SmartImage
           src={proxifyRemoteAssetUrl(sanitizedThumbnail)}
           alt='video thumbnail'
           style={commonMediaStyle}

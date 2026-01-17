@@ -3,6 +3,7 @@ import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -328,7 +329,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, onDrop, o
         isResizing={isResizing}
       />
     ) : displaySrc ? (
-      <img
+      <SmartImage
         src={displaySrc}
         alt=''
         decoding="async"

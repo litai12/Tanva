@@ -2,6 +2,7 @@ import React from "react";
 import { Handle, Position, useReactFlow } from "reactflow";
 import { Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus, Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { useAIChatStore } from "@/stores/aiChatStore";
 import { cn } from "@/lib/utils";
 import { resolveTextFromSourceNode } from "../utils/textSource";
@@ -446,7 +447,7 @@ function GeneratePro4NodeInner({ id, data, selected }: Props) {
         title={img ? "双击预览" : undefined}
       >
         {displaySrc ? (
-          <img
+          <SmartImage
             src={displaySrc}
             alt=''
             loading="lazy"

@@ -9,6 +9,7 @@ import {
   FileCode,
 } from "lucide-react";
 import "./PersonalLibraryPanel.css";
+import SmartImage from "@/components/ui/SmartImage";
 import { imageUploadService } from "@/services/imageUploadService";
 import {
   model3DUploadService,
@@ -578,7 +579,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
                   }}
                 >
                   {is2d || isSvg ? (
-                    <img
+                    <SmartImage
                       src={asset.thumbnail || asset.url}
                       alt={asset.name}
                       style={{
@@ -818,7 +819,7 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({
 
   if (previewSrc) {
     return (
-      <img
+      <SmartImage
         src={previewSrc}
         alt={`${asset.name} 预览`}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
