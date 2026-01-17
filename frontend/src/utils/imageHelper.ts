@@ -11,9 +11,13 @@ export interface TrimTransparentResult {
 /**
  * 加载图像元素，支持 data URL 和远程 URL
  */
-export const loadImageElement = (src: string): Promise<HTMLImageElement> => {
+export const loadImageElement = (
+  src: string | HTMLImageElement
+): Promise<HTMLImageElement> => {
   return new Promise((resolve, reject) => {
-    if (!src) {
+    const resolvedSrc =
+      typeof src === "string" ? src : src?.currentSrc || src?.src || "";
+    if (!resolvedSrc) {
       reject(new Error('缺少图像地址'));
       return;
     }
@@ -22,7 +26,7 @@ export const loadImageElement = (src: string): Promise<HTMLImageElement> => {
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('无法加载图像数据'));
-    img.src = proxifyRemoteAssetUrl(src);
+    img.src = proxifyRemoteAssetUrl(resolvedSrc);
   });
 };
 

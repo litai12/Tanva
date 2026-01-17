@@ -751,11 +751,10 @@ const resolveImageInputToDataUrl = async (
   const normalizedInline = normalizeInlineImageData(trimmed);
   if (normalizedInline) return normalizedInline;
 
-  if (/^blob:/i.test(trimmed) || isRemoteUrl(trimmed)) {
-    return await fetchImageAsDataUrl(trimmed);
-  }
-
-  return null;
+  // 支持 key/proxy/path/blob/remote：统一走可渲染 URL 再 fetch 转 DataURL
+  const renderable = toRenderableImageSrc(trimmed);
+  if (!renderable) return null;
+  return await fetchImageAsDataUrl(renderable);
 };
 
 type CachedImagePayload = NonNullable<

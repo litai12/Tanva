@@ -84,6 +84,52 @@ const extractLocalImageData = (imageData: unknown): string | null => {
   return null;
 };
 
+// 提取可持久化图片引用（优先 OSS key，其次 remoteUrl/url/src 等；返回 normalize 后的 ref）
+const extractPersistableImageRef = (imageData: unknown): string | null => {
+  if (!imageData || typeof imageData !== "object") return null;
+  const data = imageData as Record<string, unknown>;
+
+  // key 更“稳定/可迁移”，优先于 remoteUrl
+  const urlCandidates = ["key", "remoteUrl", "url", "src"];
+  for (const key of urlCandidates) {
+    const candidate = data[key];
+    if (typeof candidate !== "string" || candidate.trim().length === 0) continue;
+    const normalized = normalizePersistableImageRef(candidate);
+    if (!normalized || !isPersistableImageRef(normalized)) continue;
+    return normalized;
+  }
+  return null;
+};
+
+const getPersistedImageAssetSnapshot = (imageId: string): unknown | null => {
+  if (!imageId) return null;
+  try {
+    const content = useProjectContentStore.getState().content;
+    const images = content?.assets?.images;
+    if (!Array.isArray(images)) return null;
+    return images.find((it: any) => it && it.id === imageId) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+// 画布图片同步到 Chat：优先取可持久化引用（SSOT: ProjectContent.assets），否则回退到可渲染的 inline 引用
+const resolveCanvasImageRefForChat = (
+  imageId: string,
+  imageData: unknown
+): string | null => {
+  const persisted = getPersistedImageAssetSnapshot(imageId);
+  const persistedRef = extractPersistableImageRef(persisted);
+  const runtimeRef = extractPersistableImageRef(imageData);
+  const persistable = persistedRef || runtimeRef;
+  if (persistable) return persistable;
+
+  const primarySource =
+    (imageData as any)?.src ?? (imageData as any)?.url ?? (imageData as any)?.remoteUrl;
+  const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
+  return inlineSource || extractLocalImageData(imageData);
+};
+
 // 提取图片的任何可用源（优先 remoteUrl，其次其他可持久化引用，最后 inline 数据）
 const extractAnyImageSource = (imageData: unknown): string | null => {
   if (!imageData || typeof imageData !== "object") return null;
@@ -438,7 +484,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             (img) => img.id === imageId
           );
           const rawSource = instance
-            ? extractAnyImageSource(instance.imageData)
+            ? resolveCanvasImageRefForChat(instance.id, instance.imageData)
             : null;
           const imageSourceForAI = mapCanvasImageSourceToChatStable(rawSource);
           if (!imageSourceForAI) return;
@@ -1865,39 +1911,24 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 在当前实例列表中查找该图片，获取其最新bounds
         const img = imageTool.imageInstances.find((i) => i.id === imageId);
         if (img && img.bounds) {
-          const cachedBeforeSelect = contextManager.getCachedImage();
-          const primarySource = img.imageData?.src ?? img.imageData?.url;
-          const inlineSource = isInlineImageSource(primarySource)
-            ? primarySource
-            : null;
+          const primarySource = img.imageData?.src ?? img.imageData?.url ?? (img.imageData as any)?.remoteUrl;
+          const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
           const localDataUrl = extractLocalImageData(img.imageData);
           // 🔥 不再使用 cachedBeforeSelect?.imageData 作为 fallback，避免显示错误的图片
           const imageDataForCache = inlineSource || localDataUrl || null;
-          const remoteUrl = (() => {
-            if (inlineSource) {
-              return (
-                img.imageData?.url ?? cachedBeforeSelect?.remoteUrl ?? null
-              );
-            }
-            if (typeof primarySource === "string" && primarySource.length > 0) {
-              return primarySource;
-            }
-            if (
-              typeof img.imageData?.url === "string" &&
-              img.imageData.url.length > 0
-            ) {
-              return img.imageData.url;
-            }
-            return null; // 🔥 不再使用 cachedBeforeSelect?.remoteUrl
-          })();
+
+          // 🔥 优先从项目 SSOT (assets.images) 获取可持久化引用，避免把会被回收的 blob: 透传到 Chat
+          const persistableRef =
+            extractPersistableImageRef(getPersistedImageAssetSnapshot(img.id)) ||
+            extractPersistableImageRef(img.imageData);
 
           // 将该图片作为最新缓存，并写入位置信息（中心通过bounds在需要时计算）
-          if (remoteUrl) {
-            // 画布侧不缓存 base64/dataURL：只缓存远程 URL
+          if (persistableRef) {
+            // 画布侧不缓存 base64/dataURL：优先缓存可持久化引用（OSS key/远程 URL）
             contextManager.cacheLatestImage(null, img.id, "用户选择的图片", {
               bounds: img.bounds,
               layerId: img.layerId,
-              remoteUrl,
+              remoteUrl: persistableRef,
             });
             logger.debug("📌 已基于选中图片更新缓存位置:", {
               id: img.id,
@@ -1919,12 +1950,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageId,
               hasInlineSource: !!inlineSource,
               hasLocalDataUrl: !!localDataUrl,
-              hasRemoteUrl: !!remoteUrl,
+              hasRemoteUrl: !!persistableRef,
             });
           }
 
           // 🔥 同步选中图片到AI对话框
-          const imageSourceForAI = remoteUrl || imageDataForCache;
+          const imageSourceForAI = persistableRef || imageDataForCache;
           const selectionToken = (canvasToChatSyncTokenRef.current += 1);
 
           if (addToSelection) {
@@ -1933,7 +1964,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             // 先添加已选中的图片
             for (const instance of imageTool.imageInstances) {
               if (instance.isSelected && instance.id !== imageId) {
-                const data = extractAnyImageSource(instance.imageData);
+                const data = resolveCanvasImageRefForChat(
+                  instance.id,
+                  instance.imageData
+                );
                 if (data) allSelectedImages.push(data);
               }
             }
@@ -1995,7 +2029,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         for (const id of imageIds) {
           const img = imageTool.imageInstances.find((i) => i.id === id);
           if (img) {
-            const imageData = extractAnyImageSource(img.imageData);
+            const imageData = resolveCanvasImageRefForChat(id, img.imageData);
             if (imageData) selectedImages.push(imageData);
           }
         }
