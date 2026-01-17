@@ -43,6 +43,7 @@ export class AssetsController {
     const abortController = new AbortController();
     let abortedByClient = false;
     let upstreamBody: ReadableStream<Uint8Array> | null = null;
+    let upstreamNodeStream: Readable | null = null;
 
     const abortUpstream = () => {
       if (abortedByClient) return;
@@ -53,10 +54,19 @@ export class AssetsController {
         // ignore
       }
       try {
-        upstreamBody?.cancel();
+        upstreamNodeStream?.destroy();
       } catch {
         // ignore
       }
+      let cancelPromise: Promise<void> | undefined;
+      try {
+        cancelPromise = upstreamBody?.cancel();
+      } catch {
+        // ignore
+      }
+      void cancelPromise?.catch(() => {
+        // ignore
+      });
     };
 
     // 客户端中断时：取消上游请求，避免继续拉取大文件占用内存/连接池。
@@ -200,11 +210,12 @@ export class AssetsController {
     }
 
     // Node fetch 返回 Web ReadableStream；转为 Node stream 以支持流式转发（视频 Range/seek）
-    const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => NodeJS.ReadableStream }).fromWeb;
-    const nodeStream: NodeJS.ReadableStream = typeof fromWeb === 'function'
+    const fromWeb = (Readable as unknown as { fromWeb?: (stream: unknown) => Readable }).fromWeb;
+    const nodeStream: Readable = typeof fromWeb === 'function'
       ? fromWeb(upstream.body as unknown)
       : Readable.from(Buffer.from(await upstream.arrayBuffer()));
 
+    upstreamNodeStream = nodeStream;
     reply.send(nodeStream);
   }
 }
