@@ -27,7 +27,12 @@ import { useImageHistoryStore } from "@/stores/imageHistoryStore";
 import { createImagePreviewDataUrl } from "@/utils/imagePreview";
 import { logger } from "@/utils/logger";
 import { createAsyncLimiter, mapWithLimit } from "@/utils/asyncLimit";
-import { resolveImageToBlob, resolveImageToDataUrl, toRenderableImageSrc } from "@/utils/imageSource";
+import {
+  resolveImageToBlob,
+  resolveImageToDataUrl,
+  resolveImageToObjectUrl,
+  toRenderableImageSrc,
+} from "@/utils/imageSource";
 import { blobToDataUrl as blobToDataUrlLimited, canvasToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   STORE_NAMES,
@@ -2926,13 +2931,12 @@ export const useAIChatStore = create<AIChatState>()(
 
               // ========== 🔥 清晰的异步流程设计 ==========
               // 步骤1：立即更新对话框显示（使用 base64，不等待上传）- 已在上面完成
-              // 步骤2：立即计算 placementImageData（使用 base64）
-              // 步骤3：立即发送到画布（使用 base64）
+              // 步骤2：计算 placementImageData（优先远程URL，否则转为 blob: ObjectURL）
+              // 步骤3：发送到画布（使用远程URL / blob:，避免 base64）
               // 步骤4：异步上传到OSS（后台进行，不阻塞显示）
               // 注意：消息状态已在步骤1中更新（generationStatus: { isGenerating: false, progress: 100 }），无需重复更新
 
-              // 步骤2：立即计算 placementImageData（使用 base64，不等待上传）
-              // Prefer remote URL for canvas placement to avoid base64 memory usage.
+              // 步骤2：计算 placementImageData
               let placementImageData: string | null = null;
               try {
                 const remoteCandidate =
@@ -2947,7 +2951,8 @@ export const useAIChatStore = create<AIChatState>()(
                     normalizeInlineImageData(result.data?.imageData) ??
                     normalizeInlineImageData(undefined);
                   if (inlineCandidate) {
-                    placementImageData = ensureDataUrl(inlineCandidate);
+                    placementImageData =
+                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
                   }
                 }
               } catch (err) {
@@ -2968,7 +2973,7 @@ export const useAIChatStore = create<AIChatState>()(
                 "✅ [generateImage] 步骤1-2完成：对话框已更新，placementImageData已计算"
               );
 
-              // 步骤3：立即发送到画布（使用 base64，不等待上传）
+              // 步骤3：发送到画布（不等待上传）
               set({ lastGeneratedImage: result.data });
 
               // 自动添加到画布中央 - 使用快速上传工具的逻辑
@@ -3644,7 +3649,8 @@ export const useAIChatStore = create<AIChatState>()(
                     normalizeInlineImageData(result.data?.imageData) ??
                     normalizeInlineImageData(undefined);
                   if (inlineCandidate) {
-                    placementImageData = ensureDataUrl(inlineCandidate);
+                    placementImageData =
+                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
                   }
                 }
               } catch (err) {
@@ -4254,7 +4260,8 @@ export const useAIChatStore = create<AIChatState>()(
                     normalizeInlineImageData(result.data?.imageData) ??
                     normalizeInlineImageData(undefined);
                   if (inlineCandidate) {
-                    placementImageData = ensureDataUrl(inlineCandidate);
+                    placementImageData =
+                      (await resolveImageToObjectUrl(inlineCandidate)) ?? null;
                   }
                 }
               } catch (err) {

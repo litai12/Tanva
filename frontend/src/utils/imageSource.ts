@@ -316,3 +316,23 @@ export const resolveImageToBlob = async (
   }
   return null;
 };
+
+/**
+ * 将任意图片输入转换为可用于渲染的 ObjectURL（blob:...）。
+ * 用途：避免在 UI（尤其画布）上直接使用 data:image/base64。
+ */
+export const resolveImageToObjectUrl = async (
+  value?: string | null,
+  options?: { preferProxy?: boolean }
+): Promise<string | null> => {
+  if (!value || typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const blob = await resolveImageToBlob(trimmed, options);
+  if (!blob) return null;
+  try {
+    return URL.createObjectURL(blob);
+  } catch {
+    return null;
+  }
+};

@@ -19,6 +19,7 @@ import {
     isPersistableImageRef,
     isRemoteUrl,
     normalizePersistableImageRef,
+    resolveImageToObjectUrl,
     toRenderableImageSrc,
 } from '@/utils/imageSource';
 import type { DrawingContext, StoredImageAsset } from '@/types/canvas';
@@ -32,6 +33,26 @@ interface UseQuickImageUploadProps {
 const isInlineDataUrl = (value?: string | null): value is string => {
     if (typeof value !== 'string') return false;
     return value.startsWith('data:image') || value.startsWith('blob:');
+};
+
+const toCanvasSafeInlineImageSource = async (value: string): Promise<string> => {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!trimmed) return value;
+    if (trimmed.startsWith('blob:')) return trimmed;
+    if (trimmed.startsWith('data:image/')) {
+        const objectUrl = await resolveImageToObjectUrl(trimmed, { preferProxy: false });
+        return objectUrl ?? trimmed;
+    }
+    // 兜底：裸 base64（避免在画布上直接渲染 data:image/base64）
+    if (!isPersistableImageRef(trimmed) && trimmed.length > 128) {
+        const compact = trimmed.replace(/\s+/g, '');
+        const base64Pattern = /^[A-Za-z0-9+/=]+$/;
+        if (base64Pattern.test(compact)) {
+            const objectUrl = await resolveImageToObjectUrl(`data:image/png;base64,${compact}`, { preferProxy: false });
+            return objectUrl ?? `data:image/png;base64,${compact}`;
+        }
+    }
+    return trimmed;
 };
 
 const pickRasterSource = (asset: StoredImageAsset): { source: string; remoteUrl?: string; key?: string } => {
@@ -949,14 +970,16 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 };
             } else if (skipUpload) {
                 const resolvedName = fileName || 'ai-image.png';
-                // AI落盘：直接使用本地 dataURL，上传由上游负责
+                // AI落盘：避免在画布上直接渲染 data:image/base64，优先转为 blob: ObjectURL；
+                // 上传与远程替换由上游（或保存流程）负责。
+                const localSource = await toCanvasSafeInlineImageSource(imagePayload);
                 asset = {
                     id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    url: imagePayload,
-                    src: imagePayload,
+                    url: localSource,
+                    src: localSource,
                     fileName: resolvedName,
                     pendingUpload: false,
-                    localDataUrl: imagePayload,
+                    localDataUrl: localSource,
                 };
                 fileName = resolvedName;
             } else {
@@ -974,13 +997,14 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 } else {
                     const errMsg = uploadResult.error || '图片上传失败';
                     logger.error('快速上传图片失败:', errMsg);
+                    const localSource = await toCanvasSafeInlineImageSource(imagePayload);
                     asset = {
                         id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                        url: imagePayload,
-                        src: imagePayload,
+                        url: localSource,
+                        src: localSource,
                         fileName: fileName,
                         pendingUpload: true,
-                        localDataUrl: imagePayload,
+                        localDataUrl: localSource,
                     };
                 }
             }
