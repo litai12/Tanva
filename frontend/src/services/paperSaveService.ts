@@ -327,7 +327,7 @@ class PaperSaveService {
       console.log(`📤 自动补全了 ${uploaded} 张本地图片的远程URL`);
     }
     if (failed > 0) {
-      console.warn(`⚠️ 仍有 ${failed} 张图片缺少远程URL，保存将被阻止（需先完成上传）`);
+      console.warn(`⚠️ 仍有 ${failed} 张图片缺少远程URL，保存到云端时将丢失这些图片（可重试上传）`);
     }
 
     return assets;
@@ -672,7 +672,7 @@ class PaperSaveService {
   /**
    * 序列化当前Paper.js项目为JSON字符串
    */
-  serializePaperProject(): string | null {
+  serializePaperProject(excludeImageIds?: string[]): string | null {
     try {
       if (!this.isPaperProjectReady()) {
         console.warn('⚠️ Paper.js项目未正确初始化，跳过序列化');
@@ -686,6 +686,7 @@ class PaperSaveService {
       // 注意：通过“临时移除→导出→恢复”的方式实现，且在同一同步调用栈内完成，避免可见闪烁。
       const detachedLayers: Array<{ layer: paper.Layer; index: number }> = [];
       const detachedHelpers: Array<{ item: paper.Item; parent: paper.Item; index: number }> = [];
+      const detachedPendingImages: Array<{ item: paper.Item; parent: paper.Item; index: number }> = [];
       const previousActiveLayer = paper.project.activeLayer;
 
       const detachHelpers = (parent: paper.Item) => {
@@ -722,6 +723,71 @@ class PaperSaveService {
           try { layer.remove(); } catch {}
         });
 
+        // 临时剔除“未上传/不可持久化”的图片，避免把 data:/blob:/base64 序列化进 paperJson
+        const excludeSet = new Set(
+          (excludeImageIds || [])
+            .filter((id) => typeof id === 'string')
+            .map((id) => id.trim())
+            .filter((id) => id.length > 0)
+        );
+
+        if (excludeSet.size > 0) {
+          try {
+            const candidates = (paper.project as any).getItems?.({
+              match: (item: any) => {
+                const imageId = item?.data?.imageId;
+                return imageId && excludeSet.has(String(imageId));
+              },
+            }) as paper.Item[] | undefined;
+
+            const targets = new Set<paper.Item>();
+            (candidates || []).forEach((item: any) => {
+              const imageIdRaw = item?.data?.imageId;
+              if (!imageIdRaw) return;
+              const imageId = String(imageIdRaw);
+
+              let cursor: any = item;
+              let target: any = item;
+              let best: any = item?.data?.type === 'image' ? item : null;
+
+              while (cursor?.parent && cursor.parent !== paper.project) {
+                const parent: any = cursor.parent;
+                if (!parent || parent.className === 'Layer' || parent instanceof paper.Layer) break;
+                const parentImageId = parent?.data?.imageId;
+                if (parentImageId && String(parentImageId) === imageId) {
+                  target = parent;
+                  if (parent?.data?.type === 'image') best = parent;
+                  cursor = parent;
+                  continue;
+                }
+                break;
+              }
+
+              targets.add((best || target) as paper.Item);
+            });
+
+            const entries = Array.from(targets)
+              .map((item) => {
+                const parent = item.parent as any;
+                if (!parent) return null;
+                const index = typeof (item as any).index === 'number'
+                  ? (item as any).index
+                  : (Array.isArray(parent.children) ? parent.children.indexOf(item) : 0);
+                return { item, parent, index: typeof index === 'number' ? index : 0 };
+              })
+              .filter(Boolean) as Array<{ item: paper.Item; parent: paper.Item; index: number }>;
+
+            entries
+              .sort((a, b) => b.index - a.index)
+              .forEach(({ item, parent, index }) => {
+                detachedPendingImages.push({ item, parent, index });
+                try { item.remove(); } catch {}
+              });
+          } catch (error) {
+            console.warn('[PaperSaveService] 剔除未上传图片失败（将继续序列化）:', error);
+          }
+        }
+
         // 临时移除所有 helper item（保留用户内容）
         (paper.project.layers || []).forEach((layer: any) => {
           const name = layer?.name || '';
@@ -742,6 +808,13 @@ class PaperSaveService {
             (entry.parent as any).insertChild(entry.index, entry.item);
           } catch {}
         }
+
+        // 恢复被剔除的未上传图片（按 index 倒序插入，避免同父级下的 index 漂移）
+        detachedPendingImages
+          .sort((a, b) => b.index - a.index)
+          .forEach(({ item, parent, index }) => {
+            try { (parent as any).insertChild(index, item); } catch {}
+          });
 
         // 恢复系统层（按原 index 升序插入）
         detachedLayers
@@ -1066,18 +1139,18 @@ class PaperSaveService {
 
       if (hasPendingImages) {
         try {
-          const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传到 OSS 的本地图片（blob/data），上传完成前无法保存到云端。';
-          if (currentError !== pendingMsg) {
-            contentStore.setError(pendingMsg);
+          const pendingCount = normalizedAssets.images.filter((img) => img.pendingUpload).length;
+          const currentWarning = (contentStore as any).lastWarning as string | null;
+          const pendingMsg = `存在未上传到 OSS 的本地图片（${pendingCount} 张），保存到云端时将丢失这些图片，请重试上传。`;
+          if (currentWarning !== pendingMsg) {
+            contentStore.setWarning(pendingMsg);
           }
         } catch {}
       } else {
         try {
-          const currentError = (contentStore as any).lastError as string | null;
-          const pendingMsg = '存在未上传到 OSS 的本地图片（blob/data），上传完成前无法保存到云端。';
-          if (currentError === pendingMsg) {
-            contentStore.setError(null);
+          const currentWarning = (contentStore as any).lastWarning as string | null;
+          if (currentWarning && currentWarning.startsWith('存在未上传到 OSS 的本地图片')) {
+            contentStore.setWarning(null);
           }
         } catch {}
       }
@@ -1086,7 +1159,10 @@ class PaperSaveService {
 
       if (this.isPaperProjectReady()) {
         this.prepareRasterSources(normalizedAssets.images);
-        paperJson = this.serializePaperProject();
+        const pendingImageIds = normalizedAssets.images
+          .filter((img) => img.pendingUpload)
+          .map((img) => img.id);
+        paperJson = this.serializePaperProject(pendingImageIds);
         // 统计层/元素数量
         let layerCount = 0; let itemCount = 0;
         try {

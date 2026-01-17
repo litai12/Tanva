@@ -15,6 +15,7 @@ type ProjectContentState = {
   saving: boolean;
   lastSavedAt: string | null;
   lastError: string | null;
+  lastWarning: string | null;
   hydrated: boolean;
   setProject: (projectId: string | null) => void;
   hydrate: (content: ProjectContentSnapshot, version: number, savedAt?: string | null) => void;
@@ -22,11 +23,12 @@ type ProjectContentState = {
   setSaving: (saving: boolean) => void;
   markSaved: (version: number, savedAt: string | null, savedAtCounter?: number) => void;
   setError: (error: string | null) => void;
+  setWarning: (warning: string | null) => void;
   reset: () => void;
 };
 
 const createInitialState = (): Omit<ProjectContentState,
-  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'markSaved' | 'setError' | 'reset'> => ({
+  'setProject' | 'hydrate' | 'updatePartial' | 'setSaving' | 'markSaved' | 'setError' | 'setWarning' | 'reset'> => ({
   projectId: null,
   content: null,
   version: 1,
@@ -36,6 +38,7 @@ const createInitialState = (): Omit<ProjectContentState,
   saving: false,
   lastSavedAt: null,
   lastError: null,
+  lastWarning: null,
   hydrated: false,
 });
 
@@ -58,6 +61,7 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
       saving: false,
       lastSavedAt: savedAt ?? state.lastSavedAt,
       lastError: null,
+      lastWarning: null,
       hydrated: true,
     }));
   },
@@ -127,5 +131,6 @@ export const useProjectContentStore = create<ProjectContentState>((set) => ({
     saving: false,
     dirtySince: error ? Date.now() : state.dirtySince,
   })),
+  setWarning: (warning) => set({ lastWarning: warning }),
   reset: () => set(() => createInitialState()),
 }));

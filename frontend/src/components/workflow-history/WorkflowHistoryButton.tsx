@@ -7,7 +7,7 @@ import { projectApi, type WorkflowHistoryEntry } from "@/services/projectApi";
 import { paperSaveService } from "@/services/paperSaveService";
 import { flowSaveService } from "@/services/flowSaveService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
-import { getNonPersistableFlowImageNodeIds, getNonRemoteImageAssetIds } from "@/utils/projectContentValidation";
+import { sanitizeProjectContentForCloudSave } from "@/utils/projectContentValidation";
 
 type WorkflowHistoryButtonProps = {
   projectId: string | null;
@@ -135,17 +135,20 @@ export default function WorkflowHistoryButton({ projectId }: WorkflowHistoryButt
       const store = useProjectContentStore.getState();
       if (!store.projectId || store.projectId !== projectId || !store.content) return;
 
-      const invalidCanvasImageIds = getNonRemoteImageAssetIds(store.content);
-      const invalidFlowNodeIds = getNonPersistableFlowImageNodeIds(store.content);
+      const sanitizeResult = sanitizeProjectContentForCloudSave(store.content);
+      const invalidCanvasImageIds = sanitizeResult?.dropped.canvasImageIds ?? [];
+      const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
+      const contentForCloudSave = sanitizeResult?.sanitized ?? store.content;
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
-        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），上传完成前无法保存`;
-        try { store.setError(message); } catch {}
-        return;
+        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已继续保存其它内容；这些图片不会被保存到云端，请重试上传`;
+        try { store.setWarning(message); } catch {}
+      } else {
+        try { store.setWarning(null); } catch {}
       }
 
       store.setSaving(true);
       const result = await projectApi.saveContent(projectId, {
-        content: store.content,
+        content: contentForCloudSave,
         version: store.version,
         createWorkflowHistory: true,
       });

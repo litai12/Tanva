@@ -5,13 +5,13 @@ import { flowSaveService } from '@/services/flowSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { historyService } from '@/services/historyService';
-import { getNonRemoteImageAssetIds, getNonPersistableFlowImageNodeIds } from '@/utils/projectContentValidation';
+import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValidation';
 
 export default function KeyboardShortcuts() {
   useEffect(() => {
     const onKeyDown = async (e: KeyboardEvent) => {
       const active = document.activeElement as Element | null;
-      const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as any).isContentEditable);
+      const isEditable = !!active && ((active.tagName?.toLowerCase() === 'input') || (active.tagName?.toLowerCase() === 'textarea') || (active as HTMLElement).isContentEditable);
 
       // Undo / Redo
       if (!isEditable && (e.ctrlKey || e.metaKey)) {
@@ -39,31 +39,34 @@ export default function KeyboardShortcuts() {
           const store = useProjectContentStore.getState();
           const { projectId, content, version } = store;
           if (!projectId || !content) return;
-          const invalidCanvasImageIds = getNonRemoteImageAssetIds(content);
-          const invalidFlowNodeIds = getNonPersistableFlowImageNodeIds(content);
+          const sanitizeResult = sanitizeProjectContentForCloudSave(content);
+          const invalidCanvasImageIds = sanitizeResult?.dropped.canvasImageIds ?? [];
+          const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
+          const contentForCloudSave = sanitizeResult?.sanitized ?? content;
           if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
             try {
-              useProjectContentStore
-                .getState()
-                .setError(
-                  `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），上传完成前无法保存`
-                );
+              useProjectContentStore.getState().setWarning(
+                `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已继续保存其它内容；这些图片不会被保存到云端，请重试上传`
+              );
             } catch {}
-            return;
+          } else {
+            try {
+              useProjectContentStore.getState().setWarning(null);
+            } catch {}
           }
           store.setSaving(true);
-          const result = await projectApi.saveContent(projectId, { content, version, createWorkflowHistory: true });
+          const result = await projectApi.saveContent(projectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
           store.markSaved(result.version, result.updatedAt ?? new Date().toISOString());
           try {
             saveMonitor.push(projectId, 'kb_save_success', {
               version: result.version,
               updatedAt: result.updatedAt,
-              paperJsonLen: (content as any)?.meta?.paperJsonLen || (content as any)?.paperJson?.length || 0,
-              layerCount: (content as any)?.layers?.length || 0,
+              paperJsonLen: content.meta?.paperJsonLen || content.paperJson?.length || 0,
+              layerCount: content.layers.length || 0,
             });
           } catch {}
-        } catch (err: any) {
-          const raw = err?.message || '';
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : String(err ?? '');
           const msg = raw.includes('413') || raw.toLowerCase().includes('too large')
             ? '保存失败：内容过大，请尝试清理或拆分项目'
             : (raw || '保存失败');

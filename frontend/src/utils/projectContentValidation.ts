@@ -120,3 +120,98 @@ export function getNonPersistableFlowImageNodeIds(
 
   return Array.from(invalid);
 }
+
+type SanitizeResult = {
+  sanitized: ProjectContentSnapshot;
+  dropped: {
+    canvasImageIds: string[];
+    flowNodeIds: string[];
+  };
+};
+
+function sanitizeFlowNodeData(value: unknown, pathKeys: string[], inArray: boolean): unknown {
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === "string") {
+    const isImageField = pathKeys.some((k) => typeof k === "string" && isImageLikeKey(k));
+    if (!isImageField) return value;
+    if (isInlineOrLocalDesignJsonImageRef(value)) {
+      return inArray ? null : undefined;
+    }
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    const next = value
+      .map((item, idx) => sanitizeFlowNodeData(item, [...pathKeys, String(idx)], true));
+    return next;
+  }
+
+  if (typeof value === "object") {
+    const next: Record<string, unknown> = {};
+    Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
+      const sanitizedChild = sanitizeFlowNodeData(v, [...pathKeys, k], false);
+      if (sanitizedChild === undefined) return;
+      next[k] = sanitizedChild;
+    });
+    return next;
+  }
+
+  return inArray ? null : undefined;
+}
+
+/**
+ * 生成“可持久化”的保存快照：
+ * - Canvas assets：剔除未上传/非远程图片引用（避免把 data:/blob:/base64 发到后端）
+ * - Flow nodes：清理节点 data 中的本地图片字段（保留节点结构，其它字段不动）
+ *
+ * 注意：返回的是新对象，不会修改传入的 content。
+ */
+export function sanitizeProjectContentForCloudSave(
+  content: ProjectContentSnapshot | null | undefined
+): SanitizeResult | null {
+  if (!content) return null;
+
+  const invalidCanvasImageIds = getNonRemoteImageAssetIds(content);
+  const invalidFlowNodeIds = getNonPersistableFlowImageNodeIds(content);
+
+  const canvasInvalidSet = new Set(invalidCanvasImageIds);
+  const flowInvalidSet = new Set(invalidFlowNodeIds);
+
+  const nextAssets = content.assets
+    ? {
+        ...content.assets,
+        images: Array.isArray(content.assets.images)
+          ? content.assets.images.filter((img) => !canvasInvalidSet.has(img.id))
+          : content.assets.images,
+      }
+    : content.assets;
+
+  const nextFlow = content.flow
+    ? {
+        ...content.flow,
+        nodes: Array.isArray(content.flow.nodes)
+          ? content.flow.nodes.map((node) => {
+              const nodeId = node.id;
+              if (!flowInvalidSet.has(nodeId)) return node;
+              return {
+                ...node,
+                data: sanitizeFlowNodeData(node.data, [], false),
+              };
+            })
+          : content.flow.nodes,
+      }
+    : content.flow;
+
+  return {
+    sanitized: {
+      ...content,
+      assets: nextAssets,
+      flow: nextFlow,
+    },
+    dropped: {
+      canvasImageIds: invalidCanvasImageIds,
+      flowNodeIds: invalidFlowNodeIds,
+    },
+  };
+}

@@ -4,13 +4,16 @@ import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
 import SmartImage from '../ui/SmartImage';
-import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles } from 'lucide-react';
+import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles, ImageUp } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import ContextMenu from '../ui/context-menu';
 import { isRaster } from '@/utils/paperCoords';
 import { canvasToBlob } from '@/utils/imageConcurrency';
+import { useProjectContentStore } from '@/stores/projectContentStore';
+import { paperSaveService } from '@/services/paperSaveService';
+import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 
 interface LayerItemData {
     id: string;
@@ -26,6 +29,36 @@ const LayerPanel: React.FC = () => {
     const { showLayerPanel, setShowLayerPanel, focusMode } = useUIStore();
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
     const { setSourceImageForEditing, showDialog } = useAIChatStore();
+    const content = useProjectContentStore((state) => state.content);
+
+    const pendingCanvasImageIdSet = useMemo(() => {
+        return new Set(getNonRemoteImageAssetIds(content));
+    }, [content]);
+
+    const getCanvasImageIdFromItem = (item: LayerItemData): string | null => {
+        const raw = (item as any)?.paperItem?.data?.imageId;
+        const id = typeof raw === 'string' ? raw.trim() : (raw !== null && raw !== undefined ? String(raw).trim() : '');
+        return id ? id : null;
+    };
+
+    const isPendingCanvasImageItem = (item: LayerItemData): boolean => {
+        if (item.type !== 'image') return false;
+        const imageId = getCanvasImageIdFromItem(item);
+        return Boolean(imageId && pendingCanvasImageIdSet.has(imageId));
+    };
+
+    const handleRetryUploadPendingImages = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            useProjectContentStore.getState().setWarning('正在重试上传未上传图片…');
+        } catch {}
+        try {
+            await paperSaveService.saveImmediately();
+        } catch (error) {
+            console.warn('重试上传失败:', error);
+        }
+    };
 
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingName, setEditingName] = useState<string>('');
@@ -1570,14 +1603,33 @@ const LayerPanel: React.FC = () => {
                                                         onClick={(e) => e.stopPropagation()}
                                                     />
                                                 ) : (
-                                                    <div className={`flex-1 text-xs truncate ${item.visible ? 'text-gray-700' : 'text-gray-400'
+                                                    <div className={`flex-1 min-w-0 flex items-center gap-2 text-xs ${item.visible ? 'text-gray-700' : 'text-gray-400'
                                                         }`}>
-                                                        {item.name}
+                                                        <span className="min-w-0 truncate">{item.name}</span>
+                                                        {isPendingCanvasImageItem(item) && (
+                                                            <span
+                                                                className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700"
+                                                                title="该图片尚未上传到 OSS：已保存其它内容，但刷新/换设备后会丢失，可点击重试上传"
+                                                            >
+                                                                未上传
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 )}
 
                                                 {/* 操作按钮 */}
                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {isPendingCanvasImageItem(item) && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-4 w-4 p-0"
+                                                            onClick={(e) => { void handleRetryUploadPendingImages(e); }}
+                                                            title="重试上传"
+                                                        >
+                                                            <ImageUp className="h-3 w-3" />
+                                                        </Button>
+                                                    )}
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
@@ -1642,6 +1694,13 @@ const LayerPanel: React.FC = () => {
                 y={contextMenu.y}
                 onClose={() => setContextMenu({ visible: false, x: 0, y: 0, item: null })}
                 items={[
+                    ...(contextMenu.item.type === 'image' && isPendingCanvasImageItem(contextMenu.item) ? [
+                        {
+                            label: '重试上传',
+                            icon: <ImageUp className="w-4 h-4" />,
+                            onClick: () => { void paperSaveService.saveImmediately().catch(() => {}); },
+                        },
+                    ] : []),
                     ...(contextMenu.item.type === 'image' ? [
                         {
                             label: 'AI编辑图像',

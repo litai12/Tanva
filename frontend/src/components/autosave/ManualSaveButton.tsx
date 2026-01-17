@@ -5,7 +5,7 @@ import { flowSaveService } from '@/services/flowSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
-import { getNonRemoteImageAssetIds, getNonPersistableFlowImageNodeIds } from '@/utils/projectContentValidation';
+import { sanitizeProjectContentForCloudSave } from '@/utils/projectContentValidation';
 
 export default function ManualSaveButton() {
   const projectId = useProjectContentStore((state) => state.projectId);
@@ -13,6 +13,7 @@ export default function ManualSaveButton() {
   const setSaving = useProjectContentStore((state) => state.setSaving);
   const markSaved = useProjectContentStore((state) => state.markSaved);
   const setError = useProjectContentStore((state) => state.setError);
+  const setWarning = useProjectContentStore((state) => state.setWarning);
 
   const handleSave = useCallback(async () => {
     const storeBefore = useProjectContentStore.getState();
@@ -31,16 +32,21 @@ export default function ManualSaveButton() {
         return;
       }
 
-      const invalidCanvasImageIds = getNonRemoteImageAssetIds(content);
-      const invalidFlowNodeIds = getNonPersistableFlowImageNodeIds(content);
+      const sanitizeResult = sanitizeProjectContentForCloudSave(content);
+      const invalidCanvasImageIds = sanitizeResult?.dropped.canvasImageIds ?? [];
+      const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
+      const contentForCloudSave = sanitizeResult?.sanitized ?? content;
       if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
-        setError(`存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），上传完成前无法保存`);
-        return;
+        setWarning(
+          `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已继续保存其它内容；这些图片不会被保存到云端，请重试上传`
+        );
+      } else {
+        setWarning(null);
       }
 
       setSaving(true);
 
-      const result = await projectApi.saveContent(currentProjectId, { content, version, createWorkflowHistory: true });
+      const result = await projectApi.saveContent(currentProjectId, { content: contentForCloudSave, version, createWorkflowHistory: true });
 
       markSaved(result.version, result.updatedAt ?? new Date().toISOString());
       void refreshProjectThumbnail(currentProjectId, { force: true });
@@ -49,10 +55,10 @@ export default function ManualSaveButton() {
         saveMonitor.push(currentProjectId, 'manual_save_success', {
           version: result.version,
           updatedAt: result.updatedAt,
-          paperJsonLen: (content as any)?.meta?.paperJsonLen || (content as any)?.paperJson?.length || 0,
-          layerCount: (content as any)?.layers?.length || 0,
+          paperJsonLen: content.meta?.paperJsonLen || content.paperJson?.length || 0,
+          layerCount: content.layers.length || 0,
         });
-        const paperJson = (content as any)?.paperJson as string | undefined;
+        const paperJson = content.paperJson;
         if (paperJson && paperJson.length > 0) {
           const backup = { version: result.version, updatedAt: result.updatedAt, paperJson };
           localStorage.setItem(`tanva_last_good_snapshot_${currentProjectId}`, JSON.stringify(backup));
@@ -75,7 +81,7 @@ export default function ManualSaveButton() {
     } finally {
       setSaving(false);
     }
-  }, [markSaved, setError, setSaving]);
+  }, [markSaved, setError, setSaving, setWarning]);
 
   return (
     <button
