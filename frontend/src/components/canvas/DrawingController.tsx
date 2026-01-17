@@ -81,13 +81,13 @@ const extractLocalImageData = (imageData: unknown): string | null => {
   return null;
 };
 
-// 提取图片的任何可用源（优先远程 URL，其次 inline 数据）
+// 提取图片的任何可用源（优先 remoteUrl，其次其他可持久化引用，最后 inline 数据）
 const extractAnyImageSource = (imageData: unknown): string | null => {
   if (!imageData || typeof imageData !== "object") return null;
   const data = imageData as Record<string, unknown>;
 
-  // 其次使用远程 URL
-  const urlCandidates = ["url", "src", "remoteUrl", "key"];
+  // 优先使用可持久化引用（remoteUrl 优先）
+  const urlCandidates = ["remoteUrl", "src", "url", "key"];
   for (const key of urlCandidates) {
     const candidate = data[key];
     if (typeof candidate !== "string" || candidate.length === 0) continue;
@@ -1101,9 +1101,9 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   }, [quickImageUpload]);
 
   // 🔥 AI 生成图片：上传到 OSS 后，尽早把画布上的 placeholder 图片替换为远程 URL（释放 base64/blob 内存）
-	  useEffect(() => {
-      const scheduledRasters = new WeakSet<any>();
-      const inflightImageLoads = new Map<string, Promise<HTMLImageElement>>();
+		  useEffect(() => {
+	      const scheduledRasters = new WeakSet<any>();
+	      const inflightImageLoads = new Map<string, Promise<HTMLImageElement>>();
 
       const getRasterSourceString = (raster: any): string => {
         try {
@@ -1115,16 +1115,23 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         return "";
       };
 
-      const preloadImage = (src: string): Promise<HTMLImageElement> => {
-        const cached = inflightImageLoads.get(src);
-        if (cached) return cached;
+	      const preloadImage = (
+	        src: string,
+	        options?: { crossOrigin?: boolean }
+	      ): Promise<HTMLImageElement> => {
+	        const useCrossOrigin = options?.crossOrigin ?? true;
+	        const cacheKey = `${src}::${useCrossOrigin ? "anon" : "none"}`;
+	        const cached = inflightImageLoads.get(cacheKey);
+	        if (cached) return cached;
 
-        const promise = new Promise<HTMLImageElement>((resolve, reject) => {
-          try {
-            const img = new Image();
-            try {
-              (img as any).crossOrigin = "anonymous";
-            } catch {}
+	        const promise = new Promise<HTMLImageElement>((resolve, reject) => {
+	          try {
+	            const img = new Image();
+	            if (useCrossOrigin) {
+	              try {
+	                (img as any).crossOrigin = "anonymous";
+	              } catch {}
+	            }
 
             let settled = false;
             const cleanup = () => {
@@ -1159,16 +1166,35 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           } catch (error) {
             reject(error instanceof Error ? error : new Error("图片预加载失败"));
           }
-        });
+	        });
 
-        inflightImageLoads.set(src, promise);
-        promise
-          .finally(() => {
-            inflightImageLoads.delete(src);
-          })
-          .catch(() => {});
-        return promise;
-      };
+	        inflightImageLoads.set(cacheKey, promise);
+	        promise
+	          .finally(() => {
+	            inflightImageLoads.delete(cacheKey);
+	          })
+	          .catch(() => {});
+	        return promise;
+	      };
+
+	      const preloadImageWithFallback = async (
+	        src: string
+	      ): Promise<{ img: HTMLImageElement; usedCrossOrigin: boolean } | null> => {
+	        const trimmed = typeof src === "string" ? src.trim() : "";
+	        if (!trimmed) return null;
+
+	        try {
+	          const img = await preloadImage(trimmed, { crossOrigin: true });
+	          return { img, usedCrossOrigin: true };
+	        } catch {}
+
+	        try {
+	          const img = await preloadImage(trimmed, { crossOrigin: false });
+	          return { img, usedCrossOrigin: false };
+	        } catch {}
+
+	        return null;
+	      };
 
       const isObjectUrlStillUsed = (url: string): boolean => {
         if (!url || typeof url !== "string" || !url.startsWith("blob:"))
@@ -1210,57 +1236,65 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         });
       };
 
-      const upgradeRasterSourceSmoothly = (
-        raster: any,
-        targetSrc: string,
-        urlsToMaybeRevoke: Set<string>
-      ) => {
-        if (!raster || !targetSrc) return;
-        if (scheduledRasters.has(raster)) return;
-        scheduledRasters.add(raster);
+	      const upgradeRasterSourceSmoothly = (
+	        raster: any,
+	        candidateSources: string[],
+	        urlsToMaybeRevoke: Set<string>
+	      ): boolean => {
+	        if (!raster || !Array.isArray(candidateSources) || candidateSources.length === 0)
+	          return false;
 
-        const maxRetries = 3;
-        const doSwap = (attemptIndex: number) => {
-          preloadImage(targetSrc)
-            .then((img) => {
-              try {
-                (raster as any).crossOrigin = "anonymous";
-              } catch {}
-              try {
-                raster.source = img;
-              } catch {
-                try {
-                  raster.source = targetSrc;
-                } catch {}
-              }
+	        const currentSource = getRasterSourceString(raster).trim();
+	        const uniqueCandidates = Array.from(
+	          new Set(
+	            candidateSources
+	              .map((value) => (typeof value === "string" ? value.trim() : ""))
+	              .filter((value) => value.length > 0)
+	          )
+	        ).filter((value) => value !== currentSource);
 
-              try {
-                paper.view?.update();
-              } catch {}
+	        if (uniqueCandidates.length === 0) return true;
 
-              revokeObjectUrlsIfUnused(urlsToMaybeRevoke);
-            })
-            .catch(() => {
-              if (attemptIndex >= maxRetries - 1) {
-                // 兜底：预加载失败时仍尝试直接切换（可能会有短暂闪白，但避免一直停留在 blob/data）
-                try {
-                  raster.source = targetSrc;
-                } catch {}
-                try {
-                  paper.view?.update();
-                } catch {}
-                revokeObjectUrlsIfUnused(urlsToMaybeRevoke);
-                try {
-                  scheduledRasters.delete(raster);
-                } catch {}
-                return;
-              }
-              setTimeout(() => doSwap(attemptIndex + 1), 300 * (attemptIndex + 1));
-            });
-        };
+	        if (scheduledRasters.has(raster)) return true;
+	        scheduledRasters.add(raster);
 
-        doSwap(0);
-      };
+	        void (async () => {
+	          for (const targetSrc of uniqueCandidates) {
+	            const loaded = await preloadImageWithFallback(targetSrc);
+	            if (!loaded) continue;
+	            try {
+	              if (loaded.usedCrossOrigin) {
+	                try {
+	                  (raster as any).crossOrigin = "anonymous";
+	                } catch {}
+	              } else {
+	                // CORS 不支持时，保持可显示优先：不要强行 crossOrigin，否则图片会直接加载失败
+	                try {
+	                  (raster as any).crossOrigin = undefined;
+	                } catch {}
+	              }
+
+	              // 先用已加载的 HTMLImageElement，避免切换后闪白/直接失败
+	              raster.source = loaded.img;
+	              try {
+	                paper.view?.update();
+	              } catch {}
+	              revokeObjectUrlsIfUnused(urlsToMaybeRevoke);
+	              return;
+	            } catch {
+	              // try next candidate
+	            }
+	          }
+	        })()
+	          .catch(() => {})
+	          .finally(() => {
+	            try {
+	              scheduledRasters.delete(raster);
+	            } catch {}
+	          });
+
+	        return true;
+	      };
 
 	    const tryUpgrade = (params: {
 	      placeholderId: string;
@@ -1339,15 +1373,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	        if (project?.getItems) {
 	          const rasterClass = (paper as any).Raster;
 	          const rasters = project.getItems({ class: rasterClass }) as any[];
-	          const proxied =
-	            toRenderableImageSrc(persistedUrl) ||
-	            toRenderableImageSrc(remoteUrl) ||
-	            proxifyRemoteAssetUrl(remoteUrl);
+		          const buildUpgradeCandidates = (): string[] => {
+		            const candidates: string[] = [];
 
-	          rasters.forEach((raster) => {
-	            if (!raster) return;
-	            const imageId = raster.data?.imageId;
-	            if (imageId !== placeholderId) return;
+		            const directRemote = incomingSrc || (isRemoteUrl(remoteUrl) ? remoteUrl.trim() : "");
+		            if (directRemote) {
+		              // 先尝试“可渲染格式”（可能是 /api/assets/proxy?url=...），失败再回退直连
+		              const renderableRemote = toRenderableImageSrc(directRemote);
+		              if (renderableRemote) candidates.push(renderableRemote);
+		              candidates.push(directRemote);
+		            }
+
+		            const persistedRenderable = toRenderableImageSrc(persistedUrl) || persistedUrl;
+		            if (persistedRenderable) candidates.push(persistedRenderable);
+
+		            const renderableParam = toRenderableImageSrc(remoteUrl);
+		            if (renderableParam) candidates.push(renderableParam);
+
+		            return Array.from(
+		              new Set(
+		                candidates
+		                  .map((value) => (typeof value === "string" ? value.trim() : ""))
+		                  .filter((value) => value.length > 0)
+		              )
+		            );
+		          };
+		          const upgradeCandidates = buildUpgradeCandidates();
+
+		          rasters.forEach((raster) => {
+		            if (!raster) return;
+		            const imageId = raster.data?.imageId;
+		            if (imageId !== placeholderId) return;
 
             const currentSource = getRasterSourceString(raster);
             if (currentSource.startsWith("blob:")) {
@@ -1361,28 +1417,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              pendingUpload: false,
 	            };
 
-            try {
-              (raster as any).crossOrigin = "anonymous";
-            } catch {}
-
-            const shouldSmoothSwap =
-              (currentSource.startsWith("blob:") || currentSource.startsWith("data:")) &&
-              typeof proxied === "string" &&
-              proxied.length > 0 &&
-              !proxied.startsWith("blob:") &&
-              !proxied.startsWith("data:");
-
-            if (shouldSmoothSwap) {
-              upgradeRasterSourceSmoothly(raster, proxied, objectUrlsToMaybeRevoke);
-              rasterScheduled = true;
-              return;
-            }
-
-            try {
-              raster.source = proxied;
-              rasterScheduled = true;
-            } catch {}
-	          });
+	            const scheduled = upgradeRasterSourceSmoothly(
+	              raster,
+	              upgradeCandidates,
+	              objectUrlsToMaybeRevoke
+	            );
+	            if (scheduled) rasterScheduled = true;
+		          });
 
           if (rasterScheduled) {
             try {
