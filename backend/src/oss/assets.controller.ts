@@ -40,6 +40,44 @@ export class AssetsController {
     @Query('url') url?: string,
     @Query('key') key?: string
   ) {
+    const abortController = new AbortController();
+    let abortedByClient = false;
+    let upstreamBody: ReadableStream<Uint8Array> | null = null;
+
+    const abortUpstream = () => {
+      if (abortedByClient) return;
+      abortedByClient = true;
+      try {
+        abortController.abort();
+      } catch {
+        // ignore
+      }
+      try {
+        upstreamBody?.cancel();
+      } catch {
+        // ignore
+      }
+    };
+
+    // 客户端中断时：取消上游请求，避免继续拉取大文件占用内存/连接池。
+    // 注意：FastifyReply.raw 是 Node ServerResponse。
+    try {
+      const rawReply = reply.raw as any;
+      rawReply?.once?.('close', () => {
+        if (!rawReply?.writableEnded) abortUpstream();
+      });
+      rawReply?.once?.('error', abortUpstream);
+    } catch {
+      // ignore
+    }
+    try {
+      const rawReq = req.raw as any;
+      rawReq?.once?.('aborted', abortUpstream);
+      rawReq?.once?.('error', abortUpstream);
+    } catch {
+      // ignore
+    }
+
     const initialUrl = this.resolveTargetUrl({ url, key });
 
     let parsed: URL;
@@ -76,6 +114,7 @@ export class AssetsController {
         const res = await fetch(currentUrl, {
           redirect: 'manual',
           headers: upstreamHeaders,
+          signal: abortController.signal,
         });
 
         if (res.status >= 300 && res.status < 400) {
@@ -95,6 +134,13 @@ export class AssetsController {
           if (!this.isAllowedHost(next.hostname)) {
             throw new BadRequestException('Redirect host not allowed');
           }
+
+          // 继续跟随重定向前，必须显式取消/消费上一个响应体，否则 undici 会占用连接与内存。
+          try {
+            await res.body?.cancel();
+          } catch {
+            // ignore
+          }
           currentUrl = next.toString();
           continue;
         }
@@ -108,8 +154,11 @@ export class AssetsController {
     try {
       upstream = await fetchWithRedirectCheck(initialUrl);
     } catch (err: any) {
+      if (abortedByClient) return;
       throw new BadGatewayException(err?.message || 'Upstream fetch failed');
     }
+    upstreamBody = upstream.body;
+    if (abortedByClient) return;
 
     // 设置 CORS 头，允许跨域访问（用于视频抽帧等场景）
     reply.header('access-control-allow-origin', '*');

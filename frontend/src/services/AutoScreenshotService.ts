@@ -1010,10 +1010,23 @@ export class AutoScreenshotService {
         const imgSrc = raster.image.src;
         // 检查是否是跨域 URL（不是 data: 或 blob:）
         if (imgSrc && !/^data:/i.test(imgSrc) && !/^blob:/i.test(imgSrc)) {
-          // 检查是否已经设置了 crossOrigin（通过检查 complete 状态和 naturalWidth）
-          // 如果图片已经加载完成但没有 crossOrigin，需要重新加载
-          const needsReload = !raster.image.crossOrigin || 
-            (raster.image.complete && raster.image.naturalWidth === 0);
+          // 仅当“确实跨域”且未设置 crossOrigin 时才需要重载；同源（含 /api/assets/proxy）无需重载。
+          const failedLoad = raster.image.complete && raster.image.naturalWidth === 0;
+          let isCrossOrigin = true;
+          try {
+            const base =
+              typeof window !== 'undefined' && window.location?.origin
+                ? window.location.origin
+                : '';
+            if (base) {
+              const normalized = new URL(imgSrc, base);
+              isCrossOrigin = normalized.origin !== base;
+            }
+          } catch {
+            isCrossOrigin = true;
+          }
+
+          const needsReload = failedLoad || (isCrossOrigin && !raster.image.crossOrigin);
           
           if (needsReload) {
             try {

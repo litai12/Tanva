@@ -19,6 +19,18 @@ export function getApiBaseUrl(): string {
   return normalizeApiBaseUrl(String(raw));
 }
 
+function normalizePublicAssetBaseUrl(raw: string): string {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (!trimmed) return "";
+  return trimmed.replace(/\/+$/, "");
+}
+
+// 直连 OSS/CDN 的公共 base（用于将 key 拼成可访问 URL；例如 https://cdn.example.com）
+export function getPublicAssetBaseUrl(): string {
+  const raw = import.meta.env.VITE_ASSET_PUBLIC_BASE_URL as string | undefined;
+  return normalizePublicAssetBaseUrl(String(raw || ""));
+}
+
 function isAssetProxyPath(pathname: string): boolean {
   return pathname === "/api/assets/proxy" || pathname === "/assets/proxy";
 }
@@ -36,6 +48,37 @@ function shouldProxyAssets(): boolean {
 
 export function isAssetProxyEnabled(): boolean {
   return shouldProxyAssets();
+}
+
+function resolvePublicAssetUrlFromKey(key: string): string | null {
+  const base = getPublicAssetBaseUrl();
+  const trimmed = typeof key === "string" ? key.trim() : "";
+  const withoutLeading = trimmed.replace(/^\/+/, "");
+  if (!base || !withoutLeading) return null;
+  if (!/^https?:\/\//i.test(base)) return null;
+  return `${base}/${withoutLeading}`;
+}
+
+function tryUnwrapAssetProxyUrl(input: string): string | null {
+  const value = typeof input === "string" ? input.trim() : "";
+  if (!value) return null;
+  try {
+    const base =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "http://localhost";
+    const url = new URL(value, base);
+    const key = url.searchParams.get("key");
+    if (key) {
+      const direct = resolvePublicAssetUrlFromKey(key);
+      if (direct) return direct;
+    }
+    const remote = url.searchParams.get("url");
+    if (remote) return remote;
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export function proxifyRemoteAssetUrl(
@@ -93,6 +136,10 @@ export function proxifyRemoteAssetUrl(
     value.startsWith("/api/assets/proxy") ||
     value.startsWith("/assets/proxy")
   ) {
+    if (!proxyEnabled) {
+      const direct = tryUnwrapAssetProxyUrl(value);
+      if (direct) return direct;
+    }
     // 图片资源使用前端 5173 端口（开发模式），其他 API 保持使用后端配置
     const frontendBase = import.meta.env.DEV
       ? "http://localhost:5173"
@@ -107,6 +154,10 @@ export function proxifyRemoteAssetUrl(
 
     // 如果已经是 proxy URL（可能来自旧数据：localhost / 旧域名 / 同源绝对地址），统一重写到配置的前端/后端域名
     if (isAssetProxyPath(url.pathname)) {
+      if (!proxyEnabled) {
+        const direct = tryUnwrapAssetProxyUrl(url.toString());
+        if (direct) return direct;
+      }
       const frontendBase = import.meta.env.DEV
         ? "http://localhost:5173"
         : apiBase;

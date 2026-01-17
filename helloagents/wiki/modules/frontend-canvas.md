@@ -16,7 +16,7 @@
 - **可持久化（允许落库/落 JSON）**：remote URL、OSS key（如 `projects/...`）、同源路径（`/`/`./`/`../`）、以及 `/api/assets/proxy?...`（保存时建议去代理包装为 key/remote URL）。
 - **仅运行时临时态（禁止持久化）**：`data:`、`blob:`、`flow-asset:`、裸 base64（只能用于预览；保存前必须上传并替换为远程 URL/OSS key，否则应阻止保存）。
 - **统一工具**：`frontend/src/utils/imageSource.ts`
-  - `toRenderableImageSrc`：把 key/proxy/remote/path 转成可渲染的 src（自动走 proxy 降低 CORS）。
+  - `toRenderableImageSrc`：把 key/proxy/remote/path 转成可渲染的 src（默认会按需走 proxy 降低 CORS；如需禁用 proxy：`VITE_PROXY_ASSETS=false` + `VITE_ASSET_PUBLIC_BASE_URL`）。
   - `isPersistableImageRef` / `normalizePersistableImageRef`：保存前判定与规范化（避免把 proxy/data/blob 写进设计 JSON）。
   - `resolveImageToBlob` / `resolveImageToDataUrl`：上传/AI/edit 等需要 blob/dataURL 的场景。
 - **Paper.js Raster 约定**：
