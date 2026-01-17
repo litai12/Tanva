@@ -1,4 +1,9 @@
 import type { ProjectContentSnapshot } from "@/types/project";
+import type {
+  SerializedChatMessage,
+  SerializedConversationContext,
+  SerializedImageHistoryEntry,
+} from "@/types/context";
 import { isPersistableImageRef } from "@/utils/imageSource";
 import { FLOW_IMAGE_ASSET_PREFIX } from "@/services/flowImageAssetStore";
 
@@ -129,6 +134,97 @@ type SanitizeResult = {
   };
 };
 
+function sanitizePersistableImageRef(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return isInlineOrLocalDesignJsonImageRef(trimmed) ? undefined : trimmed;
+}
+
+function sanitizeAiChatMessageForCloudSave(
+  message: SerializedChatMessage
+): SerializedChatMessage {
+  const persistableRemote =
+    sanitizePersistableImageRef(message.imageRemoteUrl) ??
+    sanitizePersistableImageRef(message.imageUrl);
+  const persistableImageData = sanitizePersistableImageRef(message.imageData);
+
+  const safeImageData = persistableRemote ? undefined : persistableImageData;
+  const safeThumbnail =
+    sanitizePersistableImageRef(message.thumbnail) ??
+    persistableRemote ??
+    persistableImageData;
+
+  const safeSourceImageData = sanitizePersistableImageRef(message.sourceImageData);
+  const safeSourceImagesData = Array.isArray(message.sourceImagesData)
+    ? message.sourceImagesData
+        .map((v) => sanitizePersistableImageRef(v))
+        .filter((v): v is string => typeof v === "string" && v.length > 0)
+    : undefined;
+
+  return {
+    ...message,
+    imageRemoteUrl: persistableRemote,
+    imageUrl: persistableRemote,
+    imageData: safeImageData,
+    thumbnail: safeThumbnail,
+    videoThumbnail: sanitizePersistableImageRef(message.videoThumbnail),
+    sourceImageData: safeSourceImageData,
+    sourceImagesData: safeSourceImagesData,
+  };
+}
+
+function sanitizeAiChatImageHistoryEntryForCloudSave(
+  entry: SerializedImageHistoryEntry
+): SerializedImageHistoryEntry {
+  const remote = sanitizePersistableImageRef(entry.imageRemoteUrl) ?? null;
+  const imageData = remote
+    ? null
+    : (sanitizePersistableImageRef(entry.imageData) ?? null);
+  const thumbnail =
+    sanitizePersistableImageRef(entry.thumbnail) ?? remote ?? imageData ?? null;
+
+  return {
+    ...entry,
+    imageRemoteUrl: remote,
+    imageData,
+    thumbnail,
+  };
+}
+
+function sanitizeAiChatSessionsForCloudSave(
+  sessions: ProjectContentSnapshot["aiChatSessions"]
+): ProjectContentSnapshot["aiChatSessions"] {
+  if (!Array.isArray(sessions) || sessions.length === 0) return sessions;
+
+  return (sessions as SerializedConversationContext[]).map((session) => {
+    const next: SerializedConversationContext = { ...session };
+
+    next.messages = Array.isArray(session.messages)
+      ? session.messages.map(sanitizeAiChatMessageForCloudSave)
+      : [];
+
+    next.cachedImages = {
+      ...session.cachedImages,
+      latest: sanitizePersistableImageRef(session.cachedImages?.latest) ?? null,
+      latestRemoteUrl:
+        sanitizePersistableImageRef(session.cachedImages?.latestRemoteUrl) ??
+        null,
+    };
+
+    next.contextInfo = {
+      ...session.contextInfo,
+      imageHistory: Array.isArray(session.contextInfo?.imageHistory)
+        ? session.contextInfo.imageHistory.map(
+            sanitizeAiChatImageHistoryEntryForCloudSave
+          )
+        : [],
+    };
+
+    return next;
+  });
+}
+
 function sanitizeFlowNodeData(value: unknown, pathKeys: string[], inArray: boolean): unknown {
   if (value === null || value === undefined) return value;
 
@@ -182,8 +278,36 @@ export function sanitizeProjectContentForCloudSave(
     ? {
         ...content.assets,
         images: Array.isArray(content.assets.images)
-          ? content.assets.images.filter((img) => !canvasInvalidSet.has(img.id))
+          ? content.assets.images
+              .filter((img) => !canvasInvalidSet.has(img.id))
+              .map((img) => {
+                type RuntimeDataUrlFields = {
+                  dataUrl?: unknown;
+                  previewDataUrl?: unknown;
+                };
+
+                const {
+                  localDataUrl: _localDataUrl,
+                  dataUrl: _dataUrl,
+                  previewDataUrl: _previewDataUrl,
+                  src,
+                  remoteUrl,
+                  ...rest
+                } = img as typeof img & RuntimeDataUrlFields;
+
+                return {
+                  ...rest,
+                  src: sanitizePersistableImageRef(src),
+                  remoteUrl: sanitizePersistableImageRef(remoteUrl),
+                };
+              })
           : content.assets.images,
+        videos: Array.isArray(content.assets.videos)
+          ? content.assets.videos.map((video) => ({
+              ...video,
+              thumbnail: sanitizePersistableImageRef(video.thumbnail),
+            }))
+          : content.assets.videos,
       }
     : content.assets;
 
@@ -208,6 +332,7 @@ export function sanitizeProjectContentForCloudSave(
       ...content,
       assets: nextAssets,
       flow: nextFlow,
+      aiChatSessions: sanitizeAiChatSessionsForCloudSave(content.aiChatSessions),
     },
     dropped: {
       canvasImageIds: invalidCanvasImageIds,

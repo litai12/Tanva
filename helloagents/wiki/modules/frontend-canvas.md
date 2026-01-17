@@ -24,6 +24,7 @@
   - `raster.source` 用 `toRenderableImageSrc(...)` 的结果（展示用）。
   - `raster.data.key`（OSS key）/ `raster.data.remoteUrl`（http(s)）用于持久化与“需要真实 URL”的能力调用。
   - 保存由 `frontend/src/services/paperSaveService.ts` 统一处理：上传 pending 图片、替换引用、避免内联大数据落库；并在序列化 `paperJson` 时将 `*/api/assets/proxy?...` 反解为 key/url（避免把运行时代理地址落库）。
+  - 云端保存前还会做兜底清理：`frontend/src/utils/projectContentValidation.ts` 的 `sanitizeProjectContentForCloudSave` 会剥离 `assets.images` 的 `localDataUrl/dataUrl/previewDataUrl` 等运行时字段，并清理 `aiChatSessions` 内的 `imageData/thumbnail/...` 内联图片引用，确保 `contentJson` 不含 `data:`/`blob:`/裸 base64。
 
 ## 依赖
 - `paper`、`@types/paper`

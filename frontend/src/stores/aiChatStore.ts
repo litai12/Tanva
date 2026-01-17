@@ -31,6 +31,7 @@ import {
   resolveImageToBlob,
   resolveImageToDataUrl,
   resolveImageToObjectUrl,
+  isPersistableImageRef,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
 import { blobToDataUrl as blobToDataUrlLimited, canvasToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
@@ -1419,6 +1420,13 @@ const serializeConversation = async (
   const isRemoteUrl = (value: string | undefined): boolean =>
     !!value && /^https?:\/\//.test(value);
 
+  const toPersistableRef = (value?: string | null): string | undefined => {
+    if (!value || typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return isPersistableImageRef(trimmed) ? trimmed : undefined;
+  };
+
   const messagesNeedingUpload = context.messages.filter(
     (msg) =>
       !!msg.imageData &&
@@ -1470,20 +1478,20 @@ const serializeConversation = async (
           : undefined) ||
         (isRemoteUrl(message.imageData) ? message.imageData : undefined);
 
-      const fallbackThumbnail = dropLargeInline(
-        message.thumbnail ??
-          (!remoteUrl && message.imageData
-            ? toRenderableImageSrc(message.imageData) ?? message.imageData
-            : undefined)
-      );
+      // 设计 JSON 强约束：仅允许可持久化图片引用（remote/proxy/key/path），禁止 data:/blob:/裸 base64 进入项目内容
+      const persistableFallback =
+        toPersistableRef(message.thumbnail) ??
+        toPersistableRef(remoteUrl) ??
+        toPersistableRef(message.imageRemoteUrl) ??
+        toPersistableRef(message.imageData);
 
-      const safeImageData = dropLargeInline(
-        remoteUrl ? undefined : message.imageData
-      );
-      const safeSourceImageData = dropLargeInline(message.sourceImageData);
+      const safeImageData = remoteUrl
+        ? undefined
+        : toPersistableRef(message.imageData);
+      const safeSourceImageData = toPersistableRef(message.sourceImageData);
       const safeSourceImagesData = Array.isArray(message.sourceImagesData)
         ? message.sourceImagesData
-            .map((v) => dropLargeInline(v))
+            .map((v) => toPersistableRef(v))
             .filter((v): v is string => Boolean(v))
         : undefined;
 
@@ -1496,7 +1504,7 @@ const serializeConversation = async (
         imageRemoteUrl: remoteUrl || undefined,
         imageUrl: remoteUrl || undefined,
         imageData: safeImageData,
-        thumbnail: fallbackThumbnail,
+        thumbnail: persistableFallback,
         expectsImageOutput: message.expectsImageOutput,
         sourceImageData: safeSourceImageData,
         sourceImagesData: safeSourceImagesData,
@@ -1512,7 +1520,7 @@ const serializeConversation = async (
           : undefined,
         videoUrl: message.videoUrl,
         videoSourceUrl: message.videoSourceUrl,
-        videoThumbnail: message.videoThumbnail,
+        videoThumbnail: toPersistableRef(message.videoThumbnail),
         videoDuration: message.videoDuration,
         videoReferencedUrls: message.videoReferencedUrls,
         videoTaskId: message.videoTaskId ?? undefined,
@@ -1535,7 +1543,7 @@ const serializeConversation = async (
       metadata: operation.metadata ? cloneSafely(operation.metadata) : null,
     })),
     cachedImages: {
-      latest: dropLargeInline(context.cachedImages.latest) ?? null,
+      latest: toPersistableRef(context.cachedImages.latest) ?? null,
       latestId: context.cachedImages.latestId ?? null,
       latestPrompt: context.cachedImages.latestPrompt ?? null,
       timestamp: context.cachedImages.timestamp
@@ -1543,7 +1551,7 @@ const serializeConversation = async (
         : null,
       latestBounds: context.cachedImages.latestBounds ?? null,
       latestLayerId: context.cachedImages.latestLayerId ?? null,
-      latestRemoteUrl: context.cachedImages.latestRemoteUrl ?? null,
+      latestRemoteUrl: toPersistableRef(context.cachedImages.latestRemoteUrl) ?? null,
     },
     contextInfo: {
       userPreferences: cloneSafely(context.contextInfo.userPreferences ?? {}),
@@ -1554,9 +1562,12 @@ const serializeConversation = async (
         timestamp: toISOString(item.timestamp),
         operationType: item.operationType,
         parentImageId: item.parentImageId ?? null,
-        thumbnail: dropLargeInline(item.thumbnail) ?? null,
-        imageRemoteUrl: item.imageRemoteUrl ?? null,
-        imageData: dropLargeInline(item.imageData) ?? null,
+        thumbnail:
+          toPersistableRef(item.thumbnail) ??
+          toPersistableRef(item.imageRemoteUrl) ??
+          null,
+        imageRemoteUrl: toPersistableRef(item.imageRemoteUrl) ?? null,
+        imageData: toPersistableRef(item.imageData) ?? null,
       })),
       iterationCount: context.contextInfo.iterationCount,
       lastOperationType: context.contextInfo.lastOperationType,
