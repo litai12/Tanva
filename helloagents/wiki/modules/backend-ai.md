@@ -6,7 +6,7 @@
 ## 关键文件
 - `backend/src/ai/ai.controller.ts`：`/ai/*` 路由集合（主要入口）
 - `backend/src/ai/ai.service.ts`：AI 业务逻辑（Gemini 等）
-- `backend/src/ai/tool-selection-json.util.ts`：工具选择 JSON 提取/解析（支持前后缀文本/markdown code fence）
+- `backend/src/ai/tool-selection-json.util.ts`：工具选择响应提取/解析（支持前后缀文本/markdown code fence/非严格 JSON/从文本提取工具名）
 - `backend/src/ai/services/*`：不同能力/供应商的服务拆分
 - `backend/src/ai/providers/*`：供应商适配（以实现为准）
 - `backend/src/ai/dto/*`：请求/响应 DTO

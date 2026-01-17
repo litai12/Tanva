@@ -945,7 +945,10 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
               success: true,
               data: {
                 selectedTool,
-                reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : vectorRule,
+                reasoning:
+                  typeof parsed.reasoning === 'string'
+                    ? parsed.reasoning
+                    : TOOL_DESCRIPTIONS[selectedTool] || '自动选择最合适的工具。',
                 confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.85,
               },
             };

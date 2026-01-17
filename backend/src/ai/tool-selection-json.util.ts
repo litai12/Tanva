@@ -4,6 +4,16 @@ export type ToolSelectionJsonPayload = {
   confidence?: unknown;
 };
 
+const KNOWN_TOOL_NAMES = [
+  'generateImage',
+  'editImage',
+  'blendImages',
+  'analyzeImage',
+  'chatResponse',
+  'generateVideo',
+  'generatePaperJS',
+] as const;
+
 function safeJsonParse<T>(text: string): T | null {
   try {
     return JSON.parse(text) as T;
@@ -180,7 +190,27 @@ function extractLooseToolSelection(text: string): ToolSelectionJsonPayload | nul
   if (!normalized) return null;
 
   const selectedToolMatch = /["']?selectedTool["']?\s*[:=]\s*["']?([a-zA-Z][a-zA-Z0-9_-]*)["']?/i.exec(normalized);
-  const selectedTool = selectedToolMatch?.[1];
+  let selectedTool = selectedToolMatch?.[1];
+
+  if (!selectedTool) {
+    const backtickMatch = new RegExp(
+      '`(' + KNOWN_TOOL_NAMES.join('|') + ')`',
+      'i'
+    ).exec(normalized);
+    if (backtickMatch?.[1]) {
+      selectedTool = backtickMatch[1];
+    }
+  }
+
+  if (!selectedTool) {
+    const plainMatch = new RegExp(
+      `\\b(${KNOWN_TOOL_NAMES.join('|')})\\b`,
+      'i'
+    ).exec(normalized);
+    if (plainMatch?.[1]) {
+      selectedTool = plainMatch[1];
+    }
+  }
 
   if (!selectedTool || selectedTool === '工具名称') {
     return null;

@@ -1278,7 +1278,7 @@ ${
                 reasoning:
                   typeof parsed.reasoning === "string"
                     ? parsed.reasoning
-                    : vectorRule,
+                    : TOOL_DESCRIPTIONS[selectedTool] || "自动选择最合适的工具。",
                 confidence:
                   typeof parsed.confidence === "number"
                     ? parsed.confidence
