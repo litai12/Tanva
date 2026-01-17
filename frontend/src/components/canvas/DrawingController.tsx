@@ -1102,6 +1102,166 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
   // 🔥 AI 生成图片：上传到 OSS 后，尽早把画布上的 placeholder 图片替换为远程 URL（释放 base64/blob 内存）
 	  useEffect(() => {
+      const scheduledRasters = new WeakSet<any>();
+      const inflightImageLoads = new Map<string, Promise<HTMLImageElement>>();
+
+      const getRasterSourceString = (raster: any): string => {
+        try {
+          const source = raster?.source;
+          if (typeof source === "string") return source;
+          const src = (source as any)?.src;
+          if (typeof src === "string") return src;
+        } catch {}
+        return "";
+      };
+
+      const preloadImage = (src: string): Promise<HTMLImageElement> => {
+        const cached = inflightImageLoads.get(src);
+        if (cached) return cached;
+
+        const promise = new Promise<HTMLImageElement>((resolve, reject) => {
+          try {
+            const img = new Image();
+            try {
+              (img as any).crossOrigin = "anonymous";
+            } catch {}
+
+            let settled = false;
+            const cleanup = () => {
+              try {
+                img.onload = null;
+                img.onerror = null;
+              } catch {}
+            };
+
+            const timeoutId = setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              cleanup();
+              reject(new Error("图片预加载超时"));
+            }, 12000);
+
+            img.onload = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeoutId);
+              cleanup();
+              resolve(img);
+            };
+            img.onerror = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timeoutId);
+              cleanup();
+              reject(new Error("图片预加载失败"));
+            };
+            img.src = src;
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error("图片预加载失败"));
+          }
+        });
+
+        inflightImageLoads.set(src, promise);
+        promise
+          .finally(() => {
+            inflightImageLoads.delete(src);
+          })
+          .catch(() => {});
+        return promise;
+      };
+
+      const isObjectUrlStillUsed = (url: string): boolean => {
+        if (!url || typeof url !== "string" || !url.startsWith("blob:"))
+          return false;
+
+        try {
+          const instances = (window as any).tanvaImageInstances as
+            | any[]
+            | undefined;
+          if (Array.isArray(instances)) {
+            const usedByInstances = instances.some((inst) => {
+              const d = inst?.imageData;
+              return d?.localDataUrl === url || d?.url === url || d?.src === url;
+            });
+            if (usedByInstances) return true;
+          }
+        } catch {}
+
+        try {
+          const project = paper?.project as any;
+          const rasterClass = (paper as any).Raster;
+          if (project?.getItems && rasterClass) {
+            const rasters = project.getItems({ class: rasterClass }) as any[];
+            return rasters.some((raster) => getRasterSourceString(raster) === url);
+          }
+        } catch {}
+
+        return false;
+      };
+
+      const revokeObjectUrlsIfUnused = (urls: Set<string>) => {
+        if (!urls || urls.size === 0) return;
+        urls.forEach((url) => {
+          if (!url || typeof url !== "string" || !url.startsWith("blob:")) return;
+          if (isObjectUrlStillUsed(url)) return;
+          try {
+            URL.revokeObjectURL(url);
+          } catch {}
+        });
+      };
+
+      const upgradeRasterSourceSmoothly = (
+        raster: any,
+        targetSrc: string,
+        urlsToMaybeRevoke: Set<string>
+      ) => {
+        if (!raster || !targetSrc) return;
+        if (scheduledRasters.has(raster)) return;
+        scheduledRasters.add(raster);
+
+        const maxRetries = 3;
+        const doSwap = (attemptIndex: number) => {
+          preloadImage(targetSrc)
+            .then((img) => {
+              try {
+                (raster as any).crossOrigin = "anonymous";
+              } catch {}
+              try {
+                raster.source = img;
+              } catch {
+                try {
+                  raster.source = targetSrc;
+                } catch {}
+              }
+
+              try {
+                paper.view?.update();
+              } catch {}
+
+              revokeObjectUrlsIfUnused(urlsToMaybeRevoke);
+            })
+            .catch(() => {
+              if (attemptIndex >= maxRetries - 1) {
+                // 兜底：预加载失败时仍尝试直接切换（可能会有短暂闪白，但避免一直停留在 blob/data）
+                try {
+                  raster.source = targetSrc;
+                } catch {}
+                try {
+                  paper.view?.update();
+                } catch {}
+                revokeObjectUrlsIfUnused(urlsToMaybeRevoke);
+                try {
+                  scheduledRasters.delete(raster);
+                } catch {}
+                return;
+              }
+              setTimeout(() => doSwap(attemptIndex + 1), 300 * (attemptIndex + 1));
+            });
+        };
+
+        doSwap(0);
+      };
+
 	    const tryUpgrade = (params: {
 	      placeholderId: string;
 	      remoteUrl: string;
@@ -1116,7 +1276,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	        : undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
 
-	      let upgraded = false;
+	      let rasterScheduled = false;
 	      const objectUrlsToMaybeRevoke = new Set<string>();
 
 	      // 1) 更新运行时图片实例（window.tanvaImageInstances）
@@ -1153,7 +1313,6 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              persistedUrl;
 
 	            changed = true;
-	            upgraded = true;
 	            return {
 	              ...inst,
 	              imageData: {
@@ -1190,7 +1349,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	            const imageId = raster.data?.imageId;
 	            if (imageId !== placeholderId) return;
 
-            const currentSource = typeof raster.source === "string" ? raster.source : "";
+            const currentSource = getRasterSourceString(raster);
             if (currentSource.startsWith("blob:")) {
               objectUrlsToMaybeRevoke.add(currentSource);
             }
@@ -1206,47 +1365,37 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               (raster as any).crossOrigin = "anonymous";
             } catch {}
 
-	            try {
-	              raster.source = proxied;
-	              upgraded = true;
-	            } catch {}
+            const shouldSmoothSwap =
+              (currentSource.startsWith("blob:") || currentSource.startsWith("data:")) &&
+              typeof proxied === "string" &&
+              proxied.length > 0 &&
+              !proxied.startsWith("blob:") &&
+              !proxied.startsWith("data:");
+
+            if (shouldSmoothSwap) {
+              upgradeRasterSourceSmoothly(raster, proxied, objectUrlsToMaybeRevoke);
+              rasterScheduled = true;
+              return;
+            }
+
+            try {
+              raster.source = proxied;
+              rasterScheduled = true;
+            } catch {}
 	          });
 
-          if (upgraded) {
+          if (rasterScheduled) {
             try {
               paper.view?.update();
             } catch {}
           }
-        }
-      } catch {}
+	        }
+	      } catch {}
 
-      // 3) 尝试回收 blob: ObjectURL（确保不再被任何实例引用）
-      if (objectUrlsToMaybeRevoke.size > 0) {
-        try {
-          const instances = (window as any).tanvaImageInstances as any[] | undefined;
-          const stillUsed = (url: string) => {
-            if (!Array.isArray(instances)) return false;
-            return instances.some((inst) => {
-              const d = inst?.imageData;
-              return (
-                d?.localDataUrl === url ||
-                d?.url === url ||
-                d?.src === url
-              );
-            });
-          };
+      // 3) 尝试回收 blob: ObjectURL（确保不再被任何实例 / Raster 引用）
+      revokeObjectUrlsIfUnused(objectUrlsToMaybeRevoke);
 
-          objectUrlsToMaybeRevoke.forEach((url) => {
-            if (!url.startsWith("blob:")) return;
-            if (stillUsed(url)) return;
-            try {
-              URL.revokeObjectURL(url);
-            } catch {}
-          });
-        } catch {}
-      }
-
-      return upgraded;
+      return rasterScheduled;
     };
 
     const handler = (event: Event) => {

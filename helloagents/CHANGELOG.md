@@ -24,6 +24,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
 - Flow：Image Split 生成的 Image 节点（`crop`）在下游运行时按裁切结果传参，避免仍使用完整原图。
 - Canvas：修复将 OSS key/proxy/path 误判为 base64/待上传导致图片置灰的问题（含快速上传、导入重建实例、视频缩略图与下载链路）。
+- Canvas：AI 图片占位符升级为远程 URL 时先预加载再切换，避免画布闪白/“刷新感”。
 - 前端鉴权：补齐部分直连请求未触发自动退出的问题；统一用 `fetchWithAuth`/`triggerAuthExpired` 处理 401/403，并在登录失效时清理本地会话缓存（`frontend/src/services/authEvents.ts`、`frontend/src/services/authFetch.ts`）。
 - Flow：禁用节点拖拽时的自动平移（`autoPanOnNodeDrag`），并在 `dragStop` 强制回同步视口，避免快速拖动节点时视口漂移导致其他节点整体偏移。
 - Flow：三维节点（`ThreeNode`）上传模型后自动居中相机，并将模型 URL 持久化为远程引用，避免切换/resize 后模型丢失。
