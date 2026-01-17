@@ -49,6 +49,7 @@ import {
   isPersistableImageRef,
   isRemoteUrl,
   normalizePersistableImageRef,
+  resolveImageToBlob,
   toRenderableImageSrc,
 } from "@/utils/imageSource";
 import { responseToBlob } from "@/utils/imageConcurrency";
@@ -60,6 +61,7 @@ import {
 } from "@/stores/personalLibraryStore";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { imageUploadService } from "@/services/imageUploadService";
+import { putFlowImageBlobs, toFlowImageAssetRef } from "@/services/flowImageAssetStore";
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
@@ -233,6 +235,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
+  const canvasToChatSyncTokenRef = useRef(0);
+  const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
+    new Map()
+  );
 
   // 内存优化：使用 ref 存储频繁变化的值，避免闭包重建
   const zoomRef = useRef(zoom);
@@ -370,6 +376,51 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     zoom,
   };
 
+  const ensureChatStableImageRef = useCallback(
+    async (value: string, nodeId?: string): Promise<string> => {
+      const trimmed = typeof value === "string" ? value.trim() : "";
+      if (!trimmed) return value;
+
+      // 远程 URL / key / proxy/path 等可持久化引用：直接使用（避免不必要的 clone）
+      const normalized = normalizePersistableImageRef(trimmed);
+      if (normalized && isPersistableImageRef(normalized)) {
+        return trimmed;
+      }
+
+      // 画布侧的 blob: ObjectURL 可能会被回收（例如升级为远程 URL 后），
+      // 直接把 blob: 透传到 Chat 会导致预览“突然裂图”。
+      // 这里把 blob: 克隆为 flow-asset:（IndexedDB + refcount）以跨组件稳定复用。
+      if (!trimmed.startsWith("blob:")) return trimmed;
+
+      const cached = canvasBlobToFlowAssetRefCacheRef.current.get(trimmed);
+      if (cached) return cached;
+
+      const blob = await resolveImageToBlob(trimmed, { preferProxy: false });
+      if (!blob) return trimmed;
+
+      const ids = await putFlowImageBlobs([
+        { blob, projectId: projectId ?? null, nodeId },
+      ]);
+      const id = ids?.[0];
+      if (!id) return trimmed;
+
+      const ref = toFlowImageAssetRef(id);
+      canvasBlobToFlowAssetRefCacheRef.current.set(trimmed, ref);
+      return ref;
+    },
+    [projectId]
+  );
+
+  const mapCanvasImageSourceToChatStable = useCallback(
+    (value: string | null): string | null => {
+      const trimmed = typeof value === "string" ? value.trim() : "";
+      if (!trimmed) return null;
+      if (!trimmed.startsWith("blob:")) return trimmed;
+      return canvasBlobToFlowAssetRefCacheRef.current.get(trimmed) ?? trimmed;
+    },
+    []
+  );
+
   // 内存优化：使用 ref 存储实例数组，避免大型闭包
   const imageInstancesRef = useRef<ImageInstance[]>([]);
 
@@ -386,9 +437,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const instance = imageInstancesRef.current.find(
             (img) => img.id === imageId
           );
-          const imageSourceForAI = instance
+          const rawSource = instance
             ? extractAnyImageSource(instance.imageData)
             : null;
+          const imageSourceForAI = mapCanvasImageSourceToChatStable(rawSource);
           if (!imageSourceForAI) return;
 
           const aiStore = useAIChatStore.getState();
@@ -1873,6 +1925,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
           // 🔥 同步选中图片到AI对话框
           const imageSourceForAI = remoteUrl || imageDataForCache;
+          const selectionToken = (canvasToChatSyncTokenRef.current += 1);
+
           if (addToSelection) {
             // 多选模式：收集所有选中图片的数据
             const allSelectedImages: string[] = [];
@@ -1885,15 +1939,45 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             }
             // 添加当前选中的图片
             if (imageSourceForAI) allSelectedImages.push(imageSourceForAI);
-            useAIChatStore
-              .getState()
-              .setSourceImagesFromCanvas(allSelectedImages);
+            // 先同步一份“即时可用”的引用（可能包含 blob:），避免 UI 等待
+            useAIChatStore.getState().setSourceImagesFromCanvas(allSelectedImages);
+            void (async () => {
+              try {
+                const stable = await Promise.all(
+                  allSelectedImages.map((src) =>
+                    ensureChatStableImageRef(src, imageId)
+                  )
+                );
+                if (canvasToChatSyncTokenRef.current !== selectionToken) return;
+                if (
+                  stable.length === allSelectedImages.length &&
+                  stable.every((v, i) => v === allSelectedImages[i])
+                ) {
+                  return;
+                }
+                useAIChatStore.getState().setSourceImagesFromCanvas(stable);
+              } catch {
+                // ignore
+              }
+            })();
           } else {
             // 单选模式：只设置当前图片
             if (imageSourceForAI) {
-              useAIChatStore
-                .getState()
-                .setSourceImagesFromCanvas([imageSourceForAI]);
+              // 先同步一份“即时可用”的引用（可能包含 blob:），避免 UI 等待
+              useAIChatStore.getState().setSourceImagesFromCanvas([imageSourceForAI]);
+              void (async () => {
+                try {
+                  const stable = await ensureChatStableImageRef(
+                    imageSourceForAI,
+                    imageId
+                  );
+                  if (canvasToChatSyncTokenRef.current !== selectionToken) return;
+                  if (stable === imageSourceForAI) return;
+                  useAIChatStore.getState().setSourceImagesFromCanvas([stable]);
+                } catch {
+                  // ignore
+                }
+              })();
             }
           }
         }
@@ -1915,7 +1999,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (imageData) selectedImages.push(imageData);
           }
         }
+        const selectionToken = (canvasToChatSyncTokenRef.current += 1);
         useAIChatStore.getState().setSourceImagesFromCanvas(selectedImages);
+        void (async () => {
+          try {
+            const stable = await Promise.all(
+              selectedImages.map((src) => ensureChatStableImageRef(src))
+            );
+            if (canvasToChatSyncTokenRef.current !== selectionToken) return;
+            if (
+              stable.length === selectedImages.length &&
+              stable.every((v, i) => v === selectedImages[i])
+            ) {
+              return;
+            }
+            useAIChatStore.getState().setSourceImagesFromCanvas(stable);
+          } catch {
+            // ignore
+          }
+        })();
       } catch (e) {
         console.warn("同步多选图片到AI对话框失败:", e);
       }
