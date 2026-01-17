@@ -20,6 +20,7 @@ import {
   ToolSelectionResult,
   PaperJSResult,
 } from "./ai-provider.interface";
+import { parseToolSelectionJson } from "../tool-selection-json.util";
 
 const DEFAULT_TOOLS = [
   "generateImage",
@@ -1250,21 +1251,16 @@ ${
 
           // 解析AI的JSON响应 - 与基础版逻辑一致
           try {
-            let jsonText = result.textResponse.trim();
+            const parsed = parseToolSelectionJson(result.textResponse);
 
-            // 移除 markdown 代码块标记
-            if (jsonText.startsWith("```json")) {
-              jsonText = jsonText
-                .replace(/^```json\s*/i, "")
-                .replace(/\s*```$/, "");
-            } else if (jsonText.startsWith("```")) {
-              jsonText = jsonText
-                .replace(/^```\s*/i, "")
-                .replace(/\s*```$/, "");
+            if (!parsed || typeof parsed !== "object") {
+              throw new Error("Invalid tool selection JSON");
             }
 
-            const parsed = JSON.parse(jsonText.trim());
-            const rawSelected = parsed.selectedTool || "chatResponse";
+            const rawSelected =
+              typeof parsed.selectedTool === "string"
+                ? parsed.selectedTool
+                : "chatResponse";
             const selectedTool = tools.includes(rawSelected)
               ? rawSelected
               : tools.includes("chatResponse")
@@ -1279,7 +1275,10 @@ ${
               success: true,
               data: {
                 selectedTool,
-                reasoning: parsed.reasoning || vectorRule,
+                reasoning:
+                  typeof parsed.reasoning === "string"
+                    ? parsed.reasoning
+                    : vectorRule,
                 confidence:
                   typeof parsed.confidence === "number"
                     ? parsed.confidence

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
+import { parseToolSelectionJson } from './tool-selection-json.util';
 
 const DEFAULT_TOOLS = [
   'generateImage',
@@ -168,18 +169,13 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
 
         // 解析AI的JSON响应
         try {
-          // 提取 JSON 内容（可能被 markdown 代码块包装）
-          let jsonText = response.text.trim();
+          const parsed = parseToolSelectionJson(response.text);
 
-          // 移除 markdown 代码块标记
-          if (jsonText.startsWith('```json')) {
-            jsonText = jsonText.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
-          } else if (jsonText.startsWith('```')) {
-            jsonText = jsonText.replace(/^```\s*/i, '').replace(/\s*```$/, '');
+          if (!parsed || typeof parsed !== 'object') {
+            throw new Error('Invalid tool selection JSON');
           }
 
-          const parsed = JSON.parse(jsonText.trim());
-          const rawSelected = parsed.selectedTool || 'chatResponse';
+          const rawSelected = typeof parsed.selectedTool === 'string' ? parsed.selectedTool : 'chatResponse';
           const selectedTool =
             tools.includes(rawSelected) ? rawSelected : (tools.includes('chatResponse') ? 'chatResponse' : tools[0]);
 
@@ -188,7 +184,7 @@ ${vectorRule ? `${vectorRule}\n\n` : ''}请根据用户的实际需求，智能�
           return {
             selectedTool,
             parameters: { prompt },
-            reasoning: parsed.reasoning || vectorRule,
+            reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : vectorRule,
             confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.85
           };
         } catch (parseError) {

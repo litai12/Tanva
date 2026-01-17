@@ -21,6 +21,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Fixed
 - 项目内容加载：前端对同项目 `GET /api/projects/:id/content` 做并发去重；后端 OSS 未配置/禁用时跳过读写并设置超时，减少重复下载与长时间卡顿。
+- 后端 AI：工具选择 JSON 解析支持前后缀文本/markdown code fence，避免误降级到 chatResponse（`backend/src/ai/tool-selection-json.util.ts`）。
 - Assets Proxy：`GET /api/assets/proxy` 跟随重定向前主动 cancel 上一个响应体，并在客户端中断时 abort 上游 fetch，降低高频图片代理下的内存/连接占用。
 - 前端图片转码：新增全局并发限流（暂定 10），收口图片生成/转化（`canvas.toDataURL/toBlob`、`FileReader.readAsDataURL`、`Response.blob`、`createImageBitmap/WebCodecs` 等）并在 AI Chat/Flow/画布等链路复用，降低多图场景瞬时内存峰值与卡顿。
 - 截图：`AutoScreenshotService` 绘制 Raster 时仅在“确实跨域且未设置 crossOrigin”场景才重载图片，避免同源 `/api/assets/proxy` 资源被重复请求导致的接口刷屏与内存抖动。
