@@ -13,7 +13,7 @@ import {
   toRenderableImageSrc,
 } from '@/utils/imageSource';
 import { FLOW_IMAGE_ASSET_PREFIX } from '@/services/flowImageAssetStore';
-import { canvasToBlob, canvasToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
+import { canvasToBlob, dataUrlToBlob, responseToBlob } from '@/utils/imageConcurrency';
 
 class PaperSaveService {
   private saveTimeoutId: number | null = null;
@@ -26,6 +26,7 @@ class PaperSaveService {
   private pendingSaveReason: string | null = null;
   private rasterLoadHooked = new WeakSet<object>();
   private persistableImageRefMap: Map<string, string> | null = null;
+  private imageObjectUrlMap = new Map<string, string>();
 
   private isInlineImageSource(value: unknown): value is string {
     if (typeof value !== 'string') return false;
@@ -35,6 +36,123 @@ class PaperSaveService {
       trimmed.startsWith('blob:') ||
       trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)
     );
+  }
+
+  private scheduleRevokeObjectUrl(url: string) {
+    if (!url || typeof url !== 'string') return;
+    const trimmed = url.trim();
+    if (!trimmed.startsWith('blob:')) return;
+    try {
+      window.setTimeout(() => {
+        try { URL.revokeObjectURL(trimmed); } catch {}
+      }, 1000);
+    } catch {}
+  }
+
+  private trackImageObjectUrl(imageId: string, url: string) {
+    if (!imageId) return;
+    const trimmed = typeof url === 'string' ? url.trim() : '';
+    if (!trimmed.startsWith('blob:')) return;
+
+    const previous = this.imageObjectUrlMap.get(imageId);
+    if (previous && previous !== trimmed) {
+      this.scheduleRevokeObjectUrl(previous);
+    }
+    this.imageObjectUrlMap.set(imageId, trimmed);
+  }
+
+  private clearTrackedImageObjectUrl(imageId: string) {
+    if (!imageId) return;
+    const previous = this.imageObjectUrlMap.get(imageId);
+    if (!previous) return;
+    this.imageObjectUrlMap.delete(imageId);
+    this.scheduleRevokeObjectUrl(previous);
+  }
+
+  private async replaceInlineBase64WithObjectUrl(
+    image: ImageAssetSnapshot,
+    instanceMap: Map<string, any>,
+  ) {
+    const candidates = [
+      { field: 'localDataUrl' as const, value: image.localDataUrl },
+      { field: 'src' as const, value: image.src },
+      { field: 'url' as const, value: image.url },
+    ];
+
+    const pickMimeType = () => {
+      const type = typeof image.contentType === 'string' ? image.contentType.trim() : '';
+      return type && type.startsWith('image/') ? type : 'image/png';
+    };
+
+    const decodeRawBase64ToBlob = async (rawBase64: string) => {
+      const compact = rawBase64.replace(/\s+/g, '');
+      const base64Pattern = /^[A-Za-z0-9+/=]+$/;
+      if (!compact || compact.length <= 128) return null;
+      if (!base64Pattern.test(compact)) return null;
+
+      try {
+        const dataUrl = `data:${pickMimeType()};base64,${compact}`;
+        return await dataUrlToBlob(dataUrl);
+      } catch {
+        return null;
+      }
+    };
+
+    const decodeDataUrlToBlob = async (dataUrl: string) => {
+      try {
+        return await dataUrlToBlob(dataUrl);
+      } catch {
+        return null;
+      }
+    };
+
+    for (const candidate of candidates) {
+      const raw = candidate.value;
+      if (!raw || typeof raw !== 'string') continue;
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+
+      // 记录 blob: objectURL，便于上传完成后主动 revoke，降低内存滞留
+      if (trimmed.startsWith('blob:')) {
+        this.trackImageObjectUrl(image.id, trimmed);
+        continue;
+      }
+
+      // data:image/*（base64）会在 JS 堆里以大字符串形式滞留：转换为 Blob + objectURL，避免长期占用
+      if (trimmed.startsWith('data:image/')) {
+        const blob = await decodeDataUrlToBlob(trimmed);
+        if (!blob || blob.size <= 0) continue;
+
+        const blobUrl = URL.createObjectURL(blob);
+        this.trackImageObjectUrl(image.id, blobUrl);
+
+        const updates: Partial<ImageAssetSnapshot> = {};
+        if (image.localDataUrl === raw) updates.localDataUrl = blobUrl;
+        if (image.src === raw) updates.src = blobUrl;
+        if (image.url === raw) updates.url = blobUrl;
+        if (!updates.localDataUrl) updates.localDataUrl = blobUrl;
+        Object.assign(image, updates);
+        this.syncRuntimeImageAsset(image.id, updates, instanceMap);
+        continue;
+      }
+
+      // 裸 base64（历史/异常数据兜底）：不落库也不长期持有，转成 Blob + objectURL
+      if (!isPersistableImageRef(trimmed)) {
+        const blob = await decodeRawBase64ToBlob(trimmed);
+        if (!blob || blob.size <= 0) continue;
+
+        const blobUrl = URL.createObjectURL(blob);
+        this.trackImageObjectUrl(image.id, blobUrl);
+
+        const updates: Partial<ImageAssetSnapshot> = {};
+        if (image.localDataUrl === raw) updates.localDataUrl = blobUrl;
+        if (image.src === raw) updates.src = blobUrl;
+        if (image.url === raw) updates.url = blobUrl;
+        if (!updates.localDataUrl) updates.localDataUrl = blobUrl;
+        Object.assign(image, updates);
+        this.syncRuntimeImageAsset(image.id, updates, instanceMap);
+      }
+    }
   }
 
   /**
@@ -306,7 +424,17 @@ class PaperSaveService {
       const trimmed = candidate.trim();
       if (!trimmed) continue;
       if (trimmed.startsWith('data:image/')) {
-        return { kind: 'dataUrl', value: trimmed };
+        // 避免把 base64(dataURL) 长期保留在内存：这里直接转 Blob 走上传
+        try {
+          const blob = await dataUrlToBlob(trimmed);
+          if (blob && blob.size > 0) {
+            return { kind: 'blob', value: blob };
+          }
+        } catch {}
+        // dataURL 可能异常/过大导致解码失败；尝试从已渲染的 Raster.canvas 兜底
+        const fallback = await this.resolveRasterCanvasAsInlineSource(asset);
+        if (fallback) return fallback;
+        continue;
       }
       if (trimmed.startsWith('blob:')) {
         const blob = await this.convertBlobUrlToBlob(trimmed);
@@ -322,7 +450,19 @@ class PaperSaveService {
         const compact = trimmed.replace(/\s+/g, '');
         const base64Pattern = /^[A-Za-z0-9+/=]+$/;
         if (base64Pattern.test(compact)) {
-          return { kind: 'dataUrl', value: `data:image/png;base64,${compact}` };
+          // 裸 base64（历史/异常数据兜底）：优先转 Blob，避免继续在堆上滞留大字符串
+          try {
+            const mime =
+              typeof asset.contentType === 'string' && asset.contentType.startsWith('image/')
+                ? asset.contentType
+                : 'image/png';
+            const dataUrl = `data:${mime};base64,${compact}`;
+            const blob = await dataUrlToBlob(dataUrl);
+            if (blob && blob.size > 0) {
+              return { kind: 'blob', value: blob };
+            }
+          } catch {}
+          continue;
         }
       }
     }
@@ -385,6 +525,9 @@ class PaperSaveService {
     let failed = 0;
 
     for (const image of assets.images) {
+      // 关键：避免在 store/Promise/闭包里长期持有 base64 大字符串
+      await this.replaceInlineBase64WithObjectUrl(image, runtimeMap);
+
       const hasRemote =
         isPersistableImageRef(image.url) ||
         isPersistableImageRef(image.src) ||
@@ -393,8 +536,13 @@ class PaperSaveService {
       if (hasRemote) {
         if (image.pendingUpload) {
           image.pendingUpload = false;
+          const local = typeof image.localDataUrl === 'string' ? image.localDataUrl : '';
           delete image.localDataUrl;
           this.syncRuntimeImageAsset(image.id, { pendingUpload: false, localDataUrl: undefined }, runtimeMap);
+          if (local && local.trim().startsWith('blob:')) {
+            this.scheduleRevokeObjectUrl(local);
+          }
+          this.clearTrackedImageObjectUrl(image.id);
         }
         continue;
       }
@@ -430,6 +578,7 @@ class PaperSaveService {
 
         if (uploadResult.success && uploadResult.asset?.url) {
           const uploadedAsset = uploadResult.asset;
+          const local = typeof image.localDataUrl === 'string' ? image.localDataUrl : '';
           image.url = (uploadedAsset.key || uploadedAsset.url).trim();
           image.key = uploadedAsset.key || image.key;
           image.remoteUrl = uploadedAsset.url;
@@ -451,6 +600,10 @@ class PaperSaveService {
             },
             runtimeMap,
           );
+          if (local && local.trim().startsWith('blob:')) {
+            this.scheduleRevokeObjectUrl(local);
+          }
+          this.clearTrackedImageObjectUrl(image.id);
           uploaded += 1;
         } else {
           if (!image.pendingUpload) {
@@ -560,16 +713,11 @@ class PaperSaveService {
                 || (typeof remoteUrl === 'string' && isPersistableImageRef(remoteUrl) ? normalizePersistableImageRef(remoteUrl) : null)
                 || (typeof source === 'string' && isPersistableImageRef(source) ? normalizePersistableImageRef(source) : null);
 
-              // 如果没有远程 URL，尝试从 canvas 获取 dataUrl（限流，避免多图瞬时转码导致内存峰值）
-              let localDataUrl: string | undefined;
-              if (!url && raster.canvas) {
-                try {
-                  localDataUrl = await canvasToDataUrl(raster.canvas, 'image/png');
-                } catch {}
-              }
-
-              const finalUrl = url || localDataUrl;
-              if (!finalUrl) continue;
+              // 如果没有远程 URL，不再生成 dataURL(base64)；上传兜底使用 Raster.canvas -> Blob
+              // 运行时允许保留 blob:（objectURL）作为临时显示/上传来源
+              const sourceString = typeof source === 'string' ? source.trim() : '';
+              const blobSource = sourceString.startsWith('blob:') ? sourceString : '';
+              const finalUrl = url || blobSource || '';
 
               const bounds = raster.bounds;
               collectedImageIds.add(imageId);
@@ -581,7 +729,7 @@ class PaperSaveService {
                 width: raster.width,
                 height: raster.height,
                 pendingUpload: !url,
-                localDataUrl: localDataUrl,
+                localDataUrl: blobSource || undefined,
                 bounds: {
                   x: bounds?.x ?? 0,
                   y: bounds?.y ?? 0,
