@@ -66,6 +66,8 @@ const placeholderLogger = logger.scope("placeholder");
 
 // 限制图片上传并发，避免同时 atob/encode/上传导致内存峰值
 const aiChatUploadLimiter = createAsyncLimiter(2);
+// 限制 AI 对话图片历史/缩略图处理并发，避免多图同时转码导致瞬时内存峰值
+const aiChatHistoryLimiter = createAsyncLimiter(1);
 
 // IndexedDB 存储的会话数据结构
 interface IDBSessionsData {
@@ -1985,111 +1987,116 @@ export const useAIChatStore = create<AIChatState>()(
         prompt,
         result,
         operationType,
+        skipPreview,
       }: {
         aiMessageId: string;
         prompt: string;
         result: AIImageResult;
         operationType: "generate" | "edit" | "blend";
+        skipPreview?: boolean;
       }): Promise<{ remoteUrl?: string; thumbnail?: string }> => {
         if (!result.imageData) {
           return {};
         }
+        const inlineImageData = result.imageData;
 
-        const dataUrl = ensureDataUrl(result.imageData);
-        const previewDataUrl = await buildImagePreviewSafely(dataUrl);
-        const projectId = useProjectContentStore.getState().projectId;
-        let remoteUrl: string | undefined;
-        try {
-          const historyRecord = await recordImageHistoryEntry({
-            dataUrl,
-            title: prompt,
-            nodeId: aiMessageId,
-            nodeType: "generate",
-            projectId,
-            dir: "ai-chat-history/",
-            keepThumbnail: Boolean(previewDataUrl),
-            thumbnailDataUrl: previewDataUrl ?? undefined,
-          });
-          remoteUrl = historyRecord.remoteUrl;
-        } catch (error) {
-          console.warn("⚠️ 记录AI图像历史失败:", error);
-        }
-
-        const historyEntry = {
-          prompt,
-          operationType,
-          imageData: previewDataUrl ?? (remoteUrl ? undefined : dataUrl),
-          parentImageId: undefined,
-          thumbnail: previewDataUrl ?? dataUrl,
-          imageRemoteUrl: remoteUrl,
-        };
-
-        const storedHistory = contextManager.addImageHistory(historyEntry);
-
-        try {
-          useImageHistoryStore.getState().addImage({
-            id: storedHistory.id,
-            src: remoteUrl || dataUrl,
-            remoteUrl: remoteUrl ?? undefined,
-            thumbnail: previewDataUrl ?? dataUrl,
-            title: prompt,
-            nodeId: aiMessageId,
-            nodeType: "generate",
-            projectId,
-            timestamp: storedHistory.timestamp.getTime(),
-          });
-        } catch (error) {
-          console.warn("⚠️ 更新图片历史Store失败:", error);
-        }
-
-        const assets = {
-          remoteUrl: remoteUrl ?? undefined,
-          thumbnail: previewDataUrl ?? dataUrl,
-        };
-
-        // 🔥 若图片已落到画布（placeholderId 对应画布 imageId），尽早把画布图片升级为远程 URL，并释放 base64/blob 内存
-        if (assets.remoteUrl && typeof window !== "undefined") {
+        return aiChatHistoryLimiter.run(async () => {
+          const dataUrl = ensureDataUrl(inlineImageData);
+          const previewDataUrl = skipPreview
+            ? null
+            : await buildImagePreviewSafely(dataUrl);
+          const projectId = useProjectContentStore.getState().projectId;
+          let remoteUrl: string | undefined;
           try {
-            const placeholderId = `ai-placeholder-${aiMessageId}`;
-            window.dispatchEvent(
-              new CustomEvent("tanva:upgradeImageSource", {
-                detail: {
-                  placeholderId,
-                  remoteUrl: assets.remoteUrl,
-                  aiMessageId,
-                },
-              })
-            );
-          } catch {
-            // ignore
+            const historyRecord = await recordImageHistoryEntry({
+              dataUrl,
+              title: prompt,
+              nodeId: aiMessageId,
+              nodeType: "generate",
+              projectId,
+              dir: "ai-chat-history/",
+              keepThumbnail: Boolean(previewDataUrl),
+              thumbnailDataUrl: previewDataUrl ?? undefined,
+            });
+            remoteUrl = historyRecord.remoteUrl;
+          } catch (error) {
+            console.warn("⚠️ 记录AI图像历史失败:", error);
           }
-        }
 
-        if (assets.remoteUrl || assets.thumbnail) {
-          get().updateMessage(aiMessageId, (msg) => ({
-            ...msg,
-            imageRemoteUrl: assets.remoteUrl || msg.imageRemoteUrl,
-            thumbnail: assets.thumbnail ?? msg.thumbnail,
-            // 🔥 关键修复：不清空 imageData，保留 base64 用于对话框和画布显示
-            // 即使有 remoteUrl，也保留 imageData，这样对话框和画布都能正常显示
-            // imageData: assets.remoteUrl ? undefined : msg.imageData
-          }));
+          // 缩略图优先：previewDataUrl（小）-> remoteUrl（小）-> dataUrl（大，仅兜底）
+          const thumbnail = previewDataUrl ?? remoteUrl ?? dataUrl;
 
-          const context = contextManager.getCurrentContext();
-          if (context) {
-            const target = context.messages.find((m) => m.id === aiMessageId);
-            if (target) {
-              target.imageRemoteUrl = assets.remoteUrl || target.imageRemoteUrl;
-              target.thumbnail = assets.thumbnail ?? target.thumbnail;
-              // 🔥 关键修复：不清空 imageData，保留 base64
-              // if (assets.remoteUrl) {
-              //   target.imageData = undefined;
-              // }
+          const historyEntry = {
+            prompt,
+            operationType,
+            imageData: previewDataUrl ?? (remoteUrl ? undefined : dataUrl),
+            parentImageId: undefined,
+            thumbnail,
+            imageRemoteUrl: remoteUrl,
+          };
+
+          const storedHistory = contextManager.addImageHistory(historyEntry);
+
+          try {
+            useImageHistoryStore.getState().addImage({
+              id: storedHistory.id,
+              src: remoteUrl || dataUrl,
+              remoteUrl: remoteUrl ?? undefined,
+              thumbnail,
+              title: prompt,
+              nodeId: aiMessageId,
+              nodeType: "generate",
+              projectId,
+              timestamp: storedHistory.timestamp.getTime(),
+            });
+          } catch (error) {
+            console.warn("⚠️ 更新图片历史Store失败:", error);
+          }
+
+          const assets = {
+            remoteUrl: remoteUrl ?? undefined,
+            thumbnail,
+          };
+
+          // 🔥 若图片已落到画布（placeholderId 对应画布 imageId），尽早把画布图片升级为远程 URL，并释放 base64/blob 内存
+          if (assets.remoteUrl && typeof window !== "undefined") {
+            try {
+              const placeholderId = `ai-placeholder-${aiMessageId}`;
+              window.dispatchEvent(
+                new CustomEvent("tanva:upgradeImageSource", {
+                  detail: {
+                    placeholderId,
+                    remoteUrl: assets.remoteUrl,
+                    aiMessageId,
+                  },
+                })
+              );
+            } catch {
+              // ignore
             }
           }
-        }
 
-        return assets;
+          if (assets.remoteUrl || assets.thumbnail) {
+            get().updateMessage(aiMessageId, (msg) => ({
+              ...msg,
+              imageRemoteUrl: assets.remoteUrl || msg.imageRemoteUrl,
+              thumbnail: assets.thumbnail ?? msg.thumbnail,
+              // 🔥 不在此处强制清空 imageData：对话框/画布仍可能短时间依赖 base64；
+              // 统一由外层（generate/edit/blend）在上传成功后延迟清理，避免闪烁/失败回退问题。
+            }));
+
+            const context = contextManager.getCurrentContext();
+            if (context) {
+              const target = context.messages.find((m) => m.id === aiMessageId);
+              if (target) {
+                target.imageRemoteUrl = assets.remoteUrl || target.imageRemoteUrl;
+                target.thumbnail = assets.thumbnail ?? target.thumbnail;
+              }
+            }
+          }
+
+          return assets;
+        });
       };
 
       const triggerLegacyMigration = (
@@ -3054,12 +3061,17 @@ export const useAIChatStore = create<AIChatState>()(
 
               // 步骤4：异步上传历史记录（后台进行，不阻塞显示）
               if (inlineImageData) {
+                const resultForCache: AIImageResult = {
+                  ...result.data,
+                  imageData: undefined,
+                };
                 // 不等待上传完成，立即继续
                 registerMessageImageHistory({
                   aiMessageId,
                   prompt,
                   result: result.data,
                   operationType: "generate",
+                  skipPreview: isParallel || state.imageSize === "4K",
                 })
                   .then((assets) => {
                     console.log(
@@ -3067,13 +3079,12 @@ export const useAIChatStore = create<AIChatState>()(
                       assets?.remoteUrl?.substring(0, 50)
                     );
                     // 上传完成后更新缓存，但不影响已显示的图片
-                    if (assets?.remoteUrl && result.data) {
+                    if (assets?.remoteUrl) {
                       cacheGeneratedImageResult({
                         messageId: aiMessageId,
                         prompt,
-                        result: result.data,
+                        result: resultForCache,
                         assets,
-                        inlineImageData, // 仍然保留 inlineImageData
                       });
                     }
 
@@ -3751,11 +3762,16 @@ export const useAIChatStore = create<AIChatState>()(
 
               // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
               if (inlineImageData) {
+                const resultForCache: AIImageResult = {
+                  ...result.data!,
+                  imageData: undefined,
+                };
                 registerMessageImageHistory({
                   aiMessageId,
                   prompt,
                   result: result.data,
                   operationType: "edit",
+                  skipPreview: isParallelEdit || state.imageSize === "4K",
                 })
                   .then((assets) => {
                     console.log(
@@ -3765,9 +3781,8 @@ export const useAIChatStore = create<AIChatState>()(
                     cacheGeneratedImageResult({
                       messageId: aiMessageId,
                       prompt,
-                      result: result.data!,
+                      result: resultForCache,
                       assets,
-                      inlineImageData,
                     });
 
                     // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
@@ -4347,11 +4362,16 @@ export const useAIChatStore = create<AIChatState>()(
 
               // 步骤4：异步上传历史记录（后台进行，不阻塞上画布）
               if (inlineImageData) {
+                const resultForCache: AIImageResult = {
+                  ...result.data!,
+                  imageData: undefined,
+                };
                 registerMessageImageHistory({
                   aiMessageId,
                   prompt,
                   result: result.data,
                   operationType: "blend",
+                  skipPreview: isParallelBlend || state.imageSize === "4K",
                 })
                   .then((assets) => {
                     console.log(
@@ -4361,9 +4381,8 @@ export const useAIChatStore = create<AIChatState>()(
                     cacheGeneratedImageResult({
                       messageId: aiMessageId,
                       prompt,
-                      result: result.data!,
+                      result: resultForCache,
                       assets,
-                      inlineImageData,
                     });
 
                     // 🔥 内存优化：在图片成功上传后，延迟清空 imageData，只保留 thumbnail
@@ -4606,6 +4625,7 @@ export const useAIChatStore = create<AIChatState>()(
                   prompt,
                   result: result.data,
                   operationType: "generate",
+                  skipPreview: true,
                 });
               }
 
@@ -6401,38 +6421,58 @@ export const useAIChatStore = create<AIChatState>()(
               aiMessageIds.push(aiMsg.id);
             }
 
-            // 并行执行多个生成任务，传入预创建的消息 ID
-            const promises = aiMessageIds.map((aiMessageId, index) =>
-              get()
-                .executeParallelImageGeneration(input, {
-                  groupId,
-                  groupIndex: index,
-                  groupTotal: multiplier,
-                  userMessageId: userMessage.id,
-                  aiMessageId,
-                })
-                .catch((error) => {
-                  console.error(
-                    `❌ [并行生成] 第 ${index + 1} 个任务失败:`,
-                    error
-                  );
-                  // 更新失败状态
-                  get().updateMessageStatus(aiMessageId, {
-                    isGenerating: false,
-                    error: error instanceof Error ? error.message : "生成失败",
-                  });
-                  return null;
-                })
+            // ⚠️ 这里不要真正 Promise.all 并发：多张大图同时解码/转码会造成瞬时内存峰值。
+            // 改为限制并发执行（仍保留“批量生成”的 UX：先占位，后逐个完成）。
+            const deviceMemory =
+              typeof navigator !== "undefined"
+                ? (navigator as any).deviceMemory
+                : undefined;
+            const imageSize = state.imageSize ?? "1K";
+            const suggestedConcurrency =
+              imageSize === "4K" ||
+              (typeof deviceMemory === "number" && deviceMemory <= 4)
+                ? 1
+                : 2;
+            const concurrency = Math.max(
+              1,
+              Math.min(multiplier, suggestedConcurrency)
             );
 
-            // 等待所有任务完成（不阻塞）
-            Promise.allSettled(promises).then((results) => {
-              const successCount = results.filter(
-                (r) => r.status === "fulfilled" && r.value !== null
-              ).length;
-              console.log(
-                `✅ [并行生成] 完成，成功 ${successCount}/${multiplier}`
+            void (async () => {
+              const results = await mapWithLimit(
+                aiMessageIds,
+                concurrency,
+                async (aiMessageId, index) => {
+                  try {
+                    await get().executeParallelImageGeneration(input, {
+                      groupId,
+                      groupIndex: index,
+                      groupTotal: multiplier,
+                      userMessageId: userMessage.id,
+                      aiMessageId,
+                    });
+                    return true;
+                  } catch (error) {
+                    console.error(
+                      `❌ [并行生成] 第 ${index + 1} 个任务失败:`,
+                      error
+                    );
+                    get().updateMessageStatus(aiMessageId, {
+                      isGenerating: false,
+                      error:
+                        error instanceof Error ? error.message : "生成失败",
+                    });
+                    return false;
+                  }
+                }
               );
+
+              const successCount = results.filter(Boolean).length;
+              console.log(
+                `✅ [并行生成] 完成，成功 ${successCount}/${multiplier} (concurrency=${concurrency})`
+              );
+            })().catch((error) => {
+              console.error("❌ [并行生成] 执行队列异常:", error);
             });
           }
         },
