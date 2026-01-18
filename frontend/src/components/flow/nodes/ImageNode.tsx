@@ -294,7 +294,7 @@ const CanvasCropPreview = React.memo(({
   );
 });
 
-const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, onDrop, onDragOver, onDoubleClick }: {
+const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading, uploadError, onDrop, onDragOver, onDoubleClick }: {
   displaySrc?: string;
   isResizing?: boolean;
   uploading?: boolean;

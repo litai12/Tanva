@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
@@ -85,7 +85,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new UnauthorizedException();
+    if (p.userId !== userId) throw new NotFoundException('项目不存在');
     return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
   }
 
@@ -100,7 +100,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new UnauthorizedException();
+    if (p.userId !== userId) throw new NotFoundException('项目不存在');
 
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
     if (payload.name !== undefined) {
@@ -146,7 +146,7 @@ export class ProjectsService {
   async remove(userId: string, id: string) {
     const p = await this.prisma.project.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new UnauthorizedException();
+    if (p.userId !== userId) throw new NotFoundException('项目不存在');
     await this.prisma.project.delete({ where: { id } });
     return { ok: true };
   }
@@ -155,7 +155,7 @@ export class ProjectsService {
     await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new UnauthorizedException();
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
 
     if (!project.mainKey) {
       return {
@@ -201,7 +201,7 @@ export class ProjectsService {
       },
     });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new UnauthorizedException();
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
     const prefix = project.ossPrefix || `projects/${userId}/${project.id}/`;
     const mainKey = project.mainKey || `${prefix}project.json`;
     const sanitizedContent = sanitizeDesignJson(content);
@@ -263,7 +263,7 @@ export class ProjectsService {
   async listWorkflowHistory(userId: string, projectId: string, limit?: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new UnauthorizedException();
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
 
     const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
 
@@ -289,7 +289,7 @@ export class ProjectsService {
   async getWorkflowHistory(userId: string, projectId: string, updatedAtRaw: string) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new UnauthorizedException();
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
 
     const updatedAt = new Date(updatedAtRaw);
     if (Number.isNaN(updatedAt.getTime())) {

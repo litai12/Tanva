@@ -41,6 +41,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：禁用节点拖拽时的自动平移（`autoPanOnNodeDrag`），并在 `dragStop` 强制回同步视口，避免快速拖动节点时视口漂移导致其他节点整体偏移。
 - Flow：三维节点（`ThreeNode`）上传模型后自动居中相机，并将模型 URL 持久化为远程引用，避免切换/resize 后模型丢失。
 - Flow：三维节点（`ThreeNode`）在节点 resize 时 canvas 保持铺满；拖拽过程中不频繁 `setSize` 避免闪烁，拖拽结束后一次性同步 renderer 并即时渲染。
+- Flow：修复图片节点渲染时 `uploading/uploadError` 未定义导致的白屏崩溃（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- 项目权限：非所有者访问项目时返回“项目不存在”（404），触发前端清理无效 `projectId` 的容错逻辑，避免误判登录失效（`backend/src/projects/projects.service.ts`）。
 
 ## [0.1.0] - 2026-01-14
 ### Added
