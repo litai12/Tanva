@@ -534,20 +534,12 @@ class PaperSaveService {
         isPersistableImageRef(image.src) ||
         isPersistableImageRef(image.remoteUrl) ||
         isPersistableImageRef(image.key || null);
-      if (hasRemote) {
+      // ⚠️ 注意：hasRemote 仅代表“引用格式可持久化”（key/url 形态），不代表对象已上传完成。
+      // 若 pendingUpload=true，则仍需要走补传逻辑（避免“先关联 key + blob 预览”场景被误判为已上传而丢图）。
+      if (hasRemote && !image.pendingUpload) {
         const hadLocalDataUrl =
           typeof image.localDataUrl === 'string' &&
           (image.localDataUrl.startsWith('blob:') || image.localDataUrl.startsWith('data:'));
-        if (image.pendingUpload) {
-          image.pendingUpload = false;
-          const local = typeof image.localDataUrl === 'string' ? image.localDataUrl : '';
-          delete image.localDataUrl;
-          this.syncRuntimeImageAsset(image.id, { pendingUpload: false, localDataUrl: undefined }, runtimeMap);
-          if (local && local.trim().startsWith('blob:')) {
-            this.scheduleRevokeObjectUrl(local);
-          }
-          this.clearTrackedImageObjectUrl(image.id);
-        }
         // 若画布仍在用 blob:/data: 渲染（例如先上画布再补传），触发一次升级以便切换为远程引用并回收 ObjectURL
         if (hadLocalDataUrl) {
           const refCandidate = image.key || image.url || image.remoteUrl || image.src;
@@ -577,10 +569,22 @@ class PaperSaveService {
           }
 
           try {
+            const normalizedKey =
+              typeof image.key === 'string' ? normalizePersistableImageRef(image.key) : '';
+            const keyForUpload =
+              normalizedKey &&
+              isAssetKeyRef(normalizedKey) &&
+              (!projectId ||
+                normalizedKey.startsWith(`projects/${projectId}/images/`) ||
+                normalizedKey.startsWith('uploads/images/'))
+                ? normalizedKey
+                : undefined;
+
             const uploadOptions = {
               projectId,
               dir: projectId ? `projects/${projectId}/images/` : undefined,
               fileName: image.fileName || `autosave_${image.id || Date.now()}.png`,
+              ...(keyForUpload ? { key: keyForUpload } : {}),
             };
 
             let uploadResult;

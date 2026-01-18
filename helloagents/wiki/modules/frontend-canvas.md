@@ -29,3 +29,10 @@
 ## 依赖
 - `paper`、`@types/paper`
 -（可选）3D：`three`、`@react-three/fiber`、`@react-three/drei`
+
+## 本地图片上传链路（blob 预览 → OSS）
+- 入口：`frontend/src/components/canvas/ImageUploadComponent.tsx`（选择文件后先生成 `blob:` 预览，同时生成 OSS `key`，落到 `imageData.url/key` 并标记 `pendingUpload=true`）
+- 上传：`frontend/src/services/imageUploadService.ts` → `frontend/src/services/ossUploadService.ts`（先 `POST /api/uploads/presign` 获取策略，再 `POST` 到 OSS `host`）
+- 上传中回显：`frontend/src/components/canvas/ImageContainer.tsx`（根据 `pendingUpload` 显示“上传中…”）
+- 成功回写与清理：`frontend/src/components/canvas/DrawingController.tsx` 监听 `tanva:upgradeImageSource`，切换 `Raster.source` 到远程引用、清理 `localDataUrl` 并回收 `ObjectURL`
+- 保存兜底：`frontend/src/services/paperSaveService.ts` 的 `ensureRemoteAssets` 会在云保存前补传 `pendingUpload` 的图片，并同样触发 `tanva:upgradeImageSource`

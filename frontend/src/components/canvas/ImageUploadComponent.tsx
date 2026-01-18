@@ -2,6 +2,7 @@ import { logger } from '@/utils/logger';
 import React, { useRef, useCallback } from 'react';
 import { imageUploadService } from '@/services/imageUploadService';
 import type { StoredImageAsset } from '@/types/canvas';
+import { generateOssKey } from '@/services/ossUploadService';
 
 interface ImageUploadComponentProps {
   onImageUploaded: (asset: StoredImageAsset) => void;
@@ -29,49 +30,72 @@ const ImageUploadComponent: React.FC<ImageUploadComponentProps> = ({
       logger.upload('📸 开始处理图片:', file.name);
 
       const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
+
+      // 1) 先用 blob: 立即上画布，避免“等待上传完成才显示”
+      const blobUrl = URL.createObjectURL(file);
+      const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const { key } = generateOssKey({
+        projectId,
+        dir: uploadDir,
+        fileName: file.name,
+        contentType: file.type,
+      });
+      const localAsset: StoredImageAsset = {
+        id: imageId,
+        url: key, // 先关联 key，确保可持久化引用
+        key,
+        src: key,
+        fileName: file.name,
+        contentType: file.type,
+        pendingUpload: true,
+        localDataUrl: blobUrl,
+      };
+      onImageUploaded(localAsset);
+
+      // 2) 后台上传：成功后回写并清理本地临时 blob
       const result = await imageUploadService.uploadImageFile(file, {
         projectId,
         dir: uploadDir,
         fileName: file.name,
+        key,
       });
 
-      if (result.success && result.asset) {
-        logger.upload('✅ 图片上传成功');
-        onImageUploaded({
-          ...result.asset,
-          src: result.asset.url,
-        });
-      } else {
-        // fallback to blob URL（避免 base64）
-        const blobUrl = URL.createObjectURL(file);
-        const fallbackAsset: StoredImageAsset = {
-          id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          url: blobUrl,
-          src: blobUrl,
-          fileName: file.name,
-          pendingUpload: true,
-          localDataUrl: blobUrl,
-        };
-        onImageUploaded(fallbackAsset);
-        console.error('❌ 图片上传失败，已使用本地副本:', result.error);
-        onUploadError(result.error || '图片上传失败，已使用本地副本');
+      if (result.success && result.asset?.url) {
+        logger.upload('✅ 图片上传成功（已回写远程元数据）');
+        try {
+          window.dispatchEvent(
+            new CustomEvent('tanva:upgradeImageSource', {
+              detail: {
+                placeholderId: imageId,
+                key: result.asset.key || key,
+                remoteUrl: result.asset.url,
+              },
+            }),
+          );
+        } catch {}
+        return;
       }
+
+      console.error('❌ 图片上传失败，已保留本地副本:', result.error);
+      onUploadError(result.error || '图片上传失败，已保留本地副本（可稍后重试上传）');
     } catch (error) {
       console.error('❌ 图片处理异常:', error);
       if (file) {
         try {
-          // fallback to blob URL（避免 base64）
+          // 兜底：至少保证本地可见（blob:），并标记为待上传
           const blobUrl = URL.createObjectURL(file);
+          const imageId = `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           const fallbackAsset: StoredImageAsset = {
-            id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            id: imageId,
             url: blobUrl,
             src: blobUrl,
             fileName: file.name,
             pendingUpload: true,
             localDataUrl: blobUrl,
+            contentType: file.type,
           };
           onImageUploaded(fallbackAsset);
-          onUploadError('图片上传失败，已使用本地副本');
+          onUploadError('图片上传失败，已保留本地副本（可稍后重试上传）');
         } catch (fallbackError) {
           console.error('❌ 本地兜底失败:', fallbackError);
           onUploadError('图片处理失败，请重试');

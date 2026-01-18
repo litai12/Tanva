@@ -1455,6 +1455,30 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
+      {/* 上传状态提示：本地 blob 预览上传中 */}
+      {imageData.pendingUpload && (
+        <div
+          style={{
+            position: "absolute",
+            top: 6,
+            left: 6,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 8px",
+            borderRadius: 999,
+            background: "rgba(0,0,0,0.45)",
+            color: "#fff",
+            fontSize: 12,
+            lineHeight: "16px",
+            pointerEvents: "none",
+          }}
+        >
+          <LoadingSpinner size="sm" className="text-white" />
+          <span>上传中…</span>
+        </div>
+      )}
+
       {/* 图片信息条 - 选中时显示在图片内部顶部，左上角显示名称，右上角显示分辨率 */}
       {isSelected && !showExpandSelector && !shouldHideUi && (
         <div

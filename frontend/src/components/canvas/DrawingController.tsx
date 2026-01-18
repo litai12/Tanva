@@ -1199,6 +1199,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     quickImageUploadRef.current = quickImageUpload;
   }, [quickImageUpload]);
 
+  // 使用 ref 存储 imageTool.setImageInstances 的最新引用，避免事件监听闭包过期
+  const imageToolSetInstancesRef = useRef(imageTool.setImageInstances);
+  useEffect(() => {
+    imageToolSetInstancesRef.current = imageTool.setImageInstances;
+  }, [imageTool.setImageInstances]);
+
   // 🔥 AI 生成图片：上传到 OSS 后，仅回写远程元数据（画布渲染不强制切换）
   useEffect(() => {
     const getRasterSourceString = (raster: any): string => {
@@ -1253,17 +1259,30 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	    const tryUpgrade = (params: {
 	      placeholderId: string;
-	      remoteUrl: string;
+	      remoteUrl?: string;
+	      key?: string;
 	    }): boolean => {
-	      const { placeholderId, remoteUrl } = params;
-	      if (!placeholderId || !remoteUrl) return false;
+	      const { placeholderId, remoteUrl, key } = params;
+	      const rawRemoteUrl = typeof remoteUrl === "string" ? remoteUrl : "";
+	      const rawKey = typeof key === "string" ? key : "";
+	      if (!placeholderId || (!rawRemoteUrl && !rawKey)) return false;
 
-	      const normalizedIncoming = normalizePersistableImageRef(remoteUrl) || remoteUrl;
-	      const incomingKey = isAssetKeyRef(normalizedIncoming) ? normalizedIncoming : undefined;
-	      const incomingSrc = isRemoteUrl(normalizedIncoming)
-	        ? normalizedIncoming
-	        : undefined;
+	      const normalizedIncoming = rawRemoteUrl
+	        ? normalizePersistableImageRef(rawRemoteUrl) || rawRemoteUrl
+	        : "";
+	      const normalizedKey = rawKey ? normalizePersistableImageRef(rawKey) || rawKey : "";
+
+	      const incomingKey =
+	        (normalizedKey && isAssetKeyRef(normalizedKey) ? normalizedKey : undefined) ||
+	        (normalizedIncoming && isAssetKeyRef(normalizedIncoming)
+	          ? normalizedIncoming
+	          : undefined);
+	      const incomingSrc =
+	        normalizedIncoming && isRemoteUrl(normalizedIncoming)
+	          ? normalizedIncoming
+	          : undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
+	      if (!persistedUrl) return false;
         const nextRenderableSrc =
           toRenderableImageSrc(incomingSrc || persistedUrl) ||
           incomingSrc ||
@@ -1359,7 +1378,61 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             (window as any).tanvaImageInstances = next;
           }
         }
-      } catch {}
+	      } catch {}
+
+        // 1.5) 更新 React 状态（imageTool.imageInstances），避免后续 effect 回写覆盖 window 更新
+        try {
+          imageToolSetInstancesRef.current((prev: any[]) => {
+            if (!Array.isArray(prev) || prev.length === 0) return prev;
+            const idx = prev.findIndex((inst) => inst?.id === placeholderId);
+            if (idx < 0) return prev;
+            const inst = prev[idx];
+            const imageData = inst?.imageData || {};
+
+            const currentSrc =
+              typeof imageData.src === "string" ? imageData.src.trim() : "";
+            const normalizedPrevRemoteUrl =
+              typeof imageData.remoteUrl === "string"
+                ? normalizePersistableImageRef(imageData.remoteUrl)
+                : "";
+            const normalizedPrevSrc =
+              typeof imageData.src === "string"
+                ? normalizePersistableImageRef(imageData.src)
+                : "";
+
+            const nextRemoteUrl =
+              incomingSrc ||
+              (normalizedPrevRemoteUrl && isRemoteUrl(normalizedPrevRemoteUrl)
+                ? normalizedPrevRemoteUrl
+                : normalizedPrevSrc && isRemoteUrl(normalizedPrevSrc)
+                ? normalizedPrevSrc
+                : undefined);
+
+            const nextImageData: any = {
+              ...imageData,
+              url: persistedUrl,
+              key: incomingKey || imageData.key,
+              pendingUpload: false,
+              localDataUrl: undefined,
+            };
+            if (nextRemoteUrl) {
+              nextImageData.remoteUrl = nextRemoteUrl;
+            }
+
+            const shouldSwitchSrc =
+              currentSrc.startsWith("blob:") || currentSrc.startsWith("data:");
+            if (shouldSwitchSrc && nextRenderableSrc) {
+              nextImageData.src = nextRenderableSrc;
+            } else if (!currentSrc) {
+              const candidate = nextRemoteUrl || incomingSrc || persistedUrl;
+              nextImageData.src = toRenderableImageSrc(candidate) || candidate;
+            }
+
+            const next = prev.slice();
+            next[idx] = { ...inst, imageData: nextImageData };
+            return next;
+          });
+        } catch {}
 
 	      // 2) 更新 Paper.js Raster（用 data.imageId 关联）
 	      try {
@@ -1405,23 +1478,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       return updated;
     };
 
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<any>).detail || {};
-      const placeholderId = String(detail.placeholderId || "");
-      const remoteUrl = String(detail.remoteUrl || "");
-      if (!placeholderId || !remoteUrl) return;
+	    const handler = (event: Event) => {
+	      const detail = (event as CustomEvent<any>).detail || {};
+	      const placeholderId = String(detail.placeholderId || "");
+	      const remoteUrl = typeof detail.remoteUrl === "string" ? detail.remoteUrl : "";
+	      const key = typeof detail.key === "string" ? detail.key : "";
+	      const ref = remoteUrl || key;
+	      if (!placeholderId || !ref) return;
 
-      let attempts = 0;
-      const maxAttempts = 10;
-      const attempt = () => {
-        const ok = tryUpgrade({ placeholderId, remoteUrl });
-        if (ok) {
-          logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
-            placeholderId,
-            remoteUrl: remoteUrl.substring(0, 80),
-          });
-          return;
-        }
+	      let attempts = 0;
+	      const maxAttempts = 10;
+	      const attempt = () => {
+	        const ok = tryUpgrade({ placeholderId, remoteUrl, key });
+	        if (ok) {
+	          logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
+	            placeholderId,
+	            ref: String(ref).substring(0, 80),
+	          });
+	          return;
+	        }
         if (attempts >= maxAttempts) return;
         attempts += 1;
         setTimeout(attempt, 250 * attempts);

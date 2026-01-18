@@ -13,6 +13,8 @@ export type OssUploadOptions = {
   projectId?: string | null;
   /** 指定 content-type */
   contentType?: string;
+  /** 指定 OSS key（覆盖自动生成） */
+  key?: string;
 };
 
 export type OssUploadResult = {
@@ -130,6 +132,14 @@ function buildKey(dir: string, fileName?: string, extensionHint?: string) {
   return `${dir}${finalName}`;
 }
 
+export function generateOssKey(
+  options: Pick<OssUploadOptions, "dir" | "projectId" | "fileName" | "contentType">
+): { dir: string; key: string } {
+  const dir = normalizeDir(options.dir, options.projectId);
+  const extension = inferExtension(options.fileName, options.contentType);
+  return { dir, key: buildKey(dir, options.fileName, extension) };
+}
+
 export async function uploadToOSS(
   data: Blob | File,
   options: OssUploadOptions = {}
@@ -142,7 +152,18 @@ export async function uploadToOSS(
       options.fileName,
       options.contentType || (data as File).type
     );
-    const key = buildKey(presign.dir || dir, options.fileName, extension);
+    const key = (() => {
+      const forced = typeof options.key === "string" ? options.key.trim() : "";
+      if (forced) {
+        const normalized = forced.replace(/^\/+/, "");
+        const expectedPrefix = (presign.dir || dir).replace(/^\/+/, "");
+        if (expectedPrefix && !normalized.startsWith(expectedPrefix)) {
+          throw new Error(`指定 key 必须以 ${expectedPrefix} 开头`);
+        }
+        return normalized;
+      }
+      return buildKey(presign.dir || dir, options.fileName, extension);
+    })();
 
     const formData = new FormData();
     formData.append("key", key);
