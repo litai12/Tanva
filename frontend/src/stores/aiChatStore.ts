@@ -622,11 +622,18 @@ const createProcessMetrics = (): ProcessMetrics => {
 const getResultImageRemoteUrl = (
   result?: AIImageResult | null
 ): string | undefined => {
-  if (!result?.metadata) return undefined;
-  const midMeta = result.metadata.midjourney as MidjourneyMetadata | undefined;
+  const directUrl =
+    typeof result?.imageUrl === "string" && result.imageUrl.trim().length > 0
+      ? result.imageUrl.trim()
+      : undefined;
+  if (directUrl) return directUrl;
+
+  const metadata = result?.metadata;
+  if (!metadata) return undefined;
+
+  const midMeta = metadata.midjourney as MidjourneyMetadata | undefined;
   if (midMeta?.imageUrl) return midMeta.imageUrl;
-  if (typeof result.metadata.imageUrl === "string")
-    return result.metadata.imageUrl;
+  if (typeof metadata.imageUrl === "string") return metadata.imageUrl;
   return undefined;
 };
 
@@ -2877,11 +2884,15 @@ export const useAIChatStore = create<AIChatState>()(
 
             if (result.success && result.data) {
               // 生成成功 - 更新消息内容和状态
-              const messageContent =
-                result.data.textResponse ||
-                (result.data.hasImage
-                  ? `已生成图像: ${prompt}`
-                  : `无法生成图像: ${prompt}`);
+              const rawTextResponse = result.data.textResponse || "";
+              const shouldUseTextResponse =
+                typeof rawTextResponse === "string" &&
+                /[\u4e00-\u9fff]/.test(rawTextResponse);
+              const messageContent = shouldUseTextResponse
+                ? rawTextResponse
+                : result.data.hasImage
+                ? `已生成图像: ${prompt}`
+                : `无法生成图像: ${prompt}`;
 
               const imageRemoteUrl = getResultImageRemoteUrl(result.data);
               const inlineImageData = result.data.imageData;

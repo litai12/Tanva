@@ -13,7 +13,8 @@
 
 ## API（前缀 `/api/ai`，节选）
 - `POST tool-selection`
-- `POST generate-image` / `edit-image` / `blend-images`
+- `POST generate-image`：返回 `imageUrl`（后端上传 OSS 后给前端），不再返回 base64 `imageData`
+- `POST edit-image` / `blend-images`
 - `POST analyze-image` / `text-chat`
 - `POST remove-background`（含 public 变体）/ `GET background-removal-info`
 - `POST convert-2d-to-3d` / `expand-image`

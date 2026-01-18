@@ -262,10 +262,12 @@ class AIImageService {
       "";
 
     const hasImage =
-      typeof data.hasImage === "boolean"
-        ? data.hasImage
-        : typeof data.imageData === "string" &&
-          data.imageData.trim().length > 0;
+      typeof (data as any).hasImage === "boolean"
+        ? (data as any).hasImage
+        : (typeof (data as any).imageUrl === "string" &&
+            (data as any).imageUrl.trim().length > 0) ||
+          (typeof data.imageData === "string" &&
+            data.imageData.trim().length > 0);
 
     console.log(`🧾 ${operationType} response payload`, {
       textResponse: textResponse || "(无文本返回)",

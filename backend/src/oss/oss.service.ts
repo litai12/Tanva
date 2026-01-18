@@ -63,6 +63,14 @@ export class OssService {
     return this.ossEnabled;
   }
 
+  /**
+   * OSS 是否已启用（并且已配置真实 bucket/ak/sk）。
+   * 仅用于在需要“必须上传成功”的场景做前置校验。
+   */
+  isEnabled(): boolean {
+    return this.isOssEnabled();
+  }
+
   private logDisabledOnce() {
     if (this.loggedDisabled) return;
     this.loggedDisabled = true;

@@ -188,18 +188,23 @@ const RunningHubTest: React.FC = () => {
         throw new Error(errorMsg);
       }
 
-      if (response.data.imageData) {
-        setResultImage(`data:image/png;base64,${response.data.imageData}`);
+      const imageSrc =
+        response.data.imageUrl ||
+        response.data.metadata?.imageUrl ||
+        response.data.imageData;
+
+      if (imageSrc) {
+        setResultImage(imageSrc);
         appendLog({
           timestamp: new Date(),
           level: 'info',
-          message: '✅ 生成成功，已获取图像数据。',
+          message: '✅ 生成成功，已获取图像链接。',
         });
       } else {
         appendLog({
           timestamp: new Date(),
           level: 'info',
-          message: '⚠️ 生成成功，但响应中没有图像数据。',
+          message: '⚠️ 生成成功，但响应中没有图像数据/链接。',
         });
       }
     } catch (err) {

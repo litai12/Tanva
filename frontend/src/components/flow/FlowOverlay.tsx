@@ -6791,8 +6791,13 @@ function FlowInner() {
               });
             }
 
-            if (!result.success || !result.data || !result.data.imageData) {
-              if (result.success && result.data && !result.data.imageData) {
+            const generatedSrc =
+              result.data?.imageUrl ||
+              result.data?.metadata?.imageUrl ||
+              result.data?.imageData;
+
+            if (!result.success || !result.data || !generatedSrc) {
+              if (result.success && result.data && !generatedSrc) {
                 console.warn(
                   "⚠️ Flow generate4 success but no image returned",
                   {
@@ -6801,12 +6806,12 @@ function FlowInner() {
                     aiProvider,
                     model: imageModel,
                     prompt,
-                    hasImage: !!result.data.imageData,
+                    hasImage: !!generatedSrc,
                   }
                 );
               }
             } else {
-              generatedImage = result.data.imageData;
+              generatedImage = generatedSrc;
             }
           } catch {
             // 忽略单张失败，继续下一张
@@ -6998,8 +7003,12 @@ function FlowInner() {
               });
             }
 
-            if (result.success && result.data?.imageData) {
-              return { index, image: result.data.imageData };
+            const generatedSrc =
+              result.data?.imageUrl ||
+              result.data?.metadata?.imageUrl ||
+              result.data?.imageData;
+            if (result.success && generatedSrc) {
+              return { index, image: generatedSrc };
             }
             // 返回错误信息
             return { index, error: result.error?.message || "生成失败" };
@@ -7228,7 +7237,8 @@ function FlowInner() {
         }
 
         const out = result.data;
-        const imgBase64 = out.imageData;
+        const imgBase64 =
+          out.imageUrl || out.metadata?.imageUrl || out.imageData;
         if (!imgBase64) {
           console.warn("⚠️ Flow generate success but no image returned", {
             nodeId,

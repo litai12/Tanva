@@ -59,30 +59,34 @@ const truncateText = (value: string, maxLength: number = 80) =>
 
 const logAIImageResponse = (
   meta: ImageResponseLogMeta,
-  payload: { imageData?: string; textResponse?: string }
+  payload: { imageData?: string; imageUrl?: string; textResponse?: string }
 ) => {
   const hasImageData =
     typeof payload.imageData === "string" &&
     payload.imageData.trim().length > 0;
+  const hasImageUrl =
+    typeof payload.imageUrl === "string" && payload.imageUrl.trim().length > 0;
   const textResponse =
     typeof payload.textResponse === "string" &&
     payload.textResponse.trim().length > 0
       ? payload.textResponse
       : "";
-  const logger = hasImageData ? console.log : console.warn;
+  const logger = hasImageData || hasImageUrl ? console.log : console.warn;
 
-  logger(`${hasImageData ? "🖼️" : "📝"} [AI API] ${meta.endpoint} 响应摘要`, {
+  logger(`${hasImageData || hasImageUrl ? "🖼️" : "📝"} [AI API] ${meta.endpoint} 响应摘要`, {
     provider: meta.provider || "unknown",
     model: meta.model || "unspecified",
     promptPreview: meta.prompt ? truncateText(meta.prompt, 60) : "N/A",
     hasImageData,
     imageDataLength: payload.imageData?.length || 0,
+    hasImageUrl,
+    imageUrlPreview: payload.imageUrl ? truncateText(payload.imageUrl, 120) : "N/A",
     textResponsePreview: textResponse ? truncateText(textResponse, 80) : "N/A",
   });
 
   console.log(`🧾 [AI API] ${meta.endpoint} 返回详情`, {
     textResponse: textResponse || "(无文本返回)",
-    hasImage: hasImageData,
+    hasImage: hasImageData || hasImageUrl,
   });
 };
 
@@ -142,6 +146,7 @@ const resolveDefaultModel = (
 
 type BackendImagePayload = {
   imageData?: string;
+  imageUrl?: string;
   textResponse?: string;
   metadata?: Record<string, any>;
 };
@@ -161,6 +166,17 @@ const mapBackendImageResult = ({
     ...(data.metadata ?? {}),
   };
 
+  const resolvedImageUrl =
+    typeof data.imageUrl === "string" && data.imageUrl.trim().length > 0
+      ? data.imageUrl.trim()
+      : typeof metadata.imageUrl === "string" && metadata.imageUrl.trim().length > 0
+      ? String(metadata.imageUrl).trim()
+      : undefined;
+
+  if (resolvedImageUrl) {
+    metadata.imageUrl = resolvedImageUrl;
+  }
+
   // 确保 imageData 带 data URI 前缀，避免裸 base64 无法直接展示
   const normalizedImageData =
     typeof data.imageData === "string" && data.imageData.trim().length > 0
@@ -175,14 +191,17 @@ const mapBackendImageResult = ({
     metadata.outputFormat = outputFormat || "png";
   }
 
+  const hasImage = Boolean(resolvedImageUrl || normalizedImageData);
+
   return {
     id: generateUUID(),
-    imageData: normalizedImageData,
+    imageData: resolvedImageUrl ? undefined : normalizedImageData,
+    imageUrl: resolvedImageUrl,
     textResponse: data.textResponse,
     prompt,
     model,
     createdAt: new Date(),
-    hasImage: !!data.imageData,
+    hasImage,
     metadata,
   };
 };
@@ -238,6 +257,7 @@ async function performGenerateImageRequest(
       },
       {
         imageData: data.imageData,
+        imageUrl: data.imageUrl,
         textResponse: data.textResponse,
       }
     );
@@ -289,7 +309,10 @@ export async function generateImageViaAPI(
       return lastResponse;
     }
 
-    if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+    if (
+      lastResponse.data.hasImage &&
+      (lastResponse.data.imageUrl || lastResponse.data.imageData)
+    ) {
       logApiTiming("generate-image", startedAt, {
         success: true,
         attempts,
@@ -327,7 +350,7 @@ export async function generateImageViaAPI(
       success: false,
       error: {
         code: "UNKNOWN_ERROR",
-        message: "Image generation failed without a response",
+        message: "图像生成失败（未收到有效响应）",
         timestamp: new Date(),
       },
     }

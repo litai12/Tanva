@@ -11,6 +11,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 - Flow：Image Split 分割运行时使用 `canvas/flow-asset`（Split 时不再强制上传 OSS）；保存前通过 `frontend/src/services/flowSaveService.ts` 自动补传并将 `inputImageUrl` 替换为远程 URL/OSS key，持久化仍为 `inputImageUrl + splitRects`；Worker 侧计算降低主线程峰值。
 - 设计 JSON：`Project.contentJson` / `PublicTemplate.templateData` 强制禁止 `data:`/`blob:`/base64 图片进入 DB/OSS（后端清洗 + 提供批量修复脚本）。
+- 后端 AI：`POST /api/ai/generate-image` 不再返回 base64 `imageData`，改为上传 OSS 并返回 `imageUrl`（前端 Flow/AI Chat 调用已适配）。
 - Flow：图片节点输出以远程 URL/OSS key 为主（Camera/Three/ImageGrid/VideoFrameExtract 等不再持久化 base64/缩略图/`flow-asset:`）；运行时允许临时引用，但保存前会对 `content.flow` 做内联图片校验/补传替换，避免落库。
 - 保存：存在未上传图片时不再阻塞云端保存；改为提示“将丢失”，并在保存 payload 中剥离本地图片引用；图层面板对未上传图片打标并支持重试上传。
 - Canvas：统一图片引用适配（remote URL / `/api/assets/proxy` / OSS key / 相对路径），并将 `<img>`/Paper.js Raster 的展示源统一收口到 `frontend/src/utils/imageSource.ts`（`toRenderableImageSrc`、`isPersistableImageRef`、`normalizePersistableImageRef`、`resolveImageToBlob/DataUrl`）。
