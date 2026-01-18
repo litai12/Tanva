@@ -61,6 +61,7 @@ import {
 } from "@/stores/personalLibraryStore";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { imageUploadService } from "@/services/imageUploadService";
+import { generateOssKey } from "@/services/ossUploadService";
 import { putFlowImageBlobs, toFlowImageAssetRef } from "@/services/flowImageAssetStore";
 
 const isInlineImageSource = (value: unknown): value is string => {
@@ -1003,40 +1004,67 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             const uploadDir = projectId
               ? `projects/${projectId}/images/`
               : "uploads/images/";
-            const uploadResult = await imageUploadService.uploadImageFile(file, {
+
+            // 1) 先用 blob: 立即上画布，同时生成并关联 key（避免等上传完才显示）
+            const blobUrl = URL.createObjectURL(file);
+            const imageId = `local_img_${Date.now()}_${Math.random()
+              .toString(36)
+              .slice(2, 8)}`;
+            const { key } = generateOssKey({
               projectId,
               dir: uploadDir,
               fileName: file.name,
+              contentType: file.type,
             });
+            const localAsset = {
+              id: imageId,
+              url: key,
+              key,
+              src: key,
+              fileName: file.name,
+              contentType: file.type,
+              pendingUpload: true,
+              localDataUrl: blobUrl,
+            };
 
-            const payload = (() => {
-              if (uploadResult.success && uploadResult.asset?.url) {
-                return {
-                  ...uploadResult.asset,
-                  src: uploadResult.asset.url,
-                };
-              }
-
-              // fallback: blob URL（避免 base64）
-              const blobUrl = URL.createObjectURL(file);
-              return {
-                id: `local_img_${Date.now()}_${Math.random()
-                  .toString(36)
-                  .slice(2, 8)}`,
-                url: blobUrl,
-                src: blobUrl,
-                fileName: file.name,
-                pendingUpload: true,
-                localDataUrl: blobUrl,
-              };
-            })();
             await uploadImageToCanvas?.(
-              payload as any,
+              localAsset as any,
               file.name,
               undefined,
               { x: projectPoint.x, y: projectPoint.y },
               "manual"
             );
+
+            // 2) 后台上传：成功后回写并清理本地临时 blob
+            void imageUploadService
+              .uploadImageFile(file, {
+                projectId,
+                dir: uploadDir,
+                fileName: file.name,
+                key,
+              })
+              .then((uploadResult) => {
+                if (!uploadResult.success || !uploadResult.asset?.url) {
+                  logger.upload?.("⚠️ [CanvasDrop] 图片上传失败，已保留本地副本", {
+                    error: uploadResult.error,
+                  });
+                  return;
+                }
+                try {
+                  window.dispatchEvent(
+                    new CustomEvent("tanva:upgradeImageSource", {
+                      detail: {
+                        placeholderId: imageId,
+                        key: uploadResult.asset.key || key,
+                        remoteUrl: uploadResult.asset.url,
+                      },
+                    })
+                  );
+                } catch {}
+              })
+              .catch((err) => {
+                logger.upload?.("⚠️ [CanvasDrop] 图片上传异常，已保留本地副本", { err });
+              });
           } catch (err) {
             console.error("处理拖拽图片失败:", err);
           }
