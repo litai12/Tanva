@@ -1596,6 +1596,77 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               if (imageId !== placeholderId) return;
 
               const currentSource = getRasterSourceString(raster);
+              const restoreBounds = (() => {
+                try {
+                  const stored = (raster as any)?.data?.__tanvaBounds as
+                    | { x: number; y: number; width: number; height: number }
+                    | undefined;
+                  if (
+                    stored &&
+                    Number.isFinite(stored.x) &&
+                    Number.isFinite(stored.y) &&
+                    Number.isFinite(stored.width) &&
+                    Number.isFinite(stored.height) &&
+                    stored.width > 0 &&
+                    stored.height > 0
+                  ) {
+                    return new paper.Rectangle(
+                      stored.x,
+                      stored.y,
+                      stored.width,
+                      stored.height
+                    );
+                  }
+                } catch {}
+                try {
+                  const b = raster.bounds as paper.Rectangle | undefined;
+                  if (b && b.width > 0 && b.height > 0) return b.clone();
+                } catch {}
+                return null;
+              })();
+              const applyBoundsToGroup = (rect: paper.Rectangle) => {
+                if (!rect) return;
+                try {
+                  raster.bounds = rect.clone();
+                } catch {}
+                try {
+                  const parent: any = raster.parent;
+                  if (
+                    parent &&
+                    parent.className === "Group" &&
+                    Array.isArray(parent.children)
+                  ) {
+                    parent.children.forEach((child: any) => {
+                      if (!child || child === raster) return;
+                      const data = child.data || {};
+                      if (
+                        data.type === "image-selection-area" ||
+                        data.isSelectionBorder ||
+                        data.isImageHitRect
+                      ) {
+                        try {
+                          child.bounds = rect.clone();
+                        } catch {}
+                        return;
+                      }
+                      if (data.isResizeHandle) {
+                        const direction = data.direction;
+                        let x = rect.x;
+                        let y = rect.y;
+                        if (direction === "ne" || direction === "se") {
+                          x = rect.x + rect.width;
+                        }
+                        if (direction === "sw" || direction === "se") {
+                          y = rect.y + rect.height;
+                        }
+                        try {
+                          child.position = new paper.Point(x, y);
+                        } catch {}
+                      }
+                    });
+                  }
+                } catch {}
+              };
 
               raster.data = {
                 ...(raster.data || {}),
@@ -1610,12 +1681,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 (currentSource.startsWith("blob:") || currentSource.startsWith("data:")) &&
                 currentSource !== nextRenderableSrc
               ) {
+                const rectBeforeSwap = restoreBounds;
                 try {
                   raster.source = loadedImage;
                 } catch {
                   try {
                     raster.source = nextRenderableSrc;
                   } catch {}
+                }
+                // 🔧 Paper.js 在切换 source 时可能会短暂重置 bounds（甚至变成 0），导致“闪一下再恢复”；
+                // 这里立即恢复 bounds/选择元素，避免等待 onLoad 回调才补齐造成可见闪烁。
+                if (rectBeforeSwap) {
+                  applyBoundsToGroup(rectBeforeSwap);
                 }
                 updated = true;
               }
@@ -1625,6 +1702,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         // 3) 覆盖完成后再尝试回收 blob: ObjectURL
         revokeObjectUrlsIfUnused(objectUrlsToMaybeRevoke);
+
+        if (updated) {
+          try {
+            paper.view?.update();
+          } catch {}
+        }
 
         return updated;
       };
