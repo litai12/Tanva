@@ -1,5 +1,6 @@
 import paper from 'paper';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import { useAIChatStore } from '@/stores/aiChatStore';
 import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAssetSnapshot } from '@/types/project';
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
@@ -29,6 +30,61 @@ class PaperSaveService {
   private persistableImageRefMap: Map<string, string> | null = null;
   private imageObjectUrlMap = new Map<string, string>();
 
+  private getRasterSourceString(raster: any): string {
+    try {
+      const source = raster?.source;
+      if (typeof source === 'string') return source;
+      const src = (source as any)?.src;
+      if (typeof src === 'string') return src;
+    } catch {}
+    return '';
+  }
+
+  private isObjectUrlStillUsed(url: string): boolean {
+    if (typeof window === 'undefined') return false;
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (!trimmed.startsWith('blob:')) return false;
+
+    try {
+      const instances = (window as any).tanvaImageInstances as any[] | undefined;
+      if (Array.isArray(instances)) {
+        const usedByInstances = instances.some((inst) => {
+          const d = inst?.imageData;
+          return d?.localDataUrl === trimmed || d?.url === trimmed || d?.src === trimmed;
+        });
+        if (usedByInstances) return true;
+      }
+    } catch {}
+
+    try {
+      const project = paper?.project as any;
+      const rasterClass = (paper as any).Raster;
+      if (project?.getItems && rasterClass) {
+        const rasters = project.getItems({ class: rasterClass }) as any[];
+        const usedByRaster = rasters.some(
+          (raster) => this.getRasterSourceString(raster) === trimmed
+        );
+        if (usedByRaster) return true;
+      }
+    } catch {}
+
+    // AI 对话框可能会临时引用 blob: 作为参考图预览，不能提前 revoke
+    try {
+      const chat = useAIChatStore.getState();
+      if (chat.sourceImageForEditing === trimmed) return true;
+      if (chat.sourceImageForAnalysis === trimmed) return true;
+      if (
+        Array.isArray(chat.sourceImagesForBlending) &&
+        chat.sourceImagesForBlending.some((v) => v === trimmed)
+      ) {
+        return true;
+      }
+    } catch {}
+
+    return false;
+  }
+
   private isInlineImageSource(value: unknown): value is string {
     if (typeof value !== 'string') return false;
     const trimmed = value.trim();
@@ -44,9 +100,21 @@ class PaperSaveService {
     const trimmed = url.trim();
     if (!trimmed.startsWith('blob:')) return;
     try {
-      window.setTimeout(() => {
-        try { URL.revokeObjectURL(trimmed); } catch {}
-      }, 1000);
+      let attempts = 0;
+      const maxAttempts = 30; // 最多等 ~30s，避免提前 revoke 导致裂图
+      const attempt = () => {
+        attempts += 1;
+        if (this.isObjectUrlStillUsed(trimmed)) {
+          if (attempts < maxAttempts) {
+            window.setTimeout(attempt, 1000);
+          }
+          return;
+        }
+        try {
+          URL.revokeObjectURL(trimmed);
+        } catch {}
+      };
+      window.setTimeout(attempt, 1000);
     } catch {}
   }
 
