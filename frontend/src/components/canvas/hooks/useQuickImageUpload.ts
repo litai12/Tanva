@@ -10,7 +10,6 @@ import { historyService } from '@/services/historyService';
 import { useUIStore } from '@/stores/uiStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useImageHistoryStore } from '@/stores/imageHistoryStore';
-import { imageUploadService } from '@/services/imageUploadService';
 import { isRaster } from '@/utils/paperCoords';
 import { createImageGroupBlock } from '@/utils/paperImageGroupBlock';
 import {
@@ -984,30 +983,18 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 };
                 fileName = resolvedName;
             } else {
-                // 如果是 base64 data URL，执行上传流程
-                const uploadDir = projectId ? `projects/${projectId}/images/` : 'uploads/images/';
-                const uploadResult = await imageUploadService.uploadImageDataUrl(imagePayload, {
-                    projectId,
-                    dir: uploadDir,
-                    fileName,
-                });
-                if (uploadResult.success && uploadResult.asset) {
-                    // 上传成功后优先使用远程URL，避免在运行时长期保留大体积 base64（会拖慢渲染与序列化）
-                    asset = { ...uploadResult.asset, src: uploadResult.asset.url };
-                    fileName = asset.fileName || fileName;
-                } else {
-                    const errMsg = uploadResult.error || '图片上传失败';
-                    logger.error('快速上传图片失败:', errMsg);
-                    const localSource = await toCanvasSafeInlineImageSource(imagePayload);
-                    asset = {
-                        id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                        url: localSource,
-                        src: localSource,
-                        fileName: fileName,
-                        pendingUpload: true,
-                        localDataUrl: localSource,
-                    };
-                }
+                // 先上画布（本地 blob: 预览），上传由自动保存流程补传到 OSS（避免“等上传完才显示”）
+                const resolvedName = fileName || 'uploaded-image.png';
+                const localSource = await toCanvasSafeInlineImageSource(imagePayload);
+                asset = {
+                    id: `local_img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    url: localSource,
+                    src: localSource,
+                    fileName: resolvedName,
+                    pendingUpload: true,
+                    localDataUrl: localSource,
+                };
+                fileName = resolvedName;
             }
         } else {
             asset = {

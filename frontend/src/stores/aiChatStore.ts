@@ -74,7 +74,7 @@ const placeholderLogger = logger.scope("placeholder");
 // 限制图片上传并发，避免同时 atob/encode/上传导致内存峰值
 const aiChatUploadLimiter = createAsyncLimiter(2);
 // 限制 AI 对话图片历史/缩略图处理并发，避免多图同时转码导致瞬时内存峰值
-const aiChatHistoryLimiter = createAsyncLimiter(1);
+const aiChatHistoryLimiter = createAsyncLimiter(2);
 
 // IndexedDB 存储的会话数据结构
 interface IDBSessionsData {
@@ -6875,5 +6875,29 @@ export async function uploadAudioToOSS(
   } catch (error: any) {
     console.error("❌ 音频上传异常:", error);
     throw error;
+  }
+}
+
+// 当画布被清空时，同步清理 AI 对话框的参考图/缓存图，避免遗留 blob: 引用占用内存
+const AI_CHAT_PAPER_CLEARED_LISTENER_FLAG =
+  "__tanva_aiChat_paperProjectClearedListenerRegistered";
+
+if (typeof window !== "undefined") {
+  const win = window as any;
+  if (!win[AI_CHAT_PAPER_CLEARED_LISTENER_FLAG]) {
+    win[AI_CHAT_PAPER_CLEARED_LISTENER_FLAG] = true;
+    window.addEventListener("paper-project-cleared", () => {
+      try {
+        const store = useAIChatStore.getState();
+        store.setSourceImageForEditing(null);
+        store.clearImagesForBlending();
+        store.setSourceImageForAnalysis(null);
+        store.setSourcePdfForAnalysis(null);
+      } catch {}
+
+      try {
+        contextManager.clearImageCache();
+      } catch {}
+    });
   }
 }

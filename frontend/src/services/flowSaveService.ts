@@ -1,6 +1,7 @@
 import { imageUploadService } from '@/services/imageUploadService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import type { TemplateNode } from '@/types/template';
+import { mapWithLimit } from '@/utils/asyncLimit';
 import { isPersistableImageRef, normalizePersistableImageRef } from '@/utils/imageSource';
 
 export type FlowSaveFlushResult = {
@@ -31,6 +32,14 @@ async function flushImageSplitInputImages(): Promise<FlowSaveFlushResult> {
 
   const nextNodes: TemplateNode[] = [...nodes];
 
+  const uploadTargets: Array<{
+    index: number;
+    node: TemplateNode;
+    nodeId: string;
+    data: Record<string, unknown>;
+    candidateRaw: string;
+  }> = [];
+
   for (let i = 0; i < nodes.length; i += 1) {
     const node = nodes[i];
     if (!node || node.type !== 'imageSplit') continue;
@@ -57,29 +66,49 @@ async function flushImageSplitInputImages(): Promise<FlowSaveFlushResult> {
       continue;
     }
 
-    const uploadResult = await imageUploadService.uploadImageSource(candidateRaw, {
-      projectId: projectId ?? undefined,
-      dir,
-      fileName: `image_split_${nodeId}_${Date.now()}.png`,
+    uploadTargets.push({ index: i, node, nodeId, data, candidateRaw });
+  }
+
+  if (uploadTargets.length > 0) {
+    const results = await mapWithLimit(uploadTargets, 2, async (target) => {
+      const uploadResult = await imageUploadService.uploadImageSource(target.candidateRaw, {
+        projectId: projectId ?? undefined,
+        dir,
+        fileName: `image_split_${target.nodeId}_${Date.now()}.png`,
+      });
+
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        return { index: target.index, ok: false as const, ref: '' };
+      }
+
+      const ref = (uploadResult.asset.key || uploadResult.asset.url).trim();
+      if (!ref) {
+        return { index: target.index, ok: false as const, ref: '' };
+      }
+
+      return { index: target.index, ok: true as const, ref };
     });
 
-    if (!uploadResult.success || !uploadResult.asset?.url) {
-      failedCount += 1;
-      continue;
-    }
+    results.forEach((result) => {
+      if (!result.ok) {
+        failedCount += 1;
+        return;
+      }
 
-    const ref = (uploadResult.asset.key || uploadResult.asset.url).trim();
-    if (!ref) {
-      failedCount += 1;
-      continue;
-    }
+      const original = nodes[result.index];
+      if (!original || original.type !== 'imageSplit') {
+        failedCount += 1;
+        return;
+      }
 
-    nextNodes[i] = {
-      ...node,
-      data: { ...data, inputImageUrl: ref, inputImage: undefined },
-    };
-    changed = true;
-    uploadedCount += 1;
+      const data = (original.data ?? {}) as Record<string, unknown>;
+      nextNodes[result.index] = {
+        ...original,
+        data: { ...data, inputImageUrl: result.ref, inputImage: undefined },
+      };
+      changed = true;
+      uploadedCount += 1;
+    });
   }
 
   if (changed) {

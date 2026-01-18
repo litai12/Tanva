@@ -1264,6 +1264,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	        ? normalizedIncoming
 	        : undefined;
 	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
+        const nextRenderableSrc =
+          toRenderableImageSrc(incomingSrc || persistedUrl) ||
+          incomingSrc ||
+          persistedUrl;
 
 		      let updated = false;
 		      const objectUrlsToMaybeRevoke = new Set<string>();
@@ -1334,8 +1338,13 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	            if (nextRemoteUrl) {
 	              nextImageData.remoteUrl = nextRemoteUrl;
 	            }
-	            // 保持画布当前渲染 src；仅在缺失时补齐一个可渲染引用
-	            if (!currentSrc) {
+	            // 若当前使用 blob:/data: 作为渲染源，尽快切换为远程/可持久化引用，释放内存
+	            const shouldSwitchSrc =
+	              currentSrc.startsWith("blob:") || currentSrc.startsWith("data:");
+	            if (shouldSwitchSrc && nextRenderableSrc) {
+	              nextImageData.src = nextRenderableSrc;
+	            } else if (!currentSrc) {
+	              // 缺失时补齐一个可渲染引用
 	              const candidate = nextRemoteUrl || incomingSrc || persistedUrl;
 	              nextImageData.src = toRenderableImageSrc(candidate) || candidate;
 	            }
@@ -1374,6 +1383,17 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 	              ...(incomingKey ? { key: incomingKey } : null),
 	              pendingUpload: false,
 	            };
+            // 若 Raster 当前使用 blob:/data: 作为 source，则切换到远程/可持久化引用，以便回收 ObjectURL
+            if (
+              nextRenderableSrc &&
+              (currentSource.startsWith("blob:") || currentSource.startsWith("data:")) &&
+              currentSource !== nextRenderableSrc
+            ) {
+              try {
+                raster.source = nextRenderableSrc;
+              } catch {}
+              updated = true;
+            }
 	            updated = true;
 	          });
 	        }
@@ -2040,6 +2060,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handlePaperCleared = () => {
       logger.debug("🧹 收到 paper-project-cleared 事件，重置前端实例状态");
 
+      // 回收画布相关 blob: ObjectURL（避免清空后仍占用内存）
+      const blobUrlsToRevoke = new Set<string>();
+      const addBlobUrl = (value: unknown) => {
+        if (typeof value !== "string") return;
+        if (!value.startsWith("blob:")) return;
+        blobUrlsToRevoke.add(value);
+      };
+      try {
+        const instances = (window as any).tanvaImageInstances as any[] | undefined;
+        if (Array.isArray(instances)) {
+          instances.forEach((inst) => {
+            const data = inst?.imageData;
+            addBlobUrl(data?.localDataUrl);
+            addBlobUrl(data?.url);
+            addBlobUrl(data?.src);
+          });
+        }
+      } catch {}
+      try {
+        const project = paper?.project as any;
+        const rasterClass = (paper as any).Raster;
+        if (project?.getItems && rasterClass) {
+          const rasters = project.getItems({ class: rasterClass }) as any[];
+          rasters.forEach((raster) => {
+            try {
+              const source = (raster as any)?.source;
+              if (typeof source === "string") addBlobUrl(source);
+              else addBlobUrl((source as any)?.src);
+            } catch {}
+          });
+        }
+      } catch {}
+
       resetImageInstances([]);
       resetSelectedImageIds([]);
       if (imagePlaceholderRef?.current) {
@@ -2070,6 +2123,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         (window as any).tanvaTextItems = [];
       } catch {}
+
+      blobUrlsToRevoke.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      });
     };
 
     window.addEventListener("paper-project-cleared", handlePaperCleared);
@@ -2118,6 +2177,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 直接同步执行，但使用稳定的函数引用
     try {
+      // 回收旧项目遗留的 blob: ObjectURL（在清空实例前采集）
+      const blobUrlsToRevoke = new Set<string>();
+      const addBlobUrl = (value: unknown) => {
+        if (typeof value !== "string") return;
+        if (!value.startsWith("blob:")) return;
+        blobUrlsToRevoke.add(value);
+      };
+      try {
+        const instances = (window as any).tanvaImageInstances as any[] | undefined;
+        if (Array.isArray(instances)) {
+          instances.forEach((inst) => {
+            const data = inst?.imageData;
+            addBlobUrl(data?.localDataUrl);
+            addBlobUrl(data?.url);
+            addBlobUrl(data?.src);
+          });
+        }
+      } catch {}
+
       // 清空图片实例
       clearProjectImageInstances([]);
       clearProjectSelectedImageIds([]);
@@ -2131,6 +2209,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       // 清空选择工具状态
       clearProjectSelections();
+
+      blobUrlsToRevoke.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      });
     } finally {
       clearingInProgressRef.current = false;
     }

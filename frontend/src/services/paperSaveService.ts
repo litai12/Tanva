@@ -4,6 +4,7 @@ import type { ImageAssetSnapshot, ModelAssetSnapshot, TextAssetSnapshot, VideoAs
 import type { Model3DData } from '@/services/model3DUploadService';
 import { imageUploadService } from '@/services/imageUploadService';
 import { saveMonitor } from '@/utils/saveMonitor';
+import { createAsyncLimiter } from '@/utils/asyncLimit';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
 import {
   isAssetKeyRef,
@@ -521,8 +522,8 @@ class PaperSaveService {
     const projectStore = useProjectContentStore.getState();
     const projectId = projectStore.projectId;
     const runtimeMap = this.buildRuntimeImageInstanceMap();
-    let uploaded = 0;
-    let failed = 0;
+    const limiter = createAsyncLimiter(2);
+    const tasks: Array<Promise<{ uploaded: number; failed: number }>> = [];
 
     for (const image of assets.images) {
       // 关键：避免在 store/Promise/闭包里长期持有 base64 大字符串
@@ -534,6 +535,9 @@ class PaperSaveService {
         isPersistableImageRef(image.remoteUrl) ||
         isPersistableImageRef(image.key || null);
       if (hasRemote) {
+        const hadLocalDataUrl =
+          typeof image.localDataUrl === 'string' &&
+          (image.localDataUrl.startsWith('blob:') || image.localDataUrl.startsWith('data:'));
         if (image.pendingUpload) {
           image.pendingUpload = false;
           const local = typeof image.localDataUrl === 'string' ? image.localDataUrl : '';
@@ -544,83 +548,114 @@ class PaperSaveService {
           }
           this.clearTrackedImageObjectUrl(image.id);
         }
+        // 若画布仍在用 blob:/data: 渲染（例如先上画布再补传），触发一次升级以便切换为远程引用并回收 ObjectURL
+        if (hadLocalDataUrl) {
+          const refCandidate = image.key || image.url || image.remoteUrl || image.src;
+          if (refCandidate) {
+            try {
+              window.dispatchEvent(new CustomEvent('tanva:upgradeImageSource', {
+                detail: {
+                  placeholderId: image.id,
+                  remoteUrl: refCandidate,
+                },
+              }));
+            } catch {}
+          }
+        }
         continue;
       }
 
-      const inlineSource = await this.resolveInlineAssetSource(image);
-      if (!inlineSource) {
-        if (!image.pendingUpload) {
-          image.pendingUpload = true;
-          this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
-        }
-        continue;
-      }
-
-      try {
-        const uploadOptions = {
-          projectId,
-          dir: projectId ? `projects/${projectId}/images/` : undefined,
-          fileName: image.fileName || `autosave_${image.id || Date.now()}.png`,
-        };
-
-        let uploadResult;
-        if (inlineSource.kind === 'blob') {
-          const blob = inlineSource.value;
-          const file = new File(
-            [blob],
-            uploadOptions.fileName,
-            { type: blob.type || image.contentType || 'image/png' }
-          );
-          uploadResult = await imageUploadService.uploadImageFile(file, uploadOptions);
-        } else {
-          uploadResult = await imageUploadService.uploadImageDataUrl(inlineSource.value, uploadOptions);
-        }
-
-        if (uploadResult.success && uploadResult.asset?.url) {
-          const uploadedAsset = uploadResult.asset;
-          const local = typeof image.localDataUrl === 'string' ? image.localDataUrl : '';
-          image.url = (uploadedAsset.key || uploadedAsset.url).trim();
-          image.key = uploadedAsset.key || image.key;
-          image.remoteUrl = uploadedAsset.url;
-          // 持久化快照里保留远程 src，避免保存 blob/dataURL 到设计 JSON
-          image.src = uploadedAsset.url;
-          image.fileName = image.fileName || uploadedAsset.fileName;
-          image.width = image.width || uploadedAsset.width;
-          image.height = image.height || uploadedAsset.height;
-          image.pendingUpload = false;
-          delete image.localDataUrl;
-          this.syncRuntimeImageAsset(
-            image.id,
-            {
-              url: image.url,
-              key: image.key,
-              remoteUrl: image.remoteUrl,
-              pendingUpload: false,
-              localDataUrl: undefined,
-            },
-            runtimeMap,
-          );
-          if (local && local.trim().startsWith('blob:')) {
-            this.scheduleRevokeObjectUrl(local);
+      tasks.push(
+        limiter.run(async () => {
+          const inlineSource = await this.resolveInlineAssetSource(image);
+          if (!inlineSource) {
+            if (!image.pendingUpload) {
+              image.pendingUpload = true;
+              this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
+            }
+            return { uploaded: 0, failed: 0 };
           }
-          this.clearTrackedImageObjectUrl(image.id);
-          uploaded += 1;
-        } else {
-          if (!image.pendingUpload) {
-            image.pendingUpload = true;
-            this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
+
+          try {
+            const uploadOptions = {
+              projectId,
+              dir: projectId ? `projects/${projectId}/images/` : undefined,
+              fileName: image.fileName || `autosave_${image.id || Date.now()}.png`,
+            };
+
+            let uploadResult;
+            if (inlineSource.kind === 'blob') {
+              const blob = inlineSource.value;
+              const file = new File(
+                [blob],
+                uploadOptions.fileName,
+                { type: blob.type || image.contentType || 'image/png' }
+              );
+              uploadResult = await imageUploadService.uploadImageFile(file, uploadOptions);
+            } else {
+              uploadResult = await imageUploadService.uploadImageDataUrl(inlineSource.value, uploadOptions);
+            }
+
+            if (uploadResult.success && uploadResult.asset?.url) {
+              const uploadedAsset = uploadResult.asset;
+              const local = typeof image.localDataUrl === 'string' ? image.localDataUrl : '';
+              image.url = (uploadedAsset.key || uploadedAsset.url).trim();
+              image.key = uploadedAsset.key || image.key;
+              image.remoteUrl = uploadedAsset.url;
+              // 持久化快照里保留远程 src，避免保存 blob/dataURL 到设计 JSON
+              image.src = uploadedAsset.url;
+              image.fileName = image.fileName || uploadedAsset.fileName;
+              image.width = image.width || uploadedAsset.width;
+              image.height = image.height || uploadedAsset.height;
+              image.pendingUpload = false;
+              delete image.localDataUrl;
+              this.syncRuntimeImageAsset(
+                image.id,
+                {
+                  url: image.url,
+                  key: image.key,
+                  remoteUrl: image.remoteUrl,
+                  pendingUpload: false,
+                  localDataUrl: undefined,
+                },
+                runtimeMap,
+              );
+              // 通知画布：切换渲染源并尽快回收旧 blob: ObjectURL
+              try {
+                window.dispatchEvent(new CustomEvent('tanva:upgradeImageSource', {
+                  detail: {
+                    placeholderId: image.id,
+                    remoteUrl: image.url || uploadedAsset.url,
+                  },
+                }));
+              } catch {}
+              if (local && local.trim().startsWith('blob:')) {
+                this.scheduleRevokeObjectUrl(local);
+              }
+              this.clearTrackedImageObjectUrl(image.id);
+              return { uploaded: 1, failed: 0 };
+            }
+
+            if (!image.pendingUpload) {
+              image.pendingUpload = true;
+              this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
+            }
+            return { uploaded: 0, failed: 1 };
+          } catch (error) {
+            if (!image.pendingUpload) {
+              image.pendingUpload = true;
+              this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
+            }
+            console.warn('自动上传本地图片失败:', error);
+            return { uploaded: 0, failed: 1 };
           }
-          failed += 1;
-        }
-      } catch (error) {
-        if (!image.pendingUpload) {
-          image.pendingUpload = true;
-          this.syncRuntimeImageAsset(image.id, { pendingUpload: true }, runtimeMap);
-        }
-        failed += 1;
-        console.warn('自动上传本地图片失败:', error);
-      }
+        })
+      );
     }
+
+    const stats = await Promise.all(tasks);
+    const uploaded = stats.reduce((sum, s) => sum + s.uploaded, 0);
+    const failed = stats.reduce((sum, s) => sum + s.failed, 0);
 
     if (uploaded > 0) {
       console.log(`📤 自动补全了 ${uploaded} 张本地图片的远程URL`);
