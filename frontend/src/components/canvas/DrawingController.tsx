@@ -1359,7 +1359,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const rasterClass = (paper as any).Raster;
           if (project?.getItems && rasterClass) {
             const rasters = project.getItems({ class: rasterClass }) as any[];
-            return rasters.some((raster) => getRasterSourceString(raster) === url);
+            const usedByRasters = rasters.some(
+              (raster) => getRasterSourceString(raster) === url
+            );
+            if (usedByRasters) return true;
           }
         } catch {}
 
@@ -1376,18 +1379,46 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           }
         } catch {}
 
+        // DOM 中仍在展示该 blob:（例如参考图平滑切换的双缓冲），不能提前 revoke
+        try {
+          const images = Array.from(document.images || []);
+          const usedByDom = images.some((img) => {
+            try {
+              return (
+                (img as any)?.currentSrc === url ||
+                (typeof (img as any)?.src === "string" && (img as any).src === url)
+              );
+            } catch {
+              return false;
+            }
+          });
+          if (usedByDom) return true;
+        } catch {}
+
         return false;
       };
 
-      const revokeObjectUrlsIfUnused = (urls: Set<string>) => {
+      const revokeObjectUrlsIfUnused = (urls: Set<string>, attempt: number = 0) => {
         if (!urls || urls.size === 0) return;
+        const stillUsed = new Set<string>();
         urls.forEach((url) => {
           if (!url || typeof url !== "string" || !url.startsWith("blob:")) return;
-          if (isObjectUrlStillUsed(url)) return;
+          if (isObjectUrlStillUsed(url)) {
+            stillUsed.add(url);
+            return;
+          }
           try {
             URL.revokeObjectURL(url);
           } catch {}
         });
+
+        if (stillUsed.size > 0 && attempt < 30) {
+          try {
+            window.setTimeout(() => {
+              revokeObjectUrlsIfUnused(stillUsed, attempt + 1);
+            }, 500);
+          } catch {}
+        }
       };
 
       const swapChatSelectionIfMatches = (params: {

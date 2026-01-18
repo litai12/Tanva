@@ -26,6 +26,7 @@ import {
 // 比例选择改为自定义浮层（定位到对话框上方）
 import ImagePreviewModal from "@/components/ui/ImagePreviewModal";
 import SmartImage from "@/components/ui/SmartImage";
+import SmoothSmartImage from "@/components/ui/SmoothSmartImage";
 import { useAIChatStore, getTextModelForProvider } from "@/stores/aiChatStore";
 import { useUIStore } from "@/stores";
 import type { ManualAIMode, ChatMessage } from "@/stores/aiChatStore";
@@ -2725,7 +2726,7 @@ const AIChatDialog: React.FC = () => {
                   {/* 单图编辑显示 */}
                   {sourceImageForEditing && (
                     <div className='relative group'>
-                      <SmartImage
+                      <SmoothSmartImage
                         src={sourceImageForEditing}
                         alt='编辑图像'
                         className='object-cover w-16 h-16 border rounded shadow-sm'
@@ -2761,7 +2762,7 @@ const AIChatDialog: React.FC = () => {
                   {/* 多图融合显示 */}
                   {sourceImagesForBlending.map((imageData, index) => (
                     <div key={index} className='relative group'>
-                      <SmartImage
+                      <SmoothSmartImage
                         src={imageData}
                         alt={`融合图片 ${index + 1}`}
                         className='object-cover w-16 h-16 border rounded shadow-sm'

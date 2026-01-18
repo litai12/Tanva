@@ -82,6 +82,22 @@ class PaperSaveService {
       }
     } catch {}
 
+    // DOM 中仍在展示该 blob:（例如参考图平滑切换的双缓冲），不能提前 revoke
+    try {
+      const images = Array.from(document.images || []);
+      const usedByDom = images.some((img) => {
+        try {
+          return (
+            (img as any)?.currentSrc === trimmed ||
+            (typeof (img as any)?.src === 'string' && (img as any).src === trimmed)
+          );
+        } catch {
+          return false;
+        }
+      });
+      if (usedByDom) return true;
+    } catch {}
+
     return false;
   }
 
