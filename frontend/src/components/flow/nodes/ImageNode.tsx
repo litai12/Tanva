@@ -8,8 +8,14 @@ import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
-import { fileToDataUrl } from "@/utils/imageConcurrency";
-import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
+import { imageUploadService } from "@/services/imageUploadService";
+import { generateOssKey } from "@/services/ossUploadService";
+import {
+  deleteFlowImage,
+  parseFlowImageAssetRef,
+  putFlowImageBlobs,
+  toFlowImageAssetRef,
+} from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
 import { shallow } from "zustand/shallow";
 
@@ -291,6 +297,8 @@ const CanvasCropPreview = React.memo(({
 const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, onDrop, onDragOver, onDoubleClick }: {
   displaySrc?: string;
   isResizing?: boolean;
+  uploading?: boolean;
+  uploadError?: string;
   canvasCrop?: {
     src: string;
     rect: { x: number; y: number; width: number; height: number };
@@ -311,6 +319,7 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, onDrop, o
       minHeight: 120,
       background: "#fff",
       borderRadius: 6,
+      position: "relative",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -320,6 +329,48 @@ const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, onDrop, o
     }}
     title='拖拽图片到此或双击上传'
   >
+    {Boolean(uploading) && (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "none",
+          background: "rgba(255,255,255,0.6)",
+          zIndex: 10,
+          fontSize: 12,
+          color: "#374151",
+        }}
+      >
+        正在上传…
+      </div>
+    )}
+    {!uploading && uploadError ? (
+      <div
+        style={{
+          position: "absolute",
+          left: 8,
+          right: 8,
+          bottom: 8,
+          zIndex: 10,
+          pointerEvents: "none",
+          fontSize: 12,
+          color: "#b91c1c",
+          background: "rgba(255,255,255,0.9)",
+          border: "1px solid #fecaca",
+          borderRadius: 6,
+          padding: "6px 8px",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={uploadError}
+      >
+        上传失败：{uploadError}
+      </div>
+    ) : null}
     {canvasCrop ? (
       <CanvasCropPreview
         src={canvasCrop.src}
@@ -479,9 +530,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
     const sourceWidth = typeof crop.sourceWidth === "number" ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
     const sourceHeight = typeof crop.sourceHeight === "number" ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
 
+    // 运行时预览优先使用本地 flow-asset/blob（上传中 key 可能尚不可用）
     const baseRef =
-      (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
       (typeof (data as any)?.imageData === "string" && (data as any).imageData.trim()) ||
+      (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
       (typeof connectedFrameImage === "string" && connectedFrameImage.trim()) ||
       "";
     if (!baseRef) return null;
@@ -703,38 +755,172 @@ function ImageNodeInner({ id, data, selected }: Props) {
     const file = files[0];
     if (!file.type.startsWith("image/")) return;
     const normalizedFileName = (file.name || "").trim();
-    const result = await fileToDataUrl(file);
-    const base64 = result.includes(",") ? result.split(",")[1] : result;
     const displayName = normalizedFileName || "未命名图片";
-    const ev = new CustomEvent("flow:updateNodeData", {
-      detail: { id, patch: { imageData: base64, imageName: displayName } },
+
+    const uploadDir = projectId
+      ? `projects/${projectId}/images/`
+      : "uploads/images/";
+    const { key } = generateOssKey({
+      projectId,
+      dir: uploadDir,
+      fileName: file.name,
+      contentType: file.type,
     });
-    window.dispatchEvent(ev);
+
+    let flowAssetId: string | null = null;
+    let previewRef: string | null = null;
+    try {
+      const [assetId] = await putFlowImageBlobs([
+        { blob: file, projectId: projectId ?? null, nodeId: id },
+      ]);
+      if (assetId) {
+        flowAssetId = assetId;
+        previewRef = toFlowImageAssetRef(assetId);
+      }
+    } catch {}
+
+    // IndexedDB 不可用时兜底走 blob: ObjectURL（仅运行时，保存前必须上传替换）
+    let fallbackObjectUrl: string | null = null;
+    if (!previewRef) {
+      try {
+        fallbackObjectUrl = URL.createObjectURL(file);
+        previewRef = fallbackObjectUrl;
+      } catch {}
+    }
+
+    if (!previewRef) return;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            imageData: previewRef,
+            imageUrl: key, // 先关联 key，避免上传中触发保存导致图片丢失
+            imageName: displayName,
+            uploading: true,
+            uploadError: undefined,
+          },
+        },
+      })
+    );
 
     const newImageId = `${id}-${Date.now()}`;
     setCurrentImageId(newImageId);
-    void recordImageHistoryEntry({
-      id: newImageId,
-      base64,
-      title: displayName,
-      nodeId: id,
-      nodeType: "image",
-      fileName: file.name || `flow_image_${newImageId}.png`,
-      projectId,
-    }).then(({ remoteUrl }) => {
-      // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积与渲染压力
-      if (!remoteUrl) return;
+
+    const containsRef = (value: unknown, ref: string): boolean => {
+      if (typeof value === "string") return value === ref;
+      if (Array.isArray(value)) return value.some((v) => containsRef(v, ref));
+      if (value && typeof value === "object") {
+        return Object.values(value as Record<string, unknown>).some((v) =>
+          containsRef(v, ref)
+        );
+      }
+      return false;
+    };
+
+    const isPreviewRefStillUsedInFlow = (ref: string): boolean => {
+      try {
+        const nodes = rf.getNodes();
+        return nodes.some((n) => containsRef(n?.data, ref));
+      } catch {
+        return false;
+      }
+    };
+
+    const tryCleanupPreviewRef = (ref: string) => {
+      // 延迟一拍，确保 flow:updateNodeData 已生效
+      setTimeout(() => {
+        if (isPreviewRefStillUsedInFlow(ref)) return;
+        if (flowAssetId) {
+          void deleteFlowImage(flowAssetId).catch(() => {});
+        } else if (fallbackObjectUrl && fallbackObjectUrl.startsWith("blob:")) {
+          try {
+            URL.revokeObjectURL(fallbackObjectUrl);
+          } catch {}
+        }
+      }, 0);
+    };
+
+    try {
+      const uploadResult = await imageUploadService.uploadImageFile(file, {
+        projectId: projectId ?? undefined,
+        dir: uploadDir,
+        fileName: file.name || `flow_image_${newImageId}.png`,
+        key,
+      });
+
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        window.dispatchEvent(
+          new CustomEvent("flow:updateNodeData", {
+            detail: {
+              id,
+              patch: {
+                uploading: false,
+                uploadError: uploadResult.error || "上传失败",
+              },
+            },
+          })
+        );
+        return;
+      }
+
+      const persistedRef = (uploadResult.asset.key || key || uploadResult.asset.url).trim();
+      if (!persistedRef) return;
+
+      // 防止并发上传回写覆盖：确认节点仍在使用本次 previewRef
       try {
         const current = rf.getNode(id);
-        if ((current?.data as any)?.imageData !== base64) return;
+        const currentPreview = (current?.data as any)?.imageData;
+        if (currentPreview && currentPreview !== previewRef) {
+          // 节点已被用户替换为新图片：仅做清理，不回写
+          tryCleanupPreviewRef(previewRef);
+          return;
+        }
       } catch {}
+
+      // 上传成功后：切换为可持久化引用，并清理本地临时图片（flow-asset/blob）
       window.dispatchEvent(
         new CustomEvent("flow:updateNodeData", {
-          detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined, thumbnail: undefined } },
+          detail: {
+            id,
+            patch: {
+              imageUrl: persistedRef,
+              imageData: undefined,
+              thumbnail: undefined,
+              uploading: false,
+              uploadError: undefined,
+            },
+          },
         })
       );
-    }).catch(() => {});
-  }, [id, projectId]);
+
+      void recordImageHistoryEntry({
+        id: newImageId,
+        remoteUrl: uploadResult.asset.url,
+        title: displayName,
+        nodeId: id,
+        nodeType: "image",
+        fileName: uploadResult.asset.fileName || file.name || `flow_image_${newImageId}.png`,
+        projectId,
+        keepThumbnail: false,
+      }).catch(() => {});
+
+      tryCleanupPreviewRef(previewRef);
+    } catch (err: any) {
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              uploading: false,
+              uploadError: err?.message || "上传失败",
+            },
+          },
+        })
+      );
+    }
+  }, [id, projectId, rf]);
 
   const onDrop = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -917,6 +1103,8 @@ function ImageNodeInner({ id, data, selected }: Props) {
         displaySrc={displaySrc}
         canvasCrop={canvasCrop}
         isResizing={isResizing}
+        uploading={Boolean((data as any)?.uploading)}
+        uploadError={typeof (data as any)?.uploadError === "string" ? (data as any).uploadError : ""}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDoubleClick={handleDoubleClick}

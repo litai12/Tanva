@@ -997,14 +997,17 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 fileName = resolvedName;
             }
         } else {
-            asset = {
-                ...imagePayload,
-                src: imagePayload.url || imagePayload.src,
-                localDataUrl: isInlineDataUrl(imagePayload.localDataUrl)
+            const inlineSource =
+                isInlineDataUrl(imagePayload.localDataUrl)
                     ? imagePayload.localDataUrl
                     : isInlineDataUrl(imagePayload.src)
                         ? imagePayload.src
-                        : undefined
+                        : undefined;
+            asset = {
+                ...imagePayload,
+                // 运行时展示优先使用本地 blob/data（尤其是“先关联 key 再后台上传”的场景），避免 key 尚未可用导致其它模块读图失败
+                src: inlineSource || imagePayload.src || imagePayload.url,
+                localDataUrl: inlineSource,
             };
             fileName = asset.fileName || fileName;
         }

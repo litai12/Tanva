@@ -333,7 +333,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           imageData: {
             ...img.imageData,
             url: asset.url,
-            src: asset.url,
+            // 运行时展示优先使用本地 blob/data（上传中 key 可能尚不可用）
+            src: asset.localDataUrl || asset.url,
             key: asset.key || img.imageData.key,
             fileName: asset.fileName || img.imageData.fileName,
             width: originalWidth,
@@ -403,7 +404,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       imageData: {
         id: imageId,
         url: persistedUrl || asset.url,
-        src: persistedSrc || persistedUrl || asset.url,
+        // 上传中仍允许 src=blob:（展示/编辑等能力用），持久化用 url/key
+        src: asset.localDataUrl || persistedSrc || persistedUrl || asset.url,
         key: normalizedKey || asset.key,
         fileName: asset.fileName,
         width: asset.width,
