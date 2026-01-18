@@ -44,7 +44,12 @@ export async function fetchWithAuth(input: RequestInput, init?: RequestInit): Pr
 
   const refreshed = await ensureRefresh();
   if (refreshed) {
-    return fetch(input, normalizeInit(init));
+    const retryResponse = await fetch(input, normalizeInit(init));
+    // refresh 返回 ok 但重试仍 401/403：认为登录态已失效，触发退出/登录提示
+    if (retryResponse.status === 401 || retryResponse.status === 403) {
+      triggerAuthExpired();
+    }
+    return retryResponse;
   }
 
   triggerAuthExpired();

@@ -34,6 +34,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas：修复将 OSS key/proxy/path 误判为 base64/待上传导致图片置灰的问题（含快速上传、导入重建实例、视频缩略图与下载链路）。
 - Canvas：AI 图片占位符升级为远程 URL 时先预加载再切换，避免画布闪白/“刷新感”。
 - 前端鉴权：补齐部分直连请求未触发自动退出的问题；统一用 `fetchWithAuth`/`triggerAuthExpired` 处理 401/403，并在登录失效时清理本地会话缓存（`frontend/src/services/authEvents.ts`、`frontend/src/services/authFetch.ts`）。
+- 前端鉴权：`fetchWithAuth` 在 refresh 返回成功但重试仍 401/403 时也会触发 `triggerAuthExpired`，避免出现接口 401 但未跳转登录的问题（`frontend/src/services/authFetch.ts`）。
 - Flow：禁用节点拖拽时的自动平移（`autoPanOnNodeDrag`），并在 `dragStop` 强制回同步视口，避免快速拖动节点时视口漂移导致其他节点整体偏移。
 - Flow：三维节点（`ThreeNode`）上传模型后自动居中相机，并将模型 URL 持久化为远程引用，避免切换/resize 后模型丢失。
 - Flow：三维节点（`ThreeNode`）在节点 resize 时 canvas 保持铺满；拖拽过程中不频繁 `setSize` 避免闪烁，拖拽结束后一次性同步 renderer 并即时渲染。
