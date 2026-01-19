@@ -1156,11 +1156,17 @@ function FlowInner() {
       if (!trimmed) return false;
       if (/^data:/i.test(trimmed)) return true;
       if (/^blob:/i.test(trimmed)) return true;
-      if (typeof FLOW_IMAGE_ASSET_PREFIX === "string" && trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)) {
+      if (
+        typeof FLOW_IMAGE_ASSET_PREFIX === "string" &&
+        trimmed.startsWith(FLOW_IMAGE_ASSET_PREFIX)
+      ) {
         return true;
       }
       const compact = trimmed.replace(/\s+/g, "");
-      if (BASE64_IMAGE_MAGIC_PREFIXES.some((p) => compact.startsWith(p)) && compact.length >= 32) {
+      if (
+        BASE64_IMAGE_MAGIC_PREFIXES.some((p) => compact.startsWith(p)) &&
+        compact.length >= 32
+      ) {
         return true;
       }
       return looksLikeBase64(compact);
@@ -1171,7 +1177,8 @@ function FlowInner() {
     const walk = (value: any): any => {
       if (typeof value === "function") return undefined;
       if (!value || typeof value !== "object") {
-        if (typeof value === "string" && shouldDropPersistedString(value)) return undefined;
+        if (typeof value === "string" && shouldDropPersistedString(value))
+          return undefined;
         return value;
       }
 
@@ -3748,7 +3755,21 @@ function FlowInner() {
         return false;
       }
       if (targetNode.type === "videoFrameExtract") {
-        if (targetHandle === "video") return sourceNode.type === "video";
+        if (targetHandle === "video") {
+          // Accept video inputs from any video-producing node types (uploads and provider nodes)
+          const allowedVideoSourceTypes = [
+            "video", // uploaded/local video node
+            "sora2Video",
+            "wan26",
+            "wan2R2V",
+            "klingVideo",
+            "viduVideo",
+            "doubaoVideo",
+            "genericVideo",
+            "seedanceVideo",
+          ];
+          return allowedVideoSourceTypes.includes(sourceNode.type || "");
+        }
         return false;
       }
       if (targetNode.type === "imageGrid") {
@@ -4142,7 +4163,8 @@ function FlowInner() {
               return false;
             };
             const safeIncomingThumbnail =
-              normalizedIncomingThumbnail && isLikelyRemoteImageRef(normalizedIncomingThumbnail)
+              normalizedIncomingThumbnail &&
+              isLikelyRemoteImageRef(normalizedIncomingThumbnail)
                 ? normalizedIncomingThumbnail
                 : "";
             setNodes((ns) =>
@@ -4259,9 +4281,16 @@ function FlowInner() {
         })
       );
 
-      if (shouldAutoGenerateThumbnail && thumbnailNodeId && thumbnailSourceImageData) {
+      if (
+        shouldAutoGenerateThumbnail &&
+        thumbnailNodeId &&
+        thumbnailSourceImageData
+      ) {
         void (async () => {
-          const thumb = await createThumbnailDataUrl(thumbnailSourceImageData, 256);
+          const thumb = await createThumbnailDataUrl(
+            thumbnailSourceImageData,
+            256
+          );
           if (!thumb) return;
           setNodes((ns) =>
             ns.map((n) => {
@@ -4754,7 +4783,9 @@ function FlowInner() {
           }).catch(() => {});
         } catch {}
         try {
-          historyService.commit("flow-create-image-from-canvas").catch(() => {});
+          historyService
+            .commit("flow-create-image-from-canvas")
+            .catch(() => {});
         } catch {}
         return;
       }
@@ -4858,9 +4889,13 @@ function FlowInner() {
         const midjourneyMeta = metadata.midjourney || {};
         const midjourneyImageUrl = midjourneyMeta.imageUrl || metadata.imageUrl;
         const normalizedMidjourneyUrl =
-          typeof midjourneyImageUrl === "string" ? midjourneyImageUrl.trim() : "";
+          typeof midjourneyImageUrl === "string"
+            ? midjourneyImageUrl.trim()
+            : "";
         const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-        const previewSource = hasRemoteUrl ? normalizedMidjourneyUrl : imgBase64;
+        const previewSource = hasRemoteUrl
+          ? normalizedMidjourneyUrl
+          : imgBase64;
         const historyId = previewSource
           ? `${detail.nodeId}-${Date.now()}`
           : undefined;
@@ -4878,7 +4913,9 @@ function FlowInner() {
                     error: undefined,
                     taskId: midjourneyMeta.taskId || detail.taskId,
                     buttons: midjourneyMeta.buttons,
-                    imageUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+                    imageUrl: hasRemoteUrl
+                      ? normalizedMidjourneyUrl
+                      : undefined,
                     promptEn: midjourneyMeta.promptEn,
                     lastHistoryId: historyId ?? (n.data as any)?.lastHistoryId,
                   },
@@ -4925,7 +4962,6 @@ function FlowInner() {
             })
             .catch(() => {});
         }
-
       } catch (error) {
         const msg =
           error instanceof Error ? error.message : "Midjourney 操作失败";
@@ -5173,8 +5209,14 @@ function FlowInner() {
           const scaleX = srcW > 0 ? naturalW / srcW : 1;
           const scaleY = srcH > 0 ? naturalH / srcH : 1;
 
-          const sx = Math.max(0, Math.min(naturalW - 1, params.rect.x * scaleX));
-          const sy = Math.max(0, Math.min(naturalH - 1, params.rect.y * scaleY));
+          const sx = Math.max(
+            0,
+            Math.min(naturalW - 1, params.rect.x * scaleX)
+          );
+          const sy = Math.max(
+            0,
+            Math.min(naturalH - 1, params.rect.y * scaleY)
+          );
           const swRaw = Math.max(1, params.rect.width * scaleX);
           const shRaw = Math.max(1, params.rect.height * scaleY);
           const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
@@ -5230,12 +5272,20 @@ function FlowInner() {
               ? rect.height
               : Number(rect?.height ?? 0);
 
-          if (base && Number.isFinite(x) && Number.isFinite(y) && w > 0 && h > 0) {
+          if (
+            base &&
+            Number.isFinite(x) &&
+            Number.isFinite(y) &&
+            w > 0 &&
+            h > 0
+          ) {
             return await cropImageToDataUrl({
               baseRef: base,
               rect: { x, y, width: w, height: h },
-              sourceWidth: typeof d.sourceWidth === "number" ? d.sourceWidth : undefined,
-              sourceHeight: typeof d.sourceHeight === "number" ? d.sourceHeight : undefined,
+              sourceWidth:
+                typeof d.sourceWidth === "number" ? d.sourceWidth : undefined,
+              sourceHeight:
+                typeof d.sourceHeight === "number" ? d.sourceHeight : undefined,
             });
           }
 
@@ -5261,18 +5311,25 @@ function FlowInner() {
           const frame = frames[idx];
           const value =
             (typeof frame?.imageUrl === "string" && frame.imageUrl.trim()) ||
-            (typeof frame?.thumbnailDataUrl === "string" && frame.thumbnailDataUrl.trim()) ||
+            (typeof frame?.thumbnailDataUrl === "string" &&
+              frame.thumbnailDataUrl.trim()) ||
             "";
-          return value ? await resolveImageValueToDataUrlForBackend(value) : null;
+          return value
+            ? await resolveImageValueToDataUrlForBackend(value)
+            : null;
         }
 
         if (node.type === "generate4" || node.type === "generatePro4") {
           const idx = handle?.startsWith("img")
             ? Math.max(0, Math.min(3, Number(handle.substring(3)) - 1))
             : 0;
-          const urls = Array.isArray(d?.imageUrls) ? (d.imageUrls as string[]) : [];
+          const urls = Array.isArray(d?.imageUrls)
+            ? (d.imageUrls as string[])
+            : [];
           const imgs = Array.isArray(d?.images) ? (d.images as string[]) : [];
-          const thumbs = Array.isArray(d?.thumbnails) ? (d.thumbnails as string[]) : [];
+          const thumbs = Array.isArray(d?.thumbnails)
+            ? (d.thumbnails as string[])
+            : [];
           const candidate =
             (typeof urls[idx] === "string" && urls[idx].trim()) ||
             (typeof imgs[idx] === "string" && imgs[idx].trim()) ||
@@ -5378,7 +5435,9 @@ function FlowInner() {
         return null;
       };
 
-      const resolveEdgeImageToDataUrl = async (edge: Edge): Promise<string | null> => {
+      const resolveEdgeImageToDataUrl = async (
+        edge: Edge
+      ): Promise<string | null> => {
         const srcNode = rf.getNode(edge.source);
         if (!srcNode) return null;
         return await resolveNodeImageToDataUrl(
@@ -5388,7 +5447,9 @@ function FlowInner() {
         );
       };
 
-      const resolveEdgesAsDataUrls = async (edges: Edge[]): Promise<string[]> => {
+      const resolveEdgesAsDataUrls = async (
+        edges: Edge[]
+      ): Promise<string[]> => {
         const out: string[] = [];
         for (const edge of edges) {
           try {
@@ -6452,9 +6513,13 @@ function FlowInner() {
           const midjourneyImageUrl =
             midjourneyMeta.imageUrl || mjMetadata.imageUrl;
           const normalizedMidjourneyUrl =
-            typeof midjourneyImageUrl === "string" ? midjourneyImageUrl.trim() : "";
+            typeof midjourneyImageUrl === "string"
+              ? midjourneyImageUrl.trim()
+              : "";
           const hasRemoteUrl = normalizedMidjourneyUrl.length > 0;
-          const previewSource = hasRemoteUrl ? normalizedMidjourneyUrl : mjImgBase64;
+          const previewSource = hasRemoteUrl
+            ? normalizedMidjourneyUrl
+            : mjImgBase64;
           const historyId = previewSource
             ? `${nodeId}-${Date.now()}`
             : undefined;
@@ -6472,7 +6537,9 @@ function FlowInner() {
                       error: undefined,
                       taskId: midjourneyMeta.taskId,
                       buttons: midjourneyMeta.buttons,
-                      imageUrl: hasRemoteUrl ? normalizedMidjourneyUrl : undefined,
+                      imageUrl: hasRemoteUrl
+                        ? normalizedMidjourneyUrl
+                        : undefined,
                       promptEn: midjourneyMeta.promptEn,
                       lastHistoryId:
                         historyId ?? (n.data as any)?.lastHistoryId,
@@ -6522,7 +6589,10 @@ function FlowInner() {
                       };
                     }
                     // 同步更新下游 Image 节点，避免把 base64 写入项目 JSON
-                    if (outs.some((e) => e.target === n.id) && n.type === "image") {
+                    if (
+                      outs.some((e) => e.target === n.id) &&
+                      n.type === "image"
+                    ) {
                       if ((n.data as any)?.imageData !== mjImgBase64) return n;
                       return {
                         ...n,
@@ -6555,7 +6625,10 @@ function FlowInner() {
                       data: {
                         ...n.data,
                         ...(hasRemoteUrl
-                          ? { imageUrl: normalizedMidjourneyUrl, imageData: undefined }
+                          ? {
+                              imageUrl: normalizedMidjourneyUrl,
+                              imageData: undefined,
+                            }
                           : { imageData: mjImgBase64 }),
                         thumbnail: undefined,
                       },
@@ -6855,7 +6928,9 @@ function FlowInner() {
               void recordImageHistoryEntry({
                 id: historyId,
                 base64: generatedImage,
-                title: `Generate4 #${slotIndex + 1} ${new Date().toLocaleTimeString()}`,
+                title: `Generate4 #${
+                  slotIndex + 1
+                } ${new Date().toLocaleTimeString()}`,
                 nodeId,
                 nodeType: "generate",
                 fileName: `flow_generate4_${historyId}.png`,
@@ -6875,11 +6950,15 @@ function FlowInner() {
                     ns.map((n) => {
                       // 更新 generate4 节点本身：写入 imageUrls 并清理对应 images 槽位
                       if (n.id === nodeId) {
-                        const prevUrls = Array.isArray((n.data as any)?.imageUrls)
+                        const prevUrls = Array.isArray(
+                          (n.data as any)?.imageUrls
+                        )
                           ? ([...(n.data as any).imageUrls] as string[])
                           : [];
                         prevUrls[slotIndex] = remoteUrl;
-                        const prevImages = Array.isArray((n.data as any)?.images)
+                        const prevImages = Array.isArray(
+                          (n.data as any)?.images
+                        )
                           ? ([...(n.data as any).images] as any[])
                           : [];
                         if (prevImages[slotIndex] === generatedImage) {
@@ -7087,7 +7166,9 @@ function FlowInner() {
                 void recordImageHistoryEntry({
                   id: historyId,
                   base64,
-                  title: `GeneratePro4 #${slotIndex + 1} ${new Date().toLocaleTimeString()}`,
+                  title: `GeneratePro4 #${
+                    slotIndex + 1
+                  } ${new Date().toLocaleTimeString()}`,
                   nodeId,
                   nodeType: "generatePro4",
                   fileName: `flow_generatepro4_${historyId}.png`,
@@ -7107,11 +7188,15 @@ function FlowInner() {
                       ns.map((n) => {
                         // 更新 generatePro4 节点本身：写入 imageUrls 并清理对应 images 槽位
                         if (n.id === nodeId) {
-                          const prevUrls = Array.isArray((n.data as any)?.imageUrls)
+                          const prevUrls = Array.isArray(
+                            (n.data as any)?.imageUrls
+                          )
                             ? ([...(n.data as any).imageUrls] as string[])
                             : [];
                           prevUrls[slotIndex] = remoteUrl;
-                          const prevImages = Array.isArray((n.data as any)?.images)
+                          const prevImages = Array.isArray(
+                            (n.data as any)?.images
+                          )
                             ? ([...(n.data as any).images] as any[])
                             : [];
                           if (prevImages[slotIndex] === base64) {
