@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -52,7 +53,11 @@ import GlobalImageHistoryPage from '@/components/global-history/GlobalImageHisto
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 import AutosaveStatus from '@/components/autosave/AutosaveStatus';
 import { paperSaveService } from '@/services/paperSaveService';
+import { historyService } from '@/services/historyService';
+import { clipboardService } from '@/services/clipboardService';
+import { contextManager } from '@/services/contextManager';
 import { useProjectContentStore } from '@/stores/projectContentStore';
+import WorkflowHistoryButton from '@/components/workflow-history/WorkflowHistoryButton';
 import { authApi, type GoogleApiKeyInfo } from '@/services/authApi';
 import {
     claimDailyReward,
@@ -76,6 +81,7 @@ const MAX_QUICK_PROJECTS = 5;
 
 const FloatingHeader: React.FC = () => {
     const navigate = useNavigate();
+    const guardLeave = usePendingUploadLeaveGuard();
     const {
         showLibraryPanel,
         showGrid,
@@ -109,10 +115,14 @@ const FloatingHeader: React.FC = () => {
 
     // 项目（文件）管理
     const { currentProject, openModal, create, rename, optimisticRenameLocal, projects, open } = useProjectStore();
+    const projectId = useProjectContentStore((s) => s.projectId);
     // Header 下拉中的快速切换与新建，直接复用项目管理的函数
-    const handleQuickSwitch = (projectId: string) => {
-        if (!projectId || projectId === currentProject?.id) return;
-        open(projectId);
+    const handleQuickSwitch = (targetProjectId: string) => {
+        if (!targetProjectId || targetProjectId === currentProject?.id) return;
+        guardLeave(() => open(targetProjectId), {
+            title: '切换项目前确认',
+            message: '仍有图片未上传完成，切换项目可能导致图片丢失或无法保存到云端。',
+        });
     };
     const [editingTitle, setEditingTitle] = useState(false);
     const [titleInput, setTitleInput] = useState('');
@@ -129,7 +139,12 @@ const FloatingHeader: React.FC = () => {
                     await rename(currentProject.id, name);
                 }
             } else {
-                await create(name);
+                guardLeave(async () => {
+                    await create(name);
+                }, {
+                    title: '新建项目前确认',
+                    message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                });
             }
         } finally {
             setEditingTitle(false);
@@ -360,7 +375,10 @@ const FloatingHeader: React.FC = () => {
 
     const handleLogoClick = () => {
         logger.debug('Logo clicked - navigating to home');
-        navigate('/');
+        guardLeave(() => navigate('/'), {
+            title: '还有图片未上传完成',
+            message: '离开将中断上传，可能导致图片丢失或无法保存到云端。',
+        });
     };
 
 
@@ -385,27 +403,36 @@ const FloatingHeader: React.FC = () => {
         const confirmed = window.confirm('确定要清空画布上的全部内容吗？\n此操作将删除所有绘制元素与节点（保留背景/网格），且当前不支持撤销。');
         if (!confirmed) return;
 
-        try {
-            // 清理绘制内容但保留图层结构与系统层
-            paperSaveService.clearCanvasContent();
-
-            // 清空运行时实例，避免残留引用
-            try { (window as any).tanvaImageInstances = []; } catch {}
-            try { (window as any).tanvaModel3DInstances = []; } catch {}
-            try { (window as any).tanvaTextItems = []; } catch {}
-
-            // 触发一次自动保存，记录清空后的状态
-            try { paperSaveService.triggerAutoSave(); } catch {}
-
-            // 同时清空 Flow 节点与连线，并标记为脏以触发文件保存
+        void (async () => {
             try {
-                const api = useProjectContentStore.getState();
-                api.updatePartial({ flow: { nodes: [], edges: [] } }, { markDirty: true });
-            } catch {}
-        } catch (e) {
-            console.error('清空画布失败:', e);
-            alert('清空画布失败，请稍后重试');
-        }
+                // 清理绘制内容但保留图层结构与系统层
+                paperSaveService.clearCanvasContent();
+
+                // 清空运行时实例，避免残留引用
+                try { (window as any).tanvaImageInstances = []; } catch {}
+                try { (window as any).tanvaModel3DInstances = []; } catch {}
+                try { (window as any).tanvaTextItems = []; } catch {}
+
+                // 清理剪贴板/AI 图像缓存，避免仍引用大体积 dataURL/base64
+                try { clipboardService.clear(); } catch {}
+                try { contextManager.clearImageCache(); } catch {}
+
+                // 同时清空 Flow 节点与连线，并标记为脏以触发文件保存
+                try {
+                    const api = useProjectContentStore.getState();
+                    api.updatePartial({ flow: { nodes: [], edges: [] } }, { markDirty: true });
+                } catch {}
+
+                // 立即保存一次，确保 store.paperJson/assets 被快速覆盖为“空场景”
+                try { await paperSaveService.saveImmediately(); } catch {}
+
+                // ⚠️ 该操作声明“不可撤销”：同步重置 undo/redo 历史，释放旧快照引用
+                try { await historyService.resetToCurrent('clear-canvas'); } catch {}
+            } catch (e) {
+                console.error('清空画布失败:', e);
+                alert('清空画布失败，请稍后重试');
+            }
+        })();
     };
 
     const { user, logout, loading, connection } = useAuthStore();
@@ -499,14 +526,19 @@ const FloatingHeader: React.FC = () => {
     const showLibraryButton = false; // 临时关闭素材库入口，后续恢复时改为 true
     const handleLogout = async () => {
         if (loading) return;
-        try {
-            console.log('🔴 开始退出登录...');
-            await logout();
-            console.log('✅ 登出成功，准备跳转...');
-            navigate('/auth/login', { replace: true });
-        } catch (err) {
-            console.error('❌ 退出登录失败:', err);
-        }
+        guardLeave(async () => {
+            try {
+                console.log('🔴 开始退出登录...');
+                await logout();
+                console.log('✅ 登出成功，准备跳转...');
+                navigate('/auth/login', { replace: true });
+            } catch (err) {
+                console.error('❌ 退出登录失败:', err);
+            }
+        }, {
+            title: '还有图片未上传完成',
+            message: '退出登录将中断上传，可能导致图片丢失或无法保存到云端。',
+        });
     };
     const recentProjects = useMemo(() => {
         const sliced = projects.slice(0, MAX_QUICK_PROJECTS);
@@ -647,7 +679,10 @@ const FloatingHeader: React.FC = () => {
                             <Button
                                 variant="outline"
                                 className="h-10 text-sm rounded-xl"
-                                onClick={() => navigate('/')}
+                                onClick={() => guardLeave(() => navigate('/'), {
+                                    title: '还有图片未上传完成',
+                                    message: '离开将中断上传，可能导致图片丢失或无法保存到云端。',
+                                })}
                             >
                                 <Home className="w-4 h-4 mr-2" />
                                 返回首页
@@ -1295,9 +1330,14 @@ return (
                                     打开/管理文件
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                    onClick={async (event) => {
+                                    onClick={(event) => {
                                         event.preventDefault();
-                                        await create();
+                                        guardLeave(async () => {
+                                            await create();
+                                        }, {
+                                            title: '新建项目前确认',
+                                            message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                                        });
                                     }}
                                     className="flex items-center justify-between gap-3 px-2 py-1 text-sm text-blue-600 hover:text-blue-700"
                                 >
@@ -1337,6 +1377,8 @@ return (
                             <span className="hidden sm:inline">素材库</span>
                         </Button>
                     )}
+
+                    <WorkflowHistoryButton projectId={projectId} />
 
                     {/* 帮助按钮 */}
                     <Button

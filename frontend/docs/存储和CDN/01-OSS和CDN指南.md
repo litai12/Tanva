@@ -192,6 +192,16 @@ POST /api/ai/generate-image
 2. 获得图像 Buffer
 3. 上传到OSS (关键步骤!)
 4. 返回OSS URL给前端
+
+// 响应示例（不再返回 base64）
+{
+  "imageUrl": "https://<cdn-or-oss-host>/uploads/ai/generated/<hash>/<timestamp>-<rand>.png",
+  "textResponse": "（可选）",
+  "metadata": {
+    "imageKey": "uploads/ai/generated/<hash>/<timestamp>-<rand>.png",
+    "mimeType": "image/png"
+  }
+}
 ```
 
 #### 第2步: 上传到OSS

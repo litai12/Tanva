@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OssService } from '../oss/oss.service';
+import { sanitizeDesignJson } from '../utils/designJsonSanitizer';
 
 @Injectable()
 export class ProjectsService {
@@ -84,7 +85,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new UnauthorizedException();
+    if (p.userId !== userId) throw new NotFoundException('项目不存在');
     return { ...p, mainUrl: this.oss.publicUrl(p.mainKey), thumbnailUrl: this.extractThumbnail(p) || undefined };
   }
 
@@ -99,7 +100,7 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new UnauthorizedException();
+    if (p.userId !== userId) throw new NotFoundException('项目不存在');
 
     const data: (Prisma.ProjectUpdateInput & Record<string, any>) = {};
     if (payload.name !== undefined) {
@@ -145,7 +146,7 @@ export class ProjectsService {
   async remove(userId: string, id: string) {
     const p = await this.prisma.project.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('项目不存在');
-    if (p.userId !== userId) throw new UnauthorizedException();
+    if (p.userId !== userId) throw new NotFoundException('项目不存在');
     await this.prisma.project.delete({ where: { id } });
     return { ok: true };
   }
@@ -154,11 +155,11 @@ export class ProjectsService {
     await this.ensureThumbnailColumn();
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new UnauthorizedException();
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
 
     if (!project.mainKey) {
       return {
-        content: (project as any).contentJson || null,
+        content: sanitizeDesignJson((project as any).contentJson || null),
         version: project.contentVersion,
         updatedAt: project.updatedAt,
       };
@@ -166,8 +167,9 @@ export class ProjectsService {
 
     try {
       const content = await this.oss.getJSON(project.mainKey);
+      const resolved = sanitizeDesignJson(content ?? ((project as any).contentJson || null));
       return {
-        content: content ?? ((project as any).contentJson || null),
+        content: resolved,
         version: project.contentVersion ?? 1,
         updatedAt: project.updatedAt,
       };
@@ -175,14 +177,20 @@ export class ProjectsService {
       // eslint-disable-next-line no-console
       console.warn('OSS getJSON failed, returning null content:', err);
       return {
-        content: (project as any).contentJson || null,
+        content: sanitizeDesignJson((project as any).contentJson || null),
         version: project.contentVersion ?? 1,
         updatedAt: project.updatedAt,
       };
     }
   }
 
-  async updateContent(userId: string, id: string, content: unknown, version?: number) {
+  async updateContent(
+    userId: string,
+    id: string,
+    content: unknown,
+    version?: number,
+    options?: { createWorkflowHistory?: boolean }
+  ) {
     await this.ensureThumbnailColumn();
     const supportsThumbnailColumn = await this.supportsThumbnailColumn();
     const project = await this.prisma.project.findUnique({
@@ -193,12 +201,13 @@ export class ProjectsService {
       },
     });
     if (!project) throw new NotFoundException('项目不存在');
-    if (project.userId !== userId) throw new UnauthorizedException();
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
     const prefix = project.ossPrefix || `projects/${userId}/${project.id}/`;
     const mainKey = project.mainKey || `${prefix}project.json`;
+    const sanitizedContent = sanitizeDesignJson(content);
 
     try {
-      await this.oss.putJSON(mainKey, content);
+      await this.oss.putJSON(mainKey, sanitizedContent);
     } catch (err) {
       // 在开发环境中，OSS错误不应该阻止项目内容更新
       // eslint-disable-next-line no-console
@@ -213,9 +222,9 @@ export class ProjectsService {
       contentVersion: newVersion,
     };
     const contentForStorage =
-      !supportsThumbnailColumn && content
-        ? this.patchContentThumbnail(content as any, this.extractThumbnail(project) || null)
-        : content;
+      !supportsThumbnailColumn && sanitizedContent
+        ? this.patchContentThumbnail(sanitizedContent as any, this.extractThumbnail(project) || null)
+        : sanitizedContent;
     let updated2: any;
     try {
       updated2 = await this.prisma.project.update({
@@ -239,12 +248,111 @@ export class ProjectsService {
       }
     }
 
+    if (options?.createWorkflowHistory) {
+      await this.tryCreateWorkflowHistorySnapshot(userId, id, updated2, sanitizedContent);
+    }
+
     return {
       version: updated2.contentVersion ?? newVersion,
       updatedAt: updated2.updatedAt,
       mainUrl: updated2.mainKey ? this.oss.publicUrl(updated2.mainKey) : undefined,
       thumbnailUrl: this.extractThumbnail(updated2) || undefined,
     };
+  }
+
+  async listWorkflowHistory(userId: string, projectId: string, limit?: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
+    if (!project) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+
+    const parsedLimit = Math.min(Math.max(Number.parseInt((limit || '').trim(), 10) || 30, 1), 200);
+
+    try {
+      return await this.prisma.workflowHistory.findMany({
+        where: { userId, projectId },
+        orderBy: { updatedAt: 'desc' },
+        take: parsedLimit,
+        select: {
+          updatedAt: true,
+          version: true,
+          nodeCount: true,
+          edgeCount: true,
+          createdAt: true,
+        },
+      });
+    } catch (error: any) {
+      if (this.isMissingWorkflowHistoryTable(error)) return [];
+      throw error;
+    }
+  }
+
+  async getWorkflowHistory(userId: string, projectId: string, updatedAtRaw: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { userId: true } });
+    if (!project) throw new NotFoundException('项目不存在');
+    if (project.userId !== userId) throw new NotFoundException('项目不存在');
+
+    const updatedAt = new Date(updatedAtRaw);
+    if (Number.isNaN(updatedAt.getTime())) {
+      throw new BadRequestException('updatedAt 无效，请使用 ISO 时间字符串');
+    }
+
+    try {
+      const record = await this.prisma.workflowHistory.findUnique({
+        where: {
+          userId_projectId_updatedAt: {
+            userId,
+            projectId,
+            updatedAt,
+          },
+        },
+      });
+      if (!record) throw new NotFoundException('历史版本不存在');
+      return record;
+    } catch (error: any) {
+      if (this.isMissingWorkflowHistoryTable(error)) throw new NotFoundException('历史版本不存在');
+      throw error;
+    }
+  }
+
+  private async tryCreateWorkflowHistorySnapshot(
+    userId: string,
+    projectId: string,
+    updatedProject: any,
+    sanitizedContent: any
+  ) {
+    try {
+      const flow = sanitizedContent?.flow && typeof sanitizedContent.flow === 'object'
+        ? sanitizedContent.flow
+        : { nodes: [], edges: [] };
+      const nodeCount = Array.isArray((flow as any)?.nodes) ? (flow as any).nodes.length : 0;
+      const edgeCount = Array.isArray((flow as any)?.edges) ? (flow as any).edges.length : 0;
+
+      await this.prisma.workflowHistory.create({
+        data: {
+          userId,
+          projectId,
+          updatedAt: updatedProject.updatedAt,
+          version: updatedProject.contentVersion ?? 0,
+          flow: flow as Prisma.InputJsonValue,
+          nodeCount,
+          edgeCount,
+        },
+      });
+    } catch (error: any) {
+      if (this.isMissingWorkflowHistoryTable(error)) return;
+      // eslint-disable-next-line no-console
+      console.warn('WorkflowHistory create failed (ignored):', error);
+    }
+  }
+
+  private isMissingWorkflowHistoryTable(error: any): boolean {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    return message.includes('WorkflowHistory') && (
+      message.includes('does not exist') ||
+      message.includes('relation') ||
+      message.includes('no such table') ||
+      message.includes('The table')
+    );
   }
 
   private withOptionalContentJson(

@@ -15,6 +15,7 @@ export default function AutosaveStatus() {
   const dirty = useProjectContentStore((state) => state.dirty);
   const lastSavedAt = useProjectContentStore((state) => state.lastSavedAt);
   const lastError = useProjectContentStore((state) => state.lastError);
+  const lastWarning = useProjectContentStore((state) => state.lastWarning);
   const [visible, setVisible] = useState(false);
   const hideTimerRef = useRef<number | null>(null);
   const [visibleLabel, setVisibleLabel] = useState<string>('\u00A0'); // 保留占位防止跳动
@@ -26,6 +27,9 @@ export default function AutosaveStatus() {
     if (lastError) {
       return { label: `保存失败：${lastError}`, className: 'text-red-500' };
     }
+    if (lastWarning) {
+      return { label: `提示：${lastWarning}`, className: 'text-amber-700' };
+    }
     if (dirty) {
       return { label: '有未保存更改', className: 'text-amber-600' };
     }
@@ -33,7 +37,7 @@ export default function AutosaveStatus() {
       return { label: `已保存 ${formatSavedTime(lastSavedAt)}`, className: 'text-emerald-600' };
     }
     return { label: '', className: '' };
-  }, [saving, dirty, lastSavedAt, lastError]);
+  }, [saving, dirty, lastSavedAt, lastError, lastWarning]);
 
   useEffect(() => {
     if (hideTimerRef.current) {
@@ -41,7 +45,7 @@ export default function AutosaveStatus() {
       hideTimerRef.current = null;
     }
 
-    if (saving || dirty || lastError) {
+    if (saving || dirty || lastError || lastWarning) {
       setVisible(true);
       return;
     }
@@ -56,7 +60,7 @@ export default function AutosaveStatus() {
     }
 
     setVisible(false);
-  }, [saving, dirty, lastError, lastSavedAt, label]);
+  }, [saving, dirty, lastError, lastSavedAt, lastWarning, label]);
 
   useEffect(() => {
     if (label) {

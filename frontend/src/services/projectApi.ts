@@ -1,5 +1,6 @@
 import {
   createEmptyProjectContent,
+  type FlowGraphSnapshot,
   type ProjectContentSnapshot,
 } from "@/types/project";
 import { fetchWithAuth } from "./authFetch";
@@ -14,6 +15,20 @@ export type Project = {
   updatedAt: string;
   mainUrl?: string;
   thumbnailUrl?: string;
+};
+
+export type WorkflowHistoryEntry = {
+  updatedAt: string;
+  version: number;
+  nodeCount: number;
+  edgeCount: number;
+  createdAt: string;
+};
+
+export type WorkflowHistoryDetail = WorkflowHistoryEntry & {
+  userId: string;
+  projectId: string;
+  flow: FlowGraphSnapshot;
 };
 
 // 后端基础地址，统一从 .env 中读取：
@@ -36,6 +51,16 @@ async function json<T>(res: Response): Promise<T> {
   }
   return res.json();
 }
+
+type ProjectContentResponse = {
+  content: ProjectContentSnapshot;
+  version: number;
+  updatedAt: string | null;
+};
+
+// 开发环境 StrictMode / 路由切换等场景下，可能对同一项目触发多次并发 getContent。
+// 这里做“同 projectId 的 in-flight 去重”，避免重复下载超大 JSON（10MB+）。
+const inFlightGetContent = new Map<string, Promise<ProjectContentResponse>>();
 
 export const projectApi = {
   async list(): Promise<Project[]> {
@@ -76,21 +101,31 @@ export const projectApi = {
     version: number;
     updatedAt: string | null;
   }> {
-    const res = await fetchWithAuth(`${base}/api/projects/${id}/content`);
-    const data = await json<{
-      content: ProjectContentSnapshot | null;
-      version: number;
-      updatedAt: string | null;
-    }>(res);
-    return {
-      content: data.content ?? createEmptyProjectContent(),
-      version: data.version ?? 1,
-      updatedAt: data.updatedAt,
-    };
+    const existing = inFlightGetContent.get(id);
+    if (existing) return existing;
+
+    const promise = (async (): Promise<ProjectContentResponse> => {
+      const res = await fetchWithAuth(`${base}/api/projects/${id}/content`);
+      const data = await json<{
+        content: ProjectContentSnapshot | null;
+        version: number;
+        updatedAt: string | null;
+      }>(res);
+      return {
+        content: data.content ?? createEmptyProjectContent(),
+        version: data.version ?? 1,
+        updatedAt: data.updatedAt,
+      };
+    })().finally(() => {
+      inFlightGetContent.delete(id);
+    });
+
+    inFlightGetContent.set(id, promise);
+    return promise;
   },
   async saveContent(
     id: string,
-    payload: { content: ProjectContentSnapshot; version?: number }
+    payload: { content: ProjectContentSnapshot; version?: number; createWorkflowHistory?: boolean }
   ): Promise<{
     version: number;
     updatedAt: string | null;
@@ -102,6 +137,7 @@ export const projectApi = {
       body: JSON.stringify({
         content: payload.content,
         version: payload.version,
+        createWorkflowHistory: payload.createWorkflowHistory,
       }),
     });
     const data = await json<{
@@ -114,5 +150,16 @@ export const projectApi = {
       updatedAt: data.updatedAt,
       thumbnailUrl: data.thumbnailUrl,
     };
+  },
+
+  async listWorkflowHistory(id: string, payload?: { limit?: number }): Promise<WorkflowHistoryEntry[]> {
+    const limit = payload?.limit ? `?limit=${payload.limit}` : "";
+    const res = await fetchWithAuth(`${base}/api/projects/${id}/workflow-history${limit}`);
+    return json<WorkflowHistoryEntry[]>(res);
+  },
+
+  async getWorkflowHistory(id: string, updatedAt: string): Promise<WorkflowHistoryDetail> {
+    const res = await fetchWithAuth(`${base}/api/projects/${id}/workflow-history/${encodeURIComponent(updatedAt)}`);
+    return json<WorkflowHistoryDetail>(res);
   },
 };

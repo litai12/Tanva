@@ -3,6 +3,8 @@
  * 实现 LRU 淘汰机制，将 Base64 数据持久化到 IndexedDB
  */
 
+import { blobToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
+
 // ============ 配置常量 ============
 const MAX_MEMORY_CACHE_SIZE = 50 * 1024 * 1024;  // 内存缓存上限 50MB
 const MAX_MEMORY_ENTRIES = 20;                    // 内存最多保留 20 条
@@ -283,13 +285,8 @@ class Base64CacheService {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
+      const blob = await responseToBlob(response);
+      return await blobToDataUrl(blob);
     } catch (error) {
       console.warn('[Base64Cache] fetchFromUrl 失败:', url, error);
       return null;

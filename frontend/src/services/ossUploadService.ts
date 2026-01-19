@@ -1,4 +1,6 @@
 import { logger } from "@/utils/logger";
+import { fetchWithAuth } from "./authFetch";
+import { dataUrlToBlob, fileToDataUrl } from "@/utils/imageConcurrency";
 
 export type OssUploadOptions = {
   /** 指定上传的子目录，默认为 `uploads/` */
@@ -11,6 +13,8 @@ export type OssUploadOptions = {
   projectId?: string | null;
   /** 指定 content-type */
   contentType?: string;
+  /** 指定 OSS key（覆盖自动生成） */
+  key?: string;
 };
 
 export type OssUploadResult = {
@@ -85,6 +89,15 @@ export function dataURLToBlob(dataURL: string): Blob {
   return new Blob([decodeURIComponent(raw)], { type: mime });
 }
 
+export async function dataURLToBlobAsync(dataURL: string): Promise<Blob> {
+  try {
+    return await dataUrlToBlob(dataURL);
+  } catch {
+    // 兜底：极端情况下 fetch(data:) 不可用时回退到同步解码
+    return dataURLToBlob(dataURL);
+  }
+}
+
 async function requestPresign(
   dir: string,
   maxSize?: number
@@ -96,10 +109,9 @@ async function requestPresign(
       ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
       : "http://localhost:4000";
 
-  const res = await fetch(`${API_BASE}/api/uploads/presign`, {
+  const res = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ dir, maxSize }),
   });
   const data = await res.json();
@@ -120,6 +132,14 @@ function buildKey(dir: string, fileName?: string, extensionHint?: string) {
   return `${dir}${finalName}`;
 }
 
+export function generateOssKey(
+  options: Pick<OssUploadOptions, "dir" | "projectId" | "fileName" | "contentType">
+): { dir: string; key: string } {
+  const dir = normalizeDir(options.dir, options.projectId);
+  const extension = inferExtension(options.fileName, options.contentType);
+  return { dir, key: buildKey(dir, options.fileName, extension) };
+}
+
 export async function uploadToOSS(
   data: Blob | File,
   options: OssUploadOptions = {}
@@ -132,7 +152,18 @@ export async function uploadToOSS(
       options.fileName,
       options.contentType || (data as File).type
     );
-    const key = buildKey(presign.dir || dir, options.fileName, extension);
+    const key = (() => {
+      const forced = typeof options.key === "string" ? options.key.trim() : "";
+      if (forced) {
+        const normalized = forced.replace(/^\/+/, "");
+        const expectedPrefix = (presign.dir || dir).replace(/^\/+/, "");
+        if (expectedPrefix && !normalized.startsWith(expectedPrefix)) {
+          throw new Error(`指定 key 必须以 ${expectedPrefix} 开头`);
+        }
+        return normalized;
+      }
+      return buildKey(presign.dir || dir, options.fileName, extension);
+    })();
 
     const formData = new FormData();
     formData.append("key", key);
@@ -208,27 +239,16 @@ export async function fileToDataURL(
   file: File | Blob,
   mimeType?: string
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        resolve(result);
-      } else {
-        reject(new Error("文件读取失败"));
-      }
-    };
-    reader.onerror = () => reject(new Error("文件读取失败"));
-    if (file instanceof File && mimeType && file.type !== mimeType) {
-      // 直接读取即可，mimeType 信息由 File 自身提供
-    }
-    reader.readAsDataURL(file);
-  });
+  if (file instanceof File && mimeType && file.type !== mimeType) {
+    // 直接读取即可，mimeType 信息由 File 自身提供
+  }
+  return await fileToDataUrl(file);
 }
 
 export const ossUploadService = {
   uploadToOSS,
   dataURLToBlob,
+  dataURLToBlobAsync,
   getImageDimensions,
   fileToDataURL,
 };

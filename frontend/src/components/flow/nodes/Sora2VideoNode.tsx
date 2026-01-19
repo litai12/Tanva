@@ -1,6 +1,7 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
 import { AlertTriangle, Video, Share2, Download, Lock } from 'lucide-react';
+import SmartImage from '../../ui/SmartImage';
 import GenerationProgressBar from './GenerationProgressBar';
 import { SORA2_VIDEO_MODELS, type Sora2VideoQuality } from '@/stores/aiChatStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -344,7 +345,7 @@ function Sora2VideoNodeInner({ id, data, selected }: Props) {
     }
     if (sanitizedThumbnail) {
       return (
-        <img
+        <SmartImage
           src={proxifyRemoteAssetUrl(sanitizedThumbnail)}
           alt="video thumbnail"
           style={commonMediaStyle}

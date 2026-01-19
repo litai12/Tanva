@@ -2,8 +2,8 @@ import React from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
 import { Send as SendIcon, Play, Plus, X, Link, Copy, Trash2, Download, FolderPlus } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import SmartImage from '../../ui/SmartImage';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
-import { recordImageHistoryEntry } from '@/services/imageHistoryService';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { useAIChatStore } from '@/stores/aiChatStore';
@@ -296,11 +296,12 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
 
   // 添加到个人库
   const handleAddToLibrary = React.useCallback(() => {
-    if (!data.imageData) return;
+    const source = data.imageUrl || data.imageData;
+    if (!source) return;
     window.dispatchEvent(new CustomEvent('flow:addToLibrary', {
-      detail: { imageData: data.imageData, nodeId: id, nodeType: 'generatePro' }
+      detail: { imageData: source, nodeId: id, nodeType: 'generatePro' }
     }));
-  }, [data.imageData, id]);
+  }, [data.imageData, data.imageUrl, id]);
 
   // 长宽比选项
   const aspectOptions: Array<{ label: string; value: string }> = React.useMemo(() => ([
@@ -355,23 +356,6 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
       })
     );
   }, [id]);
-
-  // 当图片数据更新时，添加到全局历史记录
-  React.useEffect(() => {
-    if (data.imageData && status === 'succeeded') {
-      const newImageId = `${id}-${Date.now()}`;
-      setCurrentImageId(newImageId);
-      void recordImageHistoryEntry({
-        id: newImageId,
-        base64: data.imageData,
-        title: `GeneratePro节点 ${new Date().toLocaleTimeString()}`,
-        nodeId: id,
-        nodeType: 'generatePro',
-        fileName: `flow_generatepro_${newImageId}.png`,
-        projectId,
-      });
-    }
-  }, [data.imageData, status, id, projectId]);
 
   // 处理图片切换
   const handleImageChange = React.useCallback((imageId: string) => {
@@ -579,7 +563,7 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
             justifyContent: 'center',
           }}>
             {displaySrc ? (
-              <img src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              <SmartImage src={displaySrc} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             ) : (
               <span style={{ fontSize: 12, color: '#9ca3af' }}>等待生成</span>
             )}
@@ -1101,19 +1085,19 @@ function GenerateProNodeInner({ id, data, selected }: Props) {
               label: '添加到库',
               icon: <FolderPlus className="w-4 h-4" />,
               onClick: handleAddToLibrary,
-              disabled: !data.imageData,
+              disabled: !(data.imageData || data.imageUrl),
             },
             {
               label: '下载图片',
               icon: <Download className="w-4 h-4" />,
               onClick: handleDownload,
-              disabled: !data.imageData,
+              disabled: !(data.imageData || data.imageUrl),
             },
             {
               label: '发送到画板',
               icon: <SendIcon className="w-4 h-4" />,
               onClick: onSend,
-              disabled: !data.imageData,
+              disabled: !(data.imageData || data.imageUrl),
             },
           ]}
         />

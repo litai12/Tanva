@@ -11,6 +11,8 @@ import { trimTransparentPng } from '@/utils/imageHelper';
 import type { ImageInstance, Model3DInstance } from '@/types/canvas';
 import { logger } from '@/utils/logger';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { toRenderableImageSrc } from '@/utils/imageSource';
+import { canvasToBlob, canvasToDataUrl, dataUrlToBlob } from '@/utils/imageConcurrency';
 
 export interface ScreenshotOptions {
   /** 输出图片格式 */
@@ -1008,15 +1010,28 @@ export class AutoScreenshotService {
         const imgSrc = raster.image.src;
         // 检查是否是跨域 URL（不是 data: 或 blob:）
         if (imgSrc && !/^data:/i.test(imgSrc) && !/^blob:/i.test(imgSrc)) {
-          // 检查是否已经设置了 crossOrigin（通过检查 complete 状态和 naturalWidth）
-          // 如果图片已经加载完成但没有 crossOrigin，需要重新加载
-          const needsReload = !raster.image.crossOrigin || 
-            (raster.image.complete && raster.image.naturalWidth === 0);
+          // 仅当“确实跨域”且未设置 crossOrigin 时才需要重载；同源（含 /api/assets/proxy）无需重载。
+          const failedLoad = raster.image.complete && raster.image.naturalWidth === 0;
+          let isCrossOrigin = true;
+          try {
+            const base =
+              typeof window !== 'undefined' && window.location?.origin
+                ? window.location.origin
+                : '';
+            if (base) {
+              const normalized = new URL(imgSrc, base);
+              isCrossOrigin = normalized.origin !== base;
+            }
+          } catch {
+            isCrossOrigin = true;
+          }
+
+          const needsReload = failedLoad || (isCrossOrigin && !raster.image.crossOrigin);
           
           if (needsReload) {
             try {
               // 尝试使用代理 URL 重新加载图片，确保设置 crossOrigin
-              const proxiedSrc = proxifyRemoteAssetUrl(imgSrc);
+              const proxiedSrc = toRenderableImageSrc(imgSrc) || proxifyRemoteAssetUrl(imgSrc);
               const cleanImg = await this.loadImageFromSrc(proxiedSrc);
               imageToDraw = cleanImg;
               logger.debug('✅ 跨域图片已重新加载（设置 crossOrigin）', { src: imgSrc });
@@ -1468,7 +1483,7 @@ export class AutoScreenshotService {
       const img = new Image();
       img.onload = () => resolve(img);
       img.onerror = () => reject(new Error('图片加载失败'));
-      const finalSrc = proxifyRemoteAssetUrl(src);
+      const finalSrc = toRenderableImageSrc(src) || proxifyRemoteAssetUrl(src);
       if (!/^data:/i.test(finalSrc) && !/^blob:/i.test(finalSrc)) {
         img.crossOrigin = 'anonymous';
       }
@@ -1514,9 +1529,11 @@ export class AutoScreenshotService {
     // 生成数据URL（捕获 SecurityError，通常由跨域图片导致 canvas 被污染引起）
     let dataUrl: string;
     try {
-      dataUrl = options.format === 'jpeg' 
-        ? canvas.toDataURL(mimeType, options.quality)
-        : canvas.toDataURL(mimeType);
+      dataUrl = await canvasToDataUrl(
+        canvas,
+        mimeType,
+        options.format === 'jpeg' ? options.quality : undefined
+      );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
         logger.error('❌ 截图生成失败: SecurityError: The operation is insecure.', {
@@ -1531,15 +1548,7 @@ export class AutoScreenshotService {
     // 生成Blob（同样需要捕获 SecurityError）
     let blob: Blob;
     try {
-      blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(blob);
-          } else {
-            reject(new Error('无法生成Blob'));
-          }
-        }, mimeType, options.quality);
-      });
+      blob = await canvasToBlob(canvas, { type: mimeType, quality: options.quality });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'SecurityError') {
         logger.error('❌ Blob 生成失败: SecurityError: The operation is insecure.', {
@@ -1569,7 +1578,7 @@ export class AutoScreenshotService {
           };
 
           // 根据裁剪后的 dataURL 重建 Blob
-          blob = await (await fetch(dataUrl)).blob();
+          blob = await dataUrlToBlob(dataUrl);
 
           logger.debug('🪄 截图自动裁剪透明边框', {
             cropBounds: trimResult.cropBounds,

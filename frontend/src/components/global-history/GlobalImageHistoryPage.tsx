@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Download, Trash2, Search, Filter, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
+import SmartImage from '../ui/SmartImage';
 import { useGlobalImageHistoryStore } from '@/stores/globalImageHistoryStore';
 import type { GlobalImageHistoryItem } from '@/services/globalImageHistoryApi';
 import GlobalImageDetailModal from './GlobalImageDetailModal';
@@ -102,7 +103,7 @@ const ImageCard: React.FC<ImageCardProps> = ({
       onClick={() => onSelect(item)}
     >
       <div className="aspect-square">
-        <img
+        <SmartImage
           src={item.imageUrl}
           alt={item.prompt || '图片'}
           className="w-full h-full object-cover"

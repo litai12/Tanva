@@ -5,6 +5,7 @@
 
 import paper from 'paper';
 import { logger } from '@/utils/logger';
+import { canvasToBlob } from '@/utils/imageConcurrency';
 
 export interface PaperBackgroundRemovalOptions {
   x?: number;
@@ -166,16 +167,9 @@ class PaperBackgroundRemovalService {
       ctx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
       ctx.drawImage(canvas, 0, 0);
 
-      return new Promise((resolve, reject) => {
-        exportCanvas.toBlob((blob) => {
-          if (blob) {
-            logger.info(`✅ PNG exported: ${blob.size} bytes`);
-            resolve(blob);
-          } else {
-            reject(new Error('Failed to create blob'));
-          }
-        }, 'image/png');
-      });
+      const blob = await canvasToBlob(exportCanvas, { type: 'image/png' });
+      logger.info(`✅ PNG exported: ${blob.size} bytes`);
+      return blob;
     } catch (error) {
       logger.error('❌ Export failed:', error);
       throw error;

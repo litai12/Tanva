@@ -11,6 +11,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { contextManager } from '@/services/contextManager';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import { getProjectCache, setProjectCache, isCacheValid } from '@/services/projectCacheStore';
+import { getPendingUploadSummary } from '@/utils/pendingUploadSummary';
 
 type ProjectAutosaveManagerProps = {
   projectId: string | null;
@@ -20,7 +21,6 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
   const setProject = useProjectContentStore((state) => state.setProject);
   const hydrate = useProjectContentStore((state) => state.hydrate);
   const setError = useProjectContentStore((state) => state.setError);
-  const dirty = useProjectContentStore((state) => state.dirty);
 
   const hydrationReadyRef = useRef(false);
 
@@ -299,14 +299,16 @@ export default function ProjectAutosaveManager({ projectId }: ProjectAutosaveMan
 
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      if (!dirty) return;
+      const { dirty } = useProjectContentStore.getState();
+      const pending = getPendingUploadSummary();
+      if (!dirty && !pending.hasPending) return;
       event.preventDefault();
        
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
+  }, []);
 
   useProjectAutosave(projectId);
 

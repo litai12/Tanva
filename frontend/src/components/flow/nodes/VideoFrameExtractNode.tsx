@@ -1,6 +1,9 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import SmartImage from '../../ui/SmartImage';
 import { isAssetProxyEnabled, proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { imageUploadService } from '@/services/imageUploadService';
+import { useProjectContentStore } from '@/stores/projectContentStore';
 
 type FrameData = {
   index: number;
@@ -55,23 +58,66 @@ const API_BASE_URL =
     ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, '')
     : 'http://localhost:4000') + '/api';
 
+// 简单的 URL 清洗器：去掉空白并返回 undefined 当为空
+const sanitizeMediaUrl = (raw?: string | null | undefined): string | undefined => {
+  if (!raw || typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length ? trimmed : undefined;
+};
+
+/**
+ * 从一个 React Flow 节点对象中解析尽可能多的 video URL 源。
+ * 兼容字段：videoUrl, video_url, videoSourceUrl, output[].video_url, raw.output.video_url, history 等。
+ */
+const resolveVideoUrlFromNode = (node?: Node<any> | null): string | undefined => {
+  if (!node) return undefined;
+  const data = (node.data ?? {}) as any;
+
+  const candidates = [
+    data.videoUrl,
+    data.video_url,
+    data.videoSourceUrl,
+    data.video_source_url,
+    data.video,
+    data.videoSource,
+    data.output?.video_url,
+    Array.isArray(data.output) ? data.output[0]?.video_url : undefined,
+    data.output?.url,
+    data.raw?.output?.video_url,
+    data.raw?.video_url,
+    Array.isArray(data.history) ? data.history[0]?.videoUrl : undefined,
+    data.videoSource?.url,
+  ];
+
+  for (const c of candidates) {
+    const s = sanitizeMediaUrl(c);
+    if (s) return s;
+  }
+  return undefined;
+};
+
 function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
   const { status = 'idle', error, frames = [], totalFrames = 0 } = data;
   const [hover, setHover] = React.useState<string | null>(null);
   const [showAllFrames, setShowAllFrames] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const projectId = useProjectContentStore((s) => s.projectId);
 
-  // 获取连接的视频节点数据
+  // 获取连接的视频节点数据：接受所有以 "video" 开头的 targetHandle（兼容 video-xxx）
   const connectedVideoUrl = useStore(
     React.useCallback(
       (state: ReactFlowState) => {
         const edge = state.edges.find(
-          (e) => e.target === id && e.targetHandle === 'video'
+          (e) =>
+            e.target === id &&
+            typeof e.targetHandle === 'string' &&
+            e.targetHandle.startsWith('video')
         );
         if (!edge) return undefined;
         const sourceNode = state.getNodes().find((n: Node<any>) => n.id === edge.source);
-        return sourceNode?.data?.videoUrl as string | undefined;
+        // 使用解析器从 source node 的 data 中提取 video url（兼容多种字段）
+        return resolveVideoUrlFromNode(sourceNode);
       },
       [id]
     )
@@ -83,7 +129,10 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
     React.useCallback(
       (state: ReactFlowState) =>
         state.edges.some(
-          (edge) => edge.target === id && edge.targetHandle === 'video'
+          (edge) =>
+            edge.target === id &&
+            typeof edge.targetHandle === 'string' &&
+            edge.targetHandle.startsWith('video')
         ),
       [id]
     )
@@ -256,14 +305,30 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
         // 绘制帧
         ctx.drawImage(video, 0, 0);
 
-        // 生成缩略图 DataURL
-        const thumbnailDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('导出帧失败'))), 'image/jpeg', 0.7);
+        });
+
+        const fileName = `video_frame_${id}_${i + 1}_${Math.round(timestamp * 1000)}.jpg`;
+        const uploadResult = await imageUploadService.uploadImageSource(blob, {
+          projectId: projectId ?? undefined,
+          dir: projectId ? `projects/${projectId}/flow/video-frames/` : 'uploads/flow/video-frames/',
+          fileName,
+          contentType: 'image/jpeg',
+        });
+
+        if (!uploadResult.success || !uploadResult.asset?.url) {
+          throw new Error(uploadResult.error || '帧上传失败');
+        }
+
+        const remoteUrl = uploadResult.asset.url;
+        const thumbnailUrl = buildOssThumbnailUrl(remoteUrl, 320);
 
         extractedFrames.push({
           index: i + 1,
           timestamp,
-          imageUrl: thumbnailDataUrl,
-          thumbnailDataUrl,
+          imageUrl: remoteUrl,
+          thumbnailDataUrl: thumbnailUrl,
         });
 
         // 更新进度
@@ -281,7 +346,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
       });
 
       console.log(`[Frontend] 抽帧完成: ${extractedFrames.length} 帧`);
-  }, [effectiveVideoUrl, intervalSeconds, updateNodeData]);
+  }, [effectiveVideoUrl, id, intervalSeconds, projectId, updateNodeData]);
 
   // 统一抽帧入口
   const extractFrames = React.useCallback(async () => {
@@ -478,7 +543,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                   position: 'relative',
                 }}
               >
-                <img
+                <SmartImage
                   src={frame.thumbnailDataUrl}
                   alt={`帧 ${frame.index}`}
                   decoding="async"
@@ -768,7 +833,7 @@ function VideoFrameExtractNodeInner({ id, data, selected = false }: Props) {
                     setShowAllFrames(false);
                   }}
                 >
-                  <img
+                  <SmartImage
                     src={frame.thumbnailDataUrl}
                     alt={`帧 ${frame.index}`}
                     decoding="async"

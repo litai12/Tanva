@@ -1,5 +1,6 @@
 import React from 'react';
 import { Handle, Position, useStore, type ReactFlowState, type Node } from 'reactflow';
+import { fetchWithAuth } from '@/services/authFetch';
 
 type Props = {
   id: string;
@@ -89,10 +90,9 @@ function VideoAnalyzeNodeInner({ id, data, selected = false }: Props) {
 
       const apiBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/+$/, '') || 'http://localhost:4000';
 
-	      const response = await fetch(`${apiBase}/api/ai/analyze-video`, {
+	      const response = await fetchWithAuth(`${apiBase}/api/ai/analyze-video`, {
 	        method: 'POST',
 	        headers: { 'Content-Type': 'application/json' },
-	        credentials: 'include',
 	        body: JSON.stringify({
 	          prompt: promptToUse,
 	          videoUrl: effectiveVideoUrl,

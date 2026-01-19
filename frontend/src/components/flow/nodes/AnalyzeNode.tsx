@@ -1,9 +1,12 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
 import ImagePreviewModal from '../../ui/ImagePreviewModal';
+import SmartImage from '../../ui/SmartImage';
 import { aiImageService } from '@/services/aiImageService';
+import { fetchWithAuth } from '@/services/authFetch';
 import { useAIChatStore, getImageModelForProvider } from '@/stores/aiChatStore';
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { blobToDataUrl, responseToBlob } from '@/utils/imageConcurrency';
 
 type Props = {
   id: string;
@@ -112,19 +115,10 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
 
         if (fetchUrl) {
           // 类型定义要求 base64，这里在前端将远程图转成 dataURL
-          const response = await fetch(fetchUrl, { credentials: 'include' });
+          const response = await fetchWithAuth(fetchUrl);
           if (!response.ok) throw new Error(`图片加载失败: ${response.status}`);
-          const blob = await response.blob();
-          return await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const result = reader.result;
-              if (typeof result === 'string' && result.startsWith('data:')) resolve(result);
-              else reject(new Error('图片转换失败'));
-            };
-            reader.onerror = () => reject(new Error('图片读取失败'));
-            reader.readAsDataURL(blob);
-          });
+          const blob = await responseToBlob(response);
+          return await blobToDataUrl(blob);
         }
         return `data:image/png;base64,${raw}`;
       };
@@ -225,7 +219,7 @@ function AnalysisNodeInner({ id, data, selected = false }: Props) {
         title={previewSrc ? 'Double click to preview' : undefined}
       >
         {previewSrc ? (
-          <img
+          <SmartImage
             src={previewSrc}
             alt=""
             style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}

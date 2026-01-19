@@ -3,12 +3,18 @@ import { logger } from '@/utils/logger';
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import paper from 'paper';
 import { Button } from '../ui/button';
-import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles } from 'lucide-react';
+import SmartImage from '../ui/SmartImage';
+import { X, Plus, Eye, EyeOff, Trash2, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Circle, Square, Minus, Image, Box, Pen, Sparkles, ImageUp } from 'lucide-react';
 import { useUIStore } from '@/stores/uiStore';
 import { useLayerStore } from '@/stores';
 import { useAIChatStore } from '@/stores/aiChatStore';
 import ContextMenu from '../ui/context-menu';
 import { isRaster } from '@/utils/paperCoords';
+import { canvasToBlob, canvasToDataUrl } from '@/utils/imageConcurrency';
+import { isRemoteUrl, normalizePersistableImageRef } from '@/utils/imageSource';
+import { useProjectContentStore } from '@/stores/projectContentStore';
+import { paperSaveService } from '@/services/paperSaveService';
+import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
 
 interface LayerItemData {
     id: string;
@@ -24,6 +30,36 @@ const LayerPanel: React.FC = () => {
     const { showLayerPanel, setShowLayerPanel, focusMode } = useUIStore();
     const { layers, activeLayerId, createLayer, deleteLayer, toggleVisibility, activateLayer, renameLayer, toggleLocked, reorderLayer } = useLayerStore();
     const { setSourceImageForEditing, showDialog } = useAIChatStore();
+    const content = useProjectContentStore((state) => state.content);
+
+    const pendingCanvasImageIdSet = useMemo(() => {
+        return new Set(getNonRemoteImageAssetIds(content));
+    }, [content]);
+
+    const getCanvasImageIdFromItem = (item: LayerItemData): string | null => {
+        const raw = (item as any)?.paperItem?.data?.imageId;
+        const id = typeof raw === 'string' ? raw.trim() : (raw !== null && raw !== undefined ? String(raw).trim() : '');
+        return id ? id : null;
+    };
+
+    const isPendingCanvasImageItem = (item: LayerItemData): boolean => {
+        if (item.type !== 'image') return false;
+        const imageId = getCanvasImageIdFromItem(item);
+        return Boolean(imageId && pendingCanvasImageIdSet.has(imageId));
+    };
+
+    const handleRetryUploadPendingImages = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            useProjectContentStore.getState().setWarning('正在重试上传未上传图片…');
+        } catch {}
+        try {
+            await paperSaveService.saveImmediately();
+        } catch (error) {
+            console.warn('重试上传失败:', error);
+        }
+    };
 
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingName, setEditingName] = useState<string>('');
@@ -56,7 +92,7 @@ const LayerPanel: React.FC = () => {
     const containerRef = useRef<HTMLDivElement | null>(null);
     const indicatorClass = useMemo(() => 'absolute left-3 right-3 h-0.5 bg-gray-800 rounded-full pointer-events-none', []);
     // 缓存缩略图
-    const thumbCache = useRef<Record<string, { dataUrl: string; timestamp: number }>>({});
+    const thumbCache = useRef<Record<string, { src: string; timestamp: number; revoke?: () => void }>>({});
     // 异步缩略图生成队列
     const thumbGenerationQueue = useRef<Set<string>>(new Set());
     const isGeneratingThumb = useRef(false);
@@ -278,7 +314,7 @@ const LayerPanel: React.FC = () => {
         };
     }, [showLayerPanel, layers]);
 
-    const generateLayerThumb = (id: string): string | null => {
+    const generateLayerThumb = async (id: string): Promise<{ src: string; revoke?: () => void } | null> => {
         try {
             if (!paper.project) return null;
             const pl = paper.project.layers.find(l => l.name === `layer_${id}`);
@@ -420,9 +456,16 @@ const LayerPanel: React.FC = () => {
                     item.visible = visible;
                 });
 
-                // 返回 data URL，处理跨域污染错误
+                // 返回 Blob object URL，处理跨域污染错误
                 try {
-                    return thumbCanvas.toDataURL('image/png', 1.0);
+                    const blob = await canvasToBlob(thumbCanvas, { type: 'image/png', quality: 1.0 });
+                    const objectUrl = URL.createObjectURL(blob);
+                    return {
+                        src: objectUrl,
+                        revoke: () => {
+                            try { URL.revokeObjectURL(objectUrl); } catch {}
+                        }
+                    };
                 } catch (e) {
                     // SecurityError: canvas 被跨域图片污染，无法导出
                     if (e instanceof SecurityError || 
@@ -460,7 +503,7 @@ const LayerPanel: React.FC = () => {
     };
 
     // 生成图片缩略图
-    const generateImageThumb = (imageItem: LayerItemData): string | null => {
+    const generateImageThumb = (imageItem: LayerItemData): { src: string } | null => {
         try {
             // 查找对应的图片实例
             const imageInstances = (window as any).tanvaImageInstances || [];
@@ -469,7 +512,7 @@ const LayerPanel: React.FC = () => {
             );
 
             if (imageInstance?.imageData?.src) {
-                return imageInstance.imageData.url || imageInstance.imageData.src; // 直接返回图片数据
+                return { src: imageInstance.imageData.url || imageInstance.imageData.src }; // 直接返回图片引用
             }
 
             return null;
@@ -480,7 +523,7 @@ const LayerPanel: React.FC = () => {
     };
 
     // 生成3D模型缩略图 
-    const generate3DModelThumb = (modelItem: LayerItemData): string | null => {
+    const generate3DModelThumb = async (modelItem: LayerItemData): Promise<{ src: string; revoke?: () => void } | null> => {
         try {
             // 查找对应的3D模型实例
             const model3DInstances = (window as any).tanvaModel3DInstances || [];
@@ -496,14 +539,14 @@ const LayerPanel: React.FC = () => {
 
             if (modelInstance?.modelData) {
                 // 尝试获取3D模型的真实缩略图
-                const realThumb = capture3DModelThumbnail(modelInstance);
+                const realThumb = await capture3DModelThumbnail(modelInstance);
                 if (realThumb) {
                     return realThumb;
                 }
 
                 // 回退到SVG占位符
                 const svgThumb = createModel3DPlaceholderSVG(modelInstance.modelData.fileName || '3D模型');
-                return svgThumb;
+                return { src: svgThumb };
             }
 
             return null;
@@ -514,7 +557,7 @@ const LayerPanel: React.FC = () => {
     };
 
     // 捕获3D模型的真实缩略图
-    const capture3DModelThumbnail = (modelInstance: any): string | null => {
+    const capture3DModelThumbnail = async (modelInstance: any): Promise<{ src: string; revoke?: () => void } | null> => {
         try {
             // 查找对应的3D容器DOM元素
             const modelContainers = document.querySelectorAll('[data-model-id]');
@@ -577,8 +620,14 @@ const LayerPanel: React.FC = () => {
 
             thumbCtx.drawImage(canvas, offsetX, offsetY, drawWidth, drawHeight);
 
-            // 转换为base64
-            return thumbCanvas.toDataURL('image/png');
+            const blob = await canvasToBlob(thumbCanvas, { type: 'image/png' });
+            const objectUrl = URL.createObjectURL(blob);
+            return {
+                src: objectUrl,
+                revoke: () => {
+                    try { URL.revokeObjectURL(objectUrl); } catch {}
+                }
+            };
 
         } catch (e) {
             console.error('捕获3D模型缩略图失败:', e);
@@ -598,7 +647,8 @@ const LayerPanel: React.FC = () => {
             </svg>
         `;
 
-        return `data:image/svg+xml;base64,${btoa(svg)}`;
+        // 使用 utf8 dataURL（避免 base64）
+        return `data:image/svg+xml;utf8,${encodeURIComponent(svg.trim())}`;
     };
 
     // 异步生成缩略图
@@ -621,38 +671,52 @@ const LayerPanel: React.FC = () => {
             isGeneratingThumb.current = true;
 
             requestAnimationFrame(() => {
-                const items = layerItems[nextId] || [];
-                let thumb: string | null = null;
+                void (async () => {
+                    const items = layerItems[nextId] || [];
+                    let thumb: { src: string; revoke?: () => void } | null = null;
 
-                if (items.length === 1) {
-                    const item = items[0];
-                    if (item.type === 'image') {
-                        thumb = generateImageThumb(item);
-                    } else if (item.type === 'model3d') {
-                        thumb = generate3DModelThumb(item);
+                    if (items.length === 1) {
+                        const item = items[0];
+                        if (item.type === 'image') {
+                            thumb = generateImageThumb(item);
+                        } else if (item.type === 'model3d') {
+                            thumb = await generate3DModelThumb(item);
+                        }
                     }
-                }
 
-                if (!thumb) {
-                    thumb = generateLayerThumb(nextId);
-                }
+                    if (!thumb) {
+                        thumb = await generateLayerThumb(nextId);
+                    }
 
-                // 无论成功还是失败都缓存结果，避免跨域污染导致的无限重试
-                // 失败时缓存空字符串，显示占位符
-                thumbCache.current[nextId] = {
-                    dataUrl: thumb || '',
-                    timestamp: Date.now()
-                };
-                if (thumb) {
-                    setRefreshTrigger(prev => prev + 1);
-                }
+                    // 无论成功还是失败都缓存结果，避免跨域污染导致的无限重试
+                    // 失败时缓存空字符串，显示占位符
+                    const existing = thumbCache.current[nextId];
+                    existing?.revoke?.();
+                    thumbCache.current[nextId] = {
+                        src: thumb?.src || '',
+                        timestamp: Date.now()
+                    };
+                    if (thumb?.src) {
+                        setRefreshTrigger(prev => prev + 1);
+                    }
+                })()
+                  .catch((e) => {
+                      console.error('生成缩略图失败:', e);
+                      const existing = thumbCache.current[nextId];
+                      existing?.revoke?.();
+                      thumbCache.current[nextId] = {
+                          src: '',
+                          timestamp: Date.now()
+                      };
+                  })
+                  .finally(() => {
+                      isGeneratingThumb.current = false;
 
-                isGeneratingThumb.current = false;
-
-                // 处理队列中的下一个
-                if (thumbGenerationQueue.current.size > 0) {
-                    setTimeout(processQueue, 16);
-                }
+                      // 处理队列中的下一个
+                      if (thumbGenerationQueue.current.size > 0) {
+                          setTimeout(processQueue, 16);
+                      }
+                  });
             });
         };
 
@@ -665,7 +729,7 @@ const LayerPanel: React.FC = () => {
 
         // 缓存 5秒
         if (cached && (now - cached.timestamp) < 5000) {
-            return cached.dataUrl;
+            return cached.src;
         }
 
         // 检查是否有内容
@@ -676,7 +740,7 @@ const LayerPanel: React.FC = () => {
 
         // 异步生成缩略图，先返回 null 显示占位符
         generateThumbAsync(id);
-        return cached?.dataUrl || null;
+        return cached?.src || null;
     };
 
     // 定期刷新缩略图 - 改为5秒，并使用异步生成
@@ -692,7 +756,10 @@ const LayerPanel: React.FC = () => {
                     expiredIds.push(id);
                 }
             });
-            expiredIds.forEach(id => delete thumbCache.current[id]);
+            expiredIds.forEach(id => {
+                thumbCache.current[id]?.revoke?.();
+                delete thumbCache.current[id];
+            });
 
             // 只有当有过期缓存时才触发重新渲染
             if (expiredIds.length > 0) {
@@ -702,6 +769,21 @@ const LayerPanel: React.FC = () => {
 
         return () => clearInterval(interval);
     }, [showLayerPanel]);
+
+    // 面板关闭/卸载时回收由本组件生成的 blob objectURL
+    useEffect(() => {
+        if (!showLayerPanel) {
+            Object.values(thumbCache.current).forEach((entry) => entry?.revoke?.());
+            thumbCache.current = {};
+        }
+    }, [showLayerPanel]);
+
+    useEffect(() => {
+        return () => {
+            Object.values(thumbCache.current).forEach((entry) => entry?.revoke?.());
+            thumbCache.current = {};
+        };
+    }, []);
 
     const toggleLayerExpanded = (layerId: string) => {
         setExpandedLayers(prev => {
@@ -794,14 +876,24 @@ const LayerPanel: React.FC = () => {
     };
 
     // 处理AI编辑图像
-    const handleAIEditImage = (item: LayerItemData) => {
+    const handleAIEditImage = async (item: LayerItemData) => {
         if (item.type !== 'image' || !item.paperItem) return;
 
         try {
             // 找到图像的Raster对象
             const raster = item.paperItem.children?.find(child => isRaster(child)) as paper.Raster;
+            const metaRemote =
+                typeof (raster as any)?.data?.remoteUrl === 'string'
+                    ? normalizePersistableImageRef((raster as any).data.remoteUrl)
+                    : '';
+            if (metaRemote && isRemoteUrl(metaRemote)) {
+                setSourceImageForEditing(metaRemote);
+                showDialog();
+                return;
+            }
+
             if (raster && raster.canvas) {
-                const imageData = raster.canvas.toDataURL('image/png');
+                const imageData = await canvasToDataUrl(raster.canvas, 'image/png');
                 setSourceImageForEditing(imageData);
                 showDialog();
             }
@@ -1266,18 +1358,19 @@ const LayerPanel: React.FC = () => {
                                         <div className="shrink-0 w-8 h-8 border rounded bg-white overflow-hidden flex items-center justify-center">
                                             {(() => {
                                                 const thumbUrl = getCachedThumb(layer.id);
-                                                return thumbUrl ? (
-                                                    <img
+                                                return (
+                                                    <SmartImage
                                                         key={`${layer.id}_${refreshTrigger}`}
                                                         src={thumbUrl}
                                                         alt="thumb"
                                                         className="w-8 h-8 object-contain"
                                                         style={{ imageRendering: 'crisp-edges' }}
+                                                        placeholder={
+                                                            <div className="w-8 h-8 bg-gray-50 border border-gray-200 rounded flex items-center justify-center">
+                                                                <div className="w-4 h-4 bg-gray-200 rounded" />
+                                                            </div>
+                                                        }
                                                     />
-                                                ) : (
-                                                    <div className="w-8 h-8 bg-gray-50 border border-gray-200 rounded flex items-center justify-center">
-                                                        <div className="w-4 h-4 bg-gray-200 rounded" />
-                                                    </div>
                                                 );
                                             })()}
                                         </div>
@@ -1521,14 +1614,33 @@ const LayerPanel: React.FC = () => {
                                                         onClick={(e) => e.stopPropagation()}
                                                     />
                                                 ) : (
-                                                    <div className={`flex-1 text-xs truncate ${item.visible ? 'text-gray-700' : 'text-gray-400'
+                                                    <div className={`flex-1 min-w-0 flex items-center gap-2 text-xs ${item.visible ? 'text-gray-700' : 'text-gray-400'
                                                         }`}>
-                                                        {item.name}
+                                                        <span className="min-w-0 truncate">{item.name}</span>
+                                                        {isPendingCanvasImageItem(item) && (
+                                                            <span
+                                                                className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700"
+                                                                title="该图片尚未上传到 OSS：已保存其它内容，但刷新/换设备后会丢失，可点击重试上传"
+                                                            >
+                                                                未上传
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 )}
 
                                                 {/* 操作按钮 */}
                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {isPendingCanvasImageItem(item) && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-4 w-4 p-0"
+                                                            onClick={(e) => { void handleRetryUploadPendingImages(e); }}
+                                                            title="重试上传"
+                                                        >
+                                                            <ImageUp className="h-3 w-3" />
+                                                        </Button>
+                                                    )}
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
@@ -1593,11 +1705,18 @@ const LayerPanel: React.FC = () => {
                 y={contextMenu.y}
                 onClose={() => setContextMenu({ visible: false, x: 0, y: 0, item: null })}
                 items={[
+                    ...(contextMenu.item.type === 'image' && isPendingCanvasImageItem(contextMenu.item) ? [
+                        {
+                            label: '重试上传',
+                            icon: <ImageUp className="w-4 h-4" />,
+                            onClick: () => { void paperSaveService.saveImmediately().catch(() => {}); },
+                        },
+                    ] : []),
                     ...(contextMenu.item.type === 'image' ? [
                         {
                             label: 'AI编辑图像',
                             icon: <Sparkles className="w-4 h-4" />,
-                            onClick: () => handleAIEditImage(contextMenu.item!),
+                            onClick: () => { void handleAIEditImage(contextMenu.item!).catch(() => {}); },
                         }
                     ] : []),
                     {

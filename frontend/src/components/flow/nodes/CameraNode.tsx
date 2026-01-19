@@ -3,6 +3,7 @@ import { Handle, Position, NodeResizer, useReactFlow } from "reactflow";
 import { Send as SendIcon, Camera } from "lucide-react";
 import { AutoScreenshotService } from "@/services/AutoScreenshotService";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
@@ -82,7 +83,8 @@ function CameraNodeInner({ id, data, selected }: Props) {
         }
       );
       if (res.success && res.dataUrl) {
-        const base64 = res.dataUrl.split(",")[1];
+        const dataUrl = res.dataUrl;
+        const base64 = dataUrl.split(",")[1];
         rf.setNodes((ns) =>
           ns.map((n) =>
             n.id === id ? { ...n, data: { ...n.data, imageData: base64 } } : n
@@ -99,7 +101,55 @@ function CameraNodeInner({ id, data, selected }: Props) {
           nodeType: "camera",
           fileName: `camera_capture_${newImageId}.png`,
           projectId,
-        });
+        })
+          .then(({ remoteUrl }) => {
+            if (!remoteUrl) return;
+            // 用远程 URL 替换节点内的 base64，避免写入项目 JSON/DB
+            rf.setNodes((ns) =>
+              ns.map((n) =>
+                n.id === id
+                  ? ((n.data as any)?.imageData !== base64
+                      ? n
+                      : {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            imageUrl: remoteUrl,
+                            imageData: undefined,
+                            thumbnail: undefined,
+                          },
+                        })
+                  : n
+              )
+            );
+
+            // 同步更新下游 Image 节点（避免 base64 传播并落库）
+            try {
+              const outs = rf.getEdges().filter((e) => e.source === id);
+              if (outs.length) {
+                rf.setNodes((ns) =>
+                  ns.map((n) => {
+                    const hits = outs.filter((e) => e.target === n.id);
+                    if (!hits.length) return n;
+                    if (n.type === "image") {
+                      if ((n.data as any)?.imageData !== base64) return n;
+                      return {
+                        ...n,
+                        data: {
+                          ...n.data,
+                          imageUrl: remoteUrl,
+                          imageData: undefined,
+                          thumbnail: undefined,
+                        },
+                      };
+                    }
+                    return n;
+                  })
+                );
+              }
+            } catch {}
+          })
+          .catch(() => {});
         setCurrentImageId(newImageId);
 
         // 向下游 Image 节点传播
@@ -240,12 +290,12 @@ function CameraNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={sendToCanvas}
-            disabled={!data.imageData}
-            title={!data.imageData ? "无可发送的图像" : "发送到画布"}
+            disabled={!(data.imageData || data.imageUrl)}
+            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
             style={{
               fontSize: 12,
               padding: "4px 8px",
-              background: !data.imageData ? "#e5e7eb" : "#111827",
+              background: !(data.imageData || data.imageUrl) ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
             }}
@@ -268,8 +318,9 @@ function CameraNodeInner({ id, data, selected }: Props) {
         }}
       >
         {src ? (
-          <img
+          <SmartImage
             src={src}
+            alt=""
             style={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
         ) : (

@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "../ui/button";
+import SmartImage from "../ui/SmartImage";
 import {
   ChevronRight,
   Upload,
@@ -19,6 +20,7 @@ import {
 import { model3DPreviewService } from "@/services/model3DPreviewService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { blobToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -324,14 +326,8 @@ const LibraryPanel: React.FC = () => {
         credentials: resolveImageFetchCredentials(fetchUrl),
       });
       if (!response.ok) return null;
-      const blob = await response.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () =>
-          resolve(typeof reader.result === "string" ? reader.result : null);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-      });
+      const blob = await responseToBlob(response);
+      return await blobToDataUrl(blob);
     } catch (error) {
       console.warn("[LibraryPanel] 将远程图片转换为 DataURL 失败:", error);
       return null;
@@ -677,7 +673,7 @@ const LibraryPanel: React.FC = () => {
           {/* 预览图 */}
           <div className='w-full aspect-square bg-gray-100 flex items-center justify-center overflow-hidden'>
             {selectedAsset.type === "2d" || selectedAsset.type === "svg" ? (
-              <img
+              <SmartImage
                 src={selectedAsset.thumbnail || selectedAsset.url}
                 alt={selectedAsset.name}
                 className='w-full h-full object-contain'
@@ -859,7 +855,7 @@ const LibraryPanel: React.FC = () => {
                     onDragStart={(e) => handleDragStart(asset, e)}
                   >
                     {is2dOrSvg ? (
-                      <img
+                      <SmartImage
                         src={asset.thumbnail || asset.url}
                         alt={asset.name}
                         className='w-full h-full object-cover'
@@ -959,7 +955,7 @@ const ModelPreview: React.FC<ModelPreviewProps> = ({
 
   if (previewSrc) {
     return (
-      <img
+      <SmartImage
         src={previewSrc}
         alt={`${asset.name} 预览`}
         className={`w-full h-full ${large ? "object-contain" : "object-cover"}`}

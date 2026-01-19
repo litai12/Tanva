@@ -1,11 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { projectApi } from '@/services/projectApi';
 import { paperSaveService } from '@/services/paperSaveService';
+import { flowSaveService } from '@/services/flowSaveService';
 import { useProjectContentStore } from '@/stores/projectContentStore';
 import { saveMonitor } from '@/utils/saveMonitor';
 import { refreshProjectThumbnail } from '@/services/projectThumbnailService';
 import { setProjectCache } from '@/services/projectCacheStore';
-import { getNonRemoteImageAssetIds } from '@/utils/projectContentValidation';
+import {
+  getNonRemoteImageAssetIds,
+  getNonPersistableFlowImageNodeIds,
+  sanitizeProjectContentForCloudSave,
+} from '@/utils/projectContentValidation';
 
 const AUTOSAVE_INTERVAL = 60 * 1000; // 1 分钟定时保存
 const DEBOUNCE_DELAY = 5 * 1000; // 5 秒防抖保存（用户停止操作后）
@@ -23,6 +28,7 @@ export function useProjectAutosave(projectId: string | null) {
   const setSaving = useProjectContentStore((state) => state.setSaving);
   const markSaved = useProjectContentStore((state) => state.markSaved);
   const setError = useProjectContentStore((state) => state.setError);
+  const setWarning = useProjectContentStore((state) => state.setWarning);
 
   const intervalTimerRef = useRef<number | null>(null); // 定时保存
   const debounceTimerRef = useRef<number | null>(null); // 防抖保存
@@ -70,19 +76,37 @@ export function useProjectAutosave(projectId: string | null) {
         } catch {}
       }
 
-      const invalidImageIds = getNonRemoteImageAssetIds(contentToSave);
-      if (invalidImageIds.length > 0) {
-        const message = `存在未上传到 OSS 的图片（${invalidImageIds.length} 张），上传完成前无法保存`;
-        saveMonitor.push(currentProjectId, 'save_blocked_local_assets', {
-          count: invalidImageIds.length,
+      // Flow 里允许运行时使用 flow-asset/base64；但保存接口不支持，需在保存前补传并替换为 URL/OSS key
+      if (getNonPersistableFlowImageNodeIds(contentToSave).length > 0) {
+        try {
+          await flowSaveService.flushImageSplitInputImages();
+          const storeAfterFlush = useProjectContentStore.getState();
+          if (storeAfterFlush.projectId === currentProjectId && storeAfterFlush.content) {
+            contentToSave = storeAfterFlush.content;
+            versionToSave = storeAfterFlush.version;
+            counterToSave = storeAfterFlush.dirtyCounter;
+          }
+        } catch {}
+      }
+
+      const sanitizeResult = sanitizeProjectContentForCloudSave(contentToSave);
+      const invalidCanvasImageIds = sanitizeResult?.dropped.canvasImageIds ?? [];
+      const invalidFlowNodeIds = sanitizeResult?.dropped.flowNodeIds ?? [];
+      const contentForCloudSave = sanitizeResult?.sanitized ?? contentToSave;
+      if (invalidCanvasImageIds.length > 0 || invalidFlowNodeIds.length > 0) {
+        const message = `存在未上传到 OSS 的图片（画布 ${invalidCanvasImageIds.length} 张，Flow ${invalidFlowNodeIds.length} 处），已继续保存其它内容；这些图片不会被保存到云端，请重试上传`;
+        saveMonitor.push(currentProjectId, 'save_warn_local_assets', {
+          canvasCount: invalidCanvasImageIds.length,
+          flowCount: invalidFlowNodeIds.length,
           attempt,
         });
-        setError(message);
-        return;
+        setWarning(message);
+      } else {
+        setWarning(null);
       }
 
       setSaving(true);
-      const result = await projectApi.saveContent(currentProjectId, { content: contentToSave, version: versionToSave });
+      const result = await projectApi.saveContent(currentProjectId, { content: contentForCloudSave, version: versionToSave });
 
       // 传递保存时的 dirtyCounter，让 markSaved 判断是否有新修改
       markSaved(result.version, result.updatedAt ?? new Date().toISOString(), counterToSave);

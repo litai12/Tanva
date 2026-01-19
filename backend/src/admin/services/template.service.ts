@@ -2,6 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTemplateDto, UpdateTemplateDto, TemplateQueryDto } from '../dto/template.dto';
 import { OssService } from '../../oss/oss.service';
+import { sanitizeDesignJson } from '../../utils/designJsonSanitizer';
+
+const sanitizeNullableString = (value: unknown): string | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== 'string') return null;
+  const sanitized = sanitizeDesignJson(value);
+  return typeof sanitized === 'string' ? sanitized : null;
+};
 
 @Injectable()
 export class TemplateService {
@@ -14,6 +23,7 @@ export class TemplateService {
       const json = await this.oss.getJSON(dto.templateJsonKey);
       templateData = json ?? {};
     }
+    templateData = sanitizeDesignJson(templateData ?? {});
 
     return this.prisma.publicTemplate.create({
       data: {
@@ -21,9 +31,9 @@ export class TemplateService {
         category: dto.category,
         description: dto.description,
         tags: dto.tags || [],
-        thumbnail: dto.thumbnail,
-        thumbnailSmall: (dto as any).thumbnailSmall,
-        templateData: templateData,
+        thumbnail: sanitizeNullableString(dto.thumbnail),
+        thumbnailSmall: sanitizeNullableString((dto as any).thumbnailSmall),
+        templateData,
         isActive: dto.isActive ?? true,
         sortOrder: dto.sortOrder ?? 0,
         createdBy,
@@ -94,6 +104,9 @@ export class TemplateService {
       const json = await this.oss.getJSON((dto as any).templateJsonKey);
       resolvedTemplateData = json ?? undefined;
     }
+    if (resolvedTemplateData !== undefined) {
+      resolvedTemplateData = sanitizeDesignJson(resolvedTemplateData);
+    }
 
     return this.prisma.publicTemplate.update({
       where: { id },
@@ -102,8 +115,8 @@ export class TemplateService {
         ...(dto.category !== undefined && { category: dto.category }),
         ...(dto.description !== undefined && { description: dto.description }),
         ...(dto.tags !== undefined && { tags: dto.tags }),
-        ...(dto.thumbnail !== undefined && { thumbnail: dto.thumbnail }),
-        ...((dto as any).thumbnailSmall !== undefined && { thumbnailSmall: (dto as any).thumbnailSmall }),
+        ...(dto.thumbnail !== undefined && { thumbnail: sanitizeNullableString(dto.thumbnail) }),
+        ...((dto as any).thumbnailSmall !== undefined && { thumbnailSmall: sanitizeNullableString((dto as any).thumbnailSmall) }),
         ...(resolvedTemplateData !== undefined && { templateData: resolvedTemplateData }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
         ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),

@@ -2,6 +2,7 @@ import React from "react";
 import { Handle, Position } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 
 type Props = {
@@ -124,7 +125,7 @@ function Generate4NodeInner({ id, data, selected }: Props) {
         title={img ? "双击全屏预览" : undefined}
       >
         {displaySrc ? (
-          <img
+          <SmartImage
             src={displaySrc}
             alt=''
             style={{
@@ -229,16 +230,16 @@ function Generate4NodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={onSend}
-            disabled={!images.length}
-            title={!images.length ? "无可发送的图像" : "发送全部到画布"}
+            disabled={!(images.length || imageUrls.length)}
+            title={!(images.length || imageUrls.length) ? "无可发送的图像" : "发送全部到画布"}
             style={{
               fontSize: 12,
               padding: "4px 8px",
-              background: !images.length ? "#e5e7eb" : "#111827",
+              background: !(images.length || imageUrls.length) ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
               border: "none",
-              cursor: !images.length ? "not-allowed" : "pointer",
+              cursor: !(images.length || imageUrls.length) ? "not-allowed" : "pointer",
             }}
           >
             <SendIcon size={14} strokeWidth={2} />

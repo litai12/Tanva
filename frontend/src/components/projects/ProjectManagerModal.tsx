@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui/button';
+import SmartImage from '@/components/ui/SmartImage';
 import { Check, Trash2 } from 'lucide-react';
+import { usePendingUploadLeaveGuard } from '@/hooks/usePendingUploadLeaveGuard';
 
 function formatDate(iso: string) {
   try {
@@ -25,6 +27,7 @@ const PAGE_SIZE = 6;
 
 export default function ProjectManagerModal() {
   const { modalOpen, closeModal, projects, create, open, rename, remove, loading, load, error } = useProjectStore();
+  const guardLeave = usePendingUploadLeaveGuard();
   const [creating, setCreating] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -161,13 +164,18 @@ export default function ProjectManagerModal() {
           <div className="flex items-center gap-2">
             <Button
               disabled={creating}
-              onClick={async () => {
-                setCreating(true);
-                try {
-                  await create('未命名');
-                } finally {
-                  setCreating(false);
-                }
+              onClick={() => {
+                guardLeave(async () => {
+                  setCreating(true);
+                  try {
+                    await create('未命名');
+                  } finally {
+                    setCreating(false);
+                  }
+                }, {
+                  title: '切换项目前确认',
+                  message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                });
               }}
             >
               新建项目
@@ -179,13 +187,18 @@ export default function ProjectManagerModal() {
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={async (e) => {
                 if (e.key === 'Enter' && newName.trim()) {
-                  setCreating(true);
-                  try {
-                    await create(newName.trim());
-                    setNewName('');
-                  } finally {
-                    setCreating(false);
-                  }
+                  guardLeave(async () => {
+                    setCreating(true);
+                    try {
+                      await create(newName.trim());
+                      setNewName('');
+                    } finally {
+                      setCreating(false);
+                    }
+                  }, {
+                    title: '切换项目前确认',
+                    message: '仍有图片未上传完成，新建项目会切换当前文件，可能导致图片丢失或无法保存到云端。',
+                  });
                 }
               }}
             />
@@ -248,7 +261,10 @@ export default function ProjectManagerModal() {
                           if (selectionMode) {
                             toggleSelect(p.id);
                           } else {
-                            open(p.id);
+                            guardLeave(() => open(p.id), {
+                              title: '切换项目前确认',
+                              message: '仍有图片未上传完成，切换项目可能导致图片丢失或无法保存到云端。',
+                            });
                           }
                         }}
                         onKeyDown={(e) => {
@@ -257,7 +273,10 @@ export default function ProjectManagerModal() {
                             if (selectionMode) {
                               toggleSelect(p.id);
                             } else {
-                              open(p.id);
+                              guardLeave(() => open(p.id), {
+                                title: '切换项目前确认',
+                                message: '仍有图片未上传完成，切换项目可能导致图片丢失或无法保存到云端。',
+                              });
                             }
                           }
                         }}
@@ -283,7 +302,7 @@ export default function ProjectManagerModal() {
                               <Check className="h-4 w-4" />
                             </button>
                           )}
-                          <img
+                          <SmartImage
                             src={p.thumbnailUrl || placeholderThumb}
                             alt={p.name}
                             className="h-full w-auto max-w-full object-contain"

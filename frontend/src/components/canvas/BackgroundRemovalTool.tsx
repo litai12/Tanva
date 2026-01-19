@@ -2,9 +2,11 @@ import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import SmartImage from '@/components/ui/SmartImage';
 import backgroundRemovalService from '@/services/backgroundRemovalService';
 import { logger } from '@/utils/logger';
 import { ImageIcon, Wand2Icon, XIcon } from 'lucide-react';
+import { fileToDataUrl } from '@/utils/imageConcurrency';
 
 export interface BackgroundRemovalToolProps {
   onRemoveComplete?: (imageData: string) => void;
@@ -48,13 +50,9 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
         throw new Error('File size too large (max 100MB)');
       }
 
-      // 转换为base64
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        setSelectedImage(result);
-      };
-      reader.readAsDataURL(file);
+      // 转换为 base64(dataURL)，并做全局并发限流
+      const dataUrl = await fileToDataUrl(file);
+      setSelectedImage(dataUrl);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error reading file';
       logger.error('File selection error:', message);
@@ -146,7 +144,7 @@ export const BackgroundRemovalTool: React.FC<BackgroundRemovalToolProps> = ({
             </div>
           ) : (
             <div className="relative group">
-              <img
+              <SmartImage
                 src={selectedImage}
                 alt="Selected"
                 className="w-full max-h-96 object-cover rounded-2xl border-2 border-gray-100 shadow-md group-hover:shadow-lg transition-shadow"

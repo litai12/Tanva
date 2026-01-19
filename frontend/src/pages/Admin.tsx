@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { fetchWithAuth } from "@/services/authFetch";
 import {
   getDashboardStats,
   getUsers,
@@ -1148,10 +1149,9 @@ function TemplatesTab() {
         ? import.meta.env.VITE_API_BASE_URL.replace(/\/+$/, "")
         : "http://localhost:4000";
 
-    const resp = await fetch(`${API_BASE}/api/uploads/presign`, {
+    const resp = await fetchWithAuth(`${API_BASE}/api/uploads/presign`, {
       method: "POST",
       headers,
-      credentials: "include",
       body: JSON.stringify({ dir, maxSize }),
     });
 

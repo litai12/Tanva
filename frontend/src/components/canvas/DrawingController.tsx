@@ -45,6 +45,15 @@ import { downloadImage, getSuggestedFileName } from "@/utils/downloadHelper";
 import { applyCursorForDrawMode } from "@/utils/cursorStyles";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
 import {
+  isAssetKeyRef,
+  isPersistableImageRef,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  resolveImageToBlob,
+  toRenderableImageSrc,
+} from "@/utils/imageSource";
+import { responseToBlob } from "@/utils/imageConcurrency";
+import {
   usePersonalLibraryStore,
   createPersonalAssetId,
   type PersonalImageAsset,
@@ -52,6 +61,8 @@ import {
 } from "@/stores/personalLibraryStore";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { imageUploadService } from "@/services/imageUploadService";
+import { generateOssKey } from "@/services/ossUploadService";
+import { putFlowImageBlobs, toFlowImageAssetRef } from "@/services/flowImageAssetStore";
 
 const isInlineImageSource = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
@@ -74,22 +85,80 @@ const extractLocalImageData = (imageData: unknown): string | null => {
   return null;
 };
 
-// 提取图片的任何可用源（优先远程 URL，其次 inline 数据）
+// 提取可持久化图片引用（优先 OSS key，其次 remoteUrl/url/src 等；返回 normalize 后的 ref）
+const extractPersistableImageRef = (imageData: unknown): string | null => {
+  if (!imageData || typeof imageData !== "object") return null;
+  const data = imageData as Record<string, unknown>;
+
+  // key 更“稳定/可迁移”，优先于 remoteUrl
+  const urlCandidates = ["key", "remoteUrl", "url", "src"];
+  for (const key of urlCandidates) {
+    const candidate = data[key];
+    if (typeof candidate !== "string" || candidate.trim().length === 0) continue;
+    const normalized = normalizePersistableImageRef(candidate);
+    if (!normalized || !isPersistableImageRef(normalized)) continue;
+    return normalized;
+  }
+  return null;
+};
+
+const getPersistedImageAssetSnapshot = (imageId: string): unknown | null => {
+  if (!imageId) return null;
+  try {
+    const content = useProjectContentStore.getState().content;
+    const images = content?.assets?.images;
+    if (!Array.isArray(images)) return null;
+    return images.find((it: any) => it && it.id === imageId) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+// 画布图片同步到 Chat：
+// - 若图片仍处于上传中（pendingUpload=true），优先使用 blob:/data: 预览，避免 key/URL 尚不可用导致“裂图”
+// - 上传完成后优先取可持久化引用（SSOT: ProjectContent.assets），以满足设计 JSON 约束
+const resolveCanvasImageRefForChat = (
+  imageId: string,
+  imageData: unknown
+): string | null => {
+  const persisted = getPersistedImageAssetSnapshot(imageId);
+  const pendingUpload =
+    Boolean((persisted as any)?.pendingUpload) ||
+    Boolean((imageData as any)?.pendingUpload);
+
+  const primarySource =
+    (imageData as any)?.src ??
+    (imageData as any)?.url ??
+    (imageData as any)?.remoteUrl;
+  const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
+  const localPreview = inlineSource || extractLocalImageData(imageData);
+
+  // 上传中：先给一个“立即可渲染”的引用（blob 优先），避免对话框里显示 404/裂图
+  if (pendingUpload && localPreview) {
+    return localPreview;
+  }
+
+  const persistedRef = extractPersistableImageRef(persisted);
+  const runtimeRef = extractPersistableImageRef(imageData);
+  const persistable = persistedRef || runtimeRef;
+  if (persistable) return persistable;
+
+  return localPreview;
+};
+
+// 提取图片的任何可用源（优先 remoteUrl，其次其他可持久化引用，最后 inline 数据）
 const extractAnyImageSource = (imageData: unknown): string | null => {
   if (!imageData || typeof imageData !== "object") return null;
   const data = imageData as Record<string, unknown>;
 
-  // 其次使用远程 URL
-  const urlCandidates = ["url", "src", "remoteUrl"];
+  // 优先使用可持久化引用（remoteUrl 优先）
+  const urlCandidates = ["remoteUrl", "src", "url", "key"];
   for (const key of urlCandidates) {
     const candidate = data[key];
-    if (
-      typeof candidate === "string" &&
-      candidate.length > 0 &&
-      candidate.startsWith("http")
-    ) {
-      return candidate;
-    }
+    if (typeof candidate !== "string" || candidate.length === 0) continue;
+    const normalized = normalizePersistableImageRef(candidate);
+    if (!normalized || !isPersistableImageRef(normalized)) continue;
+    return toRenderableImageSrc(candidate) || candidate;
   }
 
   // 再使用 inline 数据（blob/base64）
@@ -148,8 +217,16 @@ const normalizeImageFileName = (
 };
 
 const seemsImageUrl = (text: string): boolean => {
-  if (!text || !/^https?:\/\//i.test(text)) return false;
-  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?.*)?$/i.test(text)) return true;
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (!trimmed) return false;
+
+  const normalized = normalizePersistableImageRef(trimmed);
+  if (!normalized || !isPersistableImageRef(normalized)) return false;
+
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)([?#].*)?$/i.test(trimmed)) return true;
+  if (isAssetKeyRef(normalized)) return true;
+  if (trimmed.includes("/api/assets/proxy") || trimmed.includes("/assets/proxy")) return true;
+
   return false;
 };
 
@@ -220,6 +297,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   const [contextMenuState, setContextMenuState] =
     useState<CanvasContextMenuState | null>(null);
   const handleCanvasPasteRef = useRef<() => boolean>(() => false);
+  const canvasToChatSyncTokenRef = useRef(0);
+  const canvasBlobToFlowAssetRefCacheRef = useRef<Map<string, string>>(
+    new Map()
+  );
 
   // 内存优化：使用 ref 存储频繁变化的值，避免闭包重建
   const zoomRef = useRef(zoom);
@@ -357,6 +438,51 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     zoom,
   };
 
+  const ensureChatStableImageRef = useCallback(
+    async (value: string, nodeId?: string): Promise<string> => {
+      const trimmed = typeof value === "string" ? value.trim() : "";
+      if (!trimmed) return value;
+
+      // 远程 URL / key / proxy/path 等可持久化引用：直接使用（避免不必要的 clone）
+      const normalized = normalizePersistableImageRef(trimmed);
+      if (normalized && isPersistableImageRef(normalized)) {
+        return trimmed;
+      }
+
+      // 画布侧的 blob: ObjectURL 可能会被回收（例如升级为远程 URL 后），
+      // 直接把 blob: 透传到 Chat 会导致预览“突然裂图”。
+      // 这里把 blob: 克隆为 flow-asset:（IndexedDB + refcount）以跨组件稳定复用。
+      if (!trimmed.startsWith("blob:")) return trimmed;
+
+      const cached = canvasBlobToFlowAssetRefCacheRef.current.get(trimmed);
+      if (cached) return cached;
+
+      const blob = await resolveImageToBlob(trimmed, { preferProxy: false });
+      if (!blob) return trimmed;
+
+      const ids = await putFlowImageBlobs([
+        { blob, projectId: projectId ?? null, nodeId },
+      ]);
+      const id = ids?.[0];
+      if (!id) return trimmed;
+
+      const ref = toFlowImageAssetRef(id);
+      canvasBlobToFlowAssetRefCacheRef.current.set(trimmed, ref);
+      return ref;
+    },
+    [projectId]
+  );
+
+  const mapCanvasImageSourceToChatStable = useCallback(
+    (value: string | null): string | null => {
+      const trimmed = typeof value === "string" ? value.trim() : "";
+      if (!trimmed) return null;
+      if (!trimmed.startsWith("blob:")) return trimmed;
+      return canvasBlobToFlowAssetRefCacheRef.current.get(trimmed) ?? trimmed;
+    },
+    []
+  );
+
   // 内存优化：使用 ref 存储实例数组，避免大型闭包
   const imageInstancesRef = useRef<ImageInstance[]>([]);
 
@@ -373,9 +499,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           const instance = imageInstancesRef.current.find(
             (img) => img.id === imageId
           );
-          const imageSourceForAI = instance
-            ? extractAnyImageSource(instance.imageData)
+          const rawSource = instance
+            ? resolveCanvasImageRefForChat(instance.id, instance.imageData)
             : null;
+          const imageSourceForAI = mapCanvasImageSourceToChatStable(rawSource);
           if (!imageSourceForAI) return;
 
           const aiStore = useAIChatStore.getState();
@@ -892,40 +1019,67 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             const uploadDir = projectId
               ? `projects/${projectId}/images/`
               : "uploads/images/";
-            const uploadResult = await imageUploadService.uploadImageFile(file, {
+
+            // 1) 先用 blob: 立即上画布，同时生成并关联 key（避免等上传完才显示）
+            const blobUrl = URL.createObjectURL(file);
+            const imageId = `local_img_${Date.now()}_${Math.random()
+              .toString(36)
+              .slice(2, 8)}`;
+            const { key } = generateOssKey({
               projectId,
               dir: uploadDir,
               fileName: file.name,
+              contentType: file.type,
             });
+            const localAsset = {
+              id: imageId,
+              url: key,
+              key,
+              src: key,
+              fileName: file.name,
+              contentType: file.type,
+              pendingUpload: true,
+              localDataUrl: blobUrl,
+            };
 
-            const payload = (() => {
-              if (uploadResult.success && uploadResult.asset?.url) {
-                return {
-                  ...uploadResult.asset,
-                  src: uploadResult.asset.url,
-                };
-              }
-
-              // fallback: blob URL（避免 base64）
-              const blobUrl = URL.createObjectURL(file);
-              return {
-                id: `local_img_${Date.now()}_${Math.random()
-                  .toString(36)
-                  .slice(2, 8)}`,
-                url: blobUrl,
-                src: blobUrl,
-                fileName: file.name,
-                pendingUpload: true,
-                localDataUrl: blobUrl,
-              };
-            })();
             await uploadImageToCanvas?.(
-              payload as any,
+              localAsset as any,
               file.name,
               undefined,
               { x: projectPoint.x, y: projectPoint.y },
               "manual"
             );
+
+            // 2) 后台上传：成功后回写并清理本地临时 blob
+            void imageUploadService
+              .uploadImageFile(file, {
+                projectId,
+                dir: uploadDir,
+                fileName: file.name,
+                key,
+              })
+              .then((uploadResult) => {
+                if (!uploadResult.success || !uploadResult.asset?.url) {
+                  logger.upload?.("⚠️ [CanvasDrop] 图片上传失败，已保留本地副本", {
+                    error: uploadResult.error,
+                  });
+                  return;
+                }
+                try {
+                  window.dispatchEvent(
+                    new CustomEvent("tanva:upgradeImageSource", {
+                      detail: {
+                        placeholderId: imageId,
+                        key: uploadResult.asset.key || key,
+                        remoteUrl: uploadResult.asset.url,
+                      },
+                    })
+                  );
+                } catch {}
+              })
+              .catch((err) => {
+                logger.upload?.("⚠️ [CanvasDrop] 图片上传异常，已保留本地副本", { err });
+              });
           } catch (err) {
             console.error("处理拖拽图片失败:", err);
           }
@@ -1088,19 +1242,510 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     quickImageUploadRef.current = quickImageUpload;
   }, [quickImageUpload]);
 
-  // 🔥 AI 生成图片：上传到 OSS 后，尽早把画布上的 placeholder 图片替换为远程 URL（释放 base64/blob 内存）
+  // 使用 ref 存储 imageTool.setImageInstances 的最新引用，避免事件监听闭包过期
+  const imageToolSetInstancesRef = useRef(imageTool.setImageInstances);
   useEffect(() => {
-    const tryUpgrade = (params: {
-      placeholderId: string;
-      remoteUrl: string;
-    }): boolean => {
-      const { placeholderId, remoteUrl } = params;
-      if (!placeholderId || !remoteUrl) return false;
+    imageToolSetInstancesRef.current = imageTool.setImageInstances;
+  }, [imageTool.setImageInstances]);
 
-      let upgraded = false;
-      const objectUrlsToMaybeRevoke = new Set<string>();
+  // 🔥 AI 生成图片：上传到 OSS 后，仅回写远程元数据（画布渲染不强制切换）
+  useEffect(() => {
+    const getRasterSourceString = (raster: any): string => {
+        try {
+          const source = raster?.source;
+          if (typeof source === "string") return source;
+          const src = (source as any)?.src;
+          if (typeof src === "string") return src;
+        } catch {}
+        return "";
+      };
 
-      // 1) 更新运行时图片实例（window.tanvaImageInstances）
+    // 上传完成后的“软切换”：
+    // 1) 先回写远程元数据（url/key/remoteUrl/pendingUpload=false）
+    // 2) 预加载远程图片，等加载完成后再覆盖渲染源（避免裂图/闪白）
+    // 3) 覆盖成功后再回收旧 blob: ObjectURL（避免对话参考图/画布同时引用时被提前 revoke）
+    const swapTasks = new Map<string, { token: number; targetSrc: string }>();
+
+    const loadImageOnce = (
+      src: string,
+      timeoutMs: number
+    ): Promise<HTMLImageElement | null> => {
+      return new Promise((resolve) => {
+        if (typeof Image === "undefined") return resolve(null);
+        if (!src) return resolve(null);
+
+        const img = new Image();
+        img.decoding = "async";
+        let done = false;
+
+        const finish = (ok: boolean) => {
+          if (done) return;
+          done = true;
+          try {
+            img.onload = null;
+            img.onerror = null;
+          } catch {}
+          resolve(ok ? img : null);
+        };
+
+        const timer = window.setTimeout(() => finish(false), timeoutMs);
+
+        img.onload = () => {
+          window.clearTimeout(timer);
+          // decode() 能确保图片已进入可渲染状态（支持的浏览器上更稳定）
+          const decoder = (img as any).decode;
+          if (typeof decoder === "function") {
+            (decoder.call(img) as Promise<void>)
+              .then(() => finish(true))
+              .catch(() => finish(true));
+          } else {
+            finish(true);
+          }
+        };
+        img.onerror = () => {
+          window.clearTimeout(timer);
+          finish(false);
+        };
+
+        try {
+          img.src = src;
+        } catch {
+          window.clearTimeout(timer);
+          finish(false);
+        }
+      });
+    };
+
+    const preloadRemoteImage = async (src: string): Promise<HTMLImageElement | null> => {
+      const trimmed = typeof src === "string" ? src.trim() : "";
+      if (!trimmed) return null;
+      const maxAttempts = 6;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const loaded = await loadImageOnce(trimmed, 20000);
+        if (loaded) return loaded;
+        // 指数退避，给 OSS/CDN/代理一点时间
+        await new Promise((r) => setTimeout(r, 250 * attempt));
+      }
+      return null;
+    };
+
+    const collectBlobCandidatesFromImageData = (imageData: any): string[] => {
+      if (!imageData || typeof imageData !== "object") return [];
+      const candidates = [imageData.localDataUrl, imageData.src, imageData.url];
+      return candidates.filter(
+        (v: any) => typeof v === "string" && v.trim().startsWith("blob:")
+      );
+    };
+
+    const isObjectUrlStillUsed = (url: string): boolean => {
+        if (!url || typeof url !== "string" || !url.startsWith("blob:"))
+          return false;
+
+        try {
+          const instances = (window as any).tanvaImageInstances as
+            | any[]
+            | undefined;
+          if (Array.isArray(instances)) {
+            const usedByInstances = instances.some((inst) => {
+              const d = inst?.imageData;
+              return d?.localDataUrl === url || d?.url === url || d?.src === url;
+            });
+            if (usedByInstances) return true;
+          }
+        } catch {}
+
+        try {
+          const project = paper?.project as any;
+          const rasterClass = (paper as any).Raster;
+          if (project?.getItems && rasterClass) {
+            const rasters = project.getItems({ class: rasterClass }) as any[];
+            const usedByRasters = rasters.some(
+              (raster) => getRasterSourceString(raster) === url
+            );
+            if (usedByRasters) return true;
+          }
+        } catch {}
+
+        // AI 对话框可能会临时引用画布的 blob:（作为参考图预览），不能提前 revoke
+        try {
+          const chat = useAIChatStore.getState();
+          if (chat.sourceImageForEditing === url) return true;
+          if (chat.sourceImageForAnalysis === url) return true;
+          if (
+            Array.isArray(chat.sourceImagesForBlending) &&
+            chat.sourceImagesForBlending.some((v) => v === url)
+          ) {
+            return true;
+          }
+        } catch {}
+
+        // DOM 中仍在展示该 blob:（例如参考图平滑切换的双缓冲），不能提前 revoke
+        try {
+          const images = Array.from(document.images || []);
+          const usedByDom = images.some((img) => {
+            try {
+              return (
+                (img as any)?.currentSrc === url ||
+                (typeof (img as any)?.src === "string" && (img as any).src === url)
+              );
+            } catch {
+              return false;
+            }
+          });
+          if (usedByDom) return true;
+        } catch {}
+
+        return false;
+      };
+
+      const revokeObjectUrlsIfUnused = (urls: Set<string>, attempt: number = 0) => {
+        if (!urls || urls.size === 0) return;
+        const stillUsed = new Set<string>();
+        urls.forEach((url) => {
+          if (!url || typeof url !== "string" || !url.startsWith("blob:")) return;
+          if (isObjectUrlStillUsed(url)) {
+            stillUsed.add(url);
+            return;
+          }
+          try {
+            URL.revokeObjectURL(url);
+          } catch {}
+        });
+
+        if (stillUsed.size > 0 && attempt < 30) {
+          try {
+            window.setTimeout(() => {
+              revokeObjectUrlsIfUnused(stillUsed, attempt + 1);
+            }, 500);
+          } catch {}
+        }
+      };
+
+      const swapChatSelectionIfMatches = (params: {
+        matchUrls: Set<string>;
+        nextSrc: string;
+      }) => {
+        const { matchUrls, nextSrc } = params;
+        if (!matchUrls || matchUrls.size === 0) return;
+        if (!nextSrc) return;
+
+        try {
+          const chat = useAIChatStore.getState();
+          const selected =
+            Array.isArray(chat.sourceImagesForBlending) &&
+            chat.sourceImagesForBlending.length > 0
+              ? chat.sourceImagesForBlending
+              : chat.sourceImageForEditing
+              ? [chat.sourceImageForEditing]
+              : [];
+
+          if (!selected.length) return;
+
+          let changed = false;
+          const next = selected.map((src) => {
+            if (matchUrls.has(src)) {
+              changed = true;
+              return nextSrc;
+            }
+            return src;
+          });
+
+          if (!changed) return;
+          useAIChatStore.getState().setSourceImagesFromCanvas(next);
+        } catch {}
+      };
+
+      const finalizeSwapAfterLoaded = (params: {
+        placeholderId: string;
+        persistedUrl: string;
+        incomingKey?: string;
+        incomingSrc?: string;
+        nextRenderableSrc: string;
+        loadedImage: HTMLImageElement;
+      }): boolean => {
+        const {
+          placeholderId,
+          persistedUrl,
+          incomingKey,
+          incomingSrc,
+          nextRenderableSrc,
+          loadedImage,
+        } = params;
+        if (!placeholderId || !nextRenderableSrc) return false;
+
+        const objectUrlsToMaybeRevoke = new Set<string>();
+        const matchUrls = new Set<string>();
+
+        // 先从运行时实例收集“旧 blob”，用于替换 Chat 参考图
+        try {
+          const instances = (window as any).tanvaImageInstances as any[] | undefined;
+          if (Array.isArray(instances) && instances.length > 0) {
+            const inst = instances.find((it) => it?.id === placeholderId);
+            const imageData = inst?.imageData || null;
+            const blobs = collectBlobCandidatesFromImageData(imageData);
+            blobs.forEach((u) => {
+              objectUrlsToMaybeRevoke.add(u);
+              matchUrls.add(u);
+              const flowRef = canvasBlobToFlowAssetRefCacheRef.current.get(u);
+              if (flowRef) matchUrls.add(flowRef);
+            });
+          }
+        } catch {}
+
+        // 若 Raster 仍使用 blob:/data:，也纳入替换与回收集合
+        try {
+          const project = paper?.project as any;
+          if (project?.getItems) {
+            const rasterClass = (paper as any).Raster;
+            const rasters = project.getItems({ class: rasterClass }) as any[];
+            rasters.forEach((raster) => {
+              if (!raster) return;
+              const imageId = raster.data?.imageId;
+              if (imageId !== placeholderId) return;
+              const currentSource = getRasterSourceString(raster);
+              if (currentSource.startsWith("blob:")) {
+                objectUrlsToMaybeRevoke.add(currentSource);
+                matchUrls.add(currentSource);
+                const flowRef = canvasBlobToFlowAssetRefCacheRef.current.get(
+                  currentSource
+                );
+                if (flowRef) matchUrls.add(flowRef);
+              }
+            });
+          }
+        } catch {}
+
+        // 先切换 Chat 参考图（避免画布/保存逻辑提前 revoke 导致裂图）
+        swapChatSelectionIfMatches({ matchUrls, nextSrc: nextRenderableSrc });
+
+        let updated = false;
+
+        // 1) 更新运行时图片实例（window.tanvaImageInstances）
+        try {
+          const instances = (window as any).tanvaImageInstances as any[] | undefined;
+          if (Array.isArray(instances) && instances.length > 0) {
+            let changed = false;
+            const next = instances.map((inst) => {
+              if (!inst || inst.id !== placeholderId) return inst;
+              const imageData = inst.imageData || {};
+
+              const nextImageData: any = {
+                ...imageData,
+                url: persistedUrl,
+                key: incomingKey || imageData.key,
+                pendingUpload: false,
+                localDataUrl: undefined,
+                src: nextRenderableSrc,
+              };
+              if (incomingSrc) {
+                nextImageData.remoteUrl = incomingSrc;
+              } else if (typeof imageData.remoteUrl === "string" && imageData.remoteUrl) {
+                nextImageData.remoteUrl = imageData.remoteUrl;
+              }
+
+              changed = true;
+              updated = true;
+              return { ...inst, imageData: nextImageData };
+            });
+
+            if (changed) {
+              (window as any).tanvaImageInstances = next;
+            }
+          }
+        } catch {}
+
+        // 1.5) 更新 React 状态（imageTool.imageInstances）
+        try {
+          imageToolSetInstancesRef.current((prev: any[]) => {
+            if (!Array.isArray(prev) || prev.length === 0) return prev;
+            const idx = prev.findIndex((inst) => inst?.id === placeholderId);
+            if (idx < 0) return prev;
+            const inst = prev[idx];
+            const imageData = inst?.imageData || {};
+
+            const nextImageData: any = {
+              ...imageData,
+              url: persistedUrl,
+              key: incomingKey || imageData.key,
+              pendingUpload: false,
+              localDataUrl: undefined,
+              src: nextRenderableSrc,
+            };
+            if (incomingSrc) {
+              nextImageData.remoteUrl = incomingSrc;
+            } else if (typeof imageData.remoteUrl === "string" && imageData.remoteUrl) {
+              nextImageData.remoteUrl = imageData.remoteUrl;
+            }
+
+            const next = prev.slice();
+            next[idx] = { ...inst, imageData: nextImageData };
+            updated = true;
+            return next;
+          });
+        } catch {}
+
+        // 2) 更新 Paper.js Raster（用 data.imageId 关联）
+        try {
+          const project = paper?.project as any;
+          if (project?.getItems) {
+            const rasterClass = (paper as any).Raster;
+            const rasters = project.getItems({ class: rasterClass }) as any[];
+            rasters.forEach((raster) => {
+              if (!raster) return;
+              const imageId = raster.data?.imageId;
+              if (imageId !== placeholderId) return;
+
+              const currentSource = getRasterSourceString(raster);
+              const restoreBounds = (() => {
+                try {
+                  const stored = (raster as any)?.data?.__tanvaBounds as
+                    | { x: number; y: number; width: number; height: number }
+                    | undefined;
+                  if (
+                    stored &&
+                    Number.isFinite(stored.x) &&
+                    Number.isFinite(stored.y) &&
+                    Number.isFinite(stored.width) &&
+                    Number.isFinite(stored.height) &&
+                    stored.width > 0 &&
+                    stored.height > 0
+                  ) {
+                    return new paper.Rectangle(
+                      stored.x,
+                      stored.y,
+                      stored.width,
+                      stored.height
+                    );
+                  }
+                } catch {}
+                try {
+                  const b = raster.bounds as paper.Rectangle | undefined;
+                  if (b && b.width > 0 && b.height > 0) return b.clone();
+                } catch {}
+                return null;
+              })();
+              const applyBoundsToGroup = (rect: paper.Rectangle) => {
+                if (!rect) return;
+                try {
+                  raster.bounds = rect.clone();
+                } catch {}
+                try {
+                  const parent: any = raster.parent;
+                  if (
+                    parent &&
+                    parent.className === "Group" &&
+                    Array.isArray(parent.children)
+                  ) {
+                    parent.children.forEach((child: any) => {
+                      if (!child || child === raster) return;
+                      const data = child.data || {};
+                      if (
+                        data.type === "image-selection-area" ||
+                        data.isSelectionBorder ||
+                        data.isImageHitRect
+                      ) {
+                        try {
+                          child.bounds = rect.clone();
+                        } catch {}
+                        return;
+                      }
+                      if (data.isResizeHandle) {
+                        const direction = data.direction;
+                        let x = rect.x;
+                        let y = rect.y;
+                        if (direction === "ne" || direction === "se") {
+                          x = rect.x + rect.width;
+                        }
+                        if (direction === "sw" || direction === "se") {
+                          y = rect.y + rect.height;
+                        }
+                        try {
+                          child.position = new paper.Point(x, y);
+                        } catch {}
+                      }
+                    });
+                  }
+                } catch {}
+              };
+
+              raster.data = {
+                ...(raster.data || {}),
+                ...(incomingSrc ? { remoteUrl: incomingSrc } : null),
+                ...(incomingKey ? { key: incomingKey } : null),
+                pendingUpload: false,
+              };
+
+              // 远程已加载：用已 decode 的 Image 覆盖，避免“切到远程瞬间空白”
+              if (
+                nextRenderableSrc &&
+                (currentSource.startsWith("blob:") || currentSource.startsWith("data:")) &&
+                currentSource !== nextRenderableSrc
+              ) {
+                const rectBeforeSwap = restoreBounds;
+                try {
+                  raster.source = loadedImage;
+                } catch {
+                  try {
+                    raster.source = nextRenderableSrc;
+                  } catch {}
+                }
+                // 🔧 Paper.js 在切换 source 时可能会短暂重置 bounds（甚至变成 0），导致“闪一下再恢复”；
+                // 这里立即恢复 bounds/选择元素，避免等待 onLoad 回调才补齐造成可见闪烁。
+                if (rectBeforeSwap) {
+                  applyBoundsToGroup(rectBeforeSwap);
+                }
+                updated = true;
+              }
+            });
+          }
+        } catch {}
+
+        // 3) 覆盖完成后再尝试回收 blob: ObjectURL
+        revokeObjectUrlsIfUnused(objectUrlsToMaybeRevoke);
+
+        if (updated) {
+          try {
+            paper.view?.update();
+          } catch {}
+        }
+
+        return updated;
+      };
+
+	    const tryUpgrade = (params: {
+	      placeholderId: string;
+	      remoteUrl?: string;
+	      key?: string;
+	    }): boolean => {
+	      const { placeholderId, remoteUrl, key } = params;
+	      const rawRemoteUrl = typeof remoteUrl === "string" ? remoteUrl : "";
+	      const rawKey = typeof key === "string" ? key : "";
+	      if (!placeholderId || (!rawRemoteUrl && !rawKey)) return false;
+
+	      const normalizedIncoming = rawRemoteUrl
+	        ? normalizePersistableImageRef(rawRemoteUrl) || rawRemoteUrl
+	        : "";
+	      const normalizedKey = rawKey ? normalizePersistableImageRef(rawKey) || rawKey : "";
+
+	      const incomingKey =
+	        (normalizedKey && isAssetKeyRef(normalizedKey) ? normalizedKey : undefined) ||
+	        (normalizedIncoming && isAssetKeyRef(normalizedIncoming)
+	          ? normalizedIncoming
+	          : undefined);
+	      const incomingSrc =
+	        normalizedIncoming && isRemoteUrl(normalizedIncoming)
+	          ? normalizedIncoming
+	          : undefined;
+	      const persistedUrl = (incomingKey || normalizedIncoming).trim();
+	      if (!persistedUrl) return false;
+        const nextRenderableSrc =
+          toRenderableImageSrc(incomingSrc || persistedUrl) ||
+          incomingSrc ||
+          persistedUrl;
+
+		      let updated = false;
+
+	      // 1) 更新运行时图片实例（window.tanvaImageInstances）
       try {
         const instances = (window as any).tanvaImageInstances as any[] | undefined;
         if (Array.isArray(instances) && instances.length > 0) {
@@ -1109,132 +1754,223 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             if (!inst || inst.id !== placeholderId) return inst;
             const imageData = inst.imageData || {};
 
-            const localCandidates = [
-              imageData.localDataUrl,
-              imageData.url,
-              imageData.src,
-            ].filter((v: any) => typeof v === "string" && v.startsWith("blob:"));
-            localCandidates.forEach((v: string) => objectUrlsToMaybeRevoke.add(v));
+	            const normalizedPrevUrl =
+	              typeof imageData.url === "string"
+	                ? normalizePersistableImageRef(imageData.url)
+	                : "";
+	            const normalizedPrevKey =
+	              typeof imageData.key === "string"
+	                ? normalizePersistableImageRef(imageData.key)
+	                : "";
+	            const normalizedPrevRemoteUrl =
+	              typeof imageData.remoteUrl === "string"
+	                ? normalizePersistableImageRef(imageData.remoteUrl)
+	                : "";
+	            const normalizedPrevSrc =
+	              typeof imageData.src === "string"
+	                ? normalizePersistableImageRef(imageData.src)
+	                : "";
 
-            // 已经是远程且无本地数据则跳过
-            if (
-              typeof imageData.url === "string" &&
-              imageData.url.startsWith("http") &&
-              imageData.url === remoteUrl &&
-              !imageData.localDataUrl
-            ) {
-              return inst;
-            }
+	            const nextRemoteUrl =
+	              incomingSrc ||
+	              (normalizedPrevRemoteUrl && isRemoteUrl(normalizedPrevRemoteUrl)
+	                ? normalizedPrevRemoteUrl
+	                : normalizedPrevSrc && isRemoteUrl(normalizedPrevSrc)
+	                ? normalizedPrevSrc
+	                : undefined);
 
-            changed = true;
-            upgraded = true;
-            return {
-              ...inst,
-              imageData: {
-                ...imageData,
-                url: remoteUrl,
-                src: remoteUrl,
-                remoteUrl,
-                pendingUpload: false,
-                localDataUrl: undefined,
-              },
-            };
-          });
+	            const shouldUpdate =
+	              normalizedPrevUrl !== persistedUrl ||
+	              (incomingKey ? normalizedPrevKey !== incomingKey : false) ||
+	              (nextRemoteUrl ? normalizedPrevRemoteUrl !== nextRemoteUrl : false) ||
+	              Boolean(imageData.pendingUpload) ||
+	              Boolean(imageData.localDataUrl);
+
+	            const currentSrc =
+	              typeof imageData.src === "string" ? imageData.src.trim() : "";
+	            if (!shouldUpdate && currentSrc) {
+	              return inst;
+	            }
+
+	            changed = true;
+	            updated = true;
+	            const nextImageData: any = {
+	              ...imageData,
+	              url: persistedUrl,
+	              key: incomingKey || imageData.key,
+	              pendingUpload: false,
+	            };
+	            if (nextRemoteUrl) {
+	              nextImageData.remoteUrl = nextRemoteUrl;
+	            }
+	            // 仅回写元数据，不立即切换渲染源；等远程资源加载完成后再覆盖，避免闪白/裂图
+	            if (!currentSrc) {
+	              // 缺失时补齐一个可渲染引用
+	              const candidate = nextRemoteUrl || incomingSrc || persistedUrl;
+	              nextImageData.src = toRenderableImageSrc(candidate) || candidate;
+	            }
+
+	            return {
+	              ...inst,
+	              imageData: nextImageData,
+	            };
+	          });
 
           if (changed) {
             (window as any).tanvaImageInstances = next;
           }
         }
-      } catch {}
+	      } catch {}
 
-      // 2) 更新 Paper.js Raster（用 data.imageId 关联）
-      try {
-        const project = paper?.project as any;
-        if (project?.getItems) {
-          const rasterClass = (paper as any).Raster;
-          const rasters = project.getItems({ class: rasterClass }) as any[];
-          const proxied = proxifyRemoteAssetUrl(remoteUrl);
+	        // 1.5) 更新 React 状态（imageTool.imageInstances），避免后续 effect 回写覆盖 window 更新
+	        try {
+	          imageToolSetInstancesRef.current((prev: any[]) => {
+            if (!Array.isArray(prev) || prev.length === 0) return prev;
+            const idx = prev.findIndex((inst) => inst?.id === placeholderId);
+            if (idx < 0) return prev;
+            const inst = prev[idx];
+            const imageData = inst?.imageData || {};
 
-          rasters.forEach((raster) => {
-            if (!raster) return;
-            const imageId = raster.data?.imageId;
-            if (imageId !== placeholderId) return;
+            const currentSrc =
+              typeof imageData.src === "string" ? imageData.src.trim() : "";
+            const normalizedPrevRemoteUrl =
+              typeof imageData.remoteUrl === "string"
+                ? normalizePersistableImageRef(imageData.remoteUrl)
+                : "";
+            const normalizedPrevSrc =
+              typeof imageData.src === "string"
+                ? normalizePersistableImageRef(imageData.src)
+                : "";
 
-            const currentSource = typeof raster.source === "string" ? raster.source : "";
-            if (currentSource.startsWith("blob:")) {
-              objectUrlsToMaybeRevoke.add(currentSource);
-            }
+            const nextRemoteUrl =
+              incomingSrc ||
+              (normalizedPrevRemoteUrl && isRemoteUrl(normalizedPrevRemoteUrl)
+                ? normalizedPrevRemoteUrl
+                : normalizedPrevSrc && isRemoteUrl(normalizedPrevSrc)
+                ? normalizedPrevSrc
+                : undefined);
 
-            raster.data = {
-              ...(raster.data || {}),
-              remoteUrl,
-              pendingUpload: false,
-            };
+	            const nextImageData: any = {
+	              ...imageData,
+	              url: persistedUrl,
+	              key: incomingKey || imageData.key,
+	              pendingUpload: false,
+	            };
+	            if (nextRemoteUrl) {
+	              nextImageData.remoteUrl = nextRemoteUrl;
+	            }
 
-            try {
-              (raster as any).crossOrigin = "anonymous";
-            } catch {}
+	            // 仅回写元数据，不立即切换渲染源；等远程资源加载完成后再覆盖，避免闪白/裂图
+	            if (!currentSrc) {
+	              const candidate = nextRemoteUrl || incomingSrc || persistedUrl;
+	              nextImageData.src = toRenderableImageSrc(candidate) || candidate;
+	            }
 
-            try {
-              raster.source = proxied;
-              upgraded = true;
-            } catch {}
-          });
-
-          if (upgraded) {
-            try {
-              paper.view?.update();
-            } catch {}
-          }
-        }
-      } catch {}
-
-      // 3) 尝试回收 blob: ObjectURL（确保不再被任何实例引用）
-      if (objectUrlsToMaybeRevoke.size > 0) {
-        try {
-          const instances = (window as any).tanvaImageInstances as any[] | undefined;
-          const stillUsed = (url: string) => {
-            if (!Array.isArray(instances)) return false;
-            return instances.some((inst) => {
-              const d = inst?.imageData;
-              return (
-                d?.localDataUrl === url ||
-                d?.url === url ||
-                d?.src === url
-              );
-            });
-          };
-
-          objectUrlsToMaybeRevoke.forEach((url) => {
-            if (!url.startsWith("blob:")) return;
-            if (stillUsed(url)) return;
-            try {
-              URL.revokeObjectURL(url);
-            } catch {}
+            const next = prev.slice();
+            next[idx] = { ...inst, imageData: nextImageData };
+            return next;
           });
         } catch {}
+
+	      // 2) 更新 Paper.js Raster（用 data.imageId 关联）
+	      try {
+	        const project = paper?.project as any;
+	        if (project?.getItems) {
+	          const rasterClass = (paper as any).Raster;
+	          const rasters = project.getItems({ class: rasterClass }) as any[];
+	          rasters.forEach((raster) => {
+	            if (!raster) return;
+	            const imageId = raster.data?.imageId;
+	            if (imageId !== placeholderId) return;
+
+            const currentSource = getRasterSourceString(raster);
+	            raster.data = {
+	              ...(raster.data || {}),
+	              ...(incomingSrc ? { remoteUrl: incomingSrc } : null),
+	              ...(incomingKey ? { key: incomingKey } : null),
+	              pendingUpload: false,
+	            };
+	            updated = true;
+	          });
+	        }
+	      } catch {}
+
+      // 3) 若当前仍在用 blob/data 渲染，则预加载远程资源，加载完成后再覆盖并回收 blob
+      const shouldSwap = (() => {
+        try {
+          const instances = (window as any).tanvaImageInstances as any[] | undefined;
+          if (Array.isArray(instances) && instances.length > 0) {
+            const inst = instances.find((it) => it?.id === placeholderId);
+            const blobs = collectBlobCandidatesFromImageData(inst?.imageData);
+            if (blobs.length > 0) return true;
+          }
+        } catch {}
+
+        try {
+          const project = paper?.project as any;
+          const rasterClass = (paper as any).Raster;
+          if (project?.getItems && rasterClass) {
+            const rasters = project.getItems({ class: rasterClass }) as any[];
+            return rasters.some((raster) => {
+              if (!raster) return false;
+              const imageId = raster.data?.imageId;
+              if (imageId !== placeholderId) return false;
+              const src = getRasterSourceString(raster);
+              return src.startsWith("blob:") || src.startsWith("data:");
+            });
+          }
+        } catch {}
+
+        return false;
+      })();
+
+      if (shouldSwap && nextRenderableSrc) {
+        const existing = swapTasks.get(placeholderId);
+        if (!existing || existing.targetSrc !== nextRenderableSrc) {
+          const token = (existing?.token ?? 0) + 1;
+          swapTasks.set(placeholderId, { token, targetSrc: nextRenderableSrc });
+          void (async () => {
+            const loaded = await preloadRemoteImage(nextRenderableSrc);
+            if (!loaded) return;
+            const current = swapTasks.get(placeholderId);
+            if (!current || current.token !== token) return;
+            const swapped = finalizeSwapAfterLoaded({
+              placeholderId,
+              persistedUrl,
+              incomingKey,
+              incomingSrc,
+              nextRenderableSrc,
+              loadedImage: loaded,
+            });
+            if (swapped) {
+              swapTasks.delete(placeholderId);
+            }
+          })();
+        }
       }
 
-      return upgraded;
+      return updated;
     };
 
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<any>).detail || {};
-      const placeholderId = String(detail.placeholderId || "");
-      const remoteUrl = String(detail.remoteUrl || "");
-      if (!placeholderId || !remoteUrl) return;
+	    const handler = (event: Event) => {
+	      const detail = (event as CustomEvent<any>).detail || {};
+	      const placeholderId = String(detail.placeholderId || "");
+	      const remoteUrl = typeof detail.remoteUrl === "string" ? detail.remoteUrl : "";
+	      const key = typeof detail.key === "string" ? detail.key : "";
+	      const ref = remoteUrl || key;
+	      if (!placeholderId || !ref) return;
 
-      let attempts = 0;
-      const maxAttempts = 10;
-      const attempt = () => {
-        const ok = tryUpgrade({ placeholderId, remoteUrl });
-        if (ok) {
-          logger.upload?.("🔄 [Canvas] 已将占位图升级为远程 URL", {
-            placeholderId,
-            remoteUrl: remoteUrl.substring(0, 80),
-          });
-          return;
-        }
+	      let attempts = 0;
+	      const maxAttempts = 10;
+	      const attempt = () => {
+	        const ok = tryUpgrade({ placeholderId, remoteUrl, key });
+	        if (ok) {
+	          logger.upload?.("🔄 [Canvas] 已回写图片远程元数据", {
+	            placeholderId,
+	            ref: String(ref).substring(0, 80),
+	          });
+	          return;
+	        }
         if (attempts >= maxAttempts) return;
         attempts += 1;
         setTimeout(attempt, 250 * attempts);
@@ -1591,39 +2327,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         // 在当前实例列表中查找该图片，获取其最新bounds
         const img = imageTool.imageInstances.find((i) => i.id === imageId);
         if (img && img.bounds) {
-          const cachedBeforeSelect = contextManager.getCachedImage();
-          const primarySource = img.imageData?.src ?? img.imageData?.url;
-          const inlineSource = isInlineImageSource(primarySource)
-            ? primarySource
-            : null;
+          const primarySource = img.imageData?.src ?? img.imageData?.url ?? (img.imageData as any)?.remoteUrl;
+          const inlineSource = isInlineImageSource(primarySource) ? primarySource : null;
           const localDataUrl = extractLocalImageData(img.imageData);
           // 🔥 不再使用 cachedBeforeSelect?.imageData 作为 fallback，避免显示错误的图片
           const imageDataForCache = inlineSource || localDataUrl || null;
-          const remoteUrl = (() => {
-            if (inlineSource) {
-              return (
-                img.imageData?.url ?? cachedBeforeSelect?.remoteUrl ?? null
-              );
-            }
-            if (typeof primarySource === "string" && primarySource.length > 0) {
-              return primarySource;
-            }
-            if (
-              typeof img.imageData?.url === "string" &&
-              img.imageData.url.length > 0
-            ) {
-              return img.imageData.url;
-            }
-            return null; // 🔥 不再使用 cachedBeforeSelect?.remoteUrl
-          })();
+
+          // 🔥 优先从项目 SSOT (assets.images) 获取可持久化引用，满足设计 JSON 约束；
+          // 但若图片仍在上传中（pendingUpload=true），Chat 侧会优先用 blob 预览避免裂图（见 resolveCanvasImageRefForChat）
+          const persistableRef =
+            extractPersistableImageRef(getPersistedImageAssetSnapshot(img.id)) ||
+            extractPersistableImageRef(img.imageData);
 
           // 将该图片作为最新缓存，并写入位置信息（中心通过bounds在需要时计算）
-          if (remoteUrl) {
-            // 画布侧不缓存 base64/dataURL：只缓存远程 URL
+          if (persistableRef) {
+            // 画布侧不缓存 base64/dataURL：优先缓存可持久化引用（OSS key/远程 URL）
             contextManager.cacheLatestImage(null, img.id, "用户选择的图片", {
               bounds: img.bounds,
               layerId: img.layerId,
-              remoteUrl,
+              remoteUrl: persistableRef,
             });
             logger.debug("📌 已基于选中图片更新缓存位置:", {
               id: img.id,
@@ -1645,33 +2367,71 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               imageId,
               hasInlineSource: !!inlineSource,
               hasLocalDataUrl: !!localDataUrl,
-              hasRemoteUrl: !!remoteUrl,
+              hasRemoteUrl: !!persistableRef,
             });
           }
 
           // 🔥 同步选中图片到AI对话框
-          const imageSourceForAI = remoteUrl || imageDataForCache;
+          const imageSourceForAI =
+            resolveCanvasImageRefForChat(img.id, img.imageData) ||
+            persistableRef ||
+            imageDataForCache;
+          const selectionToken = (canvasToChatSyncTokenRef.current += 1);
+
           if (addToSelection) {
             // 多选模式：收集所有选中图片的数据
             const allSelectedImages: string[] = [];
             // 先添加已选中的图片
             for (const instance of imageTool.imageInstances) {
               if (instance.isSelected && instance.id !== imageId) {
-                const data = extractAnyImageSource(instance.imageData);
+                const data = resolveCanvasImageRefForChat(
+                  instance.id,
+                  instance.imageData
+                );
                 if (data) allSelectedImages.push(data);
               }
             }
             // 添加当前选中的图片
             if (imageSourceForAI) allSelectedImages.push(imageSourceForAI);
-            useAIChatStore
-              .getState()
-              .setSourceImagesFromCanvas(allSelectedImages);
+            // 先同步一份“即时可用”的引用（可能包含 blob:），避免 UI 等待
+            useAIChatStore.getState().setSourceImagesFromCanvas(allSelectedImages);
+            void (async () => {
+              try {
+                const stable = await Promise.all(
+                  allSelectedImages.map((src) =>
+                    ensureChatStableImageRef(src, imageId)
+                  )
+                );
+                if (canvasToChatSyncTokenRef.current !== selectionToken) return;
+                if (
+                  stable.length === allSelectedImages.length &&
+                  stable.every((v, i) => v === allSelectedImages[i])
+                ) {
+                  return;
+                }
+                useAIChatStore.getState().setSourceImagesFromCanvas(stable);
+              } catch {
+                // ignore
+              }
+            })();
           } else {
             // 单选模式：只设置当前图片
             if (imageSourceForAI) {
-              useAIChatStore
-                .getState()
-                .setSourceImagesFromCanvas([imageSourceForAI]);
+              // 先同步一份“即时可用”的引用（可能包含 blob:），避免 UI 等待
+              useAIChatStore.getState().setSourceImagesFromCanvas([imageSourceForAI]);
+              void (async () => {
+                try {
+                  const stable = await ensureChatStableImageRef(
+                    imageSourceForAI,
+                    imageId
+                  );
+                  if (canvasToChatSyncTokenRef.current !== selectionToken) return;
+                  if (stable === imageSourceForAI) return;
+                  useAIChatStore.getState().setSourceImagesFromCanvas([stable]);
+                } catch {
+                  // ignore
+                }
+              })();
             }
           }
         }
@@ -1689,11 +2449,29 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
         for (const id of imageIds) {
           const img = imageTool.imageInstances.find((i) => i.id === id);
           if (img) {
-            const imageData = extractAnyImageSource(img.imageData);
+            const imageData = resolveCanvasImageRefForChat(id, img.imageData);
             if (imageData) selectedImages.push(imageData);
           }
         }
+        const selectionToken = (canvasToChatSyncTokenRef.current += 1);
         useAIChatStore.getState().setSourceImagesFromCanvas(selectedImages);
+        void (async () => {
+          try {
+            const stable = await Promise.all(
+              selectedImages.map((src) => ensureChatStableImageRef(src))
+            );
+            if (canvasToChatSyncTokenRef.current !== selectionToken) return;
+            if (
+              stable.length === selectedImages.length &&
+              stable.every((v, i) => v === selectedImages[i])
+            ) {
+              return;
+            }
+            useAIChatStore.getState().setSourceImagesFromCanvas(stable);
+          } catch {
+            // ignore
+          }
+        })();
       } catch (e) {
         console.warn("同步多选图片到AI对话框失败:", e);
       }
@@ -1835,6 +2613,39 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
     const handlePaperCleared = () => {
       logger.debug("🧹 收到 paper-project-cleared 事件，重置前端实例状态");
 
+      // 回收画布相关 blob: ObjectURL（避免清空后仍占用内存）
+      const blobUrlsToRevoke = new Set<string>();
+      const addBlobUrl = (value: unknown) => {
+        if (typeof value !== "string") return;
+        if (!value.startsWith("blob:")) return;
+        blobUrlsToRevoke.add(value);
+      };
+      try {
+        const instances = (window as any).tanvaImageInstances as any[] | undefined;
+        if (Array.isArray(instances)) {
+          instances.forEach((inst) => {
+            const data = inst?.imageData;
+            addBlobUrl(data?.localDataUrl);
+            addBlobUrl(data?.url);
+            addBlobUrl(data?.src);
+          });
+        }
+      } catch {}
+      try {
+        const project = paper?.project as any;
+        const rasterClass = (paper as any).Raster;
+        if (project?.getItems && rasterClass) {
+          const rasters = project.getItems({ class: rasterClass }) as any[];
+          rasters.forEach((raster) => {
+            try {
+              const source = (raster as any)?.source;
+              if (typeof source === "string") addBlobUrl(source);
+              else addBlobUrl((source as any)?.src);
+            } catch {}
+          });
+        }
+      } catch {}
+
       resetImageInstances([]);
       resetSelectedImageIds([]);
       if (imagePlaceholderRef?.current) {
@@ -1865,6 +2676,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
       try {
         (window as any).tanvaTextItems = [];
       } catch {}
+
+      blobUrlsToRevoke.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      });
     };
 
     window.addEventListener("paper-project-cleared", handlePaperCleared);
@@ -1913,6 +2730,25 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
     // 直接同步执行，但使用稳定的函数引用
     try {
+      // 回收旧项目遗留的 blob: ObjectURL（在清空实例前采集）
+      const blobUrlsToRevoke = new Set<string>();
+      const addBlobUrl = (value: unknown) => {
+        if (typeof value !== "string") return;
+        if (!value.startsWith("blob:")) return;
+        blobUrlsToRevoke.add(value);
+      };
+      try {
+        const instances = (window as any).tanvaImageInstances as any[] | undefined;
+        if (Array.isArray(instances)) {
+          instances.forEach((inst) => {
+            const data = inst?.imageData;
+            addBlobUrl(data?.localDataUrl);
+            addBlobUrl(data?.url);
+            addBlobUrl(data?.src);
+          });
+        }
+      } catch {}
+
       // 清空图片实例
       clearProjectImageInstances([]);
       clearProjectSelectedImageIds([]);
@@ -1926,6 +2762,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
       // 清空选择工具状态
       clearProjectSelections();
+
+      blobUrlsToRevoke.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      });
     } finally {
       clearingInProgressRef.current = false;
     }
@@ -3623,12 +4465,12 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
         try {
           let credentials: RequestCredentials | undefined;
-          if (source.startsWith("http")) {
-            try {
-              const origin = new URL(source).origin;
-              credentials =
-                origin === window.location.origin ? "include" : "omit";
-            } catch {
+	          if (isRemoteUrl(source)) {
+	            try {
+	              const origin = new URL(source).origin;
+	              credentials =
+	                origin === window.location.origin ? "include" : "omit";
+	            } catch {
               credentials = "omit";
             }
           }
@@ -3638,7 +4480,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
             credentials ? { credentials } : undefined
           );
           if (response.ok) {
-            const blob = await response.blob();
+            const blob = await responseToBlob(response);
             const fileName = normalizeImageFileName(
               instance.imageData?.fileName,
               blob.type || instance.imageData?.contentType
@@ -3667,9 +4509,10 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
           logger.debug("图片发送到库：上传失败，尝试降级为直接引用URL", error);
         }
 
-        // 兜底：上传失败时，若已有远程 URL，直接用原 URL
-        const finalUrl =
-          uploadedUrl || (source.startsWith("http") ? source : null);
+	        // 兜底：上传失败时，若已有远程 URL，直接用原 URL
+	        const finalUrl =
+	          uploadedUrl ||
+	          (isPersistableImageRef(normalizePersistableImageRef(source)) ? source : null);
         if (!finalUrl) {
           throw new Error("无法获得可持久化的图像地址");
         }
@@ -4816,35 +5659,63 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 imageGroup.data.type = "image";
                 imageGroup.data.imageId = ensuredImageId;
 
-                const metadataFromRaster = {
-                  originalWidth: raster.data?.originalWidth as
-                    | number
-                    | undefined,
-                  originalHeight: raster.data?.originalHeight as
-                    | number
-                    | undefined,
-                  fileName: raster.data?.fileName as string | undefined,
-                  uploadMethod: raster.data?.uploadMethod as string | undefined,
-                  aspectRatio: raster.data?.aspectRatio as number | undefined,
-                  remoteUrl:
-                    typeof raster.data?.remoteUrl === "string" &&
-                    /^https?:\/\//i.test(raster.data.remoteUrl)
-                      ? (raster.data.remoteUrl as string)
-                      : undefined,
-                };
-
-                // 记录来源：优先使用远程URL，其次使用非data的source，最后使用内联data
-                const sourceUrl =
-                  typeof raster.source === "string" ? raster.source : undefined;
-                const remoteUrl =
-                  metadataFromRaster.remoteUrl ||
-                  (sourceUrl && /^https?:\/\//i.test(sourceUrl)
-                    ? sourceUrl
-                    : undefined);
-                const inlineDataUrl =
-                  sourceUrl && (sourceUrl.startsWith("data:") || sourceUrl.startsWith("blob:"))
-                    ? sourceUrl
-                    : undefined;
+	                const sourceUrl =
+	                  typeof raster.source === "string" ? raster.source.trim() : "";
+	                const inlineDataUrl =
+	                  sourceUrl &&
+	                  (sourceUrl.startsWith("data:") || sourceUrl.startsWith("blob:"))
+	                    ? sourceUrl
+	                    : undefined;
+	
+	                const key = (() => {
+	                  const fromData =
+	                    typeof raster.data?.key === "string"
+	                      ? normalizePersistableImageRef(raster.data.key)
+	                      : "";
+	                  const normalizedData = fromData.replace(/^\/+/, "");
+	                  if (normalizedData && isAssetKeyRef(normalizedData)) return normalizedData;
+	
+	                  const fromSource = sourceUrl ? normalizePersistableImageRef(sourceUrl) : "";
+	                  const normalizedSource = fromSource.replace(/^\/+/, "");
+	                  if (normalizedSource && isAssetKeyRef(normalizedSource)) return normalizedSource;
+	
+	                  return undefined;
+	                })();
+	
+	                const remoteUrl = (() => {
+	                  const fromData =
+	                    typeof raster.data?.remoteUrl === "string"
+	                      ? normalizePersistableImageRef(raster.data.remoteUrl)
+	                      : "";
+	                  if (fromData && isRemoteUrl(fromData)) return fromData;
+	
+	                  const fromSource = sourceUrl ? normalizePersistableImageRef(sourceUrl) : "";
+	                  if (fromSource && isRemoteUrl(fromSource)) return fromSource;
+	
+	                  return undefined;
+	                })();
+	
+	                const persistedFromSource = (() => {
+	                  const normalized = sourceUrl ? normalizePersistableImageRef(sourceUrl) : "";
+	                  if (normalized && isPersistableImageRef(normalized)) return normalized;
+	                  return undefined;
+	                })();
+	
+	                const persistedRef = key || remoteUrl || persistedFromSource;
+	
+	                const metadataFromRaster = {
+	                  originalWidth: raster.data?.originalWidth as
+	                    | number
+	                    | undefined,
+	                  originalHeight: raster.data?.originalHeight as
+	                    | number
+	                    | undefined,
+	                  fileName: raster.data?.fileName as string | undefined,
+	                  uploadMethod: raster.data?.uploadMethod as string | undefined,
+	                  aspectRatio: raster.data?.aspectRatio as number | undefined,
+	                  remoteUrl,
+	                  key,
+	                };
 
                 // 统一设置raster.data，提前补上id以便后续事件使用
 	                raster.data = {
@@ -4909,8 +5780,8 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                       (boundsRect.height
                         ? boundsRect.width / boundsRect.height
                         : undefined),
-                    remoteUrl: metadataFromRaster.remoteUrl || remoteUrl,
-                  };
+	                    remoteUrl,
+	                  };
 
 	                  ensureImageGroupStructure({
 	                    raster,
@@ -4926,10 +5797,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                     paper.view?.update();
                   } catch {}
 
-                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
-                  const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
-                  const pendingUpload =
-                    !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl);
+	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
+	                  const resolvedSrc = persistedRef
+	                    ? toRenderableImageSrc(persistedRef) || persistedRef
+	                    : inlineDataUrl ?? resolvedUrl;
+	                  const pendingUpload = !persistedRef;
 
                   // 获取图片原始尺寸（优先使用元数据中的原始尺寸，否则使用 raster 的原始尺寸）
                   const originalWidth =
@@ -4943,14 +5815,15 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
 
 	                  return {
 	                    id: ensuredImageId,
-                    imageData: {
-                      id: ensuredImageId,
-                      url: resolvedUrl,
-                      src: resolvedSrc,
-                      fileName: computedMetadata.fileName,
-                      pendingUpload,
-                      width: Math.round(originalWidth),
-                      height: Math.round(originalHeight),
+	                    imageData: {
+	                      id: ensuredImageId,
+	                      url: resolvedUrl,
+	                      key,
+	                      src: resolvedSrc,
+	                      fileName: computedMetadata.fileName,
+	                      pendingUpload,
+	                      width: Math.round(originalWidth),
+	                      height: Math.round(originalHeight),
                     },
 	                    bounds: {
 	                      x: boundsRect.x,
@@ -4976,20 +5849,22 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                   }
                 } else {
                   // 尚未加载完成的Raster：先记录占位实例，待onLoad完成后再补齐尺寸与辅助元素
-                  const resolvedUrl = remoteUrl ?? inlineDataUrl ?? "";
-                  const resolvedSrc = inlineDataUrl ?? remoteUrl ?? resolvedUrl;
-                  const pendingUpload =
-                    !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl);
+	                  const resolvedUrl = persistedRef ?? inlineDataUrl ?? "";
+	                  const resolvedSrc = persistedRef
+	                    ? toRenderableImageSrc(persistedRef) || persistedRef
+	                    : inlineDataUrl ?? resolvedUrl;
+	                  const pendingUpload = !persistedRef;
 
                   imageInstances.push({
                     id: ensuredImageId,
-                    imageData: {
-                      id: ensuredImageId,
-                      url: resolvedUrl,
-                      src: resolvedSrc,
-                      fileName: metadataFromRaster.fileName,
-                      pendingUpload,
-                    },
+	                    imageData: {
+	                      id: ensuredImageId,
+	                      url: resolvedUrl,
+	                      key,
+	                      src: resolvedSrc,
+	                      fileName: metadataFromRaster.fileName,
+	                      pendingUpload,
+	                    },
                     bounds: {
                       x: raster.position?.x ?? 0,
                       y: raster.position?.y ?? 0,

@@ -59,30 +59,34 @@ const truncateText = (value: string, maxLength: number = 80) =>
 
 const logAIImageResponse = (
   meta: ImageResponseLogMeta,
-  payload: { imageData?: string; textResponse?: string }
+  payload: { imageData?: string; imageUrl?: string; textResponse?: string }
 ) => {
   const hasImageData =
     typeof payload.imageData === "string" &&
     payload.imageData.trim().length > 0;
+  const hasImageUrl =
+    typeof payload.imageUrl === "string" && payload.imageUrl.trim().length > 0;
   const textResponse =
     typeof payload.textResponse === "string" &&
     payload.textResponse.trim().length > 0
       ? payload.textResponse
       : "";
-  const logger = hasImageData ? console.log : console.warn;
+  const logger = hasImageData || hasImageUrl ? console.log : console.warn;
 
-  logger(`${hasImageData ? "🖼️" : "📝"} [AI API] ${meta.endpoint} 响应摘要`, {
+  logger(`${hasImageData || hasImageUrl ? "🖼️" : "📝"} [AI API] ${meta.endpoint} 响应摘要`, {
     provider: meta.provider || "unknown",
     model: meta.model || "unspecified",
     promptPreview: meta.prompt ? truncateText(meta.prompt, 60) : "N/A",
     hasImageData,
     imageDataLength: payload.imageData?.length || 0,
+    hasImageUrl,
+    imageUrlPreview: payload.imageUrl ? truncateText(payload.imageUrl, 120) : "N/A",
     textResponsePreview: textResponse ? truncateText(textResponse, 80) : "N/A",
   });
 
   console.log(`🧾 [AI API] ${meta.endpoint} 返回详情`, {
     textResponse: textResponse || "(无文本返回)",
-    hasImage: hasImageData,
+    hasImage: hasImageData || hasImageUrl,
   });
 };
 
@@ -130,6 +134,42 @@ const NO_IMAGE_RETRY_DELAY_MS = 800;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const parseHttpStatusFromErrorCode = (code?: string): number | null => {
+  if (!code) return null;
+  const match = code.match(/^HTTP_(\d{3})$/);
+  if (!match) return null;
+  const status = Number(match[1]);
+  return Number.isFinite(status) ? status : null;
+};
+
+const isRetryableImageGenerationError = (error?: {
+  code?: string;
+  message?: string;
+}): boolean => {
+  if (!error) return false;
+  if (error.code === "NETWORK_ERROR") return true;
+
+  const status = parseHttpStatusFromErrorCode(error.code);
+  if (status !== null) {
+    if (status === 408 || status === 429) return true;
+    if (status >= 500) return true;
+  }
+
+  const message = String(error.message ?? "").toLowerCase();
+  if (!message) return false;
+
+  // 后端上游偶发返回空图（截图中对应：生成图像数据为空，无法上传。）
+  const transientPatterns = [
+    "生成图像数据为空",
+    "no image data",
+    "returned no image",
+    "empty image",
+  ];
+  return transientPatterns.some((pattern) =>
+    message.includes(pattern.toLowerCase())
+  );
+};
+
 const resolveDefaultModel = (
   requestModel: string | undefined,
   provider: SupportedAIProvider | undefined
@@ -142,6 +182,7 @@ const resolveDefaultModel = (
 
 type BackendImagePayload = {
   imageData?: string;
+  imageUrl?: string;
   textResponse?: string;
   metadata?: Record<string, any>;
 };
@@ -161,6 +202,17 @@ const mapBackendImageResult = ({
     ...(data.metadata ?? {}),
   };
 
+  const resolvedImageUrl =
+    typeof data.imageUrl === "string" && data.imageUrl.trim().length > 0
+      ? data.imageUrl.trim()
+      : typeof metadata.imageUrl === "string" && metadata.imageUrl.trim().length > 0
+      ? String(metadata.imageUrl).trim()
+      : undefined;
+
+  if (resolvedImageUrl) {
+    metadata.imageUrl = resolvedImageUrl;
+  }
+
   // 确保 imageData 带 data URI 前缀，避免裸 base64 无法直接展示
   const normalizedImageData =
     typeof data.imageData === "string" && data.imageData.trim().length > 0
@@ -175,14 +227,17 @@ const mapBackendImageResult = ({
     metadata.outputFormat = outputFormat || "png";
   }
 
+  const hasImage = Boolean(resolvedImageUrl || normalizedImageData);
+
   return {
     id: generateUUID(),
-    imageData: normalizedImageData,
+    imageData: resolvedImageUrl ? undefined : normalizedImageData,
+    imageUrl: resolvedImageUrl,
     textResponse: data.textResponse,
     prompt,
     model,
     createdAt: new Date(),
-    hasImage: !!data.imageData,
+    hasImage,
     metadata,
   };
 };
@@ -238,6 +293,7 @@ async function performGenerateImageRequest(
       },
       {
         imageData: data.imageData,
+        imageUrl: data.imageUrl,
         textResponse: data.textResponse,
       }
     );
@@ -279,6 +335,23 @@ export async function generateImageViaAPI(
     lastResponse = await performGenerateImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      if (
+        attempt < MAX_IMAGE_GENERATION_ATTEMPTS &&
+        isRetryableImageGenerationError(lastResponse.error)
+      ) {
+        console.warn("⚠️ generate-image request failed, auto retrying", {
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: resolveDefaultModel(request.model, request.aiProvider),
+          errorCode: lastResponse.error?.code,
+          errorMessage: lastResponse.error?.message,
+        });
+        await sleep(NO_IMAGE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
       logApiTiming("generate-image", startedAt, {
         success: false,
         attempts,
@@ -289,7 +362,10 @@ export async function generateImageViaAPI(
       return lastResponse;
     }
 
-    if (lastResponse.data.hasImage && lastResponse.data.imageData) {
+    if (
+      lastResponse.data.hasImage &&
+      (lastResponse.data.imageUrl || lastResponse.data.imageData)
+    ) {
       logApiTiming("generate-image", startedAt, {
         success: true,
         attempts,
@@ -327,7 +403,7 @@ export async function generateImageViaAPI(
       success: false,
       error: {
         code: "UNKNOWN_ERROR",
-        message: "Image generation failed without a response",
+        message: "图像生成失败（未收到有效响应）",
         timestamp: new Date(),
       },
     }
@@ -426,6 +502,23 @@ export async function editImageViaAPI(
     lastResponse = await performEditImageRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      if (
+        attempt < MAX_IMAGE_GENERATION_ATTEMPTS &&
+        isRetryableImageGenerationError(lastResponse.error)
+      ) {
+        console.warn("⚠️ edit-image request failed, auto retrying", {
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: resolveDefaultModel(request.model, request.aiProvider),
+          errorCode: lastResponse.error?.code,
+          errorMessage: lastResponse.error?.message,
+        });
+        await sleep(NO_IMAGE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
       logApiTiming("edit-image", startedAt, {
         success: false,
         attempts,
@@ -561,6 +654,23 @@ export async function blendImagesViaAPI(
     lastResponse = await performBlendImagesRequest(request);
 
     if (!lastResponse.success || !lastResponse.data) {
+      if (
+        attempt < MAX_IMAGE_GENERATION_ATTEMPTS &&
+        isRetryableImageGenerationError(lastResponse.error)
+      ) {
+        console.warn("⚠️ blend-images request failed, auto retrying", {
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: MAX_IMAGE_GENERATION_ATTEMPTS,
+          provider: request.aiProvider,
+          model: resolveDefaultModel(request.model, request.aiProvider),
+          errorCode: lastResponse.error?.code,
+          errorMessage: lastResponse.error?.message,
+        });
+        await sleep(NO_IMAGE_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
       logApiTiming("blend-images", startedAt, {
         success: false,
         attempts,

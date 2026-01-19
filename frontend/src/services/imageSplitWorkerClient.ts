@@ -1,7 +1,10 @@
 import type {
   SplitImageRequest,
+  SplitImageRectItem,
+  SplitImageRectsRequest,
   SplitImageResultItem,
   SplitImageResponse,
+  SplitImageRectsResponse,
 } from "../workers/imageSplitWorker";
 
 export type WorkerSplitImageSource =
@@ -14,8 +17,17 @@ export type WorkerSplitImageResult = {
   items?: SplitImageResultItem[];
 };
 
+export type WorkerSplitImageRectsResult = {
+  success: boolean;
+  error?: string;
+  rects?: SplitImageRectItem[];
+  sourceWidth?: number;
+  sourceHeight?: number;
+};
+
 type PendingRequest = {
-  resolve: (value: WorkerSplitImageResult) => void;
+  kind: "images" | "rects";
+  resolve: (value: any) => void;
   reject: (reason?: unknown) => void;
   timeoutId: number;
 };
@@ -37,17 +49,42 @@ class ImageSplitWorkerClient {
       type: "module",
     });
 
-    worker.addEventListener("message", (event: MessageEvent<SplitImageResponse>) => {
+    worker.addEventListener(
+      "message",
+      (event: MessageEvent<SplitImageResponse | SplitImageRectsResponse>) => {
       const data = event.data;
-      if (!data || data.type !== "SPLIT_IMAGE_RESULT") return;
+      if (!data) return;
 
-      const pending = this.pending.get(data.requestId);
-      if (!pending) return;
+      if (data.type === "SPLIT_IMAGE_RESULT") {
+        const pending = this.pending.get(data.requestId);
+        if (!pending) return;
 
-      clearTimeout(pending.timeoutId);
-      this.pending.delete(data.requestId);
-      pending.resolve({ success: data.success, error: data.error, items: data.items });
-    });
+        clearTimeout(pending.timeoutId);
+        this.pending.delete(data.requestId);
+        pending.resolve({
+          success: data.success,
+          error: data.error,
+          items: data.items,
+        } satisfies WorkerSplitImageResult);
+        return;
+      }
+
+      if (data.type === "SPLIT_IMAGE_RECTS_RESULT") {
+        const pending = this.pending.get(data.requestId);
+        if (!pending) return;
+
+        clearTimeout(pending.timeoutId);
+        this.pending.delete(data.requestId);
+        pending.resolve({
+          success: data.success,
+          error: data.error,
+          rects: data.rects,
+          sourceWidth: data.sourceWidth,
+          sourceHeight: data.sourceHeight,
+        } satisfies WorkerSplitImageRectsResult);
+      }
+    }
+    );
 
     worker.addEventListener("error", (error) => {
       this.rejectAllPending(error);
@@ -83,7 +120,12 @@ class ImageSplitWorkerClient {
         reject(new Error("图片分割超时，请重试"));
       }, WORKER_TIMEOUT_MS);
 
-      this.pending.set(requestId, { resolve, reject, timeoutId });
+      this.pending.set(requestId, {
+        kind: "images",
+        resolve,
+        reject,
+        timeoutId,
+      });
 
       const payload: SplitImageRequest = {
         type: "SPLIT_IMAGE",
@@ -95,7 +137,41 @@ class ImageSplitWorkerClient {
       worker.postMessage(payload);
     });
   }
+
+  async splitImageRects(
+    source: WorkerSplitImageSource,
+    options: { outputCount: number }
+  ): Promise<WorkerSplitImageRectsResult> {
+    if (!this.isSupported()) {
+      return { success: false, error: "当前环境不支持 Web Worker" };
+    }
+
+    const worker = this.ensureWorker();
+    const requestId = `img_split_rects_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    return await new Promise<WorkerSplitImageRectsResult>((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new Error("图片分割超时，请重试"));
+      }, WORKER_TIMEOUT_MS);
+
+      this.pending.set(requestId, {
+        kind: "rects",
+        resolve,
+        reject,
+        timeoutId,
+      });
+
+      const payload: SplitImageRectsRequest = {
+        type: "SPLIT_IMAGE_RECTS",
+        requestId,
+        source,
+        outputCount: options.outputCount,
+      };
+
+      worker.postMessage(payload);
+    });
+  }
 }
 
 export const imageSplitWorkerClient = new ImageSplitWorkerClient();
-

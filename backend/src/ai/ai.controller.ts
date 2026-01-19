@@ -5,6 +5,7 @@ import {
   Post,
   UseGuards,
   ServiceUnavailableException,
+  BadGatewayException,
   InternalServerErrorException,
   HttpException,
   Get,
@@ -53,6 +54,14 @@ import { AnalyzeVideoDto } from './dto/video-analysis.dto';
 import { OssService } from '../oss/oss.service';
 import { GoogleGenAI } from '@google/genai';
 import { spawn } from 'child_process';
+import crypto from 'crypto';
+import { Readable } from 'stream';
+
+type GenerateImageUrlResult = {
+  imageUrl: string;
+  textResponse: string;
+  metadata?: Record<string, any>;
+};
 
 @ApiTags('ai')
 @UseGuards(ApiKeyOrJwtGuard)
@@ -121,6 +130,113 @@ export class AiController {
       this.logger.warn('Watermark failed, fallback to original image', error as any);
       return imageData;
     }
+  }
+
+  private extractBase64Payload(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+
+    if (trimmed.startsWith('data:')) {
+      const commaIndex = trimmed.indexOf(',');
+      return commaIndex >= 0 ? trimmed.slice(commaIndex + 1).trim() : '';
+    }
+
+    const base64Index = trimmed.indexOf('base64,');
+    if (base64Index >= 0) {
+      return trimmed.slice(base64Index + 'base64,'.length).trim();
+    }
+
+    return trimmed;
+  }
+
+  private inferImageMimeFromBuffer(buffer: Buffer): { mimeType: string; extension: string } {
+    if (buffer.length >= 8 && buffer.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') {
+      return { mimeType: 'image/png', extension: 'png' };
+    }
+
+    if (buffer.length >= 3 && buffer.subarray(0, 3).toString('hex') === 'ffd8ff') {
+      return { mimeType: 'image/jpeg', extension: 'jpg' };
+    }
+
+    if (buffer.length >= 6) {
+      const header = buffer.subarray(0, 6).toString('ascii');
+      if (header === 'GIF87a' || header === 'GIF89a') {
+        return { mimeType: 'image/gif', extension: 'gif' };
+      }
+    }
+
+    if (
+      buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
+      return { mimeType: 'image/webp', extension: 'webp' };
+    }
+
+    throw new BadGatewayException('生成图像数据不是受支持的图片格式，无法上传。');
+  }
+
+  private async uploadGeneratedImageToOss(
+    imageBase64: string,
+    options?: { userId?: string }
+  ): Promise<{ url: string; key: string; mimeType: string; size: number }> {
+    if (!this.oss.isEnabled()) {
+      throw new ServiceUnavailableException(
+        'OSS 未配置或已禁用，无法上传生成图片并返回远程 URL（请配置 OSS_* 环境变量，或设置 OSS_ENABLED=true）。'
+      );
+    }
+
+    const payload = this.extractBase64Payload(imageBase64).replace(/\s+/g, '');
+    if (!payload) {
+      throw new BadGatewayException('生成图像数据为空，无法上传。');
+    }
+
+    const decodeCandidate = (encoding: BufferEncoding): Buffer => {
+      try {
+        return Buffer.from(payload, encoding);
+      } catch {
+        return Buffer.alloc(0);
+      }
+    };
+
+    let buffer = decodeCandidate('base64');
+    if (!buffer.length) {
+      buffer = decodeCandidate('base64url');
+    }
+
+    if (!buffer.length) {
+      throw new BadGatewayException('生成图像数据解码失败（空内容），无法上传。');
+    }
+
+    let mimeType: string;
+    let extension: string;
+    try {
+      ({ mimeType, extension } = this.inferImageMimeFromBuffer(buffer));
+    } catch (error) {
+      // base64/base64url 解码结果可能不同（尤其是 URL-safe 字符）
+      const bufferAlt = decodeCandidate('base64url');
+      if (!bufferAlt.length) {
+        throw error;
+      }
+      ({ mimeType, extension } = this.inferImageMimeFromBuffer(bufferAlt));
+      buffer = bufferAlt;
+    }
+    const randomId = crypto.randomBytes(6).toString('hex');
+    const timestamp = Date.now();
+    const userTag = options?.userId
+      ? crypto.createHash('sha1').update(String(options.userId)).digest('hex').slice(0, 8)
+      : 'anonymous';
+    const key = `uploads/ai/generated/${userTag}/${timestamp}-${randomId}.${extension}`;
+
+    const stream = Readable.from(buffer);
+    const { url } = await this.oss.putStream(key, stream, {
+      headers: {
+        'Content-Type': mimeType,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    });
+
+    return { url, key, mimeType, size: buffer.length };
   }
 
   /**
@@ -659,9 +775,9 @@ export class AiController {
   }
 
   @Post('generate-image')
-  async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<ImageGenerationResult> {
+  async generateImage(@Body() dto: GenerateImageDto, @Req() req: any): Promise<GenerateImageUrlResult> {
     const startTime = Date.now();
-    const userId = req.user?.id || req.user?.userId || 'anonymous';
+    const userId = req.user?.id || req.user?.userId || req.user?.sub || 'anonymous';
     
     // 记录请求参数日志
     this.logger.log(`[generate-image] 收到图像生成请求 - 用户ID: ${userId}, provider: ${dto.aiProvider || 'gemini'}, model: ${dto.model || 'default'}, imageSize: ${dto.imageSize || '未指定'}, aspectRatio: ${dto.aspectRatio || '未指定'}, thinkingLevel: ${dto.thinkingLevel || '未指定'}, imageOnly: ${dto.imageOnly || false}`);
@@ -684,54 +800,130 @@ export class AiController {
     const customApiKey = this.isGeminiProvider(providerName) ? await this.getUserCustomApiKey(req) : null;
     const skipCredits = !!customApiKey;
 
-    this.logger.log(`[generate-image] 解析后的配置 - providerName: ${providerName || 'null'}, model: ${model}, serviceType: ${serviceType}, 使用自定义API Key: ${!!customApiKey}`);
-
-    try {
-      return await this.withCredits(req, serviceType, model, async () => {
-      if (providerName && providerName !== 'gemini-pro') {
-          this.logger.log(`[generate-image] 使用 Provider: ${providerName}`);
-        const provider = this.factory.getProvider(dto.model, providerName);
-        const result = await provider.generateImage({
-          prompt: dto.prompt,
-          model,
-          imageOnly: dto.imageOnly,
-          aspectRatio: dto.aspectRatio,
-          imageSize: dto.imageSize,
-          thinkingLevel: dto.thinkingLevel,
-          outputFormat: dto.outputFormat,
-          providerOptions: dto.providerOptions,
-        });
-          
-          this.logger.log(`[generate-image] Provider ${providerName} 返回结果 - success: ${result.success}, hasImage: ${!!result.data?.imageData}, imageDataLength: ${result.data?.imageData?.length || 0}, error: ${result.error?.message || 'none'}`);
-          
-        if (result.success && result.data) {
-          const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
-            const duration = Date.now() - startTime;
-            this.logger.log(`[generate-image] 图像生成成功 - Provider: ${providerName}, 耗时: ${duration}ms, 水印后图像长度: ${watermarked?.length || 0}`);
-          return {
-            imageData: watermarked,
-            textResponse: result.data.textResponse || '',
-            metadata: result.data.metadata,
-          };
-        }
-        throw new Error(result.error?.message || 'Failed to generate image');
-      }
-
-      // gemini 和 gemini-pro 都使用默认的 Gemini 服务
-        this.logger.log(`[generate-image] 使用默认 Gemini 服务 (providerName: ${providerName || 'gemini'})`);
-      const data = await this.imageGeneration.generateImage({ ...dto, customApiKey });
-        
-        this.logger.log(`[generate-image] Gemini 服务返回结果 - hasImage: ${!!data.imageData}, imageDataLength: ${data.imageData?.length || 0}, textResponseLength: ${data.textResponse?.length || 0}`);
-        
-      const watermarked = await this.watermarkIfNeeded(data.imageData, req);
-        const duration = Date.now() - startTime;
-        this.logger.log(`[generate-image] 图像生成成功 - 使用默认 Gemini 服务, 耗时: ${duration}ms, 水印后图像长度: ${watermarked?.length || 0}`);
-      return { ...data, imageData: watermarked };
-    }, 0, 1, skipCredits);
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
+	    this.logger.log(`[generate-image] 解析后的配置 - providerName: ${providerName || 'null'}, model: ${model}, serviceType: ${serviceType}, 使用自定义API Key: ${!!customApiKey}`);
+	
+	    try {
+	      return await this.withCredits(req, serviceType, model, async () => {
+	        const maxAttempts = 3;
+	        const retryDelaysMs = [500, 1200];
+	
+	        const shouldRetryOutputError = (error: unknown): boolean => {
+	          if (error instanceof HttpException) {
+	            return error.getStatus() === 502;
+	          }
+	
+	          const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+	          if (!message) return false;
+	
+	          const retryablePatterns = [
+	            '生成图像数据为空',
+	            '无图像数据',
+	            'no image data',
+	            'stream api returned no image data',
+	            'not supported',
+	            '不是受支持的图片格式',
+	            'base64',
+	          ];
+	          return retryablePatterns.some((pattern) => message.includes(pattern.toLowerCase()));
+	        };
+	
+	        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+	          try {
+	            if (attempt > 1) {
+	              this.logger.warn(`[generate-image] 重试生成第 ${attempt}/${maxAttempts} 次`);
+	            }
+	
+	            if (providerName && providerName !== 'gemini-pro') {
+	              this.logger.log(`[generate-image] 使用 Provider: ${providerName}`);
+	              const provider = this.factory.getProvider(dto.model, providerName);
+	              const result = await provider.generateImage({
+	                prompt: dto.prompt,
+	                model,
+	                imageOnly: dto.imageOnly,
+	                aspectRatio: dto.aspectRatio,
+	                imageSize: dto.imageSize,
+	                thinkingLevel: dto.thinkingLevel,
+	                outputFormat: dto.outputFormat,
+	                providerOptions: dto.providerOptions,
+	              });
+	
+	              this.logger.log(
+	                `[generate-image] Provider ${providerName} 返回结果 - success: ${result.success}, hasImage: ${!!result.data?.imageData}, imageDataLength: ${result.data?.imageData?.length || 0}, error: ${result.error?.message || 'none'}`
+	              );
+	
+	              if (result.success && result.data) {
+	                const watermarked = await this.watermarkIfNeeded(result.data.imageData, req);
+	                const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+	                const duration = Date.now() - startTime;
+	                this.logger.log(
+	                  `[generate-image] 图像生成成功 - Provider: ${providerName}, 耗时: ${duration}ms, 上传: ${upload.key}, bytes: ${upload.size}`
+	                );
+	                return {
+	                  imageUrl: upload.url,
+	                  textResponse: result.data.textResponse || '',
+	                  metadata: {
+	                    ...(result.data.metadata || {}),
+	                    imageUrl: upload.url,
+	                    imageKey: upload.key,
+	                    mimeType: upload.mimeType,
+	                    bytes: upload.size,
+	                  },
+	                };
+	              }
+	              throw new Error(result.error?.message || 'Failed to generate image');
+	            }
+	
+	            // gemini 和 gemini-pro 都使用默认的 Gemini 服务
+	            this.logger.log(
+	              `[generate-image] 使用默认 Gemini 服务 (providerName: ${providerName || 'gemini'})`
+	            );
+	            const data = await this.imageGeneration.generateImage({ ...dto, customApiKey });
+	
+	            this.logger.log(
+	              `[generate-image] Gemini 服务返回结果 - hasImage: ${!!data.imageData}, imageDataLength: ${data.imageData?.length || 0}, textResponseLength: ${data.textResponse?.length || 0}`
+	            );
+	
+	            const watermarked = await this.watermarkIfNeeded(data.imageData, req);
+	            const upload = await this.uploadGeneratedImageToOss(watermarked || '', { userId });
+	            const duration = Date.now() - startTime;
+	            this.logger.log(
+	              `[generate-image] 图像生成成功 - 使用默认 Gemini 服务, 耗时: ${duration}ms, 上传: ${upload.key}, bytes: ${upload.size}`
+	            );
+	            return {
+	              imageUrl: upload.url,
+	              textResponse: data.textResponse || '',
+	              metadata: {
+	                ...(data.metadata || {}),
+	                imageUrl: upload.url,
+	                imageKey: upload.key,
+	                mimeType: upload.mimeType,
+	                bytes: upload.size,
+	              },
+	            };
+	          } catch (error) {
+	            if (attempt < maxAttempts && shouldRetryOutputError(error)) {
+	              const delay =
+	                retryDelaysMs[attempt - 1] ??
+	                retryDelaysMs[retryDelaysMs.length - 1] ??
+	                0;
+	              this.logger.warn(
+	                `[generate-image] 第 ${attempt}/${maxAttempts} 次失败（${this.summarizeError(error)}），${delay}ms 后重试`
+	              );
+	              if (delay > 0) {
+	                await new Promise((resolve) => setTimeout(resolve, delay));
+	              }
+	              continue;
+	            }
+	            throw error;
+	          }
+	        }
+	
+	        throw new InternalServerErrorException('Image generation retry loop exhausted unexpectedly');
+	      }, 0, 1, skipCredits);
+		    } catch (error) {
+		      const duration = Date.now() - startTime;
+		      const errorMessage = error instanceof Error ? error.message : String(error);
+	      const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`[generate-image] 图像生成失败 - 耗时: ${duration}ms, 错误: ${errorMessage}`, errorStack);
       throw error;
     }

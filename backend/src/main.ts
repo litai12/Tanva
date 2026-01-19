@@ -108,6 +108,12 @@ async function bootstrap() {
   app.setGlobalPrefix("api");
 
   // CORS 配置：支持 Cloudflare Tunnel 和其他配置的域名
+  const nodeEnv = configService.get("NODE_ENV") ?? process.env.NODE_ENV;
+  const corsDevAllowAllRaw =
+    configService.get("CORS_DEV_ALLOW_ALL") ?? process.env.CORS_DEV_ALLOW_ALL;
+  const corsDevAllowAll =
+    nodeEnv === "development" &&
+    ["true", "1", "yes", "on"].includes(String(corsDevAllowAllRaw).toLowerCase());
   const corsOrigin = configService.get("CORS_ORIGIN");
   const corsOrigins = corsOrigin
     ? corsOrigin
@@ -165,7 +171,11 @@ async function bootstrap() {
 
   // 使用 Fastify 的 CORS 插件，确保 preflight (OPTIONS) 被正确处理并返回 Access-Control-Allow-* 头
   await fastifyInstance.register(fastifyCors as any, {
-    origin: corsOrigins.length > 0 ? originCallback : true,
+    origin: corsDevAllowAll
+      ? true
+      : corsOrigins.length > 0
+      ? originCallback
+      : true,
     credentials: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
   });

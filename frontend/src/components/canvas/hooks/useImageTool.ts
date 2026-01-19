@@ -10,6 +10,12 @@ import { historyService } from '@/services/historyService';
 import { paperSaveService } from '@/services/paperSaveService';
 import { isGroup, isRaster } from '@/utils/paperCoords';
 import { syncImageGroupBlocksForImageIds, findImagePaperItem } from '@/utils/paperImageGroupBlock';
+import {
+  isAssetKeyRef,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  toRenderableImageSrc,
+} from '@/utils/imageSource';
 import type {
   ImageInstance,
   ImageDragState,
@@ -327,7 +333,8 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
           imageData: {
             ...img.imageData,
             url: asset.url,
-            src: asset.url,
+            // 运行时展示优先使用本地 blob/data（上传中 key 可能尚不可用）
+            src: asset.localDataUrl || asset.url,
             key: asset.key || img.imageData.key,
             fileName: asset.fileName || img.imageData.fileName,
             width: originalWidth,
@@ -363,7 +370,25 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     };
 
     // 在监听器绑定后再设置资源，确保跨域标记和回调生效
-    raster.source = asset.url;
+    const normalizedUrl = normalizePersistableImageRef(asset.url);
+    const normalizedSrc = normalizePersistableImageRef(asset.src);
+    const normalizedKey = normalizePersistableImageRef(asset.key);
+    const persistedUrl = (normalizedKey || normalizedUrl || asset.url).trim();
+    const persistedSrc = (normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
+
+    // 记录元数据：remoteUrl 仅存 http(s)，key 单独存
+    if (!raster.data) raster.data = {};
+    if (normalizedKey && isAssetKeyRef(normalizedKey)) {
+      (raster.data as any).key = normalizedKey;
+    } else if (persistedUrl && isAssetKeyRef(persistedUrl)) {
+      (raster.data as any).key = persistedUrl;
+    }
+    if (persistedSrc && isRemoteUrl(persistedSrc)) {
+      (raster.data as any).remoteUrl = persistedSrc;
+    }
+
+    const renderable = toRenderableImageSrc(asset.localDataUrl || persistedSrc || persistedUrl) || asset.url;
+    raster.source = renderable;
 
     // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
     const imageGroup = new paper.Group([raster]);
@@ -378,9 +403,10 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
       id: imageId,
       imageData: {
         id: imageId,
-        url: asset.url,
-        src: asset.url,
-        key: asset.key,
+        url: persistedUrl || asset.url,
+        // 上传中仍允许 src=blob:（展示/编辑等能力用），持久化用 url/key
+        src: asset.localDataUrl || persistedSrc || persistedUrl || asset.url,
+        key: normalizedKey || asset.key,
         fileName: asset.fileName,
         width: asset.width,
         height: asset.height,
@@ -505,20 +531,13 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         return primarySrc;
       }
 
-      // 备用方案：从Paper.js获取（已缩放，可能质量较低）
-      console.warn('⚠️ AI编辑：未找到原始图片数据，使用canvas数据（可能已缩放）');
-      // 🔥 使用 findImagePaperItem 进行深度搜索
-      const imageGroup = findImagePaperItem(imageId);
+      // 次优：运行时缓存（可能是 dataURL）
+      const localDataUrl = imageInstance.imageData?.localDataUrl;
+      if (localDataUrl) return localDataUrl;
 
-      if (!imageGroup) return null;
-
-      const raster = isGroup(imageGroup)
-        ? imageGroup.children.find(child => isRaster(child)) as paper.Raster
-        : (isRaster(imageGroup) ? imageGroup as paper.Raster : null);
-      if (!raster || !raster.canvas) return null;
-
-      // 将canvas转换为base64（已缩放，可能质量较低）
-      return raster.canvas.toDataURL('image/png');
+      // 兜底：不在同步路径里做 canvas -> dataURL（多图场景会打爆内存）
+      // 需要时应走异步链路（例如 ImageContainer.resolveImageDataUrl 中的限流版本）。
+      return null;
     } catch (error) {
       console.error('获取图像数据失败:', error);
       return null;
@@ -1195,7 +1214,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     setSelectedImageIds([]);
 
     snapshots.forEach((snap) => {
-      const resolvedUrl = snap?.url || snap?.localDataUrl;
+      const resolvedUrl = snap?.url || snap?.src || snap?.key || snap?.localDataUrl;
       if (!snap || !resolvedUrl || !snap.bounds) return;
       if (snap.layerId) {
         try { useLayerStore.getState().activateLayer(snap.layerId); } catch {}
@@ -1207,15 +1226,15 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
         currentPlaceholderRef.current = placeholder;
         handleImageUploaded({
           id: snap.id,
-          url: resolvedUrl,
-          src: resolvedUrl,
+          url: snap.url ?? snap.key ?? resolvedUrl,
+          src: snap.src ?? snap.url ?? resolvedUrl,
           key: snap.key,
           fileName: snap.fileName,
           width: snap.width,
           height: snap.height,
           contentType: snap.contentType,
           pendingUpload: snap.pendingUpload,
-          localDataUrl: snap.localDataUrl ?? resolvedUrl,
+          localDataUrl: snap.localDataUrl,
         }, { suppressAutoSave: true });
       }
     });
@@ -1257,7 +1276,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
   ) => {
     if (!snapshot) return null;
 
-    const source = snapshot.localDataUrl || snapshot.src || snapshot.url;
+    const source = snapshot.localDataUrl || snapshot.src || snapshot.url || snapshot.key;
     if (!source) {
       console.warn('复制的图片缺少有效的资源地址，无法粘贴');
       return null;
@@ -1388,16 +1407,30 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     };
 
     // 设置图片源
-    raster.source = source;
+    const normalizedUrl = normalizePersistableImageRef(snapshot.url);
+    const normalizedSrc = normalizePersistableImageRef(snapshot.src);
+    const normalizedKey = normalizePersistableImageRef(snapshot.key);
+    const persistedUrl = (normalizedKey || normalizedUrl || source).trim();
+    const persistedSrc = (normalizedSrc || (isRemoteUrl(normalizedUrl) ? normalizedUrl : '') || persistedUrl).trim();
+    if (!raster.data) raster.data = {};
+    if (normalizedKey && isAssetKeyRef(normalizedKey)) {
+      (raster.data as any).key = normalizedKey;
+    } else if (persistedUrl && isAssetKeyRef(persistedUrl)) {
+      (raster.data as any).key = persistedUrl;
+    }
+    if (persistedSrc && isRemoteUrl(persistedSrc)) {
+      (raster.data as any).remoteUrl = persistedSrc;
+    }
+    raster.source = toRenderableImageSrc(source) || source;
 
     // 创建图片实例（立即添加到状态，不等待加载完成）
     const newImageInstance: ImageInstance = {
       id: imageId,
       imageData: {
         id: imageId,
-        url: source,
-        src: source,
-        key: snapshot.key,
+        url: persistedUrl || source,
+        src: persistedSrc || persistedUrl || source,
+        key: normalizedKey || snapshot.key,
         fileName: snapshot.fileName,
         width: snapshot.width ?? snapshot.bounds.width,
         height: snapshot.height ?? snapshot.bounds.height,

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { ProjectsService } from './projects.service';
@@ -48,6 +48,26 @@ export class ProjectsController {
 
   @Put(':id/content')
   async updateContent(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProjectContentDto) {
-    return this.projects.updateContent(req.user.sub, id, dto.content, dto.version);
+    return this.projects.updateContent(req.user.sub, id, dto.content, dto.version, {
+      createWorkflowHistory: dto.createWorkflowHistory,
+    });
+  }
+
+  @Get(':id/workflow-history')
+  async listWorkflowHistory(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('limit') limit?: string
+  ) {
+    return this.projects.listWorkflowHistory(req.user.sub, id, limit);
+  }
+
+  @Get(':id/workflow-history/:updatedAt')
+  async getWorkflowHistory(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('updatedAt') updatedAt: string
+  ) {
+    return this.projects.getWorkflowHistory(req.user.sub, id, updatedAt);
   }
 }

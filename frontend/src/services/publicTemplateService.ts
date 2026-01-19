@@ -1,4 +1,5 @@
 import type { FlowTemplate, TemplateIndexEntry } from "@/types/template";
+import { fetchWithAuth } from "./authFetch";
 
 export interface PublicTemplate extends TemplateIndexEntry {
   templateData?: FlowTemplate;
@@ -110,9 +111,8 @@ export async function createTemplate(
   data: CreateTemplateRequest
 ): Promise<PublicTemplate> {
   const headers = buildAuthHeaders("application/json");
-  const response = await fetch(`${API_BASE}/api/admin/templates`, {
+  const response = await fetchWithAuth(`${API_BASE}/api/admin/templates`, {
     method: "POST",
-    credentials: "include",
     headers,
     body: JSON.stringify(data),
   });
@@ -137,10 +137,9 @@ export async function fetchTemplates(
   if (params.search) searchParams.set("search", params.search);
 
   const headers = buildAuthHeaders();
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${API_BASE}/api/admin/templates?${searchParams}`,
     {
-      credentials: "include",
       headers,
     }
   );
@@ -155,8 +154,7 @@ export async function fetchTemplates(
 // 获取单个模板
 export async function fetchTemplate(id: string): Promise<PublicTemplate> {
   const headers = buildAuthHeaders();
-  const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
-    credentials: "include",
+  const response = await fetchWithAuth(`${API_BASE}/api/admin/templates/${id}`, {
     headers,
   });
 
@@ -173,9 +171,8 @@ export async function updateTemplate(
   data: UpdateTemplateRequest
 ): Promise<PublicTemplate> {
   const headers = buildAuthHeaders("application/json");
-  const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
+  const response = await fetchWithAuth(`${API_BASE}/api/admin/templates/${id}`, {
     method: "PATCH",
-    credentials: "include",
     headers,
     body: JSON.stringify(data),
   });
@@ -190,9 +187,8 @@ export async function updateTemplate(
 // 删除模板
 export async function deleteTemplate(id: string): Promise<void> {
   const headers = buildAuthHeaders();
-  const response = await fetch(`${API_BASE}/api/admin/templates/${id}`, {
+  const response = await fetchWithAuth(`${API_BASE}/api/admin/templates/${id}`, {
     method: "DELETE",
-    credentials: "include",
     headers,
   });
 
@@ -204,8 +200,7 @@ export async function deleteTemplate(id: string): Promise<void> {
 // 获取模板分类
 export async function fetchTemplateCategories(): Promise<string[]> {
   const headers = buildAuthHeaders();
-  const response = await fetch(`${API_BASE}/api/templates/categories`, {
-    credentials: "include",
+  const response = await fetchWithAuth(`${API_BASE}/api/templates/categories`, {
     headers,
   });
 

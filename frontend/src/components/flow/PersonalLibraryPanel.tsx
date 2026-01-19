@@ -9,6 +9,7 @@ import {
   FileCode,
 } from "lucide-react";
 import "./PersonalLibraryPanel.css";
+import SmartImage from "@/components/ui/SmartImage";
 import { imageUploadService } from "@/services/imageUploadService";
 import {
   model3DUploadService,
@@ -17,6 +18,7 @@ import {
 import { model3DPreviewService } from "@/services/model3DPreviewService";
 import { personalLibraryApi } from "@/services/personalLibraryApi";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
+import { blobToDataUrl, responseToBlob } from "@/utils/imageConcurrency";
 import {
   createPersonalAssetId,
   usePersonalLibraryStore,
@@ -308,14 +310,8 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
         credentials: resolveImageFetchCredentials(fetchUrl),
       });
       if (!response.ok) return null;
-      const blob = await response.blob();
-      return await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () =>
-          resolve(typeof reader.result === "string" ? reader.result : null);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-      });
+      const blob = await responseToBlob(response);
+      return await blobToDataUrl(blob);
     } catch (error) {
       console.warn("[PersonalLibrary] 将远程图片转换为 DataURL 失败:", error);
       return null;
@@ -583,7 +579,7 @@ const PersonalLibraryPanel: React.FC<PersonalLibraryPanelProps> = ({
                   }}
                 >
                   {is2d || isSvg ? (
-                    <img
+                    <SmartImage
                       src={asset.thumbnail || asset.url}
                       alt={asset.name}
                       style={{
@@ -823,7 +819,7 @@ const ModelAssetPreview: React.FC<ModelAssetPreviewProps> = ({
 
   if (previewSrc) {
     return (
-      <img
+      <SmartImage
         src={previewSrc}
         alt={`${asset.name} 预览`}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}

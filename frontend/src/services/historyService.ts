@@ -610,5 +610,28 @@ export const historyService = {
     st.past = [];
     st.future = [];
     console.log('[History] 历史记录已清理');
-  }
+  },
+
+  /**
+   * 重置当前项目的撤销/重做历史：
+   * - 丢弃 past/future/present 里对旧内容的引用（释放 paperJson / base64 等大字段占用）
+   * - 以“当前 store.content”为新的基线（present），保证后续仍可正常 undo/redo 新操作
+   *
+   * 典型使用场景：用户执行“清空画布（不可撤销）”。
+   */
+  async resetToCurrent(label: string = 'reset') {
+    const pid = getProjectId();
+    if (!pid) return;
+    const st = getOrInitState(pid);
+    if (st.restoring) return;
+
+    // 先断开旧快照引用，尽早释放内存（后续再设置新 present）
+    st.past = [];
+    st.future = [];
+    st.present = null;
+
+    const snap = await captureCurrentSnapshot(label, { skipSave: true });
+    if (!snap) return;
+    st.present = { ...snap, id: allocateSnapshotId(st) };
+  },
 };

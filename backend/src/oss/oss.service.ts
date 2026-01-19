@@ -16,6 +16,11 @@ type PresignPolicy = {
 export class OssService {
   constructor(private readonly config: ConfigService) {}
 
+  private cachedClient: OSS | null = null;
+  private ossEnabledChecked = false;
+  private ossEnabled = false;
+  private loggedDisabled = false;
+
   private get conf() {
     return {
       region: this.config.get<string>('OSS_REGION') || 'oss-cn-hangzhou',
@@ -25,6 +30,59 @@ export class OssService {
       cdnHost: this.config.get<string>('OSS_CDN_HOST') || '',
       endpoint: this.config.get<string>('OSS_ENDPOINT') || undefined,
     };
+  }
+
+  private isOssEnabled(): boolean {
+    if (this.ossEnabledChecked) return this.ossEnabled;
+
+    const disable =
+      (this.config.get<string>('OSS_DISABLE') ?? 'false') === 'true' ||
+      (this.config.get<string>('DISABLE_OSS') ?? 'false') === 'true';
+    if (disable) {
+      this.ossEnabled = false;
+      this.ossEnabledChecked = true;
+      return this.ossEnabled;
+    }
+
+    const enabledOverride = (this.config.get<string>('OSS_ENABLED') ?? 'false') === 'true';
+    if (enabledOverride) {
+      this.ossEnabled = true;
+      this.ossEnabledChecked = true;
+      return this.ossEnabled;
+    }
+
+    const { bucket, accessKeyId, accessKeySecret } = this.conf;
+    // 未显式配置 OSS 时（仍为默认占位符），直接视为禁用，避免每次请求都卡在公网超时。
+    this.ossEnabled =
+      Boolean(bucket && accessKeyId && accessKeySecret) &&
+      bucket !== 'your-bucket' &&
+      accessKeyId !== 'test-id' &&
+      accessKeySecret !== 'test-secret';
+
+    this.ossEnabledChecked = true;
+    return this.ossEnabled;
+  }
+
+  /**
+   * OSS 是否已启用（并且已配置真实 bucket/ak/sk）。
+   * 仅用于在需要“必须上传成功”的场景做前置校验。
+   */
+  isEnabled(): boolean {
+    return this.isOssEnabled();
+  }
+
+  private logDisabledOnce() {
+    if (this.loggedDisabled) return;
+    this.loggedDisabled = true;
+    // eslint-disable-next-line no-console
+    console.warn('[OSS] OSS 未配置或已禁用，将跳过 OSS 读写（仅使用数据库内容）。');
+  }
+
+  private timeoutMs(): number {
+    const raw = this.config.get<string>('OSS_TIMEOUT_MS');
+    const n = raw ? Number(raw) : 8000;
+    if (!Number.isFinite(n)) return 8000;
+    return Math.max(1000, Math.min(120000, Math.floor(n)));
   }
 
   presignPost(dir = 'uploads/', expiresInSeconds = 300, maxSize = 20 * 1024 * 1024): PresignPolicy {
@@ -45,8 +103,17 @@ export class OssService {
   }
 
   private client(): OSS {
+    if (this.cachedClient) return this.cachedClient;
     const { region, bucket, accessKeyId, accessKeySecret, endpoint } = this.conf;
-    return new OSS({ region, bucket, accessKeyId, accessKeySecret, endpoint });
+    this.cachedClient = new OSS({
+      region,
+      bucket,
+      accessKeyId,
+      accessKeySecret,
+      endpoint,
+      timeout: this.timeoutMs(),
+    });
+    return this.cachedClient;
   }
 
   async putStream(
@@ -64,6 +131,10 @@ export class OssService {
     data: unknown,
     options?: { acl?: 'private' | 'public-read' | 'public-read-write' }
   ) {
+    if (!this.isOssEnabled()) {
+      this.logDisabledOnce();
+      return key;
+    }
     try {
       const client = this.client();
       const body = Buffer.from(JSON.stringify(data));
@@ -83,6 +154,10 @@ export class OssService {
   }
 
   async getJSON<T = unknown>(key: string): Promise<T | null> {
+    if (!this.isOssEnabled()) {
+      this.logDisabledOnce();
+      return null;
+    }
     try {
       const client = this.client();
       const res = await client.get(key);

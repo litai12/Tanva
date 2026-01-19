@@ -2,8 +2,8 @@ import React from "react";
 import { Handle, Position } from "reactflow";
 import { Send as SendIcon } from "lucide-react";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
-import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import GenerationProgressBar from "./GenerationProgressBar";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
@@ -111,22 +111,6 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
     }
   }, [data.referencePrompt, id]);
 
-  React.useEffect(() => {
-    if (data.imageData && status === "succeeded") {
-      const newImageId = `${id}-${Date.now()}`;
-      setCurrentImageId(newImageId);
-      void recordImageHistoryEntry({
-        id: newImageId,
-        base64: data.imageData,
-        title: `Generate参考节点 ${new Date().toLocaleTimeString()}`,
-        nodeId: id,
-        nodeType: "generate",
-        fileName: `flow_generate_ref_${newImageId}.png`,
-        projectId,
-      });
-    }
-  }, [data.imageData, status, id, projectId]);
-
   const handleImageChange = React.useCallback(
     (imageId: string) => {
       const selectedImage = allImages.find((item) => item.id === imageId);
@@ -204,16 +188,16 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={onSend}
-            disabled={!data.imageData}
-            title={!data.imageData ? "无可发送的图像" : "发送到画布"}
+            disabled={!(data.imageData || data.imageUrl)}
+            title={!(data.imageData || data.imageUrl) ? "无可发送的图像" : "发送到画布"}
             style={{
               fontSize: 12,
               padding: "4px 8px",
-              background: !data.imageData ? "#e5e7eb" : "#111827",
+              background: !(data.imageData || data.imageUrl) ? "#e5e7eb" : "#111827",
               color: "#fff",
               borderRadius: 6,
               border: "none",
-              cursor: !data.imageData ? "not-allowed" : "pointer",
+              cursor: !(data.imageData || data.imageUrl) ? "not-allowed" : "pointer",
             }}
           >
             <SendIcon size={14} strokeWidth={2} />
@@ -237,7 +221,7 @@ function GenerateReferenceNodeInner({ id, data, selected }: Props) {
         title={displaySrc ? "双击预览" : undefined}
       >
         {displaySrc ? (
-          <img
+          <SmartImage
             src={displaySrc}
             alt=''
             style={{

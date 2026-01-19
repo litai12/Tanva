@@ -8,6 +8,7 @@ import React, {
 import { createPortal } from "react-dom";
 import { Plus, Trash2, UploadCloud, Download } from "lucide-react";
 import type { FlowTemplate, TemplateIndexEntry } from "@/types/template";
+import SmartImage from "@/components/ui/SmartImage";
 import {
   loadBuiltInTemplateIndex,
   loadBuiltInTemplateById,
@@ -97,7 +98,7 @@ const UserTemplateCard: React.FC<{
         }}
       >
         {item.thumbnail ? (
-          <img
+          <SmartImage
             src={item.thumbnail}
             alt={item.name}
             style={{ width: "100%", height: "100%", objectFit: "cover" }}

@@ -35,6 +35,14 @@ import { imageUrlCache } from "@/services/imageUrlCache";
 import { isGroup, isRaster } from "@/utils/paperCoords";
 import { editImageViaAPI } from "@/services/aiBackendAPI";
 import { useAIChatStore, getImageModelForProvider } from "@/stores/aiChatStore";
+import {
+  isPersistableImageRef,
+  isRemoteUrl,
+  normalizePersistableImageRef,
+  resolveImageToDataUrl,
+  toRenderableImageSrc,
+} from "@/utils/imageSource";
+import { canvasToDataUrl, dataUrlToBlob } from "@/utils/imageConcurrency";
 
 const EXPAND_PRESET_PROMPT = "不改变图片比例，填充白色部分";
 
@@ -50,21 +58,7 @@ const ensureDataUrlString = (
 };
 
 const normalizeImageSrc = (value?: string | null): string => {
-  if (!value) return "";
-  const trimmed = value.trim();
-  // 允许同源的 proxy 资源（如 /api/assets/proxy?...），否则会被误判为 base64 导致空白
-  if (
-    /^data:image\//i.test(trimmed) ||
-    /^https?:\/\//i.test(trimmed) ||
-    /^blob:/i.test(trimmed) ||
-    trimmed.startsWith("/api/") ||
-    trimmed.startsWith("/assets/") ||
-    trimmed.startsWith("./") ||
-    trimmed.startsWith("../")
-  ) {
-    return trimmed;
-  }
-  return `data:image/png;base64,${trimmed}`;
+  return toRenderableImageSrc(value) || "";
 };
 
 const _composeExpandedImage = async (
@@ -110,7 +104,7 @@ const _composeExpandedImage = async (
   ctx.drawImage(image, offsetX, offsetY, image.width, image.height);
 
   return {
-    dataUrl: canvas.toDataURL("image/png"),
+    dataUrl: await canvasToDataUrl(canvas, "image/png"),
     width: canvasWidth,
     height: canvasHeight,
   };
@@ -119,6 +113,8 @@ const _composeExpandedImage = async (
 interface ImageData {
   id: string;
   url?: string;
+  key?: string;
+  remoteUrl?: string;
   src?: string;
   fileName?: string;
   pendingUpload?: boolean;
@@ -452,7 +448,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       return;
     }
 
-    const src = imageData.url || imageData.src || imageData.localDataUrl;
+    const rawSource = imageData.src || imageData.localDataUrl || imageData.url;
+    const src = rawSource ? toRenderableImageSrc(rawSource) || rawSource : "";
     if (!src) {
       setNaturalSize(null);
       return;
@@ -507,38 +504,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       input: string | null
     ): Promise<string | null> => {
       if (!input) return null;
-      if (input.startsWith("data:image/")) {
-        return input;
-      }
-
-      // 对于远程URL，只在必要时才转换为Base64；仅为获得URL时应复用已有远程链接
-      if (/^https?:\/\//i.test(input) || input.startsWith("blob:")) {
-        try {
-          const response = await fetch(input);
-          const blob = await response.blob();
-          return await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              if (typeof reader.result === "string") {
-                resolve(reader.result);
-              } else {
-                reject(new Error("无法读取图像数据"));
-              }
-            };
-            reader.onerror = () =>
-              reject(reader.error ?? new Error("读取图像数据失败"));
-            reader.readAsDataURL(blob);
-          });
-        } catch (convertError) {
-          console.warn(
-            "⚠️ 无法转换远程图像为Base64，尝试使用Canvas数据",
-            convertError
-          );
-          return null;
-        }
-      }
-
-      return input;
+      return await resolveImageToDataUrl(input, { preferProxy: true });
     };
 
     let result: string | null = null;
@@ -552,7 +518,12 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       }
     }
 
-    const urlSource = imageData.url || imageData.src || null;
+    const urlSource =
+      imageData.src ||
+      imageData.localDataUrl ||
+      imageData.remoteUrl ||
+      imageData.url ||
+      null;
     result = await ensureDataUrl(urlSource);
     if (result) {
       // 缓存结果
@@ -573,7 +544,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         isRaster(child)
       ) as paper.Raster;
       if (raster && raster.canvas) {
-        const canvasData = raster.canvas.toDataURL("image/png");
+        const canvasData = await canvasToDataUrl(raster.canvas, "image/png");
         result = await ensureDataUrl(canvasData);
         if (result) {
           // 缓存结果
@@ -589,6 +560,8 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
     imageData.id,
     imageData.url,
     imageData.src,
+    imageData.remoteUrl,
+    imageData.localDataUrl,
     projectId,
   ]);
 
@@ -599,8 +572,20 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.stopPropagation();
 
       const run = async () => {
-        const imageDataUrl = await resolveImageDataUrl();
-        if (!imageDataUrl) {
+        const remoteCandidate = (() => {
+          const candidates = [imageData.remoteUrl, imageData.src, imageData.url];
+          for (const candidate of candidates) {
+            if (typeof candidate !== "string") continue;
+            const trimmed = candidate.trim();
+            if (!trimmed) continue;
+            const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+            if (isRemoteUrl(normalized)) return normalized;
+          }
+          return null;
+        })();
+
+        const imageSource = remoteCandidate || (await resolveImageDataUrl());
+        if (!imageSource) {
           console.error("❌ 无法获取图像数据");
           return;
         }
@@ -618,11 +603,11 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           }
 
           // 已有图片：添加新图片到融合模式
-          addImageForBlending(imageDataUrl);
+          addImageForBlending(imageSource);
           logger.debug("🎨 已添加图像到融合模式");
         } else {
           // 没有现有图片：设置为编辑图片
-          setSourceImageForEditing(imageDataUrl);
+          setSourceImageForEditing(imageSource);
           logger.debug("🎨 已设置图像为编辑模式");
         }
 
@@ -640,6 +625,9 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       showDialog,
       sourceImageForEditing,
       sourceImagesForBlending,
+      imageData.remoteUrl,
+      imageData.src,
+      imageData.url,
     ]
   );
 
@@ -663,6 +651,38 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       e.stopPropagation();
 
       const run = async () => {
+        const persistableRef = (() => {
+          const candidates = [
+            imageData.remoteUrl,
+            imageData.key,
+            imageData.url,
+            imageData.src,
+          ];
+          for (const candidate of candidates) {
+            if (typeof candidate !== "string") continue;
+            const trimmed = candidate.trim();
+            if (!trimmed) continue;
+            const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+            if (isPersistableImageRef(normalized)) return normalized;
+          }
+          return null;
+        })();
+
+        // 优先走远程引用，避免把 base64 写入 Flow 节点/项目 JSON
+        if (persistableRef) {
+          window.dispatchEvent(
+            new CustomEvent("flow:createImageNode", {
+              detail: {
+                imageUrl: persistableRef,
+                label: "Image",
+                imageName: imageData.fileName || `图片 ${imageData.id}`,
+              },
+            })
+          );
+          logger.debug("🧩 已请求创建Flow Image节点（remote）");
+          return;
+        }
+
         const imageDataUrl = await resolveImageDataUrl();
         if (!imageDataUrl) {
           console.warn("⚠️ 无法获取图像数据，无法创建Flow节点");
@@ -687,7 +707,15 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         console.error("将图片发送到Flow失败:", error);
       });
     },
-    [imageData.fileName, resolveImageDataUrl]
+    [
+      imageData.fileName,
+      imageData.id,
+      imageData.key,
+      imageData.remoteUrl,
+      imageData.src,
+      imageData.url,
+      resolveImageDataUrl,
+    ]
   );
 
   const handleBackgroundRemoval = useCallback(
@@ -841,28 +869,50 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
           )[0];
 
           let rasterSource: string | null = null;
+          let rasterRemoteUrl: string | null = null;
           if (imageGroup) {
             const raster = imageGroup.children.find((child) =>
               isRaster(child)
             ) as paper.Raster | undefined;
-            if (raster && raster.source) {
-              rasterSource =
-                typeof raster.source === "string" ? raster.source : null;
+            if (raster) {
+              if (raster.source) {
+                rasterSource =
+                  typeof raster.source === "string" ? raster.source : null;
+              }
+              const metaRemote =
+                typeof (raster as any)?.data?.remoteUrl === "string"
+                  ? normalizePersistableImageRef((raster as any).data.remoteUrl)
+                  : "";
+              rasterRemoteUrl = metaRemote && isRemoteUrl(metaRemote) ? metaRemote : null;
             }
           }
 
-          const currentUrl = rasterSource || imageData.url || imageData.src;
+          const directRemote = (() => {
+            const candidates = [
+              rasterRemoteUrl,
+              imageData.remoteUrl,
+              rasterSource,
+              imageData.url,
+              imageData.src,
+            ];
+            for (const candidate of candidates) {
+              if (typeof candidate !== "string") continue;
+              const trimmed = candidate.trim();
+              if (!trimmed) continue;
+              const normalized = normalizePersistableImageRef(trimmed) || trimmed;
+              if (isRemoteUrl(normalized)) return normalized;
+            }
+            return null;
+          })();
 
-          if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
-            imageUrl = currentUrl;
+          if (directRemote) {
+            imageUrl = directRemote;
           } else {
             const imageDataUrl = await resolveImageDataUrl();
             if (!imageDataUrl) {
               throw new Error("无法获取当前图片的图像数据");
             }
-
-            const response = await fetch(imageDataUrl);
-            const blob = await response.blob();
+            const blob = await dataUrlToBlob(imageDataUrl);
 
             const uploadResult = await uploadToOSS(blob, {
               dir: projectId
@@ -956,6 +1006,7 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
       imageData.id,
       imageData.url,
       imageData.src,
+      imageData.remoteUrl,
       resolveImageDataUrl,
       isConvertingTo3D,
       realTimeBounds,
@@ -1404,6 +1455,30 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         }}
       />
 
+      {/* 上传状态提示：本地 blob 预览上传中 */}
+      {imageData.pendingUpload && (
+        <div
+          style={{
+            position: "absolute",
+            top: 6,
+            left: 6,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 8px",
+            borderRadius: 999,
+            background: "rgba(0,0,0,0.45)",
+            color: "#fff",
+            fontSize: 12,
+            lineHeight: "16px",
+            pointerEvents: "none",
+          }}
+        >
+          <LoadingSpinner size="sm" className="text-white" />
+          <span>上传中…</span>
+        </div>
+      )}
+
       {/* 图片信息条 - 选中时显示在图片内部顶部，左上角显示名称，右上角显示分辨率 */}
       {isSelected && !showExpandSelector && !shouldHideUi && (
         <div
@@ -1458,7 +1533,13 @@ const ImageContainer: React.FC<ImageContainerProps> = ({
         <ExpandImageSelector
           imageBounds={realTimeBounds}
           imageId={imageData.id}
-          imageUrl={imageData.url || imageData.src || ""}
+          imageUrl={
+            imageData.src ||
+            imageData.localDataUrl ||
+            imageData.remoteUrl ||
+            imageData.url ||
+            ""
+          }
           onSelect={handleExpandSelect}
           onCancel={handleExpandCancel}
         />

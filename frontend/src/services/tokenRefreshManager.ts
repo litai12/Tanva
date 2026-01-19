@@ -7,6 +7,8 @@
  * 3. 触发登录弹窗事件
  */
 
+import { triggerAuthExpired } from "./authEvents";
+
 // Token 配置（与后端 JWT_ACCESS_TTL=24h 对应）
 const ACCESS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 小时
 const REFRESH_BEFORE_EXPIRE_MS = 60 * 60 * 1000; // 提前 1 小时刷新
@@ -185,8 +187,9 @@ class TokenRefreshManager {
         console.warn("[TokenRefreshManager] Token 刷新失败:", res.status);
         this.emit("token-refresh-failed", { status: res.status });
 
-        // 如果是 401，说明 refresh token 也过期了
-        if (res.status === 401) {
+        // 如果是 401/403，说明 refresh token 也过期了或已失效
+        if (res.status === 401 || res.status === 403) {
+          triggerAuthExpired();
           this.emit("login-required", { reason: "refresh-token-expired" });
         }
         return false;

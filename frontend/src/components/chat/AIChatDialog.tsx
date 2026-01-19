@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 // 比例选择改为自定义浮层（定位到对话框上方）
 import ImagePreviewModal from "@/components/ui/ImagePreviewModal";
+import SmartImage from "@/components/ui/SmartImage";
+import SmoothSmartImage from "@/components/ui/SmoothSmartImage";
 import { useAIChatStore, getTextModelForProvider } from "@/stores/aiChatStore";
 import { useUIStore } from "@/stores";
 import type { ManualAIMode, ChatMessage } from "@/stores/aiChatStore";
@@ -2724,7 +2726,7 @@ const AIChatDialog: React.FC = () => {
                   {/* 单图编辑显示 */}
                   {sourceImageForEditing && (
                     <div className='relative group'>
-                      <img
+                      <SmoothSmartImage
                         src={sourceImageForEditing}
                         alt='编辑图像'
                         className='object-cover w-16 h-16 border rounded shadow-sm'
@@ -2742,7 +2744,7 @@ const AIChatDialog: React.FC = () => {
                   {/* 分析图像显示 - 隐藏无法显示的预览 */}
                   {false && sourceImageForAnalysis && (
                     <div className='relative group'>
-                      <img
+                      <SmartImage
                         src={sourceImageForAnalysis}
                         alt='分析图像'
                         className='object-cover w-16 h-16 border rounded shadow-sm'
@@ -2760,7 +2762,7 @@ const AIChatDialog: React.FC = () => {
                   {/* 多图融合显示 */}
                   {sourceImagesForBlending.map((imageData, index) => (
                     <div key={index} className='relative group'>
-                      <img
+                      <SmoothSmartImage
                         src={imageData}
                         alt={`融合图片 ${index + 1}`}
                         className='object-cover w-16 h-16 border rounded shadow-sm'
@@ -3608,7 +3610,7 @@ const AIChatDialog: React.FC = () => {
 
                     if (imageSrc) {
                       return (
-                        <img
+                        <SmartImage
                           src={imageSrc}
                           alt={`AI生成的图像${
                             message.groupIndex !== undefined
@@ -3683,7 +3685,7 @@ const AIChatDialog: React.FC = () => {
                             <>
                               {/* AI Header - 并行组只显示一次 */}
                               <div className='flex items-center gap-2 mb-2'>
-                                <img
+                                <SmartImage
                                   src='/Logo.svg'
                                   alt='Tanvas Logo'
                                   className='w-4 h-4'
@@ -3795,7 +3797,7 @@ const AIChatDialog: React.FC = () => {
                                   isVideoTaskInFlight);
                               const aiHeader = isAiMessage ? (
                                 <div className='flex items-center gap-2 mb-2'>
-                                  <img
+                                  <SmartImage
                                     src='/Logo.svg'
                                     alt='Tanvas Logo'
                                     className='w-4 h-4'
@@ -4239,7 +4241,7 @@ const AIChatDialog: React.FC = () => {
                                                         : undefined);
                                                     if (imageSrc) {
                                                       return (
-                                                        <img
+                                                        <SmartImage
                                                           src={imageSrc}
                                                           alt='AI生成的图像'
                                                           className='object-cover w-32 h-32 transition-shadow border rounded-lg shadow-sm cursor-pointer hover:shadow-md'
@@ -4314,7 +4316,7 @@ const AIChatDialog: React.FC = () => {
                                                 <div className='flex-shrink-0'>
                                                   {message.sourceImageData && (
                                                     <div className='mb-2'>
-                                                      <img
+                                                      <SmartImage
                                                         src={
                                                           message.sourceImageData
                                                         }
@@ -4345,7 +4347,7 @@ const AIChatDialog: React.FC = () => {
                                                                 key={index}
                                                                 className='relative'
                                                               >
-                                                                <img
+                                                                <SmartImage
                                                                   src={
                                                                     imageData
                                                                   }
@@ -4405,7 +4407,7 @@ const AIChatDialog: React.FC = () => {
                                           <div className='flex-shrink-0'>
                                             {message.sourceImageData && (
                                               <div className='mb-2'>
-                                                <img
+                                                <SmartImage
                                                   src={message.sourceImageData}
                                                   alt='源图像'
                                                   className='object-cover w-16 h-16 transition-shadow border rounded shadow-sm cursor-pointer hover:shadow-md'
@@ -4431,7 +4433,7 @@ const AIChatDialog: React.FC = () => {
                                                           key={index}
                                                           className='relative'
                                                         >
-                                                          <img
+                                                          <SmartImage
                                                             src={imageData}
                                                             alt={`融合图像 ${
                                                               index + 1
@@ -4693,7 +4695,7 @@ const AIChatDialog: React.FC = () => {
                   >
                     {/* AI消息标识 */}
                     <div className='flex items-center gap-2 mb-2'>
-                      <img
+                      <SmartImage
                         src='/Logo.svg'
                         alt='Tanvas Logo'
                         className='w-4 h-4'

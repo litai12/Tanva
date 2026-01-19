@@ -1,4 +1,5 @@
 import { proxifyRemoteAssetUrl } from '@/utils/assetProxy';
+import { canvasToDataUrl } from '@/utils/imageConcurrency';
 
 export interface TrimTransparentResult {
   dataUrl: string;
@@ -10,9 +11,13 @@ export interface TrimTransparentResult {
 /**
  * 加载图像元素，支持 data URL 和远程 URL
  */
-export const loadImageElement = (src: string): Promise<HTMLImageElement> => {
+export const loadImageElement = (
+  src: string | HTMLImageElement
+): Promise<HTMLImageElement> => {
   return new Promise((resolve, reject) => {
-    if (!src) {
+    const resolvedSrc =
+      typeof src === "string" ? src : src?.currentSrc || src?.src || "";
+    if (!resolvedSrc) {
       reject(new Error('缺少图像地址'));
       return;
     }
@@ -21,7 +26,7 @@ export const loadImageElement = (src: string): Promise<HTMLImageElement> => {
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('无法加载图像数据'));
-    img.src = proxifyRemoteAssetUrl(src);
+    img.src = proxifyRemoteAssetUrl(resolvedSrc);
   });
 };
 
@@ -123,7 +128,7 @@ export async function trimTransparentPng(
   }
 
   trimmedCtx.putImageData(ctx.getImageData(minX, minY, cropWidth, cropHeight), 0, 0);
-  const trimmedDataUrl = trimmedCanvas.toDataURL('image/png');
+  const trimmedDataUrl = await canvasToDataUrl(trimmedCanvas, 'image/png');
 
   return {
     dataUrl: trimmedDataUrl,
@@ -176,7 +181,7 @@ export async function generateThumbnail(
     ctx.drawImage(image, 0, 0, newWidth, newHeight);
 
     // 返回 JPEG 格式以减小体积
-    return canvas.toDataURL('image/jpeg', quality);
+    return await canvasToDataUrl(canvas, 'image/jpeg', quality);
   } catch {
     return null;
   }

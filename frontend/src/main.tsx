@@ -14,6 +14,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { useProjectStore } from '@/stores/projectStore';
 import Workspace from '@/pages/Workspace';
 import RunningHubTest from '@/pages/RunningHubTest';
+import PendingUploadLeavePrompt from '@/components/guards/PendingUploadLeavePrompt';
+import PendingUploadNavigationGuard from '@/components/guards/PendingUploadNavigationGuard';
 
 function RootRoutes() {
   const user = useAuthStore((s) => s.user);
@@ -43,6 +45,8 @@ function RootRoutes() {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
+      <PendingUploadNavigationGuard />
+      <PendingUploadLeavePrompt />
       <RootRoutes />
     </BrowserRouter>
   </StrictMode>,

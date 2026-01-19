@@ -131,6 +131,7 @@ export interface AIImageBlendRequest {
 export interface AIImageResult {
   id: string;
   imageData?: string; // base64 encoded image (可选，API可能只返回文本)
+  imageUrl?: string; // 远程 URL（推荐用于画布持久化，避免 base64/dataURL）
   textResponse?: string; // AI的文本回复，如"Okay, here's a cat for you!"
   prompt: string;
   model: string;

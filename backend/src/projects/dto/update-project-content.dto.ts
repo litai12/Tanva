@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDefined, IsNumber, IsObject, IsOptional } from 'class-validator';
+import { IsBoolean, IsDefined, IsNumber, IsObject, IsOptional } from 'class-validator';
 
 export class UpdateProjectContentDto {
   @ApiProperty({ description: '项目内容快照' })
@@ -11,4 +11,9 @@ export class UpdateProjectContentDto {
   @IsOptional()
   @IsNumber()
   version?: number;
+
+  @ApiProperty({ required: false, description: '是否写入工作流历史版本（仅保存 Flow 图快照）' })
+  @IsOptional()
+  @IsBoolean()
+  createWorkflowHistory?: boolean;
 }

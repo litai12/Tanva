@@ -3,13 +3,21 @@ import React from "react";
 import { Handle, Position, useReactFlow, useStore, type ReactFlowState } from "reactflow";
 import { NodeResizeControl } from "@reactflow/node-resizer";
 import ImagePreviewModal, { type ImageItem } from "../../ui/ImagePreviewModal";
+import SmartImage from "../../ui/SmartImage";
 import { useImageHistoryStore } from "../../../stores/imageHistoryStore";
 import { recordImageHistoryEntry } from "@/services/imageHistoryService";
 import { useProjectContentStore } from "@/stores/projectContentStore";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
-import { generateThumbnail } from "@/utils/imageHelper";
-import { parseFlowImageAssetRef } from "@/services/flowImageAssetStore";
+import { imageUploadService } from "@/services/imageUploadService";
+import { generateOssKey } from "@/services/ossUploadService";
+import {
+  deleteFlowImage,
+  parseFlowImageAssetRef,
+  putFlowImageBlobs,
+  toFlowImageAssetRef,
+} from "@/services/flowImageAssetStore";
 import { useFlowImageAssetUrl } from "@/hooks/useFlowImageAssetUrl";
+import { shallow } from "zustand/shallow";
 
 const RESIZE_EDGE_THICKNESS = 8;
 
@@ -99,6 +107,14 @@ type Props = {
     boxW?: number;
     boxH?: number;
     imageName?: string;
+    crop?: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      sourceWidth?: number;
+      sourceHeight?: number;
+    };
   };
   selected?: boolean;
 };
@@ -129,9 +145,166 @@ const MIN_WIDTH = 320;
 const MIN_HEIGHT = 200;
 const MAX_IMAGE_NAME_LENGTH = 28;
 
-const ImageContent = React.memo(({ displaySrc, isResizing, onDrop, onDragOver, onDoubleClick }: {
+const CanvasCropPreview = React.memo(({
+  src,
+  rect,
+  sourceWidth,
+  sourceHeight,
+  isResizing,
+}: {
+  src: string;
+  rect: { x: number; y: number; width: number; height: number };
+  sourceWidth?: number;
+  sourceHeight?: number;
+  isResizing?: boolean;
+}) => {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  React.useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const update = () => {
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect.width));
+      const h = Math.max(1, Math.round(rect.height));
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+
+    update();
+
+    let ro: ResizeObserver | null = null;
+    try {
+      ro = new ResizeObserver(update);
+      ro.observe(canvas);
+    } catch {}
+
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      try { ro?.disconnect(); } catch {}
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const w = size.w;
+    const h = size.h;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+
+    canvas.width = Math.max(1, Math.round(w * dpr));
+    canvas.height = Math.max(1, Math.round(h * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const drawPlaceholder = () => {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#f3f4f6";
+      ctx.fillRect(0, 0, w, h);
+    };
+
+    if (!src || !rect || rect.width <= 0 || rect.height <= 0 || w <= 0 || h <= 0) {
+      drawPlaceholder();
+      return;
+    }
+
+    let cancelled = false;
+    const img = new Image();
+    img.decoding = "async";
+
+    const onLoad = () => {
+      if (cancelled) return;
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+      if (!naturalW || !naturalH) {
+        drawPlaceholder();
+        return;
+      }
+
+      const srcW = typeof sourceWidth === "number" && sourceWidth > 0 ? sourceWidth : naturalW;
+      const srcH = typeof sourceHeight === "number" && sourceHeight > 0 ? sourceHeight : naturalH;
+
+      const scaleX = srcW > 0 ? naturalW / srcW : 1;
+      const scaleY = srcH > 0 ? naturalH / srcH : 1;
+
+      const sxRaw = rect.x * scaleX;
+      const syRaw = rect.y * scaleY;
+      const swRaw = rect.width * scaleX;
+      const shRaw = rect.height * scaleY;
+
+      const sx = Math.max(0, Math.min(naturalW - 1, sxRaw));
+      const sy = Math.max(0, Math.min(naturalH - 1, syRaw));
+      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+
+      // contain
+      const fit = Math.min(w / sw, h / sh);
+      const dw = sw * fit;
+      const dh = sh * fit;
+      const dx = (w - dw) / 2;
+      const dy = (h - dh) / 2;
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    };
+
+    const onError = () => {
+      if (cancelled) return;
+      drawPlaceholder();
+    };
+
+    img.onload = onLoad;
+    img.onerror = onError;
+    img.src = src;
+
+    return () => {
+      cancelled = true;
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [
+    rect?.height,
+    rect?.width,
+    rect?.x,
+    rect?.y,
+    size.h,
+    size.w,
+    sourceHeight,
+    sourceWidth,
+    src,
+  ]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "block",
+        background: "#fff",
+        transform: isResizing ? "translateZ(0)" : undefined,
+      }}
+    />
+  );
+});
+
+const ImageContent = React.memo(({ displaySrc, canvasCrop, isResizing, uploading, uploadError, onDrop, onDragOver, onDoubleClick }: {
   displaySrc?: string;
   isResizing?: boolean;
+  uploading?: boolean;
+  uploadError?: string;
+  canvasCrop?: {
+    src: string;
+    rect: { x: number; y: number; width: number; height: number };
+    sourceWidth?: number;
+    sourceHeight?: number;
+  };
   onDrop: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDoubleClick: () => void;
@@ -146,6 +319,7 @@ const ImageContent = React.memo(({ displaySrc, isResizing, onDrop, onDragOver, o
       minHeight: 120,
       background: "#fff",
       borderRadius: 6,
+      position: "relative",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -155,8 +329,58 @@ const ImageContent = React.memo(({ displaySrc, isResizing, onDrop, onDragOver, o
     }}
     title='拖拽图片到此或双击上传'
   >
-    {displaySrc ? (
-      <img
+    {Boolean(uploading) && (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "none",
+          background: "rgba(255,255,255,0.6)",
+          zIndex: 10,
+          fontSize: 12,
+          color: "#374151",
+        }}
+      >
+        正在上传…
+      </div>
+    )}
+    {!uploading && uploadError ? (
+      <div
+        style={{
+          position: "absolute",
+          left: 8,
+          right: 8,
+          bottom: 8,
+          zIndex: 10,
+          pointerEvents: "none",
+          fontSize: 12,
+          color: "#b91c1c",
+          background: "rgba(255,255,255,0.9)",
+          border: "1px solid #fecaca",
+          borderRadius: 6,
+          padding: "6px 8px",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={uploadError}
+      >
+        上传失败：{uploadError}
+      </div>
+    ) : null}
+    {canvasCrop ? (
+      <CanvasCropPreview
+        src={canvasCrop.src}
+        rect={canvasCrop.rect}
+        sourceWidth={canvasCrop.sourceWidth}
+        sourceHeight={canvasCrop.sourceHeight}
+        isResizing={isResizing}
+      />
+    ) : displaySrc ? (
+      <SmartImage
         src={displaySrc}
         alt=''
         decoding="async"
@@ -290,6 +514,100 @@ function ImageNodeInner({ id, data, selected }: Props) {
     if (thumbAssetId) return thumbAssetUrl || fullSrc;
     return buildImageSrc(rawThumbValue) || fullSrc;
   }, [thumbAssetId, thumbAssetUrl, rawThumbValue, fullSrc]);
+
+  const nodeCropInfo = React.useMemo(() => {
+    const crop = (data as any)?.crop as
+      | { x?: unknown; y?: unknown; width?: unknown; height?: unknown; sourceWidth?: unknown; sourceHeight?: unknown }
+      | undefined;
+    if (!crop) return null;
+
+    const x = typeof crop.x === "number" ? crop.x : Number(crop.x ?? 0);
+    const y = typeof crop.y === "number" ? crop.y : Number(crop.y ?? 0);
+    const w = typeof crop.width === "number" ? crop.width : Number(crop.width ?? 0);
+    const h = typeof crop.height === "number" ? crop.height : Number(crop.height ?? 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
+
+    const sourceWidth = typeof crop.sourceWidth === "number" ? crop.sourceWidth : Number(crop.sourceWidth ?? 0);
+    const sourceHeight = typeof crop.sourceHeight === "number" ? crop.sourceHeight : Number(crop.sourceHeight ?? 0);
+
+    // 运行时预览优先使用本地 flow-asset/blob（上传中 key 可能尚不可用）
+    const baseRef =
+      (typeof (data as any)?.imageData === "string" && (data as any).imageData.trim()) ||
+      (typeof (data as any)?.imageUrl === "string" && (data as any).imageUrl.trim()) ||
+      (typeof connectedFrameImage === "string" && connectedFrameImage.trim()) ||
+      "";
+    if (!baseRef) return null;
+
+    return {
+      baseRef,
+      rect: { x, y, width: w, height: h },
+      sourceWidth: sourceWidth > 0 ? sourceWidth : undefined,
+      sourceHeight: sourceHeight > 0 ? sourceHeight : undefined,
+    };
+  }, [connectedFrameImage, (data as any)?.crop?.height, (data as any)?.crop?.sourceHeight, (data as any)?.crop?.sourceWidth, (data as any)?.crop?.width, (data as any)?.crop?.x, (data as any)?.crop?.y, data.imageData, data.imageUrl]);
+
+  // ImageSplit -> Image：运行时裁剪预览（不落库）
+  const imageSplitCropInfo = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const edges = state.edges || [];
+        const edgeToThis = edges.find((e) => e.target === id && e.targetHandle === "img");
+        if (!edgeToThis) return null;
+
+        const srcNode = state.getNodes().find((n) => n.id === edgeToThis.source);
+        if (!srcNode || srcNode.type !== "imageSplit") return null;
+
+        const handle = (edgeToThis as any).sourceHandle as string | undefined;
+        const match = typeof handle === "string" ? /^image(\\d+)$/.exec(handle) : null;
+        if (!match) return null;
+        const idx = Math.max(0, Number(match[1]) - 1);
+
+        const d = (srcNode.data || {}) as any;
+        const baseRef =
+          (typeof d.inputImageUrl === "string" && d.inputImageUrl.trim()) ||
+          (typeof d.inputImage === "string" && d.inputImage.trim()) ||
+          "";
+        if (!baseRef) return null;
+
+        const splitRects = Array.isArray(d.splitRects) ? d.splitRects : [];
+        const rect = splitRects?.[idx];
+        const x = typeof rect?.x === "number" ? rect.x : Number(rect?.x ?? 0);
+        const y = typeof rect?.y === "number" ? rect.y : Number(rect?.y ?? 0);
+        const w = typeof rect?.width === "number" ? rect.width : Number(rect?.width ?? 0);
+        const h = typeof rect?.height === "number" ? rect.height : Number(rect?.height ?? 0);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || w <= 0 || h <= 0) return null;
+
+        const sourceWidth = typeof d.sourceWidth === "number" ? d.sourceWidth : undefined;
+        const sourceHeight = typeof d.sourceHeight === "number" ? d.sourceHeight : undefined;
+        return {
+          baseRef,
+          rect: { x, y, width: w, height: h },
+          sourceWidth,
+          sourceHeight,
+        };
+      },
+      [id]
+    ),
+    shallow
+  );
+
+  const cropInfo = nodeCropInfo || imageSplitCropInfo;
+  const cropBaseRef = cropInfo?.baseRef;
+  const cropAssetId = React.useMemo(() => parseFlowImageAssetRef(cropBaseRef), [cropBaseRef]);
+  const cropAssetUrl = useFlowImageAssetUrl(cropAssetId);
+  const cropSrc = React.useMemo(() => {
+    if (!cropInfo || !cropBaseRef) return undefined;
+    if (cropAssetId) return cropAssetUrl || undefined;
+    return buildImageSrc(cropBaseRef);
+  }, [cropAssetId, cropAssetUrl, cropBaseRef, cropInfo]);
+  const canvasCrop = cropInfo && cropSrc
+    ? {
+      src: cropSrc,
+      rect: cropInfo.rect,
+      sourceWidth: cropInfo.sourceWidth,
+      sourceHeight: cropInfo.sourceHeight,
+    }
+    : undefined;
 
   const projectId = useProjectContentStore((state) => state.projectId);
   const [hover, setHover] = React.useState<string | null>(null);
@@ -437,50 +755,172 @@ function ImageNodeInner({ id, data, selected }: Props) {
     const file = files[0];
     if (!file.type.startsWith("image/")) return;
     const normalizedFileName = (file.name || "").trim();
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.includes(",") ? result.split(",")[1] : result;
-      const displayName = normalizedFileName || "未命名图片";
-      const ev = new CustomEvent("flow:updateNodeData", {
-        detail: { id, patch: { imageData: base64, imageName: displayName } },
+    const displayName = normalizedFileName || "未命名图片";
+
+    const uploadDir = projectId
+      ? `projects/${projectId}/images/`
+      : "uploads/images/";
+    const { key } = generateOssKey({
+      projectId,
+      dir: uploadDir,
+      fileName: file.name,
+      contentType: file.type,
+    });
+
+    let flowAssetId: string | null = null;
+    let previewRef: string | null = null;
+    try {
+      const [assetId] = await putFlowImageBlobs([
+        { blob: file, projectId: projectId ?? null, nodeId: id },
+      ]);
+      if (assetId) {
+        flowAssetId = assetId;
+        previewRef = toFlowImageAssetRef(assetId);
+      }
+    } catch {}
+
+    // IndexedDB 不可用时兜底走 blob: ObjectURL（仅运行时，保存前必须上传替换）
+    let fallbackObjectUrl: string | null = null;
+    if (!previewRef) {
+      try {
+        fallbackObjectUrl = URL.createObjectURL(file);
+        previewRef = fallbackObjectUrl;
+      } catch {}
+    }
+
+    if (!previewRef) return;
+
+    window.dispatchEvent(
+      new CustomEvent("flow:updateNodeData", {
+        detail: {
+          id,
+          patch: {
+            imageData: previewRef,
+            imageUrl: key, // 先关联 key，避免上传中触发保存导致图片丢失
+            imageName: displayName,
+            uploading: true,
+            uploadError: undefined,
+          },
+        },
+      })
+    );
+
+    const newImageId = `${id}-${Date.now()}`;
+    setCurrentImageId(newImageId);
+
+    const containsRef = (value: unknown, ref: string): boolean => {
+      if (typeof value === "string") return value === ref;
+      if (Array.isArray(value)) return value.some((v) => containsRef(v, ref));
+      if (value && typeof value === "object") {
+        return Object.values(value as Record<string, unknown>).some((v) =>
+          containsRef(v, ref)
+        );
+      }
+      return false;
+    };
+
+    const isPreviewRefStillUsedInFlow = (ref: string): boolean => {
+      try {
+        const nodes = rf.getNodes();
+        return nodes.some((n) => containsRef(n?.data, ref));
+      } catch {
+        return false;
+      }
+    };
+
+    const tryCleanupPreviewRef = (ref: string) => {
+      // 延迟一拍，确保 flow:updateNodeData 已生效
+      setTimeout(() => {
+        if (isPreviewRefStillUsedInFlow(ref)) return;
+        if (flowAssetId) {
+          void deleteFlowImage(flowAssetId).catch(() => {});
+        } else if (fallbackObjectUrl && fallbackObjectUrl.startsWith("blob:")) {
+          try {
+            URL.revokeObjectURL(fallbackObjectUrl);
+          } catch {}
+        }
+      }, 0);
+    };
+
+    try {
+      const uploadResult = await imageUploadService.uploadImageFile(file, {
+        projectId: projectId ?? undefined,
+        dir: uploadDir,
+        fileName: file.name || `flow_image_${newImageId}.png`,
+        key,
       });
-      window.dispatchEvent(ev);
 
-      // 立刻异步生成缩略图，避免缩放时直接渲染/缩放大图（Windows 上更容易卡顿）
-      generateThumbnail(base64, 400)
-        .then((thumbnail) => {
-          if (!thumbnail) return;
-          window.dispatchEvent(
-            new CustomEvent("flow:updateNodeData", {
-              detail: { id, patch: { thumbnail } },
-            })
-          );
+      if (!uploadResult.success || !uploadResult.asset?.url) {
+        window.dispatchEvent(
+          new CustomEvent("flow:updateNodeData", {
+            detail: {
+              id,
+              patch: {
+                uploading: false,
+                uploadError: uploadResult.error || "上传失败",
+              },
+            },
+          })
+        );
+        return;
+      }
+
+      const persistedRef = (uploadResult.asset.key || key || uploadResult.asset.url).trim();
+      if (!persistedRef) return;
+
+      // 防止并发上传回写覆盖：确认节点仍在使用本次 previewRef
+      try {
+        const current = rf.getNode(id);
+        const currentPreview = (current?.data as any)?.imageData;
+        if (currentPreview && currentPreview !== previewRef) {
+          // 节点已被用户替换为新图片：仅做清理，不回写
+          tryCleanupPreviewRef(previewRef);
+          return;
+        }
+      } catch {}
+
+      // 上传成功后：切换为可持久化引用，并清理本地临时图片（flow-asset/blob）
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              imageUrl: persistedRef,
+              imageData: undefined,
+              thumbnail: undefined,
+              uploading: false,
+              uploadError: undefined,
+            },
+          },
         })
-        .catch(() => {});
+      );
 
-      const newImageId = `${id}-${Date.now()}`;
-      setCurrentImageId(newImageId);
       void recordImageHistoryEntry({
         id: newImageId,
-        base64,
+        remoteUrl: uploadResult.asset.url,
         title: displayName,
         nodeId: id,
         nodeType: "image",
-        fileName: file.name || `flow_image_${newImageId}.png`,
+        fileName: uploadResult.asset.fileName || file.name || `flow_image_${newImageId}.png`,
         projectId,
-      }).then(({ remoteUrl }) => {
-        // 上传到 OSS 成功后，用 URL 替换节点内的 base64，显著减少项目数据体积与渲染压力
-        if (!remoteUrl) return;
-        window.dispatchEvent(
-          new CustomEvent("flow:updateNodeData", {
-            detail: { id, patch: { imageUrl: remoteUrl, imageData: undefined } },
-          })
-        );
+        keepThumbnail: false,
       }).catch(() => {});
-    };
-    reader.readAsDataURL(file);
-  }, [id, projectId]);
+
+      tryCleanupPreviewRef(previewRef);
+    } catch (err: any) {
+      window.dispatchEvent(
+        new CustomEvent("flow:updateNodeData", {
+          detail: {
+            id,
+            patch: {
+              uploading: false,
+              uploadError: err?.message || "上传失败",
+            },
+          },
+        })
+      );
+    }
+  }, [id, projectId, rf]);
 
   const onDrop = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -661,7 +1101,10 @@ function ImageNodeInner({ id, data, selected }: Props) {
 
       <ImageContent
         displaySrc={displaySrc}
+        canvasCrop={canvasCrop}
         isResizing={isResizing}
+        uploading={Boolean((data as any)?.uploading)}
+        uploadError={typeof (data as any)?.uploadError === "string" ? (data as any).uploadError : ""}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDoubleClick={handleDoubleClick}

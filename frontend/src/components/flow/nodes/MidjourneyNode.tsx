@@ -2,6 +2,7 @@ import React from 'react';
 import { Handle, Position } from 'reactflow';
 import { Send as SendIcon, Sparkles } from 'lucide-react';
 import ImagePreviewModal, { type ImageItem } from '../../ui/ImagePreviewModal';
+import SmartImage from '../../ui/SmartImage';
 import { useImageHistoryStore } from '../../../stores/imageHistoryStore';
 import GenerationProgressBar from './GenerationProgressBar';
 import { useProjectContentStore } from '@/stores/projectContentStore';
@@ -407,16 +408,16 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
           </button>
           <button
             onClick={onSend}
-            disabled={!data.imageData}
-            title={!data.imageData ? '无可发送的图像' : '发送到画布'}
+            disabled={!(data.imageData || data.imageUrl)}
+            title={!(data.imageData || data.imageUrl) ? '无可发送的图像' : '发送到画布'}
             style={{
               fontSize: 12,
               padding: '4px 8px',
-              background: !data.imageData ? '#e5e7eb' : '#8b5cf6',
+              background: !(data.imageData || data.imageUrl) ? '#e5e7eb' : '#8b5cf6',
               color: '#fff',
               borderRadius: 6,
               border: 'none',
-              cursor: !data.imageData ? 'not-allowed' : 'pointer',
+              cursor: !(data.imageData || data.imageUrl) ? 'not-allowed' : 'pointer',
             }}
           >
             <SendIcon size={14} strokeWidth={2} />
@@ -520,7 +521,7 @@ function MidjourneyNodeInner({ id, data, selected }: Props) {
         title={displaySrc ? '双击预览' : undefined}
       >
         {displaySrc ? (
-          <img
+          <SmartImage
             src={displaySrc}
             alt=""
             style={{
