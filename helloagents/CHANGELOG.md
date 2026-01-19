@@ -50,6 +50,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：三维节点（`ThreeNode`）在节点 resize 时 canvas 保持铺满；拖拽过程中不频繁 `setSize` 避免闪烁，拖拽结束后一次性同步 renderer 并即时渲染。
 - Flow：修复图片节点渲染时 `uploading/uploadError` 未定义导致的白屏崩溃（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - 项目权限：非所有者访问项目时返回“项目不存在”（404），触发前端清理无效 `projectId` 的容错逻辑，避免误判登录失效（`backend/src/projects/projects.service.ts`）。
+- Flow：模板导出/保存支持将 `flow-asset:`/`blob:`/OSS key/`/api/assets/proxy?...` 等图片引用归一化为可持久化引用，并在 Image Split 模板中迁移 `splitImages` -> `splitRects`，避免公共模板图片缺失（`frontend/src/components/flow/FlowOverlay.tsx`）。
 
 ## [0.1.0] - 2026-01-14
 ### Added
