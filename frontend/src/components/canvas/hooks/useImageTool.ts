@@ -27,6 +27,20 @@ import type {
 import type { ImageAssetSnapshot } from '@/types/project';
 import { useLayerStore } from '@/stores/layerStore';
 
+const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
+  const value = typeof source === 'string' ? source.trim() : '';
+  if (!value) return;
+  if (value.startsWith('blob:') || value.startsWith('data:image/')) {
+    try {
+      const img = new Image();
+      img.src = value;
+      (raster as any).source = img;
+      return;
+    } catch {}
+  }
+  raster.source = value;
+};
+
 interface UseImageToolProps {
   context: DrawingContext;
   canvasRef?: React.RefObject<HTMLCanvasElement | null>;
@@ -388,7 +402,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     }
 
     const renderable = toRenderableImageSrc(asset.localDataUrl || persistedSrc || persistedUrl) || asset.url;
-    raster.source = renderable;
+    setRasterSourceSafely(raster, renderable);
 
     // 创建Paper.js组来包含所有相关元素（仅包含Raster，避免“隐形框”扩大边界）
     const imageGroup = new paper.Group([raster]);
@@ -1421,7 +1435,7 @@ export const useImageTool = ({ context, canvasRef, eventHandlers = {} }: UseImag
     if (persistedSrc && isRemoteUrl(persistedSrc)) {
       (raster.data as any).remoteUrl = persistedSrc;
     }
-    raster.source = toRenderableImageSrc(source) || source;
+    setRasterSourceSafely(raster, toRenderableImageSrc(source) || source);
 
     // 创建图片实例（立即添加到状态，不等待加载完成）
     const newImageInstance: ImageInstance = {
