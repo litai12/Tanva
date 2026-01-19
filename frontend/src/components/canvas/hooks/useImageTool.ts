@@ -35,7 +35,7 @@ const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
     try {
       const img = new Image();
       img.src = value;
-      (raster as any).source = img;
+      (raster as any).setImage(img);
       return;
     } catch {}
   }

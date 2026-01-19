@@ -1266,7 +1266,7 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
 	                    try {
 	                        const img = new Image();
 	                        img.src = value;
-	                        (target as any).source = img;
+	                        (target as any).setImage(img);
 	                        return;
 	                    } catch {}
 	                }
