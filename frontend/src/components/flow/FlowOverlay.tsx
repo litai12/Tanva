@@ -91,7 +91,12 @@ import {
   type ClipboardFlowNode,
 } from "@/services/clipboardService";
 import { proxifyRemoteAssetUrl } from "@/utils/assetProxy";
-import { resolveImageToBlob, resolveImageToDataUrl } from "@/utils/imageSource";
+import {
+  isPersistableImageRef,
+  normalizePersistableImageRef,
+  resolveImageToBlob,
+  resolveImageToDataUrl,
+} from "@/utils/imageSource";
 import {
   blobToDataUrl,
   canvasToBlob,
@@ -2407,29 +2412,35 @@ function FlowInner() {
     [normalizeStableRemoteUrl]
   );
 
-  // 将 base64/dataURL 图片上传到 OSS，返回 URL（已是 URL 时直接返回）
+  // 将运行时图片引用转换为可持久化引用（优先返回 OSS key；已是可持久化引用则规范化后直接返回）
   const uploadImageToStableUrl = React.useCallback(
     async (value: string, fileName: string): Promise<string> => {
-      const trimmed = value.trim();
+      const trimmed = typeof value === "string" ? value.trim() : "";
       if (!trimmed) throw new Error("空的图片数据");
-      if (isRemoteUrl(trimmed)) return normalizeStableRemoteUrl(trimmed);
 
-      const dataUrl = trimmed.startsWith("data:image")
-        ? trimmed
-        : `data:image/png;base64,${trimmed}`;
+      const normalized = normalizePersistableImageRef(trimmed);
+      if (normalized && isPersistableImageRef(normalized)) {
+        return normalized;
+      }
 
-      const result = await imageUploadService.uploadImageDataUrl(dataUrl, {
+      const result = await imageUploadService.uploadImageSource(trimmed, {
         dir: "templates/images/",
         projectId,
         fileName,
       });
 
-      if (!result.success || !result.asset?.url) {
+      const ref = (result.asset?.key || result.asset?.url || "").trim();
+      if (!result.success || !ref) {
         throw new Error(result.error || "图片上传失败");
       }
-      return result.asset.url;
+      return ref;
     },
-    [imageUploadService, isRemoteUrl, normalizeStableRemoteUrl, projectId]
+    [
+      imageUploadService,
+      isPersistableImageRef,
+      normalizePersistableImageRef,
+      projectId,
+    ]
   );
 
   const exportFlow = React.useCallback(async () => {
@@ -2445,6 +2456,63 @@ function FlowInner() {
         nodes.map(async (n) => {
           const data = cleanNodeData(n.data);
           const nodeType = String(n.type || "");
+
+          // ImageSplit：只保留可持久化的原图引用 + 裁切矩形（不保存切片图片数据）
+          if (nodeType === "imageSplit") {
+            const candidateInput =
+              (typeof (data as any).inputImageUrl === "string" &&
+              (data as any).inputImageUrl.trim()
+                ? (data as any).inputImageUrl
+                : undefined) ??
+              (typeof (data as any).inputImage === "string" &&
+              (data as any).inputImage.trim()
+                ? (data as any).inputImage
+                : undefined);
+
+            if (candidateInput) {
+              (data as any).inputImageUrl = await uploadImageToStableUrl(
+                String(candidateInput).trim(),
+                `flow_template_${templateId}_${n.id}_input.png`
+              );
+              delete (data as any).inputImage;
+            }
+
+            // legacy：splitImages -> splitRects（保留坐标，不保留图片）
+            const existingRects = Array.isArray((data as any).splitRects)
+              ? (data as any).splitRects
+              : [];
+            const legacyImages = Array.isArray((data as any).splitImages)
+              ? (data as any).splitImages
+              : [];
+            if (existingRects.length === 0 && legacyImages.length > 0) {
+              const rects = legacyImages
+                .map((img: any, idx: number) => ({
+                  index:
+                    typeof img?.index === "number" && Number.isFinite(img.index)
+                      ? img.index
+                      : idx,
+                  x: Number(img?.x ?? 0),
+                  y: Number(img?.y ?? 0),
+                  width: Number(img?.width ?? 0),
+                  height: Number(img?.height ?? 0),
+                }))
+                .filter(
+                  (r: any) =>
+                    Number.isFinite(r.x) &&
+                    Number.isFinite(r.y) &&
+                    Number.isFinite(r.width) &&
+                    Number.isFinite(r.height) &&
+                    r.width > 0 &&
+                    r.height > 0
+                );
+              if (rects.length > 0) {
+                (data as any).splitRects = rects;
+              }
+            }
+            if (Array.isArray((data as any).splitImages)) {
+              delete (data as any).splitImages;
+            }
+          }
 
           // 多图节点
           const rawImages: unknown[] = Array.isArray((data as any).images)
@@ -2479,16 +2547,12 @@ function FlowInner() {
                 continue;
               }
 
-              if (isRemoteUrl(candidateStr)) {
-                urls.push(normalizeStableRemoteUrl(candidateStr));
-              } else {
-                urls.push(
-                  await uploadImageToStableUrl(
-                    candidateStr,
-                    `flow_template_${templateId}_${n.id}_${i + 1}.png`
-                  )
-                );
-              }
+              urls.push(
+                await uploadImageToStableUrl(
+                  candidateStr,
+                  `flow_template_${templateId}_${n.id}_${i + 1}.png`
+                )
+              );
             }
             (data as any).imageUrls = urls;
             delete (data as any).images;
@@ -2514,14 +2578,10 @@ function FlowInner() {
 
           if (candidateSingle) {
             const candidateStr = String(candidateSingle).trim();
-            if (isRemoteUrl(candidateStr)) {
-              (data as any).imageUrl = normalizeStableRemoteUrl(candidateStr);
-            } else {
-              (data as any).imageUrl = await uploadImageToStableUrl(
-                candidateStr,
-                `flow_template_${templateId}_${n.id}.png`
-              );
-            }
+            (data as any).imageUrl = await uploadImageToStableUrl(
+              candidateStr,
+              `flow_template_${templateId}_${n.id}.png`
+            );
             delete (data as any).imageData;
             delete (data as any).thumbnail;
             delete (data as any).thumbnails;
@@ -5121,6 +5181,14 @@ function FlowInner() {
           return null;
         }
 
+        // 目标输出尺寸：使用“源坐标系”的裁切尺寸，而不是解码后图片的像素尺寸
+        // 否则当 baseRef 实际加载到的是缩略图（naturalW < sourceWidth）时，会把输出错误压缩成缩略图大小（例如 2048->400 导致 1024 变 200）。
+        const MAX_OUTPUT_PIXELS = 32_000_000; // ~32MP，避免极端情况下创建超大画布导致内存峰值过高
+        const outputScale =
+          w * h > MAX_OUTPUT_PIXELS ? Math.sqrt(MAX_OUTPUT_PIXELS / (w * h)) : 1;
+        const outW = Math.max(1, Math.floor(w * outputScale));
+        const outH = Math.max(1, Math.floor(h * outputScale));
+
         const fetchable = toFetchableUrl(baseRef) || ensureDataUrl(baseRef);
         const blob = await resolveImageToBlob(fetchable, { preferProxy: true });
         if (!blob) return null;
@@ -5152,27 +5220,31 @@ function FlowInner() {
                 ? params.sourceHeight
                 : naturalH;
 
-            const scaleX = srcW > 0 ? naturalW / srcW : 1;
-            const scaleY = srcH > 0 ? naturalH / srcH : 1;
+	            const scaleX = srcW > 0 ? naturalW / srcW : 1;
+	            const scaleY = srcH > 0 ? naturalH / srcH : 1;
 
-            const sx = Math.max(
-              0,
-              Math.min(naturalW - 1, params.rect.x * scaleX)
-            );
-            const sy = Math.max(
-              0,
-              Math.min(naturalH - 1, params.rect.y * scaleY)
-            );
-            const swRaw = Math.max(1, params.rect.width * scaleX);
-            const shRaw = Math.max(1, params.rect.height * scaleY);
-            const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
-            const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+	            // 对 source 坐标做整数化，减少边缘采样导致的“白边/透明边”伪影
+	            const sx = Math.max(
+	              0,
+	              Math.min(naturalW - 1, Math.round(params.rect.x * scaleX))
+	            );
+	            const sy = Math.max(
+	              0,
+	              Math.min(naturalH - 1, Math.round(params.rect.y * scaleY))
+	            );
+	            const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+	            const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+	            const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+	            const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
-            const outW = Math.max(1, Math.round(sw));
-            const outH = Math.max(1, Math.round(sh));
             const canvas = makeCanvas(outW, outH);
             const ctx = canvas.getContext("2d");
             if (!ctx) return null;
+            try {
+              // 避免因小数坐标采样造成边缘“白边/透明边”伪影
+              // @ts-ignore - 部分环境无此字段
+              ctx.imageSmoothingEnabled = true;
+            } catch {}
             ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
             const outBlob = await canvasToBlob(canvas, { type: "image/png" });
             return await blobToDataUrl(outBlob);
@@ -5206,27 +5278,29 @@ function FlowInner() {
               ? params.sourceHeight
               : naturalH;
 
-          const scaleX = srcW > 0 ? naturalW / srcW : 1;
-          const scaleY = srcH > 0 ? naturalH / srcH : 1;
+	          const scaleX = srcW > 0 ? naturalW / srcW : 1;
+	          const scaleY = srcH > 0 ? naturalH / srcH : 1;
 
-          const sx = Math.max(
-            0,
-            Math.min(naturalW - 1, params.rect.x * scaleX)
-          );
-          const sy = Math.max(
-            0,
-            Math.min(naturalH - 1, params.rect.y * scaleY)
-          );
-          const swRaw = Math.max(1, params.rect.width * scaleX);
-          const shRaw = Math.max(1, params.rect.height * scaleY);
-          const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
-          const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+	          const sx = Math.max(
+	            0,
+	            Math.min(naturalW - 1, Math.round(params.rect.x * scaleX))
+	          );
+	          const sy = Math.max(
+	            0,
+	            Math.min(naturalH - 1, Math.round(params.rect.y * scaleY))
+	          );
+	          const swRaw = Math.max(1, Math.round(params.rect.width * scaleX));
+	          const shRaw = Math.max(1, Math.round(params.rect.height * scaleY));
+	          const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
+	          const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
-          const outW = Math.max(1, Math.round(sw));
-          const outH = Math.max(1, Math.round(sh));
           const canvas = makeCanvas(outW, outH);
           const ctx = canvas.getContext("2d");
           if (!ctx) return null;
+          try {
+            // @ts-ignore - 部分环境无此字段
+            ctx.imageSmoothingEnabled = true;
+          } catch {}
           ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
           const outBlob = await canvasToBlob(canvas, { type: "image/png" });
           return await blobToDataUrl(outBlob);
@@ -8372,6 +8446,61 @@ function FlowInner() {
 
           const nodeType = String(n.type || "");
 
+          // ImageSplit：只保留可持久化的原图引用 + 裁切矩形（不保存切片图片数据）
+          if (nodeType === "imageSplit") {
+            const candidateInput =
+              (typeof data.inputImageUrl === "string" &&
+              data.inputImageUrl.trim()
+                ? data.inputImageUrl
+                : undefined) ??
+              (typeof data.inputImage === "string" && data.inputImage.trim()
+                ? data.inputImage
+                : undefined);
+
+            if (candidateInput) {
+              data.inputImageUrl = await uploadImageToStableUrl(
+                String(candidateInput).trim(),
+                `flow_template_${id}_${String(n.id)}_input.png`
+              );
+              delete data.inputImage;
+            }
+
+            const existingRects = Array.isArray(data.splitRects)
+              ? data.splitRects
+              : [];
+            const legacyImages = Array.isArray(data.splitImages)
+              ? data.splitImages
+              : [];
+            if (existingRects.length === 0 && legacyImages.length > 0) {
+              const rects = legacyImages
+                .map((img: any, idx: number) => ({
+                  index:
+                    typeof img?.index === "number" && Number.isFinite(img.index)
+                      ? img.index
+                      : idx,
+                  x: Number(img?.x ?? 0),
+                  y: Number(img?.y ?? 0),
+                  width: Number(img?.width ?? 0),
+                  height: Number(img?.height ?? 0),
+                }))
+                .filter(
+                  (r: any) =>
+                    Number.isFinite(r.x) &&
+                    Number.isFinite(r.y) &&
+                    Number.isFinite(r.width) &&
+                    Number.isFinite(r.height) &&
+                    r.width > 0 &&
+                    r.height > 0
+                );
+              if (rects.length > 0) {
+                data.splitRects = rects;
+              }
+            }
+            if (Array.isArray(data.splitImages)) {
+              delete data.splitImages;
+            }
+          }
+
           // 多图：仅存 imageUrls，避免 base64 过大
           const rawImages: unknown[] = Array.isArray(data.images)
             ? data.images
@@ -8402,16 +8531,12 @@ function FlowInner() {
                 urls.push(historyUrl || "");
                 continue;
               }
-              if (isRemoteUrl(candidateStr)) {
-                urls.push(normalizeStableRemoteUrl(candidateStr));
-              } else {
-                urls.push(
-                  await uploadImageToStableUrl(
-                    candidateStr,
-                    `flow_template_${id}_${String(n.id)}_${i + 1}.png`
-                  )
-                );
-              }
+              urls.push(
+                await uploadImageToStableUrl(
+                  candidateStr,
+                  `flow_template_${id}_${String(n.id)}_${i + 1}.png`
+                )
+              );
             }
             data.imageUrls = urls;
             delete data.images;
@@ -8433,14 +8558,10 @@ function FlowInner() {
               : undefined);
           if (candidateSingle) {
             const candidateStr = String(candidateSingle).trim();
-            if (isRemoteUrl(candidateStr)) {
-              data.imageUrl = normalizeStableRemoteUrl(candidateStr);
-            } else {
-              data.imageUrl = await uploadImageToStableUrl(
-                candidateStr,
-                `flow_template_${id}_${String(n.id)}.png`
-              );
-            }
+            data.imageUrl = await uploadImageToStableUrl(
+              candidateStr,
+              `flow_template_${id}_${String(n.id)}.png`
+            );
             delete data.imageData;
             delete data.thumbnail;
             delete data.thumbnails;

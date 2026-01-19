@@ -745,45 +745,6 @@ const normalizeInlineImageData = (value?: string | null): string | null => {
   return null;
 };
 
-const readBlobAsDataUrl = async (blob: Blob): Promise<string | null> => {
-  try {
-    return await blobToDataUrlLimited(blob);
-  } catch {
-    return null;
-  }
-};
-
-const fetchImageAsDataUrl = async (url: string): Promise<string | null> => {
-  try {
-    const init: RequestInit = /^blob:/i.test(url)
-      ? {}
-      : { mode: "cors", credentials: "omit" };
-    const response = await fetch(url, init);
-    if (!response.ok) return null;
-    const blob = await responseToBlob(response);
-    return await readBlobAsDataUrl(blob);
-  } catch (error) {
-    console.warn("⚠️ 获取图片并转换为 DataURL 失败:", error);
-    return null;
-  }
-};
-
-const resolveImageInputToDataUrl = async (
-  value?: string | null
-): Promise<string | null> => {
-  if (!value || typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  const normalizedInline = normalizeInlineImageData(trimmed);
-  if (normalizedInline) return normalizedInline;
-
-  // 支持 key/proxy/path/blob/remote：统一走可渲染 URL 再 fetch 转 DataURL
-  const renderable = toRenderableImageSrc(trimmed);
-  if (!renderable) return null;
-  return await fetchImageAsDataUrl(renderable);
-};
-
 type CachedImagePayload = NonNullable<
   ReturnType<(typeof contextManager)["getCachedImage"]>
 >;
@@ -791,10 +752,10 @@ type CachedImagePayload = NonNullable<
 const resolveCachedImageForImageTools = async (
   cached: CachedImagePayload
 ): Promise<string | null> => {
-  return (
-    (await resolveImageInputToDataUrl(cached.imageData)) ||
-    (await resolveImageInputToDataUrl(cached.remoteUrl ?? null))
-  );
+  const candidate = cached.imageData ?? cached.remoteUrl ?? null;
+  if (!candidate || typeof candidate !== "string") return null;
+  const trimmed = candidate.trim();
+  return trimmed ? trimmed : null;
 };
 const shouldUploadLegacyInline = (
   inline: string | null,

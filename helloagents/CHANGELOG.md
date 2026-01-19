@@ -32,13 +32,18 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - 前端图片转码：新增全局并发限流（暂定 10），收口图片生成/转化（`canvas.toDataURL/toBlob`、`FileReader.readAsDataURL`、`Response.blob`、`createImageBitmap/WebCodecs` 等）并在 AI Chat/Flow/画布等链路复用，降低多图场景瞬时内存峰值与卡顿。
 - 截图：`AutoScreenshotService` 绘制 Raster 时仅在“确实跨域且未设置 crossOrigin”场景才重载图片，避免同源 `/api/assets/proxy` 资源被重复请求导致的接口刷屏与内存抖动。
 - Canvas：保存 `paperJson` 时将 `*/api/assets/proxy?...` 反解为 remote URL/OSS key，避免把 `http://localhost:5173/...` 等运行时代理地址落库。
+- Canvas：修复反序列化后 `Raster.source` 变为 `<img>.src` 导致 OSS key/远程引用未被正确识别与代理，出现图片空白（`frontend/src/services/paperSaveService.ts`）。
 - 保存：云端保存前会额外清理 `aiChatSessions`/`assets.images` 中残留的 `data:`/`blob:`/裸 base64（含 `localDataUrl/dataUrl/previewDataUrl`、`imageData/thumbnail` 等），避免“全选清空后仍携带 dataURL”导致 payload 过大或落库污染。
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
+- Flow：Image Split 生成的 Image 节点裁剪预览在右键保存/导出时不再包含 contain 留白白边（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
+- Flow：修复 Image Split 切片在下游裁切/拼合时误按解码后像素尺寸导出，导致只加载到缩略图时分辨率被压缩（例如 2048->400 使 1024 切片变 200），并降低边缘白边概率（`frontend/src/components/flow/FlowOverlay.tsx`、`frontend/src/components/flow/nodes/ImageGridNode.tsx`）。
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
 - Flow：Image Split 生成的 Image 节点（`crop`）在下游运行时按裁切结果传参，避免仍使用完整原图。
 - Canvas：修复将 OSS key/proxy/path 误判为 base64/待上传导致图片置灰的问题（含快速上传、导入重建实例、视频缩略图与下载链路）。
 - Canvas：AI 图片占位符升级为远程 URL 时先预加载再切换，避免画布闪白/“刷新感”。
 - Canvas：图片升级切换 `Raster.source` 后立即恢复 `bounds`/选择元素，避免 Paper.js 短暂重置尺寸导致的闪烁。
+- Canvas：修复误将 `HTMLImageElement` 传给 `Raster.source` 导致变成 `[object HTMLImageElement]`，上传完成后图片加载失败/消失（`frontend/src/components/canvas/PaperCanvasManager.tsx`、`frontend/src/components/canvas/hooks/useQuickImageUpload.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
+- Canvas：修复上传图片完成后因 `ObjectURL` 误判未使用被提前回收，导致图片消失、刷新后才恢复显示的问题（`frontend/src/services/paperSaveService.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - 前端鉴权：补齐部分直连请求未触发自动退出的问题；统一用 `fetchWithAuth`/`triggerAuthExpired` 处理 401/403，并在登录失效时清理本地会话缓存（`frontend/src/services/authEvents.ts`、`frontend/src/services/authFetch.ts`）。
 - 前端鉴权：`fetchWithAuth` 在 refresh 返回成功但重试仍 401/403 时也会触发 `triggerAuthExpired`，避免出现接口 401 但未跳转登录的问题（`frontend/src/services/authFetch.ts`）。
 - Flow：禁用节点拖拽时的自动平移（`autoPanOnNodeDrag`），并在 `dragStop` 强制回同步视口，避免快速拖动节点时视口漂移导致其他节点整体偏移。
@@ -46,6 +51,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Flow：三维节点（`ThreeNode`）在节点 resize 时 canvas 保持铺满；拖拽过程中不频繁 `setSize` 避免闪烁，拖拽结束后一次性同步 renderer 并即时渲染。
 - Flow：修复图片节点渲染时 `uploading/uploadError` 未定义导致的白屏崩溃（`frontend/src/components/flow/nodes/ImageNode.tsx`）。
 - 项目权限：非所有者访问项目时返回“项目不存在”（404），触发前端清理无效 `projectId` 的容错逻辑，避免误判登录失效（`backend/src/projects/projects.service.ts`）。
+- Flow：模板导出/保存支持将 `flow-asset:`/`blob:`/OSS key/`/api/assets/proxy?...` 等图片引用归一化为可持久化引用，并在 Image Split 模板中迁移 `splitImages` -> `splitRects`，避免公共模板图片缺失（`frontend/src/components/flow/FlowOverlay.tsx`）。
 
 ## [0.1.0] - 2026-01-14
 ### Added

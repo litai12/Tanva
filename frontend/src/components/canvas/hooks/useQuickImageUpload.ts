@@ -100,6 +100,16 @@ const shouldUseAnonymousCrossOrigin = (source: string): boolean => {
     return false;
 };
 
+const getRasterSourceString = (raster: any): string => {
+    try {
+        const source = raster?.source;
+        if (typeof source === 'string') return source;
+        const src = (source as any)?.src;
+        if (typeof src === 'string') return src;
+    } catch {}
+    return '';
+};
+
 // 图片加载超时时间，防止占位框长时间悬挂
 const IMAGE_LOAD_TIMEOUT = 20000; // 20s
 
@@ -1246,6 +1256,23 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 return raster;
             };
 
+	            const setRasterSource = (target: paper.Raster, source: string) => {
+	                const value = typeof source === 'string' ? source.trim() : '';
+	                if (!value) return;
+	                try { (target as any).__tanvaSourceRef = value; } catch {}
+	                // Paper.js 对 string source 的内部 loader 在部分环境对 blob:/data: 偶发不稳定；
+	                // 这里对 inline source 用 HTMLImageElement 显式加载，提升兼容性。
+	                if (value.startsWith('blob:') || value.startsWith('data:image/')) {
+	                    try {
+	                        const img = new Image();
+	                        img.src = value;
+	                        (target as any).setImage(img);
+	                        return;
+	                    } catch {}
+	                }
+	                target.source = value;
+	            };
+
             // 创建图片的 Raster 对象
             let raster = loadRasterWithFallback(true);
             let hasRetriedCrossOrigin = false;
@@ -1766,12 +1793,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     logger.upload('🔄 Proxy 加载失败，回退到直接 URL 加载...');
                     try { raster.remove(); } catch {}
 
-                    raster = loadRasterWithFallback(true);
-                    raster.onLoad = onLoadHandler;
-                    raster.onError = onErrorHandler;
-                    raster.source = rasterSource;
-                    return;
-                }
+	                    raster = loadRasterWithFallback(true);
+	                    raster.onLoad = onLoadHandler;
+	                    raster.onError = onErrorHandler;
+	                    setRasterSource(raster, rasterSource);
+	                    return;
+	                }
 
                 // CORS 失败时，尝试不带 crossOrigin 重新加载
                 if (!hasRetriedCrossOrigin && shouldUseAnonymousCrossOrigin(rasterSource)) {
@@ -1780,12 +1807,12 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                     try { raster.remove(); } catch {}
 
                     // 创建新的 Raster，不设置 crossOrigin
-                    raster = loadRasterWithFallback(false);
-                    raster.onLoad = onLoadHandler;
-                    raster.onError = onErrorHandler;
-                    raster.source = rasterSource;
-                    return;
-                }
+	                    raster = loadRasterWithFallback(false);
+	                    raster.onLoad = onLoadHandler;
+	                    raster.onError = onErrorHandler;
+	                    setRasterSource(raster, rasterSource);
+	                    return;
+	                }
 
                 if (loadTimeoutId !== null) {
                     clearTimeout(loadTimeoutId);
@@ -1796,20 +1823,36 @@ export const useQuickImageUpload = ({ context, canvasRef, projectId }: UseQuickI
                 if (placeholderId) {
                     removePredictedPlaceholder(placeholderId);
                 }
-                logger.error('图片加载失败', { imageId, rasterSource, error: e });
+                const currentRasterSource = getRasterSourceString(raster);
+                const isInlineSource = (() => {
+                    const v = (currentRasterSource || rasterSource || '').trim();
+                    return v.startsWith('blob:') || v.startsWith('data:image/');
+                })();
+                const message = isInlineSource
+                    ? '图片加载失败：可能是图片格式不受支持（如 HEIC/HEIF）或文件损坏，请转换为 PNG/JPG/WebP 后重试'
+                    : '图片加载失败，请检查网络或图片链接';
+                logger.error('图片加载失败', {
+                    imageId,
+                    rasterSource,
+                    currentRasterSource,
+                    fileName: asset?.fileName,
+                    contentType: asset?.contentType,
+                    pendingUpload: asset?.pendingUpload,
+                    error: e
+                });
                 window.dispatchEvent(new CustomEvent('toast', {
-                    detail: { message: '图片加载失败，请检查网络或图片链接', type: 'error' }
+                    detail: { message, type: 'error' }
                 }));
             };
 
             // 绑定错误处理器
-            raster.onError = onErrorHandler;
-
-            // 触发加载
-            raster.source = rasterSource;
-        } catch (error) {
-            logger.error('快速上传图片时出错:', error);
-        }
+	            raster.onError = onErrorHandler;
+	
+	            // 触发加载
+	            setRasterSource(raster, rasterSource);
+	        } catch (error) {
+	            logger.error('快速上传图片时出错:', error);
+	        }
     }, [ensureDrawingLayer, calculateSmartPosition, findImagePlaceholder, findNonOverlappingPosition, projectId, removePredictedPlaceholder, upsertPendingImage]);
 
     // 处理上传错误

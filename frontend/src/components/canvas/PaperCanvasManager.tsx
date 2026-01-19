@@ -3,6 +3,42 @@ import paper from 'paper';
 import { useCanvasStore } from '@/stores';
 import { useLayerStore } from '@/stores/layerStore';
 
+const patchPaperRasterSetSourceCompat = (() => {
+  let patched = false;
+  return () => {
+    if (patched) return;
+    patched = true;
+
+    try {
+      const rasterProto = (paper as any)?.Raster?.prototype;
+      if (!rasterProto || typeof rasterProto.setSource !== 'function') return;
+      if (rasterProto.__tanvaSetSourceCompatPatched) return;
+
+      const originalSetSource = rasterProto.setSource;
+
+      rasterProto.setSource = function (src: any) {
+        if (src && typeof src === 'object') {
+          try {
+            // 兼容错误用法：把 HTMLImageElement / Canvas 当成 Raster.source 传入
+            // Paper.js 的 setSource 期望 string，否则会被转成 "[object HTMLImageElement]" 并导致加载失败。
+            if (typeof src.getContext === 'function' || src.naturalHeight != null) {
+              return this.setImage(src);
+            }
+            if (typeof src.src === 'string') {
+              return originalSetSource.call(this, src.src);
+            }
+          } catch {}
+        }
+        return originalSetSource.call(this, src);
+      };
+
+      rasterProto.__tanvaSetSourceCompatPatched = true;
+    } catch (error) {
+      console.warn('[PaperCanvasManager] patchPaperRasterSetSourceCompat failed:', error);
+    }
+  };
+})();
+
 interface PaperCanvasManagerProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   onInitialized?: () => void;
@@ -29,6 +65,7 @@ const PaperCanvasManager: React.FC<PaperCanvasManagerProps> = ({
 
     // 初始化Paper.js
     paper.setup(canvas);
+    patchPaperRasterSetSourceCompat();
     
     // 禁用Paper.js的默认交互行为
     if (paper.view) {

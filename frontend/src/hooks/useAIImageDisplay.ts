@@ -115,14 +115,12 @@ export const useAIImageDisplay = () => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
 
-      img.onload = () => {
+          img.onload = () => {
         console.log('📷 [DEBUG] HTML Image加载完成，开始创建Paper.js Raster...');
         try {
           // 创建Paper.js Raster对象
-          const raster = new paper.Raster({
-            source: img,
-            position: new paper.Point(0, 0)  // 直接设置位置
-          });
+          const raster = new paper.Raster(img);
+          raster.position = new paper.Point(0, 0); // 直接设置位置
 
           console.log('🎨 [DEBUG] Paper.js Raster创建完成，等待onLoad...');
 
