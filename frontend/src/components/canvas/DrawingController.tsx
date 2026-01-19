@@ -1692,7 +1692,7 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
               ) {
                 const rectBeforeSwap = restoreBounds;
                 try {
-                  raster.source = loadedImage;
+                  (raster as any).setImage(loadedImage);
                   try { (raster as any).__tanvaSourceRef = nextRenderableSrc; } catch {}
                 } catch {
                   try {
