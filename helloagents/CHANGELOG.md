@@ -26,6 +26,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Fixed
 - 项目内容加载：前端对同项目 `GET /api/projects/:id/content` 做并发去重；后端 OSS 未配置/禁用时跳过读写并设置超时，减少重复下载与长时间卡顿。
 - 后端 AI：工具选择响应解析更稳健（支持前后缀文本/markdown code fence/尾随逗号/松散 key:value/从文本提取工具名），避免误降级到 chatResponse（`backend/src/ai/tool-selection-json.util.ts`）。
+- AI 对话框：工具选择阶段先展示“正在思考中...”占位提示，并复用一次工具选择结果避免重复请求（`frontend/src/stores/aiChatStore.ts`）。
 - AI 图片：后端 `generate-image` 对“空图/非法格式图”在同一次请求内自动重试（最多 3 次），并将空图/非法格式统一视为 502（BadGateway）；前端保留兜底重试，减少对话框 X4 模式偶发只生成 3 张的问题（`backend/src/ai/ai.controller.ts`、`frontend/src/services/aiBackendAPI.ts`）。
 - Assets Proxy：`GET /api/assets/proxy` 跟随重定向前主动 cancel 上一个响应体；客户端中断时 abort 上游 fetch 并安全清理流，避免 `ReadableStream is locked` 报错，降低高频图片代理下的内存/连接占用。
 - 前端图片转码：新增全局并发限流（暂定 10），收口图片生成/转化（`canvas.toDataURL/toBlob`、`FileReader.readAsDataURL`、`Response.blob`、`createImageBitmap/WebCodecs` 等）并在 AI Chat/Flow/画布等链路复用，降低多图场景瞬时内存峰值与卡顿。

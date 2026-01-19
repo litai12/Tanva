@@ -328,6 +328,12 @@ type MessageOverride = {
   aiMessageId: string;
 };
 
+type ExecuteProcessFlowOptions = {
+  override?: MessageOverride;
+  selectedTool?: AvailableTool | null;
+  parameters?: { prompt: string };
+};
+
 export interface GenerationStatus {
   isGenerating: boolean;
   progress: number;
@@ -1935,7 +1941,8 @@ interface AIChatState {
   executeProcessFlow: (
     input: string,
     isRetry?: boolean,
-    groupInfo?: { groupId: string; groupIndex: number; groupTotal: number }
+    groupInfo?: { groupId: string; groupIndex: number; groupTotal: number },
+    options?: ExecuteProcessFlowOptions
   ) => Promise<void>;
 
   // 🔥 并行图片生成（使用预创建的消息）
@@ -5841,7 +5848,8 @@ export const useAIChatStore = create<AIChatState>()(
             groupId: string;
             groupIndex: number;
             groupTotal: number;
-          }
+          },
+          options?: ExecuteProcessFlowOptions
         ) => {
           const state = get();
           const metrics = createProcessMetrics();
@@ -5849,7 +5857,7 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 检测迭代意图
           const isIterative = contextManager.detectIterativeIntent(input);
-          if (isIterative && !isRetry) {
+          if (isIterative && !isRetry && !options?.override) {
             contextManager.incrementIteration();
           }
 
@@ -5857,61 +5865,66 @@ export const useAIChatStore = create<AIChatState>()(
           const isParallelMode = !!groupInfo;
           const isFirstInGroup = groupInfo?.groupIndex === 0;
 
-          // 预先创建用户消息与占位AI消息，提供即时反馈
-          let pendingUserMessage: ChatMessage;
-          if (isParallelMode && !isFirstInGroup) {
-            // 并行模式下，非第一个任务复用第一个任务的用户消息（不重复创建）
-            const existingUserMsg = get().messages.find(
-              (m) =>
-                m.type === "user" &&
-                m.content === input &&
-                m.groupId === groupInfo.groupId
-            );
-            pendingUserMessage =
-              existingUserMsg ||
-              get().addMessage({
+          // 预先创建用户消息与占位AI消息，提供即时反馈（允许复用外部预创建的消息）
+          let messageOverride: MessageOverride;
+          if (options?.override) {
+            messageOverride = options.override;
+          } else {
+            let pendingUserMessage: ChatMessage;
+            if (isParallelMode && !isFirstInGroup) {
+              // 并行模式下，非第一个任务复用第一个任务的用户消息（不重复创建）
+              const existingUserMsg = get().messages.find(
+                (m) =>
+                  m.type === "user" &&
+                  m.content === input &&
+                  m.groupId === groupInfo.groupId
+              );
+              pendingUserMessage =
+                existingUserMsg ||
+                get().addMessage({
+                  type: "user",
+                  content: input,
+                  groupId: groupInfo.groupId,
+                  groupIndex: 0,
+                  groupTotal: groupInfo.groupTotal,
+                });
+            } else {
+              pendingUserMessage = get().addMessage({
                 type: "user",
                 content: input,
-                groupId: groupInfo.groupId,
-                groupIndex: 0,
-                groupTotal: groupInfo.groupTotal,
+                ...(groupInfo && {
+                  groupId: groupInfo.groupId,
+                  groupIndex: 0,
+                  groupTotal: groupInfo.groupTotal,
+                }),
               });
-          } else {
-            pendingUserMessage = get().addMessage({
-              type: "user",
-              content: input,
+            }
+
+            const pendingAiMessage = get().addMessage({
+              type: "ai",
+              content: isParallelMode
+                ? `正在生成第 ${(groupInfo?.groupIndex ?? 0) + 1}/${
+                    groupInfo?.groupTotal ?? 1
+                  } 张...`
+                : "正在准备处理您的请求...",
+              generationStatus: {
+                isGenerating: true,
+                progress: 5,
+                error: null,
+                stage: "准备中",
+              },
               ...(groupInfo && {
                 groupId: groupInfo.groupId,
-                groupIndex: 0,
+                groupIndex: groupInfo.groupIndex,
                 groupTotal: groupInfo.groupTotal,
               }),
             });
+
+            messageOverride = {
+              userMessageId: pendingUserMessage.id,
+              aiMessageId: pendingAiMessage.id,
+            };
           }
-
-          const pendingAiMessage = get().addMessage({
-            type: "ai",
-            content: isParallelMode
-              ? `正在生成第 ${(groupInfo?.groupIndex ?? 0) + 1}/${
-                  groupInfo?.groupTotal ?? 1
-                } 张...`
-              : "正在准备处理您的请求...",
-            generationStatus: {
-              isGenerating: true,
-              progress: 5,
-              error: null,
-              stage: "准备中",
-            },
-            ...(groupInfo && {
-              groupId: groupInfo.groupId,
-              groupIndex: groupInfo.groupIndex,
-              groupTotal: groupInfo.groupTotal,
-            }),
-          });
-
-          const messageOverride: MessageOverride = {
-            userMessageId: pendingUserMessage.id,
-            aiMessageId: pendingAiMessage.id,
-          };
 
           metrics.messageId = messageOverride.aiMessageId;
           logProcessStep(metrics, "messages prepared");
@@ -5973,46 +5986,67 @@ export const useAIChatStore = create<AIChatState>()(
             vector: "generatePaperJS",
           };
 
-          let selectedTool: AvailableTool | null = null;
-          let parameters: { prompt: string } = { prompt: input };
+          let selectedTool: AvailableTool | null = options?.selectedTool ?? null;
+          let parameters: { prompt: string } = options?.parameters || {
+            prompt: input,
+          };
 
-          if (manualMode !== "auto") {
-            selectedTool = manualToolMap[manualMode];
-          } else {
-            // 📄 检测是否有 PDF 文件需要分析
-            if (state.sourcePdfForAnalysis) {
-              selectedTool = "analyzePdf";
-            } else if (state.sourceImagesForBlending.length >= 2) {
-              // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
-              selectedTool = "blendImages";
-              logProcessStep(
-                metrics,
-                "multi-image detected, using blendImages"
-              );
+          if (!selectedTool) {
+            if (manualMode !== "auto") {
+              selectedTool = manualToolMap[manualMode];
             } else {
-              // 完全靠 AI 来判断工具选择，包括矢量图生成
-              logProcessStep(metrics, "tool selection start");
-              const toolSelectionResult = await aiImageService.selectTool(
-                toolSelectionRequest
-              );
-              logProcessStep(metrics, "tool selection completed");
+              // 📄 检测是否有 PDF 文件需要分析
+              if (state.sourcePdfForAnalysis) {
+                selectedTool = "analyzePdf";
+              } else if (state.sourceImagesForBlending.length >= 2) {
+                // 🖼️ 多图强制使用融合模式，避免 AI 误选 editImage
+                selectedTool = "blendImages";
+                logProcessStep(
+                  metrics,
+                  "multi-image detected, using blendImages"
+                );
+              } else {
+                if (!isParallelMode) {
+                  get().updateMessage(messageOverride.aiMessageId, (msg) => ({
+                    ...msg,
+                    content: "正在思考中...",
+                    generationStatus: {
+                      ...(msg.generationStatus || {
+                        isGenerating: true,
+                        progress: 0,
+                        error: null,
+                      }),
+                      isGenerating: true,
+                      error: null,
+                      stage: "思考中",
+                    },
+                  }));
+                }
 
-              if (!toolSelectionResult.success || !toolSelectionResult.data) {
-                const errorMsg =
-                  toolSelectionResult.error?.message || "工具选择失败";
-                console.error("❌ 工具选择失败:", errorMsg);
-                throw new Error(errorMsg);
+                // 完全靠 AI 来判断工具选择，包括矢量图生成
+                logProcessStep(metrics, "tool selection start");
+                const toolSelectionResult = await aiImageService.selectTool(
+                  toolSelectionRequest
+                );
+                logProcessStep(metrics, "tool selection completed");
+
+                if (!toolSelectionResult.success || !toolSelectionResult.data) {
+                  const errorMsg =
+                    toolSelectionResult.error?.message || "工具选择失败";
+                  console.error("❌ 工具选择失败:", errorMsg);
+                  throw new Error(errorMsg);
+                }
+
+                selectedTool = toolSelectionResult.data
+                  .selectedTool as AvailableTool | null;
+                parameters = {
+                  prompt: toolSelectionResult.data.parameters?.prompt || input,
+                };
+                logProcessStep(
+                  metrics,
+                  `tool decided: ${selectedTool ?? "none"}`
+                );
               }
-
-              selectedTool = toolSelectionResult.data
-                .selectedTool as AvailableTool | null;
-              parameters = {
-                prompt: toolSelectionResult.data.parameters?.prompt || input,
-              };
-              logProcessStep(
-                metrics,
-                `tool decided: ${selectedTool ?? "none"}`
-              );
             }
           }
 
@@ -6287,7 +6321,43 @@ export const useAIChatStore = create<AIChatState>()(
 
           get().refreshSessions();
 
-          // 🔥 第一步：先进行工具选择，判断用户意图
+          // 🧠 检测迭代意图（processUserInput 为统一入口，这里只计一次）
+          const isIterative = contextManager.detectIterativeIntent(input);
+          if (isIterative) {
+            contextManager.incrementIteration();
+          }
+
+          // 🔥 工具选择可能较慢：先创建用户消息与占位 AI 消息，提供即时反馈
+          const willCallAIToolSelection =
+            state.manualAIMode === "auto" &&
+            !state.sourcePdfForAnalysis &&
+            state.sourceImagesForBlending.length < 2;
+
+          const userMessage = get().addMessage({
+            type: "user",
+            content: input,
+          });
+
+          const thinkingAiMessage = get().addMessage({
+            type: "ai",
+            content: willCallAIToolSelection
+              ? "正在思考中..."
+              : "正在准备处理您的请求...",
+            generationStatus: {
+              isGenerating: true,
+              progress: 5,
+              error: null,
+              stage: willCallAIToolSelection ? "思考中" : "准备中",
+            },
+            provider: state.aiProvider,
+          });
+
+          const messageOverride: MessageOverride = {
+            userMessageId: userMessage.id,
+            aiMessageId: thinkingAiMessage.id,
+          };
+
+          // 🔥 第一步：先进行工具选择，判断用户意图（并复用结果，避免重复调用 /api/ai/tool-selection）
           // 只有确定是图片相关操作后，才应用 multiplier
           const manualMode = state.manualAIMode;
           const manualToolMap: Record<ManualAIMode, AvailableTool | null> = {
@@ -6302,6 +6372,7 @@ export const useAIChatStore = create<AIChatState>()(
           };
 
           let selectedTool: AvailableTool | null = null;
+          let parameters: { prompt: string } = { prompt: input };
 
           // 如果是手动模式，直接使用对应工具
           if (manualMode !== "auto") {
@@ -6357,6 +6428,9 @@ export const useAIChatStore = create<AIChatState>()(
                 if (toolSelectionResult.success && toolSelectionResult.data) {
                   selectedTool = toolSelectionResult.data
                     .selectedTool as AvailableTool;
+                  parameters = {
+                    prompt: toolSelectionResult.data.parameters?.prompt || input,
+                  };
                   console.log(`🎯 [工具选择] AI 选择了: ${selectedTool}`);
                 } else {
                   console.warn("⚠️ 工具选择失败，默认使用 chatResponse");
@@ -6367,6 +6441,11 @@ export const useAIChatStore = create<AIChatState>()(
                 selectedTool = "chatResponse";
               }
             }
+          }
+
+          if (!selectedTool) {
+            console.warn("⚠️ 未获取到工具选择结果，默认使用 chatResponse");
+            selectedTool = "chatResponse";
           }
 
           // 🔥 第二步：根据选择的工具决定是否应用 multiplier
@@ -6389,9 +6468,13 @@ export const useAIChatStore = create<AIChatState>()(
 
           // 🔥 第三步：根据 multiplier 决定是单次还是并行执行
           if (multiplier === 1) {
-            // 单次执行 - 使用完整的 executeProcessFlow（会跳过重复的工具选择）
+            // 单次执行 - 使用 executeProcessFlow，并复用已创建消息与工具选择结果
             try {
-              await get().executeProcessFlow(input, false);
+              await get().executeProcessFlow(input, false, undefined, {
+                override: messageOverride,
+                selectedTool,
+                parameters,
+              });
             } catch (error) {
               let errorMessage =
                 error instanceof Error ? error.message : "处理失败";
@@ -6432,18 +6515,36 @@ export const useAIChatStore = create<AIChatState>()(
               `🚀 [并行生成] 开始并行生成 ${multiplier} 张图片，groupId: ${groupId}, 工具: ${selectedTool}`
             );
 
-            // 🔥 先创建用户消息，避免竞态条件
-            const userMessage = get().addMessage({
-              type: "user",
-              content: input,
+            // 🔥 预先创建所有 AI 占位消息
+            get().updateMessage(userMessage.id, (msg) => ({
+              ...msg,
               groupId,
               groupIndex: 0,
               groupTotal: multiplier,
-            });
+            }));
 
-            // 🔥 预先创建所有 AI 占位消息
-            const aiMessageIds: string[] = [];
-            for (let i = 0; i < multiplier; i++) {
+            get().updateMessage(thinkingAiMessage.id, (msg) => ({
+              ...msg,
+              content: `正在生成第 1/${multiplier} 张...`,
+              expectsImageOutput: true,
+              generationStatus: {
+                ...(msg.generationStatus || {
+                  isGenerating: true,
+                  progress: 0,
+                  error: null,
+                }),
+                isGenerating: true,
+                progress: 5,
+                error: null,
+                stage: "准备中",
+              },
+              groupId,
+              groupIndex: 0,
+              groupTotal: multiplier,
+            }));
+
+            const aiMessageIds: string[] = [thinkingAiMessage.id];
+            for (let i = 1; i < multiplier; i++) {
               const aiMsg = get().addMessage({
                 type: "ai",
                 content: `正在生成第 ${i + 1}/${multiplier} 张...`,
