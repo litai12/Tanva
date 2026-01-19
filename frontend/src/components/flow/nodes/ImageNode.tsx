@@ -158,15 +158,16 @@ const CanvasCropPreview = React.memo(({
   sourceHeight?: number;
   isResizing?: boolean;
 }) => {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [size, setSize] = React.useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
   React.useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     const update = () => {
-      const rect = canvas.getBoundingClientRect();
+      const rect = container.getBoundingClientRect();
       const w = Math.max(1, Math.round(rect.width));
       const h = Math.max(1, Math.round(rect.height));
       setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
@@ -177,7 +178,7 @@ const CanvasCropPreview = React.memo(({
     let ro: ResizeObserver | null = null;
     try {
       ro = new ResizeObserver(update);
-      ro.observe(canvas);
+      ro.observe(container);
     } catch {}
 
     window.addEventListener("resize", update);
@@ -197,11 +198,12 @@ const CanvasCropPreview = React.memo(({
     const h = size.h;
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
-    canvas.width = Math.max(1, Math.round(w * dpr));
-    canvas.height = Math.max(1, Math.round(h * dpr));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
     const drawPlaceholder = () => {
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "#f3f4f6";
       ctx.fillRect(0, 0, w, h);
@@ -233,25 +235,32 @@ const CanvasCropPreview = React.memo(({
 
       const sxRaw = rect.x * scaleX;
       const syRaw = rect.y * scaleY;
-      const swRaw = rect.width * scaleX;
-      const shRaw = rect.height * scaleY;
+      const exRaw = (rect.x + rect.width) * scaleX;
+      const eyRaw = (rect.y + rect.height) * scaleY;
 
-      const sx = Math.max(0, Math.min(naturalW - 1, sxRaw));
-      const sy = Math.max(0, Math.min(naturalH - 1, syRaw));
-      const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
-      const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
+      // 像素对齐：避免在等比缩放时取样到裁剪边缘外，产生白边/透明边
+      const sx = Math.max(0, Math.min(naturalW - 1, Math.floor(sxRaw)));
+      const sy = Math.max(0, Math.min(naturalH - 1, Math.floor(syRaw)));
+      const ex = Math.max(sx + 1, Math.min(naturalW, Math.ceil(exRaw)));
+      const ey = Math.max(sy + 1, Math.min(naturalH, Math.ceil(eyRaw)));
+      const sw = Math.max(1, ex - sx);
+      const sh = Math.max(1, ey - sy);
 
-      // contain
+      // contain：画布尺寸等于实际渲染尺寸，避免把留白画进 canvas（右键保存/导出会带白边）
       const fit = Math.min(w / sw, h / sh);
-      const dw = sw * fit;
-      const dh = sh * fit;
-      const dx = (w - dw) / 2;
-      const dy = (h - dh) / 2;
+      const dw = Math.max(1, Math.round(sw * fit));
+      const dh = Math.max(1, Math.round(sh * fit));
 
-      ctx.clearRect(0, 0, w, h);
+      canvas.style.width = `${dw}px`;
+      canvas.style.height = `${dh}px`;
+      canvas.width = Math.max(1, Math.round(dw * dpr));
+      canvas.height = Math.max(1, Math.round(dh * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      ctx.clearRect(0, 0, dw, dh);
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+      ctx.fillRect(0, 0, dw, dh);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
     };
 
     const onError = () => {
@@ -281,16 +290,26 @@ const CanvasCropPreview = React.memo(({
   ]);
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
+      ref={containerRef}
       style={{
         width: "100%",
         height: "100%",
-        display: "block",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         background: "#fff",
-        transform: isResizing ? "translateZ(0)" : undefined,
       }}
-    />
+    >
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: "block",
+          background: "#fff",
+          transform: isResizing ? "translateZ(0)" : undefined,
+        }}
+      />
+    </div>
   );
 });
 
