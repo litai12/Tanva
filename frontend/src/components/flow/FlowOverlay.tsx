@@ -5121,6 +5121,14 @@ function FlowInner() {
           return null;
         }
 
+        // 目标输出尺寸：使用“源坐标系”的裁切尺寸，而不是解码后图片的像素尺寸
+        // 否则当 baseRef 实际加载到的是缩略图（naturalW < sourceWidth）时，会把输出错误压缩成缩略图大小（例如 2048->400 导致 1024 变 200）。
+        const MAX_OUTPUT_PIXELS = 32_000_000; // ~32MP，避免极端情况下创建超大画布导致内存峰值过高
+        const outputScale =
+          w * h > MAX_OUTPUT_PIXELS ? Math.sqrt(MAX_OUTPUT_PIXELS / (w * h)) : 1;
+        const outW = Math.max(1, Math.floor(w * outputScale));
+        const outH = Math.max(1, Math.floor(h * outputScale));
+
         const fetchable = toFetchableUrl(baseRef) || ensureDataUrl(baseRef);
         const blob = await resolveImageToBlob(fetchable, { preferProxy: true });
         if (!blob) return null;
@@ -5168,11 +5176,14 @@ function FlowInner() {
             const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
             const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
-            const outW = Math.max(1, Math.round(sw));
-            const outH = Math.max(1, Math.round(sh));
             const canvas = makeCanvas(outW, outH);
             const ctx = canvas.getContext("2d");
             if (!ctx) return null;
+            try {
+              // 避免因小数坐标采样造成边缘“白边/透明边”伪影
+              // @ts-ignore - 部分环境无此字段
+              ctx.imageSmoothingEnabled = true;
+            } catch {}
             ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, outW, outH);
             const outBlob = await canvasToBlob(canvas, { type: "image/png" });
             return await blobToDataUrl(outBlob);
@@ -5222,11 +5233,13 @@ function FlowInner() {
           const sw = Math.max(1, Math.min(naturalW - sx, swRaw));
           const sh = Math.max(1, Math.min(naturalH - sy, shRaw));
 
-          const outW = Math.max(1, Math.round(sw));
-          const outH = Math.max(1, Math.round(sh));
           const canvas = makeCanvas(outW, outH);
           const ctx = canvas.getContext("2d");
           if (!ctx) return null;
+          try {
+            // @ts-ignore - 部分环境无此字段
+            ctx.imageSmoothingEnabled = true;
+          } catch {}
           ctx.drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
           const outBlob = await canvasToBlob(canvas, { type: "image/png" });
           return await blobToDataUrl(outBlob);

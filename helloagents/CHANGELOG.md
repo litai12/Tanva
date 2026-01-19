@@ -35,6 +35,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas：修复反序列化后 `Raster.source` 变为 `<img>.src` 导致 OSS key/远程引用未被正确识别与代理，出现图片空白（`frontend/src/services/paperSaveService.ts`）。
 - 保存：云端保存前会额外清理 `aiChatSessions`/`assets.images` 中残留的 `data:`/`blob:`/裸 base64（含 `localDataUrl/dataUrl/previewDataUrl`、`imageData/thumbnail` 等），避免“全选清空后仍携带 dataURL”导致 payload 过大或落库污染。
 - Flow：Image Split 分割完成后“生成节点”不再置灰；支持基于 `splitRects` 生成 Image 节点并在 Image 节点运行时裁剪预览（不落库）。
+- Flow：修复 Image Split 切片在下游裁切/拼合时误按解码后像素尺寸导出，导致只加载到缩略图时分辨率被压缩（例如 2048->400 使 1024 切片变 200），并降低边缘白边概率（`frontend/src/components/flow/FlowOverlay.tsx`、`frontend/src/components/flow/nodes/ImageGridNode.tsx`）。
 - Flow：视频节点参考图按连线解析，支持 Image Split 切片作为输入。
 - Flow：Image Split 生成的 Image 节点（`crop`）在下游运行时按裁切结果传参，避免仍使用完整原图。
 - Canvas：修复将 OSS key/proxy/path 误判为 base64/待上传导致图片置灰的问题（含快速上传、导入重建实例、视频缩略图与下载链路）。
