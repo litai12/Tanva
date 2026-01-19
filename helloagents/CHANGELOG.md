@@ -40,6 +40,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Canvas：修复将 OSS key/proxy/path 误判为 base64/待上传导致图片置灰的问题（含快速上传、导入重建实例、视频缩略图与下载链路）。
 - Canvas：AI 图片占位符升级为远程 URL 时先预加载再切换，避免画布闪白/“刷新感”。
 - Canvas：图片升级切换 `Raster.source` 后立即恢复 `bounds`/选择元素，避免 Paper.js 短暂重置尺寸导致的闪烁。
+- Canvas：修复误将 `HTMLImageElement` 传给 `Raster.source` 导致变成 `[object HTMLImageElement]`，上传完成后图片加载失败/消失（`frontend/src/components/canvas/PaperCanvasManager.tsx`、`frontend/src/components/canvas/hooks/useQuickImageUpload.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - Canvas：修复上传图片完成后因 `ObjectURL` 误判未使用被提前回收，导致图片消失、刷新后才恢复显示的问题（`frontend/src/services/paperSaveService.ts`、`frontend/src/components/canvas/DrawingController.tsx`）。
 - 前端鉴权：补齐部分直连请求未触发自动退出的问题；统一用 `fetchWithAuth`/`triggerAuthExpired` 处理 401/403，并在登录失效时清理本地会话缓存（`frontend/src/services/authEvents.ts`、`frontend/src/services/authFetch.ts`）。
 - 前端鉴权：`fetchWithAuth` 在 refresh 返回成功但重试仍 401/403 时也会触发 `triggerAuthExpired`，避免出现接口 401 但未跳转登录的问题（`frontend/src/services/authFetch.ts`）。
