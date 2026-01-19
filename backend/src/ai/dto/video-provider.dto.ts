@@ -6,10 +6,16 @@ export class VideoProviderRequestDto {
   @IsEnum(['kling', 'vidu', 'doubao'])
   provider!: 'kling' | 'vidu' | 'doubao';
 
-  @ApiProperty({ description: '视频描述提示词' })
+  @ApiProperty({ description: '视频生成模式 (Vidu: text2video/img2video/start-end2video/reference2video; Kling: text2video/image2video/image2video-tail/multi-image2video)', required: false })
+  @IsOptional()
+  @IsString()
+  videoMode?: string;
+
+  @ApiProperty({ description: '视频描述提示词', required: false })
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
-  prompt!: string;
+  prompt?: string;
 
   @ApiProperty({ description: '参考图像 URL 列表', required: false, type: [String] })
   @IsOptional()

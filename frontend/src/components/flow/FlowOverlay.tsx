@@ -369,6 +369,8 @@ const edgeTypes = {
 
 const DEFAULT_REFERENCE_PROMPT = "请参考第二张图的内容";
 const SORA2_MAX_REFERENCE_IMAGES = 1;
+const VIDU_MAX_REFERENCE_IMAGES = 7; // Vidu viduq2 模型支持最多 7 张参考图
+const KLING_MAX_REFERENCE_IMAGES = 4; // Kling 支持最多 4 张参考图
 
 // 模板分类由后端维护，前端会在面板打开时请求；若后端无数据则从 tplIndex 推断或回退到 ['其他']
 
@@ -3886,11 +3888,22 @@ function FlowInner() {
         if (params.targetHandle === "text") return true; // 新线会替换旧线
         if (params.targetHandle.startsWith("video-")) return true; // 每个 video-* 句柄最多一个，onConnect 会替换
       }
-      if (
-        ["klingVideo", "viduVideo", "doubaoVideo"].includes(
-          targetNode?.type || ""
-        )
-      ) {
+      // Vidu 视频节点：支持最多 7 张参考图
+      if (targetNode?.type === "viduVideo") {
+        if (params.targetHandle === "image") {
+          return incoming.length < VIDU_MAX_REFERENCE_IMAGES;
+        }
+        if (params.targetHandle === "text") return true;
+      }
+      // Kling 视频节点：支持最多 4 张参考图
+      if (targetNode?.type === "klingVideo") {
+        if (params.targetHandle === "image") {
+          return incoming.length < KLING_MAX_REFERENCE_IMAGES;
+        }
+        if (params.targetHandle === "text") return true;
+      }
+      // Doubao 视频节点
+      if (targetNode?.type === "doubaoVideo") {
         if (params.targetHandle === "image") return true;
         if (params.targetHandle === "text") return true;
       }
@@ -3992,11 +4005,55 @@ function FlowInner() {
               )
           );
         }
+        // Vidu 视频节点：支持最多 7 张参考图
+        if (tgt?.type === "viduVideo" && params.targetHandle === "image") {
+          let remainingToDrop = Math.max(
+            0,
+            next.filter(
+              (e) => e.target === params.target && e.targetHandle === "image"
+            ).length -
+              VIDU_MAX_REFERENCE_IMAGES +
+              1 // +1 for the incoming edge
+          );
+          if (remainingToDrop > 0) {
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              const isImageEdge =
+                e.target === params.target && e.targetHandle === "image";
+              if (isImageEdge) {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          }
+        }
+        // Kling 视频节点：支持最多 4 张参考图
+        if (tgt?.type === "klingVideo" && params.targetHandle === "image") {
+          let remainingToDrop = Math.max(
+            0,
+            next.filter(
+              (e) => e.target === params.target && e.targetHandle === "image"
+            ).length -
+              KLING_MAX_REFERENCE_IMAGES +
+              1 // +1 for the incoming edge
+          );
+          if (remainingToDrop > 0) {
+            next = next.filter((e) => {
+              if (remainingToDrop <= 0) return true;
+              const isImageEdge =
+                e.target === params.target && e.targetHandle === "image";
+              if (isImageEdge) {
+                remainingToDrop -= 1;
+                return false;
+              }
+              return true;
+            });
+          }
+        }
+        // Sora2、Doubao 视频节点：限制参考图数量
         if (
-          (tgt?.type === "sora2Video" ||
-            ["klingVideo", "viduVideo", "doubaoVideo"].includes(
-              tgt?.type || ""
-            )) &&
+          (tgt?.type === "sora2Video" || tgt?.type === "doubaoVideo") &&
           params.targetHandle === "image"
         ) {
           // 允许多条 image 连接，但限制总数；超过时移除最早的
@@ -5874,7 +5931,12 @@ function FlowInner() {
 
         const imageEdges = currentEdges
           .filter((e) => e.target === nodeId && e.targetHandle === "image")
-          .slice(0, SORA2_MAX_REFERENCE_IMAGES);
+          .slice(
+            0,
+            provider === "vidu"
+              ? VIDU_MAX_REFERENCE_IMAGES
+              : SORA2_MAX_REFERENCE_IMAGES
+          );
         const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
 
         const generationStartMs = Date.now();
@@ -6032,37 +6094,115 @@ function FlowInner() {
       const newVideoNodeTypes = ["klingVideo", "viduVideo", "doubaoVideo"];
       if (newVideoNodeTypes.includes(node.type || "")) {
         const projectId = useProjectContentStore.getState().projectId;
+        const provider = (node.data as any)?.provider || "kling";
+
+        // 先获取图片数量，判断是否需要 prompt
+        const maxImages =
+          provider === "vidu"
+            ? VIDU_MAX_REFERENCE_IMAGES
+            : provider === "kling"
+            ? KLING_MAX_REFERENCE_IMAGES
+            : SORA2_MAX_REFERENCE_IMAGES;
+
+        const imageEdges = currentEdges
+          .filter((e) => e.target === nodeId && e.targetHandle === "image")
+          .slice(0, maxImages);
+        const imageCount = imageEdges.length;
+
+        // 获取 prompt
         const { text: promptText, hasEdge: hasText } =
           getTextPromptForNode(nodeId);
-        if (!hasText) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: "failed",
-                      error: "缺少 TextPrompt 输入",
-                    },
-                  }
-                : n
-            )
-          );
-          return;
-        }
-        if (!promptText) {
-          setNodes((ns) =>
-            ns.map((n) =>
-              n.id === nodeId
-                ? {
-                    ...n,
-                    data: { ...n.data, status: "failed", error: "提示词为空" },
-                  }
-                : n
-            )
-          );
-          return;
+
+        // Vidu 智能模式判断逻辑：
+        // - 0张图必须有prompt (text2video)
+        // - 1-2张图：有prompt用reference2video，无prompt用img2video/start-end2video
+        // - 3-7张图：使用reference2video（必须有prompt，无prompt时使用默认）
+        let finalPrompt = promptText;
+
+        if (provider === "vidu") {
+          if (imageCount === 0 && !hasText) {
+            // 0张图必须有prompt
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        error: "文生视频模式需要提供提示词",
+                      },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
+
+          // 3-7张图且无prompt时，使用默认prompt
+          if (imageCount >= 3 && !promptText) {
+            finalPrompt = "基于图片生成视频";
+          }
+        } else if (provider === "kling") {
+          // Kling 智能模式判断逻辑：
+          // - 0张图必须有prompt (text2video)
+          // - 1-2张图：可选prompt (image2video/image2video-tail)
+          // - 3-4张图：使用multi-image2video（必须有prompt，无prompt时使用默认）
+          if (imageCount === 0 && !hasText) {
+            // 0张图必须有prompt
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        error: "文生视频模式需要提供提示词",
+                      },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
+
+          // 3-4张图且无prompt时，使用默认prompt
+          if (imageCount >= 3 && !promptText) {
+            finalPrompt = "参考图片内容生成视频";
+          }
+        } else {
+          // 其他 provider（doubao）必须有 prompt
+          if (!hasText) {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        error: "缺少 TextPrompt 输入",
+                      },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
+          if (!promptText) {
+            setNodes((ns) =>
+              ns.map((n) =>
+                n.id === nodeId
+                  ? {
+                      ...n,
+                      data: { ...n.data, status: "failed", error: "提示词为空" },
+                    }
+                  : n
+              )
+            );
+            return;
+          }
         }
 
         const clipDuration =
@@ -6073,11 +6213,7 @@ function FlowInner() {
           typeof (node.data as any)?.aspectRatio === "string"
             ? (node.data as any).aspectRatio
             : "";
-        const provider = (node.data as any)?.provider || "kling";
 
-        const imageEdges = currentEdges
-          .filter((e) => e.target === nodeId && e.targetHandle === "image")
-          .slice(0, SORA2_MAX_REFERENCE_IMAGES);
         const referenceImages = await resolveEdgesAsDataUrls(imageEdges);
 
         const generationStartMs = Date.now();
@@ -6113,8 +6249,8 @@ function FlowInner() {
               if (!trimmed) continue;
 
               // 根据供应商处理图片格式
-              if (provider === "vidu") {
-                // Vidu 需要可访问的 URL，必须上传到 OSS
+              if (provider === "vidu" || provider === "kling") {
+                // Vidu 和 Kling 需要可访问的 URL，必须上传到 OSS
                 if (isRemoteUrl(trimmed)) {
                   referenceImageUrls.push(normalizeStableRemoteUrl(trimmed));
                 } else {
@@ -6206,12 +6342,12 @@ function FlowInner() {
             aspectRatio: aspectRatioForAPI,
             duration: durationForAPI,
             referenceCount: referenceImageUrls.length,
-            promptPreview: promptText.slice(0, 120),
+            promptPreview: finalPrompt?.slice(0, 120) || "(无提示词)",
           });
 
           // 调用对应供应商的 API
           const createResult = await generateVideoByProvider({
-            prompt: promptText,
+            prompt: finalPrompt,
             referenceImages:
               referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
             duration: durationForAPI,
