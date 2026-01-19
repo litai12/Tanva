@@ -113,6 +113,7 @@ export function proxifyRemoteAssetUrl(
         "kechuangai.com",
         "volces.com",
         "volcengine.com",
+        "alicdn.com",
       ];
       const isAllowed = allowedHosts.some(
         (host) => url.hostname === host || url.hostname.endsWith(host)
@@ -174,6 +175,7 @@ export function proxifyRemoteAssetUrl(
       "kechuangai.com",
       "volces.com",
       "volcengine.com",
+      "alicdn.com",
     ];
 
     const isAllowed = allowedHosts.some(
