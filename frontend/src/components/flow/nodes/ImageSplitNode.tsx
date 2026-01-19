@@ -15,7 +15,7 @@ import { imageSplitWorkerClient } from '@/services/imageSplitWorkerClient';
 import { parseFlowImageAssetRef, putFlowImageBlobs, toFlowImageAssetRef } from '@/services/flowImageAssetStore';
 import { useFlowImageAssetUrl } from '@/hooks/useFlowImageAssetUrl';
 import { useProjectContentStore } from '@/stores/projectContentStore';
-import { isPersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
+import { isPersistableImageRef, normalizePersistableImageRef, resolveImageToBlob } from '@/utils/imageSource';
 import { canvasToBlob, createImageBitmapLimited } from '@/utils/imageConcurrency';
 import SmartImage from '../../ui/SmartImage';
 
@@ -755,6 +755,69 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
     )
   );
 
+  // 用于判断“上游图片是否真的换了”的稳定标识：
+  // - Image 节点上传流程会在 imageData(flow-asset/blob) <-> imageUrl(OSS key/url) 间切换；
+  //   若直接用 connectedImage 做变更检测，会误判为“换图”导致 split 结果被清空。
+  // - 这里优先取可持久化的 imageUrl（并去代理包装），作为 identity key。
+  const connectedImageIdentity = useStore(
+    React.useCallback(
+      (state: ReactFlowState) => {
+        const candidateEdges = state.edges.filter(
+          (e) =>
+            e.target === id &&
+            (e.targetHandle === 'img' || e.targetHandle === 'image' || !e.targetHandle)
+        );
+        if (candidateEdges.length === 0) return undefined;
+
+        const nodes = state.getNodes();
+        const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+        const resolveFromNode = (
+          nodeId: string,
+          incomingEdge?: Edge,
+          visited: Set<string> = new Set()
+        ): string | undefined => {
+          if (!nodeId) return undefined;
+          if (visited.has(nodeId)) return undefined;
+          visited.add(nodeId);
+
+          const node = nodeById.get(nodeId);
+          if (!node) return undefined;
+
+          // Image 节点：优先用 imageUrl 作为 identity（上传完成后 imageData 会被清空）
+          if (node.type === 'image') {
+            const upstream = state.edges.find((e) => e.target === nodeId && e.targetHandle === 'img');
+            const upstreamResolved = upstream
+              ? resolveFromNode(upstream.source, upstream, visited)
+              : undefined;
+            if (upstreamResolved) return upstreamResolved;
+
+            const d = (node.data ?? {}) as Record<string, unknown>;
+            const candidate =
+              normalizeString(d.imageUrl) ||
+              normalizeString(d.imageData) ||
+              normalizeString(d.thumbnailDataUrl) ||
+              normalizeString(d.thumbnail);
+            if (!candidate) return undefined;
+            return isPersistableImageRef(candidate) ? normalizePersistableImageRef(candidate) : candidate;
+          }
+
+          const candidate = readImageFromNode(node as Node<any>, incomingEdge?.sourceHandle);
+          if (!candidate) return undefined;
+          return isPersistableImageRef(candidate) ? normalizePersistableImageRef(candidate) : candidate;
+        };
+
+        for (const edge of candidateEdges) {
+          const value = resolveFromNode(edge.source, edge);
+          if (value) return value;
+        }
+
+        return undefined;
+      },
+      [id]
+    )
+  );
+
   // 若上游来自 imageGrid（直接连或经由 image 节点传递），优先读取其“输入图片列表”，避免用像素连通域误分割成大量碎片
   const upstreamImageGridInputs = useStore(
     React.useCallback(
@@ -851,6 +914,81 @@ function ImageSplitNodeInner({ id, data, selected }: Props) {
       detail: { id, patch }
     }));
   }, [id]);
+
+  // 上游输入发生变化时，清理 split 结果（避免继续显示/输出旧图）
+  const inputIdentityRef = React.useRef<string | undefined>(undefined);
+  const inputIdentityInitedRef = React.useRef(false);
+  const hasAnySplitResult =
+    splitRects.length > 0 ||
+    (Array.isArray(data.splitRects) && data.splitRects.length > 0) ||
+    (Array.isArray(data.splitImages) && data.splitImages.length > 0);
+
+  const resetSplitResult = React.useCallback(() => {
+    setSplitRects([]);
+    setSourceSize({ width: 0, height: 0 });
+
+    const patch: Record<string, unknown> = {
+      status: 'idle',
+      error: undefined,
+      splitRects: [],
+      splitImages: undefined,
+      sourceWidth: undefined,
+      sourceHeight: undefined,
+      // 清理旧输入引用：让 UI/输出完全跟随当前连线输入
+      inputImageUrl: undefined,
+      inputImage: undefined,
+    };
+    for (let i = 1; i <= MAX_OUTPUT_COUNT; i += 1) {
+      patch[`image${i}`] = undefined;
+    }
+    updateNodeData(patch);
+  }, [updateNodeData]);
+
+  React.useEffect(() => {
+    const currentIdentity = normalizeString(connectedImageIdentity);
+
+    // 初始化：记录当前 identity，并在“明确是不同持久化引用”的情况下做一次兜底清理
+    if (!inputIdentityInitedRef.current) {
+      inputIdentityInitedRef.current = true;
+      inputIdentityRef.current = currentIdentity;
+
+      const persisted =
+        normalizeString(data.inputImageUrl) ||
+        normalizeString(data.inputImage) ||
+        undefined;
+      const persistedIdentity =
+        persisted && isPersistableImageRef(persisted) ? normalizePersistableImageRef(persisted) : persisted;
+
+      if (
+        hasAnySplitResult &&
+        currentIdentity &&
+        persistedIdentity &&
+        isPersistableImageRef(currentIdentity) &&
+        isPersistableImageRef(persistedIdentity) &&
+        currentIdentity !== persistedIdentity
+      ) {
+        resetSplitResult();
+      }
+      return;
+    }
+
+    const prevIdentity = inputIdentityRef.current;
+    inputIdentityRef.current = currentIdentity;
+
+    if (!hasAnySplitResult) return;
+    if (!currentIdentity) return;
+
+    // identity 变化（或从无到有）：认为上游真的换图，清空历史 split 结果
+    if (!prevIdentity || prevIdentity !== currentIdentity) {
+      resetSplitResult();
+    }
+  }, [
+    connectedImageIdentity,
+    data.inputImage,
+    data.inputImageUrl,
+    hasAnySplitResult,
+    resetSplitResult,
+  ]);
 
   // 同步外部数据变化
   React.useEffect(() => {
