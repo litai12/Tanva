@@ -76,6 +76,19 @@ const aiChatUploadLimiter = createAsyncLimiter(2);
 // 限制 AI 对话图片历史/缩略图处理并发，避免多图同时转码导致瞬时内存峰值
 const aiChatHistoryLimiter = createAsyncLimiter(2);
 
+// AI Chat 并行图片生成并发上限（1-10，可通过 env 覆盖）
+const MAX_AI_IMAGE_PARALLEL_CONCURRENCY = 10;
+const AI_IMAGE_PARALLEL_CONCURRENCY_LIMIT = (() => {
+  const raw = String(
+    import.meta.env.VITE_AI_IMAGE_PARALLEL_CONCURRENCY ?? ""
+  ).trim();
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.min(MAX_AI_IMAGE_PARALLEL_CONCURRENCY, parsed);
+  }
+  return MAX_AI_IMAGE_PARALLEL_CONCURRENCY;
+})();
+
 // IndexedDB 存储的会话数据结构
 interface IDBSessionsData {
   id: string;
@@ -6459,11 +6472,12 @@ export const useAIChatStore = create<AIChatState>()(
               imageSize === "4K" ||
               (typeof deviceMemory === "number" && deviceMemory <= 4)
                 ? 1
-                : 2;
-            const concurrency = Math.max(
-              1,
-              Math.min(multiplier, suggestedConcurrency)
+                : MAX_AI_IMAGE_PARALLEL_CONCURRENCY;
+            const concurrencyLimit = Math.min(
+              AI_IMAGE_PARALLEL_CONCURRENCY_LIMIT,
+              suggestedConcurrency
             );
+            const concurrency = Math.max(1, Math.min(multiplier, concurrencyLimit));
 
             void (async () => {
               const results = await mapWithLimit(
