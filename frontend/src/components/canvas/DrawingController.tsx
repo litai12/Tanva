@@ -1252,9 +1252,18 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
   useEffect(() => {
     const getRasterSourceString = (raster: any): string => {
         try {
+          const tracked = (raster as any)?.__tanvaSourceRef;
+          if (typeof tracked === "string" && tracked.trim()) return tracked;
+        } catch {}
+        try {
           const source = raster?.source;
           if (typeof source === "string") return source;
           const src = (source as any)?.src;
+          if (typeof src === "string") return src;
+        } catch {}
+        try {
+          const image = (raster as any)?.image || (raster as any)?._image;
+          const src = image?.src;
           if (typeof src === "string") return src;
         } catch {}
         return "";
@@ -1684,9 +1693,11 @@ const DrawingController: React.FC<DrawingControllerProps> = ({ canvasRef }) => {
                 const rectBeforeSwap = restoreBounds;
                 try {
                   raster.source = loadedImage;
+                  try { (raster as any).__tanvaSourceRef = nextRenderableSrc; } catch {}
                 } catch {
                   try {
                     raster.source = nextRenderableSrc;
+                    try { (raster as any).__tanvaSourceRef = nextRenderableSrc; } catch {}
                   } catch {}
                 }
                 // 🔧 Paper.js 在切换 source 时可能会短暂重置 bounds（甚至变成 0），导致“闪一下再恢复”；

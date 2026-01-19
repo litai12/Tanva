@@ -32,11 +32,23 @@ class PaperSaveService {
 
   private getRasterSourceString(raster: any): string {
     try {
+      const tracked = (raster as any)?.__tanvaSourceRef;
+      if (typeof tracked === 'string' && tracked.trim()) return tracked;
+    } catch {}
+
+    try {
       const source = raster?.source;
       if (typeof source === 'string') return source;
       const src = (source as any)?.src;
       if (typeof src === 'string') return src;
     } catch {}
+
+    try {
+      const image = (raster as any)?.image || (raster as any)?._image;
+      const src = image?.src;
+      if (typeof src === 'string') return src;
+    } catch {}
+
     return '';
   }
 
@@ -443,6 +455,7 @@ class PaperSaveService {
 
         if (typeof raster.source === 'string') {
           raster.source = renderable;
+          try { (raster as any).__tanvaSourceRef = renderable; } catch {}
           return;
         }
 
@@ -452,6 +465,7 @@ class PaperSaveService {
             try { maybeImg.crossOrigin = 'anonymous'; } catch {}
           }
           try { maybeImg.src = renderable; } catch {}
+          try { (raster as any).__tanvaSourceRef = renderable; } catch {}
         }
       });
     } catch (error) {

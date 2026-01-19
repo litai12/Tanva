@@ -30,6 +30,7 @@ import { useLayerStore } from '@/stores/layerStore';
 const setRasterSourceSafely = (raster: paper.Raster, source: string) => {
   const value = typeof source === 'string' ? source.trim() : '';
   if (!value) return;
+  try { (raster as any).__tanvaSourceRef = value; } catch {}
   if (value.startsWith('blob:') || value.startsWith('data:image/')) {
     try {
       const img = new Image();
